@@ -42,3 +42,16 @@ separate lifecycle metadata changed through explicit repository operations.
 There are no normal definition/revision deletion APIs, and restrictive foreign
 keys preserve revision history. Managed instances reference exactly one runtime
 revision UUID and may change that selection without changing the revision.
+
+## Managed-instance application service
+
+`kodi_lab.application` is the transaction and policy boundary above the explicit
+repositories. Each create or runtime-reassignment operation opens one database
+transaction, resolves stable UUID identities, selects an exact or newest-approved
+revision, applies approval and Trusted Custom Build policy, validates Kodi-version
+compatibility, and commits only the completed managed-instance change.
+
+The service exposes typed application errors instead of SQLAlchemy failures.
+Outer CLI, web, and MCP adapters may translate those errors later without
+duplicating selection policy. The service has no Docker, Kodi, transport, or
+runtime-installation dependency.

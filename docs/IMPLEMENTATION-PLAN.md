@@ -36,3 +36,8 @@ The runtime-catalog slice adds logical runtime definitions, finalized immutable
 revisions, typed provenance, independent approval/trust lifecycle metadata,
 newest-approved selection, and exact managed-instance revision foreign keys.
 It performs no source fetching, building, installation, or execution.
+
+The managed-instance application slice composes those repositories behind an
+atomic create/reassign service. It owns runtime selection, approval and Trusted
+Custom Build policy, Kodi-version compatibility, transaction rollback, and typed
+application errors. Outer interfaces and runtime control remain unimplemented.

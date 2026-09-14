@@ -118,3 +118,26 @@ details that it did not specify.
   `managed_instances` is empty. Populated pre-catalog data raises an actionable
   error instead of deleting rows or fabricating catalog provenance. Downgrade is
   likewise limited to empty managed-instance and runtime-revision tables.
+
+## D-0015: Managed-instance runtime-selection policy
+
+- Status: approved for Phase 1
+- Decision: application operations identify Targets, runtime definitions, and
+  revisions by stable UUID. Exact and newest-approved selection both require an
+  approved revision. A revision marked as requiring Trusted Custom Build
+  confirmation additionally requires global opt-in supplied to the service and
+  an existing per-revision confirmation; selection never grants confirmation.
+  Instance type does not alter selection policy.
+- Reason: this directly composes specification sections 16, 20, and 21 with the
+  persisted approval/trust decisions while keeping policy out of adapters.
+
+## D-0016: Compatibility and transaction boundary
+
+- Status: approved for Phase 1
+- Decision: Target and runtime-definition Kodi versions must compare equal after
+  removing surrounding whitespace. No version alias, range, or live probing is
+  inferred. The application service owns one SQLAlchemy transaction per create
+  or reassignment operation and exposes typed application errors.
+- Reason: the specification provides exact version metadata but no compatibility
+  matrix. Exact normalized comparison is deterministic and can be revised when a
+  canonical compatibility policy exists.
