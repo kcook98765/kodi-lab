@@ -141,3 +141,17 @@ details that it did not specify.
 - Reason: the specification provides exact version metadata but no compatibility
   matrix. Exact normalized comparison is deterministic and can be revised when a
   canonical compatibility policy exists.
+
+## D-0017: Catalog lifecycle command semantics
+
+- Status: approved for Phase 1
+- Decision: definition and finalized-revision registration are create-only and
+  conflicting identity/slug/revision-number requests fail. New revisions begin
+  unapproved and without trust confirmation. Repeating an applicable approval,
+  revocation, confirmation, or confirmation-revocation command after it reaches
+  the requested state is idempotent and preserves the original lifecycle
+  timestamp/note. Trust lifecycle commands are rejected for revisions that do
+  not require Trusted Custom Build confirmation.
+- Reason: deterministic idempotence supports retries without rewriting lifecycle
+  evidence, while rejecting inapplicable trust operations preserves the strict
+  domain invariant.

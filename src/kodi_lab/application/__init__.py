@@ -2,14 +2,18 @@
 
 from kodi_lab.application.errors import (
     ApplicationServiceError,
+    CatalogDataValidationError,
     EntityNotFoundError,
+    InvalidRevisionLifecycleTransitionError,
     KodiVersionIncompatibleError,
     ManagedInstanceConflictError,
     ManagedInstanceNotFoundError,
     NoApprovedRevisionError,
     PersistenceConflictError,
     RevisionNotApprovedError,
+    RuntimeDefinitionConflictError,
     RuntimeDefinitionNotFoundError,
+    RuntimeRevisionConflictError,
     RuntimeRevisionDefinitionMismatchError,
     RuntimeRevisionNotFoundError,
     RuntimeSelectionError,
@@ -22,11 +26,14 @@ from kodi_lab.application.managed_instances import (
     ManagedInstanceService,
     NewestApprovedRevisionSelection,
 )
+from kodi_lab.application.runtime_catalog import RuntimeCatalogAdministrationService
 
 __all__ = [
     "ApplicationServiceError",
+    "CatalogDataValidationError",
     "EntityNotFoundError",
     "ExactRevisionSelection",
+    "InvalidRevisionLifecycleTransitionError",
     "KodiVersionIncompatibleError",
     "ManagedInstanceConflictError",
     "ManagedInstanceNotFoundError",
@@ -35,7 +42,10 @@ __all__ = [
     "NoApprovedRevisionError",
     "PersistenceConflictError",
     "RevisionNotApprovedError",
+    "RuntimeCatalogAdministrationService",
+    "RuntimeDefinitionConflictError",
     "RuntimeDefinitionNotFoundError",
+    "RuntimeRevisionConflictError",
     "RuntimeRevisionDefinitionMismatchError",
     "RuntimeRevisionNotFoundError",
     "RuntimeSelectionError",

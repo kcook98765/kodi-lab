@@ -55,3 +55,16 @@ The service exposes typed application errors instead of SQLAlchemy failures.
 Outer CLI, web, and MCP adapters may translate those errors later without
 duplicating selection policy. The service has no Docker, Kodi, transport, or
 runtime-installation dependency.
+
+## Runtime-catalog administration service
+
+`RuntimeCatalogAdministrationService` owns atomic registration of logical
+definitions and complete finalized revisions, plus the approval and per-revision
+Trusted Custom Build confirmation lifecycles. New revisions are unapproved and
+unconfirmed; the service never mutates intrinsic revision data.
+
+Lifecycle administration and runtime usability remain separate concerns. The
+administration service records approval/trust state, while
+`ManagedInstanceService` applies that state plus injected global Trusted Custom
+Build policy when selecting a revision. Existing instance references remain
+historically valid after approval or trust is revoked.

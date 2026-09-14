@@ -117,3 +117,45 @@ class ManagedInstanceConflictError(PersistenceConflictError):
     def __init__(self, target_id: UUID) -> None:
         self.target_id = target_id
         super().__init__(f"managed instance for target {target_id} already exists")
+
+
+class RuntimeDefinitionConflictError(PersistenceConflictError):
+    def __init__(self, *, runtime_definition_id: UUID, slug: str) -> None:
+        self.runtime_definition_id = runtime_definition_id
+        self.slug = slug
+        super().__init__(
+            f"runtime definition identity {runtime_definition_id} or slug {slug!r} "
+            "already exists"
+        )
+
+
+class RuntimeRevisionConflictError(PersistenceConflictError):
+    def __init__(
+        self,
+        *,
+        runtime_revision_id: UUID,
+        runtime_definition_id: UUID,
+        revision_number: int,
+    ) -> None:
+        self.runtime_revision_id = runtime_revision_id
+        self.runtime_definition_id = runtime_definition_id
+        self.revision_number = revision_number
+        super().__init__(
+            f"runtime revision identity {runtime_revision_id} or revision number "
+            f"{revision_number} for runtime definition {runtime_definition_id} "
+            "already exists"
+        )
+
+
+class CatalogDataValidationError(ApplicationServiceError):
+    """Catalog registration data failed domain validation."""
+
+
+class InvalidRevisionLifecycleTransitionError(ApplicationServiceError):
+    def __init__(self, *, runtime_revision_id: UUID, reason: str) -> None:
+        self.runtime_revision_id = runtime_revision_id
+        self.reason = reason
+        super().__init__(
+            f"invalid lifecycle transition for runtime revision "
+            f"{runtime_revision_id}: {reason}"
+        )

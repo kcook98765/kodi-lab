@@ -41,3 +41,10 @@ The managed-instance application slice composes those repositories behind an
 atomic create/reassign service. It owns runtime selection, approval and Trusted
 Custom Build policy, Kodi-version compatibility, transaction rollback, and typed
 application errors. Outer interfaces and runtime control remain unimplemented.
+
+The runtime-catalog administration slice completes Phase 1 application
+orchestration for create-only definition/finalized-revision registration and
+explicit approval/trust lifecycle changes. Registration, lifecycle mutation,
+managed-instance selection, and error translation now share consistent atomic
+service boundaries. Phase 1 is ready for closeout validation; Phase 2 remains
+unstarted.
