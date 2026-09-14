@@ -6,26 +6,38 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, TypeVar, cast
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from kodi_lab import __version__
 from kodi_lab.broker.docker_inventory import (
     MAX_MANAGED_CONTAINERS,
     ContainerHealthState,
     ContainerRuntimeState,
-    DockerManagedContainerInventory,
-    ManagedContainerInventoryProvider,
+    DockerManagedContainerAdapter,
+    ManagedContainerOperationsProvider,
 )
 from kodi_lab.broker.errors import (
+    AmbiguousManagedContainerError,
+    ContainerIdentityPreconditionError,
+    ContainerStateNotStoppableError,
     DockerDaemonUnavailableError,
     DockerInventoryReadError,
+    DockerStopError,
     HandlerExecutionError,
     InvalidManagedContainerMetadataError,
     InventoryLimitExceededError,
+    ManagedContainerNotFoundError,
     OperationError,
+    PostStopVerificationError,
     RequestError,
+    RuntimeStatePreconditionError,
 )
-from kodi_lab.broker.protocol import PROTOCOL_VERSION, Request, StrictModel
+from kodi_lab.broker.protocol import (
+    PROTOCOL_VERSION,
+    Request,
+    StrictModel,
+    is_canonical_uuid,
+)
 
 
 class EmptyParams(StrictModel):
@@ -94,8 +106,61 @@ class ManagedContainerInventoryResult(StrictModel):
     )
 
 
+class StopManagedContainerParams(StrictModel):
+    """Optimistic identity/state preconditions for one semantic stop."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+    expected_runtime_state: ContainerRuntimeState
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _canonical_managed_instance_id(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("managed_instance_id must be a canonical UUID string")
+        return value
+
+    @field_validator("expected_runtime_state", mode="before")
+    @classmethod
+    def _runtime_state_from_wire(cls, value: object) -> object:
+        if isinstance(value, str):
+            return ContainerRuntimeState(value)
+        return value
+
+
+class StopManagedContainerResult(StrictModel):
+    """Verified stopped state without raw Docker response data."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    runtime_state: ContainerRuntimeState
+    stop_performed: bool
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _canonical_managed_instance_id(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("managed_instance_id must be a canonical UUID string")
+        return value
+
+    @field_validator("runtime_state", mode="before")
+    @classmethod
+    def _stopped_state_from_wire(cls, value: object) -> object:
+        if isinstance(value, str):
+            return ContainerRuntimeState(value)
+        return value
+
+    @model_validator(mode="after")
+    def _require_stopped_state(self) -> StopManagedContainerResult:
+        if self.runtime_state is not ContainerRuntimeState.STOPPED:
+            raise ValueError("stop result must report stopped state")
+        return self
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
-type OperationAuditBuilder = Callable[[BaseModel], dict[str, int]]
+type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +193,7 @@ class OperationRegistry:
         result_model: type[ResultT],
         handler: Callable[[ParamsT], ResultT],
         requires_authorized_peer: bool = True,
-        audit_builder: Callable[[ResultT], dict[str, int]] | None = None,
+        audit_builder: Callable[[ResultT], dict[str, object]] | None = None,
     ) -> None:
         """Register one fixed operation; duplicates are programming errors."""
 
@@ -154,7 +219,7 @@ class OperationRegistry:
 
         return self._operations.get(name)
 
-    def audit_fields_for(self, name: str, result: BaseModel) -> dict[str, int]:
+    def audit_fields_for(self, name: str, result: BaseModel) -> dict[str, object]:
         """Return only trusted operation-defined audit metadata."""
 
         definition = self.definition(name)
@@ -197,6 +262,7 @@ class OperationRegistry:
                 request_id=request.request_id,
                 operation=request.operation,
                 protocol_version=request.version,
+                audit_fields=error.audit_fields,
             ) from error
         except Exception as error:
             raise HandlerExecutionError(
@@ -217,12 +283,12 @@ def _broker_info(_params: EmptyParams) -> BrokerInfoResult:
 
 
 def build_foundation_registry(
-    inventory_provider: ManagedContainerInventoryProvider | None = None,
+    container_provider: ManagedContainerOperationsProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
     registry = OperationRegistry()
-    provider = inventory_provider or DockerManagedContainerInventory()
+    provider = container_provider or DockerManagedContainerAdapter()
     registry.register(
         name="ping",
         params_model=EmptyParams,
@@ -287,7 +353,9 @@ def build_foundation_registry(
             ]
         )
 
-    def inventory_audit(result: ManagedContainerInventoryResult) -> dict[str, int]:
+    def inventory_audit(
+        result: ManagedContainerInventoryResult,
+    ) -> dict[str, object]:
         return {"broker_inventory_count": len(result.containers)}
 
     registry.register(
@@ -296,5 +364,106 @@ def build_foundation_registry(
         result_model=ManagedContainerInventoryResult,
         handler=managed_container_inventory,
         audit_builder=inventory_audit,
+    )
+
+    def stop_managed_container(
+        params: StopManagedContainerParams,
+    ) -> StopManagedContainerResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id
+        }
+        try:
+            outcome = provider.stop_managed_container(
+                managed_instance_id=params.managed_instance_id,
+                expected_container_id=params.expected_container_id,
+                expected_runtime_state=params.expected_runtime_state,
+            )
+        except DockerDaemonUnavailableError as error:
+            raise OperationError(
+                "docker_daemon_unavailable",
+                "The Docker daemon is unavailable to the broker.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedContainerNotFoundError as error:
+            raise OperationError(
+                "managed_container_not_found",
+                "No Kodi Lab-owned container exists for the managed instance.",
+                audit_fields=audit_fields,
+            ) from error
+        except AmbiguousManagedContainerError as error:
+            raise OperationError(
+                "ambiguous_managed_container",
+                "Multiple containers claim the managed instance identity.",
+                audit_fields=audit_fields,
+            ) from error
+        except InvalidManagedContainerMetadataError as error:
+            raise OperationError(
+                "invalid_managed_container_metadata",
+                "Kodi Lab managed-container metadata is invalid or inconsistent.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerIdentityPreconditionError as error:
+            raise OperationError(
+                "container_identity_precondition_failed",
+                "The managed container identity changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeStatePreconditionError as error:
+            raise OperationError(
+                "runtime_state_precondition_failed",
+                "The managed container runtime state changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerStateNotStoppableError as error:
+            raise OperationError(
+                "container_state_not_stoppable",
+                "The managed container is not in a safely stoppable state.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerStopError as error:
+            raise OperationError(
+                "docker_stop_failed",
+                "Docker could not safely complete the managed-container stop.",
+                audit_fields=audit_fields,
+            ) from error
+        except PostStopVerificationError as error:
+            raise OperationError(
+                "post_stop_verification_failed",
+                "The broker could not verify the stopped postcondition.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerInventoryReadError as error:
+            raise OperationError(
+                "docker_inventory_failed",
+                "The broker could not safely read Docker container state.",
+                audit_fields=audit_fields,
+            ) from error
+
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.container_id != params.expected_container_id
+        ):
+            raise RuntimeError("Docker adapter returned inconsistent stop identity")
+
+        return StopManagedContainerResult(
+            managed_instance_id=outcome.managed_instance_id,
+            container_id=outcome.container_id,
+            runtime_state=outcome.runtime_state,
+            stop_performed=outcome.stop_performed,
+        )
+
+    def stop_audit(result: StopManagedContainerResult) -> dict[str, object]:
+        return {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_stop_performed": result.stop_performed,
+            "broker_resulting_runtime_state": result.runtime_state.value,
+        }
+
+    registry.register(
+        name="stop_managed_container",
+        params_model=StopManagedContainerParams,
+        result_model=StopManagedContainerResult,
+        handler=stop_managed_container,
+        audit_builder=stop_audit,
     )
     return registry

@@ -84,17 +84,23 @@ The broker uses one bounded, length-prefixed JSON request and response per Unix
 stream connection. A closed operation registry validates operation-specific
 parameters before invoking an explicit handler. It exposes `ping`, `broker_info`,
 `capabilities`, and the empty-parameter `managed_container_inventory`; all
-require the authorized peer. There is no shell, path, environment, raw Docker,
-generic execution, or lifecycle operation.
+require the authorized peer. Phase 2 additionally exposes only the semantic
+`stop_managed_container` mutation with strict ownership, immutable-identity, and
+runtime-state preconditions. There is no shell, path, environment, raw Docker,
+generic execution, start/create/remove/restart/exec, or other lifecycle operation.
 
 The client/broker boundary is independent of Phase 1's domain, storage, and
-application services. A narrow infrastructure adapter now performs only fixed,
-read-only Docker list/inspect calls for inventory. It selects containers by the
+application services. A narrow infrastructure adapter performs fixed read-only
+Docker list/inspect calls for inventory and one fixed semantic stop. It selects
+containers by the
 exact `io.kodi-lab.managed=true` and canonical
 `io.kodi-lab.instance-id=<UUID>` ownership contract, then emits a bounded
 Docker-independent schema. Names, legacy labels, images, networks, and Compose
 metadata never establish ownership. Raw inspect data does not cross the broker
-boundary. Future lifecycle adapters likewise remain behind semantic allowlisted
-handlers rather than being imported into Phase 1 services. See
+boundary. Stop resolves through both labels, freshly revalidates the selected
+object against the caller's observed immutable container ID/state, uses a fixed
+10-second timeout, and verifies stopped state afterward. Future lifecycle
+adapters likewise remain behind semantic allowlisted handlers rather than being
+imported into Phase 1 services. See
 `BROKER-SECURITY.md` for the protocol, threat model, path-safety, audit, and
 deployment contracts.

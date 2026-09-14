@@ -1,4 +1,4 @@
-"""Read-only Docker adapter for Kodi Lab-owned managed containers."""
+"""Narrow Docker adapter for Kodi Lab-owned managed containers."""
 
 from __future__ import annotations
 
@@ -13,10 +13,17 @@ import docker  # type: ignore[import-untyped]
 from docker.errors import APIError, DockerException  # type: ignore[import-untyped]
 
 from kodi_lab.broker.errors import (
+    AmbiguousManagedContainerError,
+    ContainerIdentityPreconditionError,
+    ContainerStateNotStoppableError,
     DockerDaemonUnavailableError,
     DockerInventoryReadError,
+    DockerStopError,
     InvalidManagedContainerMetadataError,
     InventoryLimitExceededError,
+    ManagedContainerNotFoundError,
+    PostStopVerificationError,
+    RuntimeStatePreconditionError,
 )
 from kodi_lab.broker.protocol import is_canonical_uuid
 
@@ -26,6 +33,7 @@ INSTANCE_ID_LABEL_KEY = "io.kodi-lab.instance-id"
 MAX_MANAGED_CONTAINERS = 128
 DOCKER_API_BASE_URL = "unix:///var/run/docker.sock"
 DOCKER_API_TIMEOUT_SECONDS = 5
+DOCKER_STOP_TIMEOUT_SECONDS = 10
 
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -64,6 +72,16 @@ class ManagedContainerRecord:
     health_state: ContainerHealthState
 
 
+@dataclass(frozen=True, slots=True)
+class StopManagedContainerRecord:
+    """Minimal verified outcome of the semantic stop operation."""
+
+    managed_instance_id: str
+    container_id: str
+    runtime_state: ContainerRuntimeState
+    stop_performed: bool
+
+
 class ManagedContainerInventoryProvider(Protocol):
     """Only Docker capability exposed to the broker operation layer."""
 
@@ -71,22 +89,37 @@ class ManagedContainerInventoryProvider(Protocol):
         """Return a bounded deterministic semantic inventory."""
 
 
-class _DockerReadClient(Protocol):
+class ManagedContainerOperationsProvider(ManagedContainerInventoryProvider, Protocol):
+    """Exact semantic Docker capability exposed to broker handlers."""
+
+    def stop_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> StopManagedContainerRecord:
+        """Stop one exactly owned container under optimistic preconditions."""
+
+
+class _DockerClient(Protocol):
     def containers(
         self, *, all: bool, filters: Mapping[str, list[str]]
     ) -> list[object]: ...
 
     def inspect_container(self, container: str) -> object: ...
 
+    def stop(self, container: str, *, timeout: int) -> None: ...
+
     def close(self) -> None: ...
 
 
-type DockerReadClientFactory = Callable[[], _DockerReadClient]
+type DockerClientFactory = Callable[[], _DockerClient]
 
 
-def _production_docker_client() -> _DockerReadClient:
+def _production_docker_client() -> _DockerClient:
     return cast(
-        _DockerReadClient,
+        _DockerClient,
         docker.APIClient(
             base_url=DOCKER_API_BASE_URL,
             version="auto",
@@ -146,18 +179,18 @@ def normalize_health_state(state: Mapping[str, object]) -> ContainerHealthState:
     return ContainerHealthState.UNKNOWN
 
 
-class DockerManagedContainerInventory:
-    """Fixed-filter, read-only adapter with no caller-directed Docker API."""
+class DockerManagedContainerAdapter:
+    """Fixed semantic Docker adapter with no caller-directed raw API."""
 
     def __init__(
-        self, client_factory: DockerReadClientFactory = _production_docker_client
+        self, client_factory: DockerClientFactory = _production_docker_client
     ) -> None:
         self._client_factory = client_factory
 
     def list_managed_containers(self) -> tuple[ManagedContainerRecord, ...]:
         """List only exactly labelled Kodi Lab managed containers."""
 
-        client: _DockerReadClient | None = None
+        client: _DockerClient | None = None
         try:
             client = self._client_factory()
             summaries = client.containers(all=True, filters=_FIXED_LIST_FILTERS)
@@ -205,6 +238,144 @@ class DockerManagedContainerInventory:
                 with suppress(DockerException, OSError):
                     client.close()
 
+    def stop_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> StopManagedContainerRecord:
+        """Stop one label-selected container after exact identity/state checks."""
+
+        if not is_canonical_uuid(managed_instance_id):
+            raise InvalidManagedContainerMetadataError(
+                "Managed instance identity is not canonical"
+            )
+        if _CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None:
+            raise ContainerIdentityPreconditionError(
+                "Expected container identity is not canonical"
+            )
+
+        client: _DockerClient | None = None
+        try:
+            client = self._client_factory()
+            summaries = client.containers(
+                all=True,
+                filters={
+                    "label": [
+                        f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                        f"{INSTANCE_ID_LABEL_KEY}={managed_instance_id}",
+                    ]
+                },
+            )
+            if not isinstance(summaries, list):
+                raise DockerInventoryReadError(
+                    "Docker returned malformed container selection data"
+                )
+            if not summaries:
+                raise ManagedContainerNotFoundError(
+                    "No owned container exists for the managed instance"
+                )
+            if len(summaries) != 1:
+                raise AmbiguousManagedContainerError(
+                    "Multiple containers have the managed instance identity"
+                )
+
+            summary = _require_mapping(summaries[0])
+            selected_container_id = _require_container_id(summary.get("Id"))
+            inspected = _require_mapping(
+                client.inspect_container(selected_container_id)
+            )
+            current_state = self._validate_stop_candidate(
+                inspected,
+                selected_container_id=selected_container_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+            )
+
+            if current_state is ContainerRuntimeState.STOPPED:
+                return StopManagedContainerRecord(
+                    managed_instance_id=managed_instance_id,
+                    container_id=expected_container_id,
+                    runtime_state=ContainerRuntimeState.STOPPED,
+                    stop_performed=False,
+                )
+            if current_state in {
+                ContainerRuntimeState.TRANSITIONAL,
+                ContainerRuntimeState.UNKNOWN,
+            }:
+                raise ContainerStateNotStoppableError(
+                    "Managed container is not in a safely stoppable state"
+                )
+            if expected_runtime_state is not ContainerRuntimeState.RUNNING:
+                raise RuntimeStatePreconditionError(
+                    "Managed container runtime state differs from the precondition"
+                )
+
+            try:
+                client.stop(
+                    selected_container_id,
+                    timeout=DOCKER_STOP_TIMEOUT_SECONDS,
+                )
+            except (DockerException, OSError) as error:
+                raise DockerStopError("Docker stop failed") from error
+
+            try:
+                final_inspected = _require_mapping(
+                    client.inspect_container(selected_container_id)
+                )
+                final_state = self._validate_stop_candidate(
+                    final_inspected,
+                    selected_container_id=selected_container_id,
+                    managed_instance_id=managed_instance_id,
+                    expected_container_id=expected_container_id,
+                )
+            except (
+                DockerException,
+                OSError,
+                DockerInventoryReadError,
+                InvalidManagedContainerMetadataError,
+                ContainerIdentityPreconditionError,
+            ) as error:
+                raise PostStopVerificationError(
+                    "Stopped state could not be verified"
+                ) from error
+            if final_state is not ContainerRuntimeState.STOPPED:
+                raise PostStopVerificationError(
+                    "Managed container did not reach stopped state"
+                )
+
+            return StopManagedContainerRecord(
+                managed_instance_id=managed_instance_id,
+                container_id=expected_container_id,
+                runtime_state=ContainerRuntimeState.STOPPED,
+                stop_performed=True,
+            )
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            ContainerStateNotStoppableError,
+            DockerInventoryReadError,
+            DockerStopError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            PostStopVerificationError,
+            RuntimeStatePreconditionError,
+        ):
+            raise
+        except APIError as error:
+            raise DockerInventoryReadError(
+                "Docker managed-container read failed"
+            ) from error
+        except (DockerException, OSError) as error:
+            raise DockerDaemonUnavailableError(
+                "Docker daemon is unavailable"
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
     @staticmethod
     def _record_from_inspect(
         inspected: Mapping[str, object], summary_id: str
@@ -238,3 +409,47 @@ class DockerManagedContainerInventory:
             runtime_state=normalize_runtime_state(state.get("Status")),
             health_state=normalize_health_state(state),
         )
+
+    @staticmethod
+    def _validate_stop_candidate(
+        inspected: Mapping[str, object],
+        *,
+        selected_container_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> ContainerRuntimeState:
+        """Revalidate ownership and immutable identity from fresh inspect data."""
+
+        container_id = _require_container_id(inspected.get("Id"))
+        if container_id != selected_container_id:
+            raise DockerInventoryReadError(
+                "Docker container identity changed during selection"
+            )
+
+        config = _require_mapping(inspected.get("Config"))
+        labels_value = config.get("Labels")
+        if not isinstance(labels_value, Mapping):
+            raise InvalidManagedContainerMetadataError(
+                "Selected container has no valid Kodi Lab ownership metadata"
+            )
+        labels = cast(Mapping[str, object], labels_value)
+        if labels.get(MANAGED_LABEL_KEY) != MANAGED_LABEL_VALUE:
+            raise InvalidManagedContainerMetadataError(
+                "Selected container no longer has Kodi Lab ownership"
+            )
+        inspected_instance_id = labels.get(INSTANCE_ID_LABEL_KEY)
+        if not is_canonical_uuid(inspected_instance_id):
+            raise InvalidManagedContainerMetadataError(
+                "Managed container has invalid instance identity metadata"
+            )
+        if inspected_instance_id != managed_instance_id:
+            raise InvalidManagedContainerMetadataError(
+                "Selected container has different managed instance ownership"
+            )
+        if container_id != expected_container_id:
+            raise ContainerIdentityPreconditionError(
+                "Managed container identity differs from the precondition"
+            )
+
+        state = _require_mapping(inspected.get("State"))
+        return normalize_runtime_state(state.get("Status"))

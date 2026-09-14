@@ -60,6 +60,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
         "capabilities",
         "managed_container_inventory",
         "ping",
+        "stop_managed_container",
     )
     assert registry.dispatch(request("ping")) == PingResult(
         status="healthy", protocol_version=1
@@ -71,6 +72,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
             "capabilities",
             "managed_container_inventory",
             "ping",
+            "stop_managed_container",
         ],
         protocol_version=1,
     )

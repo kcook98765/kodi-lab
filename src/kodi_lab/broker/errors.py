@@ -38,12 +38,14 @@ class RequestError(BrokerError):
         request_id: str | None = None,
         operation: str | None = None,
         protocol_version: int | None = None,
+        audit_fields: dict[str, object] | None = None,
     ) -> None:
         self.code = code
         self.safe_message = message
         self.request_id = request_id
         self.operation = operation
         self.protocol_version = protocol_version
+        self.audit_fields = audit_fields or {}
         super().__init__(message)
 
 
@@ -69,9 +71,16 @@ class HandlerExecutionError(RequestError):
 class OperationError(BrokerError):
     """A handler's expected failure with an approved safe protocol mapping."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        audit_fields: dict[str, object] | None = None,
+    ) -> None:
         self.code = code
         self.safe_message = message
+        self.audit_fields = audit_fields or {}
         super().__init__(message)
 
 
@@ -93,6 +102,34 @@ class InvalidManagedContainerMetadataError(DockerInventoryError):
 
 class InventoryLimitExceededError(DockerInventoryError):
     """More managed containers exist than the bounded result permits."""
+
+
+class ManagedContainerNotFoundError(DockerInventoryError):
+    """No container has the requested exact managed-instance ownership labels."""
+
+
+class AmbiguousManagedContainerError(DockerInventoryError):
+    """More than one container has the requested managed-instance identity."""
+
+
+class ContainerIdentityPreconditionError(DockerInventoryError):
+    """The owned container is not the immutable container the caller observed."""
+
+
+class RuntimeStatePreconditionError(DockerInventoryError):
+    """The owned container runtime state changed after caller observation."""
+
+
+class ContainerStateNotStoppableError(DockerInventoryError):
+    """The owned container is in a state this operation will not mutate."""
+
+
+class DockerStopError(DockerInventoryError):
+    """Docker did not safely complete the fixed semantic stop request."""
+
+
+class PostStopVerificationError(DockerInventoryError):
+    """The broker could not verify the required stopped postcondition."""
 
 
 class ClientError(BrokerError):
@@ -139,3 +176,31 @@ class ManagedContainerMetadataClientError(RemoteBrokerError):
 
 class InventoryLimitClientError(RemoteBrokerError):
     """The managed inventory exceeds the protocol's fixed count limit."""
+
+
+class ManagedContainerNotFoundClientError(RemoteBrokerError):
+    """The requested managed instance has no owned Docker container."""
+
+
+class AmbiguousManagedContainerClientError(RemoteBrokerError):
+    """The requested managed instance has ambiguous Docker ownership."""
+
+
+class ContainerIdentityPreconditionClientError(RemoteBrokerError):
+    """The owned Docker container identity differs from caller observation."""
+
+
+class RuntimeStatePreconditionClientError(RemoteBrokerError):
+    """The owned Docker container state differs from caller observation."""
+
+
+class ContainerStateNotStoppableClientError(RemoteBrokerError):
+    """The owned Docker container is not safely stoppable."""
+
+
+class DockerStopClientError(RemoteBrokerError):
+    """The broker could not safely complete Docker stop."""
+
+
+class PostStopVerificationClientError(RemoteBrokerError):
+    """The broker could not verify the stopped postcondition."""

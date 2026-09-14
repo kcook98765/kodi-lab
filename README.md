@@ -3,8 +3,9 @@
 Kodi Lab is a self-hosted environment for developing and testing isolated Kodi
 installations. The repository currently includes the Phase 1 domain/storage
 core, Phase 2 restricted-broker security foundation, and one bounded read-only
-Docker inventory operation. It contains no Docker or Kodi runtime lifecycle
-implementation.
+Docker inventory operation. It also contains one strictly preconditioned semantic
+container-stop operation; no other Docker or Kodi runtime lifecycle behavior is
+implemented.
 
 [`docs/V1-SPEC.md`](docs/V1-SPEC.md) is the authoritative v1 product and
 architecture specification. [`docs/PROJECT-HANDOFF.md`](docs/PROJECT-HANDOFF.md)

@@ -182,7 +182,7 @@ class BrokerServer:
         operation: str | None = None
         protocol_version: int | None = None
         outcome_code = "internal_error"
-        operation_audit_fields: dict[str, int] = {}
+        operation_audit_fields: dict[str, object] = {}
         response: Response | None = None
 
         try:
@@ -229,6 +229,7 @@ class BrokerServer:
             response = success_response(request.request_id, result)
             outcome_code = "success"
         except RequestError as error:
+            operation_audit_fields = error.audit_fields
             request_id = error.request_id or request_id
             operation = error.operation or operation
             if error.protocol_version is not None:
@@ -283,11 +284,12 @@ class BrokerServer:
         protocol_version: int | None,
         outcome_code: str,
         elapsed_seconds: float,
-        operation_fields: dict[str, int],
+        operation_fields: dict[str, object],
     ) -> None:
         self._audit_logger.info(
             "broker request completed",
             extra={
+                **operation_fields,
                 "broker_request_id": request_id,
                 "broker_peer_pid": peer.pid if peer is not None else None,
                 "broker_peer_uid": peer.uid if peer is not None else None,
@@ -296,6 +298,5 @@ class BrokerServer:
                 "broker_protocol_version": protocol_version,
                 "broker_result_code": outcome_code,
                 "broker_elapsed_seconds": elapsed_seconds,
-                **operation_fields,
             },
         )

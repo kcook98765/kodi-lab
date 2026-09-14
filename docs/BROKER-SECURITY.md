@@ -1,8 +1,8 @@
 # Restricted broker security contract
 
 This document derives from `V1-SPEC.md` plus approved decisions D-0018 through
-D-0037. It describes the Phase 2 implementation boundary; it authorizes one
-read-only Docker inventory operation but no Docker or Kodi lifecycle behavior.
+D-0038. It describes the Phase 2 implementation boundary; it authorizes one
+read-only Docker inventory operation and one semantic stop mutation only.
 
 ## Threat model and privilege boundary
 
@@ -110,12 +110,15 @@ Phase 2 contains exactly:
   version.
 - `managed_container_inventory`: empty parameters; returns only the bounded typed
   Kodi Lab-owned container inventory described below.
+- `stop_managed_container`: strict managed-instance, immutable container-ID, and
+  normalized runtime-state preconditions; returns only verified stopped state and
+  whether a stop call was performed.
 
 All require the authorized UID. There is no anonymous operation and no generic
 execution, raw Docker, shell, raw payload, file, path, environment, caller-driven
-inspection, or lifecycle operation.
+inspection, start/create/remove/restart/kill/exec, or generic lifecycle operation.
 
-The unprivileged `BrokerClient` exposes explicit methods with those four names.
+The unprivileged `BrokerClient` exposes explicit methods with those five names.
 Its shared call implementation is private. It generates canonical UUIDs,
 validates outgoing envelopes, uses the bounded framing/timeouts, requires response
 version and correlation-ID consistency, validates operation-specific results, and
@@ -124,8 +127,8 @@ typed client exceptions.
 
 ## Read-only Docker inventory boundary
 
-`managed_container_inventory` is the only Docker-backed operation. The trusted
-adapter offers one semantic method and constructs the Docker API client with the
+`managed_container_inventory` is the only read-only Docker-backed operation. The
+trusted adapter constructs the Docker API client with the
 fixed local endpoint `unix:///var/run/docker.sock`, a five-second timeout, and
 the fixed exact filter `io.kodi-lab.managed=true`. Caller data cannot select a
 daemon endpoint, label, filter, container name/ID, or inspect parameter. The
@@ -157,9 +160,51 @@ silently truncated. Docker `running` maps to `running`, `exited`/`dead` to
 Environment, command/entrypoint, mounts and host paths, raw labels, networks and
 addresses, ports, logs, daemon information, capabilities/security options, raw
 inspect responses, mutable image tags, and arbitrary annotations are excluded.
-The adapter has no create, start, stop, restart, remove, exec, image, volume,
-network, label-mutation, or generic passthrough method. Observations are not
-persisted in SQLite.
+The adapter has no create, start, restart, remove, exec, image, volume, network,
+label-mutation, generic target/stop, or raw passthrough method. Its only mutation
+is the semantic stop below. Observations are not persisted in SQLite.
+
+## Semantic stop mutation
+
+`stop_managed_container` accepts exactly:
+
+```text
+managed_instance_id: lowercase canonical UUID
+expected_container_id: immutable 64-lowercase-hex Docker container ID
+expected_runtime_state: running | stopped | transitional | unknown
+```
+
+The expected container ID is only an optimistic precondition; it is never a
+discovery key. After peer authorization and strict schema validation, the trusted
+adapter queries with both fixed labels `io.kodi-lab.managed=true` and
+`io.kodi-lab.instance-id=<requested UUID>`. It requires exactly one match,
+inspects the Docker-selected immutable ID, and immediately revalidates the managed
+label, canonical matching instance UUID, immutable container ID, and normalized
+runtime state from fresh inspect data.
+
+If that exact owned container is already stopped, the result is successful
+desired-state convergence with `stop_performed=false`, regardless of the caller's
+expected state. Otherwise only current `running` plus expected `running` may
+mutate. Transitional and unknown current states fail closed. Docker receives only
+the selected immutable ID and broker-fixed 10-second timeout; the protocol has no
+signal, force, kill, or timeout field, and the broker performs no kill fallback or
+retry through a separate Docker API call.
+
+After Docker stop returns, the adapter freshly inspects the same immutable ID,
+revalidates ownership and instance identity again, and requires normalized
+`stopped` state. A missing container, changed ownership/identity, read failure, or
+non-stopped state is a postcondition failure rather than success. The response
+contains only managed-instance UUID, container ID, `runtime_state=stopped`, and
+`stop_performed`.
+
+Immutable-ID comparison prevents a newly selected replacement container B from
+being stopped for a stale observation of A. An unavoidable Docker-level TOCTOU
+interval remains between the final pre-stop inspect and stop call: another
+privileged Docker actor can change A's state during that interval. Exact-ID
+targeting and post-stop verification bound that risk, but do not provide a lock,
+lease, transaction, or guarantee against a later restart. The synchronous client
+uses a fixed 35-second response window derived from bounded list/inspect/stop API
+calls; other client operations retain five seconds.
 
 ## Audit and failure behavior
 
@@ -167,8 +212,10 @@ Every completed or denied connection records bounded structured fields suitable
 for journal output: request ID, peer PID/UID/primary GID, safely parsed operation
 and protocol version, result/error code, and elapsed duration. Authorization
 denials are logged. Successful inventory adds only its returned count. Full
-bodies, malformed raw bytes, inspect objects, container labels, and environment
-data are never logged.
+bodies, malformed raw bytes, inspect objects, container labels, immutable
+container IDs, and environment data are never logged. Stop audit records add only
+the validated managed-instance UUID, whether stop was performed, and resulting
+semantic state; stop failures retain the managed-instance UUID and stable code.
 
 Path/identity/permission failures prevent startup. Missing peer credentials deny
 the connection. Frame, JSON, version, schema, operation, and parameter failures
@@ -179,3 +226,8 @@ Inventory failures are translated to `docker_daemon_unavailable`,
 `docker_inventory_failed`, `invalid_managed_container_metadata`, or
 `inventory_limit_exceeded`; underlying Docker exception text does not cross the
 protocol boundary.
+Stop failures additionally use `managed_container_not_found`,
+`ambiguous_managed_container`, `container_identity_precondition_failed`,
+`runtime_state_precondition_failed`, `container_state_not_stoppable`,
+`docker_stop_failed`, and `post_stop_verification_failed`. Raw Docker exception
+details remain internal.

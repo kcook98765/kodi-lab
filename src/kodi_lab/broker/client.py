@@ -9,18 +9,30 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ValidationError
 
+from kodi_lab.broker.docker_inventory import (
+    DOCKER_API_TIMEOUT_SECONDS,
+    DOCKER_STOP_TIMEOUT_SECONDS,
+    ContainerRuntimeState,
+)
 from kodi_lab.broker.errors import (
+    AmbiguousManagedContainerClientError,
     BrokerAuthorizationError,
     BrokerUnavailableError,
     ClientProtocolError,
     ClientTransportError,
+    ContainerIdentityPreconditionClientError,
+    ContainerStateNotStoppableClientError,
     DockerDaemonUnavailableClientError,
     DockerInventoryClientError,
+    DockerStopClientError,
     FrameTooLargeError,
     InventoryLimitClientError,
     ManagedContainerMetadataClientError,
+    ManagedContainerNotFoundClientError,
+    PostStopVerificationClientError,
     RemoteBrokerError,
     RequestError,
+    RuntimeStatePreconditionClientError,
     TrailingFrameDataError,
     TruncatedFrameError,
 )
@@ -30,6 +42,8 @@ from kodi_lab.broker.operations import (
     EmptyParams,
     ManagedContainerInventoryResult,
     PingResult,
+    StopManagedContainerParams,
+    StopManagedContainerResult,
 )
 from kodi_lab.broker.protocol import (
     PROTOCOL_VERSION,
@@ -49,6 +63,9 @@ from kodi_lab.broker.transport import (
 CONNECT_TIMEOUT_SECONDS = 5.0
 READ_TIMEOUT_SECONDS = 5.0
 WRITE_TIMEOUT_SECONDS = 5.0
+STOP_RESPONSE_TIMEOUT_SECONDS = float(
+    (4 * DOCKER_API_TIMEOUT_SECONDS) + DOCKER_STOP_TIMEOUT_SECONDS + 5
+)
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
@@ -93,11 +110,45 @@ class BrokerClient:
             ManagedContainerInventoryResult,
         )
 
+    def stop_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> StopManagedContainerResult:
+        """Stop the exact owned container previously observed by the caller."""
+
+        try:
+            params = StopManagedContainerParams(
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_state=expected_runtime_state,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError("stop request failed local validation") from error
+        result = self._call(
+            "stop_managed_container",
+            params,
+            StopManagedContainerResult,
+            response_timeout=STOP_RESPONSE_TIMEOUT_SECONDS,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "broker stop result identity does not match the request"
+            )
+        return result
+
     def _call(
         self,
         operation: str,
         params: BaseModel,
         result_model: type[ResultT],
+        *,
+        response_timeout: float | None = None,
     ) -> ResultT:
         request_id = str(uuid4())
         try:
@@ -132,7 +183,11 @@ class BrokerClient:
                 pass
             else:
                 connection.shutdown(socket.SHUT_WR)
-            connection.settimeout(self._read_timeout)
+            connection.settimeout(
+                self._read_timeout
+                if response_timeout is None
+                else max(self._read_timeout, response_timeout)
+            )
             try:
                 payload = receive_frame(connection)
                 reject_buffered_trailing_data(connection)
@@ -220,6 +275,19 @@ class BrokerClient:
                     ManagedContainerMetadataClientError
                 ),
                 "inventory_limit_exceeded": InventoryLimitClientError,
+                "managed_container_not_found": ManagedContainerNotFoundClientError,
+                "ambiguous_managed_container": AmbiguousManagedContainerClientError,
+                "container_identity_precondition_failed": (
+                    ContainerIdentityPreconditionClientError
+                ),
+                "runtime_state_precondition_failed": (
+                    RuntimeStatePreconditionClientError
+                ),
+                "container_state_not_stoppable": (
+                    ContainerStateNotStoppableClientError
+                ),
+                "docker_stop_failed": DockerStopClientError,
+                "post_stop_verification_failed": PostStopVerificationClientError,
             }
             error_type = error_types.get(error_response.error.code, RemoteBrokerError)
             raise error_type(

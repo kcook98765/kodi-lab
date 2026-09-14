@@ -336,3 +336,34 @@ details that it did not specify.
   output avoids exposing raw inspect data, mutable tags, legacy containers, or a
   caller-directed Docker API. Daemon, read/validation, ownership-integrity, and
   count-limit failures have distinct safe broker error codes.
+
+## D-0038: Optimistic semantic managed-container stop
+
+- Status: approved for Phase 2
+- Decision: add only `stop_managed_container` as the first mutation. Its strict
+  request contains canonical managed-instance UUID, previously observed immutable
+  64-hex container ID, and previously observed normalized runtime state. The
+  trusted adapter selects with both exact Kodi Lab ownership labels, requires one
+  result, freshly inspects and revalidates ownership/instance/container identity,
+  and never discovers by caller-supplied container ID. A running container is
+  stopped only when the expected state is `running`, using the broker-controlled
+  Docker stop timeout of 10 seconds. Transitional and unknown states are never
+  mutated. A second fresh inspect must prove the same owned immutable container is
+  stopped before success is returned.
+- Idempotency: after all ownership and immutable-identity checks pass, an already
+  stopped container returns successful convergence with `stop_performed=false`
+  regardless of the caller's expected runtime state. This desired-state exception
+  is the only bypass of the normal state-equality precondition. No Docker stop is
+  issued in this case.
+- Failure/race policy: no match, ambiguity, invalid ownership metadata, immutable
+  identity conflict, runtime conflict, non-stoppable state, stop failure, and
+  postcondition failure have stable safe errors. The broker does not call Docker
+  kill, retry, or accept caller timeout/signal/force controls. Immutable identity
+  prevents replacement container B from being stopped for stale container A.
+  There remains an unavoidable interval between fresh inspect and Docker stop in
+  which another privileged Docker actor can change A's state; the exact-ID stop
+  and post-stop verification bound but do not eliminate that Docker-level TOCTOU.
+- Resource behavior: Docker calls retain fixed five-second API timeouts, with the
+  SDK extending the stop request for its fixed 10-second stop timeout. The typed
+  client allows a fixed 35-second response window for this synchronous operation;
+  other protocol operations retain the five-second response timeout.

@@ -57,8 +57,11 @@ Docker-backed slice adds only empty-parameter `managed_container_inventory`: a
 fixed-filter read-only adapter selects exact Kodi Lab ownership labels, validates
 canonical instance UUIDs, rejects duplicate identity, and returns at most 128
 sorted data-minimized observations. It performs no persistence or Docker/Kodi
-lifecycle mutation. The next Phase 2 slice may design the smallest semantic,
-idempotent or conflict-detecting managed-container lifecycle transition while
-preserving label ownership, exact-UID authorization, and legacy isolation. The
-development host service-name collision remains an independent deployment blocker and is not
-resolved by repository runtime work.
+lifecycle mutation. The first mutating slice adds only
+`stop_managed_container`: exact label-based discovery, immutable container-ID and
+runtime-state preconditions, idempotent already-stopped convergence, fixed
+10-second Docker stop, and fresh postcondition verification. It adds no start,
+create, restart, remove, kill, exec, or generic mutation. A next slice may unify
+start/stop desired-state reconciliation once start-specific restart-policy and
+readiness semantics are approved. The development host service-name collision remains an
+independent deployment blocker and is not resolved by repository runtime work.

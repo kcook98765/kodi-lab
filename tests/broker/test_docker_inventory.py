@@ -16,7 +16,7 @@ from kodi_lab.broker.docker_inventory import (
     MAX_MANAGED_CONTAINERS,
     ContainerHealthState,
     ContainerRuntimeState,
-    DockerManagedContainerInventory,
+    DockerManagedContainerAdapter,
 )
 from kodi_lab.broker.errors import (
     DockerDaemonUnavailableError,
@@ -105,12 +105,15 @@ class FakeDockerClient:
             raise self.inspect_error
         return self.inspections[container]
 
+    def stop(self, container: str, *, timeout: int) -> None:
+        raise AssertionError(f"inventory adapter attempted stop: {container} {timeout}")
+
     def close(self) -> None:
         self.closed = True
 
 
 def inventory(client: FakeDockerClient) -> tuple[Any, ...]:
-    return DockerManagedContainerInventory(lambda: client).list_managed_containers()
+    return DockerManagedContainerAdapter(lambda: client).list_managed_containers()
 
 
 def test_adapter_uses_only_fixed_exact_ownership_filter() -> None:
@@ -267,7 +270,7 @@ def test_client_factory_connection_failure_is_daemon_unavailable() -> None:
         raise OSError("PRIVATE-DAEMON-DETAIL")
 
     with pytest.raises(DockerDaemonUnavailableError) as raised:
-        DockerManagedContainerInventory(fail).list_managed_containers()
+        DockerManagedContainerAdapter(fail).list_managed_containers()
     assert "PRIVATE" not in str(raised.value)
 
 
