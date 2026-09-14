@@ -1,5 +1,10 @@
-"""SQLAlchemy metadata used by schema migrations."""
+"""SQLAlchemy declarative metadata used by schema migrations."""
 
-from sqlalchemy import MetaData
+from sqlalchemy.orm import DeclarativeBase
 
-metadata = MetaData()
+
+class Base(DeclarativeBase):
+    """Base for Kodi Lab persistence mappings."""
+
+
+metadata = Base.metadata

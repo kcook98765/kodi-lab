@@ -35,3 +35,25 @@ choices.
   their phases begin.
 - Reason: avoids empty or speculative modules while preserving the specified
   boundaries in `ARCHITECTURE.md`.
+
+## D-0005: Managed instance as a Target subtype
+
+- Status: accepted for Phase 1
+- Decision: store common identity/state in `targets`; use the same stable UUID
+  as the primary/foreign key of `managed_instances`. Target names are not
+  unique. Deleting a Target cascades to its owned managed-instance row.
+- Reason: the specification defines ManagedTarget as a Target kind and gives
+  managed instances a stable internal identity, but does not require distinct
+  identities or unique display names. A shared key enforces one managed
+  instance per Target without duplicating normalized Target data.
+
+## D-0006: Persist only defined core state
+
+- Status: accepted for Phase 1
+- Decision: persist the specification's three health values, simple
+  available/unavailable and connected/disconnected Target observations, and
+  running/stopped managed-instance state. Store instance type, exact runtime
+  revision, host-reboot preference, and optional notes. Defer capabilities,
+  policies, presets, fixtures, history, and development associations.
+- Reason: this is the smallest durable identity/state slice that supports later
+  services without pre-implementing their phases.

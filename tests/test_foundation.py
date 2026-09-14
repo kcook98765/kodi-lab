@@ -56,5 +56,5 @@ def test_runtime_root_environment_override_is_independent(
     assert settings.database_url == "sqlite:////var/lib/kodi-lab/database/kodi-lab.db"
 
 
-def test_migration_metadata_starts_empty() -> None:
-    assert not metadata.tables
+def test_migration_metadata_contains_core_storage_tables() -> None:
+    assert set(metadata.tables) == {"managed_instances", "targets"}

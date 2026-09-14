@@ -26,3 +26,8 @@ lab until replacement validation and retirement approval, and end at a clean,
 tested checkpoint. This initial Phase 0 step establishes documentation,
 packaging, typed bootstrap configuration, migration scaffolding, and local
 quality checks only.
+
+Phase 1 progress: the first vertical slice now implements persisted Target and
+managed-instance identity/state, explicit repositories, SQLite foreign-key
+enforcement, and the initial reversible Alembic migration. Runtime control and
+the remaining domain/storage areas are not implemented.

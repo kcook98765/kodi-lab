@@ -17,3 +17,14 @@ conditionals.
 The recommended module boundaries in specification section 48 will be added as
 their implementation phases begin. Phase 0 keeps only the package,
 configuration, and migration metadata needed for a working foundation.
+
+## Core domain and storage
+
+The Phase 1 core slice keeps immutable typed domain records separate from
+SQLAlchemy rows. A managed instance is the managed subtype of a Target and uses
+the Target ID as its own stable identity. Target deletion cascades to its
+managed-instance subtype row; repositories expose domain records and leave
+transaction boundaries to callers.
+
+SQLite connections created by the application engine helper enable foreign-key
+enforcement explicitly. Alembic owns schema creation and version transitions.
