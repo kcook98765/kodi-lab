@@ -8,13 +8,11 @@ Install the locked development environment and run the full foundation gate:
 
 ```console
 uv sync --dev
-uv run pytest
-uv run ruff format --check .
-uv run ruff check .
-uv run mypy src tests migrations
-uv run python -m build
-uv run alembic history
+./scripts/check
 ```
+
+The check is provider-neutral, uses the locked uv environment, stops at the
+first failure, and writes build artifacts only to a temporary directory.
 
 Keep changes within the currently authorized implementation phase. Record new
 architectural choices in `docs/DECISIONS.md`; do not silently amend the v1

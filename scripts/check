@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd -- "$repo_root"
+
+check_tmpdir="$(mktemp -d)"
+trap 'rm -rf -- "$check_tmpdir"' EXIT
+
+run_check() {
+    local name="$1"
+    shift
+    printf '\n==> %s\n' "$name"
+    "$@"
+}
+
+run_check "pytest" uv run --locked pytest
+run_check "Ruff format" uv run --locked ruff format --check .
+run_check "Ruff lint" uv run --locked ruff check .
+run_check "mypy" uv run --locked mypy src tests migrations
+run_check \
+    "package build" \
+    uv run --locked python -m build --no-isolation --outdir "$check_tmpdir/dist"
+run_check "Alembic history" uv run --locked alembic history
+run_check \
+    "package/config import" \
+    uv run --locked python -c \
+    'import kodi_lab; from kodi_lab.config import Settings; print(kodi_lab.__version__, Settings(_env_file=None).database_url)'
+
+printf '\nAll foundation checks passed.\n'

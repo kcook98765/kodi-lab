@@ -14,11 +14,7 @@ The supported development host baseline is Python 3.12 on Ubuntu 24.04.
 
 ```console
 uv sync --dev
-uv run pytest
-uv run ruff format --check .
-uv run ruff check .
-uv run mypy src tests migrations
-uv run python -m build
+./scripts/check
 ```
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the complete local foundation
