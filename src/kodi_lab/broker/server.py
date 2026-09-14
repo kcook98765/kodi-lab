@@ -182,6 +182,7 @@ class BrokerServer:
         operation: str | None = None
         protocol_version: int | None = None
         outcome_code = "internal_error"
+        operation_audit_fields: dict[str, int] = {}
         response: Response | None = None
 
         try:
@@ -222,6 +223,9 @@ class BrokerServer:
             operation = request.operation
             protocol_version = request.version
             result = self._registry.dispatch(request)
+            operation_audit_fields = self._registry.audit_fields_for(
+                request.operation, result
+            )
             response = success_response(request.request_id, result)
             outcome_code = "success"
         except RequestError as error:
@@ -267,6 +271,7 @@ class BrokerServer:
                 protocol_version=protocol_version,
                 outcome_code=outcome_code,
                 elapsed_seconds=time.monotonic() - started,
+                operation_fields=operation_audit_fields,
             )
 
     def _audit(
@@ -278,6 +283,7 @@ class BrokerServer:
         protocol_version: int | None,
         outcome_code: str,
         elapsed_seconds: float,
+        operation_fields: dict[str, int],
     ) -> None:
         self._audit_logger.info(
             "broker request completed",
@@ -290,5 +296,6 @@ class BrokerServer:
                 "broker_protocol_version": protocol_version,
                 "broker_result_code": outcome_code,
                 "broker_elapsed_seconds": elapsed_seconds,
+                **operation_fields,
             },
         )

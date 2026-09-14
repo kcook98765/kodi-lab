@@ -82,12 +82,19 @@ part of this local protocol.
 
 The broker uses one bounded, length-prefixed JSON request and response per Unix
 stream connection. A closed operation registry validates operation-specific
-parameters before invoking an explicit handler. Phase 2 exposes only `ping`,
-`broker_info`, and `capabilities`; all require the authorized peer. No Docker,
-shell, path, environment, or generic execution operation exists yet.
+parameters before invoking an explicit handler. It exposes `ping`, `broker_info`,
+`capabilities`, and the empty-parameter `managed_container_inventory`; all
+require the authorized peer. There is no shell, path, environment, raw Docker,
+generic execution, or lifecycle operation.
 
 The client/broker boundary is independent of Phase 1's domain, storage, and
-application services. Future Docker adapters will live behind allowlisted
-handlers rather than being imported into those services. See
+application services. A narrow infrastructure adapter now performs only fixed,
+read-only Docker list/inspect calls for inventory. It selects containers by the
+exact `io.kodi-lab.managed=true` and canonical
+`io.kodi-lab.instance-id=<UUID>` ownership contract, then emits a bounded
+Docker-independent schema. Names, legacy labels, images, networks, and Compose
+metadata never establish ownership. Raw inspect data does not cross the broker
+boundary. Future lifecycle adapters likewise remain behind semantic allowlisted
+handlers rather than being imported into Phase 1 services. See
 `BROKER-SECURITY.md` for the protocol, threat model, path-safety, audit, and
 deployment contracts.

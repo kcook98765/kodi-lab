@@ -52,9 +52,13 @@ ready to begin.
 Phase 2 foundation now establishes the restricted local broker boundary:
 versioned bounded JSON framing over a protected Unix socket, kernel peer
 credentials, exact-UID authorization, a typed client, fail-closed socket-path
-handling, safe structured errors/audit fields, and a closed registry containing
-only `ping`, `broker_info`, and `capabilities`. Docker access and all Kodi/runtime
-lifecycle operations remain unimplemented. The next Phase 2 slice should add
-only the smallest read-only Docker-backed inspection operations after their
-exact schemas, daemon connection policy, and information-disclosure limits are
-approved.
+handling, safe structured errors/audit fields, and a closed registry. The first
+Docker-backed slice adds only empty-parameter `managed_container_inventory`: a
+fixed-filter read-only adapter selects exact Kodi Lab ownership labels, validates
+canonical instance UUIDs, rejects duplicate identity, and returns at most 128
+sorted data-minimized observations. It performs no persistence or Docker/Kodi
+lifecycle mutation. The next Phase 2 slice may design the smallest semantic,
+idempotent or conflict-detecting managed-container lifecycle transition while
+preserving label ownership, exact-UID authorization, and legacy isolation. The
+development host service-name collision remains an independent deployment blocker and is not
+resolved by repository runtime work.

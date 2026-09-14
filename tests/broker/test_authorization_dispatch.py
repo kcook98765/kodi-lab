@@ -55,13 +55,24 @@ def test_exact_uid_policy_accepts_only_uid() -> None:
 
 def test_foundation_registry_contains_exact_operation_set() -> None:
     registry = build_foundation_registry()
-    assert registry.names == ("broker_info", "capabilities", "ping")
+    assert registry.names == (
+        "broker_info",
+        "capabilities",
+        "managed_container_inventory",
+        "ping",
+    )
     assert registry.dispatch(request("ping")) == PingResult(
         status="healthy", protocol_version=1
     )
     assert isinstance(registry.dispatch(request("broker_info")), BrokerInfoResult)
     assert registry.dispatch(request("capabilities")) == CapabilitiesResult(
-        operations=["broker_info", "capabilities", "ping"], protocol_version=1
+        operations=[
+            "broker_info",
+            "capabilities",
+            "managed_container_inventory",
+            "ping",
+        ],
+        protocol_version=1,
     )
     assert all(
         registry.definition(name).requires_authorized_peer  # type: ignore[union-attr]
@@ -76,7 +87,9 @@ def test_unknown_operation_cannot_reach_attribute_or_escape_hatch(name: str) -> 
     assert raised.value.code == "unknown_operation"
 
 
-@pytest.mark.parametrize("name", ["ping", "broker_info", "capabilities"])
+@pytest.mark.parametrize(
+    "name", ["ping", "broker_info", "capabilities", "managed_container_inventory"]
+)
 def test_empty_param_operations_reject_all_unexpected_params(name: str) -> None:
     with pytest.raises(RequestError) as raised:
         build_foundation_registry().dispatch(request(name, {"uid": os.getuid()}))

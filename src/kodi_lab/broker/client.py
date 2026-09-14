@@ -14,7 +14,11 @@ from kodi_lab.broker.errors import (
     BrokerUnavailableError,
     ClientProtocolError,
     ClientTransportError,
+    DockerDaemonUnavailableClientError,
+    DockerInventoryClientError,
     FrameTooLargeError,
+    InventoryLimitClientError,
+    ManagedContainerMetadataClientError,
     RemoteBrokerError,
     RequestError,
     TrailingFrameDataError,
@@ -24,6 +28,7 @@ from kodi_lab.broker.operations import (
     BrokerInfoResult,
     CapabilitiesResult,
     EmptyParams,
+    ManagedContainerInventoryResult,
     PingResult,
 )
 from kodi_lab.broker.protocol import (
@@ -79,6 +84,15 @@ class BrokerClient:
 
         return self._call("capabilities", EmptyParams(), CapabilitiesResult)
 
+    def managed_container_inventory(self) -> ManagedContainerInventoryResult:
+        """Return only bounded, exactly labelled Kodi Lab container records."""
+
+        return self._call(
+            "managed_container_inventory",
+            EmptyParams(),
+            ManagedContainerInventoryResult,
+        )
+
     def _call(
         self,
         operation: str,
@@ -109,8 +123,15 @@ class BrokerClient:
                 raise BrokerUnavailableError("broker is unavailable") from error
 
             connection.settimeout(self._write_timeout)
-            send_frame(connection, encode_model(request))
-            connection.shutdown(socket.SHUT_WR)
+            try:
+                send_frame(connection, encode_model(request))
+            except (BrokenPipeError, ConnectionResetError):
+                # Authorization happens before broker request reads. A denied
+                # peer can therefore have a structured response waiting even
+                # though the broker has already closed its read side.
+                pass
+            else:
+                connection.shutdown(socket.SHUT_WR)
             connection.settimeout(self._read_timeout)
             try:
                 payload = receive_frame(connection)
@@ -191,11 +212,16 @@ class BrokerClient:
                 raise ClientProtocolError(
                     "broker error response omitted a recoverable request ID"
                 )
-            error_type = (
-                BrokerAuthorizationError
-                if error_response.error.code == "unauthorized_peer"
-                else RemoteBrokerError
-            )
+            error_types: dict[str, type[RemoteBrokerError]] = {
+                "unauthorized_peer": BrokerAuthorizationError,
+                "docker_daemon_unavailable": DockerDaemonUnavailableClientError,
+                "docker_inventory_failed": DockerInventoryClientError,
+                "invalid_managed_container_metadata": (
+                    ManagedContainerMetadataClientError
+                ),
+                "inventory_limit_exceeded": InventoryLimitClientError,
+            }
+            error_type = error_types.get(error_response.error.code, RemoteBrokerError)
             raise error_type(
                 error_response.error.code,
                 error_response.error.message,

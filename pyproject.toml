@@ -11,6 +11,7 @@ requires-python = ">=3.12,<3.13"
 authors = [{ name = "Kodi Lab contributors" }]
 dependencies = [
   "alembic>=1.16,<2",
+  "docker>=7.2,<8",
   "fastapi>=0.116,<1",
   "pydantic>=2.13,<3",
   "pydantic-settings>=2.10,<3",

@@ -66,6 +66,35 @@ class HandlerExecutionError(RequestError):
         )
 
 
+class OperationError(BrokerError):
+    """A handler's expected failure with an approved safe protocol mapping."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.safe_message = message
+        super().__init__(message)
+
+
+class DockerInventoryError(BrokerError):
+    """Base class for trusted Docker inventory adapter failures."""
+
+
+class DockerDaemonUnavailableError(DockerInventoryError):
+    """The fixed local Docker daemon endpoint could not be reached."""
+
+
+class DockerInventoryReadError(DockerInventoryError):
+    """Docker inventory data could not be read or validated."""
+
+
+class InvalidManagedContainerMetadataError(DockerInventoryError):
+    """A managed container violated the ownership identity contract."""
+
+
+class InventoryLimitExceededError(DockerInventoryError):
+    """More managed containers exist than the bounded result permits."""
+
+
 class ClientError(BrokerError):
     """Base class for typed unprivileged-client failures."""
 
@@ -94,3 +123,19 @@ class RemoteBrokerError(ClientError):
 
 class BrokerAuthorizationError(RemoteBrokerError):
     """The kernel-authenticated peer was not authorized."""
+
+
+class DockerDaemonUnavailableClientError(RemoteBrokerError):
+    """The broker could not reach its fixed Docker daemon endpoint."""
+
+
+class DockerInventoryClientError(RemoteBrokerError):
+    """The broker could not safely read Docker inventory."""
+
+
+class ManagedContainerMetadataClientError(RemoteBrokerError):
+    """Kodi Lab ownership metadata is invalid or ambiguous."""
+
+
+class InventoryLimitClientError(RemoteBrokerError):
+    """The managed inventory exceeds the protocol's fixed count limit."""

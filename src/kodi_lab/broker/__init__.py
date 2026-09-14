@@ -7,11 +7,17 @@ from kodi_lab.broker.errors import (
     ClientError,
     ClientProtocolError,
     ClientTransportError,
+    DockerDaemonUnavailableClientError,
+    DockerInventoryClientError,
+    InventoryLimitClientError,
+    ManagedContainerMetadataClientError,
     RemoteBrokerError,
 )
 from kodi_lab.broker.operations import (
     BrokerInfoResult,
     CapabilitiesResult,
+    ManagedContainerInventoryEntry,
+    ManagedContainerInventoryResult,
     PingResult,
 )
 
@@ -24,6 +30,12 @@ __all__ = [
     "ClientError",
     "ClientProtocolError",
     "ClientTransportError",
+    "DockerDaemonUnavailableClientError",
+    "DockerInventoryClientError",
+    "InventoryLimitClientError",
+    "ManagedContainerInventoryEntry",
+    "ManagedContainerInventoryResult",
+    "ManagedContainerMetadataClientError",
     "PingResult",
     "RemoteBrokerError",
 ]

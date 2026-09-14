@@ -64,7 +64,13 @@ def test_real_temporary_unix_server_client_round_trip(
         assert client.ping() == PingResult(status="healthy", protocol_version=1)
         assert isinstance(client.broker_info(), BrokerInfoResult)
         assert client.capabilities() == CapabilitiesResult(
-            operations=["broker_info", "capabilities", "ping"], protocol_version=1
+            operations=[
+                "broker_info",
+                "capabilities",
+                "managed_container_inventory",
+                "ping",
+            ],
+            protocol_version=1,
         )
     assert not socket_config.socket_path.exists()
 

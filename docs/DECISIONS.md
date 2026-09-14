@@ -297,3 +297,42 @@ details that it did not specify.
   connections fail authorization when credentials are unavailable; malformed,
   oversized, unsupported, or unknown requests never reach handlers; and handler
   failures produce only a safe internal error while retaining diagnostic logs.
+
+## D-0036: Managed-container ownership labels
+
+- Status: approved for Phase 2
+- Decision: a container belongs to the new Kodi Lab managed scope only when its
+  inspect data contains both exact labels `io.kodi-lab.managed=true` and
+  `io.kodi-lab.instance-id=<lowercase canonical UUID>`. The literal names are a
+  Phase 2 choice because the canonical specification requires deterministic
+  ownership metadata but does not spell the keys. Names, images, networks,
+  Compose metadata, and legacy labels never establish ownership. Unlabelled and
+  wrong-value containers are excluded. A container with the exact ownership
+  label but missing or malformed instance identity, or multiple containers with
+  the same instance identity, fails the complete inventory as invalid managed
+  metadata rather than being treated as valid or silently omitted.
+- Reason: exact namespaced labels give the trusted adapter a deterministic scope
+  boundary, while whole-result failure prevents ambiguous or corrupted ownership
+  state from appearing authoritative. Labels select managed Docker objects; they
+  do not authenticate broker callers, which remains an `SO_PEERCRED` exact-UID
+  decision.
+
+## D-0037: Bounded read-only managed-container inventory
+
+- Status: approved for Phase 2
+- Decision: add only `managed_container_inventory`, with empty parameters, behind
+  a read-only adapter using the maintained Docker SDK for Python and a fixed local
+  daemon endpoint/filter. It returns at most 128 entries, sorted by managed
+  instance UUID, containing only canonical instance UUID, immutable 64-hex
+  container ID, immutable `sha256:<64 lowercase hex>` image ID, bounded runtime
+  state, and bounded health state. More than 128 matching summaries fails without
+  inspection or truncation. No observations are persisted.
+- Runtime mapping: Docker `running` is `running`; `exited`/`dead` are `stopped`;
+  `created`/`restarting`/`removing`/`paused` are `transitional`; other string
+  states are `unknown`. Health `healthy`, `unhealthy`, and `starting` retain those
+  meanings; absent health is `not_configured`; other string states are `unknown`.
+- Reason: 128 is conservative for a local lab and keeps the worst-case typed
+  response well below the existing 65,536-byte protocol frame. Fixed semantic
+  output avoids exposing raw inspect data, mutable tags, legacy containers, or a
+  caller-directed Docker API. Daemon, read/validation, ownership-integrity, and
+  count-limit failures have distinct safe broker error codes.

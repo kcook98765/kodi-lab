@@ -1,8 +1,8 @@
 # Restricted broker security contract
 
 This document derives from `V1-SPEC.md` plus approved decisions D-0018 through
-D-0035. It describes the Phase 2 implementation boundary; it does not authorize
-Docker or Kodi lifecycle behavior.
+D-0037. It describes the Phase 2 implementation boundary; it authorizes one
+read-only Docker inventory operation but no Docker or Kodi lifecycle behavior.
 
 ## Threat model and privilege boundary
 
@@ -108,27 +108,74 @@ Phase 2 contains exactly:
 - `broker_info`: empty parameters; returns package and protocol versions.
 - `capabilities`: empty parameters; returns only the registered names and protocol
   version.
+- `managed_container_inventory`: empty parameters; returns only the bounded typed
+  Kodi Lab-owned container inventory described below.
 
 All require the authorized UID. There is no anonymous operation and no generic
-execution, Docker, shell, raw payload, file, path, environment, or lifecycle
-operation.
+execution, raw Docker, shell, raw payload, file, path, environment, caller-driven
+inspection, or lifecycle operation.
 
-The unprivileged `BrokerClient` exposes explicit methods with those three names.
+The unprivileged `BrokerClient` exposes explicit methods with those four names.
 Its shared call implementation is private. It generates canonical UUIDs,
 validates outgoing envelopes, uses the bounded framing/timeouts, requires response
 version and correlation-ID consistency, validates operation-specific results, and
 translates transport, authorization, remote, and malformed-response failures into
 typed client exceptions.
 
+## Read-only Docker inventory boundary
+
+`managed_container_inventory` is the only Docker-backed operation. The trusted
+adapter offers one semantic method and constructs the Docker API client with the
+fixed local endpoint `unix:///var/run/docker.sock`, a five-second timeout, and
+the fixed exact filter `io.kodi-lab.managed=true`. Caller data cannot select a
+daemon endpoint, label, filter, container name/ID, or inspect parameter. The
+repository uses the maintained Docker SDK for Python rather than a CLI or
+subprocess boundary.
+
+The adapter revalidates inspect data and includes a container only with both:
+
+- `io.kodi-lab.managed=true`
+- `io.kodi-lab.instance-id=<lowercase canonical UUID>`
+
+These labels are trusted selection metadata for future Kodi Lab-created Docker
+objects. They are not caller authentication; `SO_PEERCRED` exact-UID authorization
+still completes before request parsing, schema validation, dispatch, or Docker
+access. Unlabelled, wrong-value, legacy-labelled, and name-only lookalikes remain
+outside managed scope. Exact ownership with a missing/malformed instance UUID or
+a duplicate instance UUID fails the complete operation with
+`invalid_managed_container_metadata`.
+
+The result has at most 128 entries, sorted by canonical instance UUID. Each entry
+contains only the managed instance UUID, immutable full container ID, immutable
+image content ID, normalized runtime state, and normalized health state. More
+than 128 matching summaries fails with `inventory_limit_exceeded`; it is never
+silently truncated. Docker `running` maps to `running`, `exited`/`dead` to
+`stopped`, known intermediate states to `transitional`, and other strings to
+`unknown`. Health is `healthy`, `unhealthy`, `starting`, `not_configured`, or
+`unknown`.
+
+Environment, command/entrypoint, mounts and host paths, raw labels, networks and
+addresses, ports, logs, daemon information, capabilities/security options, raw
+inspect responses, mutable image tags, and arbitrary annotations are excluded.
+The adapter has no create, start, stop, restart, remove, exec, image, volume,
+network, label-mutation, or generic passthrough method. Observations are not
+persisted in SQLite.
+
 ## Audit and failure behavior
 
 Every completed or denied connection records bounded structured fields suitable
 for journal output: request ID, peer PID/UID/primary GID, safely parsed operation
 and protocol version, result/error code, and elapsed duration. Authorization
-denials are logged. Full bodies and malformed raw bytes are never logged.
+denials are logged. Successful inventory adds only its returned count. Full
+bodies, malformed raw bytes, inspect objects, container labels, and environment
+data are never logged.
 
 Path/identity/permission failures prevent startup. Missing peer credentials deny
 the connection. Frame, JSON, version, schema, operation, and parameter failures
 prevent dispatch. Unexpected handler failures become a stable `internal_error`
 response without traceback or exception detail; an internal diagnostic record is
-retained. Future raw Docker errors must be translated rather than returned.
+retained. Raw Docker errors are translated rather than returned.
+Inventory failures are translated to `docker_daemon_unavailable`,
+`docker_inventory_failed`, `invalid_managed_container_metadata`, or
+`inventory_limit_exceeded`; underlying Docker exception text does not cross the
+protocol boundary.
