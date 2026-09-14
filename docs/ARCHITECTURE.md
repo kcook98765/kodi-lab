@@ -28,3 +28,17 @@ transaction boundaries to callers.
 
 SQLite connections created by the application engine helper enable foreign-key
 enforcement explicitly. Alembic owns schema creation and version transitions.
+
+### Runtime catalog
+
+Runtime definitions provide stable UUID identity plus a unique operator-facing
+slug and Kodi-version metadata. Each finalized runtime revision has its own UUID
+and a positive per-definition revision number; revision number is the only
+newest-revision ordering authority.
+
+Revision source, manifest, SHA-256 content identity, and build timestamp are
+immutable after creation. Approval and Trusted Custom Build confirmation are
+separate lifecycle metadata changed through explicit repository operations.
+There are no normal definition/revision deletion APIs, and restrictive foreign
+keys preserve revision history. Managed instances reference exactly one runtime
+revision UUID and may change that selection without changing the revision.

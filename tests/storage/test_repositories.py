@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -12,11 +13,18 @@ from kodi_lab.domain import (
     InstanceRuntimeState,
     InstanceType,
     ManagedInstance,
+    RuntimeDefinition,
+    RuntimeRevision,
     Target,
     TargetAvailability,
     TargetType,
 )
-from kodi_lab.storage.repositories import ManagedInstanceRepository, TargetRepository
+from kodi_lab.storage.repositories import (
+    ManagedInstanceRepository,
+    RuntimeDefinitionRepository,
+    RuntimeRevisionRepository,
+    TargetRepository,
+)
 
 
 def make_target(name: str = "Kodi 21") -> Target:
@@ -31,11 +39,31 @@ def make_target(name: str = "Kodi 21") -> Target:
     )
 
 
-def make_instance(target: Target) -> ManagedInstance:
+def make_runtime(db_session: Session) -> RuntimeRevision:
+    definition = RuntimeDefinition(
+        id=uuid4(), slug=f"kodi-{uuid4().hex}", kodi_version="21.3"
+    )
+    revision = RuntimeRevision(
+        id=uuid4(),
+        runtime_definition_id=definition.id,
+        revision_number=1,
+        source_kind="official-package",
+        source_reference="ppa:team-xbmc/ppa@21.3",
+        content_digest="a" * 64,
+        manifest_reference="catalog/kodi-21.3.yaml",
+        manifest_digest="b" * 64,
+        built_at=datetime(2026, 9, 14, tzinfo=UTC),
+    )
+    RuntimeDefinitionRepository(db_session).create(definition)
+    RuntimeRevisionRepository(db_session).create(revision)
+    return revision
+
+
+def make_instance(target: Target, revision: RuntimeRevision) -> ManagedInstance:
     return ManagedInstance(
         target_id=target.id,
         instance_type=InstanceType.PERSISTENT,
-        runtime_revision="kodi-21.3-r1",
+        runtime_revision_id=revision.id,
         runtime_state=InstanceRuntimeState.STOPPED,
         notes="development fixture",
     )
@@ -49,7 +77,8 @@ def test_sqlite_foreign_keys_are_enabled(db_session: Session) -> None:
 
 def test_target_and_managed_instance_round_trip(db_session: Session) -> None:
     target = make_target()
-    instance = make_instance(target)
+    revision = make_runtime(db_session)
+    instance = make_instance(target, revision)
     targets = TargetRepository(db_session)
     instances = ManagedInstanceRepository(db_session)
 
@@ -70,11 +99,12 @@ def test_target_and_managed_instance_round_trip(db_session: Session) -> None:
 def test_lists_have_predictable_order(db_session: Session) -> None:
     target_b = make_target("Beta")
     target_a = make_target("Alpha")
+    revision = make_runtime(db_session)
     targets = TargetRepository(db_session)
     instances = ManagedInstanceRepository(db_session)
     for target in (target_b, target_a):
         targets.create(target)
-        instances.create(make_instance(target))
+        instances.create(make_instance(target, revision))
 
     assert targets.list() == [target_a, target_b]
     assert [item.target_id for item in instances.list()] == sorted(
@@ -84,7 +114,19 @@ def test_lists_have_predictable_order(db_session: Session) -> None:
 
 def test_updates_preserve_identity(db_session: Session) -> None:
     target = make_target()
-    instance = make_instance(target)
+    first_revision = make_runtime(db_session)
+    definition = RuntimeDefinitionRepository(db_session).get(
+        first_revision.runtime_definition_id
+    )
+    assert definition is not None
+    second_revision = replace(
+        first_revision,
+        id=uuid4(),
+        revision_number=2,
+        content_digest="c" * 64,
+    )
+    RuntimeRevisionRepository(db_session).create(second_revision)
+    instance = make_instance(target, first_revision)
     targets = TargetRepository(db_session)
     instances = ManagedInstanceRepository(db_session)
     targets.create(target)
@@ -99,7 +141,7 @@ def test_updates_preserve_identity(db_session: Session) -> None:
     )
     updated_instance = replace(
         instance,
-        runtime_revision="kodi-21.3-r2",
+        runtime_revision_id=second_revision.id,
         runtime_state=InstanceRuntimeState.RUNNING,
         notes=None,
     )
@@ -126,23 +168,26 @@ def test_duplicate_managed_instance_identity_is_rejected_by_database(
     db_session: Session,
 ) -> None:
     target = make_target()
+    revision = make_runtime(db_session)
     targets = TargetRepository(db_session)
     instances = ManagedInstanceRepository(db_session)
     targets.create(target)
-    instance = make_instance(target)
+    instance = make_instance(target, revision)
     instances.create(instance)
 
     with pytest.raises(IntegrityError):
         instances.create(instance)
 
 
-def test_invalid_managed_instance_foreign_key_is_rejected(
+def test_invalid_managed_instance_revision_foreign_key_is_rejected(
     db_session: Session,
 ) -> None:
+    target = make_target()
+    TargetRepository(db_session).create(target)
     instance = ManagedInstance(
-        target_id=uuid4(),
+        target_id=target.id,
         instance_type=InstanceType.DISPOSABLE,
-        runtime_revision="kodi-21.3-r1",
+        runtime_revision_id=uuid4(),
         runtime_state=InstanceRuntimeState.STOPPED,
     )
 
@@ -204,32 +249,13 @@ def test_blank_target_name_is_enforced_by_database(db_session: Session) -> None:
         )
 
 
-def test_blank_runtime_revision_is_enforced_by_database(db_session: Session) -> None:
-    target = make_target()
-    TargetRepository(db_session).create(target)
-
-    with pytest.raises(IntegrityError):
-        db_session.execute(
-            text(
-                """
-                INSERT INTO managed_instances (
-                    target_id, instance_type, runtime_revision,
-                    runtime_state, start_on_host_boot
-                ) VALUES (
-                    :target_id, 'persistent', '  ', 'stopped', 0
-                )
-                """
-            ),
-            {"target_id": str(target.id)},
-        )
-
-
 def test_deleting_target_cascades_to_managed_instance(db_session: Session) -> None:
     target = make_target()
+    revision = make_runtime(db_session)
     targets = TargetRepository(db_session)
     instances = ManagedInstanceRepository(db_session)
     targets.create(target)
-    instances.create(make_instance(target))
+    instances.create(make_instance(target, revision))
     db_session.commit()
 
     assert targets.delete(target.id) is True

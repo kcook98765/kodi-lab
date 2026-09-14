@@ -57,3 +57,64 @@ choices.
   policies, presets, fixtures, history, and development associations.
 - Reason: this is the smallest durable identity/state slice that supports later
   services without pre-implementing their phases.
+
+The following decisions supplement `V1-SPEC.md` by resolving runtime-catalog
+details that it did not specify.
+
+## D-0007: Runtime-definition identity
+
+- Status: approved for Phase 1
+- Decision: use an opaque UUID primary key and a required unique lowercase slug.
+  Kodi version is required metadata, not identity. Slugs accept lowercase ASCII
+  letters, digits, dots, underscores, and hyphens.
+
+## D-0008: Revision identity and ordering
+
+- Status: approved for Phase 1
+- Decision: use an opaque revision UUID plus a positive revision number unique
+  within its parent definition. Revision number controls ordering; newest
+  approved means the approved revision with the greatest number.
+
+## D-0009: Explicit approval lifecycle
+
+- Status: approved for Phase 1
+- Decision: revisions are either `not_approved` or `approved`. Approval requires
+  a UTC-normalized timestamp and may have a note; v1 stores no approving actor.
+  Revocation clears approval timestamp and note.
+
+## D-0010: Trusted Custom Build is independent
+
+- Status: approved for Phase 1
+- Decision: an intrinsic boolean records whether trust confirmation is required;
+  a separate nullable UTC timestamp records confirmation. Approval never implies
+  trust confirmation, and either lifecycle state can change independently.
+
+## D-0011: Finalized immutable revisions
+
+- Status: approved for Phase 1
+- Decision: revisions are created only with complete intrinsic provenance and
+  expose no generic update operation. Only approval and trust confirmation have
+  explicit lifecycle mutation APIs.
+
+## D-0012: Typed provenance and SHA-256
+
+- Status: approved for Phase 1
+- Decision: store nonblank source kind/reference, manifest reference, canonical
+  `sha256:<64 lowercase hex>` content and manifest digests, UTC build timestamp,
+  and an optional nonblank build-log reference. Logs and manifests themselves
+  are not stored in SQLite. SHA-256 is the v1 digest algorithm.
+
+## D-0013: Historical deletion restrictions
+
+- Status: approved for Phase 1
+- Decision: repositories expose no physical definition/revision deletion.
+  Definition-to-revision and instance-to-revision foreign keys use restrictive
+  deletion; no revision history cascades away.
+
+## D-0014: Pre-catalog migration refusal
+
+- Status: approved for Phase 1
+- Decision: migration `0001` to the runtime-catalog schema succeeds only when
+  `managed_instances` is empty. Populated pre-catalog data raises an actionable
+  error instead of deleting rows or fabricating catalog provenance. Downgrade is
+  likewise limited to empty managed-instance and runtime-revision tables.

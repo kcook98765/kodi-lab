@@ -31,3 +31,8 @@ Phase 1 progress: the first vertical slice now implements persisted Target and
 managed-instance identity/state, explicit repositories, SQLite foreign-key
 enforcement, and the initial reversible Alembic migration. Runtime control and
 the remaining domain/storage areas are not implemented.
+
+The runtime-catalog slice adds logical runtime definitions, finalized immutable
+revisions, typed provenance, independent approval/trust lifecycle metadata,
+newest-approved selection, and exact managed-instance revision foreign keys.
+It performs no source fetching, building, installation, or execution.

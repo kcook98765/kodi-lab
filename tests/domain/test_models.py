@@ -33,15 +33,17 @@ def test_valid_target_construction() -> None:
 
 def test_valid_managed_instance_construction() -> None:
     target_id = uuid4()
+    revision_id = uuid4()
 
     instance = ManagedInstance(
         target_id=target_id,
         instance_type=InstanceType.PERSISTENT,
-        runtime_revision="kodi-21.3-r1",
+        runtime_revision_id=revision_id,
         runtime_state=InstanceRuntimeState.STOPPED,
     )
 
     assert instance.target_id == target_id
+    assert instance.runtime_revision_id == revision_id
     assert instance.start_on_host_boot is False
     assert instance.notes is None
 
@@ -62,16 +64,6 @@ def test_target_rejects_blank_required_text(
             availability=TargetAvailability.UNAVAILABLE,
             health=HealthStatus.WARNING,
             connection_state=ConnectionState.DISCONNECTED,
-        )
-
-
-def test_managed_instance_rejects_blank_runtime_revision() -> None:
-    with pytest.raises(ValueError, match="runtime_revision"):
-        ManagedInstance(
-            target_id=uuid4(),
-            instance_type=InstanceType.DISPOSABLE,
-            runtime_revision="",
-            runtime_state=InstanceRuntimeState.STOPPED,
         )
 
 

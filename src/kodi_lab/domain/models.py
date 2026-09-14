@@ -75,10 +75,7 @@ class ManagedInstance:
 
     target_id: UUID
     instance_type: InstanceType
-    runtime_revision: str
+    runtime_revision_id: UUID
     runtime_state: InstanceRuntimeState
     start_on_host_boot: bool = False
     notes: str | None = None
-
-    def __post_init__(self) -> None:
-        _require_text(self.runtime_revision, "runtime_revision")
