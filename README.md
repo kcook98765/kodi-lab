@@ -17,6 +17,10 @@ uv sync --dev
 ./scripts/check
 ```
 
+For optional local path overrides, copy `.env.example` to `.env` and edit the
+two existing bootstrap paths. A `.env` file is ignored by Git and is not
+required in production; the same variables may be supplied by the environment.
+
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the complete local foundation
 check and [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) for the
 phased scope.
