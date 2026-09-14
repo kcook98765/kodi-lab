@@ -47,4 +47,14 @@ orchestration for create-only definition/finalized-revision registration and
 explicit approval/trust lifecycle changes. Registration, lifecycle mutation,
 managed-instance selection, and error translation now share consistent atomic
 service boundaries. Phase 1 is ready for closeout validation; Phase 2 remains
-unstarted.
+ready to begin.
+
+Phase 2 foundation now establishes the restricted local broker boundary:
+versioned bounded JSON framing over a protected Unix socket, kernel peer
+credentials, exact-UID authorization, a typed client, fail-closed socket-path
+handling, safe structured errors/audit fields, and a closed registry containing
+only `ping`, `broker_info`, and `capabilities`. Docker access and all Kodi/runtime
+lifecycle operations remain unimplemented. The next Phase 2 slice should add
+only the smallest read-only Docker-backed inspection operations after their
+exact schemas, daemon connection policy, and information-disclosure limits are
+approved.

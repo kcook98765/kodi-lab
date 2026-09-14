@@ -68,3 +68,26 @@ administration service records approval/trust state, while
 `ManagedInstanceService` applies that state plus injected global Trusted Custom
 Build policy when selecting a revision. Existing instance references remain
 historically valid after approval or trust is revoked.
+
+## Restricted broker boundary
+
+Phase 2 introduces `kodi_lab.broker` as a separate privileged-infrastructure
+boundary. Unprivileged application code uses a typed client over
+`/run/kodi-lab/broker.sock`; it does not receive Docker-group membership or
+direct Docker-socket access. The production broker runs as root and authorizes
+only the kernel-reported Unix peer UID resolved from the dedicated `kodi-lab`
+account. Filesystem permissions restrict access first, but exact-UID
+`SO_PEERCRED` authorization is still mandatory. No token or secondary secret is
+part of this local protocol.
+
+The broker uses one bounded, length-prefixed JSON request and response per Unix
+stream connection. A closed operation registry validates operation-specific
+parameters before invoking an explicit handler. Phase 2 exposes only `ping`,
+`broker_info`, and `capabilities`; all require the authorized peer. No Docker,
+shell, path, environment, or generic execution operation exists yet.
+
+The client/broker boundary is independent of Phase 1's domain, storage, and
+application services. Future Docker adapters will live behind allowlisted
+handlers rather than being imported into those services. See
+`BROKER-SECURITY.md` for the protocol, threat model, path-safety, audit, and
+deployment contracts.

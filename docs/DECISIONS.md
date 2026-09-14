@@ -155,3 +155,145 @@ details that it did not specify.
 - Reason: deterministic idempotence supports retries without rewriting lifecycle
   evidence, while rejecting inapplicable trust operations preserves the strict
   domain invariant.
+
+## D-0018: Broker privilege model
+
+- Status: approved for Phase 2
+- Decision: the production broker runs as root. Application processes run as
+  dedicated user/group `kodi-lab`, receive neither Docker-group membership nor
+  direct Docker-socket access, and use the broker as the sole intended privileged
+  Docker mediation boundary. Account creation is installation work, not Phase 2.
+
+## D-0019: Kernel peer identity and exact-UID authorization
+
+- Status: approved for Phase 2
+- Decision: resolve the production `kodi-lab` username at startup and authorize
+  only the UID reported by Linux `SO_PEERCRED`. PID and primary GID are audit
+  fields only. Request fields, environment, executable identity, and
+  supplementary groups never grant authorization. Tests may inject an expected
+  UID.
+
+## D-0020: Root has no implicit broker authorization
+
+- Status: approved for Phase 2
+- Decision: UID 0 is not automatically added to the application RPC allowlist.
+  Authorization remains an exact comparison with the configured client UID.
+
+## D-0021: No secondary local authentication secret
+
+- Status: approved for Phase 2
+- Decision: protected Unix-socket access, kernel peer credentials, and exact-UID
+  authorization are the complete local authentication chain. Do not add a token,
+  password, API key, TLS layer, or parallel secret store.
+
+## D-0022: Canonical broker socket path
+
+- Status: approved for Phase 2
+- Decision: the local-only production stream socket is
+  `/run/kodi-lab/broker.sock`, directly inside `/run/kodi-lab`. TCP and other
+  network listeners are forbidden.
+
+## D-0023: Runtime-directory and socket metadata
+
+- Status: approved for Phase 2
+- Decision: `/run/kodi-lab` is `root:kodi-lab` mode `0750`; `broker.sock` is
+  `root:kodi-lab` mode `0660`. The broker must fail if expected ownership or mode
+  cannot be established. Tests use current-user-owned temporary directories.
+
+## D-0024: Long-running service activation
+
+- Status: approved for Phase 2
+- Decision: v1 uses a conventional long-running `kodi-lab-broker.service`; the
+  broker creates its own socket. There is no systemd socket activation. A unit is
+  deferred until packaging/install paths are settled and is not installed during
+  Phase 2. The intended unit name currently collides with the protected legacy
+  service on development host, so coexistence forbids installation until that deployment
+  conflict is separately resolved.
+
+## D-0025: Fail-closed socket-path lifecycle
+
+- Status: approved for Phase 2
+- Decision: validate the runtime directory and inspect the endpoint without
+  following symlinks. Refuse symlinks, non-sockets, unsafe metadata, and live
+  listeners. Remove only a verified stale socket inside the validated directory;
+  cleanup unlinks only the socket inode created by this broker. Never recursively
+  repair or delete path content.
+
+## D-0026: Broker protocol serialization and framing
+
+- Status: approved for Phase 2
+- Decision: protocol v1 is strict UTF-8 JSON over an `AF_UNIX` stream, framed by
+  a four-byte unsigned big-endian payload length. Each connection carries exactly
+  one request and one response and is then closed. The payload maximum is 65,536
+  bytes; oversized announced lengths fail before payload allocation/read.
+
+## D-0027: Exact request envelope
+
+- Status: approved for Phase 2
+- Decision: requests contain exactly `version`, canonical UUID `request_id`,
+  bounded registered `operation`, and operation-specific object `params`.
+  Unknown fields, caller identity fields, malformed JSON, duplicate keys,
+  non-finite constants, and invalid schemas are rejected.
+
+## D-0028: Structured response and error envelope
+
+- Status: approved for Phase 2
+- Decision: success returns `version`, `request_id`, `ok=true`, and typed
+  `result`. Failure returns the version, recoverable request ID or null,
+  `ok=false`, and a stable code/safe message. Tracebacks, raw exceptions,
+  environment data, filesystem internals, and future raw Docker errors must not
+  cross the boundary.
+
+## D-0029: Exact protocol-version policy
+
+- Status: approved for Phase 2
+- Decision: accept protocol version 1 only. There is no negotiation or automatic
+  downgrade; unsupported versions receive a stable error. Future versions must be
+  added explicitly.
+
+## D-0030: Connection and schema resource limits
+
+- Status: approved for Phase 2
+- Decision: use one request per connection, a 65,536-byte payload limit, a
+  64-character operation-name limit, canonical UUID request IDs, and five-second
+  read/write timeouts. Each operation bounds its own strings and collections.
+  Do not add a generic JSON-depth analyzer or arbitrary recursive request model.
+
+## D-0031: Correlation IDs are not replay protection
+
+- Status: approved for Phase 2
+- Decision: request IDs support correlation, logs, diagnostics, and future
+  tracing, but are not credentials and do not provide exactly-once delivery.
+  Phase 2 has no replay cache. Future mutation operations must be naturally
+  idempotent or conflict-detecting with explicit state preconditions.
+
+## D-0032: Initial closed operation set
+
+- Status: approved for Phase 2
+- Decision: expose exactly `ping`, `broker_info`, and `capabilities`, each with an
+  empty parameter object and a fixed result schema. Metadata is deliberately
+  minimal. No execute, shell, command, Docker, raw, file, path, or lifecycle
+  operation exists in this slice.
+
+## D-0033: Uniform initial operation authorization
+
+- Status: approved for Phase 2
+- Decision: all initial operations require the authorized Kodi Lab peer UID;
+  there is no anonymous health operation. Registry entries carry authorization
+  metadata for later explicit policy evolution without introducing general RBAC.
+
+## D-0034: Safe broker audit records
+
+- Status: approved for Phase 2
+- Decision: journal-suitable records contain request ID, peer PID/UID/primary
+  GID, safely parsed operation and version, result/error category, and elapsed
+  duration. Authorization failures are recorded. Full bodies, unbounded malformed
+  data, secrets, and environment values are excluded.
+
+## D-0035: Fail-closed broker errors
+
+- Status: approved for Phase 2
+- Decision: startup fails on unresolved identity or insecure path/metadata;
+  connections fail authorization when credentials are unavailable; malformed,
+  oversized, unsupported, or unknown requests never reach handlers; and handler
+  failures produce only a safe internal error while retaining diagnostic logs.
