@@ -303,6 +303,12 @@ planning, semantic verification, bounded drift operations, broker application,
 reset orchestration, durable Web coordination, exact pins, and Legacy policy
 remain unchanged.
 
+Dedicated live validation completed all four missing stable cells in order:
+Kodi 20.5 Movies, Kodi 20.5 TV, Kodi 19.5 Movies, and Kodi 19.5 TV. Each
+fixture passed initial population, bounded drift, restoration, repeat reset,
+exact-pin checks, and cleanup without architectural divergence. The complete
+19.5/20.5/21.3 by Mixed/Movies/TV Small matrix is therefore proven.
+
 The next coherent Phase 6 milestone should begin Medium taxonomy on Kodi 21.3.
 The stable release-specific seed model is now exercised across every Small
 content category; dataset scale and deterministic performance are the highest

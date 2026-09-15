@@ -491,5 +491,8 @@ within each family across Kodi 19.5, 20.5, and 21.3.
 exact-release-specific.** Compatibility remains exact and Legacy selection
 still requires Include Legacy. The scan planner, adapter, broker operation,
 reset service, durable Web coordination, and browser authority are unchanged.
-Small/Mixed, Small/Movies, and Small/TV are now implemented for all three
-validated stable releases.
+Live A/drift/B/C validation proved Small/Mixed, Small/Movies, and Small/TV on
+all three validated stable releases. Every new Movies fixture restored exact
+2/0/0 drift to 3/0/0, and every new TV fixture restored exact 0/1/2 drift to
+0/1/3, with distinct containers, unchanged instance/revision/fixture identity,
+stopped completion, and normal deprovision cleanup.
