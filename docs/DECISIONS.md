@@ -459,3 +459,30 @@ details that it did not specify.
   ownership, an unusable create response, or removal failure returns
   `partial_provisioning_requires_reconciliation`; pre-existing containers and
   images/networks/volumes are never removed.
+
+## D-0045: Proof-gated stopped-container deprovision
+
+- Status: approved for Phase 2
+- Decision: expose explicit `deprovision_managed_container` with exactly canonical
+  managed-instance UUID, previously observed immutable 64-hex container ID,
+  canonical expected runtime-revision UUID, and literal expected state `stopped`.
+  Fixed managed/instance labels discover exactly one candidate; the caller ID is
+  only a precondition. A read-only trusted resolver independently verifies that
+  the persisted ManagedInstance still pins the expected revision. Fresh inspect
+  must then prove exact immutable ID, deterministic managed name, all identity
+  labels including the runtime revision, and normalized stopped state.
+- Removal and postcondition: Docker receives only the trusted selected immutable
+  ID with `force=false` and volume removal disabled. The broker neither stops nor
+  kills a container. Success requires the exact ID to return not-found after
+  removal and a second fixed-label lookup to find no remaining container for the
+  instance. Missing and ambiguous ownership both fail; absence is not destructive
+  idempotent success, and ambiguity is never resolved using the caller ID.
+- Drift and persistence: identity/security invariants and stopped state are
+  mandatory, while unrelated non-identity Docker drift does not make a provably
+  owned stopped container undeletable. Deprovision removes only the container;
+  canonical Target, ManagedInstance, runtime revision/artifact, image, network,
+  and volumes remain unchanged.
+- Race policy: fixed-label lookup, fresh inspect, exact ID/revision validation,
+  immediate exact-ID removal, and two absence checks reject observed-A/replaced-B
+  deletion and false success. They cannot eliminate changes by another privileged
+  Docker or database actor between checks; Phase 2 adds no lock or lease.

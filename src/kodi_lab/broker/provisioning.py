@@ -69,6 +69,11 @@ class ProvisioningResolver(Protocol):
         """Resolve one canonical managed instance without accepting substitutions."""
 
 
+class ManagedInstanceRevisionResolver(Protocol):
+    def resolve_runtime_revision_id(self, managed_instance_id: str) -> str:
+        """Return the independently persisted runtime-revision pin."""
+
+
 class SqliteProvisioningResolver:
     """Read-only resolver over existing Phase 1 repositories."""
 
@@ -134,4 +139,47 @@ class SqliteProvisioningResolver:
         except SQLAlchemyError as error:
             raise ProvisioningStateError(
                 "Canonical provisioning state could not be read"
+            ) from error
+
+
+class SqliteManagedInstanceRevisionResolver:
+    """Read-only resolver for destructive-operation revision preconditions."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    @classmethod
+    def production(cls) -> SqliteManagedInstanceRevisionResolver:
+        engine = create_database_engine(Settings().database_url)
+        return cls(sessionmaker(engine, expire_on_commit=False))
+
+    def resolve_runtime_revision_id(self, managed_instance_id: str) -> str:
+        try:
+            identity = UUID(managed_instance_id)
+            if str(identity) != managed_instance_id:
+                raise ValueError
+        except ValueError as error:
+            raise ProvisioningStateError(
+                "Managed instance identity is not canonical"
+            ) from error
+
+        try:
+            with self._session_factory() as session:
+                target = TargetRepository(session).get(identity)
+                instance = ManagedInstanceRepository(session).get(identity)
+                if target is None or instance is None:
+                    raise ProvisioningStateError("Managed instance does not exist")
+                revision = RuntimeRevisionRepository(session).get(
+                    instance.runtime_revision_id
+                )
+                if revision is None:
+                    raise ProvisioningStateError(
+                        "Pinned runtime revision does not exist"
+                    )
+                return str(revision.id)
+        except ProvisioningStateError:
+            raise
+        except SQLAlchemyError as error:
+            raise ProvisioningStateError(
+                "Canonical managed-instance state could not be read"
             ) from error

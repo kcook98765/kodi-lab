@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import socket
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
 from uuid import uuid4
 
 from pydantic import BaseModel, ValidationError
@@ -21,11 +21,13 @@ from kodi_lab.broker.errors import (
     ClientProtocolError,
     ClientTransportError,
     ContainerIdentityPreconditionClientError,
+    ContainerMustBeStoppedClientError,
     ContainerStateNotReconcilableClientError,
     ContainerStateNotStoppableClientError,
     DockerCreateClientError,
     DockerDaemonUnavailableClientError,
     DockerInventoryClientError,
+    DockerRemoveClientError,
     DockerStartClientError,
     DockerStopClientError,
     FrameTooLargeError,
@@ -34,12 +36,14 @@ from kodi_lab.broker.errors import (
     ManagedContainerNotFoundClientError,
     PartialProvisioningClientError,
     PostCreateVerificationClientError,
+    PostDeprovisionVerificationClientError,
     PostStartVerificationClientError,
     PostStopVerificationClientError,
     ProvisioningConflictClientError,
     ProvisioningPrerequisiteClientError,
     RemoteBrokerError,
     RequestError,
+    RuntimeRevisionPreconditionClientError,
     RuntimeStatePreconditionClientError,
     TrailingFrameDataError,
     TruncatedFrameError,
@@ -47,6 +51,8 @@ from kodi_lab.broker.errors import (
 from kodi_lab.broker.operations import (
     BrokerInfoResult,
     CapabilitiesResult,
+    DeprovisionManagedContainerParams,
+    DeprovisionManagedContainerResult,
     EmptyParams,
     ManagedContainerInventoryResult,
     PingResult,
@@ -80,6 +86,7 @@ STOP_RESPONSE_TIMEOUT_SECONDS = float(
 )
 START_RESPONSE_TIMEOUT_SECONDS = float((4 * DOCKER_API_TIMEOUT_SECONDS) + 5)
 PROVISION_RESPONSE_TIMEOUT_SECONDS = float((8 * DOCKER_API_TIMEOUT_SECONDS) + 5)
+DEPROVISION_RESPONSE_TIMEOUT_SECONDS = float((6 * DOCKER_API_TIMEOUT_SECONDS) + 5)
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
@@ -212,6 +219,43 @@ class BrokerClient:
         ):
             raise ClientProtocolError(
                 "broker start result identity does not match the request"
+            )
+        return result
+
+    def deprovision_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_revision_id: str,
+        expected_runtime_state: Literal[ContainerRuntimeState.STOPPED],
+    ) -> DeprovisionManagedContainerResult:
+        """Remove the exact owned stopped container under strict preconditions."""
+
+        try:
+            params = DeprovisionManagedContainerParams(
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=expected_runtime_revision_id,
+                expected_runtime_state=expected_runtime_state,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "deprovision request failed local validation"
+            ) from error
+        result = self._call(
+            "deprovision_managed_container",
+            params,
+            DeprovisionManagedContainerResult,
+            response_timeout=DEPROVISION_RESPONSE_TIMEOUT_SECONDS,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.removed_container_id != expected_container_id
+            or result.runtime_revision_id != expected_runtime_revision_id
+        ):
+            raise ClientProtocolError(
+                "broker deprovision result identity does not match the request"
             )
         return result
 
@@ -384,6 +428,17 @@ class BrokerClient:
                 "docker_stop_failed": DockerStopClientError,
                 "post_start_verification_failed": (PostStartVerificationClientError),
                 "post_stop_verification_failed": PostStopVerificationClientError,
+                "managed_instance_state_unavailable": (
+                    ProvisioningPrerequisiteClientError
+                ),
+                "runtime_revision_precondition_failed": (
+                    RuntimeRevisionPreconditionClientError
+                ),
+                "container_must_be_stopped": ContainerMustBeStoppedClientError,
+                "docker_remove_failed": DockerRemoveClientError,
+                "post_deprovision_verification_failed": (
+                    PostDeprovisionVerificationClientError
+                ),
             }
             error_type = error_types.get(error_response.error.code, RemoteBrokerError)
             raise error_type(

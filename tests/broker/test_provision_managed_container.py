@@ -138,7 +138,7 @@ class FakeProvisioningDockerClient:
         self.create_error = create_error
         self.remove_error = remove_error
         self.create_calls: list[dict[str, object]] = []
-        self.remove_calls: list[tuple[str, bool]] = []
+        self.remove_calls: list[tuple[str, bool, bool]] = []
         self.start_calls = self.stop_calls = 0
 
     def containers(
@@ -191,8 +191,8 @@ class FakeProvisioningDockerClient:
             raise self.create_error
         return {"Id": CONTAINER_ID}
 
-    def remove_container(self, container: str, *, force: bool) -> None:
-        self.remove_calls.append((container, force))
+    def remove_container(self, container: str, *, force: bool, v: bool) -> None:
+        self.remove_calls.append((container, force, v))
         if self.remove_error is not None:
             raise self.remove_error
 
@@ -375,7 +375,7 @@ def test_post_create_failure_safely_removes_only_reverified_created_id() -> None
     client = FakeProvisioningDockerClient(inspections=[bad, container_data()])
     with pytest.raises(PostCreateVerificationError):
         provision(client)
-    assert client.remove_calls == [(CONTAINER_ID, False)]
+    assert client.remove_calls == [(CONTAINER_ID, False, False)]
 
 
 @pytest.mark.parametrize(
@@ -410,7 +410,7 @@ def test_each_post_create_invariant_failure_uses_proof_gated_rollback(
     client = FakeProvisioningDockerClient(inspections=[bad, container_data()])
     with pytest.raises(PostCreateVerificationError):
         provision(client)
-    assert client.remove_calls == [(CONTAINER_ID, False)]
+    assert client.remove_calls == [(CONTAINER_ID, False, False)]
 
 
 def test_post_create_inspect_failure_rolls_back_only_after_fresh_proof() -> None:
@@ -420,7 +420,7 @@ def test_post_create_inspect_failure_rolls_back_only_after_fresh_proof() -> None
     with pytest.raises(PostCreateVerificationError) as raised:
         provision(client)
     assert "PRIVATE" not in str(raised.value)
-    assert client.remove_calls == [(CONTAINER_ID, False)]
+    assert client.remove_calls == [(CONTAINER_ID, False, False)]
 
 
 def test_invalid_create_identity_is_uncertain_and_never_removed_by_name() -> None:
@@ -464,7 +464,7 @@ def test_cleanup_remove_failure_requires_reconciliation() -> None:
     )
     with pytest.raises(PartialProvisioningError):
         provision(client)
-    assert client.remove_calls == [(CONTAINER_ID, False)]
+    assert client.remove_calls == [(CONTAINER_ID, False, False)]
 
 
 def test_adapter_public_surface_has_no_generic_docker_mutation() -> None:
@@ -475,6 +475,7 @@ def test_adapter_public_surface_has_no_generic_docker_mutation() -> None:
         and callable(getattr(DockerManagedContainerAdapter, name))
     }
     assert public == {
+        "deprovision_managed_container",
         "list_managed_containers",
         "provision_managed_container",
         "start_managed_container",

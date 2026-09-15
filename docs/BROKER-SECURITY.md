@@ -1,9 +1,9 @@
 # Restricted broker security contract
 
 This document derives from `V1-SPEC.md` plus approved decisions D-0018 through
-D-0044. It describes the Phase 2 implementation boundary; it authorizes read-only
+D-0045. It describes the Phase 2 implementation boundary; it authorizes read-only
 Docker inventory, disposable create-only provisioning, and explicit start/stop
-reconciliation for owned containers.
+reconciliation plus stopped-only deprovision for owned containers.
 
 ## Threat model and privilege boundary
 
@@ -119,12 +119,16 @@ Phase 2 contains exactly:
 - `stop_managed_container`: strict managed-instance, immutable container-ID, and
   normalized runtime-state preconditions; returns only verified stopped state and
   whether a stop call was performed.
+- `deprovision_managed_container`: strict managed-instance, immutable container-ID,
+  pinned runtime-revision, and stopped-state preconditions; removes only the
+  verified container and returns a minimal verified-removal result.
 
 All require the authorized UID. There is no anonymous operation and no generic
 execution, raw Docker, shell, raw payload, file, path, environment, caller-driven
-inspection, create/remove/restart/kill/exec, or generic lifecycle operation.
+inspection, generic create/remove/restart/kill/exec, or generic lifecycle
+operation.
 
-The unprivileged `BrokerClient` exposes explicit methods with those seven names.
+The unprivileged `BrokerClient` exposes explicit methods with those eight names.
 Its shared call implementation is private. It generates canonical UUIDs,
 validates outgoing envelopes, uses the bounded framing/timeouts, requires response
 version and correlation-ID consistency, validates operation-specific results, and
@@ -168,9 +172,9 @@ addresses, ports, logs, daemon information, capabilities/security options, raw
 inspect responses, mutable image tags, and arbitrary annotations are excluded.
 The adapter has no generic create, restart, remove, exec, image, volume, network,
 label-mutation, target/mutation, or raw passthrough method. Its only public
-mutations are semantic provision/start/stop methods; provision alone may perform
-proof-gated rollback removal of the exact container it just created. Inventory
-observations are not persisted in SQLite.
+mutations are semantic provision/start/stop/deprovision methods; provision alone
+may perform proof-gated rollback removal of the exact container it just created.
+Inventory observations are not persisted in SQLite.
 
 ## Existing-container two-state reconciliation
 
@@ -308,3 +312,49 @@ daemon, and inventory errors; its additional stable errors are
 `post_start_verification_failed`. Successful start audit adds only managed-instance
 UUID, whether start was performed, and resulting semantic state. No immutable
 container ID or Docker response is logged.
+
+## Stopped-container deprovision
+
+`deprovision_managed_container` accepts exactly:
+
+```text
+managed_instance_id: lowercase canonical UUID
+expected_container_id: immutable 64-lowercase-hex Docker container ID
+expected_runtime_revision_id: lowercase canonical UUID
+expected_runtime_state: stopped
+```
+
+The broker first resolves the canonical ManagedInstance read-only and requires
+its persisted revision pin to equal the expected revision. The Docker adapter
+then discovers with fixed exact managed and instance labels, requires exactly one
+match, and freshly inspects the selected ID. Removal requires exact immutable ID,
+deterministic managed name, managed/instance/runtime-revision identity labels,
+and normalized stopped state. The caller ID and revision are concurrency
+preconditions, not Docker discovery inputs. A missing target is a typed not-found
+failure rather than claimed success; duplicate ownership is an integrity failure
+and is never narrowed using the caller ID.
+
+Docker receives only the selected immutable ID, `force=false`, and volume removal
+disabled. The operation never performs stop, kill, or lifecycle convergence.
+After remove returns, exact-ID inspect must report absence and the fixed-label
+lookup must find no remaining container for the instance. A replacement or an
+unverifiable postcondition therefore fails rather than returning false success.
+Only the container is removed: Target, ManagedInstance, runtime catalog/artifact,
+image, managed network, and storage remain.
+
+Ownership, instance identity, revision identity, immutable container identity,
+deterministic name, and stopped state are mandatory security invariants.
+Unrelated non-identity Docker configuration drift is not treated as ownership,
+but also does not permanently prevent removal of an otherwise proven owned
+stopped container. There remains an unavoidable interval in which another
+privileged Docker or database actor could change state; exact-ID mutation and
+postconditions reduce but do not eliminate that TOCTOU without a lock or lease.
+
+Deprovision errors add `managed_instance_state_unavailable`,
+`runtime_revision_precondition_failed`, `container_must_be_stopped`,
+`docker_remove_failed`, and `post_deprovision_verification_failed`, while reusing
+not-found, ambiguity, invalid-metadata, immutable-ID, daemon, and inventory codes.
+Raw Docker/storage exceptions remain internal. Audit records include only the
+managed-instance UUID, runtime-revision UUID, removed boolean, and normal bounded
+request/peer/outcome fields; they exclude container IDs, labels, inspect data,
+database rows, and exception representations.

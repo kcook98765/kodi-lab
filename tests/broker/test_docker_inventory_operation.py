@@ -185,6 +185,7 @@ def test_capabilities_reports_inventory_and_stop_operations() -> None:
     assert result.model_dump(mode="json")["operations"] == [
         "broker_info",
         "capabilities",
+        "deprovision_managed_container",
         "managed_container_inventory",
         "ping",
         "provision_managed_container",
@@ -280,6 +281,7 @@ def test_registry_has_no_generic_docker_or_execution_operation() -> None:
     assert names == (
         "broker_info",
         "capabilities",
+        "deprovision_managed_container",
         "managed_container_inventory",
         "ping",
         "provision_managed_container",

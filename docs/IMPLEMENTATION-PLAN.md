@@ -81,3 +81,12 @@ and proof-gated rollback prevent adoption or deletion of uncertain/pre-existing
 objects. The required managed network is a separately created prerequisite;
 persistent storage, real-lab validation, readiness, and deployment remain later
 milestones.
+
+Controlled real-Docker validation has exercised provision, inventory, start,
+stop, and idempotent stop through the actual peer-authorized broker while leaving
+one stopped disposable fixture. The next Phase 2 slice adds only
+`deprovision_managed_container`: trusted persisted-revision resolution,
+label-based exactly-one discovery, immutable ID/revision and stopped-state
+preconditions, normal non-volume container removal, and dual absence
+postconditions. It removes no database/catalog state, image, network, volume, or
+legacy resource, and exposes no generic Docker removal primitive.

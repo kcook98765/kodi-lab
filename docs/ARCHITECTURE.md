@@ -85,15 +85,16 @@ stream connection. A closed operation registry validates operation-specific
 parameters before invoking an explicit handler. It exposes `ping`, `broker_info`,
 `capabilities`, the empty-parameter `managed_container_inventory`, UUID-only
 `provision_managed_container`, and explicit semantic `start_managed_container`
-and `stop_managed_container`; all require the authorized peer. Existing-container
+and `stop_managed_container`, plus stopped-only
+`deprovision_managed_container`; all require the authorized peer. Existing-container
 mutations retain strict ownership, immutable-identity, and runtime-state
 preconditions. There is no shell, path, environment, raw Docker, generic
-execution/reconciliation/create, remove/restart/exec, or other lifecycle
+execution/reconciliation/create/remove/restart/exec, or other lifecycle
 operation.
 
 The client/broker boundary is independent of Phase 1's service policy. A narrow
 infrastructure adapter performs fixed read-only Docker list/inspect calls for
-inventory and fixed semantic provision/start/stop operations. It selects
+inventory and fixed semantic provision/start/stop/deprovision operations. It selects
 containers by the
 exact `io.kodi-lab.managed=true` and canonical
 `io.kodi-lab.instance-id=<UUID>` ownership contract, then emits a bounded
@@ -126,3 +127,13 @@ only after full invariant validation. Post-create failures remove only the exact
 new ID after fresh ownership proof; uncertain partial state is retained for
 operator reconciliation. The broker never creates or rolls back images,
 networks, or volumes. Persistent storage remains deferred.
+
+Deprovision resolves the canonical persisted ManagedInstance revision pin before
+Docker access, then discovers exactly one container through fixed ownership
+labels. Fresh inspect must prove the caller-observed immutable ID, canonical
+instance and revision labels, deterministic name, and stopped state. The adapter
+uses only normal non-forced, non-volume removal and proves both exact-ID absence
+and absence of any remaining owned container for the instance. It does not delete
+application/catalog state, images, networks, or storage. Non-identity Docker
+configuration drift is deliberately not an ownership substitute or a permanent
+barrier to removing an otherwise exactly identified stopped container.

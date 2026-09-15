@@ -73,6 +73,7 @@ def test_real_temporary_unix_server_client_round_trip(
             operations=[
                 "broker_info",
                 "capabilities",
+                "deprovision_managed_container",
                 "managed_container_inventory",
                 "ping",
                 "provision_managed_container",

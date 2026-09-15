@@ -254,6 +254,7 @@ def test_capabilities_contains_only_the_stop_addition() -> None:
     assert registry.names == (
         "broker_info",
         "capabilities",
+        "deprovision_managed_container",
         "managed_container_inventory",
         "ping",
         "provision_managed_container",

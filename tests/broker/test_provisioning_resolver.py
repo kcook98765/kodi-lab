@@ -15,6 +15,7 @@ from kodi_lab.broker.provisioning import (
     MANAGED_NETWORK_NAME,
     MANAGED_NETWORK_SUBNET,
     ManagedContainerProvisioningSpec,
+    SqliteManagedInstanceRevisionResolver,
     SqliteProvisioningResolver,
 )
 from kodi_lab.domain import (
@@ -176,3 +177,28 @@ def test_fixed_network_policy_is_not_caller_selectable(tmp_path: Path) -> None:
     resolved = resolver_with_state(tmp_path).resolve(str(INSTANCE_ID))
     assert resolved.network_name == MANAGED_NETWORK_NAME
     assert MANAGED_NETWORK_SUBNET == "10.250.0.0/24"
+
+
+def revision_resolver_for(path: Path) -> SqliteManagedInstanceRevisionResolver:
+    engine = create_database_engine(f"sqlite:///{path / 'resolver.db'}")
+    return SqliteManagedInstanceRevisionResolver(create_session_factory(engine))
+
+
+def test_revision_resolver_returns_exact_persisted_pin(tmp_path: Path) -> None:
+    resolver_with_state(tmp_path)
+    resolver = revision_resolver_for(tmp_path)
+    assert resolver.resolve_runtime_revision_id(str(INSTANCE_ID)) == str(REVISION_ID)
+
+
+def test_revision_resolver_rejects_missing_instance_and_revision(
+    tmp_path: Path,
+) -> None:
+    resolver_with_state(tmp_path / "valid")
+    valid = revision_resolver_for(tmp_path / "valid")
+    with pytest.raises(ProvisioningStateError):
+        valid.resolve_runtime_revision_id(str(UUID(int=99)))
+
+    resolver_with_state(tmp_path / "corrupt", remove_pinned_revision=True)
+    corrupt = revision_resolver_for(tmp_path / "corrupt")
+    with pytest.raises(ProvisioningStateError, match="revision does not exist"):
+        corrupt.resolve_runtime_revision_id(str(INSTANCE_ID))

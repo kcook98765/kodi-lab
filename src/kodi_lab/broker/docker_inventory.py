@@ -19,11 +19,13 @@ from docker.errors import (  # type: ignore[import-untyped]
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
     ContainerIdentityPreconditionError,
+    ContainerMustBeStoppedError,
     ContainerStateNotReconcilableError,
     ContainerStateNotStoppableError,
     DockerCreateError,
     DockerDaemonUnavailableError,
     DockerInventoryReadError,
+    DockerRemoveError,
     DockerStartError,
     DockerStopError,
     InvalidManagedContainerMetadataError,
@@ -33,10 +35,12 @@ from kodi_lab.broker.errors import (
     ManagedNetworkUnavailableError,
     PartialProvisioningError,
     PostCreateVerificationError,
+    PostDeprovisionVerificationError,
     PostStartVerificationError,
     PostStopVerificationError,
     ProvisioningConflictError,
     RuntimeImageUnavailableError,
+    RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionError,
 )
 from kodi_lab.broker.protocol import is_canonical_uuid
@@ -130,6 +134,16 @@ class ProvisionedManagedContainerRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class DeprovisionedManagedContainerRecord:
+    """Minimal verified destructive outcome."""
+
+    managed_instance_id: str
+    removed_container_id: str
+    runtime_revision_id: str
+    removed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _ReconciliationRecord:
     managed_instance_id: str
     container_id: str
@@ -178,6 +192,18 @@ class ManagedContainerProvisioningProvider(Protocol):
         """Create or verify one container from broker-trusted state."""
 
 
+class ManagedContainerDeprovisioningProvider(Protocol):
+    def deprovision_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_revision_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> DeprovisionedManagedContainerRecord:
+        """Remove one exact, owned, stopped container under strict preconditions."""
+
+
 class _DockerClient(Protocol):
     def containers(
         self, *, all: bool, filters: Mapping[str, list[str]]
@@ -192,7 +218,11 @@ class _DockerClient(Protocol):
     def close(self) -> None: ...
 
 
-class _ProvisioningDockerClient(_DockerClient, Protocol):
+class _DeprovisionDockerClient(_DockerClient, Protocol):
+    def remove_container(self, container: str, *, force: bool, v: bool) -> None: ...
+
+
+class _ProvisioningDockerClient(_DeprovisionDockerClient, Protocol):
     def inspect_image(self, image: str) -> object: ...
 
     def inspect_network(self, network: str) -> object: ...
@@ -220,8 +250,6 @@ class _ProvisioningDockerClient(_DockerClient, Protocol):
         host_config: object,
         networking_config: object,
     ) -> object: ...
-
-    def remove_container(self, container: str, *, force: bool) -> None: ...
 
 
 type DockerClientFactory = Callable[[], _DockerClient]
@@ -674,7 +702,7 @@ class DockerManagedContainerAdapter:
                 or labels.get(RUNTIME_REVISION_LABEL_KEY) != spec.runtime_revision_id
             ):
                 raise ValueError
-            client.remove_container(created_id, force=False)
+            client.remove_container(created_id, force=False, v=False)
         except Exception as cleanup_error:
             raise PartialProvisioningError(
                 "Partial provisioning requires operator reconciliation"
@@ -723,6 +751,133 @@ class DockerManagedContainerAdapter:
             runtime_state=outcome.runtime_state,
             stop_performed=outcome.mutation_performed,
         )
+
+    def deprovision_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_revision_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> DeprovisionedManagedContainerRecord:
+        """Remove one exact, owned, stopped container and prove its absence."""
+
+        if not is_canonical_uuid(managed_instance_id):
+            raise InvalidManagedContainerMetadataError(
+                "Managed instance identity is not canonical"
+            )
+        if _CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None:
+            raise ContainerIdentityPreconditionError(
+                "Expected container identity is not canonical"
+            )
+        if not is_canonical_uuid(expected_runtime_revision_id):
+            raise RuntimeRevisionPreconditionError(
+                "Expected runtime revision identity is not canonical"
+            )
+        if expected_runtime_state is not ContainerRuntimeState.STOPPED:
+            raise ContainerMustBeStoppedError(
+                "Deprovision requires an explicit stopped-state precondition"
+            )
+
+        client: _DeprovisionDockerClient | None = None
+        try:
+            client = cast(_DeprovisionDockerClient, self._client_factory())
+            filters = {
+                "label": [
+                    f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                    f"{INSTANCE_ID_LABEL_KEY}={managed_instance_id}",
+                ]
+            }
+            summaries = client.containers(all=True, filters=filters)
+            if not isinstance(summaries, list):
+                raise DockerInventoryReadError(
+                    "Docker returned malformed container selection data"
+                )
+            if not summaries:
+                raise ManagedContainerNotFoundError(
+                    "No owned container exists for the managed instance"
+                )
+            if len(summaries) != 1:
+                raise AmbiguousManagedContainerError(
+                    "Multiple containers have the managed instance identity"
+                )
+
+            summary = _require_mapping(summaries[0])
+            selected_container_id = _require_container_id(summary.get("Id"))
+            inspected = _require_mapping(
+                client.inspect_container(selected_container_id)
+            )
+            self._validate_deprovision_candidate(
+                inspected,
+                selected_container_id=selected_container_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=expected_runtime_revision_id,
+            )
+
+            try:
+                client.remove_container(
+                    selected_container_id,
+                    force=False,
+                    v=False,
+                )
+            except (DockerException, OSError) as error:
+                raise DockerRemoveError("Docker container removal failed") from error
+
+            try:
+                still_present = client.inspect_container(selected_container_id)
+            except NotFound:
+                still_present = None
+            except (DockerException, OSError) as error:
+                raise PostDeprovisionVerificationError(
+                    "Removed container absence could not be verified"
+                ) from error
+            if still_present is not None:
+                raise PostDeprovisionVerificationError(
+                    "Removed container identity still exists"
+                )
+
+            try:
+                remaining = client.containers(all=True, filters=filters)
+            except (DockerException, OSError) as error:
+                raise PostDeprovisionVerificationError(
+                    "Managed-instance container absence could not be verified"
+                ) from error
+            if not isinstance(remaining, list) or remaining:
+                raise PostDeprovisionVerificationError(
+                    "A managed container remains for the instance"
+                )
+
+            return DeprovisionedManagedContainerRecord(
+                managed_instance_id=managed_instance_id,
+                removed_container_id=selected_container_id,
+                runtime_revision_id=expected_runtime_revision_id,
+                removed=True,
+            )
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            DockerInventoryReadError,
+            DockerRemoveError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            PostDeprovisionVerificationError,
+            RuntimeRevisionPreconditionError,
+        ):
+            raise
+        except APIError as error:
+            raise DockerInventoryReadError(
+                "Docker managed-container read failed"
+            ) from error
+        except (DockerException, OSError) as error:
+            raise DockerDaemonUnavailableError(
+                "Docker daemon is unavailable"
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
 
     def _reconcile_managed_container(
         self,
@@ -886,6 +1041,71 @@ class DockerManagedContainerAdapter:
             if client is not None:
                 with suppress(DockerException, OSError):
                     client.close()
+
+    @staticmethod
+    def _validate_deprovision_candidate(
+        inspected: Mapping[str, object],
+        *,
+        selected_container_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_revision_id: str,
+    ) -> None:
+        """Prove destructive identity and stopped state from fresh inspect data."""
+
+        container_id = _require_container_id(inspected.get("Id"))
+        if container_id != selected_container_id:
+            raise DockerInventoryReadError(
+                "Docker container identity changed during selection"
+            )
+        if container_id != expected_container_id:
+            raise ContainerIdentityPreconditionError(
+                "Managed container identity differs from the precondition"
+            )
+        expected_name = f"kodi-lab-managed-{managed_instance_id.replace('-', '')}"
+        if inspected.get("Name") not in {expected_name, f"/{expected_name}"}:
+            raise InvalidManagedContainerMetadataError(
+                "Managed container deterministic identity is invalid"
+            )
+
+        config = _require_mapping(inspected.get("Config"))
+        labels_value = config.get("Labels")
+        if not isinstance(labels_value, Mapping):
+            raise InvalidManagedContainerMetadataError(
+                "Selected container has no valid Kodi Lab ownership metadata"
+            )
+        labels = cast(Mapping[str, object], labels_value)
+        if labels.get(MANAGED_LABEL_KEY) != MANAGED_LABEL_VALUE:
+            raise InvalidManagedContainerMetadataError(
+                "Selected container no longer has Kodi Lab ownership"
+            )
+        inspected_instance_id = labels.get(INSTANCE_ID_LABEL_KEY)
+        if not is_canonical_uuid(inspected_instance_id):
+            raise InvalidManagedContainerMetadataError(
+                "Managed container has invalid instance identity metadata"
+            )
+        if inspected_instance_id != managed_instance_id:
+            raise InvalidManagedContainerMetadataError(
+                "Selected container has different managed instance ownership"
+            )
+        inspected_revision_id = labels.get(RUNTIME_REVISION_LABEL_KEY)
+        if not is_canonical_uuid(inspected_revision_id):
+            raise InvalidManagedContainerMetadataError(
+                "Managed container has invalid runtime revision metadata"
+            )
+        if inspected_revision_id != expected_runtime_revision_id:
+            raise RuntimeRevisionPreconditionError(
+                "Managed container runtime revision differs from the precondition"
+            )
+
+        state = _require_mapping(inspected.get("State"))
+        if (
+            normalize_runtime_state(state.get("Status"))
+            is not ContainerRuntimeState.STOPPED
+        ):
+            raise ContainerMustBeStoppedError(
+                "Managed container must be stopped before deprovisioning"
+            )
 
     @staticmethod
     def _record_from_inspect(

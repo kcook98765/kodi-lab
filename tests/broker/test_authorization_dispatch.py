@@ -58,6 +58,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
     assert registry.names == (
         "broker_info",
         "capabilities",
+        "deprovision_managed_container",
         "managed_container_inventory",
         "ping",
         "provision_managed_container",
@@ -72,6 +73,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
         operations=[
             "broker_info",
             "capabilities",
+            "deprovision_managed_container",
             "managed_container_inventory",
             "ping",
             "provision_managed_container",

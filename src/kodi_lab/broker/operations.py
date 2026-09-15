@@ -13,18 +13,22 @@ from kodi_lab.broker.docker_inventory import (
     MAX_MANAGED_CONTAINERS,
     ContainerHealthState,
     ContainerRuntimeState,
+    DeprovisionedManagedContainerRecord,
     DockerManagedContainerAdapter,
+    ManagedContainerDeprovisioningProvider,
     ManagedContainerOperationsProvider,
     ManagedContainerProvisioningProvider,
 )
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
     ContainerIdentityPreconditionError,
+    ContainerMustBeStoppedError,
     ContainerStateNotReconcilableError,
     ContainerStateNotStoppableError,
     DockerCreateError,
     DockerDaemonUnavailableError,
     DockerInventoryReadError,
+    DockerRemoveError,
     DockerStartError,
     DockerStopError,
     HandlerExecutionError,
@@ -37,6 +41,7 @@ from kodi_lab.broker.errors import (
     PartialProvisioningError,
     PersistentProvisioningUnsupportedError,
     PostCreateVerificationError,
+    PostDeprovisionVerificationError,
     PostStartVerificationError,
     PostStopVerificationError,
     ProvisioningConflictError,
@@ -44,6 +49,7 @@ from kodi_lab.broker.errors import (
     RequestError,
     RuntimeContainerArtifactUnavailableError,
     RuntimeImageUnavailableError,
+    RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionError,
 )
 from kodi_lab.broker.protocol import (
@@ -53,7 +59,9 @@ from kodi_lab.broker.protocol import (
     is_canonical_uuid,
 )
 from kodi_lab.broker.provisioning import (
+    ManagedInstanceRevisionResolver,
     ProvisioningResolver,
+    SqliteManagedInstanceRevisionResolver,
     SqliteProvisioningResolver,
 )
 
@@ -281,6 +289,42 @@ class StartManagedContainerResult(StrictModel):
         return self
 
 
+class DeprovisionManagedContainerParams(StrictModel):
+    """Strict destructive identity, revision, and stopped-state preconditions."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+    expected_runtime_revision_id: str = Field(min_length=36, max_length=36)
+    expected_runtime_state: Literal[ContainerRuntimeState.STOPPED]
+
+    @field_validator("managed_instance_id", "expected_runtime_revision_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class DeprovisionManagedContainerResult(StrictModel):
+    """Minimal result after verified destructive absence."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    removed_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    removed: Literal[True]
+
+    @field_validator("managed_instance_id", "runtime_revision_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
 type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
@@ -409,6 +453,8 @@ def build_foundation_registry(
     *,
     provisioning_resolver: ProvisioningResolver | None = None,
     provisioning_provider: ManagedContainerProvisioningProvider | None = None,
+    deprovisioning_provider: ManagedContainerDeprovisioningProvider | None = None,
+    revision_resolver: ManagedInstanceRevisionResolver | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -417,6 +463,12 @@ def build_foundation_registry(
     resolver = provisioning_resolver or SqliteProvisioningResolver.production()
     provisioner = provisioning_provider or cast(
         ManagedContainerProvisioningProvider, provider
+    )
+    deprovisioner = deprovisioning_provider or cast(
+        ManagedContainerDeprovisioningProvider, provider
+    )
+    pin_resolver = (
+        revision_resolver or SqliteManagedInstanceRevisionResolver.production()
     )
     registry.register(
         name="ping",
@@ -818,5 +870,128 @@ def build_foundation_registry(
         result_model=StopManagedContainerResult,
         handler=stop_managed_container,
         audit_builder=stop_audit,
+    )
+
+    def deprovision_managed_container(
+        params: DeprovisionManagedContainerParams,
+    ) -> DeprovisionManagedContainerResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_runtime_revision_id": params.expected_runtime_revision_id,
+        }
+        try:
+            pinned_revision_id = pin_resolver.resolve_runtime_revision_id(
+                params.managed_instance_id
+            )
+            if pinned_revision_id != params.expected_runtime_revision_id:
+                raise RuntimeRevisionPreconditionError(
+                    "Persisted runtime revision differs from the precondition"
+                )
+            outcome: DeprovisionedManagedContainerRecord = (
+                deprovisioner.deprovision_managed_container(
+                    managed_instance_id=params.managed_instance_id,
+                    expected_container_id=params.expected_container_id,
+                    expected_runtime_revision_id=params.expected_runtime_revision_id,
+                    expected_runtime_state=params.expected_runtime_state,
+                )
+            )
+        except ProvisioningStateError as error:
+            raise OperationError(
+                "managed_instance_state_unavailable",
+                "Canonical managed-instance state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeRevisionPreconditionError as error:
+            raise OperationError(
+                "runtime_revision_precondition_failed",
+                "The managed instance runtime revision changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDaemonUnavailableError as error:
+            raise OperationError(
+                "docker_daemon_unavailable",
+                "The Docker daemon is unavailable to the broker.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedContainerNotFoundError as error:
+            raise OperationError(
+                "managed_container_not_found",
+                "No Kodi Lab-owned container exists for the managed instance.",
+                audit_fields=audit_fields,
+            ) from error
+        except AmbiguousManagedContainerError as error:
+            raise OperationError(
+                "ambiguous_managed_container",
+                "Multiple containers claim the managed instance identity.",
+                audit_fields=audit_fields,
+            ) from error
+        except InvalidManagedContainerMetadataError as error:
+            raise OperationError(
+                "invalid_managed_container_metadata",
+                "Kodi Lab managed-container identity metadata is invalid.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerIdentityPreconditionError as error:
+            raise OperationError(
+                "container_identity_precondition_failed",
+                "The managed container identity changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerMustBeStoppedError as error:
+            raise OperationError(
+                "container_must_be_stopped",
+                "The managed container must be stopped before deprovisioning.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerRemoveError as error:
+            raise OperationError(
+                "docker_remove_failed",
+                "Docker could not safely remove the managed container.",
+                audit_fields=audit_fields,
+            ) from error
+        except PostDeprovisionVerificationError as error:
+            raise OperationError(
+                "post_deprovision_verification_failed",
+                "The broker could not verify complete container removal.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerInventoryReadError as error:
+            raise OperationError(
+                "docker_inventory_failed",
+                "The broker could not safely read Docker container state.",
+                audit_fields=audit_fields,
+            ) from error
+
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.removed_container_id != params.expected_container_id
+            or outcome.runtime_revision_id != params.expected_runtime_revision_id
+            or not outcome.removed
+        ):
+            raise RuntimeError(
+                "Docker adapter returned inconsistent deprovision identity"
+            )
+        return DeprovisionManagedContainerResult(
+            managed_instance_id=outcome.managed_instance_id,
+            removed_container_id=outcome.removed_container_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            removed=True,
+        )
+
+    def deprovision_audit(
+        result: DeprovisionManagedContainerResult,
+    ) -> dict[str, object]:
+        return {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_runtime_revision_id": result.runtime_revision_id,
+            "broker_container_removed": result.removed,
+        }
+
+    registry.register(
+        name="deprovision_managed_container",
+        params_model=DeprovisionManagedContainerParams,
+        result_model=DeprovisionManagedContainerResult,
+        handler=deprovision_managed_container,
+        audit_builder=deprovision_audit,
     )
     return registry

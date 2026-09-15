@@ -184,6 +184,22 @@ class PartialProvisioningError(DockerInventoryError):
     """A created container could not be safely reconciled or removed."""
 
 
+class RuntimeRevisionPreconditionError(DockerInventoryError):
+    """The expected revision differs from trusted state or container metadata."""
+
+
+class ContainerMustBeStoppedError(DockerInventoryError):
+    """Destructive deprovision was refused because the container is not stopped."""
+
+
+class DockerRemoveError(DockerInventoryError):
+    """Docker did not safely complete the fixed semantic container removal."""
+
+
+class PostDeprovisionVerificationError(DockerInventoryError):
+    """The broker could not prove the requested container is fully absent."""
+
+
 class ClientError(BrokerError):
     """Base class for typed unprivileged-client failures."""
 
@@ -288,3 +304,19 @@ class PostCreateVerificationClientError(RemoteBrokerError):
 
 class PartialProvisioningClientError(RemoteBrokerError):
     """Provisioning left an uncertain object requiring reconciliation."""
+
+
+class RuntimeRevisionPreconditionClientError(RemoteBrokerError):
+    """The expected runtime revision differs from trusted current state."""
+
+
+class ContainerMustBeStoppedClientError(RemoteBrokerError):
+    """The managed container must be stopped before deprovisioning."""
+
+
+class DockerRemoveClientError(RemoteBrokerError):
+    """The broker could not safely complete Docker container removal."""
+
+
+class PostDeprovisionVerificationClientError(RemoteBrokerError):
+    """The broker could not prove the removed container is absent."""
