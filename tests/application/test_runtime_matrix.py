@@ -33,9 +33,11 @@ from kodi_lab.domain import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.fixtures.package import load_packaged_fixture
 from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
+    FixtureDefinitionRepository,
     ManagedInstanceRepository,
     RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
@@ -219,6 +221,27 @@ def test_curated_matrix_policy_combinations(factory: sessionmaker[Session]) -> N
             trust_on.list_matrix(include_legacy=True, include_prerelease=True)
         ).values()
     )
+
+
+def test_legacy_fixture_availability_does_not_bypass_include_legacy(
+    factory: sessionmaker[Session],
+) -> None:
+    items = seed_curated_matrix(factory)
+    fixture = load_packaged_fixture("small-mixed-v4").definition
+    with factory.begin() as session:
+        FixtureDefinitionRepository(session).create(fixture)
+
+    service = RuntimeMatrixService(factory)
+    ordinary = service.resolve_target(items["19.5"][2].id)
+    opted_in = service.resolve_target(items["19.5"][2].id, include_legacy=True)
+
+    assert not ordinary.selectable
+    assert ordinary.ineligibility_reason is (
+        MatrixIneligibilityReason.SUPPORT_TIER_NOT_PERMITTED
+    )
+    assert opted_in.selectable
+    with factory() as session:
+        assert FixtureDefinitionRepository(session).get(fixture.id) == fixture
 
 
 def test_matrix_dto_is_semantic_and_preserves_beta_ordinal(

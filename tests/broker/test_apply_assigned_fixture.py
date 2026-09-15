@@ -169,6 +169,24 @@ def test_v3_seed_uses_same_operation_with_its_fixed_nexus_database_path() -> Non
     assert "userdata/Database/MyVideos121.db" in names
 
 
+def test_v4_seed_uses_same_operation_with_its_fixed_matrix_database_path() -> None:
+    client = FakeFixtureDockerClient()
+    fixture_spec = spec("small-mixed-v4")
+    result = DockerManagedContainerAdapter(lambda: client).apply_assigned_fixture(
+        spec=fixture_spec, expected_container_id=CONTAINER_ID
+    )
+
+    assert result.fixture_slug == "small-mixed-v4"
+    assert result.fixture_version == 4
+    assert "/home/kodi/.kodi/userdata/Database/MyVideos119.db" in client.get_paths
+    assert len(client.put_calls) == 1
+    _container, destination, archive_bytes = client.put_calls[0]
+    assert destination == "/home/kodi/.kodi"
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes)) as archive:
+        names = {member.name for member in archive.getmembers()}
+    assert "userdata/Database/MyVideos119.db" in names
+
+
 def test_running_container_and_preexisting_fixture_state_fail_closed() -> None:
     with pytest.raises(ContainerMustBeStoppedError):
         apply(FakeFixtureDockerClient(inspection=inspect_data(state="running")))

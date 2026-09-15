@@ -169,16 +169,18 @@ def test_fixed_scan_and_exact_semantic_fixture_success() -> None:
     }
 
 
-def test_same_fixed_semantic_adapter_supports_nexus_and_rejects_unproven_release() -> (
-    None
-):
+def test_same_fixed_semantic_adapter_supports_all_proven_stable_releases() -> None:
     nexus = SmallMixedFixtureKodiAdapter(
         observation(), profile("20.5"), transport=FakeTransport()
     )
     assert nexus.get_fixture_library_state().is_baseline
+    matrix = SmallMixedFixtureKodiAdapter(
+        observation(), profile("19.5"), transport=FakeTransport()
+    )
+    assert matrix.get_fixture_library_state().is_baseline
     with pytest.raises(ValueError, match="only proven releases"):
         SmallMixedFixtureKodiAdapter(
-            observation(), profile("19.5"), transport=FakeTransport()
+            observation(), profile("22.0"), transport=FakeTransport()
         )
 
 

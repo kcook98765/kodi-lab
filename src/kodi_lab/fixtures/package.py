@@ -22,6 +22,8 @@ from kodi_lab.fixtures.seed_audit import (
     FIXTURE_LOCAL_SCRAPER,
     FIXTURE_MOVIE_DIRECTORY,
     FIXTURE_TV_DIRECTORY,
+    KODI_19_VIDEO_DATABASE_FILENAME,
+    KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
     KODI_20_VIDEO_DATABASE_FILENAME,
     KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
     KODI_VIDEO_DATABASE_FILENAME,
@@ -30,11 +32,13 @@ from kodi_lab.fixtures.seed_audit import (
     FixtureSeedAuditError,
     audit_small_mixed_v2_seed,
     audit_small_mixed_v3_seed,
+    audit_small_mixed_v4_seed,
 )
 
 SMALL_MIXED_V1_FIXTURE_SLUG = "small-mixed-v1"
 SMALL_MIXED_V2_FIXTURE_SLUG = "small-mixed-v2"
 SMALL_MIXED_V3_FIXTURE_SLUG = "small-mixed-v3"
+SMALL_MIXED_V4_FIXTURE_SLUG = "small-mixed-v4"
 # Kept as the original public name so existing v1 callers remain unchanged.
 SMALL_MIXED_FIXTURE_SLUG = SMALL_MIXED_V1_FIXTURE_SLUG
 TRUSTED_FIXTURE_SLUGS = frozenset(
@@ -42,6 +46,7 @@ TRUSTED_FIXTURE_SLUGS = frozenset(
         SMALL_MIXED_V1_FIXTURE_SLUG,
         SMALL_MIXED_V2_FIXTURE_SLUG,
         SMALL_MIXED_V3_FIXTURE_SLUG,
+        SMALL_MIXED_V4_FIXTURE_SLUG,
     }
 )
 FIXTURE_CONTAINER_DESTINATION = "/home/kodi/.kodi"
@@ -55,6 +60,9 @@ FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS = MappingProxyType(
         SMALL_MIXED_V2_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
         SMALL_MIXED_V3_FIXTURE_SLUG: (
             f"/home/kodi/.kodi/userdata/Database/{KODI_20_VIDEO_DATABASE_FILENAME}"
+        ),
+        SMALL_MIXED_V4_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
         ),
     }
 )
@@ -229,6 +237,7 @@ def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> N
         SMALL_MIXED_V1_FIXTURE_SLUG: (1, 1),
         SMALL_MIXED_V2_FIXTURE_SLUG: (2, 2),
         SMALL_MIXED_V3_FIXTURE_SLUG: (3, 3),
+        SMALL_MIXED_V4_FIXTURE_SLUG: (4, 4),
     }.get(slug)
     if expected is None:
         raise PackagedFixtureError("fixture manifest identity is invalid")
@@ -303,6 +312,11 @@ def _audit_seed(
             KODI_20_VIDEO_DATABASE_FILENAME,
             KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
             audit_small_mixed_v3_seed,
+        ),
+        SMALL_MIXED_V4_FIXTURE_SLUG: (
+            KODI_19_VIDEO_DATABASE_FILENAME,
+            KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_mixed_v4_seed,
         ),
     }.get(slug)
     if seed_contract is None:

@@ -9,6 +9,8 @@ KODI_VIDEO_DATABASE_FILENAME = "MyVideos131.db"
 KODI_VIDEO_DATABASE_SCHEMA_VERSION = 131
 KODI_20_VIDEO_DATABASE_FILENAME = "MyVideos121.db"
 KODI_20_VIDEO_DATABASE_SCHEMA_VERSION = 121
+KODI_19_VIDEO_DATABASE_FILENAME = "MyVideos119.db"
+KODI_19_VIDEO_DATABASE_SCHEMA_VERSION = 119
 FIXTURE_MOVIE_DIRECTORY = "/home/kodi/.kodi/fixture-media/movies/"
 FIXTURE_TV_DIRECTORY = "/home/kodi/.kodi/fixture-media/tvshows/"
 FIXTURE_LOCAL_SCRAPER = "metadata.local"
@@ -60,6 +62,11 @@ _KODI_20_EXPECTED_NONZERO_TABLE_COUNTS = {
     "version": 1,
 }
 
+_KODI_19_EXPECTED_NONZERO_TABLE_COUNTS = {
+    "path": 2,
+    "version": 1,
+}
+
 
 class FixtureSeedAuditError(RuntimeError):
     """The immutable database seed violates its configuration-only contract."""
@@ -92,6 +99,17 @@ def audit_small_mixed_v3_seed(database: bytes) -> FixtureSeedAudit:
         database_filename=KODI_20_VIDEO_DATABASE_FILENAME,
         schema_version=KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
         expected_nonzero_table_counts=_KODI_20_EXPECTED_NONZERO_TABLE_COUNTS,
+    )
+
+
+def audit_small_mixed_v4_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the fixed Kodi 19.5 seed without accepting a path or mutable SQL."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_19_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=_KODI_19_EXPECTED_NONZERO_TABLE_COUNTS,
     )
 
 

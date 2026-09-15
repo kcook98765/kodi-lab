@@ -43,6 +43,7 @@ packages = ["src/kodi_lab"]
 artifacts = [
   "src/kodi_lab/fixtures/small-mixed-v2/payload/userdata/Database/MyVideos131.db",
   "src/kodi_lab/fixtures/small-mixed-v3/payload/userdata/Database/MyVideos121.db",
+  "src/kodi_lab/fixtures/small-mixed-v4/payload/userdata/Database/MyVideos119.db",
 ]
 
 [tool.pytest.ini_options]

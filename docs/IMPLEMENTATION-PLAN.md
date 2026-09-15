@@ -251,3 +251,18 @@ The next coherent Phase 6 milestone should test the same fixed Small/Mixed
 contract on Kodi 19.5 Legacy with a new exact-schema fixture version. This
 extends stable-release portability before spending fixture-version effort on a
 moving Preview runtime or broadening the fixture taxonomy.
+
+Phase 6 Step 5 adds immutable `small-mixed-v4` for exact Kodi 19.5. It reuses
+the byte-identical synthetic media, NFO, artwork, source configuration, scan
+sequence, and semantic 1/1/1 contract while pinning Matrix `MyVideos119.db` and
+its schema-aware configuration-only purity audit. v2, v3, and v4 reject every
+cross-release assignment. The existing broker operation, reset service,
+durable coordinator, and fixed adapter surface are unchanged. Fixture
+availability remains independent of Legacy selection: Include Legacy is still
+required for normal Kodi 19.5 selection.
+
+The next coherent Phase 6 milestone should expand the fixture taxonomy beyond
+Small/Mixed on an already proven stable release. Three stable Kodi generations
+now establish the release-specific seed pattern; a new semantic fixture adds
+broader product value without binding another immutable fixture version to a
+moving Preview schema.

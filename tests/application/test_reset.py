@@ -334,10 +334,15 @@ class FakeBroker:
             runtime_revision_id=self.revision_id,
             container_id=self.container_id,
             fixture_slug=cast(
-                Literal["small-mixed-v1", "small-mixed-v2", "small-mixed-v3"],
+                Literal[
+                    "small-mixed-v1",
+                    "small-mixed-v2",
+                    "small-mixed-v3",
+                    "small-mixed-v4",
+                ],
                 fixture.slug,
             ),
-            fixture_version=cast(Literal[1, 2, 3], fixture.fixture_version),
+            fixture_version=cast(Literal[1, 2, 3, 4], fixture.fixture_version),
             content_digest=fixture.content_digest,
             runtime_state=ContainerRuntimeState.STOPPED,
         )
@@ -500,6 +505,34 @@ def test_v3_reset_uses_same_flow_and_retains_exact_nexus_revision(
     assert result.runtime_revision_id == revision_id
     assert result.fixture_slug == "small-mixed-v3"
     assert result.fixture_version == 3
+    assert broker.calls.index("apply_fixture") < broker.calls.index("start")
+    with session_factory() as session:
+        retained = ManagedInstanceRepository(session).get(instance_id)
+        assert retained is not None
+        assert retained.runtime_revision_id == revision_id
+        assert retained.fixture_definition_id == fixture_id
+
+
+def test_v4_reset_uses_same_flow_and_retains_exact_matrix_revision(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, fixture_id = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-mixed-v4",
+        kodi_version="19.5",
+    )
+    broker = FakeBroker(
+        instance_id,
+        revision_id,
+        fixture_slug="small-mixed-v4",
+    )
+
+    result = service(session_factory, broker).reset(instance_id)
+
+    assert result.runtime_revision_id == revision_id
+    assert result.fixture_slug == "small-mixed-v4"
+    assert result.fixture_version == 4
     assert broker.calls.index("apply_fixture") < broker.calls.index("start")
     with session_factory() as session:
         retained = ManagedInstanceRepository(session).get(instance_id)

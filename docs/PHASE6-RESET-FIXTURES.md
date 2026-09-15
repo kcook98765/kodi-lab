@@ -319,3 +319,47 @@ The reset service still provisions its unchanged pin, applies the assigned
 fixture, starts, waits, scans, verifies, and stops. Only the fixed unprivileged
 adapter's proven release allowlist expands from Kodi 21.3 to Kodi 20.5; its
 method and parameter surface is unchanged.
+
+## Step 5 exact-release portability on Kodi 19.5 Legacy
+
+`small-mixed-v4` is a new immutable Small/Mixed version compatible only with
+exact Kodi 19.5 stable. v1, v2, and v3 remain byte-for-byte unchanged. v4 reuses
+the same repository-owned media, NFO metadata, artwork, `sources.xml`, fixed
+paths, stable synthetic IDs, scan sequence, semantic verification, and bounded
+movie-removal validation method as v2 and v3.
+
+The exact-release configuration seed is the only payload difference:
+
+- slug: `small-mixed-v4`
+- UUID: `1b68a2ee-6217-4840-8582-536c1940f9bf`
+- compatibility: exact Kodi 19.5 stable only
+- database: `MyVideos119.db`, schema version 119
+- fresh Kodi-created database SHA-256:
+  `ec74c34d91d6f52a36529a3bfed8ce988321f802fb3012036b14c74cc3a0c9b8`
+- finalized seed database SHA-256:
+  `66946cf8e05c40d4950d484c0b5031eb5252eaad4bb5aaf50ac3f00178ad0f7c`
+- content digest:
+  `sha256:17a94df264c819f4704661774973d43850078b7c6a5e9e785d67713f13366ac9`
+
+The schema came from exact validated image
+`sha256:73c221f1fc1fc14cbfdfd82e62fd4b87752ef71e0521227cb6790451fa51d2bd`.
+An isolated internal-only development container used one fixed read-only
+`VideoLibrary.GetMovies` call to trigger lazy database creation, then stopped
+cleanly. The fresh database had SQLite integrity `ok`, version `(119, 0)`, and
+zero rows outside `version`. Its relevant `path` table column layout matches
+Nexus schema 121; unlike Omega schema 131, Matrix has neither the later table
+set nor the built-in 387-row `videoversiontype` catalog.
+
+The argument-free `scripts/materialize-small-mixed-v4-seed.py` copies that one
+fixed input and inserts only the two fixed `metadata.local` path/content rows.
+The schema-aware v4 audit requires exactly those rows, the version row, and zero
+rows in every other Matrix video-database table. It verifies integrity and
+therefore covers library items, files, artwork, bookmarks, ratings, resume,
+watched/history, credentials, and unrelated paths without adding runtime SQL.
+
+Fixture compatibility is independent of runtime support tier. v4 may be
+assigned to an already approved, validated, exact Kodi 19.5 disposable pin;
+fixture availability does not make Legacy selectable unless trusted selection
+explicitly enables Include Legacy. The broker operation, reset orchestration,
+durable coordination, Web authority, adapter method set, and exact-pin behavior
+remain unchanged.

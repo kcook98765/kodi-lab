@@ -311,6 +311,9 @@ class ResetStatusService:
             "small-mixed-v3": (
                 "Kodi 20.5-specific populated reset baseline fixture version."
             ),
+            "small-mixed-v4": (
+                "Kodi 19.5-specific populated reset baseline fixture version."
+            ),
         }.get(fixture.slug)
         return FixtureResetStatus(
             assignment=FixtureAssignmentState.ASSIGNED,
