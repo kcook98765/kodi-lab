@@ -1,9 +1,17 @@
 import io
 import tarfile
+from collections.abc import Callable
+
+import pytest
 
 from kodi_lab.domain import FixtureContentCategory, FixtureSizeCategory
 from kodi_lab.fixtures.package import load_packaged_fixture
-from kodi_lab.fixtures.seed_audit import audit_small_tv_v1_seed
+from kodi_lab.fixtures.seed_audit import (
+    FixtureSeedAudit,
+    audit_small_tv_v1_seed,
+    audit_small_tv_v2_seed,
+    audit_small_tv_v3_seed,
+)
 
 
 def test_small_tv_v1_identity_taxonomy_and_exact_compatibility() -> None:
@@ -117,3 +125,86 @@ def test_small_content_families_are_immutable_and_distinct() -> None:
     assert (mixed.semantics.scan_movies, mixed.semantics.scan_tv) == (True, True)
     assert (movies.semantics.scan_movies, movies.semantics.scan_tv) == (True, False)
     assert (tv.semantics.scan_movies, tv.semantics.scan_tv) == (False, True)
+
+
+@pytest.mark.parametrize(
+    (
+        "slug",
+        "fixture_id",
+        "version",
+        "release",
+        "digest",
+        "database",
+        "schema",
+        "audit",
+    ),
+    [
+        (
+            "small-tv-v2",
+            "6668f956-d44c-4f28-9337-fb7e2b14a8dd",
+            2,
+            "20.5",
+            "sha256:ee5132bd2d7631055c47d353f2a48bd7a36a4b15b70be473591f21ed3a654391",
+            "MyVideos121.db",
+            121,
+            audit_small_tv_v2_seed,
+        ),
+        (
+            "small-tv-v3",
+            "3085d006-b73b-49ff-9143-41f7b13f5fc1",
+            3,
+            "19.5",
+            "sha256:a7554a4596fa642aed857b16b019f3a16f3668212a5cd166b7933af61f0c3e50",
+            "MyVideos119.db",
+            119,
+            audit_small_tv_v3_seed,
+        ),
+    ],
+)
+def test_stable_tv_variants_are_exact_and_configuration_only(
+    slug: str,
+    fixture_id: str,
+    version: int,
+    release: str,
+    digest: str,
+    database: str,
+    schema: int,
+    audit: Callable[[bytes], FixtureSeedAudit],
+) -> None:
+    packaged = load_packaged_fixture(slug)
+    definition = packaged.definition
+    assert str(definition.id) == fixture_id
+    assert definition.fixture_version == version
+    assert definition.compatible_kodi_release.canonical == release
+    assert definition.content_digest == digest
+    seed = next(
+        member for member in packaged.members if member.archive_path.endswith(database)
+    )
+    result = audit(seed.data)
+    assert result.schema_version == schema
+    assert len(result.configured_paths) == 1
+    assert result.configured_paths[0][2] == "tvshows"
+    assert all(
+        dict(result.table_counts)[name] == 0
+        for name in ("movie", "tvshow", "episode", "files", "art", "bookmark")
+    )
+
+
+def test_tv_family_semantics_and_assets_are_release_independent() -> None:
+    variants = tuple(
+        load_packaged_fixture(slug)
+        for slug in ("small-tv-v1", "small-tv-v2", "small-tv-v3")
+    )
+    assert variants[0].semantics == variants[1].semantics == variants[2].semantics
+    for packaged in variants[1:]:
+        comparable = {
+            member.archive_path: member.sha256
+            for member in packaged.members
+            if not member.archive_path.startswith("userdata/Database/")
+        }
+        original = {
+            member.archive_path: member.sha256
+            for member in variants[0].members
+            if not member.archive_path.startswith("userdata/Database/")
+        }
+        assert comparable == original

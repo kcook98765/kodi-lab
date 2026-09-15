@@ -1,0 +1,48 @@
+{
+  "compatible_kodi_releases": ["20.5"],
+  "container_destination": "/home/kodi/.kodi",
+  "content_category": "movies",
+  "content_digest": "sha256:e315e97d40d7c25572074eacf4d9020cdc972a84e9c4edad0398c1026d6e415d",
+  "description": "Three synthetic movies with a Kodi 20.5 configuration-only video database seed.",
+  "files": [
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-1/Kodi Lab Fixture Movie 1 (2024).mp4", "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f", "size": 12277},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-1/Kodi Lab Fixture Movie 1 (2024).nfo", "sha256": "d9d2c1317632b176938df6b14d42658f09cc7f929adfd77ea66f814cc12ec9ab", "size": 597},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-1/fanart.png", "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac", "size": 630},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-1/poster.png", "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53", "size": 435},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-2/Kodi Lab Fixture Movie 2 (2025).mp4", "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f", "size": 12277},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-2/Kodi Lab Fixture Movie 2 (2025).nfo", "sha256": "495b37a7ab87cb383cb9079d5e2e7333875a4f9f11be1b37564d89d0576c9673", "size": 598},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-2/fanart.png", "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac", "size": 630},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-2/poster.png", "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53", "size": 435},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-3/Kodi Lab Fixture Movie 3 (2026).mp4", "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f", "size": 12277},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-3/Kodi Lab Fixture Movie 3 (2026).nfo", "sha256": "c6ea71a741490c5a9e5215d15e626ef143cc3a74e2322942505683d19dec38dc", "size": 597},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-3/fanart.png", "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac", "size": 630},
+    {"path": "payload/fixture-media/movies/kodi-lab-fixture-movie-3/poster.png", "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53", "size": 435},
+    {"path": "payload/userdata/Database/MyVideos121.db", "sha256": "5f6e45e6a4919cd65b116478efc954892196648671d4fa7213ada5257f1c0c30", "size": 376832},
+    {"path": "payload/userdata/sources.xml", "sha256": "be3a788051eebaafda01a8b1757e7ad7e96850c189d2f6cfe616cc886154170d", "size": 605}
+  ],
+  "fixture_version": 2,
+  "id": "25f76bb7-73ae-4dd6-a0b0-11ae9480d9b5",
+  "schema_version": 7,
+  "semantic_expectations": {
+    "drift_movie_unique_id": "small-movies-v1-movie-1",
+    "episodes": [],
+    "movies": [
+      {"file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-fixture-movie-1/Kodi Lab Fixture Movie 1 (2024).mp4", "title": "Kodi Lab Fixture Movie 1", "unique_id": "small-movies-v1-movie-1", "year": 2024},
+      {"file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-fixture-movie-2/Kodi Lab Fixture Movie 2 (2025).mp4", "title": "Kodi Lab Fixture Movie 2", "unique_id": "small-movies-v1-movie-2", "year": 2025},
+      {"file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-fixture-movie-3/Kodi Lab Fixture Movie 3 (2026).mp4", "title": "Kodi Lab Fixture Movie 3", "unique_id": "small-movies-v1-movie-3", "year": 2026}
+    ],
+    "scan_plan": ["movies"],
+    "tvshows": []
+  },
+  "size_category": "small",
+  "slug": "small-movies-v2",
+  "video_database_seed": {
+    "container_relative_path": "userdata/Database/MyVideos121.db",
+    "database_filename": "MyVideos121.db",
+    "movie_content": "movies",
+    "movie_path": "/home/kodi/.kodi/fixture-media/movies/",
+    "schema_version": 121,
+    "scraper": "metadata.local",
+    "sha256": "5f6e45e6a4919cd65b116478efc954892196648671d4fa7213ada5257f1c0c30"
+  }
+}

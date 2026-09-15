@@ -1,0 +1,50 @@
+{
+  "compatible_kodi_releases": ["19.5"],
+  "container_destination": "/home/kodi/.kodi",
+  "content_category": "tv",
+  "content_digest": "sha256:a7554a4596fa642aed857b16b019f3a16f3668212a5cd166b7933af61f0c3e50",
+  "description": "One synthetic series with three episodes and a Kodi 19.5 TV-only configuration seed.",
+  "files": [
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E01-thumb.png", "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e", "size": 628},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E01.mp4", "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c", "size": 12256},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E01.nfo", "sha256": "ebaddb1a73c8dfc41e97ddf73d093dc78c8c7800ac062551791394ecdcedb0c0", "size": 505},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E02-thumb.png", "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e", "size": 628},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E02.mp4", "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c", "size": 12256},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E02.nfo", "sha256": "0ffbd30af285cc7b41084c4c32de2bc5a1ab8a02a98509b86cee173f8baf53f1", "size": 506},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E03-thumb.png", "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e", "size": 628},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E03.mp4", "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c", "size": 12256},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E03.nfo", "sha256": "a9f0886b19d341269d7fa19a7e751e6912f689e14e778d153603cc7663890ba7", "size": 505},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/fanart.png", "sha256": "198ce051a675951997926ebe1a6bdd8f38b9714c13201361ee26dfd08b5b1953", "size": 629},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/poster.png", "sha256": "a71e4b3b4cd89c87e13d63ba63ec426581d8b4f0c28b61176a3bc857b4b8ee23", "size": 436},
+    {"path": "payload/fixture-media/tvshows/kodi-lab-fixture-series-tv/tvshow.nfo", "sha256": "3a6f3c0177948239ccde2d43275c4e9d303f1db8da09e59ac08330c1e52b0a64", "size": 573},
+    {"path": "payload/userdata/Database/MyVideos119.db", "sha256": "6bea52c2ee119fef6bb4fc298b9ee840f96b0c36f9f91112a85e28adc32e202d", "size": 376832},
+    {"path": "payload/userdata/sources.xml", "sha256": "a853fe9929b2aad5208630b7a384c51f9bfd47f89a90a990febf82ecee258cbf", "size": 602}
+  ],
+  "fixture_version": 3,
+  "id": "3085d006-b73b-49ff-9143-41f7b13f5fc1",
+  "schema_version": 10,
+  "semantic_expectations": {
+    "drift_episode_unique_id": "small-tv-v1-episode-1",
+    "episodes": [
+      {"episode": 1, "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E01.mp4", "season": 1, "show_title": "Kodi Lab Fixture Series TV", "title": "Kodi Lab Fixture Episode 1", "unique_id": "small-tv-v1-episode-1"},
+      {"episode": 2, "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E02.mp4", "season": 1, "show_title": "Kodi Lab Fixture Series TV", "title": "Kodi Lab Fixture Episode 2", "unique_id": "small-tv-v1-episode-2"},
+      {"episode": 3, "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-fixture-series-tv/Season 01/Kodi Lab Fixture Series TV S01E03.mp4", "season": 1, "show_title": "Kodi Lab Fixture Series TV", "title": "Kodi Lab Fixture Episode 3", "unique_id": "small-tv-v1-episode-3"}
+    ],
+    "movies": [],
+    "scan_plan": ["tv"],
+    "tvshows": [
+      {"directory": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-fixture-series-tv/", "title": "Kodi Lab Fixture Series TV", "unique_id": "small-tv-v1-series", "year": 2024}
+    ]
+  },
+  "size_category": "small",
+  "slug": "small-tv-v3",
+  "video_database_seed": {
+    "container_relative_path": "userdata/Database/MyVideos119.db",
+    "database_filename": "MyVideos119.db",
+    "schema_version": 119,
+    "scraper": "metadata.local",
+    "sha256": "6bea52c2ee119fef6bb4fc298b9ee840f96b0c36f9f91112a85e28adc32e202d",
+    "tv_content": "tvshows",
+    "tv_path": "/home/kodi/.kodi/fixture-media/tvshows/"
+  }
+}

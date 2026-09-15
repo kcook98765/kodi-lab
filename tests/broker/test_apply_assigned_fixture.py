@@ -219,6 +219,33 @@ def test_small_tv_seed_uses_the_same_bounded_archive_operation() -> None:
     assert not any(name.startswith("fixture-media/movies/") for name in names)
 
 
+@pytest.mark.parametrize(
+    ("slug", "version", "database", "excluded_tree"),
+    [
+        ("small-movies-v2", 2, "MyVideos121.db", "fixture-media/tvshows/"),
+        ("small-tv-v2", 2, "MyVideos121.db", "fixture-media/movies/"),
+        ("small-movies-v3", 3, "MyVideos119.db", "fixture-media/tvshows/"),
+        ("small-tv-v3", 3, "MyVideos119.db", "fixture-media/movies/"),
+    ],
+)
+def test_stable_family_variants_use_existing_bounded_archive_operation(
+    slug: str, version: int, database: str, excluded_tree: str
+) -> None:
+    client = FakeFixtureDockerClient()
+    fixture_spec = spec(slug)
+    result = DockerManagedContainerAdapter(lambda: client).apply_assigned_fixture(
+        spec=fixture_spec, expected_container_id=CONTAINER_ID
+    )
+
+    assert result.fixture_slug == slug
+    assert result.fixture_version == version
+    assert len(client.put_calls) == 1
+    with tarfile.open(fileobj=io.BytesIO(client.put_calls[0][2])) as archive:
+        names = {member.name for member in archive.getmembers()}
+    assert f"userdata/Database/{database}" in names
+    assert not any(name.startswith(excluded_tree) for name in names)
+
+
 def test_running_container_and_preexisting_fixture_state_fail_closed() -> None:
     with pytest.raises(ContainerMustBeStoppedError):
         apply(FakeFixtureDockerClient(inspection=inspect_data(state="running")))

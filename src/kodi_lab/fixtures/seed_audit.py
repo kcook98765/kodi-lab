@@ -76,8 +76,18 @@ _KODI_20_EXPECTED_NONZERO_TABLE_COUNTS = {
     "version": 1,
 }
 
+_KODI_20_SINGLE_SOURCE_EXPECTED_NONZERO_TABLE_COUNTS = {
+    "path": 1,
+    "version": 1,
+}
+
 _KODI_19_EXPECTED_NONZERO_TABLE_COUNTS = {
     "path": 2,
+    "version": 1,
+}
+
+_KODI_19_SINGLE_SOURCE_EXPECTED_NONZERO_TABLE_COUNTS = {
+    "path": 1,
     "version": 1,
 }
 
@@ -151,6 +161,62 @@ def audit_small_mixed_v4_seed(database: bytes) -> FixtureSeedAudit:
         schema_version=KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
         expected_nonzero_table_counts=_KODI_19_EXPECTED_NONZERO_TABLE_COUNTS,
         expected_paths=_EXPECTED_PATH_ROWS,
+    )
+
+
+def audit_small_movies_v2_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the fixed Kodi 20.5 Movies-only configuration seed."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_20_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=(
+            _KODI_20_SINGLE_SOURCE_EXPECTED_NONZERO_TABLE_COUNTS
+        ),
+        expected_paths=_SMALL_MOVIES_EXPECTED_PATH_ROWS,
+    )
+
+
+def audit_small_tv_v2_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the fixed Kodi 20.5 TV-only configuration seed."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_20_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=(
+            _KODI_20_SINGLE_SOURCE_EXPECTED_NONZERO_TABLE_COUNTS
+        ),
+        expected_paths=_SMALL_TV_EXPECTED_PATH_ROWS,
+    )
+
+
+def audit_small_movies_v3_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the fixed Kodi 19.5 Movies-only configuration seed."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_19_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=(
+            _KODI_19_SINGLE_SOURCE_EXPECTED_NONZERO_TABLE_COUNTS
+        ),
+        expected_paths=_SMALL_MOVIES_EXPECTED_PATH_ROWS,
+    )
+
+
+def audit_small_tv_v3_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the fixed Kodi 19.5 TV-only configuration seed."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_19_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=(
+            _KODI_19_SINGLE_SOURCE_EXPECTED_NONZERO_TABLE_COUNTS
+        ),
+        expected_paths=_SMALL_TV_EXPECTED_PATH_ROWS,
     )
 
 

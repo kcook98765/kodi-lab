@@ -445,3 +445,51 @@ authenticated Web authority are unchanged.
 
 The Small tier now has executable Mixed, Movies, and TV content-family
 definitions on an exact stable runtime.
+
+## Step 8 stable Small taxonomy portability
+
+Small/Movies and Small/TV now have exact-release immutable variants for all
+three validated stable Kodi releases. Family semantics are unchanged across
+releases: Movies remains the same three exact synthetic movies and TV remains
+the same show, season, and three exact episodes. Only fixture identity,
+compatibility, configuration database, and aggregate digest vary.
+
+The four new definitions are:
+
+- `small-movies-v2`, UUID `25f76bb7-73ae-4dd6-a0b0-11ae9480d9b5`, exact Kodi
+  20.5, digest
+  `sha256:e315e97d40d7c25572074eacf4d9020cdc972a84e9c4edad0398c1026d6e415d`;
+- `small-tv-v2`, UUID `6668f956-d44c-4f28-9337-fb7e2b14a8dd`, exact Kodi 20.5,
+  digest
+  `sha256:ee5132bd2d7631055c47d353f2a48bd7a36a4b15b70be473591f21ed3a654391`;
+- `small-movies-v3`, UUID `d9aec05f-0513-434a-98fd-c0d753f2c639`, exact Kodi
+  19.5, digest
+  `sha256:f8ec305533e3506a7f393e01a19da6906b50ed72e5643831d560f75cd8306d99`;
+- `small-tv-v3`, UUID `3085d006-b73b-49ff-9143-41f7b13f5fc1`, exact Kodi 19.5,
+  digest
+  `sha256:a7554a4596fa642aed857b16b019f3a16f3668212a5cd166b7933af61f0c3e50`.
+
+Fresh databases came from separate isolated containers using the exact
+validated images. Kodi 20.5 produced `MyVideos121.db` schema 121 with SHA-256
+`78d540cff3e1a0b6e26de9a0d20ee0a114c596174ca5a9b01133ca64593af201`.
+Kodi 19.5 produced `MyVideos119.db` schema 119 with SHA-256
+`ec74c34d91d6f52a36529a3bfed8ce988321f802fb3012036b14c74cc3a0c9b8`.
+Each argument-free development helper materializes either the one fixed Movies
+row or the one fixed TV row. The finalized seed hashes are:
+
+- Nexus Movies: `5f6e45e6a4919cd65b116478efc954892196648671d4fa7213ada5257f1c0c30`;
+- Nexus TV: `5c54b3f998b7668e71717b404f28f7817fa8b9a4879718f42b63624f31f45090`;
+- Matrix Movies: `58325ed3117b5273b1d2a4294165b0d7fdc52b53e44f5157c3a970841a80fcf1`;
+- Matrix TV: `6bea52c2ee119fef6bb4fc298b9ee840f96b0c36f9f91112a85e28adc32e202d`.
+
+Every schema-aware audit requires SQLite integrity, the exact version and one
+fixed source row, and zero rows in every other library or user-state table.
+The non-database assets and trusted semantic specifications are byte-equivalent
+within each family across Kodi 19.5, 20.5, and 21.3.
+
+**Fixture family semantics are release-independent; initialization seeds are
+exact-release-specific.** Compatibility remains exact and Legacy selection
+still requires Include Legacy. The scan planner, adapter, broker operation,
+reset service, durable Web coordination, and browser authority are unchanged.
+Small/Mixed, Small/Movies, and Small/TV are now implemented for all three
+validated stable releases.

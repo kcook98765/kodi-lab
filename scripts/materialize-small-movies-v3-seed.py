@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Materialize the fixed Small/Movies seed from a Kodi-created Matrix DB.
+
+This development-only, argument-free helper has one fixed input, output, SQL
+statement, and Movies path. It is not imported by product or broker code.
+"""
+
+from __future__ import annotations
+
+import shutil
+import sqlite3
+from pathlib import Path
+
+from kodi_lab.fixtures.seed_audit import (
+    FIXTURE_LOCAL_SCRAPER,
+    FIXTURE_MOVIE_DIRECTORY,
+    KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
+    audit_small_movies_v3_seed,
+)
+
+REPOSITORY = Path(__file__).resolve().parents[1]
+INPUT = REPOSITORY / "build/fixture-seed/small-movies-v3/MyVideos119.fresh.db"
+OUTPUT = (
+    REPOSITORY
+    / "src/kodi_lab/fixtures/small-movies-v3/payload/userdata/Database/MyVideos119.db"
+)
+
+_INSERT_MOVIE_PATH = """
+INSERT INTO path(
+    strPath, strContent, strScraper, strHash, scanRecursive,
+    useFolderNames, strSettings, noUpdate, exclude, allAudio,
+    dateAdded, idParentPath
+) VALUES (?, 'movies', ?, NULL, 1, 1, '', 0, 0, 0, NULL, NULL)
+"""
+
+
+def main() -> None:
+    if not INPUT.is_file():
+        raise SystemExit(f"missing fixed Kodi-generated input: {INPUT}")
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(INPUT, OUTPUT)
+    connection = sqlite3.connect(OUTPUT)
+    try:
+        if connection.execute(
+            "SELECT idVersion, iCompressCount FROM version"
+        ).fetchall() != [(KODI_19_VIDEO_DATABASE_SCHEMA_VERSION, 0)]:
+            raise RuntimeError("input is not a fresh Kodi 19.5 video database")
+        for table in ("path", "movie", "tvshow", "episode", "files", "art", "bookmark"):
+            if connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone() != (0,):
+                raise RuntimeError(f"input video database contains {table} state")
+        connection.execute(
+            _INSERT_MOVIE_PATH,
+            (FIXTURE_MOVIE_DIRECTORY, FIXTURE_LOCAL_SCRAPER),
+        )
+        connection.commit()
+        connection.execute("VACUUM")
+    finally:
+        connection.close()
+    audit_small_movies_v3_seed(OUTPUT.read_bytes())
+
+
+if __name__ == "__main__":
+    main()

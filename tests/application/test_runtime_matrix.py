@@ -227,9 +227,14 @@ def test_legacy_fixture_availability_does_not_bypass_include_legacy(
     factory: sessionmaker[Session],
 ) -> None:
     items = seed_curated_matrix(factory)
-    fixture = load_packaged_fixture("small-mixed-v4").definition
+    fixtures = tuple(
+        load_packaged_fixture(slug).definition
+        for slug in ("small-mixed-v4", "small-movies-v3", "small-tv-v3")
+    )
     with factory.begin() as session:
-        FixtureDefinitionRepository(session).create(fixture)
+        repository = FixtureDefinitionRepository(session)
+        for fixture in fixtures:
+            repository.create(fixture)
 
     service = RuntimeMatrixService(factory)
     ordinary = service.resolve_target(items["19.5"][2].id)
@@ -241,7 +246,8 @@ def test_legacy_fixture_availability_does_not_bypass_include_legacy(
     )
     assert opted_in.selectable
     with factory() as session:
-        assert FixtureDefinitionRepository(session).get(fixture.id) == fixture
+        repository = FixtureDefinitionRepository(session)
+        assert all(repository.get(fixture.id) == fixture for fixture in fixtures)
 
 
 def test_matrix_dto_is_semantic_and_preserves_beta_ordinal(

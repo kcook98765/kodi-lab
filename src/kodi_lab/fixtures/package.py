@@ -34,7 +34,11 @@ from kodi_lab.fixtures.seed_audit import (
     audit_small_mixed_v3_seed,
     audit_small_mixed_v4_seed,
     audit_small_movies_v1_seed,
+    audit_small_movies_v2_seed,
+    audit_small_movies_v3_seed,
     audit_small_tv_v1_seed,
+    audit_small_tv_v2_seed,
+    audit_small_tv_v3_seed,
 )
 from kodi_lab.fixtures.semantics import (
     MIXED_FIXTURE_SEMANTICS,
@@ -49,7 +53,21 @@ SMALL_MIXED_V2_FIXTURE_SLUG = "small-mixed-v2"
 SMALL_MIXED_V3_FIXTURE_SLUG = "small-mixed-v3"
 SMALL_MIXED_V4_FIXTURE_SLUG = "small-mixed-v4"
 SMALL_MOVIES_V1_FIXTURE_SLUG = "small-movies-v1"
+SMALL_MOVIES_V2_FIXTURE_SLUG = "small-movies-v2"
+SMALL_MOVIES_V3_FIXTURE_SLUG = "small-movies-v3"
 SMALL_TV_V1_FIXTURE_SLUG = "small-tv-v1"
+SMALL_TV_V2_FIXTURE_SLUG = "small-tv-v2"
+SMALL_TV_V3_FIXTURE_SLUG = "small-tv-v3"
+SMALL_MOVIES_FIXTURE_SLUGS = frozenset(
+    {
+        SMALL_MOVIES_V1_FIXTURE_SLUG,
+        SMALL_MOVIES_V2_FIXTURE_SLUG,
+        SMALL_MOVIES_V3_FIXTURE_SLUG,
+    }
+)
+SMALL_TV_FIXTURE_SLUGS = frozenset(
+    {SMALL_TV_V1_FIXTURE_SLUG, SMALL_TV_V2_FIXTURE_SLUG, SMALL_TV_V3_FIXTURE_SLUG}
+)
 # Kept as the original public name so existing v1 callers remain unchanged.
 SMALL_MIXED_FIXTURE_SLUG = SMALL_MIXED_V1_FIXTURE_SLUG
 TRUSTED_FIXTURE_SLUGS = frozenset(
@@ -59,7 +77,11 @@ TRUSTED_FIXTURE_SLUGS = frozenset(
         SMALL_MIXED_V3_FIXTURE_SLUG,
         SMALL_MIXED_V4_FIXTURE_SLUG,
         SMALL_MOVIES_V1_FIXTURE_SLUG,
+        SMALL_MOVIES_V2_FIXTURE_SLUG,
+        SMALL_MOVIES_V3_FIXTURE_SLUG,
         SMALL_TV_V1_FIXTURE_SLUG,
+        SMALL_TV_V2_FIXTURE_SLUG,
+        SMALL_TV_V3_FIXTURE_SLUG,
     }
 )
 FIXTURE_CONTAINER_DESTINATION = "/home/kodi/.kodi"
@@ -78,7 +100,19 @@ FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS = MappingProxyType(
             f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
         ),
         SMALL_MOVIES_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
+        SMALL_MOVIES_V2_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_20_VIDEO_DATABASE_FILENAME}"
+        ),
+        SMALL_MOVIES_V3_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
+        ),
         SMALL_TV_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
+        SMALL_TV_V2_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_20_VIDEO_DATABASE_FILENAME}"
+        ),
+        SMALL_TV_V3_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
+        ),
     }
 )
 KODI_UID = 1000
@@ -200,7 +234,7 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
         raise PackagedFixtureError(
             "fixture manifest is unavailable or invalid"
         ) from error
-    if slug in {SMALL_MOVIES_V1_FIXTURE_SLUG, SMALL_TV_V1_FIXTURE_SLUG}:
+    if slug in SMALL_MOVIES_FIXTURE_SLUGS | SMALL_TV_FIXTURE_SLUGS:
         expected_keys = _SEMANTIC_SEEDED_MANIFEST_KEYS
     elif slug in FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS:
         expected_keys = _SEEDED_MANIFEST_KEYS
@@ -249,7 +283,7 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
     )
     semantics = (
         _parse_semantics(document, slug=slug)
-        if slug in {SMALL_MOVIES_V1_FIXTURE_SLUG, SMALL_TV_V1_FIXTURE_SLUG}
+        if slug in SMALL_MOVIES_FIXTURE_SLUGS | SMALL_TV_FIXTURE_SLUGS
         else MIXED_FIXTURE_SEMANTICS
     )
     return PackagedFixture(
@@ -272,6 +306,10 @@ def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> N
         SMALL_MIXED_V4_FIXTURE_SLUG: (4, 4),
         SMALL_MOVIES_V1_FIXTURE_SLUG: (5, 1),
         SMALL_TV_V1_FIXTURE_SLUG: (6, 1),
+        SMALL_MOVIES_V2_FIXTURE_SLUG: (7, 2),
+        SMALL_TV_V2_FIXTURE_SLUG: (8, 2),
+        SMALL_MOVIES_V3_FIXTURE_SLUG: (9, 3),
+        SMALL_TV_V3_FIXTURE_SLUG: (10, 3),
     }.get(slug)
     if expected is None:
         raise PackagedFixtureError("fixture manifest identity is invalid")
@@ -336,9 +374,9 @@ def _audit_seed(
     raw = document.get("video_database_seed")
     expected_seed_keys = (
         _MOVIES_SEED_MANIFEST_KEYS
-        if slug == SMALL_MOVIES_V1_FIXTURE_SLUG
+        if slug in SMALL_MOVIES_FIXTURE_SLUGS
         else _TV_SEED_MANIFEST_KEYS
-        if slug == SMALL_TV_V1_FIXTURE_SLUG
+        if slug in SMALL_TV_FIXTURE_SLUGS
         else _SEED_MANIFEST_KEYS
     )
     if not isinstance(raw, dict) or frozenset(raw) != expected_seed_keys:
@@ -369,6 +407,26 @@ def _audit_seed(
             KODI_VIDEO_DATABASE_SCHEMA_VERSION,
             audit_small_tv_v1_seed,
         ),
+        SMALL_MOVIES_V2_FIXTURE_SLUG: (
+            KODI_20_VIDEO_DATABASE_FILENAME,
+            KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_movies_v2_seed,
+        ),
+        SMALL_TV_V2_FIXTURE_SLUG: (
+            KODI_20_VIDEO_DATABASE_FILENAME,
+            KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_tv_v2_seed,
+        ),
+        SMALL_MOVIES_V3_FIXTURE_SLUG: (
+            KODI_19_VIDEO_DATABASE_FILENAME,
+            KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_movies_v3_seed,
+        ),
+        SMALL_TV_V3_FIXTURE_SLUG: (
+            KODI_19_VIDEO_DATABASE_FILENAME,
+            KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_tv_v3_seed,
+        ),
     }.get(slug)
     if seed_contract is None:
         raise PackagedFixtureError("fixture database seed metadata is invalid")
@@ -380,11 +438,11 @@ def _audit_seed(
         "container_relative_path": expected_path,
         "scraper": FIXTURE_LOCAL_SCRAPER,
     }
-    if slug != SMALL_TV_V1_FIXTURE_SLUG:
+    if slug not in SMALL_TV_FIXTURE_SLUGS:
         expected.update(
             {"movie_path": FIXTURE_MOVIE_DIRECTORY, "movie_content": "movies"}
         )
-    if slug != SMALL_MOVIES_V1_FIXTURE_SLUG:
+    if slug not in SMALL_MOVIES_FIXTURE_SLUGS:
         expected.update({"tv_path": FIXTURE_TV_DIRECTORY, "tv_content": "tvshows"})
     if any(raw.get(key) != value for key, value in expected.items()):
         raise PackagedFixtureError("fixture database seed metadata is invalid")
@@ -419,7 +477,7 @@ def _parse_semantics(
     raw = document.get("semantic_expectations")
     expected_keys = (
         _SEMANTIC_EXPECTATION_KEYS
-        if slug == SMALL_MOVIES_V1_FIXTURE_SLUG
+        if slug in SMALL_MOVIES_FIXTURE_SLUGS
         else _TV_SEMANTIC_EXPECTATION_KEYS
     )
     if not isinstance(raw, dict) or frozenset(raw) != expected_keys:
@@ -430,16 +488,15 @@ def _parse_semantics(
     scan_plan = raw.get("scan_plan")
     drift_movie_id = raw.get("drift_movie_unique_id")
     drift_episode_id = raw.get("drift_episode_unique_id")
-    expected_scan_plan = ["movies"] if slug == SMALL_MOVIES_V1_FIXTURE_SLUG else ["tv"]
+    is_movies = slug in SMALL_MOVIES_FIXTURE_SLUGS
+    expected_scan_plan = ["movies"] if is_movies else ["tv"]
     if (
         not isinstance(movies, list)
         or not isinstance(shows, list)
         or not isinstance(episodes, list)
         or scan_plan != expected_scan_plan
-        or (
-            slug == SMALL_MOVIES_V1_FIXTURE_SLUG and not isinstance(drift_movie_id, str)
-        )
-        or (slug == SMALL_TV_V1_FIXTURE_SLUG and not isinstance(drift_episode_id, str))
+        or (is_movies and not isinstance(drift_movie_id, str))
+        or (not is_movies and not isinstance(drift_episode_id, str))
     ):
         raise PackagedFixtureError("fixture semantic expectations are invalid")
     try:
@@ -515,14 +572,14 @@ def _parse_semantics(
             for index, episode in enumerate(episode_specs, 1)
         )
     )
-    if not (movies_contract if slug == SMALL_MOVIES_V1_FIXTURE_SLUG else tv_contract):
+    if not (movies_contract if is_movies else tv_contract):
         raise PackagedFixtureError("fixture semantic expectations are invalid")
     return FixtureSemanticSpecification(
         movies=movie_specs,
         series=show_specs,
         episodes=episode_specs,
-        scan_movies=slug == SMALL_MOVIES_V1_FIXTURE_SLUG,
-        scan_tv=slug == SMALL_TV_V1_FIXTURE_SLUG,
+        scan_movies=is_movies,
+        scan_tv=not is_movies,
         drift_movie_unique_id=(
             drift_movie_id if isinstance(drift_movie_id, str) else None
         ),

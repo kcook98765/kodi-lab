@@ -1,11 +1,17 @@
 import io
 import tarfile
+from collections.abc import Callable
 
 import pytest
 
 from kodi_lab.domain import FixtureContentCategory, FixtureSizeCategory
 from kodi_lab.fixtures.package import PackagedFixtureError, load_packaged_fixture
-from kodi_lab.fixtures.seed_audit import audit_small_movies_v1_seed
+from kodi_lab.fixtures.seed_audit import (
+    FixtureSeedAudit,
+    audit_small_movies_v1_seed,
+    audit_small_movies_v2_seed,
+    audit_small_movies_v3_seed,
+)
 
 
 def test_small_movies_v1_identity_taxonomy_and_exact_compatibility() -> None:
@@ -104,4 +110,87 @@ def test_unknown_movies_fixture_is_not_a_trusted_package() -> None:
     packaged = load_packaged_fixture("small-movies-v1")
     assert packaged.semantics.drift_movie_unique_id == "small-movies-v1-movie-1"
     with pytest.raises(PackagedFixtureError):
-        load_packaged_fixture("small-movies-v2")
+        load_packaged_fixture("small-movies-v4")
+
+
+@pytest.mark.parametrize(
+    (
+        "slug",
+        "fixture_id",
+        "version",
+        "release",
+        "digest",
+        "database",
+        "schema",
+        "audit",
+    ),
+    [
+        (
+            "small-movies-v2",
+            "25f76bb7-73ae-4dd6-a0b0-11ae9480d9b5",
+            2,
+            "20.5",
+            "sha256:e315e97d40d7c25572074eacf4d9020cdc972a84e9c4edad0398c1026d6e415d",
+            "MyVideos121.db",
+            121,
+            audit_small_movies_v2_seed,
+        ),
+        (
+            "small-movies-v3",
+            "d9aec05f-0513-434a-98fd-c0d753f2c639",
+            3,
+            "19.5",
+            "sha256:f8ec305533e3506a7f393e01a19da6906b50ed72e5643831d560f75cd8306d99",
+            "MyVideos119.db",
+            119,
+            audit_small_movies_v3_seed,
+        ),
+    ],
+)
+def test_stable_movies_variants_are_exact_and_configuration_only(
+    slug: str,
+    fixture_id: str,
+    version: int,
+    release: str,
+    digest: str,
+    database: str,
+    schema: int,
+    audit: Callable[[bytes], FixtureSeedAudit],
+) -> None:
+    packaged = load_packaged_fixture(slug)
+    definition = packaged.definition
+    assert str(definition.id) == fixture_id
+    assert definition.fixture_version == version
+    assert definition.compatible_kodi_release.canonical == release
+    assert definition.content_digest == digest
+    seed = next(
+        member for member in packaged.members if member.archive_path.endswith(database)
+    )
+    result = audit(seed.data)
+    assert result.schema_version == schema
+    assert len(result.configured_paths) == 1
+    assert result.configured_paths[0][2] == "movies"
+    assert all(
+        dict(result.table_counts)[name] == 0
+        for name in ("movie", "tvshow", "episode", "files", "art", "bookmark")
+    )
+
+
+def test_movies_family_semantics_and_assets_are_release_independent() -> None:
+    variants = tuple(
+        load_packaged_fixture(slug)
+        for slug in ("small-movies-v1", "small-movies-v2", "small-movies-v3")
+    )
+    assert variants[0].semantics == variants[1].semantics == variants[2].semantics
+    for packaged in variants[1:]:
+        comparable = {
+            member.archive_path: member.sha256
+            for member in packaged.members
+            if not member.archive_path.startswith("userdata/Database/")
+        }
+        original = {
+            member.archive_path: member.sha256
+            for member in variants[0].members
+            if not member.archive_path.startswith("userdata/Database/")
+        }
+        assert comparable == original

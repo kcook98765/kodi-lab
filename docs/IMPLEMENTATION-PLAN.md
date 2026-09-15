@@ -293,3 +293,17 @@ The next coherent Phase 6 milestone should port the now-proven Small/Movies and
 Small/TV semantic families to Kodi 20.5. This tests whether taxonomy-specific
 seeds and relationship verification remain portable without the instability of
 a Preview runtime or the scale complexity of Medium datasets.
+
+Phase 6 Step 8 completes stable Small-taxonomy portability. Immutable
+`small-movies-v2` and `small-tv-v2` use exact Nexus schema 121 configuration
+seeds; `small-movies-v3` and `small-tv-v3` use exact Matrix schema 119 seeds.
+Movies semantic assets remain exact 3/0/0 and TV assets remain exact 0/1/3
+across Kodi 19.5, 20.5, and 21.3. Closed compatibility, family-driven scan
+planning, semantic verification, bounded drift operations, broker application,
+reset orchestration, durable Web coordination, exact pins, and Legacy policy
+remain unchanged.
+
+The next coherent Phase 6 milestone should begin Medium taxonomy on Kodi 21.3.
+The stable release-specific seed model is now exercised across every Small
+content category; dataset scale and deterministic performance are the highest
+remaining product risk before spending immutable fixture effort on Preview.

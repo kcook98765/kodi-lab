@@ -273,6 +273,41 @@ def test_v2_v3_v4_exact_cross_version_assignment_matrix(
         service.assign(managed_instance_id=matrix.id, fixture_definition_id=v3.id)
 
 
+@pytest.mark.parametrize(
+    "slugs",
+    [
+        ("small-movies-v3", "small-movies-v2", "small-movies-v1"),
+        ("small-tv-v3", "small-tv-v2", "small-tv-v1"),
+    ],
+)
+def test_family_variants_enforce_exact_stable_release_compatibility(
+    session_factory: sessionmaker[Session], slugs: tuple[str, str, str]
+) -> None:
+    service = FixtureAdministrationService(session_factory)
+    fixtures = tuple(service.register_packaged_fixture(slug) for slug in slugs)
+    instances = (
+        seed_instance(session_factory, kodi_version="19.5"),
+        seed_instance(session_factory, kodi_version="20.5"),
+        seed_instance(session_factory, kodi_version="21.3"),
+    )
+
+    for index, (target, _definition, revision) in enumerate(instances):
+        for fixture_index, fixture in enumerate(fixtures):
+            if fixture_index == index:
+                assigned = service.assign(
+                    managed_instance_id=target.id,
+                    fixture_definition_id=fixture.id,
+                )
+                assert assigned.runtime_revision_id == revision.id
+                assert assigned.fixture_definition_id == fixture.id
+            else:
+                with pytest.raises(FixtureIncompatibleError):
+                    service.assign(
+                        managed_instance_id=target.id,
+                        fixture_definition_id=fixture.id,
+                    )
+
+
 def test_assignment_rejects_persistent_and_incompatible_instances(
     session_factory: sessionmaker[Session],
 ) -> None:

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>Kodi Lab Fixture Movie 1</title>
+  <originaltitle>Kodi Lab Fixture Movie 1</originaltitle>
+  <sorttitle>Kodi Lab Fixture Movie 1</sorttitle>
+  <year>2024</year>
+  <premiered>2024-01-01</premiered>
+  <plot>The first fictional movie generated solely for deterministic Kodi Lab testing.</plot>
+  <runtime>1</runtime>
+  <genre>Synthetic</genre>
+  <studio>Kodi Lab</studio>
+  <uniqueid type="kodi-lab" default="true">small-movies-v1-movie-1</uniqueid>
+  <art><poster>poster.png</poster><fanart>fanart.png</fanart></art>
+</movie>

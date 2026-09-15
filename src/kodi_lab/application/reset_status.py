@@ -315,7 +315,11 @@ class ResetStatusService:
                 "Kodi 19.5-specific populated reset baseline fixture version."
             ),
             "small-movies-v1": ("Proven Small/Movies fixture for exact Kodi 21.3."),
+            "small-movies-v2": ("Small/Movies fixture for exact Kodi 20.5."),
+            "small-movies-v3": ("Small/Movies fixture for exact Kodi 19.5."),
             "small-tv-v1": ("Small/TV fixture for exact Kodi 21.3."),
+            "small-tv-v2": ("Small/TV fixture for exact Kodi 20.5."),
+            "small-tv-v3": ("Small/TV fixture for exact Kodi 19.5."),
         }.get(fixture.slug)
         return FixtureResetStatus(
             assignment=FixtureAssignmentState.ASSIGNED,

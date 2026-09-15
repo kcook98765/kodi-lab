@@ -340,7 +340,11 @@ class FakeBroker:
                     "small-mixed-v3",
                     "small-mixed-v4",
                     "small-movies-v1",
+                    "small-movies-v2",
+                    "small-movies-v3",
                     "small-tv-v1",
+                    "small-tv-v2",
+                    "small-tv-v3",
                 ],
                 fixture.slug,
             ),
@@ -602,6 +606,62 @@ def test_small_tv_reset_uses_generic_flow_and_retains_exact_assignment(
 
     assert result.runtime_revision_id == revision_id
     assert result.fixture_slug == "small-tv-v1"
+    assert result.fixture_state is not None and result.fixture_state.is_baseline
+    assert broker.calls.index("apply_fixture") < broker.calls.index("start")
+    with session_factory() as session:
+        retained = ManagedInstanceRepository(session).get(instance_id)
+        assert retained is not None
+        assert retained.runtime_revision_id == revision_id
+        assert retained.fixture_definition_id == fixture_id
+
+
+@pytest.mark.parametrize(
+    ("fixture_slug", "kodi_version", "state"),
+    [
+        (
+            "small-movies-v2",
+            "20.5",
+            FixtureLibraryState(True, False, False, 3, 0, 0, 3, 0, 0),
+        ),
+        (
+            "small-tv-v2",
+            "20.5",
+            FixtureLibraryState(False, True, True, 0, 1, 3, 0, 1, 3),
+        ),
+        (
+            "small-movies-v3",
+            "19.5",
+            FixtureLibraryState(True, False, False, 3, 0, 0, 3, 0, 0),
+        ),
+        (
+            "small-tv-v3",
+            "19.5",
+            FixtureLibraryState(False, True, True, 0, 1, 3, 0, 1, 3),
+        ),
+    ],
+)
+def test_stable_family_variants_use_generic_exact_pin_reset(
+    session_factory: sessionmaker[Session],
+    fixture_slug: str,
+    kodi_version: str,
+    state: FixtureLibraryState,
+) -> None:
+    instance_id, revision_id, fixture_id = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug=fixture_slug,
+        kodi_version=kodi_version,
+    )
+    broker = FakeBroker(instance_id, revision_id, fixture_slug=fixture_slug)
+    result = service(
+        session_factory,
+        broker,
+        fixture_adapter=FakeFixtureAdapter(state=state),
+    ).reset(instance_id)
+
+    assert result.managed_instance_id == instance_id
+    assert result.runtime_revision_id == revision_id
+    assert result.fixture_slug == fixture_slug
     assert result.fixture_state is not None and result.fixture_state.is_baseline
     assert broker.calls.index("apply_fixture") < broker.calls.index("start")
     with session_factory() as session:
