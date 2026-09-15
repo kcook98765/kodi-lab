@@ -135,7 +135,7 @@ class SqliteProvisioningResolver:
                     raise ProvisioningStateError(
                         "Pinned runtime definition does not exist"
                     )
-                if target.kodi_version.strip() != definition.kodi_version.strip():
+                if target.kodi_release != definition.kodi_release:
                     raise ProvisioningStateError(
                         "Pinned runtime definition is incompatible with target"
                     )

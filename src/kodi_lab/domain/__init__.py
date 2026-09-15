@@ -1,5 +1,12 @@
 """Core Kodi Lab domain models."""
 
+from kodi_lab.domain.kodi_release import (
+    KodiReleaseChannel,
+    KodiReleaseIdentity,
+    RuntimeSupportTier,
+    validate_support_tier_for_release,
+    validate_support_transition,
+)
 from kodi_lab.domain.models import (
     ConnectionState,
     HealthStatus,
@@ -11,6 +18,9 @@ from kodi_lab.domain.models import (
     TargetType,
 )
 from kodi_lab.domain.runtime_catalog import (
+    KODI_RUNTIME_VALIDATION_CONTRACT,
+    RECOGNIZED_VALIDATION_CONTRACTS,
+    EffectiveValidationState,
     ProcessObservationKind,
     ReadinessProbeKind,
     RevisionApprovalState,
@@ -19,14 +29,22 @@ from kodi_lab.domain.runtime_catalog import (
     RuntimeExecutionProfile,
     RuntimeKind,
     RuntimeRevision,
+    RuntimeValidationEvidence,
+    RuntimeValidationResult,
+    effective_validation_state,
     normalize_sha256_digest,
 )
 
 __all__ = [
+    "KODI_RUNTIME_VALIDATION_CONTRACT",
+    "RECOGNIZED_VALIDATION_CONTRACTS",
     "ConnectionState",
+    "EffectiveValidationState",
     "HealthStatus",
     "InstanceRuntimeState",
     "InstanceType",
+    "KodiReleaseChannel",
+    "KodiReleaseIdentity",
     "ManagedInstance",
     "ProcessObservationKind",
     "ReadinessProbeKind",
@@ -36,8 +54,14 @@ __all__ = [
     "RuntimeExecutionProfile",
     "RuntimeKind",
     "RuntimeRevision",
+    "RuntimeSupportTier",
+    "RuntimeValidationEvidence",
+    "RuntimeValidationResult",
     "Target",
     "TargetAvailability",
     "TargetType",
+    "effective_validation_state",
     "normalize_sha256_digest",
+    "validate_support_tier_for_release",
+    "validate_support_transition",
 ]

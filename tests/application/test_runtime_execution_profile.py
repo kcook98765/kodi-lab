@@ -88,10 +88,10 @@ def test_registers_exact_immutable_execution_profile(tmp_path: Path) -> None:
         ("expected_application_name", "Not Kodi"),
         ("expected_kodi_version", "21.2"),
         ("expected_version_tag", "beta"),
-        ("jsonrpc_port", 8081),
-        ("jsonrpc_path", "/other"),
-        ("readiness_timeout_seconds", 91),
-        ("poll_interval_seconds", 0.5),
+        ("jsonrpc_port", 0),
+        ("jsonrpc_path", "relative"),
+        ("readiness_timeout_seconds", 601),
+        ("poll_interval_seconds", 0.01),
         ("http_timeout_seconds", 6.0),
     ],
 )
@@ -113,3 +113,19 @@ def test_profile_requires_existing_revision(tmp_path: Path) -> None:
     candidate["runtime_revision_id"] = UUID(int=99)
     with pytest.raises(RuntimeRevisionNotFoundError):
         service.register_execution_profile(**candidate)
+
+
+def test_profile_allows_bounded_version_specific_execution_values(
+    tmp_path: Path,
+) -> None:
+    service, _factory = service_with_revision(tmp_path)
+    candidate = values()
+    candidate.update(
+        jsonrpc_port=8090,
+        jsonrpc_path="/kodi-jsonrpc",
+        readiness_timeout_seconds=120,
+        poll_interval_seconds=2.0,
+    )
+    profile = service.register_execution_profile(**candidate)
+    assert profile.jsonrpc_port == 8090
+    assert profile.readiness_timeout_seconds == 120

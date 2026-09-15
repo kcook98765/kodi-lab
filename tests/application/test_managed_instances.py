@@ -23,14 +23,22 @@ from kodi_lab.application import (
     TrustedCustomBuildDisabledError,
 )
 from kodi_lab.domain import (
+    KODI_RUNTIME_VALIDATION_CONTRACT,
     ConnectionState,
     HealthStatus,
     InstanceRuntimeState,
     InstanceType,
     ManagedInstance,
+    ProcessObservationKind,
+    ReadinessProbeKind,
     RevisionApprovalState,
+    RuntimeContainerArtifact,
     RuntimeDefinition,
+    RuntimeExecutionProfile,
+    RuntimeKind,
     RuntimeRevision,
+    RuntimeValidationEvidence,
+    RuntimeValidationResult,
     Target,
     TargetAvailability,
     TargetType,
@@ -39,8 +47,11 @@ from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
+    RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
+    RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
+    RuntimeValidationEvidenceRepository,
     TargetRepository,
 )
 
@@ -122,6 +133,43 @@ def seed(
         repository = RuntimeRevisionRepository(session)
         for revision in revisions:
             repository.create(revision)
+            RuntimeContainerArtifactRepository(session).create(
+                RuntimeContainerArtifact(
+                    runtime_revision_id=revision.id,
+                    image_id="sha256:" + f"{revision.revision_number:064x}",
+                )
+            )
+            assert definition is not None
+            release = definition.kodi_release
+            RuntimeExecutionProfileRepository(session).create(
+                RuntimeExecutionProfile(
+                    runtime_revision_id=revision.id,
+                    runtime_kind=RuntimeKind.KODI,
+                    expected_application_name="Kodi",
+                    expected_kodi_version=f"{release.major}.{release.minor}",
+                    expected_version_tag=release.channel.value,
+                    expected_prerelease_ordinal=release.prerelease_ordinal,
+                    jsonrpc_port=8080,
+                    jsonrpc_path="/jsonrpc",
+                    process_observation=ProcessObservationKind.DOCKER_HEALTHCHECK,
+                    readiness_probe=ReadinessProbeKind.KODI_JSONRPC,
+                    readiness_timeout_seconds=90,
+                    poll_interval_seconds=1.0,
+                    http_timeout_seconds=3.0,
+                )
+            )
+            RuntimeValidationEvidenceRepository(session).create(
+                RuntimeValidationEvidence(
+                    id=uuid4(),
+                    runtime_revision_id=revision.id,
+                    contract_version=KODI_RUNTIME_VALIDATION_CONTRACT,
+                    result=RuntimeValidationResult.PASSED,
+                    started_at=NOW,
+                    completed_at=NOW,
+                    evidence_reference=f"test://revision/{revision.id}",
+                    recorded_at=NOW,
+                )
+            )
 
 
 def exact(

@@ -9,14 +9,17 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.errors import (
     CatalogDataValidationError,
     InvalidRevisionLifecycleTransitionError,
+    InvalidSupportTierTransitionError,
     RuntimeContainerArtifactConflictError,
     RuntimeDefinitionConflictError,
     RuntimeDefinitionNotFoundError,
     RuntimeExecutionProfileConflictError,
     RuntimeRevisionConflictError,
     RuntimeRevisionNotFoundError,
+    RuntimeValidationEvidenceConflictError,
 )
 from kodi_lab.domain import (
+    RECOGNIZED_VALIDATION_CONTRACTS,
     ProcessObservationKind,
     ReadinessProbeKind,
     RevisionApprovalState,
@@ -25,12 +28,17 @@ from kodi_lab.domain import (
     RuntimeExecutionProfile,
     RuntimeKind,
     RuntimeRevision,
+    RuntimeSupportTier,
+    RuntimeValidationEvidence,
+    RuntimeValidationResult,
+    validate_support_transition,
 )
 from kodi_lab.storage.repositories import (
     RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
     RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
+    RuntimeValidationEvidenceRepository,
 )
 
 
@@ -41,7 +49,12 @@ class RuntimeCatalogAdministrationService:
         self._session_factory = session_factory
 
     def register_definition(
-        self, *, definition_id: UUID, slug: str, kodi_version: str
+        self,
+        *,
+        definition_id: UUID,
+        slug: str,
+        kodi_version: str,
+        support_tier: RuntimeSupportTier = RuntimeSupportTier.CURRENT,
     ) -> RuntimeDefinition:
         """Register one new logical runtime definition atomically."""
 
@@ -50,6 +63,7 @@ class RuntimeCatalogAdministrationService:
                 id=definition_id,
                 slug=slug,
                 kodi_version=kodi_version,
+                support_tier=support_tier,
             )
         except ValueError as error:
             raise CatalogDataValidationError(str(error)) from error
@@ -100,6 +114,7 @@ class RuntimeCatalogAdministrationService:
         readiness_timeout_seconds: int,
         poll_interval_seconds: float,
         http_timeout_seconds: float,
+        expected_prerelease_ordinal: int | None = None,
     ) -> RuntimeExecutionProfile:
         """Register one immutable trusted execution profile."""
 
@@ -110,6 +125,7 @@ class RuntimeCatalogAdministrationService:
                 expected_application_name=expected_application_name,
                 expected_kodi_version=expected_kodi_version,
                 expected_version_tag=expected_version_tag,
+                expected_prerelease_ordinal=expected_prerelease_ordinal,
                 jsonrpc_port=jsonrpc_port,
                 jsonrpc_path=jsonrpc_path,
                 process_observation=process_observation,
@@ -122,8 +138,18 @@ class RuntimeCatalogAdministrationService:
             raise CatalogDataValidationError(str(error)) from error
         try:
             with self._session_factory.begin() as session:
-                if RuntimeRevisionRepository(session).get(runtime_revision_id) is None:
+                revision = RuntimeRevisionRepository(session).get(runtime_revision_id)
+                if revision is None:
                     raise RuntimeRevisionNotFoundError(runtime_revision_id)
+                definition = RuntimeDefinitionRepository(session).get(
+                    revision.runtime_definition_id
+                )
+                if definition is None:
+                    raise RuntimeDefinitionNotFoundError(revision.runtime_definition_id)
+                if profile.kodi_release != definition.kodi_release:
+                    raise CatalogDataValidationError(
+                        "execution profile release must match runtime definition"
+                    )
                 RuntimeExecutionProfileRepository(session).create(profile)
                 return profile
         except IntegrityError as error:
@@ -267,6 +293,78 @@ class RuntimeCatalogAdministrationService:
                 return repository.revoke_trusted_build_confirmation(revision_id)
         except IntegrityError as error:
             raise self._invalid_transition(revision_id, error) from error
+
+    def transition_support_tier(
+        self,
+        definition_id: UUID,
+        *,
+        support_tier: RuntimeSupportTier,
+    ) -> RuntimeDefinition:
+        """Apply one explicit, monotonic definition support transition."""
+
+        try:
+            with self._session_factory.begin() as session:
+                repository = RuntimeDefinitionRepository(session)
+                current = repository.get(definition_id)
+                if current is None:
+                    raise RuntimeDefinitionNotFoundError(definition_id)
+                validate_support_transition(
+                    current.kodi_release, current.support_tier, support_tier
+                )
+                if current.support_tier is support_tier:
+                    return current
+                return repository.transition_support_tier(definition_id, support_tier)
+        except ValueError as error:
+            raise InvalidSupportTierTransitionError(
+                runtime_definition_id=definition_id, reason=str(error)
+            ) from error
+        except IntegrityError as error:
+            raise InvalidSupportTierTransitionError(
+                runtime_definition_id=definition_id,
+                reason="persisted support invariant rejected the transition",
+            ) from error
+
+    def record_validation_evidence(
+        self,
+        *,
+        evidence_id: UUID,
+        runtime_revision_id: UUID,
+        contract_version: str,
+        result: RuntimeValidationResult,
+        started_at: datetime,
+        completed_at: datetime,
+        evidence_reference: str,
+        recorded_at: datetime,
+        summary: str | None = None,
+    ) -> RuntimeValidationEvidence:
+        """Append trusted validation metadata without running validation."""
+
+        if contract_version not in RECOGNIZED_VALIDATION_CONTRACTS:
+            raise CatalogDataValidationError(
+                f"validation contract {contract_version!r} is not recognized"
+            )
+        try:
+            evidence = RuntimeValidationEvidence(
+                id=evidence_id,
+                runtime_revision_id=runtime_revision_id,
+                contract_version=contract_version,
+                result=result,
+                started_at=started_at,
+                completed_at=completed_at,
+                evidence_reference=evidence_reference,
+                summary=summary,
+                recorded_at=recorded_at,
+            )
+        except ValueError as error:
+            raise CatalogDataValidationError(str(error)) from error
+        try:
+            with self._session_factory.begin() as session:
+                if RuntimeRevisionRepository(session).get(runtime_revision_id) is None:
+                    raise RuntimeRevisionNotFoundError(runtime_revision_id)
+                RuntimeValidationEvidenceRepository(session).create(evidence)
+                return evidence
+        except IntegrityError as error:
+            raise RuntimeValidationEvidenceConflictError(evidence_id) from error
 
     @staticmethod
     def _require_revision(

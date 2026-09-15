@@ -217,3 +217,36 @@ readiness coordinator without holding the HTTP action open. Generation and
 cancellation state invalidate stale work. Results are never persisted; after a
 Web restart, running runtime status is reconstructed and readiness is reported
 as not checked until a new approved readiness run.
+
+## Phase 5 curated runtime matrix contract
+
+Target and RuntimeDefinition now share an exact typed Kodi release identity.
+Stable releases use canonical `major.minor`; alpha, beta, and RC releases append
+their channel and positive ordinal. Each RuntimeDefinition is one immutable
+release identity and independently carries mutable product support policy:
+Current, Legacy, Preview, or Retired. Support transitions are explicit,
+validated, monotonic, and never rewrite release identity or historical pins.
+
+Runtime validation is independent of approval and Trusted Custom Build
+confirmation. Trusted administration appends immutable evidence to the exact
+RuntimeRevision. Eligibility requires the newest applicable passing evidence for
+`kodi-runtime-v1`; old-contract and earlier run records remain inspectable.
+There is no durable validating state and evidence registration does not execute
+Docker or Kodi work.
+
+`RuntimeRevisionEligibilityPolicy` is the single new-pin policy boundary. It
+combines exact release compatibility, permitted support tier, approval/trust,
+artifact/profile existence, profile identity agreement, and validation. Normal
+selection permits Current; explicit trusted flags add Legacy and/or Preview;
+Retired is always excluded. Exact selection cannot bypass policy. Newest-eligible
+selection stays within one definition and chooses the highest eligible revision,
+allowing a valid older revision when a newer one is unapproved, incomplete, or
+failed. Existing ManagedInstance pins are not reinterpreted through this policy.
+
+Execution profiles retain immutable per-revision behavior but no longer encode
+Kodi 21.3 as the only possible identity. The 21.3 values remain unchanged, while
+prerelease ordinals and bounded future per-version endpoint/timing differences
+are representable. Build assets remain in version-owned directories. Phase 5
+adds no matrix Web mutation surface; a later application-owned DTO will expose
+release, tier, validation, revision, eligibility, and safe reasons without raw
+artifact authority.

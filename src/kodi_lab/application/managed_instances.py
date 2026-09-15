@@ -10,20 +10,25 @@ from kodi_lab.application.errors import (
     KodiVersionIncompatibleError,
     ManagedInstanceConflictError,
     ManagedInstanceNotFoundError,
-    NoApprovedRevisionError,
+    NoEligibleRevisionError,
     RevisionNotApprovedError,
     RuntimeDefinitionNotFoundError,
     RuntimeRevisionDefinitionMismatchError,
+    RuntimeRevisionIneligibleError,
     RuntimeRevisionNotFoundError,
     TargetNotFoundError,
     TrustedCustomBuildConfirmationRequiredError,
     TrustedCustomBuildDisabledError,
 )
+from kodi_lab.application.runtime_eligibility import (
+    RuntimeIneligibilityReason,
+    RuntimeRevisionEligibilityPolicy,
+    RuntimeSelectionPolicy,
+)
 from kodi_lab.domain import (
     InstanceRuntimeState,
     InstanceType,
     ManagedInstance,
-    RevisionApprovalState,
     RuntimeDefinition,
     RuntimeRevision,
     Target,
@@ -45,13 +50,15 @@ class ExactRevisionSelection:
 
 
 @dataclass(frozen=True, slots=True)
-class NewestApprovedRevisionSelection:
-    """Select the greatest approved revision number within a definition."""
+class NewestEligibleRevisionSelection:
+    """Select the greatest currently eligible revision within a definition."""
 
     runtime_definition_id: UUID
 
 
-type RuntimeSelection = ExactRevisionSelection | NewestApprovedRevisionSelection
+NewestApprovedRevisionSelection = NewestEligibleRevisionSelection
+
+type RuntimeSelection = ExactRevisionSelection | NewestEligibleRevisionSelection
 
 
 class ManagedInstanceService:
@@ -62,9 +69,16 @@ class ManagedInstanceService:
         session_factory: sessionmaker[Session],
         *,
         trusted_custom_builds_enabled: bool = False,
+        include_legacy: bool = False,
+        include_prerelease: bool = False,
     ) -> None:
         self._session_factory = session_factory
-        self._trusted_custom_builds_enabled = trusted_custom_builds_enabled
+        self._selection_policy = RuntimeSelectionPolicy(
+            trusted_custom_builds_enabled=trusted_custom_builds_enabled,
+            include_legacy=include_legacy,
+            include_prerelease=include_prerelease,
+        )
+        self._eligibility = RuntimeRevisionEligibilityPolicy()
 
     def create(
         self,
@@ -149,30 +163,57 @@ class ManagedInstanceService:
                     actual_runtime_definition_id=revision.runtime_definition_id,
                 )
         else:
-            revision = revisions.newest_approved(definition.id)
+            revision = next(
+                (
+                    candidate
+                    for candidate in revisions.list_for_definition_descending(
+                        definition.id
+                    )
+                    if self._eligibility.evaluate(
+                        session,
+                        target=target,
+                        definition=definition,
+                        revision=candidate,
+                        policy=self._selection_policy,
+                    ).eligible
+                ),
+                None,
+            )
             if revision is None:
-                raise NoApprovedRevisionError(definition.id)
+                raise NoEligibleRevisionError(definition.id)
 
-        self._validate_selection(target, definition, revision)
+        self._validate_selection(session, target, definition, revision)
         return revision
 
     def _validate_selection(
         self,
+        session: Session,
         target: Target,
         definition: RuntimeDefinition,
         revision: RuntimeRevision,
     ) -> None:
-        if revision.approval_state is not RevisionApprovalState.APPROVED:
-            raise RevisionNotApprovedError(revision.id)
-        if revision.requires_trusted_build_confirmation:
-            if not self._trusted_custom_builds_enabled:
-                raise TrustedCustomBuildDisabledError(revision.id)
-            if revision.trusted_build_confirmed_at is None:
-                raise TrustedCustomBuildConfirmationRequiredError(revision.id)
-        if target.kodi_version.strip() != definition.kodi_version.strip():
+        eligibility = self._eligibility.evaluate(
+            session,
+            target=target,
+            definition=definition,
+            revision=revision,
+            policy=self._selection_policy,
+        )
+        if eligibility.eligible:
+            return
+        reason = eligibility.reason
+        assert reason is not None
+        if reason is RuntimeIneligibilityReason.INCOMPATIBLE_RELEASE:
             raise KodiVersionIncompatibleError(
                 target_id=target.id,
                 runtime_definition_id=definition.id,
                 target_kodi_version=target.kodi_version,
                 runtime_kodi_version=definition.kodi_version,
             )
+        if reason is RuntimeIneligibilityReason.REVISION_NOT_APPROVED:
+            raise RevisionNotApprovedError(revision.id)
+        if reason is RuntimeIneligibilityReason.TRUSTED_CUSTOM_BUILDS_DISABLED:
+            raise TrustedCustomBuildDisabledError(revision.id)
+        if reason is RuntimeIneligibilityReason.TRUSTED_BUILD_CONFIRMATION_REQUIRED:
+            raise TrustedCustomBuildConfirmationRequiredError(revision.id)
+        raise RuntimeRevisionIneligibleError(revision.id, reason.value)

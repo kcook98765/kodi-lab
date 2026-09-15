@@ -636,3 +636,88 @@ details that it did not specify.
   administration, and matrix controls are absent. Safe typed failures map to
   authentication/CSRF/not-found/conflict/dependency HTTP classes without raw
   exceptions.
+
+## D-0058: Exact Kodi release identity and definition support tier
+
+- Status: approved for Phase 5
+- Decision: one RuntimeDefinition represents one exact typed Kodi release. The
+  canonical stored form is `major.minor` for stable releases and
+  `major.minor-channel.ordinal` for alpha, beta, and release-candidate builds.
+  RuntimeDefinition independently stores one product support tier: `current`,
+  `legacy`, `preview`, or `retired`. Stable definitions may be current, legacy,
+  or retired; prerelease definitions may be preview or retired. Rebuilds remain
+  RuntimeRevisions beneath the same definition.
+- Initial policy: Kodi 21.3 and 20.5 stable are Current, Kodi 19.5 stable is
+  Legacy, and Kodi 22.0 Beta 2 is Preview. This classification is explicit
+  catalog state, not external release discovery or a forever-version list.
+
+## D-0059: Monotonic support lifecycle and historical preservation
+
+- Status: approved for Phase 5
+- Decision: support changes use an explicit administration operation. The
+  initial state machine permits current to legacy/retired, legacy to retired,
+  and preview to retired. Repeating the current state is idempotent; retired is
+  terminal until a future unretire policy is approved. Stable cannot become
+  preview and prerelease cannot become current/legacy. A stable successor is a
+  distinct RuntimeDefinition, never a mutated prerelease identity.
+- Historical behavior: tier changes neither delete nor rewrite definitions,
+  revisions, artifacts, profiles, validation evidence, or ManagedInstance pins.
+  Retired definitions cannot supply new pins, but existing exact pins remain
+  operable in the absence of the separately deferred quarantine policy.
+
+## D-0060: Append-only runtime validation evidence
+
+- Status: approved for Phase 5
+- Decision: `RuntimeValidationEvidence` is immutable administrative metadata
+  with UUID, revision UUID, bounded contract identifier, passed/failed result,
+  start/completion/recorded timestamps, bounded evidence reference, and optional
+  safe summary. Records have a restrictive revision foreign key and no update or
+  delete API. The recognized required contract is `kodi-runtime-v1`.
+- Effective state: absence under the required contract is unvalidated; the
+  newest applicable record by recorded time and deterministic UUID tie-break is
+  validated when passed and failed when failed. Evidence for older contracts
+  remains historical but cannot satisfy the current contract. Validating is
+  transient job state, not catalog truth. Registration records evidence only and
+  never runs validation.
+
+## D-0061: Shared new-pin eligibility and newest-eligible selection
+
+- Status: approved for Phase 5
+- Decision: one application policy evaluates exact Target/definition release
+  compatibility, tier permission, revision approval, Trusted Custom Build
+  policy, immutable artifact, immutable execution profile, profile/definition
+  identity agreement, and latest passing `kodi-runtime-v1` evidence. It returns
+  eligible or one bounded typed reason.
+- Selection: normal policy permits Current only; trusted Include Legacy and
+  Include Pre-release options add Legacy and Preview respectively. Retired is
+  never selectable. Exact selection must pass every gate. Newest-eligible scans
+  revision numbers descending and may choose an older eligible revision when a
+  newer revision fails a gate, but never crosses RuntimeDefinition identity.
+  Existing pins are not retroactively re-evaluated; explicit reassignment is.
+
+## D-0062: Generalized immutable execution-profile identity
+
+- Status: approved for Phase 5
+- Decision: RuntimeExecutionProfile retains explicit major/minor, release
+  channel, and nullable prerelease ordinal fields and exposes the same typed
+  release identity as Target and RuntimeDefinition. Stable requires no ordinal;
+  alpha/beta/RC requires a positive ordinal. Registration requires exact
+  agreement with the parent definition.
+- Execution bounds: the proven 8080 `/jsonrpc`, Docker healthcheck, Kodi JSON-RPC,
+  90-second deadline, one-second cadence, and three-second HTTP timeout remain
+  the 21.3 values, while bounded per-revision values are no longer hard-coded to
+  21.3 forever. Kodi identity probing preserves and compares observable
+  `tagversion`, so Beta 1 and Beta 2 cannot collapse.
+
+## D-0063: Phase 5 build, Web, and next-runtime boundaries
+
+- Status: approved for Phase 5
+- Decision: runtime build directories remain version-owned; the proven Kodi
+  21.3 image is not refactored before cross-version evidence exists. Future Web
+  catalog DTOs show exact release, channel/ordinal, support tier, effective
+  validation, revision, eligibility, and bounded ineligibility reason; browsers
+  receive no raw image or catalog mutation authority. This milestone adds no
+  matrix UI or validation endpoint.
+- Next target: Kodi 20.5 stable is the next separately authorized runtime because
+  it is Current, exercises backward compatibility, and has less packaging/build
+  divergence than Kodi 19 or Kodi 22 prerelease.

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
 
+from kodi_lab.domain.kodi_release import KodiReleaseIdentity
+
 
 class TargetType(StrEnum):
     """Kinds of targets implemented by the current domain slice."""
@@ -67,6 +69,14 @@ class Target:
     def __post_init__(self) -> None:
         _require_text(self.name, "name")
         _require_text(self.kodi_version, "kodi_version")
+        release = KodiReleaseIdentity.parse(self.kodi_version)
+        object.__setattr__(self, "kodi_version", release.canonical)
+
+    @property
+    def kodi_release(self) -> KodiReleaseIdentity:
+        """Return the exact typed release identity declared by this target."""
+
+        return KodiReleaseIdentity.parse(self.kodi_version)
 
 
 @dataclass(frozen=True, slots=True)

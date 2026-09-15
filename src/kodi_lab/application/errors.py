@@ -65,6 +65,25 @@ class NoApprovedRevisionError(RuntimeSelectionError):
         )
 
 
+class NoEligibleRevisionError(NoApprovedRevisionError):
+    def __init__(self, runtime_definition_id: UUID) -> None:
+        self.runtime_definition_id = runtime_definition_id
+        RuntimeSelectionError.__init__(
+            self,
+            "runtime definition "
+            f"{runtime_definition_id} has no eligible runtime revision",
+        )
+
+
+class RuntimeRevisionIneligibleError(RuntimeSelectionError):
+    def __init__(self, runtime_revision_id: UUID, reason: str) -> None:
+        self.runtime_revision_id = runtime_revision_id
+        self.reason = reason
+        super().__init__(
+            f"runtime revision {runtime_revision_id} is ineligible: {reason}"
+        )
+
+
 class RevisionNotApprovedError(RuntimeSelectionError):
     def __init__(self, runtime_revision_id: UUID) -> None:
         self.runtime_revision_id = runtime_revision_id
@@ -165,6 +184,12 @@ class RuntimeExecutionProfileConflictError(PersistenceConflictError):
         )
 
 
+class RuntimeValidationEvidenceConflictError(PersistenceConflictError):
+    def __init__(self, evidence_id: UUID) -> None:
+        self.evidence_id = evidence_id
+        super().__init__(f"runtime validation evidence {evidence_id} already exists")
+
+
 class CatalogDataValidationError(ApplicationServiceError):
     """Catalog registration data failed domain validation."""
 
@@ -176,4 +201,14 @@ class InvalidRevisionLifecycleTransitionError(ApplicationServiceError):
         super().__init__(
             f"invalid lifecycle transition for runtime revision "
             f"{runtime_revision_id}: {reason}"
+        )
+
+
+class InvalidSupportTierTransitionError(ApplicationServiceError):
+    def __init__(self, *, runtime_definition_id: UUID, reason: str) -> None:
+        self.runtime_definition_id = runtime_definition_id
+        self.reason = reason
+        super().__init__(
+            f"invalid support transition for runtime definition "
+            f"{runtime_definition_id}: {reason}"
         )

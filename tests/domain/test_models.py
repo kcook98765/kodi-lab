@@ -31,6 +31,28 @@ def test_valid_target_construction() -> None:
     assert target.target_type is TargetType.MANAGED
 
 
+def test_target_uses_exact_prerelease_identity() -> None:
+    beta_1 = Target(
+        id=uuid4(),
+        name="Kodi 22 Beta 1",
+        target_type=TargetType.MANAGED,
+        kodi_version="22.0-beta.1",
+        availability=TargetAvailability.AVAILABLE,
+        health=HealthStatus.HEALTHY,
+        connection_state=ConnectionState.CONNECTED,
+    )
+    beta_2 = Target(
+        id=uuid4(),
+        name="Kodi 22 Beta 2",
+        target_type=TargetType.MANAGED,
+        kodi_version="22.0-beta.2",
+        availability=TargetAvailability.AVAILABLE,
+        health=HealthStatus.HEALTHY,
+        connection_state=ConnectionState.CONNECTED,
+    )
+    assert beta_1.kodi_release != beta_2.kodi_release
+
+
 def test_valid_managed_instance_construction() -> None:
     target_id = uuid4()
     revision_id = uuid4()

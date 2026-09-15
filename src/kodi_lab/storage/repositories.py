@@ -12,6 +12,8 @@ from kodi_lab.domain import (
     RuntimeDefinition,
     RuntimeExecutionProfile,
     RuntimeRevision,
+    RuntimeSupportTier,
+    RuntimeValidationEvidence,
     Target,
 )
 from kodi_lab.storage.models import (
@@ -20,6 +22,7 @@ from kodi_lab.storage.models import (
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
+    RuntimeValidationEvidenceRow,
     TargetRow,
 )
 
@@ -64,6 +67,7 @@ def _definition_from_row(row: RuntimeDefinitionRow) -> RuntimeDefinition:
         id=UUID(row.id),
         slug=row.slug,
         kodi_version=row.kodi_version,
+        support_tier=RuntimeSupportTier(row.support_tier),
     )
 
 
@@ -199,6 +203,7 @@ class RuntimeDefinitionRepository:
                 id=str(definition.id),
                 slug=definition.slug,
                 kodi_version=definition.kodi_version,
+                support_tier=definition.support_tier.value,
             )
         )
         self._session.flush()
@@ -220,6 +225,18 @@ class RuntimeDefinitionRepository:
             )
         )
         return [_definition_from_row(row) for row in rows]
+
+    def transition_support_tier(
+        self, definition_id: UUID, support_tier: RuntimeSupportTier
+    ) -> RuntimeDefinition:
+        row = self._session.get(RuntimeDefinitionRow, str(definition_id))
+        if row is None:
+            raise EntityNotFoundError(
+                f"runtime definition {definition_id} does not exist"
+            )
+        row.support_tier = support_tier.value
+        self._session.flush()
+        return _definition_from_row(row)
 
 
 class RuntimeRevisionRepository:
@@ -283,6 +300,16 @@ class RuntimeRevisionRepository:
             .limit(1)
         )
         return None if row is None else _revision_from_row(row)
+
+    def list_for_definition_descending(
+        self, definition_id: UUID
+    ) -> list[RuntimeRevision]:
+        rows = self._session.scalars(
+            select(RuntimeRevisionRow)
+            .where(RuntimeRevisionRow.runtime_definition_id == str(definition_id))
+            .order_by(RuntimeRevisionRow.revision_number.desc(), RuntimeRevisionRow.id)
+        )
+        return [_revision_from_row(row) for row in rows]
 
     def approve(
         self, revision_id: UUID, *, approved_at: datetime, note: str | None = None
@@ -372,6 +399,7 @@ class RuntimeExecutionProfileRepository:
                 expected_application_name=profile.expected_application_name,
                 expected_kodi_version=profile.expected_kodi_version,
                 expected_version_tag=profile.expected_version_tag,
+                expected_prerelease_ordinal=profile.expected_prerelease_ordinal,
                 jsonrpc_port=profile.jsonrpc_port,
                 jsonrpc_path=profile.jsonrpc_path,
                 process_observation=profile.process_observation,
@@ -393,6 +421,7 @@ class RuntimeExecutionProfileRepository:
             expected_application_name=row.expected_application_name,
             expected_kodi_version=row.expected_kodi_version,
             expected_version_tag=row.expected_version_tag,
+            expected_prerelease_ordinal=row.expected_prerelease_ordinal,
             jsonrpc_port=row.jsonrpc_port,
             jsonrpc_path=row.jsonrpc_path,
             process_observation=row.process_observation,
@@ -400,4 +429,69 @@ class RuntimeExecutionProfileRepository:
             readiness_timeout_seconds=row.readiness_timeout_seconds,
             poll_interval_seconds=row.poll_interval_seconds,
             http_timeout_seconds=row.http_timeout_seconds,
+        )
+
+
+class RuntimeValidationEvidenceRepository:
+    """Append-only persistence and effective evidence retrieval."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, evidence: RuntimeValidationEvidence) -> None:
+        self._session.add(
+            RuntimeValidationEvidenceRow(
+                id=str(evidence.id),
+                runtime_revision_id=str(evidence.runtime_revision_id),
+                contract_version=evidence.contract_version,
+                result=evidence.result,
+                started_at=_timestamp_to_text(evidence.started_at),
+                completed_at=_timestamp_to_text(evidence.completed_at),
+                evidence_reference=evidence.evidence_reference,
+                summary=evidence.summary,
+                recorded_at=_timestamp_to_text(evidence.recorded_at),
+            )
+        )
+        self._session.flush()
+
+    def list_for_revision(self, revision_id: UUID) -> list[RuntimeValidationEvidence]:
+        rows = self._session.scalars(
+            select(RuntimeValidationEvidenceRow)
+            .where(RuntimeValidationEvidenceRow.runtime_revision_id == str(revision_id))
+            .order_by(
+                RuntimeValidationEvidenceRow.recorded_at,
+                RuntimeValidationEvidenceRow.id,
+            )
+        )
+        return [self._from_row(row) for row in rows]
+
+    def latest_for_contract(
+        self, revision_id: UUID, contract_version: str
+    ) -> RuntimeValidationEvidence | None:
+        row = self._session.scalar(
+            select(RuntimeValidationEvidenceRow)
+            .where(
+                RuntimeValidationEvidenceRow.runtime_revision_id == str(revision_id),
+                RuntimeValidationEvidenceRow.contract_version == contract_version,
+            )
+            .order_by(
+                RuntimeValidationEvidenceRow.recorded_at.desc(),
+                RuntimeValidationEvidenceRow.id.desc(),
+            )
+            .limit(1)
+        )
+        return None if row is None else self._from_row(row)
+
+    @staticmethod
+    def _from_row(row: RuntimeValidationEvidenceRow) -> RuntimeValidationEvidence:
+        return RuntimeValidationEvidence(
+            id=UUID(row.id),
+            runtime_revision_id=UUID(row.runtime_revision_id),
+            contract_version=row.contract_version,
+            result=row.result,
+            started_at=_timestamp_from_text(row.started_at),
+            completed_at=_timestamp_from_text(row.completed_at),
+            evidence_reference=row.evidence_reference,
+            summary=row.summary,
+            recorded_at=_timestamp_from_text(row.recorded_at),
         )

@@ -127,3 +127,19 @@ status UI, a bounded semantic JSON surface, trusted lifecycle orchestration, and
 ephemeral per-instance readiness tasks. It exposes only existing
 provision/start/stop/deprovision semantics and adds no target/catalog creation,
 matrix, generic Docker/JSON-RPC, LAN/Nginx, or production deployment surface.
+
+Phase 5 Step 1 establishes the curated matrix contract without adding another
+runtime. Exact Kodi identity now distinguishes stable, alpha, beta, and RC
+releases including prerelease ordinals. RuntimeDefinition owns explicit Current,
+Legacy, Preview, or Retired support policy. Immutable per-revision validation
+evidence under `kodi-runtime-v1` remains separate from approval and build trust.
+One shared eligibility policy gates all new pins on exact compatibility, support,
+approval/trust, artifact, profile, and current passing validation evidence;
+newest-eligible selection may retain an older eligible revision but never changes
+release identity. Existing exact pins remain historical authority.
+
+The next separately authorized Phase 5 milestone is one Kodi 20.5 stable runtime:
+create its version-owned build assets, register its exact definition/revision,
+artifact, and execution profile, then complete two independent readiness/clean
+stop cycles and safe deprovision before recording validation evidence. No Kodi
+20.5 build or runtime work is part of Step 1.

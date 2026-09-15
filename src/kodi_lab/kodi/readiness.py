@@ -17,7 +17,11 @@ from kodi_lab.broker.operations import (
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeResult,
 )
-from kodi_lab.domain import RuntimeExecutionProfile
+from kodi_lab.domain import (
+    KodiReleaseChannel,
+    KodiReleaseIdentity,
+    RuntimeExecutionProfile,
+)
 
 MAX_JSONRPC_RESPONSE_BYTES = 65_536
 
@@ -50,6 +54,16 @@ class KodiApplicationIdentity:
     major: int
     minor: int
     tag: str
+    tag_version: int | None = None
+
+    @property
+    def kodi_release(self) -> KodiReleaseIdentity:
+        return KodiReleaseIdentity(
+            self.major,
+            self.minor,
+            KodiReleaseChannel(self.tag),
+            self.tag_version,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +202,7 @@ class KodiJsonRpcReadinessAdapter:
         major = version.get("major")
         minor = version.get("minor")
         tag = version.get("tag")
+        raw_tag_version = version.get("tagversion")
         if (
             not isinstance(name, str)
             or not isinstance(major, int)
@@ -197,7 +212,31 @@ class KodiJsonRpcReadinessAdapter:
             or not isinstance(tag, str)
         ):
             raise JsonRpcInvalidResponseError("application identity fields are invalid")
-        return KodiApplicationIdentity(name=name, major=major, minor=minor, tag=tag)
+        tag_version: int | None
+        if raw_tag_version is None or raw_tag_version == "":
+            tag_version = None
+        elif isinstance(raw_tag_version, int) and not isinstance(raw_tag_version, bool):
+            tag_version = raw_tag_version
+        elif isinstance(raw_tag_version, str) and raw_tag_version.isdigit():
+            tag_version = int(raw_tag_version)
+        else:
+            raise JsonRpcInvalidResponseError(
+                "application prerelease ordinal is invalid"
+            )
+        try:
+            identity = KodiApplicationIdentity(
+                name=name,
+                major=major,
+                minor=minor,
+                tag=tag,
+                tag_version=tag_version,
+            )
+            _ = identity.kodi_release
+        except ValueError as error:
+            raise JsonRpcInvalidResponseError(
+                "application release identity is invalid"
+            ) from error
+        return identity
 
     def _fixed_request(
         self, request_id: str, method: str, params: dict[str, object] | None
@@ -380,14 +419,7 @@ class KodiReadinessCoordinator:
                     ReadinessFailureReason.UNEXPECTED_APPLICATION_IDENTITY,
                     identity,
                 )
-            expected_major, expected_minor = (
-                int(part) for part in self._profile.expected_kodi_version.split(".")
-            )
-            if (
-                identity.major != expected_major
-                or identity.minor != expected_minor
-                or identity.tag != self._profile.expected_version_tag
-            ):
+            if identity.kodi_release != self._profile.kodi_release:
                 return self._failure_result(
                     started,
                     attempts,

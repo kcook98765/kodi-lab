@@ -21,12 +21,17 @@ from kodi_lab.application import (
     TrustedCustomBuildConfirmationRequiredError,
 )
 from kodi_lab.domain import (
+    KODI_RUNTIME_VALIDATION_CONTRACT,
     ConnectionState,
     HealthStatus,
     InstanceType,
+    ProcessObservationKind,
+    ReadinessProbeKind,
     RevisionApprovalState,
     RuntimeDefinition,
+    RuntimeKind,
     RuntimeRevision,
+    RuntimeValidationResult,
     Target,
     TargetAvailability,
     TargetType,
@@ -117,6 +122,38 @@ def load_revision(
 ) -> RuntimeRevision | None:
     with factory() as session:
         return RuntimeRevisionRepository(session).get(revision.id)
+
+
+def register_eligibility_dependencies(
+    service: RuntimeCatalogAdministrationService, revision: RuntimeRevision
+) -> None:
+    service.register_container_artifact(
+        runtime_revision_id=revision.id, image_id="sha256:" + ("e" * 64)
+    )
+    service.register_execution_profile(
+        runtime_revision_id=revision.id,
+        runtime_kind=RuntimeKind.KODI,
+        expected_application_name="Kodi",
+        expected_kodi_version="21.3",
+        expected_version_tag="stable",
+        jsonrpc_port=8080,
+        jsonrpc_path="/jsonrpc",
+        process_observation=ProcessObservationKind.DOCKER_HEALTHCHECK,
+        readiness_probe=ReadinessProbeKind.KODI_JSONRPC,
+        readiness_timeout_seconds=90,
+        poll_interval_seconds=1.0,
+        http_timeout_seconds=3.0,
+    )
+    service.record_validation_evidence(
+        evidence_id=uuid4(),
+        runtime_revision_id=revision.id,
+        contract_version=KODI_RUNTIME_VALIDATION_CONTRACT,
+        result=RuntimeValidationResult.PASSED,
+        started_at=NOW,
+        completed_at=NOW,
+        evidence_reference=f"test://validation/{revision.id}",
+        recorded_at=NOW,
+    )
 
 
 def test_register_runtime_definition(catalog_factory: sessionmaker[Session]) -> None:
@@ -391,6 +428,7 @@ def test_registration_approval_and_managed_selection_compose(
         )
 
     catalog.approve_revision(revision.id, approved_at=NOW)
+    register_eligibility_dependencies(catalog, revision)
     created = instances.create(
         target_id=target.id,
         selection=selection,
@@ -434,6 +472,7 @@ def test_trust_confirmation_controls_future_selection_not_existing_reference(
         )
 
     catalog.confirm_trusted_custom_build(revision.id, confirmed_at=NOW)
+    register_eligibility_dependencies(catalog, revision)
     created = instances.create(
         target_id=first_target.id,
         selection=selection,

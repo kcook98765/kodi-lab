@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -24,6 +25,8 @@ from kodi_lab.domain import (
     ReadinessProbeKind,
     RevisionApprovalState,
     RuntimeKind,
+    RuntimeSupportTier,
+    RuntimeValidationResult,
     TargetAvailability,
     TargetType,
 )
@@ -144,11 +147,21 @@ class RuntimeDefinitionRow(Base):
             name="runtime_definition_kodi_version_not_blank",
         ),
         UniqueConstraint("slug", name="uq_runtime_definitions_slug"),
+        CheckConstraint(
+            "support_tier IN ('current', 'legacy', 'preview', 'retired')",
+            name="runtime_support_tier",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     slug: Mapped[str] = mapped_column(Text, nullable=False)
     kodi_version: Mapped[str] = mapped_column(Text, nullable=False)
+    support_tier: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=RuntimeSupportTier.CURRENT,
+        server_default=text("'current'"),
+    )
 
 
 class RuntimeRevisionRow(Base):
@@ -278,6 +291,35 @@ class RuntimeExecutionProfileRow(Base):
     """Immutable trusted execution profile for one finalized revision."""
 
     __tablename__ = "runtime_execution_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "expected_version_tag IN ('stable', 'alpha', 'beta', 'rc')",
+            name="runtime_profile_release_channel",
+        ),
+        CheckConstraint(
+            "(expected_version_tag = 'stable' AND "
+            "expected_prerelease_ordinal IS NULL) OR "
+            "(expected_version_tag != 'stable' AND "
+            "expected_prerelease_ordinal > 0)",
+            name="runtime_profile_release_ordinal",
+        ),
+        CheckConstraint(
+            "jsonrpc_port BETWEEN 1 AND 65535",
+            name="runtime_profile_jsonrpc_port_range",
+        ),
+        CheckConstraint(
+            "readiness_timeout_seconds BETWEEN 1 AND 600",
+            name="runtime_profile_total_timeout_range",
+        ),
+        CheckConstraint(
+            "poll_interval_seconds >= 0.1 AND poll_interval_seconds <= 10.0",
+            name="runtime_profile_poll_interval_range",
+        ),
+        CheckConstraint(
+            "http_timeout_seconds >= 0.1 AND http_timeout_seconds <= 5.0",
+            name="runtime_profile_http_timeout_range",
+        ),
+    )
 
     runtime_revision_id: Mapped[str] = mapped_column(
         String(36),
@@ -291,6 +333,9 @@ class RuntimeExecutionProfileRow(Base):
     expected_application_name: Mapped[str] = mapped_column(String(32), nullable=False)
     expected_kodi_version: Mapped[str] = mapped_column(String(32), nullable=False)
     expected_version_tag: Mapped[str] = mapped_column(String(16), nullable=False)
+    expected_prerelease_ordinal: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
     jsonrpc_port: Mapped[int] = mapped_column(Integer, nullable=False)
     jsonrpc_path: Mapped[str] = mapped_column(String(64), nullable=False)
     process_observation: Mapped[ProcessObservationKind] = mapped_column(
@@ -304,6 +349,60 @@ class RuntimeExecutionProfileRow(Base):
     readiness_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     poll_interval_seconds: Mapped[float] = mapped_column(nullable=False)
     http_timeout_seconds: Mapped[float] = mapped_column(nullable=False)
+
+
+class RuntimeValidationEvidenceRow(Base):
+    """Append-only validation evidence for one finalized revision."""
+
+    __tablename__ = "runtime_validation_evidence"
+    __table_args__ = (
+        Index(
+            "ix_runtime_validation_effective",
+            "runtime_revision_id",
+            "contract_version",
+            "recorded_at",
+        ),
+        CheckConstraint(
+            "length(contract_version) BETWEEN 1 AND 64",
+            name="runtime_validation_contract_bounded",
+        ),
+        CheckConstraint(
+            "length(trim(evidence_reference)) BETWEEN 1 AND 512",
+            name="runtime_validation_reference_bounded",
+        ),
+        CheckConstraint(
+            "summary IS NULL OR length(trim(summary)) BETWEEN 1 AND 512",
+            name="runtime_validation_summary_bounded",
+        ),
+        CheckConstraint(
+            "completed_at >= started_at AND recorded_at >= completed_at",
+            name="runtime_validation_timestamp_order",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    contract_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[RuntimeValidationResult] = mapped_column(
+        Enum(
+            RuntimeValidationResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="runtime_validation_result",
+        ),
+        nullable=False,
+    )
+    started_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    evidence_reference: Mapped[str] = mapped_column(String(512), nullable=False)
+    summary: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    recorded_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
 class WebAdminCredentialRow(Base):

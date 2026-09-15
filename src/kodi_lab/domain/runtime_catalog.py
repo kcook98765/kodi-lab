@@ -7,8 +7,19 @@ from enum import StrEnum
 from typing import Self
 from uuid import UUID
 
+from kodi_lab.domain.kodi_release import (
+    KodiReleaseChannel,
+    KodiReleaseIdentity,
+    RuntimeSupportTier,
+    validate_support_tier_for_release,
+)
+
 _SLUG_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$")
 _SHA256_PATTERN = re.compile(r"^(?:sha256:)?([0-9a-fA-F]{64})$")
+_VALIDATION_CONTRACT_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
+
+KODI_RUNTIME_VALIDATION_CONTRACT = "kodi-runtime-v1"
+RECOGNIZED_VALIDATION_CONTRACTS = frozenset({KODI_RUNTIME_VALIDATION_CONTRACT})
 
 
 class RevisionApprovalState(StrEnum):
@@ -34,6 +45,21 @@ class ReadinessProbeKind(StrEnum):
     """Bounded application readiness probe families."""
 
     KODI_JSONRPC = "kodi_jsonrpc"
+
+
+class RuntimeValidationResult(StrEnum):
+    """Immutable outcome recorded by a trusted runtime validation workflow."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+
+
+class EffectiveValidationState(StrEnum):
+    """Derived state for one revision under a required contract version."""
+
+    UNVALIDATED = "unvalidated"
+    VALIDATED = "validated"
+    FAILED = "failed"
 
 
 def _require_nonblank(value: str, field_name: str) -> None:
@@ -69,6 +95,7 @@ class RuntimeDefinition:
     id: UUID
     slug: str
     kodi_version: str
+    support_tier: RuntimeSupportTier = RuntimeSupportTier.CURRENT
 
     def __post_init__(self) -> None:
         if _SLUG_PATTERN.fullmatch(self.slug) is None:
@@ -77,6 +104,13 @@ class RuntimeDefinition:
                 "and start and end with a letter or number"
             )
         _require_nonblank(self.kodi_version, "kodi_version")
+        release = KodiReleaseIdentity.parse(self.kodi_version)
+        validate_support_tier_for_release(release, self.support_tier)
+        object.__setattr__(self, "kodi_version", release.canonical)
+
+    @property
+    def kodi_release(self) -> KodiReleaseIdentity:
+        return KodiReleaseIdentity.parse(self.kodi_version)
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,29 +239,104 @@ class RuntimeExecutionProfile:
     readiness_timeout_seconds: int
     poll_interval_seconds: float
     http_timeout_seconds: float
+    expected_prerelease_ordinal: int | None = None
 
     def __post_init__(self) -> None:
         if self.runtime_kind is not RuntimeKind.KODI:
             raise ValueError("runtime_kind is not supported")
         if self.expected_application_name != "Kodi":
             raise ValueError("expected_application_name must be Kodi")
-        if re.fullmatch(r"[1-9][0-9]*\.[0-9]+", self.expected_kodi_version) is None:
+        if (
+            re.fullmatch(r"[1-9][0-9]*\.(?:0|[1-9][0-9]*)", self.expected_kodi_version)
+            is None
+        ):
             raise ValueError("expected_kodi_version must be canonical major.minor")
-        if self.expected_kodi_version != "21.3":
-            raise ValueError("expected_kodi_version must be 21.3 for this milestone")
-        if self.expected_version_tag != "stable":
-            raise ValueError("expected_version_tag must be stable")
-        if self.jsonrpc_port != 8080:
-            raise ValueError("jsonrpc_port must be the trusted Kodi port 8080")
-        if self.jsonrpc_path != "/jsonrpc":
-            raise ValueError("jsonrpc_path must be /jsonrpc")
+        try:
+            channel = KodiReleaseChannel(self.expected_version_tag)
+        except ValueError as error:
+            raise ValueError(
+                "expected_version_tag is not a recognized channel"
+            ) from error
+        major, minor = (int(part) for part in self.expected_kodi_version.split("."))
+        KodiReleaseIdentity(
+            major,
+            minor,
+            channel=channel,
+            prerelease_ordinal=self.expected_prerelease_ordinal,
+        )
+        if not 1 <= self.jsonrpc_port <= 65535:
+            raise ValueError("jsonrpc_port must be between 1 and 65535")
+        if (
+            not self.jsonrpc_path.startswith("/")
+            or len(self.jsonrpc_path) > 64
+            or any(character.isspace() for character in self.jsonrpc_path)
+        ):
+            raise ValueError("jsonrpc_path must be a bounded absolute path")
         if self.process_observation is not ProcessObservationKind.DOCKER_HEALTHCHECK:
             raise ValueError("process_observation is not supported")
         if self.readiness_probe is not ReadinessProbeKind.KODI_JSONRPC:
             raise ValueError("readiness_probe is not supported")
-        if self.readiness_timeout_seconds != 90:
-            raise ValueError("readiness_timeout_seconds must be 90")
-        if self.poll_interval_seconds != 1.0:
-            raise ValueError("poll_interval_seconds must be 1")
+        if not 1 <= self.readiness_timeout_seconds <= 600:
+            raise ValueError("readiness_timeout_seconds must be between 1 and 600")
+        if not 0.1 <= self.poll_interval_seconds <= 10.0:
+            raise ValueError("poll_interval_seconds must be between 0.1 and 10")
+        if self.poll_interval_seconds >= self.readiness_timeout_seconds:
+            raise ValueError("poll_interval_seconds must be below readiness timeout")
         if not 0.1 <= self.http_timeout_seconds <= 5.0:
             raise ValueError("http_timeout_seconds must be between 0.1 and 5")
+
+    @property
+    def kodi_release(self) -> KodiReleaseIdentity:
+        major, minor = (int(part) for part in self.expected_kodi_version.split("."))
+        return KodiReleaseIdentity(
+            major,
+            minor,
+            KodiReleaseChannel(self.expected_version_tag),
+            self.expected_prerelease_ordinal,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeValidationEvidence:
+    """Append-only evidence for one immutable runtime revision."""
+
+    id: UUID
+    runtime_revision_id: UUID
+    contract_version: str
+    result: RuntimeValidationResult
+    started_at: datetime
+    completed_at: datetime
+    evidence_reference: str
+    recorded_at: datetime
+    summary: str | None = None
+
+    def __post_init__(self) -> None:
+        if _VALIDATION_CONTRACT_PATTERN.fullmatch(self.contract_version) is None:
+            raise ValueError("contract_version must be a bounded canonical identifier")
+        if not 1 <= len(self.evidence_reference) <= 512:
+            raise ValueError("evidence_reference must contain 1 to 512 characters")
+        _require_nonblank(self.evidence_reference, "evidence_reference")
+        if self.summary is not None:
+            if len(self.summary) > 512:
+                raise ValueError("summary must not exceed 512 characters")
+            _require_nonblank(self.summary, "summary")
+        started = _normalize_timestamp(self.started_at, "started_at")
+        completed = _normalize_timestamp(self.completed_at, "completed_at")
+        recorded = _normalize_timestamp(self.recorded_at, "recorded_at")
+        if completed < started:
+            raise ValueError("completed_at must not precede started_at")
+        if recorded < completed:
+            raise ValueError("recorded_at must not precede completed_at")
+        object.__setattr__(self, "started_at", started)
+        object.__setattr__(self, "completed_at", completed)
+        object.__setattr__(self, "recorded_at", recorded)
+
+
+def effective_validation_state(
+    evidence: RuntimeValidationEvidence | None,
+) -> EffectiveValidationState:
+    if evidence is None:
+        return EffectiveValidationState.UNVALIDATED
+    if evidence.result is RuntimeValidationResult.PASSED:
+        return EffectiveValidationState.VALIDATED
+    return EffectiveValidationState.FAILED

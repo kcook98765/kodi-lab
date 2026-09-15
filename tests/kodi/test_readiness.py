@@ -55,6 +55,25 @@ def profile() -> RuntimeExecutionProfile:
     )
 
 
+def preview_profile() -> RuntimeExecutionProfile:
+    values = profile()
+    return RuntimeExecutionProfile(
+        runtime_revision_id=values.runtime_revision_id,
+        runtime_kind=values.runtime_kind,
+        expected_application_name=values.expected_application_name,
+        expected_kodi_version="22.0",
+        expected_version_tag="beta",
+        expected_prerelease_ordinal=2,
+        jsonrpc_port=values.jsonrpc_port,
+        jsonrpc_path=values.jsonrpc_path,
+        process_observation=values.process_observation,
+        readiness_probe=values.readiness_probe,
+        readiness_timeout_seconds=values.readiness_timeout_seconds,
+        poll_interval_seconds=values.poll_interval_seconds,
+        http_timeout_seconds=values.http_timeout_seconds,
+    )
+
+
 def observation(
     process_state: KodiProcessState = KodiProcessState.RUNNING,
 ) -> ObserveManagedKodiRuntimeResult:
@@ -124,6 +143,29 @@ def test_fixed_jsonrpc_ping_and_identity_methods() -> None:
         },
     ]
     assert not hasattr(adapter, "call")
+
+
+def test_identity_preserves_observable_prerelease_ordinal() -> None:
+    transport = FakeTransport(
+        [
+            response(
+                "kodi-lab-readiness-identity",
+                {
+                    "name": "Kodi",
+                    "version": {
+                        "major": 22,
+                        "minor": 0,
+                        "tag": "beta",
+                        "tagversion": "2",
+                    },
+                },
+            )
+        ]
+    )
+    identity = KodiJsonRpcReadinessAdapter(
+        observation(), preview_profile(), transport=transport
+    ).get_application_identity()
+    assert identity == KodiApplicationIdentity("Kodi", 22, 0, "beta", 2)
 
 
 @pytest.mark.parametrize(
@@ -371,7 +413,7 @@ def test_identity_probe_does_not_start_after_total_deadline() -> None:
             ReadinessFailureReason.UNEXPECTED_KODI_VERSION,
         ),
         (
-            KodiApplicationIdentity("Kodi", 21, 3, "beta"),
+            KodiApplicationIdentity("Kodi", 21, 3, "beta", 1),
             ReadinessFailureReason.UNEXPECTED_KODI_VERSION,
         ),
     ],
@@ -388,6 +430,21 @@ def test_identity_mismatch_fails_without_waiting(
         adapter_factory=factory(FakeAdapter(identity=identity)),  # type: ignore[arg-type]
     ).wait_until_usable(INSTANCE_ID)
     assert result.failure_reason is reason
+    assert result.elapsed_seconds == 0
+
+
+def test_prerelease_ordinal_mismatch_is_not_compatible() -> None:
+    clock = FakeClock()
+    result = KodiReadinessCoordinator(
+        FakeBroker(),
+        preview_profile(),
+        clock=clock,
+        sleep=clock.sleep,
+        adapter_factory=factory(
+            FakeAdapter(identity=KodiApplicationIdentity("Kodi", 22, 0, "beta", 1))
+        ),  # type: ignore[arg-type]
+    ).wait_until_usable(INSTANCE_ID)
+    assert result.failure_reason is ReadinessFailureReason.UNEXPECTED_KODI_VERSION
     assert result.elapsed_seconds == 0
 
 

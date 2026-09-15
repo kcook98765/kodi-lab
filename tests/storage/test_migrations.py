@@ -38,6 +38,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "runtime_container_artifacts",
         "runtime_execution_profiles",
         "runtime_revisions",
+        "runtime_validation_evidence",
         "targets",
         "web_admin_credentials",
         "web_sessions",
@@ -293,3 +294,229 @@ def test_populated_artifact_mapping_refuses_downgrade(
     engine = create_database_engine(database_url)
     assert "runtime_container_artifacts" in inspect(engine).get_table_names()
     engine.dispose()
+
+
+def test_0005_populated_state_upgrades_without_fabricated_validation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0005_web_auth_sessions")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-15T12:00:00.000000Z"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions (id, slug, kodi_version) VALUES "
+                "('00000000-0000-4000-8000-000000000001', 'kodi-21-3', '21.3')"
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO runtime_revisions (
+                    id, runtime_definition_id, revision_number, source_kind,
+                    source_reference, content_digest, manifest_reference,
+                    manifest_digest, built_at, approval_state, approved_at,
+                    requires_trusted_build_confirmation
+                ) VALUES (
+                    '00000000-0000-4000-8000-000000000002',
+                    '00000000-0000-4000-8000-000000000001', 1,
+                    'official-package', 'ubuntu', :digest, 'manifest', :digest,
+                    :timestamp, 'approved', :timestamp, 0
+                )
+                """
+            ),
+            {"digest": "sha256:" + ("a" * 64), "timestamp": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_container_artifacts "
+                "(runtime_revision_id, image_id) VALUES "
+                "('00000000-0000-4000-8000-000000000002', :digest)"
+            ),
+            {"digest": "sha256:" + ("b" * 64)},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO runtime_execution_profiles (
+                    runtime_revision_id, runtime_kind,
+                    expected_application_name, expected_kodi_version,
+                    expected_version_tag, jsonrpc_port, jsonrpc_path,
+                    process_observation, readiness_probe,
+                    readiness_timeout_seconds, poll_interval_seconds,
+                    http_timeout_seconds
+                ) VALUES (
+                    '00000000-0000-4000-8000-000000000002', 'kodi', 'Kodi',
+                    '21.3', 'stable', 8080, '/jsonrpc', 'docker_healthcheck',
+                    'kodi_jsonrpc', 90, 1.0, 3.0
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO targets (
+                    id, name, target_type, kodi_version, availability, health,
+                    connection_state
+                ) VALUES (
+                    '00000000-0000-4000-8000-000000000003', 'retained',
+                    'managed', '21.3', 'unavailable', 'warning', 'disconnected'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO managed_instances (
+                    target_id, instance_type, runtime_revision_id,
+                    runtime_state, start_on_host_boot
+                ) VALUES (
+                    '00000000-0000-4000-8000-000000000003', 'disposable',
+                    '00000000-0000-4000-8000-000000000002', 'stopped', 0
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO web_admin_credentials (
+                    admin_key, password_hash, password_updated_at
+                ) VALUES ('local-admin', 'argon2id-test-hash', :timestamp)
+                """
+            ),
+            {"timestamp": timestamp},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO web_sessions (
+                    token_digest, admin_key, csrf_token, created_at,
+                    last_used_at, absolute_expires_at
+                ) VALUES (
+                    :token_digest, 'local-admin', :csrf_token, :timestamp,
+                    :timestamp, '2026-09-22T12:00:00.000000Z'
+                )
+                """
+            ),
+            {
+                "token_digest": "c" * 64,
+                "csrf_token": "d" * 43,
+                "timestamp": timestamp,
+            },
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(text("SELECT support_tier FROM runtime_definitions"))
+            == "current"
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT expected_prerelease_ordinal FROM runtime_execution_profiles"
+                )
+            )
+            is None
+        )
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM runtime_validation_evidence"))
+            == 0
+        )
+        assert connection.scalar(text("SELECT COUNT(*) FROM managed_instances")) == 1
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM runtime_container_artifacts"))
+            == 1
+        )
+        assert connection.scalar(text("SELECT COUNT(*) FROM web_sessions")) == 1
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM web_admin_credentials")) == 1
+        )
+    engine.dispose()
+    command.check(config)
+
+    command.downgrade(config, "0005_web_auth_sessions")
+    engine = create_database_engine(database_url)
+    assert "support_tier" not in {
+        column["name"] for column in inspect(engine).get_columns("runtime_definitions")
+    }
+    assert "expected_prerelease_ordinal" not in {
+        column["name"]
+        for column in inspect(engine).get_columns("runtime_execution_profiles")
+    }
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT COUNT(*) FROM managed_instances")) == 1
+        assert connection.scalar(text("SELECT COUNT(*) FROM web_sessions")) == 1
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM web_admin_credentials")) == 1
+        )
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_phase5_history_and_support_policy_refuse_lossy_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-15T12:00:00.000000Z"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id, slug, kodi_version, support_tier) VALUES "
+                "('00000000-0000-4000-8000-000000000001', "
+                "'kodi-19-5', '19.5', 'legacy')"
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO runtime_revisions (
+                    id, runtime_definition_id, revision_number, source_kind,
+                    source_reference, content_digest, manifest_reference,
+                    manifest_digest, built_at, approval_state,
+                    requires_trusted_build_confirmation
+                ) VALUES (
+                    '00000000-0000-4000-8000-000000000002',
+                    '00000000-0000-4000-8000-000000000001', 1, 'test', 'test',
+                    :digest, 'test', :digest, :timestamp, 'not_approved', 0
+                )
+                """
+            ),
+            {"digest": "sha256:" + ("a" * 64), "timestamp": timestamp},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO runtime_validation_evidence (
+                    id, runtime_revision_id, contract_version, result,
+                    started_at, completed_at, evidence_reference, recorded_at
+                ) VALUES (
+                    '00000000-0000-4000-8000-000000000003',
+                    '00000000-0000-4000-8000-000000000002',
+                    'kodi-runtime-v1', 'passed', :timestamp, :timestamp,
+                    'validation://evidence', :timestamp
+                )
+                """
+            ),
+            {"timestamp": timestamp},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="validation evidence"):
+        command.downgrade(config, "0005_web_auth_sessions")
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM runtime_validation_evidence"))
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="support policy"):
+        command.downgrade(config, "0005_web_auth_sessions")
