@@ -60,6 +60,8 @@ from kodi_lab.broker.provisioning import (
 )
 from kodi_lab.fixtures.package import (
     FIXTURE_CONTAINER_DESTINATION,
+    FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
+    SMALL_MIXED_V2_FIXTURE_SLUG,
     PackagedFixtureError,
     load_packaged_fixture,
 )
@@ -959,7 +961,7 @@ class DockerManagedContainerAdapter:
                 "Expected container identity is not canonical"
             )
         try:
-            packaged = load_packaged_fixture("small-mixed-v1")
+            packaged = load_packaged_fixture(spec.fixture_slug)
         except PackagedFixtureError as error:
             raise DockerFixtureArchiveError(
                 "Trusted fixture package could not be validated"
@@ -1009,10 +1011,13 @@ class DockerManagedContainerAdapter:
                 expected_container_id=expected_container_id,
                 expected_runtime_revision_id=spec.runtime_revision_id,
             )
-            for fixed_path in (
+            fixed_paths = [
                 "/home/kodi/.kodi/fixture-media",
                 "/home/kodi/.kodi/userdata/sources.xml",
-            ):
+            ]
+            if spec.fixture_slug == SMALL_MIXED_V2_FIXTURE_SLUG:
+                fixed_paths.append(FIXTURE_VIDEO_DATABASE_CONTAINER_PATH)
+            for fixed_path in fixed_paths:
                 if self._fixed_container_path_exists(client, selected_id, fixed_path):
                     raise FixtureBaselineConflictError(
                         "Fresh container already contains fixture-owned state"
@@ -1031,10 +1036,7 @@ class DockerManagedContainerAdapter:
                 raise DockerFixtureArchiveError(
                     "Docker did not confirm fixture archive application"
                 )
-            for fixed_path in (
-                "/home/kodi/.kodi/fixture-media",
-                "/home/kodi/.kodi/userdata/sources.xml",
-            ):
+            for fixed_path in fixed_paths:
                 if not self._fixed_container_path_exists(
                     client, selected_id, fixed_path
                 ):

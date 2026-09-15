@@ -60,6 +60,10 @@ def item_result(method: str) -> dict[str, object]:
                     "title": "Kodi Lab Fixture Movie",
                     "year": 2024,
                     "uniqueid": {"kodi-lab": "small-mixed-v1-movie"},
+                    "file": (
+                        "/home/kodi/.kodi/fixture-media/movies/"
+                        "kodi-lab-fixture-movie/Kodi Lab Fixture Movie (2024).mp4"
+                    ),
                 }
             ]
         }
@@ -71,6 +75,10 @@ def item_result(method: str) -> dict[str, object]:
                     "title": "Kodi Lab Fixture Series",
                     "year": 2024,
                     "uniqueid": {"kodi-lab": "small-mixed-v1-series"},
+                    "file": (
+                        "/home/kodi/.kodi/fixture-media/tvshows/"
+                        "kodi-lab-fixture-series/"
+                    ),
                 }
             ]
         }
@@ -84,6 +92,11 @@ def item_result(method: str) -> dict[str, object]:
                     "season": 1,
                     "episode": 1,
                     "uniqueid": {"kodi-lab": "small-mixed-v1-episode"},
+                    "file": (
+                        "/home/kodi/.kodi/fixture-media/tvshows/"
+                        "kodi-lab-fixture-series/Season 01/"
+                        "Kodi Lab Fixture Series S01E01.mp4"
+                    ),
                 }
             ]
         }
@@ -127,24 +140,52 @@ def test_fixed_scan_and_exact_semantic_fixture_success() -> None:
         observation(), profile(), transport=transport
     )
     adapter.scan_assigned_fixture_library()
-    state = adapter.get_fixture_library_state()
+    state = adapter.wait_for_fixture_state()
 
     assert state.is_baseline
     scan = transport.requests[0]
     assert scan == {
         "jsonrpc": "2.0",
-        "id": "kodi-lab-fixture-scan",
+        "id": "kodi-lab-fixture-scan-movies",
         "method": "VideoLibrary.Scan",
         "params": {
-            "directory": "/home/kodi/.kodi/fixture-media/",
+            "directory": "/home/kodi/.kodi/fixture-media/movies/",
             "showdialogs": False,
         },
     }
-    assert [request["method"] for request in transport.requests[1:]] == [
+    assert [request["method"] for request in transport.requests[1:4]] == [
         "VideoLibrary.GetMovies",
         "VideoLibrary.GetTVShows",
         "VideoLibrary.GetEpisodes",
     ]
+    assert transport.requests[4] == {
+        "jsonrpc": "2.0",
+        "id": "kodi-lab-fixture-scan-tv",
+        "method": "VideoLibrary.Scan",
+        "params": {
+            "directory": "/home/kodi/.kodi/fixture-media/tvshows/",
+            "showdialogs": False,
+        },
+    }
+
+
+def test_wrong_fixture_media_path_is_not_semantic_success() -> None:
+    def wrong_path(method: str, _request: dict[str, object]) -> object:
+        result = item_result(method)
+        key = {
+            "VideoLibrary.GetMovies": "movies",
+            "VideoLibrary.GetTVShows": "tvshows",
+            "VideoLibrary.GetEpisodes": "episodes",
+        }[method]
+        items = result[key]
+        assert isinstance(items, list)
+        items[0]["file"] = "/untrusted/path"
+        return result
+
+    state = SmallMixedFixtureKodiAdapter(
+        observation(), profile(), transport=FakeTransport(wrong_path)
+    ).get_fixture_library_state()
+    assert not state.is_baseline
 
 
 @pytest.mark.parametrize(

@@ -161,6 +161,34 @@ def test_register_assign_unassign_preserves_exact_revision(
     assert unassigned.runtime_revision_id == revision.id
 
 
+def test_v1_and_v2_register_distinctly_and_v2_assignment_preserves_pin(
+    session_factory: sessionmaker[Session],
+) -> None:
+    target, _definition, revision = seed_instance(session_factory)
+    service = FixtureAdministrationService(session_factory)
+    v1 = service.register_packaged_fixture("small-mixed-v1")
+    v2 = service.register_packaged_fixture("small-mixed-v2")
+
+    assert v1.id != v2.id
+    assert v1.fixture_version == 1
+    assert v2.fixture_version == 2
+    assigned = service.assign(
+        managed_instance_id=target.id, fixture_definition_id=v2.id
+    )
+    assert assigned.fixture_definition_id == v2.id
+    assert assigned.runtime_revision_id == revision.id
+
+
+def test_v2_assignment_rejects_non_omega_runtime(
+    session_factory: sessionmaker[Session],
+) -> None:
+    target, _definition, _revision = seed_instance(session_factory, kodi_version="20.5")
+    service = FixtureAdministrationService(session_factory)
+    v2 = service.register_packaged_fixture("small-mixed-v2")
+    with pytest.raises(FixtureIncompatibleError):
+        service.assign(managed_instance_id=target.id, fixture_definition_id=v2.id)
+
+
 def test_assignment_rejects_persistent_and_incompatible_instances(
     session_factory: sessionmaker[Session],
 ) -> None:

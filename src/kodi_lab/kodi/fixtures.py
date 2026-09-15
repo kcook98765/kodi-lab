@@ -1,4 +1,4 @@
-"""Unprivileged fixed-method Kodi adapter for small-mixed-v1."""
+"""Unprivileged fixed-method Kodi adapter for the small-mixed fixtures."""
 
 from __future__ import annotations
 
@@ -10,7 +10,10 @@ from typing import Literal, cast
 
 from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
 from kodi_lab.domain import RuntimeExecutionProfile
-from kodi_lab.fixtures.package import FIXTURE_MEDIA_CONTAINER_PATH
+from kodi_lab.fixtures.seed_audit import (
+    FIXTURE_MOVIE_DIRECTORY,
+    FIXTURE_TV_DIRECTORY,
+)
 from kodi_lab.kodi.readiness import (
     JsonRpcInvalidResponseError,
     _BoundedHttpTransport,
@@ -27,6 +30,13 @@ FIXTURE_SERIES_YEAR = 2024
 FIXTURE_SERIES_UNIQUE_ID = "small-mixed-v1-series"
 FIXTURE_EPISODE_TITLE = "Kodi Lab Fixture Episode"
 FIXTURE_EPISODE_UNIQUE_ID = "small-mixed-v1-episode"
+FIXTURE_MOVIE_FILE = (
+    FIXTURE_MOVIE_DIRECTORY + "kodi-lab-fixture-movie/Kodi Lab Fixture Movie (2024).mp4"
+)
+FIXTURE_SERIES_DIRECTORY = FIXTURE_TV_DIRECTORY + "kodi-lab-fixture-series/"
+FIXTURE_EPISODE_FILE = (
+    FIXTURE_SERIES_DIRECTORY + "Season 01/Kodi Lab Fixture Series S01E01.mp4"
+)
 
 
 class FixtureInitializationTimeoutError(RuntimeError):
@@ -78,22 +88,36 @@ class SmallMixedFixtureKodiAdapter:
         if not 0 < self._timeout <= profile.http_timeout_seconds:
             raise ValueError("HTTP timeout exceeds trusted execution profile")
         self._transport = transport or _BoundedHttpTransport()
+        self._movie_scan_requested = False
+        self._tv_scan_requested = False
 
     def scan_assigned_fixture_library(self) -> None:
         document = self._request(
-            "kodi-lab-fixture-scan",
+            "kodi-lab-fixture-scan-movies",
             "VideoLibrary.Scan",
-            {"directory": FIXTURE_MEDIA_CONTAINER_PATH + "/", "showdialogs": False},
+            {"directory": FIXTURE_MOVIE_DIRECTORY, "showdialogs": False},
         )
         if document.get("result") != "OK":
             raise JsonRpcInvalidResponseError("fixture scan result is invalid")
+        self._movie_scan_requested = True
+        self._tv_scan_requested = False
+
+    def _scan_tv_fixture_library(self) -> None:
+        document = self._request(
+            "kodi-lab-fixture-scan-tv",
+            "VideoLibrary.Scan",
+            {"directory": FIXTURE_TV_DIRECTORY, "showdialogs": False},
+        )
+        if document.get("result") != "OK":
+            raise JsonRpcInvalidResponseError("fixture TV scan result is invalid")
+        self._tv_scan_requested = True
 
     def get_fixture_library_state(self) -> FixtureLibraryState:
         movies = self._items(
             self._request(
                 "kodi-lab-fixture-movies",
                 "VideoLibrary.GetMovies",
-                {"properties": ["title", "year", "uniqueid"]},
+                {"properties": ["title", "year", "uniqueid", "file"]},
             ),
             "movies",
         )
@@ -101,7 +125,7 @@ class SmallMixedFixtureKodiAdapter:
             self._request(
                 "kodi-lab-fixture-shows",
                 "VideoLibrary.GetTVShows",
-                {"properties": ["title", "year", "uniqueid"]},
+                {"properties": ["title", "year", "uniqueid", "file"]},
             ),
             "tvshows",
         )
@@ -116,6 +140,7 @@ class SmallMixedFixtureKodiAdapter:
                         "season",
                         "episode",
                         "uniqueid",
+                        "file",
                     ]
                 },
             ),
@@ -143,13 +168,20 @@ class SmallMixedFixtureKodiAdapter:
         last = FixtureLibraryState(False, False, False, 0, 0, 0)
         while clock() < deadline:
             last = self.get_fixture_library_state()
-            if last.is_baseline:
+            if (
+                self._movie_scan_requested
+                and last.movie_present
+                and not self._tv_scan_requested
+            ):
+                self._scan_tv_fixture_library()
+                continue
+            elif last.is_baseline:
                 return last
             remaining = deadline - clock()
             if remaining > 0:
                 sleep(min(FIXTURE_POLL_INTERVAL_SECONDS, remaining))
         raise FixtureInitializationTimeoutError(
-            "small-mixed-v1 did not reach its semantic baseline"
+            "small-mixed fixture did not reach its semantic baseline"
         )
 
     def remove_fixture_movie_for_reset_test(self) -> FixtureLibraryState:
@@ -158,7 +190,7 @@ class SmallMixedFixtureKodiAdapter:
         document = self._request(
             "kodi-lab-fixture-mutation-find-movie",
             "VideoLibrary.GetMovies",
-            {"properties": ["title", "year", "uniqueid"]},
+            {"properties": ["title", "year", "uniqueid", "file"]},
         )
         matches = [
             item for item in self._items(document, "movies") if self._is_movie(item)
@@ -251,6 +283,7 @@ class SmallMixedFixtureKodiAdapter:
         return (
             item.get("title") == FIXTURE_MOVIE_TITLE
             and item.get("year") == FIXTURE_MOVIE_YEAR
+            and item.get("file") == FIXTURE_MOVIE_FILE
             and cls._has_unique_id(item, FIXTURE_MOVIE_UNIQUE_ID)
         )
 
@@ -259,6 +292,7 @@ class SmallMixedFixtureKodiAdapter:
         return (
             item.get("title") == FIXTURE_SERIES_TITLE
             and item.get("year") == FIXTURE_SERIES_YEAR
+            and item.get("file") == FIXTURE_SERIES_DIRECTORY
             and cls._has_unique_id(item, FIXTURE_SERIES_UNIQUE_ID)
         )
 
@@ -269,5 +303,6 @@ class SmallMixedFixtureKodiAdapter:
             and item.get("showtitle") == FIXTURE_SERIES_TITLE
             and item.get("season") == 1
             and item.get("episode") == 1
+            and item.get("file") == FIXTURE_EPISODE_FILE
             and cls._has_unique_id(item, FIXTURE_EPISODE_UNIQUE_ID)
         )

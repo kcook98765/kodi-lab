@@ -29,8 +29,8 @@ REVISION_ID = str(UUID(int=2))
 CONTAINER_ID = "1" * 64
 
 
-def spec() -> AssignedFixtureSpec:
-    packaged = load_packaged_fixture("small-mixed-v1")
+def spec(slug: str = "small-mixed-v1") -> AssignedFixtureSpec:
+    packaged = load_packaged_fixture(slug)
     return AssignedFixtureSpec(
         managed_instance_id=INSTANCE_ID,
         runtime_revision_id=REVISION_ID,
@@ -81,6 +81,7 @@ class FakeFixtureDockerClient:
         self.preexisting = preexisting
         self.applied = False
         self.put_calls: list[tuple[str, str, bytes]] = []
+        self.get_paths: list[str] = []
         self.closed = False
 
     def containers(self, **_kwargs: object) -> list[object]:
@@ -89,7 +90,8 @@ class FakeFixtureDockerClient:
     def inspect_container(self, _container: str) -> object:
         return self.inspection
 
-    def get_archive(self, _container: str, _path: str) -> tuple[object, object]:
+    def get_archive(self, _container: str, path: str) -> tuple[object, object]:
+        self.get_paths.append(path)
         if not self.preexisting and not self.applied:
             raise NotFound("absent")
         return io.BytesIO(b"ignored"), {}
@@ -129,6 +131,24 @@ def test_stopped_owned_container_receives_only_fixed_safe_archive() -> None:
     assert all(member.uid == 1000 and member.gid == 1000 for member in members)
     assert all(not member.issym() and not member.islnk() for member in members)
     assert client.closed
+
+
+def test_v2_seed_uses_same_bounded_archive_operation_and_fixed_database_path() -> None:
+    client = FakeFixtureDockerClient()
+    fixture_spec = spec("small-mixed-v2")
+    result = DockerManagedContainerAdapter(lambda: client).apply_assigned_fixture(
+        spec=fixture_spec, expected_container_id=CONTAINER_ID
+    )
+
+    assert result.fixture_slug == "small-mixed-v2"
+    assert result.fixture_version == 2
+    assert "/home/kodi/.kodi/userdata/Database/MyVideos131.db" in client.get_paths
+    assert len(client.put_calls) == 1
+    _container, destination, archive_bytes = client.put_calls[0]
+    assert destination == "/home/kodi/.kodi"
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes)) as archive:
+        names = {member.name for member in archive.getmembers()}
+    assert "userdata/Database/MyVideos131.db" in names
 
 
 def test_running_container_and_preexisting_fixture_state_fail_closed() -> None:

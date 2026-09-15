@@ -18,11 +18,30 @@ from kodi_lab.domain import (
     FixtureDefinition,
     FixtureSizeCategory,
 )
+from kodi_lab.fixtures.seed_audit import (
+    FIXTURE_LOCAL_SCRAPER,
+    FIXTURE_MOVIE_DIRECTORY,
+    FIXTURE_TV_DIRECTORY,
+    KODI_VIDEO_DATABASE_FILENAME,
+    KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+    FixtureSeedAudit,
+    FixtureSeedAuditError,
+    audit_small_mixed_v2_seed,
+)
 
-SMALL_MIXED_FIXTURE_SLUG = "small-mixed-v1"
+SMALL_MIXED_V1_FIXTURE_SLUG = "small-mixed-v1"
+SMALL_MIXED_V2_FIXTURE_SLUG = "small-mixed-v2"
+# Kept as the original public name so existing v1 callers remain unchanged.
+SMALL_MIXED_FIXTURE_SLUG = SMALL_MIXED_V1_FIXTURE_SLUG
+TRUSTED_FIXTURE_SLUGS = frozenset(
+    {SMALL_MIXED_V1_FIXTURE_SLUG, SMALL_MIXED_V2_FIXTURE_SLUG}
+)
 FIXTURE_CONTAINER_DESTINATION = "/home/kodi/.kodi"
 FIXTURE_MEDIA_CONTAINER_PATH = "/home/kodi/.kodi/fixture-media"
 FIXTURE_SOURCES_CONTAINER_PATH = "/home/kodi/.kodi/userdata/sources.xml"
+FIXTURE_VIDEO_DATABASE_CONTAINER_PATH = (
+    f"/home/kodi/.kodi/userdata/Database/{KODI_VIDEO_DATABASE_FILENAME}"
+)
 KODI_UID = 1000
 KODI_GID = 1000
 
@@ -39,6 +58,20 @@ _MANIFEST_KEYS = frozenset(
         "description",
         "container_destination",
         "files",
+    }
+)
+_V2_MANIFEST_KEYS = _MANIFEST_KEYS | {"video_database_seed"}
+_SEED_MANIFEST_KEYS = frozenset(
+    {
+        "database_filename",
+        "schema_version",
+        "sha256",
+        "container_relative_path",
+        "movie_path",
+        "movie_content",
+        "tv_path",
+        "tv_content",
+        "scraper",
     }
 )
 
@@ -61,6 +94,7 @@ class PackagedFixture:
     definition: FixtureDefinition
     destination: str
     members: tuple[PackagedFixtureFile, ...]
+    seed_audit: FixtureSeedAudit | None = None
 
     def build_archive(self) -> bytes:
         """Return one deterministic tar with fixed safe names and Kodi ownership."""
@@ -100,11 +134,11 @@ def _tar_info(name: str, *, mode: int, size: int) -> tarfile.TarInfo:
 
 
 def load_packaged_fixture(slug: str) -> PackagedFixture:
-    """Load the sole approved fixture; the slug never becomes a filesystem path."""
+    """Load an approved fixture; the slug never becomes a filesystem path."""
 
-    if slug != SMALL_MIXED_FIXTURE_SLUG:
+    if slug not in TRUSTED_FIXTURE_SLUGS:
         raise PackagedFixtureError("fixture has no trusted packaged resource")
-    root = files("kodi_lab.fixtures").joinpath(SMALL_MIXED_FIXTURE_SLUG)
+    root = files("kodi_lab.fixtures").joinpath(slug)
     try:
         manifest_bytes = root.joinpath("manifest.json").read_bytes()
         raw = json.loads(manifest_bytes)
@@ -117,14 +151,17 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
         raise PackagedFixtureError(
             "fixture manifest is unavailable or invalid"
         ) from error
-    if not isinstance(raw, dict) or frozenset(raw) != _MANIFEST_KEYS:
+    expected_keys = (
+        _V2_MANIFEST_KEYS if slug == SMALL_MIXED_V2_FIXTURE_SLUG else _MANIFEST_KEYS
+    )
+    if not isinstance(raw, dict) or frozenset(raw) != expected_keys:
         raise PackagedFixtureError("fixture manifest schema is invalid")
     document = MappingProxyType(raw)
     _require_exact_manifest_constants(document)
     raw_files = document["files"]
     if not isinstance(raw_files, list) or not raw_files:
         raise PackagedFixtureError("fixture manifest file list is invalid")
-    members = tuple(_load_member(root, value) for value in raw_files)
+    members = tuple(_load_member(root, value, slug=slug) for value in raw_files)
     paths = [member.resource_path for member in members]
     if paths != sorted(paths) or len(paths) != len(set(paths)):
         raise PackagedFixtureError("fixture manifest paths must be unique and sorted")
@@ -153,23 +190,37 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
         )
     except (TypeError, ValueError) as error:
         raise PackagedFixtureError("fixture definition metadata is invalid") from error
+    seed_audit = (
+        _audit_seed(document, members) if slug == SMALL_MIXED_V2_FIXTURE_SLUG else None
+    )
     return PackagedFixture(
         definition=definition,
         destination=FIXTURE_CONTAINER_DESTINATION,
         members=members,
+        seed_audit=seed_audit,
     )
 
 
 def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> None:
-    if document.get("schema_version") != 1:
+    slug = document.get("slug")
+    if not isinstance(slug, str):
+        raise PackagedFixtureError("fixture manifest identity is invalid")
+    expected = {
+        SMALL_MIXED_V1_FIXTURE_SLUG: (1, 1),
+        SMALL_MIXED_V2_FIXTURE_SLUG: (2, 2),
+    }.get(slug)
+    if expected is None:
+        raise PackagedFixtureError("fixture manifest identity is invalid")
+    schema_version, fixture_version = expected
+    if document.get("schema_version") != schema_version:
         raise PackagedFixtureError("fixture manifest version is unsupported")
-    if document.get("slug") != SMALL_MIXED_FIXTURE_SLUG:
+    if document.get("fixture_version") != fixture_version:
         raise PackagedFixtureError("fixture manifest identity is invalid")
     if document.get("container_destination") != FIXTURE_CONTAINER_DESTINATION:
         raise PackagedFixtureError("fixture container destination is invalid")
 
 
-def _load_member(root: Any, value: object) -> PackagedFixtureFile:
+def _load_member(root: Any, value: object, *, slug: str) -> PackagedFixtureFile:
     if not isinstance(value, dict) or set(value) != {"path", "size", "sha256"}:
         raise PackagedFixtureError("fixture file entry is invalid")
     path = value.get("path")
@@ -191,9 +242,15 @@ def _load_member(root: Any, value: object) -> PackagedFixtureFile:
     archive = PurePosixPath(*pure.parts[1:])
     if archive.is_absolute() or not archive.parts or ".." in archive.parts:
         raise PackagedFixtureError("fixture archive path is unsafe")
+    database_member = archive.parts == (
+        "userdata",
+        "Database",
+        KODI_VIDEO_DATABASE_FILENAME,
+    )
     if not (
         archive.parts[0] == "fixture-media"
         or archive.parts == ("userdata", "sources.xml")
+        or (slug == SMALL_MIXED_V2_FIXTURE_SLUG and database_member)
     ):
         raise PackagedFixtureError("fixture archive path is outside fixed layout")
     try:
@@ -203,6 +260,34 @@ def _load_member(root: Any, value: object) -> PackagedFixtureFile:
     if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
         raise PackagedFixtureError("fixture content differs from its manifest")
     return PackagedFixtureFile(path, archive.as_posix(), size, digest, data)
+
+
+def _audit_seed(
+    document: MappingProxyType[str, Any], members: tuple[PackagedFixtureFile, ...]
+) -> FixtureSeedAudit:
+    raw = document.get("video_database_seed")
+    if not isinstance(raw, dict) or frozenset(raw) != _SEED_MANIFEST_KEYS:
+        raise PackagedFixtureError("fixture database seed metadata is invalid")
+    expected_path = f"userdata/Database/{KODI_VIDEO_DATABASE_FILENAME}"
+    expected = {
+        "database_filename": KODI_VIDEO_DATABASE_FILENAME,
+        "schema_version": KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+        "container_relative_path": expected_path,
+        "movie_path": FIXTURE_MOVIE_DIRECTORY,
+        "movie_content": "movies",
+        "tv_path": FIXTURE_TV_DIRECTORY,
+        "tv_content": "tvshows",
+        "scraper": FIXTURE_LOCAL_SCRAPER,
+    }
+    if any(raw.get(key) != value for key, value in expected.items()):
+        raise PackagedFixtureError("fixture database seed metadata is invalid")
+    matches = [member for member in members if member.archive_path == expected_path]
+    if len(matches) != 1 or raw.get("sha256") != matches[0].sha256:
+        raise PackagedFixtureError("fixture database seed digest is invalid")
+    try:
+        return audit_small_mixed_v2_seed(matches[0].data)
+    except FixtureSeedAuditError as error:
+        raise PackagedFixtureError("fixture database seed audit failed") from error
 
 
 def _require_str(document: MappingProxyType[str, Any], key: str) -> str:

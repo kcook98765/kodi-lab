@@ -194,16 +194,25 @@ transitional, unknown, and ambiguous states fail closed. The process-local keyed
 lock prevents duplicate resets within one application process; distributed
 coordination and durable reset history remain deferred.
 
-The only fixture is immutable repository-owned `small-mixed-v1` for exact Kodi
-21.3 stable: one synthetic movie and one synthetic one-episode series with fixed
-NFO, artwork, playable placeholders, manifest, and digest. Immutable definition
-metadata and nullable instance assignment are durable; payload bytes remain
-package resources. One broker operation applies only the persisted assignment to
-one exact stopped owned container using a fixed validated archive and fixed
-destination. An unprivileged fixed-method Kodi adapter scans and semantically
-verifies the baseline within 60 seconds before normal stop. This adds no fixture
-language, upload, generic copy/exec/JSON-RPC, revision selection, persistent
-storage, Web mutation, or production deployment.
+The initial immutable repository-owned `small-mixed-v1` for exact Kodi 21.3
+proved archive application and readiness but not a populated library:
+`sources.xml` did not establish Kodi's separate video-database content
+assignments. Phase 6 Step 1B preserves that fixture and evidence, then adds
+`small-mixed-v2`. v2 retains the same synthetic movie and one-episode series and
+adds a hash-pinned, Kodi-21.3-generated `MyVideos131.db` containing only two
+fixed local-content path rows and zero library or user entities. Kodi's normal
+scanner still creates and verifies all movie/show/episode entities from NFO and
+media within 60 seconds.
+
+Immutable definition metadata and nullable instance assignment are durable;
+payload bytes remain package resources. The existing broker operation applies
+only the persisted assignment to one exact stopped owned container using a fixed
+validated archive and destination. The database seed adds no broker operation,
+SQL API, copy primitive, caller path, or revision change. An unprivileged
+fixed-method adapter sequences fixed movie and TV scans and verifies exact
+semantic identities and paths before normal stop. This adds no fixture language,
+upload, generic copy/exec/JSON-RPC, revision selection, persistent storage, Web
+mutation, or production deployment.
 
 The next separately authorized Phase 6 milestone should expose bounded fixture
 and reset status in application-owned semantic DTOs while retaining Web mutation

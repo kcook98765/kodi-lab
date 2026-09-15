@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<episodedetails>
+  <title>Kodi Lab Fixture Episode</title>
+  <showtitle>Kodi Lab Fixture Series</showtitle>
+  <season>1</season>
+  <episode>1</episode>
+  <aired>2024-01-02</aired>
+  <plot>A fictional episode generated solely for deterministic Kodi Lab testing.</plot>
+  <runtime>1</runtime>
+  <uniqueid type="kodi-lab" default="true">small-mixed-v1-episode</uniqueid>
+  <thumb>Kodi Lab Fixture Series S01E01-thumb.png</thumb>
+</episodedetails>

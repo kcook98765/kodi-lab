@@ -70,6 +70,52 @@ lists the complete sorted file set with size and SHA-256 for every member. Its
 aggregate digest covers all semantic manifest fields and file identities.
 Changing any byte or metadata requires a new fixture version and digest.
 
+Live Phase 6 r1 validation preserves an important negative result: Kodi reached
+normal readiness and accepted the scan, but returned zero movies, shows, and
+episodes. `sources.xml` controls source visibility; Kodi's scanner separately
+reads content and scraper assignment from the video database `path` table. v1
+contains no database seed, remains immutable, and is not retroactively repaired.
+
+## small-mixed-v2 and its configuration-only seed
+
+`small-mixed-v2` retains every v1 synthetic media, NFO, artwork, and
+`sources.xml` byte. It adds exactly one version-specific binary asset:
+
+- slug: `small-mixed-v2`
+- UUID: `f7bd24c7-bccc-44ad-b286-999979b59d9e`
+- content digest:
+  `sha256:624adef0e88de74d8c34d1176d0d306e7f4a2731db147eb26b526ab42b810d18`
+- compatibility: exact Kodi 21.3 stable only
+- database: `MyVideos131.db`, schema version 131
+- database SHA-256:
+  `f81fcaa98a192e6a93b9f36a659d9ce56546fdc96f4edfe74d3f1eb5094c3fd9`
+
+The database originated from a clean start and clean stop of the exact validated
+Kodi 21.3 image
+`sha256:70e0166fd79ea731c3f81056c2f0516f8fe5c9c8ec729b0c0f1c3e6bac66f254`.
+Kodi itself created the complete Omega database schema. Because Kodi exposes no
+bounded noninteractive content-assignment API, the development-only
+`scripts/materialize-small-mixed-v2-seed.py` helper copied that stopped fresh
+database and inserted these fixed rows:
+
+| path | content | scraper | recurse | folder names |
+| --- | --- | --- | ---: | ---: |
+| `/home/kodi/.kodi/fixture-media/movies/` | `movies` | `metadata.local` | 1 | 1 |
+| `/home/kodi/.kodi/fixture-media/tvshows/` | `tvshows` | `metadata.local` | 0 | 0 |
+
+All other content flags are fixed false, settings are empty, and hash/date/parent
+fields are null. `metadata.local` is the Kodi-installed Local information only
+scraper, so the workflow consumes the complete NFOs without external metadata
+services.
+
+The seed audit requires SQLite integrity, the exact `(131, 0)` version row, the
+two exact path rows, Kodi's 387 built-in video-version type rows, and zero rows
+in every other table. Thus the seed has no movie, TV-show, episode, file,
+artwork, bookmark, rating, history, resume, credential, external-share, or user
+state. The seed is source/content configuration, not fixture library truth.
+Successful initialization still requires Kodi's normal scanner to create the
+one expected movie, show, episode, paths, artwork, and relationships.
+
 ## Fixed container layout
 
 The archive extracts only beneath `/home/kodi/.kodi`:
@@ -90,6 +136,7 @@ fixture-media/
       Kodi Lab Fixture Series S01E01.nfo
       Kodi Lab Fixture Series S01E01-thumb.png
 userdata/sources.xml
+userdata/Database/MyVideos131.db  # v2 only
 ```
 
 Archive names must be relative, normalized, and within this allowlisted tree.
@@ -112,7 +159,10 @@ The root broker resolves the assigned FixtureDefinition, exact RuntimeRevision,
 compatible RuntimeDefinition release, packaged fixture, and content digest. It
 then freshly proves disposable type, exactly one owned container, immutable ID,
 deterministic name, exact revision label, and stopped state. The destination and
-archive bytes are constants derived from the sole package. The Docker adapter
+archive bytes are constants derived from the exact persisted approved package.
+For v2 the database destination is the fixed
+`/home/kodi/.kodi/userdata/Database/MyVideos131.db`; it is not a request field.
+The Docker adapter
 independently compares the complete resolved specification with that package
 before archive extraction.
 
@@ -126,16 +176,19 @@ After archive application, the application starts through the normal broker
 operation and waits for the existing four-layer Kodi readiness contract. The
 Kodi-21.3-only adapter then issues only fixed allowlisted JSON-RPC calls:
 
-- `VideoLibrary.Scan` for the fixed fixture media directory
+- `VideoLibrary.Scan` for the fixed movie directory
+- `VideoLibrary.Scan` for the fixed TV directory, only after movie scan progress
 - `VideoLibrary.GetMovies`
 - `VideoLibrary.GetTVShows`
 - `VideoLibrary.GetEpisodes`
 
-The 60-second fixture deadline is separate from readiness. Semantic verification
-requires exactly the expected movie, series, and episode, including stable
-synthetic unique IDs and episode relationship; Kodi database row IDs are not
-part of the baseline. Reset then uses normal broker stop and proves the final
-stopped state.
+Kodi accepts a second scan request while a first scan is active but does not
+perform it. The adapter therefore starts the movie scan and, within the same
+60-second fixture deadline, issues the TV scan only after the expected movie is
+visible. Semantic verification requires exactly the expected movie, series, and
+episode, including their fixed synthetic paths, stable unique IDs, and episode
+relationship; Kodi database row IDs are not part of the baseline. Reset then
+uses normal broker stop and proves the final stopped state.
 
 One validation-only method, `remove_fixture_movie_for_reset_test()`, finds only
 the exact synthetic movie, internally consumes its Kodi row ID, invokes fixed
@@ -155,3 +208,8 @@ exact compatible release. Runtime reassignment rejects an incompatible retained
 fixture rather than clearing it. Web reset and fixture administration are
 deferred; existing authentication, lifecycle, readiness, and matrix behavior are
 unchanged.
+
+No migration is needed for v2. It is a second immutable FixtureDefinition
+registered through the existing trusted administration service. v1 and its
+failed-r1 evidence remain intact. There is no runtime SQL, broker SQL, generic
+database API, generic archive copy, caller path, or added broker operation.

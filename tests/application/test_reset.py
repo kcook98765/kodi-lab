@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -96,6 +97,7 @@ def seed_reset_context(
     *,
     instance_type: InstanceType = InstanceType.DISPOSABLE,
     assigned_fixture: bool = False,
+    fixture_slug: str = "small-mixed-v1",
 ) -> tuple[UUID, UUID, UUID | None]:
     instance_id = uuid4()
     definition = RuntimeDefinition(
@@ -114,7 +116,7 @@ def seed_reset_context(
         approval_state=RevisionApprovalState.APPROVED,
         approved_at=NOW,
     )
-    fixture = load_packaged_fixture("small-mixed-v1").definition
+    fixture = load_packaged_fixture(fixture_slug).definition
     fixture_id = fixture.id if assigned_fixture else None
     with factory.begin() as session:
         TargetRepository(session).create(
@@ -218,6 +220,7 @@ class FakeBroker:
         revision_id: UUID,
         *,
         state: ContainerRuntimeState | None = None,
+        fixture_slug: str = "small-mixed-v1",
     ) -> None:
         self.instance_id = str(instance_id)
         self.revision_id = str(revision_id)
@@ -228,6 +231,7 @@ class FakeBroker:
         self.fail: str | None = None
         self.stop_leaves_running = False
         self.duplicate_inventory = False
+        self.fixture_slug = fixture_slug
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         self.calls.append("inventory")
@@ -315,15 +319,16 @@ class FakeBroker:
         if self.fail == "apply_fixture":
             raise RuntimeError("fixture apply failed")
         assert self.container_id is not None
+        fixture = load_packaged_fixture(self.fixture_slug).definition
         return ApplyAssignedFixtureResult(
             managed_instance_id=self.instance_id,
             runtime_revision_id=self.revision_id,
             container_id=self.container_id,
-            fixture_slug="small-mixed-v1",
-            fixture_version=1,
-            content_digest=load_packaged_fixture(
-                "small-mixed-v1"
-            ).definition.content_digest,
+            fixture_slug=cast(
+                Literal["small-mixed-v1", "small-mixed-v2"], fixture.slug
+            ),
+            fixture_version=cast(Literal[1, 2], fixture.fixture_version),
+            content_digest=fixture.content_digest,
             runtime_state=ContainerRuntimeState.STOPPED,
         )
 
@@ -434,6 +439,33 @@ def test_fixture_reset_applies_scans_and_retains_assignment(
         assert retained.runtime_revision_id == revision_id
         assert retained.fixture_definition_id == fixture_id
         assert retained.notes == "preserve me"
+
+
+def test_v2_reset_retains_exact_revision_and_database_seed_assignment(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, fixture_id = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-mixed-v2",
+    )
+    broker = FakeBroker(
+        instance_id,
+        revision_id,
+        fixture_slug="small-mixed-v2",
+    )
+
+    result = service(session_factory, broker).reset(instance_id)
+
+    assert result.managed_instance_id == instance_id
+    assert result.runtime_revision_id == revision_id
+    assert result.fixture_slug == "small-mixed-v2"
+    assert result.fixture_version == 2
+    with session_factory() as session:
+        retained = ManagedInstanceRepository(session).get(instance_id)
+        assert retained is not None
+        assert retained.runtime_revision_id == revision_id
+        assert retained.fixture_definition_id == fixture_id
 
 
 def test_reset_deliberately_ignores_a_newer_eligible_revision(

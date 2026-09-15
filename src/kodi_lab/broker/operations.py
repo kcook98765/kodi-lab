@@ -436,8 +436,8 @@ class ApplyAssignedFixtureResult(StrictModel):
     managed_instance_id: str = Field(min_length=36, max_length=36)
     runtime_revision_id: str = Field(min_length=36, max_length=36)
     container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
-    fixture_slug: Literal["small-mixed-v1"]
-    fixture_version: Literal[1]
+    fixture_slug: Literal["small-mixed-v1", "small-mixed-v2"]
+    fixture_version: Literal[1, 2]
     content_digest: str = Field(
         min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
     )
@@ -449,6 +449,16 @@ class ApplyAssignedFixtureResult(StrictModel):
         if not is_canonical_uuid(value):
             raise ValueError("identity must be a canonical UUID string")
         return value
+
+    @model_validator(mode="after")
+    def _matching_fixture_identity(self) -> ApplyAssignedFixtureResult:
+        expected_version = {
+            "small-mixed-v1": 1,
+            "small-mixed-v2": 2,
+        }[self.fixture_slug]
+        if self.fixture_version != expected_version:
+            raise ValueError("fixture slug and version do not match")
+        return self
 
 
 type OperationHandler = Callable[[BaseModel], BaseModel]
@@ -1346,8 +1356,8 @@ def build_foundation_registry(
             or outcome.container_id != params.expected_container_id
             or outcome.runtime_revision_id != spec.runtime_revision_id
             or outcome.runtime_state is not ContainerRuntimeState.STOPPED
-            or outcome.fixture_slug != "small-mixed-v1"
-            or outcome.fixture_version != 1
+            or outcome.fixture_slug != spec.fixture_slug
+            or outcome.fixture_version != spec.fixture_version
             or outcome.content_digest != spec.content_digest
         ):
             raise RuntimeError("Docker adapter returned inconsistent fixture identity")
@@ -1355,8 +1365,10 @@ def build_foundation_registry(
             managed_instance_id=outcome.managed_instance_id,
             runtime_revision_id=outcome.runtime_revision_id,
             container_id=outcome.container_id,
-            fixture_slug="small-mixed-v1",
-            fixture_version=1,
+            fixture_slug=cast(
+                Literal["small-mixed-v1", "small-mixed-v2"], outcome.fixture_slug
+            ),
+            fixture_version=cast(Literal[1, 2], outcome.fixture_version),
             content_digest=outcome.content_digest,
             runtime_state=ContainerRuntimeState.STOPPED,
         )

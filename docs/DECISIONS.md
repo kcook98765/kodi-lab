@@ -866,3 +866,27 @@ details that it did not specify.
   are ephemeral and no reset-job/history table is introduced. Web reset and
   fixture administration are deferred; existing authenticated Web lifecycle and
   matrix surfaces remain unchanged.
+
+## D-0073: Kodi-generated configuration seed for small-mixed-v2
+
+- Status: approved for Phase 6 Step 1B
+- Decision: finalized `small-mixed-v1` remains byte-for-byte immutable historical
+  evidence of the first design. Its live scan returned no entities because
+  `sources.xml` makes a source visible but does not create the separate video
+  database path/content/scraper assignments used by Kodi's scanner.
+  `small-mixed-v2` therefore adds the immutable `MyVideos131.db` produced from
+  the exact Kodi 21.3 image and schema. The seed contains only two fixed `path`
+  rows, for Movies and TV Shows, using Kodi's installed `metadata.local` scraper;
+  every movie, show, episode, file, artwork, play-state, and user-state table is
+  empty before scan.
+- Materialization boundary: one development-only, argument-free helper applies
+  fixed SQL to a stopped fresh Kodi-generated database. No runtime or broker SQL
+  operation exists. The seed hash and configuration are manifest-pinned and
+  read-only audited before packaging. It is copied through the existing
+  `apply_assigned_fixture` operation to its fixed Kodi database location; no
+  broker request field or Docker privilege is added.
+- Scanner boundary: Kodi still creates all media entities and relationships from
+  the repository-owned NFO/media/artwork. Initialization scans the fixed movie
+  directory first, then the fixed TV directory after the first scan completes,
+  because Kodi does not run concurrent library scans. The single 60-second
+  semantic deadline and fixed JSON-RPC allowlist remain in force.

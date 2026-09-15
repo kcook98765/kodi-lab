@@ -1,0 +1,131 @@
+"""Read-only audit of the fixed Kodi 21.3 fixture configuration seed."""
+
+from __future__ import annotations
+
+import sqlite3
+from dataclasses import dataclass
+
+KODI_VIDEO_DATABASE_FILENAME = "MyVideos131.db"
+KODI_VIDEO_DATABASE_SCHEMA_VERSION = 131
+FIXTURE_MOVIE_DIRECTORY = "/home/kodi/.kodi/fixture-media/movies/"
+FIXTURE_TV_DIRECTORY = "/home/kodi/.kodi/fixture-media/tvshows/"
+FIXTURE_LOCAL_SCRAPER = "metadata.local"
+
+_EXPECTED_PATH_ROWS: tuple[tuple[object, ...], ...] = (
+    (
+        1,
+        FIXTURE_MOVIE_DIRECTORY,
+        "movies",
+        FIXTURE_LOCAL_SCRAPER,
+        None,
+        1,
+        1,
+        "",
+        0,
+        0,
+        0,
+        None,
+        None,
+    ),
+    (
+        2,
+        FIXTURE_TV_DIRECTORY,
+        "tvshows",
+        FIXTURE_LOCAL_SCRAPER,
+        None,
+        0,
+        0,
+        "",
+        0,
+        0,
+        0,
+        None,
+        None,
+    ),
+)
+
+# A Kodi-created empty Omega database has only the version row and Kodi's
+# built-in video-version type catalog. The fixture seed adds exactly two path
+# configuration rows. Every library and user-state table must remain empty.
+_EXPECTED_NONZERO_TABLE_COUNTS = {
+    "path": 2,
+    "version": 1,
+    "videoversiontype": 387,
+}
+
+
+class FixtureSeedAuditError(RuntimeError):
+    """The immutable database seed violates its configuration-only contract."""
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureSeedAudit:
+    database_filename: str
+    schema_version: int
+    configured_paths: tuple[tuple[object, ...], ...]
+    table_counts: tuple[tuple[str, int], ...]
+
+
+def audit_small_mixed_v2_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit trusted bytes without accepting a path or executing mutable SQL."""
+
+    if not database:
+        raise FixtureSeedAuditError("fixture database seed is empty")
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.deserialize(database)
+        integrity = connection.execute("PRAGMA integrity_check").fetchall()
+        if integrity != [("ok",)]:
+            raise FixtureSeedAuditError("fixture database seed is not integral")
+        version = connection.execute(
+            "SELECT idVersion, iCompressCount FROM version"
+        ).fetchall()
+        if version != [(KODI_VIDEO_DATABASE_SCHEMA_VERSION, 0)]:
+            raise FixtureSeedAuditError("fixture database schema version is invalid")
+        paths = tuple(
+            connection.execute(
+                """
+                SELECT idPath, strPath, strContent, strScraper, strHash,
+                       scanRecursive, useFolderNames, strSettings, noUpdate,
+                       exclude, allAudio, dateAdded, idParentPath
+                  FROM path
+              ORDER BY idPath
+                """
+            ).fetchall()
+        )
+        if paths != _EXPECTED_PATH_ROWS:
+            raise FixtureSeedAuditError(
+                "fixture database path configuration is invalid"
+            )
+        table_names = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            ).fetchall()
+        )
+        table_counts = tuple(
+            (
+                name,
+                int(connection.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]),
+            )
+            for name in table_names
+        )
+        for name, count in table_counts:
+            expected = _EXPECTED_NONZERO_TABLE_COUNTS.get(name, 0)
+            if count != expected:
+                raise FixtureSeedAuditError(
+                    f"fixture database table {name} contains unexpected state"
+                )
+        if set(_EXPECTED_NONZERO_TABLE_COUNTS) - set(table_names):
+            raise FixtureSeedAuditError("fixture database schema is incomplete")
+        return FixtureSeedAudit(
+            database_filename=KODI_VIDEO_DATABASE_FILENAME,
+            schema_version=KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+            configured_paths=paths,
+            table_counts=table_counts,
+        )
+    except sqlite3.Error as error:
+        raise FixtureSeedAuditError("fixture database seed is invalid") from error
+    finally:
+        connection.close()

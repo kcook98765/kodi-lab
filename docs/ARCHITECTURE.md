@@ -277,10 +277,15 @@ be presented by status services without retroactive new-selection filtering.
 `FixtureDefinition` is finalized create-only catalog metadata for trusted
 package resources, not a binary store or scripting language. A ManagedInstance
 may reference one exact definition through a restrictive nullable foreign key.
-The first and only package is `small-mixed-v1`, compatible with Kodi 21.3 stable;
-trusted application administration registers its fixed manifest and assigns it
-only to a compatible disposable exact pin. Runtime reassignment validates a
-retained assignment before changing the pin.
+The first two immutable packages are `small-mixed-v1` and `small-mixed-v2`, both
+compatible only with Kodi 21.3 stable. v1 is retained historical evidence;
+because source visibility alone did not give the scanner content assignments,
+v2 adds a Kodi-generated `MyVideos131.db` with only fixed Movies/TV path
+configuration and no library or user rows. Kodi still scanner-creates all media
+entities from NFO and synthetic media. Trusted application administration
+registers either fixed manifest and assigns it only to a compatible disposable
+exact pin. Runtime reassignment validates a retained assignment before changing
+the pin.
 
 `apply_assigned_fixture` adds one semantic operation to the restricted broker.
 Its request carries only ManagedInstance UUID and expected container ID. Trusted
@@ -290,7 +295,8 @@ archive before fixed-destination extraction into `/home/kodi/.kodi`. Archive
 members have fixed Kodi uid/gid and permissions, and the operation requires one
 exact owned stopped container whose revision label matches the persisted pin.
 There is no generic Docker copy surface and no exec or caller-selected path,
-payload, fixture, destination, method, or parameter.
+payload, fixture, destination, method, or parameter. The v2 database uses the
+same operation and fixed destination; there is no SQL or database broker API.
 
 `DisposableInstanceResetService` owns stop/deprovision/provision and optional
 fixture initialization as one application state machine. It takes only
