@@ -48,11 +48,21 @@ _EXPECTED_PATH_ROWS: tuple[tuple[object, ...], ...] = (
     ),
 )
 
+_SMALL_MOVIES_EXPECTED_PATH_ROWS: tuple[tuple[object, ...], ...] = (
+    _EXPECTED_PATH_ROWS[0],
+)
+
 # A Kodi-created empty Omega database has only the version row and Kodi's
 # built-in video-version type catalog. The fixture seed adds exactly two path
 # configuration rows. Every library and user-state table must remain empty.
 _EXPECTED_NONZERO_TABLE_COUNTS = {
     "path": 2,
+    "version": 1,
+    "videoversiontype": 387,
+}
+
+_SMALL_MOVIES_EXPECTED_NONZERO_TABLE_COUNTS = {
+    "path": 1,
     "version": 1,
     "videoversiontype": 387,
 }
@@ -88,6 +98,19 @@ def audit_small_mixed_v2_seed(database: bytes) -> FixtureSeedAudit:
         database_filename=KODI_VIDEO_DATABASE_FILENAME,
         schema_version=KODI_VIDEO_DATABASE_SCHEMA_VERSION,
         expected_nonzero_table_counts=_EXPECTED_NONZERO_TABLE_COUNTS,
+        expected_paths=_EXPECTED_PATH_ROWS,
+    )
+
+
+def audit_small_movies_v1_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the fixed Kodi 21.3 Movies-only configuration seed."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=_SMALL_MOVIES_EXPECTED_NONZERO_TABLE_COUNTS,
+        expected_paths=_SMALL_MOVIES_EXPECTED_PATH_ROWS,
     )
 
 
@@ -99,6 +122,7 @@ def audit_small_mixed_v3_seed(database: bytes) -> FixtureSeedAudit:
         database_filename=KODI_20_VIDEO_DATABASE_FILENAME,
         schema_version=KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
         expected_nonzero_table_counts=_KODI_20_EXPECTED_NONZERO_TABLE_COUNTS,
+        expected_paths=_EXPECTED_PATH_ROWS,
     )
 
 
@@ -110,6 +134,7 @@ def audit_small_mixed_v4_seed(database: bytes) -> FixtureSeedAudit:
         database_filename=KODI_19_VIDEO_DATABASE_FILENAME,
         schema_version=KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
         expected_nonzero_table_counts=_KODI_19_EXPECTED_NONZERO_TABLE_COUNTS,
+        expected_paths=_EXPECTED_PATH_ROWS,
     )
 
 
@@ -119,6 +144,7 @@ def _audit_seed(
     database_filename: str,
     schema_version: int,
     expected_nonzero_table_counts: dict[str, int],
+    expected_paths: tuple[tuple[object, ...], ...],
 ) -> FixtureSeedAudit:
     """Apply the shared strict purity contract to one approved exact schema."""
 
@@ -146,7 +172,7 @@ def _audit_seed(
                 """
             ).fetchall()
         )
-        if paths != _EXPECTED_PATH_ROWS:
+        if paths != expected_paths:
             raise FixtureSeedAuditError(
                 "fixture database path configuration is invalid"
             )

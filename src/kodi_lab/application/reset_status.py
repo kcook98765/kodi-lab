@@ -314,6 +314,7 @@ class ResetStatusService:
             "small-mixed-v4": (
                 "Kodi 19.5-specific populated reset baseline fixture version."
             ),
+            "small-movies-v1": ("Proven Small/Movies fixture for exact Kodi 21.3."),
         }.get(fixture.slug)
         return FixtureResetStatus(
             assignment=FixtureAssignmentState.ASSIGNED,
@@ -323,9 +324,13 @@ class ResetStatusService:
                 else FixtureCompatibilityState.INCOMPATIBLE
             ),
             slug=fixture.slug,
-            display_name="Small Mixed"
-            if fixture.slug.startswith("small-mixed-")
-            else fixture.slug,
+            display_name=(
+                "Small Mixed"
+                if fixture.slug.startswith("small-mixed-")
+                else "Small Movies"
+                if fixture.slug.startswith("small-movies-")
+                else fixture.slug
+            ),
             fixture_version=fixture.fixture_version,
             size_category=fixture.size_category,
             content_category=fixture.content_category,

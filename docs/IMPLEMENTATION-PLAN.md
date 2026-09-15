@@ -266,3 +266,16 @@ Small/Mixed on an already proven stable release. Three stable Kodi generations
 now establish the release-specific seed pattern; a new semantic fixture adds
 broader product value without binding another immutable fixture version to a
 moving Preview schema.
+
+Phase 6 Step 6 adds bounded persisted Mixed/Movies taxonomy through migration
+`0009_fixture_content_taxonomy`, with loss-refusing downgrade when Movies data
+exists. Immutable `small-movies-v1` defines Small/Movies as three exact
+synthetic movies on Kodi 21.3, using one Omega configuration-only Movies seed.
+Trusted package semantics drive exact verification and a Movies-only scan plan;
+Small/Mixed remains exact 1/1/1 with Movies-then-TV scanning. Reset and broker
+authority remain generic and exact-pin preserving.
+
+The next coherent Phase 6 milestone should add Small/TV on Kodi 21.3 to complete
+the three Small content categories. That tests zero-movie initialization,
+TV-only scan planning, and episode/show relationship verification before
+multiplying another taxonomy family across releases.

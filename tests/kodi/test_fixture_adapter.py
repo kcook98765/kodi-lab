@@ -13,6 +13,7 @@ from kodi_lab.domain import (
     RuntimeExecutionProfile,
     RuntimeKind,
 )
+from kodi_lab.fixtures.package import load_packaged_fixture
 from kodi_lab.kodi.fixtures import (
     FixtureInitializationTimeoutError,
     SmallMixedFixtureKodiAdapter,
@@ -287,3 +288,118 @@ def test_public_adapter_surface_accepts_no_method_path_or_entity_identity() -> N
         "remove_fixture_movie_for_reset_test",
     }:
         assert list(inspect.signature(public[name]).parameters) == ["self"]
+
+
+def _movies_only_result(method: str) -> dict[str, object]:
+    semantics = load_packaged_fixture("small-movies-v1").semantics
+    if method == "VideoLibrary.GetMovies":
+        return {
+            "movies": [
+                {
+                    "movieid": index,
+                    "title": movie.title,
+                    "year": movie.year,
+                    "uniqueid": {"kodi-lab": movie.unique_id},
+                    "file": movie.file,
+                }
+                for index, movie in enumerate(semantics.movies, 11)
+            ]
+        }
+    if method == "VideoLibrary.GetTVShows":
+        return {"tvshows": []}
+    if method == "VideoLibrary.GetEpisodes":
+        return {"episodes": []}
+    raise AssertionError(method)
+
+
+def test_movies_only_semantics_verify_three_exact_movies_and_scan_no_tv() -> None:
+    transport = FakeTransport(
+        lambda method, _request: (
+            "OK" if method == "VideoLibrary.Scan" else _movies_only_result(method)
+        )
+    )
+    adapter = SmallMixedFixtureKodiAdapter(
+        observation(),
+        profile(),
+        load_packaged_fixture("small-movies-v1").semantics,
+        transport=transport,
+    )
+
+    adapter.scan_assigned_fixture_library()
+    state = adapter.wait_for_fixture_state()
+
+    assert state.is_baseline
+    assert (state.movie_count, state.series_count, state.episode_count) == (3, 0, 0)
+    scans = [
+        request
+        for request in transport.requests
+        if request["method"] == "VideoLibrary.Scan"
+    ]
+    assert len(scans) == 1
+    assert scans[0]["params"] == {
+        "directory": "/home/kodi/.kodi/fixture-media/movies/",
+        "showdialogs": False,
+    }
+
+
+@pytest.mark.parametrize("failure", ["missing", "unexpected", "tvshow", "episode"])
+def test_movies_only_semantics_fail_closed_on_wrong_entities(failure: str) -> None:
+    def wrong(method: str, _request: dict[str, object]) -> object:
+        result = _movies_only_result(method)
+        if method == "VideoLibrary.GetMovies" and failure == "missing":
+            movies = result["movies"]
+            assert isinstance(movies, list)
+            result["movies"] = movies[:-1]
+        if method == "VideoLibrary.GetMovies" and failure == "unexpected":
+            movies = result["movies"]
+            assert isinstance(movies, list)
+            movies.append({"title": "Unexpected"})
+        if method == "VideoLibrary.GetTVShows" and failure == "tvshow":
+            result["tvshows"] = item_result(method)["tvshows"]
+        if method == "VideoLibrary.GetEpisodes" and failure == "episode":
+            result["episodes"] = item_result(method)["episodes"]
+        return result
+
+    adapter = SmallMixedFixtureKodiAdapter(
+        observation(),
+        profile(),
+        load_packaged_fixture("small-movies-v1").semantics,
+        transport=FakeTransport(wrong),
+    )
+    assert not adapter.get_fixture_library_state().is_baseline
+
+
+def test_movies_only_bounded_drift_removes_one_trusted_movie() -> None:
+    class MoviesTransport(FakeTransport):
+        def post(self, **kwargs: object) -> bytes:
+            body = kwargs["body"]
+            assert isinstance(body, bytes)
+            request = json.loads(body)
+            self.requests.append(request)
+            method = request["method"]
+            if method == "VideoLibrary.RemoveMovie":
+                self.movie_removed = True
+                result: object = "OK"
+            else:
+                result = _movies_only_result(method)
+                if method == "VideoLibrary.GetMovies" and self.movie_removed:
+                    result["movies"] = result["movies"][1:]  # type: ignore[index]
+            return json.dumps(
+                {"jsonrpc": "2.0", "id": request["id"], "result": result}
+            ).encode()
+
+    transport = MoviesTransport()
+    adapter = SmallMixedFixtureKodiAdapter(
+        observation(),
+        profile(),
+        load_packaged_fixture("small-movies-v1").semantics,
+        transport=transport,
+    )
+    state = adapter.remove_fixture_movie_for_reset_test()
+    assert (state.movie_count, state.series_count, state.episode_count) == (2, 0, 0)
+    removal = next(
+        request
+        for request in transport.requests
+        if request["method"] == "VideoLibrary.RemoveMovie"
+    )
+    assert removal["params"] == {"movieid": 11}

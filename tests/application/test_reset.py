@@ -339,6 +339,7 @@ class FakeBroker:
                     "small-mixed-v2",
                     "small-mixed-v3",
                     "small-mixed-v4",
+                    "small-movies-v1",
                 ],
                 fixture.slug,
             ),
@@ -383,15 +384,21 @@ class FakeReadiness:
 
 
 class FakeFixtureAdapter:
-    def __init__(self, *, fail_scan: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_scan: bool = False,
+        state: FixtureLibraryState | None = None,
+    ) -> None:
         self.fail_scan = fail_scan
+        self.state = state or FixtureLibraryState(True, True, True, 1, 1, 1)
 
     def scan_assigned_fixture_library(self) -> None:
         if self.fail_scan:
             raise RuntimeError("scan failed")
 
     def wait_for_fixture_state(self) -> FixtureLibraryState:
-        return FixtureLibraryState(True, True, True, 1, 1, 1)
+        return self.state
 
 
 def service(
@@ -410,7 +417,9 @@ def service(
         activity=activity,
         readiness_factory=lambda _broker, _profile: readiness or FakeReadiness(),
         fixture_adapter_factory=(
-            lambda _observation, _profile: fixture_adapter or FakeFixtureAdapter()
+            lambda _observation, _profile, _semantics: (
+                fixture_adapter or FakeFixtureAdapter()
+            )
         ),
     )
 
@@ -533,6 +542,38 @@ def test_v4_reset_uses_same_flow_and_retains_exact_matrix_revision(
     assert result.runtime_revision_id == revision_id
     assert result.fixture_slug == "small-mixed-v4"
     assert result.fixture_version == 4
+    assert broker.calls.index("apply_fixture") < broker.calls.index("start")
+    with session_factory() as session:
+        retained = ManagedInstanceRepository(session).get(instance_id)
+        assert retained is not None
+        assert retained.runtime_revision_id == revision_id
+        assert retained.fixture_definition_id == fixture_id
+
+
+def test_small_movies_reset_uses_generic_flow_and_retains_exact_assignment(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, fixture_id = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-movies-v1",
+    )
+    broker = FakeBroker(
+        instance_id,
+        revision_id,
+        fixture_slug="small-movies-v1",
+    )
+    adapter = FakeFixtureAdapter(
+        state=FixtureLibraryState(True, False, False, 3, 0, 0, 3, 0, 0)
+    )
+
+    result = service(session_factory, broker, fixture_adapter=adapter).reset(
+        instance_id
+    )
+
+    assert result.runtime_revision_id == revision_id
+    assert result.fixture_slug == "small-movies-v1"
+    assert result.fixture_state is not None and result.fixture_state.is_baseline
     assert broker.calls.index("apply_fixture") < broker.calls.index("start")
     with session_factory() as session:
         retained = ManagedInstanceRepository(session).get(instance_id)

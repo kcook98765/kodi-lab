@@ -363,3 +363,43 @@ fixture availability does not make Legacy selectable unless trusted selection
 explicitly enables Include Legacy. The broker operation, reset orchestration,
 durable coordination, Web authority, adapter method set, and exact-pin behavior
 remain unchanged.
+
+## Step 6 Small/Movies taxonomy
+
+Migration `0009_fixture_content_taxonomy` expands the persisted content
+taxonomy from only Mixed to exactly Mixed and Movies. The column is bounded at
+16 characters and retains an explicit check constraint; arbitrary strings and
+the future TV category are not accepted. All existing fixture and reset data is
+preserved. Downgrade to `0008` succeeds only when no Movies definition exists.
+
+Canonical V1 defines Small and Movies but not a Small/Movies item count. The
+Phase 6 executable definition is therefore three fictional, repository-owned
+movies:
+
+- `Kodi Lab Fixture Movie 1` (2024), ID `small-movies-v1-movie-1`;
+- `Kodi Lab Fixture Movie 2` (2025), ID `small-movies-v1-movie-2`;
+- `Kodi Lab Fixture Movie 3` (2026), ID `small-movies-v1-movie-3`.
+
+`small-movies-v1` is UUID `9526870f-5fc2-4850-9fcf-0523aceb3cf5`, fixture
+version 1, Small/Movies, and compatible only with exact Kodi 21.3 stable. Its
+aggregate digest is
+`sha256:3ffce70ae22cb3c3472a9dc46624cd4e4f85b539fce48b96634844ab3ea21da0`.
+The exact validated Omega image generated fresh `MyVideos131.db` with SHA-256
+`2bfba8f2e2b7f103bc1c0c7cdd7ac0489e57dbfecf355224578c64ea6f11b549`.
+The fixed development helper adds only one `metadata.local` Movies path row;
+the immutable seed hash is
+`c0da622a88bc2169a877f336bae07a1949d198565f7853529033a5de7b40f600`.
+Its audit requires schema 131, that exact row, Kodi's 387 built-in video-version
+types, and zero movie/show/episode/file/art/bookmark or other user rows.
+
+Trusted packaged semantic specifications now drive identity verification and
+scan planning. Existing Small/Mixed definitions still verify exact 1/1/1 and
+scan Movies then TV. Small/Movies verifies exact 3/0/0 and scans only the fixed
+Movies directory. The bounded drift method resolves one package-owned movie ID
+and accepts no caller target. This is a closed schema, not an assertion language
+or caller-selectable scan API.
+
+**Fixture size/content taxonomy describes semantic dataset shape;
+exact-release fixture versions provide the Kodi-specific initialization seed.**
+The existing reset flow, broker request and privilege, durable operation lease,
+authenticated reset confirmation, and exact-pin behavior do not change.

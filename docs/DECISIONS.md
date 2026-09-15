@@ -951,3 +951,22 @@ details that it did not specify.
   requires every other Nexus table to remain empty. The existing broker
   operation, reset service, scanner methods, durable reset coordination, and
   Web authority remain unchanged.
+
+## D-0078: Bounded fixture content taxonomy and trusted semantic specifications
+
+- Status: approved for Phase 6 Step 6
+- Decision: persisted `FixtureContentCategory` supports exactly `mixed` and
+  `movies`. Migration `0009_fixture_content_taxonomy` widens the constrained
+  column to `VARCHAR(16)` while preserving all definitions, assignments, pins,
+  and reset operations. Downgrade refuses while any Movies definition exists;
+  it never rewrites or deletes taxonomy data. TV remains unsupported.
+- Small/Movies contract: canonical V1 names the Small size and Movies content
+  category but does not define a count. The first executable Small/Movies
+  definition is therefore exactly three deterministic synthetic movies. Its
+  trusted package declares exact entity identities and the Movies-only scan
+  plan. Callers cannot supply expectations, counts, paths, or scan choices.
+- Boundary: reset resolves the immutable package specification for the assigned
+  FixtureDefinition and passes it to the fixed unprivileged adapter. The reset
+  service does not branch on fixture slug; the broker operation, archive-copy
+  authority, exact RuntimeRevision pin, Web reset request, and durable reset
+  coordination are unchanged.

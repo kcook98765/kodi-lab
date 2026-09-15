@@ -36,6 +36,8 @@ from kodi_lab.domain import (
     ManagedInstance,
     RuntimeExecutionProfile,
 )
+from kodi_lab.fixtures.package import load_packaged_fixture
+from kodi_lab.fixtures.semantics import FixtureSemanticSpecification
 from kodi_lab.kodi.fixtures import (
     FixtureLibraryState,
     SmallMixedFixtureKodiAdapter,
@@ -200,7 +202,12 @@ class ResetActivityObserver(Protocol):
 
 
 type FixtureAdapterFactory = Callable[
-    [ObserveManagedKodiRuntimeResult, RuntimeExecutionProfile], _FixtureAdapter
+    [
+        ObserveManagedKodiRuntimeResult,
+        RuntimeExecutionProfile,
+        FixtureSemanticSpecification,
+    ],
+    _FixtureAdapter,
 ]
 
 
@@ -292,6 +299,20 @@ class DisposableInstanceResetService:
                 ResetPhase.PREFLIGHT, "persistent managed instances cannot be reset"
             )
         pinned_revision = instance.runtime_revision_id
+        packaged_fixture = None
+        if fixture is not None:
+            try:
+                packaged_fixture = load_packaged_fixture(fixture.slug)
+            except Exception as error:
+                raise ResetStateConflictError(
+                    ResetPhase.PREFLIGHT,
+                    "assigned fixture package is unavailable or invalid",
+                ) from error
+            if packaged_fixture.definition != fixture:
+                raise ResetStateConflictError(
+                    ResetPhase.PREFLIGHT,
+                    "assigned fixture differs from its trusted package",
+                )
         container = self._find_container(instance_id)
         if container is not None:
             if container.runtime_state is ContainerRuntimeState.RUNNING:
@@ -399,10 +420,12 @@ class DisposableInstanceResetService:
                     ResetPhase.FIXTURE_APPLY,
                     "fixture application returned inconsistent trusted identity",
                 )
+            assert packaged_fixture is not None
             fixture_state = self._initialize_fixture(
                 instance_id,
                 provisioned.container_id,
                 profile,
+                packaged_fixture.semantics,
                 activity_generation,
             )
 
@@ -444,6 +467,7 @@ class DisposableInstanceResetService:
         instance_id: UUID,
         container_id: str,
         profile: RuntimeExecutionProfile,
+        semantics: FixtureSemanticSpecification,
         activity_generation: int,
     ) -> FixtureLibraryState:
         try:
@@ -490,7 +514,7 @@ class DisposableInstanceResetService:
                 managed_instance_id=str(instance_id),
                 expected_container_id=running.container_id,
             )
-            adapter = self._fixture_adapter_factory(observation, profile)
+            adapter = self._fixture_adapter_factory(observation, profile, semantics)
             self._activity.transition(
                 instance_id,
                 activity_generation,

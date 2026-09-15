@@ -1,4 +1,4 @@
-"""Unprivileged fixed-method Kodi adapter for the small-mixed fixtures."""
+"""Unprivileged fixed-method Kodi adapter for trusted fixture semantics."""
 
 from __future__ import annotations
 
@@ -13,6 +13,13 @@ from kodi_lab.domain import RuntimeExecutionProfile
 from kodi_lab.fixtures.seed_audit import (
     FIXTURE_MOVIE_DIRECTORY,
     FIXTURE_TV_DIRECTORY,
+)
+from kodi_lab.fixtures.semantics import (
+    MIXED_FIXTURE_SEMANTICS,
+    FixtureEpisodeExpectation,
+    FixtureMovieExpectation,
+    FixtureSemanticSpecification,
+    FixtureSeriesExpectation,
 )
 from kodi_lab.kodi.readiness import (
     JsonRpcInvalidResponseError,
@@ -51,16 +58,19 @@ class FixtureLibraryState:
     movie_count: int
     series_count: int
     episode_count: int
+    expected_movie_count: int = 1
+    expected_series_count: int = 1
+    expected_episode_count: int = 1
 
     @property
     def is_baseline(self) -> bool:
         return (
-            self.movie_present
-            and self.series_present
-            and self.episode_present
-            and self.movie_count == 1
-            and self.series_count == 1
-            and self.episode_count == 1
+            self.movie_present == (self.expected_movie_count > 0)
+            and self.series_present == (self.expected_series_count > 0)
+            and self.episode_present == (self.expected_episode_count > 0)
+            and self.movie_count == self.expected_movie_count
+            and self.series_count == self.expected_series_count
+            and self.episode_count == self.expected_episode_count
         )
 
 
@@ -71,6 +81,7 @@ class SmallMixedFixtureKodiAdapter:
         self,
         observation: ObserveManagedKodiRuntimeResult,
         profile: RuntimeExecutionProfile,
+        semantics: FixtureSemanticSpecification = MIXED_FIXTURE_SEMANTICS,
         *,
         timeout: float | None = None,
         transport: _HttpTransport | None = None,
@@ -90,10 +101,13 @@ class SmallMixedFixtureKodiAdapter:
         if not 0 < self._timeout <= profile.http_timeout_seconds:
             raise ValueError("HTTP timeout exceeds trusted execution profile")
         self._transport = transport or _BoundedHttpTransport()
+        self._semantics = semantics
         self._movie_scan_requested = False
         self._tv_scan_requested = False
 
     def scan_assigned_fixture_library(self) -> None:
+        if not self._semantics.scan_movies:
+            raise ValueError("trusted fixture scan plan has no Movies source")
         document = self._request(
             "kodi-lab-fixture-scan-movies",
             "VideoLibrary.Scan",
@@ -149,12 +163,27 @@ class SmallMixedFixtureKodiAdapter:
             "episodes",
         )
         return FixtureLibraryState(
-            movie_present=any(self._is_movie(item) for item in movies),
-            series_present=any(self._is_series(item) for item in shows),
-            episode_present=any(self._is_episode(item) for item in episodes),
+            movie_present=bool(self._semantics.movies)
+            and all(
+                any(self._is_movie(item, expected) for item in movies)
+                for expected in self._semantics.movies
+            ),
+            series_present=bool(self._semantics.series)
+            and all(
+                any(self._is_series(item, expected) for item in shows)
+                for expected in self._semantics.series
+            ),
+            episode_present=bool(self._semantics.episodes)
+            and all(
+                any(self._is_episode(item, expected) for item in episodes)
+                for expected in self._semantics.episodes
+            ),
             movie_count=len(movies),
             series_count=len(shows),
             episode_count=len(episodes),
+            expected_movie_count=len(self._semantics.movies),
+            expected_series_count=len(self._semantics.series),
+            expected_episode_count=len(self._semantics.episodes),
         )
 
     def wait_for_fixture_state(
@@ -167,12 +196,23 @@ class SmallMixedFixtureKodiAdapter:
         if not 0 < deadline_seconds <= FIXTURE_INITIALIZATION_TIMEOUT_SECONDS:
             raise ValueError("fixture deadline exceeds the approved bound")
         deadline = clock() + deadline_seconds
-        last = FixtureLibraryState(False, False, False, 0, 0, 0)
+        last = FixtureLibraryState(
+            False,
+            False,
+            False,
+            0,
+            0,
+            0,
+            len(self._semantics.movies),
+            len(self._semantics.series),
+            len(self._semantics.episodes),
+        )
         while clock() < deadline:
             last = self.get_fixture_library_state()
             if (
                 self._movie_scan_requested
                 and last.movie_present
+                and self._semantics.scan_tv
                 and not self._tv_scan_requested
             ):
                 self._scan_tv_fixture_library()
@@ -183,7 +223,7 @@ class SmallMixedFixtureKodiAdapter:
             if remaining > 0:
                 sleep(min(FIXTURE_POLL_INTERVAL_SECONDS, remaining))
         raise FixtureInitializationTimeoutError(
-            "small-mixed fixture did not reach its semantic baseline"
+            "assigned fixture did not reach its semantic baseline"
         )
 
     def remove_fixture_movie_for_reset_test(self) -> FixtureLibraryState:
@@ -194,8 +234,15 @@ class SmallMixedFixtureKodiAdapter:
             "VideoLibrary.GetMovies",
             {"properties": ["title", "year", "uniqueid", "file"]},
         )
+        target = next(
+            movie
+            for movie in self._semantics.movies
+            if movie.unique_id == self._semantics.drift_movie_unique_id
+        )
         matches = [
-            item for item in self._items(document, "movies") if self._is_movie(item)
+            item
+            for item in self._items(document, "movies")
+            if self._is_movie(item, target)
         ]
         if len(matches) != 1:
             raise JsonRpcInvalidResponseError(
@@ -212,7 +259,14 @@ class SmallMixedFixtureKodiAdapter:
         if removed.get("result") != "OK":
             raise JsonRpcInvalidResponseError("fixture movie removal result is invalid")
         state = self.get_fixture_library_state()
-        if state.movie_present or not state.series_present or not state.episode_present:
+        if (
+            state.movie_count != len(self._semantics.movies) - 1
+            or state.movie_present
+            or state.series_present != bool(self._semantics.series)
+            or state.episode_present != bool(self._semantics.episodes)
+            or state.series_count != len(self._semantics.series)
+            or state.episode_count != len(self._semantics.episodes)
+        ):
             raise JsonRpcInvalidResponseError(
                 "fixture drift mutation postcondition failed"
             )
@@ -281,30 +335,36 @@ class SmallMixedFixtureKodiAdapter:
         return isinstance(unique, dict) and unique.get("kodi-lab") == expected
 
     @classmethod
-    def _is_movie(cls, item: dict[str, object]) -> bool:
+    def _is_movie(
+        cls, item: dict[str, object], expected: FixtureMovieExpectation
+    ) -> bool:
         return (
-            item.get("title") == FIXTURE_MOVIE_TITLE
-            and item.get("year") == FIXTURE_MOVIE_YEAR
-            and item.get("file") == FIXTURE_MOVIE_FILE
-            and cls._has_unique_id(item, FIXTURE_MOVIE_UNIQUE_ID)
+            item.get("title") == expected.title
+            and item.get("year") == expected.year
+            and item.get("file") == expected.file
+            and cls._has_unique_id(item, expected.unique_id)
         )
 
     @classmethod
-    def _is_series(cls, item: dict[str, object]) -> bool:
+    def _is_series(
+        cls, item: dict[str, object], expected: FixtureSeriesExpectation
+    ) -> bool:
         return (
-            item.get("title") == FIXTURE_SERIES_TITLE
-            and item.get("year") == FIXTURE_SERIES_YEAR
-            and item.get("file") == FIXTURE_SERIES_DIRECTORY
-            and cls._has_unique_id(item, FIXTURE_SERIES_UNIQUE_ID)
+            item.get("title") == expected.title
+            and item.get("year") == expected.year
+            and item.get("file") == expected.directory
+            and cls._has_unique_id(item, expected.unique_id)
         )
 
     @classmethod
-    def _is_episode(cls, item: dict[str, object]) -> bool:
+    def _is_episode(
+        cls, item: dict[str, object], expected: FixtureEpisodeExpectation
+    ) -> bool:
         return (
-            item.get("title") == FIXTURE_EPISODE_TITLE
-            and item.get("showtitle") == FIXTURE_SERIES_TITLE
-            and item.get("season") == 1
-            and item.get("episode") == 1
-            and item.get("file") == FIXTURE_EPISODE_FILE
-            and cls._has_unique_id(item, FIXTURE_EPISODE_UNIQUE_ID)
+            item.get("title") == expected.title
+            and item.get("showtitle") == expected.show_title
+            and item.get("season") == expected.season
+            and item.get("episode") == expected.episode
+            and item.get("file") == expected.file
+            and cls._has_unique_id(item, expected.unique_id)
         )

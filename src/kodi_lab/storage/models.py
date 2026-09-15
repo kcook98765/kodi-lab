@@ -188,6 +188,7 @@ class FixtureDefinitionRow(Base):
             native_enum=False,
             create_constraint=True,
             name="fixture_content_category",
+            length=16,
         ),
         nullable=False,
     )

@@ -17,6 +17,7 @@ class FixtureSizeCategory(StrEnum):
 
 class FixtureContentCategory(StrEnum):
     MIXED = "mixed"
+    MOVIES = "movies"
 
 
 @dataclass(frozen=True, slots=True)

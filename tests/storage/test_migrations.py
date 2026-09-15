@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import inspect, text
+from sqlalchemy import String, inspect, text
+from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.storage.engine import create_database_engine
 
@@ -194,6 +195,202 @@ def test_0007_upgrades_to_reset_operations_and_empty_round_trip(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated reset operations"):
         command.downgrade(config, "0007_fixture_definitions")
+
+
+def test_0008_upgrades_to_fixture_taxonomy_and_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0008_reset_operations")
+
+    engine = create_database_engine(database_url)
+    before = next(
+        column
+        for column in inspect(engine).get_columns("fixture_definitions")
+        if column["name"] == "content_category"
+    )
+    assert isinstance(before["type"], String)
+    assert before["type"].length == 5
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    after = next(
+        column
+        for column in inspect(engine).get_columns("fixture_definitions")
+        if column["name"] == "content_category"
+    )
+    assert isinstance(after["type"], String)
+    assert after["type"].length == 16
+    engine.dispose()
+    command.check(config)
+
+    command.downgrade(config, "0008_reset_operations")
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_populated_mixed_fixture_assignment_and_reset_survive_0009(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0008_reset_operations")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-15T00:00:00.000000Z"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id, slug, kodi_version, support_tier) VALUES "
+                "('82000000-0000-4000-8000-000000000001', 'taxonomy-test', "
+                "'21.3', 'current')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
+                "revision_number, source_kind, source_reference, content_digest, "
+                "manifest_reference, manifest_digest, built_at, approval_state, "
+                "requires_trusted_build_confirmation) VALUES "
+                "('82000000-0000-4000-8000-000000000002', "
+                "'82000000-0000-4000-8000-000000000001', 1, 'test', 'test', "
+                ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
+            ),
+            {"digest": "sha256:" + "a" * 64, "timestamp": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO targets (id, name, target_type, kodi_version, "
+                "availability, health, connection_state) VALUES "
+                "('82000000-0000-4000-8000-000000000003', 'taxonomy', 'managed', "
+                "'21.3', 'unavailable', 'warning', 'disconnected')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO fixture_definitions "
+                "(id, slug, fixture_version, size_category, content_category, "
+                "content_digest, compatible_kodi_version, description) VALUES "
+                "('82000000-0000-4000-8000-000000000004', 'retained-mixed', 1, "
+                "'small', 'mixed', :digest, '21.3', 'retained mixed fixture')"
+            ),
+            {"digest": "sha256:" + "b" * 64},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances (target_id, instance_type, "
+                "runtime_revision_id, runtime_state, start_on_host_boot, "
+                "fixture_definition_id) VALUES "
+                "('82000000-0000-4000-8000-000000000003', 'disposable', "
+                "'82000000-0000-4000-8000-000000000002', 'stopped', 0, "
+                "'82000000-0000-4000-8000-000000000004')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO reset_operations (id, managed_instance_id, requested_at, "
+                "completed_at, state, phase, reconciliation_required) VALUES "
+                "('82000000-0000-4000-8000-000000000005', "
+                "'82000000-0000-4000-8000-000000000003', :timestamp, :timestamp, "
+                "'succeeded', 'succeeded', 0)"
+            ),
+            {"timestamp": timestamp},
+        )
+        before = {
+            table: connection.execute(
+                text(f'SELECT * FROM "{table}" ORDER BY 1')
+            ).fetchall()
+            for table in (
+                "fixture_definitions",
+                "managed_instances",
+                "reset_operations",
+            )
+        }
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        after = {
+            table: connection.execute(
+                text(f'SELECT * FROM "{table}" ORDER BY 1')
+            ).fetchall()
+            for table in before
+        }
+    assert after == before
+    engine.dispose()
+
+
+def test_fixture_taxonomy_constraint_accepts_only_mixed_and_movies(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    statement = text(
+        "INSERT INTO fixture_definitions "
+        "(id, slug, fixture_version, size_category, content_category, "
+        "content_digest, compatible_kodi_version, description) VALUES "
+        "(:id, :slug, 1, 'small', :category, :digest, '21.3', 'taxonomy')"
+    )
+    with engine.begin() as connection:
+        for ordinal, category in enumerate(("mixed", "movies"), start=1):
+            connection.execute(
+                statement,
+                {
+                    "id": f"83000000-0000-4000-8000-{ordinal:012d}",
+                    "slug": f"category-{category}",
+                    "category": category,
+                    "digest": "sha256:" + f"{ordinal:064x}",
+                },
+            )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            statement,
+            {
+                "id": "83000000-0000-4000-8000-000000000003",
+                "slug": "category-unknown",
+                "category": "unknown",
+                "digest": "sha256:" + "3" * 64,
+            },
+        )
+    engine.dispose()
+
+
+def test_movies_fixture_refuses_lossy_0009_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO fixture_definitions "
+                "(id, slug, fixture_version, size_category, content_category, "
+                "content_digest, compatible_kodi_version, description) VALUES "
+                "('84000000-0000-4000-8000-000000000001', 'movies-retained', 1, "
+                "'small', 'movies', :digest, '21.3', 'movies retained')"
+            ),
+            {"digest": "sha256:" + "d" * 64},
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated Movies definitions"):
+        command.downgrade(config, "0008_reset_operations")
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT slug, content_category FROM fixture_definitions "
+                "WHERE id = '84000000-0000-4000-8000-000000000001'"
+            )
+        ).one() == ("movies-retained", "movies")
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0009_fixture_content_taxonomy"
+        )
+    engine.dispose()
 
 
 def test_prior_head_upgrades_to_execution_profile_head(

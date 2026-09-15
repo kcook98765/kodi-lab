@@ -193,6 +193,25 @@ def test_v2_assignment_rejects_non_omega_runtime(
         service.assign(managed_instance_id=target.id, fixture_definition_id=v2.id)
 
 
+def test_small_movies_registration_and_exact_release_assignment(
+    session_factory: sessionmaker[Session],
+) -> None:
+    omega, _definition, revision = seed_instance(session_factory)
+    service = FixtureAdministrationService(session_factory)
+    fixture = service.register_packaged_fixture("small-movies-v1")
+    assigned = service.assign(
+        managed_instance_id=omega.id, fixture_definition_id=fixture.id
+    )
+
+    assert fixture.content_category.value == "movies"
+    assert assigned.runtime_revision_id == revision.id
+    assert assigned.fixture_definition_id == fixture.id
+
+    nexus, _definition, _revision = seed_instance(session_factory, kodi_version="20.5")
+    with pytest.raises(FixtureIncompatibleError):
+        service.assign(managed_instance_id=nexus.id, fixture_definition_id=fixture.id)
+
+
 def test_v2_v3_v4_exact_cross_version_assignment_matrix(
     session_factory: sessionmaker[Session],
 ) -> None:

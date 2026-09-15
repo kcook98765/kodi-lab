@@ -437,7 +437,11 @@ class ApplyAssignedFixtureResult(StrictModel):
     runtime_revision_id: str = Field(min_length=36, max_length=36)
     container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     fixture_slug: Literal[
-        "small-mixed-v1", "small-mixed-v2", "small-mixed-v3", "small-mixed-v4"
+        "small-mixed-v1",
+        "small-mixed-v2",
+        "small-mixed-v3",
+        "small-mixed-v4",
+        "small-movies-v1",
     ]
     fixture_version: Literal[1, 2, 3, 4]
     content_digest: str = Field(
@@ -459,6 +463,7 @@ class ApplyAssignedFixtureResult(StrictModel):
             "small-mixed-v2": 2,
             "small-mixed-v3": 3,
             "small-mixed-v4": 4,
+            "small-movies-v1": 1,
         }[self.fixture_slug]
         if self.fixture_version != expected_version:
             raise ValueError("fixture slug and version do not match")
@@ -1375,6 +1380,7 @@ def build_foundation_registry(
                     "small-mixed-v2",
                     "small-mixed-v3",
                     "small-mixed-v4",
+                    "small-movies-v1",
                 ],
                 outcome.fixture_slug,
             ),
