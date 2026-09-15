@@ -213,3 +213,39 @@ No migration is needed for v2. It is a second immutable FixtureDefinition
 registered through the existing trusted administration service. v1 and its
 failed-r1 evidence remain intact. There is no runtime SQL, broker SQL, generic
 database API, generic archive copy, caller path, or added broker operation.
+
+## Step 2 semantic status and read-only Web presentation
+
+`ManagedInstanceResetStatus` is the stable application-owned view of reset and
+fixture state. `ResetStatusService` derives it from the ManagedInstance, exact
+pinned RuntimeRevision and release, optional FixtureDefinition, fresh bounded
+broker inventory, and process-local activity. It reports:
+
+- supported or unsupported reset eligibility with a bounded semantic reason;
+- fixture none/assigned and compatible/incompatible state, slug, display name,
+  version, Small/Mixed categories, and exact compatible Kodi release;
+- provision/container state and the exact revision reset would preserve;
+- current in-process reset phase, last ephemeral outcome, bounded failure phase
+  and reason, and reconciliation-required state.
+
+The fixed presentation statement is: “Reset recreates this exact runtime
+revision; it does not upgrade Kodi.” `small-mixed-v1` remains accurately shown
+as the historical version whose populated live baseline was not proven;
+`small-mixed-v2` is not silently substituted. No fixture reassignment occurs
+during status reads.
+
+`DisposableInstanceResetService` publishes only phases it actually enters to an
+injected `ResetActivityRegistry`: preflight, stop/deprovision/provision, fixture
+apply/start/readiness/scan/verify, final stop/verify, then a bounded success,
+failure, or reconciliation-required outcome. At most one active entry exists per
+ManagedInstance. Completed entries use a fixed-capacity eviction policy; active
+entries are never evicted. A new process starts with an empty registry, so the
+UI never claims stale work is running. This remains observability for the
+existing in-process lock, not durable history, a job system, or distributed
+coordination.
+
+The authenticated dashboard and
+`GET /api/instances/{instance_id}/reset-status` are read-only consumers. The DTO
+does not contain container IDs, image IDs, archive/database paths, evidence
+paths, traceback or raw exception text. There is no reset button, reset POST,
+fixture mutation route, schema change, or broker protocol/capability change.

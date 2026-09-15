@@ -890,3 +890,20 @@ details that it did not specify.
   directory first, then the fixed TV directory after the first scan completes,
   because Kodi does not run concurrent library scans. The single 60-second
   semantic deadline and fixed JSON-RPC allowlist remain in force.
+
+## D-0074: Application-owned ephemeral reset status and read-only Web projection
+
+- Status: approved for Phase 6 Step 2
+- Decision: one `ResetStatusService` composes ManagedInstance type, the exact
+  persisted RuntimeRevision pin, fixture assignment and compatibility, fresh
+  broker inventory, and a bounded process-local reset activity registry into a
+  semantic DTO. Reset orchestration publishes only its real phase transitions
+  and bounded outcomes through an injected registry; completed state is
+  ephemeral, bounded in memory, and disappears on process restart.
+- Web boundary: authenticated HTML and
+  `GET /api/instances/{instance_id}/reset-status` consume the same DTO. They
+  expose reset eligibility, safe reason, fixture identity/category/version,
+  exact pin, current container semantics, activity/outcome, and reconciliation
+  warning without container identity, image, paths, exceptions, or mutation
+  authority. No reset/fixture mutation route, durable job/history, distributed
+  lock, migration, or broker operation is added.

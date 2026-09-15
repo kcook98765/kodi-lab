@@ -12,6 +12,12 @@ from uuid import UUID
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
+from kodi_lab.application.reset_activity import (
+    ResetActivityCapacityError,
+    ResetActivityConflictError,
+    ResetActivityRegistry,
+    ResetActivityState,
+)
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.operations import (
     ApplyAssignedFixtureResult,
@@ -199,6 +205,7 @@ class DisposableInstanceResetService:
         broker: _ResetBroker,
         *,
         locks: PerInstanceResetLocks | None = None,
+        activity: ResetActivityRegistry | None = None,
         readiness_factory: Callable[
             [_ResetBroker, RuntimeExecutionProfile], _ReadinessWaiter
         ] = KodiReadinessCoordinator,
@@ -207,6 +214,7 @@ class DisposableInstanceResetService:
         self._session_factory = session_factory
         self._broker = broker
         self._locks = locks or PerInstanceResetLocks()
+        self._activity = activity or ResetActivityRegistry()
         self._readiness_factory = readiness_factory
         self._fixture_adapter_factory = fixture_adapter_factory
 
@@ -217,11 +225,46 @@ class DisposableInstanceResetService:
                 ResetPhase.PREFLIGHT, "another reset is already in progress"
             )
         try:
-            return self._reset_locked(managed_instance_id)
+            try:
+                activity = self._activity.begin(managed_instance_id)
+            except (ResetActivityConflictError, ResetActivityCapacityError) as error:
+                raise ResetInProgressError(
+                    ResetPhase.PREFLIGHT, "another reset is already in progress"
+                ) from error
+            try:
+                result = self._reset_locked(managed_instance_id, activity.generation)
+            except ResetError as error:
+                self._activity.fail(
+                    managed_instance_id,
+                    activity.generation,
+                    failure_phase=error.phase.value,
+                    failure_reason=error.safe_reason,
+                    reconciliation_required=isinstance(
+                        error, ResetReconciliationRequiredError
+                    ),
+                )
+                raise
+            except Exception:
+                self._activity.fail(
+                    managed_instance_id,
+                    activity.generation,
+                    failure_phase=ResetPhase.PREFLIGHT.value,
+                    failure_reason="Reset could not be completed.",
+                    reconciliation_required=False,
+                )
+                raise
+            self._activity.succeed(managed_instance_id, activity.generation)
+            return result
         finally:
             lock.release()
 
-    def _reset_locked(self, instance_id: UUID) -> DisposableResetResult:
+    @property
+    def activity_registry(self) -> ResetActivityRegistry:
+        return self._activity
+
+    def _reset_locked(
+        self, instance_id: UUID, activity_generation: int
+    ) -> DisposableResetResult:
         instance, profile, fixture = self._load_context(instance_id)
         if instance.instance_type is not InstanceType.DISPOSABLE:
             raise PersistentResetUnsupportedError(
@@ -232,6 +275,11 @@ class DisposableInstanceResetService:
         if container is not None:
             if container.runtime_state is ContainerRuntimeState.RUNNING:
                 try:
+                    self._activity.transition(
+                        instance_id,
+                        activity_generation,
+                        ResetActivityState.STOPPING,
+                    )
                     self._broker.stop_managed_container(
                         managed_instance_id=str(instance_id),
                         expected_container_id=container.container_id,
@@ -249,6 +297,11 @@ class DisposableInstanceResetService:
                     "container state is transitional or unknown",
                 )
             try:
+                self._activity.transition(
+                    instance_id,
+                    activity_generation,
+                    ResetActivityState.DEPROVISIONING,
+                )
                 self._broker.deprovision_managed_container(
                     managed_instance_id=str(instance_id),
                     expected_container_id=container.container_id,
@@ -269,6 +322,11 @@ class DisposableInstanceResetService:
                     "container absence could not be established",
                 ) from error
         try:
+            self._activity.transition(
+                instance_id,
+                activity_generation,
+                ResetActivityState.PROVISIONING,
+            )
             provisioned = self._broker.provision_managed_container(
                 managed_instance_id=str(instance_id)
             )
@@ -289,6 +347,11 @@ class DisposableInstanceResetService:
         fixture_state: FixtureLibraryState | None = None
         if fixture is not None:
             try:
+                self._activity.transition(
+                    instance_id,
+                    activity_generation,
+                    ResetActivityState.APPLYING_FIXTURE,
+                )
                 applied = self._broker.apply_assigned_fixture(
                     managed_instance_id=str(instance_id),
                     expected_container_id=provisioned.container_id,
@@ -316,9 +379,17 @@ class DisposableInstanceResetService:
                     "fixture application returned inconsistent trusted identity",
                 )
             fixture_state = self._initialize_fixture(
-                instance_id, provisioned.container_id, profile
+                instance_id,
+                provisioned.container_id,
+                profile,
+                activity_generation,
             )
 
+        self._activity.transition(
+            instance_id,
+            activity_generation,
+            ResetActivityState.FINAL_VERIFYING,
+        )
         final_container = self._require_stopped_container(instance_id)
         final_instance, _final_profile, final_fixture = self._load_context(instance_id)
         if (
@@ -352,8 +423,14 @@ class DisposableInstanceResetService:
         instance_id: UUID,
         container_id: str,
         profile: RuntimeExecutionProfile,
+        activity_generation: int,
     ) -> FixtureLibraryState:
         try:
+            self._activity.transition(
+                instance_id,
+                activity_generation,
+                ResetActivityState.STARTING_FOR_FIXTURE,
+            )
             self._broker.start_managed_container(
                 managed_instance_id=str(instance_id),
                 expected_container_id=container_id,
@@ -362,11 +439,17 @@ class DisposableInstanceResetService:
         except Exception as error:
             self._raise_after_cleanup(
                 instance_id,
+                activity_generation,
                 ResetPhase.FIXTURE_START,
                 "fixture initialization container start failed",
                 error,
             )
         try:
+            self._activity.transition(
+                instance_id,
+                activity_generation,
+                ResetActivityState.WAITING_READINESS,
+            )
             readiness = self._readiness_factory(
                 self._broker, profile
             ).wait_until_usable(str(instance_id))
@@ -375,6 +458,7 @@ class DisposableInstanceResetService:
         except Exception as error:
             self._raise_after_cleanup(
                 instance_id,
+                activity_generation,
                 ResetPhase.READINESS,
                 "fixture initialization readiness failed",
                 error,
@@ -386,18 +470,34 @@ class DisposableInstanceResetService:
                 expected_container_id=running.container_id,
             )
             adapter = self._fixture_adapter_factory(observation, profile)
+            self._activity.transition(
+                instance_id,
+                activity_generation,
+                ResetActivityState.SCANNING_FIXTURE,
+            )
             adapter.scan_assigned_fixture_library()
+            self._activity.transition(
+                instance_id,
+                activity_generation,
+                ResetActivityState.VERIFYING_FIXTURE,
+            )
             state = adapter.wait_for_fixture_state()
             if not state.is_baseline:
                 raise RuntimeError("fixture adapter returned a non-baseline state")
         except Exception as error:
             self._raise_after_cleanup(
                 instance_id,
+                activity_generation,
                 ResetPhase.FIXTURE_INITIALIZATION,
                 "fixture scan or semantic verification failed",
                 error,
             )
         try:
+            self._activity.transition(
+                instance_id,
+                activity_generation,
+                ResetActivityState.FINAL_STOPPING,
+            )
             running = self._require_running_container(instance_id)
             self._broker.stop_managed_container(
                 managed_instance_id=str(instance_id),
@@ -415,6 +515,7 @@ class DisposableInstanceResetService:
     def _raise_after_cleanup(
         self,
         instance_id: UUID,
+        activity_generation: int,
         phase: ResetPhase,
         message: str,
         cause: Exception,
@@ -424,6 +525,11 @@ class DisposableInstanceResetService:
             if container is None:
                 raise RuntimeError("container is absent")
             if container.runtime_state is ContainerRuntimeState.RUNNING:
+                self._activity.transition(
+                    instance_id,
+                    activity_generation,
+                    ResetActivityState.FINAL_STOPPING,
+                )
                 self._broker.stop_managed_container(
                     managed_instance_id=str(instance_id),
                     expected_container_id=container.container_id,

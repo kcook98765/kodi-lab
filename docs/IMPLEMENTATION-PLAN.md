@@ -214,7 +214,16 @@ semantic identities and paths before normal stop. This adds no fixture language,
 upload, generic copy/exec/JSON-RPC, revision selection, persistent storage, Web
 mutation, or production deployment.
 
-The next separately authorized Phase 6 milestone should expose bounded fixture
-and reset status in application-owned semantic DTOs while retaining Web mutation
-deferral until durable multi-worker coordination and destructive-action UX are
-specified.
+Phase 6 Step 2 exposes bounded fixture and reset status through one
+application-owned semantic DTO/service. It combines durable exact-pin and
+fixture state, fresh broker inventory, and bounded process-local reset activity;
+an authenticated dashboard section and GET endpoint consume the same view. The
+browser receives no reset, fixture, revision, container, or Docker mutation
+authority. Completed reset results remain ephemeral and no migration, broker
+operation, durable history, or distributed coordination is introduced.
+
+The next separately authorized Phase 6 milestone should design safe Web reset
+mutation as one coherent contract: destructive confirmation and authorization,
+operation monitoring, and coordination appropriate for the intended worker
+deployment. It must continue accepting only ManagedInstance identity and must
+not expose mutation until cross-process behavior is explicitly resolved.

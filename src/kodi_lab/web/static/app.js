@@ -29,6 +29,44 @@ function updateCard(status) {
   }
 }
 
+function updateResetStatus(card, status) {
+  const fixture = status.fixture.assignment === "none"
+    ? "None"
+    : `${status.fixture.display_name} v${status.fixture.fixture_version} (${status.fixture.size_category}, ${status.fixture.content_category})`;
+  const values = {
+    fixture,
+    compatibility: status.fixture.compatibility,
+    pin: `Kodi ${status.pinned_kodi_release} · revision ${status.pinned_runtime_revision_number}`,
+    eligibility: status.eligibility_detail,
+    activity: status.activity_state,
+    outcome: status.last_outcome,
+    "pin-statement": status.exact_pin_statement,
+    "fixture-note": status.fixture.baseline_note || "",
+    "reset-failure": status.failure_reason || "",
+    reconciliation: "Reconciliation is required before another reset is considered safe."
+  };
+  for (const [field, value] of Object.entries(values)) {
+    const node = card.querySelector(`[data-reset-field="${field}"]`);
+    if (node) node.textContent = value;
+  }
+  const note = card.querySelector('[data-reset-field="fixture-note"]');
+  if (note) note.hidden = !status.fixture.baseline_note;
+  const failure = card.querySelector('[data-reset-field="reset-failure"]');
+  if (failure) failure.hidden = !status.failure_reason;
+  const reconciliation = card.querySelector('[data-reset-field="reconciliation"]');
+  if (reconciliation) reconciliation.hidden = !status.reconciliation_required;
+}
+
+async function refreshResetStatus(instanceId) {
+  const response = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/reset-status`, {
+    credentials: "same-origin"
+  });
+  if (!response.ok) throw new Error("Reset status refresh failed.");
+  const status = await response.json();
+  const card = document.querySelector(`[data-instance-id="${CSS.escape(instanceId)}"]`);
+  if (card) updateResetStatus(card, status);
+}
+
 async function refresh() {
   try {
     const response = await fetch("/api/instances", {credentials: "same-origin"});
@@ -39,6 +77,7 @@ async function refresh() {
     if (!response.ok) throw new Error("Status refresh failed.");
     const statuses = await response.json();
     statuses.forEach(updateCard);
+    await Promise.all(statuses.map((item) => refreshResetStatus(item.managed_instance_id)));
     showError("");
   } catch (_error) {
     showError("Status refresh is temporarily unavailable.");

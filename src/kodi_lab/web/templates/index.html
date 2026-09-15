@@ -22,6 +22,7 @@
       <p id="global-error" class="error" role="alert" hidden></p>
       <section id="instances" aria-live="polite">
         {% for instance in instances %}
+        {% set reset = reset_statuses.get(instance.managed_instance_id) %}
         <article class="instance" data-instance-id="{{ instance.managed_instance_id }}">
           <h2 data-field="name">{{ instance.name }}</h2>
           <p>Kodi <span data-field="kodi_version">{{ instance.kodi_version }}</span> · revision <span data-field="runtime_revision_number">{{ instance.runtime_revision_number }}</span></p>
@@ -33,6 +34,24 @@
             <dt>Usability</dt><dd data-field="usability_state">{{ instance.usability_state }}</dd>
           </dl>
           <p class="error" data-field="failure_detail" {% if not instance.failure_detail %}hidden{% endif %}>{{ instance.failure_detail or '' }}</p>
+          {% if reset %}
+          <section class="reset-status" aria-label="Fixture and reset status">
+            <h3>Fixture and reset</h3>
+            <dl>
+              <dt>Fixture</dt>
+              <dd data-reset-field="fixture">{% if reset.fixture.assignment == 'none' %}None{% else %}{{ reset.fixture.display_name }} v{{ reset.fixture.fixture_version }} ({{ reset.fixture.size_category }}, {{ reset.fixture.content_category }}){% endif %}</dd>
+              <dt>Compatibility</dt><dd data-reset-field="compatibility">{{ reset.fixture.compatibility }}</dd>
+              <dt>Exact runtime pin</dt><dd data-reset-field="pin">Kodi {{ reset.pinned_kodi_release }} · revision {{ reset.pinned_runtime_revision_number }}</dd>
+              <dt>Reset support</dt><dd data-reset-field="eligibility">{{ reset.eligibility_detail }}</dd>
+              <dt>Reset activity</dt><dd data-reset-field="activity">{{ reset.activity_state }}</dd>
+              <dt>Last in-process outcome</dt><dd data-reset-field="outcome">{{ reset.last_outcome }}</dd>
+            </dl>
+            <p class="secondary" data-reset-field="pin-statement">{{ reset.exact_pin_statement }}</p>
+            <p class="secondary" data-reset-field="fixture-note" {% if not reset.fixture.baseline_note %}hidden{% endif %}>{{ reset.fixture.baseline_note or '' }}</p>
+            <p class="error" data-reset-field="reset-failure" {% if not reset.failure_reason %}hidden{% endif %}>{{ reset.failure_reason or '' }}</p>
+            <p class="reconciliation-warning" data-reset-field="reconciliation" {% if not reset.reconciliation_required %}hidden{% endif %}>Reconciliation is required before another reset is considered safe.</p>
+          </section>
+          {% endif %}
           <div class="actions">
             {% for action in ['provision', 'start', 'stop', 'deprovision'] %}
             <button type="button" data-action="{{ action }}" {% if action not in instance.allowed_actions %}hidden{% endif %}>{{ action|capitalize }}</button>

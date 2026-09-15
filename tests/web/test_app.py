@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
 from kodi_lab.broker.errors import BrokerUnavailableError
 from kodi_lab.config import Settings
+from kodi_lab.domain import InstanceType
+from kodi_lab.fixtures.package import load_packaged_fixture
 from kodi_lab.kodi.readiness import (
     JsonRpcState,
     ReadinessFailureReason,
@@ -19,6 +21,7 @@ from kodi_lab.kodi.readiness import (
     UsabilityState,
 )
 from kodi_lab.storage.models import ManagedInstanceRow, WebSessionRow
+from kodi_lab.storage.repositories import FixtureDefinitionRepository
 from kodi_lab.web.app import create_app
 
 from .conftest import (
@@ -39,6 +42,16 @@ def test_protected_routes_require_authentication(client: TestClient) -> None:
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
     assert client.get("/api/instances").status_code == 401
+    assert client.get(f"/api/instances/{INSTANCE_ID}/reset-status").status_code == 401
+
+
+def _assign_v2(database: sessionmaker[Session]) -> None:
+    fixture = load_packaged_fixture("small-mixed-v2").definition
+    with database.begin() as session:
+        FixtureDefinitionRepository(session).create(fixture)
+        instance = session.get(ManagedInstanceRow, str(INSTANCE_ID))
+        assert instance is not None
+        instance.fixture_definition_id = str(fixture.id)
 
 
 def test_login_cookie_is_opaque_and_hardened(
@@ -102,6 +115,108 @@ def test_main_page_autoescapes_and_has_local_assets(client: TestClient) -> None:
     assert "&lt;script&gt;not markup&lt;/script&gt;" in page.text
     assert "https://" not in page.text
     assert "Content-Security-Policy" in page.headers
+    assert "Fixture" in page.text
+    assert "None" in page.text
+    assert (
+        "Reset recreates this exact runtime revision; it does not upgrade Kodi."
+        in page.text
+    )
+
+
+def test_authenticated_reset_status_presents_fixture_exact_pin_and_safe_state(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+) -> None:
+    _assign_v2(database)
+    login(client)
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    response = client.get(f"/api/instances/{INSTANCE_ID}/reset-status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["eligibility"] == "supported"
+    assert body["fixture"] == {
+        "assignment": "assigned",
+        "compatibility": "compatible",
+        "slug": "small-mixed-v2",
+        "display_name": "Small Mixed",
+        "fixture_version": 2,
+        "size_category": "small",
+        "content_category": "mixed",
+        "compatible_kodi_release": "21.3",
+        "baseline_note": (
+            "Populated Kodi 21.3 reset baseline proven for this fixture version."
+        ),
+    }
+    assert body["pinned_runtime_revision_id"] == str(REVISION_ID)
+    assert body["pinned_runtime_revision_number"] == 2
+    assert body["pinned_kodi_release"] == "21.3"
+    assert body["container_state"] == "running"
+    serialized = response.text
+    for forbidden in ("container_id", "image_id", "filesystem", "evidence_reference"):
+        assert forbidden not in serialized
+    page = client.get("/")
+    assert "Small Mixed v2 (small, mixed)" in page.text
+    assert "Reset is available for this disposable instance." in page.text
+    assert "does not upgrade Kodi" in page.text
+
+
+def test_reset_activity_failure_and_reconciliation_are_read_only(
+    client: TestClient,
+) -> None:
+    login(client)
+    registry = cast(FastAPI, client.app).state.kodi_lab.reset_activity
+    active = registry.begin(INSTANCE_ID)
+    registry.transition(INSTANCE_ID, active.generation, "provisioning")
+    current = client.get(f"/api/instances/{INSTANCE_ID}/reset-status").json()
+    assert current["eligibility_reason"] == "reset_in_progress"
+    assert current["activity_state"] == "provisioning"
+    assert "provisioning" in client.get("/").text
+    registry.fail(
+        INSTANCE_ID,
+        active.generation,
+        failure_phase="final_stop",
+        failure_reason="The fresh container could not be safely stopped.",
+        reconciliation_required=True,
+    )
+    failed = client.get(f"/api/instances/{INSTANCE_ID}/reset-status").json()
+    assert failed["eligibility_reason"] == "reconciliation_required"
+    assert failed["reconciliation_required"] is True
+    assert failed["failure_phase"] == "final_stop"
+    failed_page = client.get("/").text
+    assert "Reconciliation is required" in failed_page
+    assert "The fresh container could not be safely stopped." in failed_page
+
+
+def test_persistent_reset_status_is_unsupported_and_no_mutation_route_exists(
+    client: TestClient, database: sessionmaker[Session]
+) -> None:
+    with database.begin() as session:
+        instance = session.get(ManagedInstanceRow, str(INSTANCE_ID))
+        assert instance is not None
+        instance.instance_type = InstanceType.PERSISTENT
+    csrf = login(client)
+    status_response = client.get(f"/api/instances/{INSTANCE_ID}/reset-status")
+    assert status_response.json()["eligibility_reason"] == "persistent_instance"
+    mutation_headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    for method in ("post", "put", "patch", "delete"):
+        response = client.request(
+            method.upper(),
+            f"/api/instances/{INSTANCE_ID}/reset",
+            json={},
+            headers=mutation_headers,
+        )
+        assert response.status_code in {404, 405}
+    routes = cast(FastAPI, client.app).routes
+    assert not any(
+        getattr(route, "path", "").endswith("/reset")
+        or (
+            "fixture" in getattr(route, "path", "")
+            and set(getattr(route, "methods", set()))
+            & {"POST", "PUT", "PATCH", "DELETE"}
+        )
+        for route in routes
+    )
 
 
 def test_status_models_unprovisioned_stopped_running_and_broker_failure(

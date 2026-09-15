@@ -27,6 +27,11 @@ from kodi_lab.application.errors import (
     TargetNotFoundError,
 )
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.reset_activity import ResetActivityRegistry
+from kodi_lab.application.reset_status import (
+    ManagedInstanceResetStatus,
+    ResetStatusService,
+)
 from kodi_lab.application.runtime_lifecycle import (
     LifecycleConflictError,
     ManagedRuntimeLifecycleService,
@@ -72,6 +77,8 @@ class WebApplicationContext:
     lifecycle: ManagedRuntimeLifecycleService
     matrix: RuntimeMatrixService
     readiness: ReadinessTaskRegistry
+    reset_activity: ResetActivityRegistry
+    reset_status: ResetStatusService
 
 
 def create_app(
@@ -80,6 +87,7 @@ def create_app(
     session_factory: sessionmaker[Session],
     broker: Any,
     readiness: ReadinessTaskRegistry | None = None,
+    reset_activity: ResetActivityRegistry | None = None,
     auth: WebAuthenticationService | None = None,
     throttler: LoginThrottler | None = None,
     coordinator_factory: ReadinessCoordinatorFactory | None = None,
@@ -87,6 +95,7 @@ def create_app(
     """Build an app entirely from injected storage and typed broker boundaries."""
 
     task_registry = readiness or ReadinessTaskRegistry()
+    reset_registry = reset_activity or ResetActivityRegistry()
     status_service = ManagedRuntimeStatusService(session_factory, broker, task_registry)
     context = WebApplicationContext(
         settings=settings,
@@ -109,6 +118,8 @@ def create_app(
             trusted_custom_builds_enabled=(settings.trusted_custom_builds_enabled),
         ),
         readiness=task_registry,
+        reset_activity=reset_registry,
+        reset_status=ResetStatusService(session_factory, broker, reset_registry),
     )
 
     @asynccontextmanager
@@ -275,11 +286,16 @@ def create_app(
             authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
+        reset_statuses = {
+            item.managed_instance_id: item
+            for item in context.reset_status.list_statuses()
+        }
         return templates.TemplateResponse(
             request,
             "index.html",
             {
                 "instances": context.status.list_statuses(),
+                "reset_statuses": reset_statuses,
                 "csrf_token": authenticated.csrf_token,
                 "poll_interval_ms": 2000,
             },
@@ -344,6 +360,16 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> ManagedRuntimeStatus:
         return context.status.get(instance_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/reset-status",
+        response_model=ManagedInstanceResetStatus,
+    )
+    def get_instance_reset_status(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ManagedInstanceResetStatus:
+        return context.reset_status.get(instance_id)
 
     @app.post(
         "/api/instances/{instance_id}/provision",

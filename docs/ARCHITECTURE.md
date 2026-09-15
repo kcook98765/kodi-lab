@@ -316,3 +316,19 @@ proved, otherwise it returns reconciliation-required. Persistent reset,
 transitional or ambiguous state, force removal, revision upgrade, distributed
 locking, reset history, and Web reset are absent from this slice. See
 `PHASE6-RESET-FIXTURES.md` for the executable contract.
+
+`ResetStatusService` is the application-owned read projection for reset and
+fixture state. It joins durable instance, exact pin, and fixture metadata with
+fresh managed-container inventory and the injected process-local
+`ResetActivityRegistry`. Eligibility and compatibility are computed once in the
+application layer; templates do not reconstruct policy. The DTO contains only
+semantic provision/container states, exact Kodi release and pinned revision,
+bounded fixture metadata, current phase, last in-process result, and safe
+failure/reconciliation fields. It excludes container/image identity, package or
+evidence paths, and infrastructure exceptions.
+
+The authenticated dashboard and one read-only JSON route consume that
+projection. The registry is bounded memory, not durable history or a
+multi-worker lease; a process restart truthfully returns to idle and rebuilds
+current eligibility from persistence plus broker observation. Destructive Web
+reset, confirmation UX, and cross-process coordination remain deferred.

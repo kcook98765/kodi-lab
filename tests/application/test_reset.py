@@ -20,6 +20,12 @@ from kodi_lab.application.reset import (
     ResetStateConflictError,
     ResetStopFailedError,
 )
+from kodi_lab.application.reset_activity import (
+    ResetActivityRegistry,
+    ResetActivitySnapshot,
+    ResetActivityState,
+    ResetOutcome,
+)
 from kodi_lab.application.runtime_eligibility import (
     RuntimeRevisionEligibilityPolicy,
     RuntimeSelectionPolicy,
@@ -386,11 +392,13 @@ def service(
     readiness: FakeReadiness | None = None,
     fixture_adapter: FakeFixtureAdapter | None = None,
     locks: PerInstanceResetLocks | None = None,
+    activity: ResetActivityRegistry | None = None,
 ) -> DisposableInstanceResetService:
     return DisposableInstanceResetService(
         factory,
         broker,
         locks=locks,
+        activity=activity,
         readiness_factory=lambda _broker, _profile: readiness or FakeReadiness(),
         fixture_adapter_factory=(
             lambda _observation, _profile: fixture_adapter or FakeFixtureAdapter()
@@ -645,3 +653,84 @@ def test_reset_lock_rejects_duplicate_and_repeated_reset_is_deterministic(
     assert broker.container_id != first_container
     assert first.runtime_revision_id == second.runtime_revision_id == revision_id
     assert first.fixture_state == second.fixture_state
+
+
+def test_reset_publishes_bounded_success_and_failure_results(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, _ = seed_reset_context(
+        session_factory, assigned_fixture=True
+    )
+    registry = ResetActivityRegistry()
+    broker = FakeBroker(instance_id, revision_id)
+    service(session_factory, broker, activity=registry).reset(instance_id)
+    succeeded = registry.snapshot(instance_id)
+    assert succeeded.state is ResetActivityState.SUCCEEDED
+    assert succeeded.last_outcome is ResetOutcome.SUCCEEDED
+
+    broker.fail = "apply_fixture"
+    with pytest.raises(FixtureApplyFailedError):
+        service(session_factory, broker, activity=registry).reset(instance_id)
+    failed = registry.snapshot(instance_id)
+    assert failed.state is ResetActivityState.FAILED
+    assert failed.failure_phase == "fixture_apply"
+    assert (
+        failed.failure_reason
+        == "the trusted assigned fixture archive could not be applied"
+    )
+
+
+def test_reset_publishes_reconciliation_required_result(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, _ = seed_reset_context(
+        session_factory, assigned_fixture=True
+    )
+    registry = ResetActivityRegistry()
+    broker = FakeBroker(instance_id, revision_id)
+    broker.fail = "final_stop"
+    with pytest.raises(ResetReconciliationRequiredError):
+        service(session_factory, broker, activity=registry).reset(instance_id)
+    status = registry.snapshot(instance_id)
+    assert status.state is ResetActivityState.RECONCILIATION_REQUIRED
+    assert status.last_outcome is ResetOutcome.RECONCILIATION_REQUIRED
+    assert status.reconciliation_required
+    assert status.failure_phase == "final_stop"
+
+
+class RecordingResetActivityRegistry(ResetActivityRegistry):
+    def __init__(self) -> None:
+        super().__init__()
+        self.phases: list[ResetActivityState] = []
+
+    def transition(
+        self,
+        instance_id: UUID,
+        generation: int,
+        state: ResetActivityState,
+    ) -> ResetActivitySnapshot:
+        self.phases.append(state)
+        return super().transition(instance_id, generation, state)
+
+
+def test_fixture_reset_publishes_actual_phase_order(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, _ = seed_reset_context(
+        session_factory, assigned_fixture=True
+    )
+    registry = RecordingResetActivityRegistry()
+    broker = FakeBroker(instance_id, revision_id, state=ContainerRuntimeState.RUNNING)
+    service(session_factory, broker, activity=registry).reset(instance_id)
+    assert registry.phases == [
+        ResetActivityState.STOPPING,
+        ResetActivityState.DEPROVISIONING,
+        ResetActivityState.PROVISIONING,
+        ResetActivityState.APPLYING_FIXTURE,
+        ResetActivityState.STARTING_FOR_FIXTURE,
+        ResetActivityState.WAITING_READINESS,
+        ResetActivityState.SCANNING_FIXTURE,
+        ResetActivityState.VERIFYING_FIXTURE,
+        ResetActivityState.FINAL_STOPPING,
+        ResetActivityState.FINAL_VERIFYING,
+    ]
