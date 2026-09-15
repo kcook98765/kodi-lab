@@ -60,8 +60,7 @@ from kodi_lab.broker.provisioning import (
 )
 from kodi_lab.fixtures.package import (
     FIXTURE_CONTAINER_DESTINATION,
-    FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
-    SMALL_MIXED_V2_FIXTURE_SLUG,
+    FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS,
     PackagedFixtureError,
     load_packaged_fixture,
 )
@@ -1015,8 +1014,11 @@ class DockerManagedContainerAdapter:
                 "/home/kodi/.kodi/fixture-media",
                 "/home/kodi/.kodi/userdata/sources.xml",
             ]
-            if spec.fixture_slug == SMALL_MIXED_V2_FIXTURE_SLUG:
-                fixed_paths.append(FIXTURE_VIDEO_DATABASE_CONTAINER_PATH)
+            database_path = FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS.get(
+                spec.fixture_slug
+            )
+            if database_path is not None:
+                fixed_paths.append(database_path)
             for fixed_path in fixed_paths:
                 if self._fixed_container_path_exists(client, selected_id, fixed_path):
                     raise FixtureBaselineConflictError(

@@ -1,4 +1,4 @@
-"""Read-only audit of the fixed Kodi 21.3 fixture configuration seed."""
+"""Read-only audits of exact-release fixture configuration seeds."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 KODI_VIDEO_DATABASE_FILENAME = "MyVideos131.db"
 KODI_VIDEO_DATABASE_SCHEMA_VERSION = 131
+KODI_20_VIDEO_DATABASE_FILENAME = "MyVideos121.db"
+KODI_20_VIDEO_DATABASE_SCHEMA_VERSION = 121
 FIXTURE_MOVIE_DIRECTORY = "/home/kodi/.kodi/fixture-media/movies/"
 FIXTURE_TV_DIRECTORY = "/home/kodi/.kodi/fixture-media/tvshows/"
 FIXTURE_LOCAL_SCRAPER = "metadata.local"
@@ -53,6 +55,11 @@ _EXPECTED_NONZERO_TABLE_COUNTS = {
     "videoversiontype": 387,
 }
 
+_KODI_20_EXPECTED_NONZERO_TABLE_COUNTS = {
+    "path": 2,
+    "version": 1,
+}
+
 
 class FixtureSeedAuditError(RuntimeError):
     """The immutable database seed violates its configuration-only contract."""
@@ -67,7 +74,35 @@ class FixtureSeedAudit:
 
 
 def audit_small_mixed_v2_seed(database: bytes) -> FixtureSeedAudit:
-    """Audit trusted bytes without accepting a path or executing mutable SQL."""
+    """Audit the fixed Kodi 21.3 seed without accepting a path or mutable SQL."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=_EXPECTED_NONZERO_TABLE_COUNTS,
+    )
+
+
+def audit_small_mixed_v3_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the fixed Kodi 20.5 seed without accepting a path or mutable SQL."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_20_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=_KODI_20_EXPECTED_NONZERO_TABLE_COUNTS,
+    )
+
+
+def _audit_seed(
+    database: bytes,
+    *,
+    database_filename: str,
+    schema_version: int,
+    expected_nonzero_table_counts: dict[str, int],
+) -> FixtureSeedAudit:
+    """Apply the shared strict purity contract to one approved exact schema."""
 
     if not database:
         raise FixtureSeedAuditError("fixture database seed is empty")
@@ -80,7 +115,7 @@ def audit_small_mixed_v2_seed(database: bytes) -> FixtureSeedAudit:
         version = connection.execute(
             "SELECT idVersion, iCompressCount FROM version"
         ).fetchall()
-        if version != [(KODI_VIDEO_DATABASE_SCHEMA_VERSION, 0)]:
+        if version != [(schema_version, 0)]:
             raise FixtureSeedAuditError("fixture database schema version is invalid")
         paths = tuple(
             connection.execute(
@@ -112,16 +147,16 @@ def audit_small_mixed_v2_seed(database: bytes) -> FixtureSeedAudit:
             for name in table_names
         )
         for name, count in table_counts:
-            expected = _EXPECTED_NONZERO_TABLE_COUNTS.get(name, 0)
+            expected = expected_nonzero_table_counts.get(name, 0)
             if count != expected:
                 raise FixtureSeedAuditError(
                     f"fixture database table {name} contains unexpected state"
                 )
-        if set(_EXPECTED_NONZERO_TABLE_COUNTS) - set(table_names):
+        if set(expected_nonzero_table_counts) - set(table_names):
             raise FixtureSeedAuditError("fixture database schema is incomplete")
         return FixtureSeedAudit(
-            database_filename=KODI_VIDEO_DATABASE_FILENAME,
-            schema_version=KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+            database_filename=database_filename,
+            schema_version=schema_version,
             configured_paths=paths,
             table_counts=table_counts,
         )

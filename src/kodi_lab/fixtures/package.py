@@ -22,25 +22,41 @@ from kodi_lab.fixtures.seed_audit import (
     FIXTURE_LOCAL_SCRAPER,
     FIXTURE_MOVIE_DIRECTORY,
     FIXTURE_TV_DIRECTORY,
+    KODI_20_VIDEO_DATABASE_FILENAME,
+    KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
     KODI_VIDEO_DATABASE_FILENAME,
     KODI_VIDEO_DATABASE_SCHEMA_VERSION,
     FixtureSeedAudit,
     FixtureSeedAuditError,
     audit_small_mixed_v2_seed,
+    audit_small_mixed_v3_seed,
 )
 
 SMALL_MIXED_V1_FIXTURE_SLUG = "small-mixed-v1"
 SMALL_MIXED_V2_FIXTURE_SLUG = "small-mixed-v2"
+SMALL_MIXED_V3_FIXTURE_SLUG = "small-mixed-v3"
 # Kept as the original public name so existing v1 callers remain unchanged.
 SMALL_MIXED_FIXTURE_SLUG = SMALL_MIXED_V1_FIXTURE_SLUG
 TRUSTED_FIXTURE_SLUGS = frozenset(
-    {SMALL_MIXED_V1_FIXTURE_SLUG, SMALL_MIXED_V2_FIXTURE_SLUG}
+    {
+        SMALL_MIXED_V1_FIXTURE_SLUG,
+        SMALL_MIXED_V2_FIXTURE_SLUG,
+        SMALL_MIXED_V3_FIXTURE_SLUG,
+    }
 )
 FIXTURE_CONTAINER_DESTINATION = "/home/kodi/.kodi"
 FIXTURE_MEDIA_CONTAINER_PATH = "/home/kodi/.kodi/fixture-media"
 FIXTURE_SOURCES_CONTAINER_PATH = "/home/kodi/.kodi/userdata/sources.xml"
 FIXTURE_VIDEO_DATABASE_CONTAINER_PATH = (
     f"/home/kodi/.kodi/userdata/Database/{KODI_VIDEO_DATABASE_FILENAME}"
+)
+FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS = MappingProxyType(
+    {
+        SMALL_MIXED_V2_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
+        SMALL_MIXED_V3_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_20_VIDEO_DATABASE_FILENAME}"
+        ),
+    }
 )
 KODI_UID = 1000
 KODI_GID = 1000
@@ -60,7 +76,7 @@ _MANIFEST_KEYS = frozenset(
         "files",
     }
 )
-_V2_MANIFEST_KEYS = _MANIFEST_KEYS | {"video_database_seed"}
+_SEEDED_MANIFEST_KEYS = _MANIFEST_KEYS | {"video_database_seed"}
 _SEED_MANIFEST_KEYS = frozenset(
     {
         "database_filename",
@@ -152,7 +168,9 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
             "fixture manifest is unavailable or invalid"
         ) from error
     expected_keys = (
-        _V2_MANIFEST_KEYS if slug == SMALL_MIXED_V2_FIXTURE_SLUG else _MANIFEST_KEYS
+        _SEEDED_MANIFEST_KEYS
+        if slug in FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS
+        else _MANIFEST_KEYS
     )
     if not isinstance(raw, dict) or frozenset(raw) != expected_keys:
         raise PackagedFixtureError("fixture manifest schema is invalid")
@@ -191,7 +209,9 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
     except (TypeError, ValueError) as error:
         raise PackagedFixtureError("fixture definition metadata is invalid") from error
     seed_audit = (
-        _audit_seed(document, members) if slug == SMALL_MIXED_V2_FIXTURE_SLUG else None
+        _audit_seed(document, members, slug=slug)
+        if slug in FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS
+        else None
     )
     return PackagedFixture(
         definition=definition,
@@ -208,6 +228,7 @@ def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> N
     expected = {
         SMALL_MIXED_V1_FIXTURE_SLUG: (1, 1),
         SMALL_MIXED_V2_FIXTURE_SLUG: (2, 2),
+        SMALL_MIXED_V3_FIXTURE_SLUG: (3, 3),
     }.get(slug)
     if expected is None:
         raise PackagedFixtureError("fixture manifest identity is invalid")
@@ -242,15 +263,16 @@ def _load_member(root: Any, value: object, *, slug: str) -> PackagedFixtureFile:
     archive = PurePosixPath(*pure.parts[1:])
     if archive.is_absolute() or not archive.parts or ".." in archive.parts:
         raise PackagedFixtureError("fixture archive path is unsafe")
-    database_member = archive.parts == (
-        "userdata",
-        "Database",
-        KODI_VIDEO_DATABASE_FILENAME,
+    database_path = FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS.get(slug)
+    database_member = (
+        database_path is not None
+        and archive.as_posix()
+        == database_path.removeprefix(FIXTURE_CONTAINER_DESTINATION + "/")
     )
     if not (
         archive.parts[0] == "fixture-media"
         or archive.parts == ("userdata", "sources.xml")
-        or (slug == SMALL_MIXED_V2_FIXTURE_SLUG and database_member)
+        or database_member
     ):
         raise PackagedFixtureError("fixture archive path is outside fixed layout")
     try:
@@ -263,15 +285,33 @@ def _load_member(root: Any, value: object, *, slug: str) -> PackagedFixtureFile:
 
 
 def _audit_seed(
-    document: MappingProxyType[str, Any], members: tuple[PackagedFixtureFile, ...]
+    document: MappingProxyType[str, Any],
+    members: tuple[PackagedFixtureFile, ...],
+    *,
+    slug: str,
 ) -> FixtureSeedAudit:
     raw = document.get("video_database_seed")
     if not isinstance(raw, dict) or frozenset(raw) != _SEED_MANIFEST_KEYS:
         raise PackagedFixtureError("fixture database seed metadata is invalid")
-    expected_path = f"userdata/Database/{KODI_VIDEO_DATABASE_FILENAME}"
+    seed_contract = {
+        SMALL_MIXED_V2_FIXTURE_SLUG: (
+            KODI_VIDEO_DATABASE_FILENAME,
+            KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_mixed_v2_seed,
+        ),
+        SMALL_MIXED_V3_FIXTURE_SLUG: (
+            KODI_20_VIDEO_DATABASE_FILENAME,
+            KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_mixed_v3_seed,
+        ),
+    }.get(slug)
+    if seed_contract is None:
+        raise PackagedFixtureError("fixture database seed metadata is invalid")
+    database_filename, schema_version, audit = seed_contract
+    expected_path = f"userdata/Database/{database_filename}"
     expected = {
-        "database_filename": KODI_VIDEO_DATABASE_FILENAME,
-        "schema_version": KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+        "database_filename": database_filename,
+        "schema_version": schema_version,
         "container_relative_path": expected_path,
         "movie_path": FIXTURE_MOVIE_DIRECTORY,
         "movie_content": "movies",
@@ -285,7 +325,7 @@ def _audit_seed(
     if len(matches) != 1 or raw.get("sha256") != matches[0].sha256:
         raise PackagedFixtureError("fixture database seed digest is invalid")
     try:
-        return audit_small_mixed_v2_seed(matches[0].data)
+        return audit(matches[0].data)
     except FixtureSeedAuditError as error:
         raise PackagedFixtureError("fixture database seed audit failed") from error
 

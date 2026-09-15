@@ -12,9 +12,11 @@ from kodi_lab.fixtures.package import (
 from kodi_lab.fixtures.seed_audit import (
     FIXTURE_MOVIE_DIRECTORY,
     FIXTURE_TV_DIRECTORY,
+    KODI_20_VIDEO_DATABASE_FILENAME,
     KODI_VIDEO_DATABASE_FILENAME,
     FixtureSeedAuditError,
     audit_small_mixed_v2_seed,
+    audit_small_mixed_v3_seed,
 )
 
 
@@ -110,6 +112,61 @@ def test_small_mixed_v2_seed_is_exact_configuration_only_omega_database() -> Non
             assert count == 0, table
 
 
+def test_small_mixed_v3_is_nexus_specific_with_identical_semantic_assets() -> None:
+    v2 = load_packaged_fixture("small-mixed-v2")
+    v3 = load_packaged_fixture("small-mixed-v3")
+
+    assert str(v3.definition.id) == "1017f88f-105e-4baa-8719-4c721e864ab5"
+    assert v3.definition.id != v2.definition.id
+    assert v3.definition.slug == "small-mixed-v3"
+    assert v3.definition.fixture_version == 3
+    assert v3.definition.content_digest == (
+        "sha256:08810a62f9c6679f9476a72cf00bbf7db40de455d71f8e7b6f146d178b5e16bc"
+    )
+    assert v3.definition.compatible_kodi_version == "20.5"
+    v2_files = {member.archive_path: member.data for member in v2.members}
+    v3_files = {member.archive_path: member.data for member in v3.members}
+    assert set(v2_files) ^ set(v3_files) == {
+        "userdata/Database/MyVideos121.db",
+        "userdata/Database/MyVideos131.db",
+    }
+    shared = set(v2_files) & set(v3_files)
+    assert all(v2_files[path] == v3_files[path] for path in shared)
+
+
+def test_small_mixed_v3_seed_is_exact_configuration_only_nexus_database() -> None:
+    fixture = load_packaged_fixture("small-mixed-v3")
+    seed = next(
+        member
+        for member in fixture.members
+        if member.archive_path == f"userdata/Database/{KODI_20_VIDEO_DATABASE_FILENAME}"
+    )
+
+    assert seed.sha256 == (
+        "bdcf6cb816751db076636bdd426ab4d0babdb32a44d2fe2552f59a2ac034335f"
+    )
+    audit = audit_small_mixed_v3_seed(seed.data)
+    assert fixture.seed_audit == audit
+    assert audit.database_filename == "MyVideos121.db"
+    assert audit.schema_version == 121
+    assert audit.configured_paths[0][1:4] == (
+        FIXTURE_MOVIE_DIRECTORY,
+        "movies",
+        "metadata.local",
+    )
+    assert audit.configured_paths[1][1:4] == (
+        FIXTURE_TV_DIRECTORY,
+        "tvshows",
+        "metadata.local",
+    )
+    counts = dict(audit.table_counts)
+    assert counts["path"] == 2
+    assert counts["version"] == 1
+    for table, count in counts.items():
+        if table not in {"path", "version"}:
+            assert count == 0, table
+
+
 def test_seed_audit_rejects_corrupt_or_mutated_database() -> None:
     fixture = load_packaged_fixture("small-mixed-v2")
     seed = next(
@@ -121,7 +178,7 @@ def test_seed_audit_rejects_corrupt_or_mutated_database() -> None:
         audit_small_mixed_v2_seed(bytes(corrupted))
 
 
-@pytest.mark.parametrize("slug", ["small-mixed-v1", "small-mixed-v2"])
+@pytest.mark.parametrize("slug", ["small-mixed-v1", "small-mixed-v2", "small-mixed-v3"])
 def test_fixture_archive_is_deterministic_bounded_and_traversal_free(
     slug: str,
 ) -> None:

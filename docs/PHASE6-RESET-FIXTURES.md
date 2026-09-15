@@ -279,3 +279,43 @@ Stale acknowledgement remains read-only: clearing durable intervention state
 needs an explicit audit/evidence contract. There is no destructive auto-resume
 or generic Docker repair. The surface remains localhost-only through the
 existing root broker boundary.
+
+## Step 4 exact-release portability on Kodi 20.5
+
+`small-mixed-v3` is a new immutable Small/Mixed version compatible only with
+exact Kodi 20.5 stable. v1 and v2 remain byte-for-byte unchanged. v3 reuses the
+same repository-owned movie, one-episode series, NFO metadata, artwork,
+`sources.xml`, fixed paths, stable synthetic IDs, movie-then-TV scan sequence,
+semantic verification, and bounded movie-removal validation method as v2.
+
+The only payload difference from v2 is the exact-release configuration seed:
+
+- slug: `small-mixed-v3`
+- UUID: `1017f88f-105e-4baa-8719-4c721e864ab5`
+- compatibility: exact Kodi 20.5 stable only
+- database: `MyVideos121.db`, schema version 121
+- database SHA-256:
+  `bdcf6cb816751db076636bdd426ab4d0babdb32a44d2fe2552f59a2ac034335f`
+- content digest:
+  `sha256:08810a62f9c6679f9476a72cf00bbf7db40de455d71f8e7b6f146d178b5e16bc`
+
+The fresh schema originated from the exact validated Kodi 20.5 image
+`sha256:be35d7cb8899dfe474c6a1eca62da99c4ada1280f4325933d7b6193e83537638`.
+Kodi initializes its video database lazily, so the isolated development-time
+generation container used an internal-only network and one fixed read-only
+`VideoLibrary.GetMovies` call before clean stop. The captured fresh database
+had SQLite integrity `ok`, version `(121, 0)`, and zero rows outside `version`.
+
+The argument-free `scripts/materialize-small-mixed-v3-seed.py` helper copies
+that fixed fresh database and inserts only the same two path rows documented for
+v2. The v3 audit requires those exact rows and zero rows in every other Nexus
+table. No runtime SQL, broker SQL, generic database editor, caller path, or
+network metadata dependency is introduced.
+
+**Fixture semantic content may be shared, but Kodi database seed material is
+exact-release/schema-specific.** The broker still accepts only ManagedInstance
+UUID and expected container ID; the fixed database path is package-derived.
+The reset service still provisions its unchanged pin, applies the assigned
+fixture, starts, waits, scans, verifies, and stops. Only the fixed unprivileged
+adapter's proven release allowlist expands from Kodi 21.3 to Kodi 20.5; its
+method and parameter surface is unchanged.

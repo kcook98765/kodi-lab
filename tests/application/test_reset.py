@@ -104,10 +104,13 @@ def seed_reset_context(
     instance_type: InstanceType = InstanceType.DISPOSABLE,
     assigned_fixture: bool = False,
     fixture_slug: str = "small-mixed-v1",
+    kodi_version: str = "21.3",
 ) -> tuple[UUID, UUID, UUID | None]:
     instance_id = uuid4()
     definition = RuntimeDefinition(
-        uuid4(), f"kodi-reset-21-3-{instance_id.hex}", "21.3"
+        uuid4(),
+        f"kodi-reset-{kodi_version.replace('.', '-')}-{instance_id.hex}",
+        kodi_version,
     )
     revision = RuntimeRevision(
         id=uuid4(),
@@ -130,7 +133,7 @@ def seed_reset_context(
                 id=instance_id,
                 name="Reset target",
                 target_type=TargetType.MANAGED,
-                kodi_version="21.3",
+                kodi_version=kodi_version,
                 availability=TargetAvailability.UNAVAILABLE,
                 health=HealthStatus.WARNING,
                 connection_state=ConnectionState.DISCONNECTED,
@@ -146,7 +149,7 @@ def seed_reset_context(
                 runtime_revision_id=revision.id,
                 runtime_kind=RuntimeKind.KODI,
                 expected_application_name="Kodi",
-                expected_kodi_version="21.3",
+                expected_kodi_version=kodi_version,
                 expected_version_tag="stable",
                 jsonrpc_port=8080,
                 jsonrpc_path="/jsonrpc",
@@ -193,7 +196,7 @@ def seed_reset_context(
                 runtime_revision_id=newer.id,
                 runtime_kind=RuntimeKind.KODI,
                 expected_application_name="Kodi",
-                expected_kodi_version="21.3",
+                expected_kodi_version=kodi_version,
                 expected_version_tag="stable",
                 jsonrpc_port=8080,
                 jsonrpc_path="/jsonrpc",
@@ -331,9 +334,10 @@ class FakeBroker:
             runtime_revision_id=self.revision_id,
             container_id=self.container_id,
             fixture_slug=cast(
-                Literal["small-mixed-v1", "small-mixed-v2"], fixture.slug
+                Literal["small-mixed-v1", "small-mixed-v2", "small-mixed-v3"],
+                fixture.slug,
             ),
-            fixture_version=cast(Literal[1, 2], fixture.fixture_version),
+            fixture_version=cast(Literal[1, 2, 3], fixture.fixture_version),
             content_digest=fixture.content_digest,
             runtime_state=ContainerRuntimeState.STOPPED,
         )
@@ -469,6 +473,34 @@ def test_v2_reset_retains_exact_revision_and_database_seed_assignment(
     assert result.runtime_revision_id == revision_id
     assert result.fixture_slug == "small-mixed-v2"
     assert result.fixture_version == 2
+    with session_factory() as session:
+        retained = ManagedInstanceRepository(session).get(instance_id)
+        assert retained is not None
+        assert retained.runtime_revision_id == revision_id
+        assert retained.fixture_definition_id == fixture_id
+
+
+def test_v3_reset_uses_same_flow_and_retains_exact_nexus_revision(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, fixture_id = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-mixed-v3",
+        kodi_version="20.5",
+    )
+    broker = FakeBroker(
+        instance_id,
+        revision_id,
+        fixture_slug="small-mixed-v3",
+    )
+
+    result = service(session_factory, broker).reset(instance_id)
+
+    assert result.runtime_revision_id == revision_id
+    assert result.fixture_slug == "small-mixed-v3"
+    assert result.fixture_version == 3
+    assert broker.calls.index("apply_fixture") < broker.calls.index("start")
     with session_factory() as session:
         retained = ManagedInstanceRepository(session).get(instance_id)
         assert retained is not None

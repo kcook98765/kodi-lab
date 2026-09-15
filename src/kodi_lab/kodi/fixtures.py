@@ -79,8 +79,10 @@ class SmallMixedFixtureKodiAdapter:
             raise ValueError("observation and execution profile revisions differ")
         if observation.jsonrpc_port != profile.jsonrpc_port:
             raise ValueError("observation and execution profile ports differ")
-        if profile.kodi_release.canonical != "21.3":
-            raise ValueError("small-mixed-v1 supports only Kodi 21.3")
+        if profile.kodi_release.canonical not in {"20.5", "21.3"}:
+            raise ValueError(
+                "small-mixed fixture adapter supports only proven releases"
+            )
         self._host = observation.ipv4_address
         self._port = profile.jsonrpc_port
         self._path = profile.jsonrpc_path

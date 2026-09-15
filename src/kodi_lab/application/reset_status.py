@@ -308,6 +308,9 @@ class ResetStatusService:
             "small-mixed-v2": (
                 "Populated Kodi 21.3 reset baseline proven for this fixture version."
             ),
+            "small-mixed-v3": (
+                "Kodi 20.5-specific populated reset baseline fixture version."
+            ),
         }.get(fixture.slug)
         return FixtureResetStatus(
             assignment=FixtureAssignmentState.ASSIGNED,

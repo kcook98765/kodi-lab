@@ -239,3 +239,15 @@ mutation.
 The next coherent Phase 6 milestone should validate and materialize a distinct
 immutable Small/Mixed fixture version for Kodi 20.5 using its exact generated
 video-database schema, without changing v1/v2 or broadening selection authority.
+
+Phase 6 Step 4 adds immutable `small-mixed-v3` for exact Kodi 20.5. Its media,
+NFO, artwork, source configuration, scan sequence, and 1/1/1 semantic baseline
+are identical to v2, while its exact-image-generated `MyVideos121.db` seed and
+purity audit are Nexus-specific. Exact fixture compatibility prevents v2/v3
+cross-assignment. The same reset, broker, adapter, durable operation, and Web
+request paths are reused without runtime selection or added authority.
+
+The next coherent Phase 6 milestone should test the same fixed Small/Mixed
+contract on Kodi 19.5 Legacy with a new exact-schema fixture version. This
+extends stable-release portability before spending fixture-version effort on a
+moving Preview runtime or broadening the fixture taxonomy.

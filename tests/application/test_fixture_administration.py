@@ -193,6 +193,30 @@ def test_v2_assignment_rejects_non_omega_runtime(
         service.assign(managed_instance_id=target.id, fixture_definition_id=v2.id)
 
 
+def test_v2_v3_exact_cross_version_assignment_matrix(
+    session_factory: sessionmaker[Session],
+) -> None:
+    nexus, _definition, nexus_revision = seed_instance(
+        session_factory, kodi_version="20.5"
+    )
+    service = FixtureAdministrationService(session_factory)
+    v2 = service.register_packaged_fixture("small-mixed-v2")
+    v3 = service.register_packaged_fixture("small-mixed-v3")
+
+    assigned = service.assign(managed_instance_id=nexus.id, fixture_definition_id=v3.id)
+    assert assigned.fixture_definition_id == v3.id
+    assert assigned.runtime_revision_id == nexus_revision.id
+    with pytest.raises(FixtureIncompatibleError):
+        service.assign(managed_instance_id=nexus.id, fixture_definition_id=v2.id)
+
+    omega, _definition, omega_revision = seed_instance(session_factory)
+    assigned = service.assign(managed_instance_id=omega.id, fixture_definition_id=v2.id)
+    assert assigned.fixture_definition_id == v2.id
+    assert assigned.runtime_revision_id == omega_revision.id
+    with pytest.raises(FixtureIncompatibleError):
+        service.assign(managed_instance_id=omega.id, fixture_definition_id=v3.id)
+
+
 def test_assignment_rejects_persistent_and_incompatible_instances(
     session_factory: sessionmaker[Session],
 ) -> None:

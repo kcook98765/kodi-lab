@@ -22,12 +22,12 @@ from kodi_lab.kodi.readiness import JsonRpcInvalidResponseError
 REVISION_ID = UUID("00000000-0000-4000-8000-000000000002")
 
 
-def profile() -> RuntimeExecutionProfile:
+def profile(kodi_version: str = "21.3") -> RuntimeExecutionProfile:
     return RuntimeExecutionProfile(
         runtime_revision_id=REVISION_ID,
         runtime_kind=RuntimeKind.KODI,
         expected_application_name="Kodi",
-        expected_kodi_version="21.3",
+        expected_kodi_version=kodi_version,
         expected_version_tag="stable",
         jsonrpc_port=8080,
         jsonrpc_path="/jsonrpc",
@@ -167,6 +167,19 @@ def test_fixed_scan_and_exact_semantic_fixture_success() -> None:
             "showdialogs": False,
         },
     }
+
+
+def test_same_fixed_semantic_adapter_supports_nexus_and_rejects_unproven_release() -> (
+    None
+):
+    nexus = SmallMixedFixtureKodiAdapter(
+        observation(), profile("20.5"), transport=FakeTransport()
+    )
+    assert nexus.get_fixture_library_state().is_baseline
+    with pytest.raises(ValueError, match="only proven releases"):
+        SmallMixedFixtureKodiAdapter(
+            observation(), profile("19.5"), transport=FakeTransport()
+        )
 
 
 def test_wrong_fixture_media_path_is_not_semantic_success() -> None:

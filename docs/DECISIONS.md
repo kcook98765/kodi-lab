@@ -936,3 +936,18 @@ details that it did not specify.
   active reset. Web still reaches Docker only through the broker client. Stale
   acknowledgement remains read-only until its audit/evidence semantics are
   defined; there is no auto-resume or generic repair control.
+
+## D-0077: Shared fixture semantics use exact-release Kodi database seeds
+
+- Status: approved for Phase 6 Step 4
+- Decision: repository-owned media, NFO metadata, artwork, fixed source paths,
+  scan sequencing, and semantic verification may be byte-identical across
+  proven Kodi releases. The configuration-only video database seed may not be
+  shared across releases: each immutable fixture version pins the exact
+  Kodi-created database filename, schema, seed hash, and compatible release.
+- Kodi 20.5 result: `small-mixed-v3` uses `MyVideos121.db` created by the exact
+  validated Kodi 20.5 image. Its development-only fixed materializer adds the
+  same two `metadata.local` path/content rows as v2; the schema-aware audit
+  requires every other Nexus table to remain empty. The existing broker
+  operation, reset service, scanner methods, durable reset coordination, and
+  Web authority remain unchanged.
