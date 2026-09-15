@@ -42,12 +42,11 @@ atomic create/reassign service. It owns runtime selection, approval and Trusted
 Custom Build policy, Kodi-version compatibility, transaction rollback, and typed
 application errors. Outer interfaces and runtime control remain unimplemented.
 
-The runtime-catalog administration slice completes Phase 1 application
+The runtime-catalog administration slice completed Phase 1 application
 orchestration for create-only definition/finalized-revision registration and
 explicit approval/trust lifecycle changes. Registration, lifecycle mutation,
-managed-instance selection, and error translation now share consistent atomic
-service boundaries. Phase 1 is ready for closeout validation; Phase 2 remains
-ready to begin.
+managed-instance selection, and error translation share consistent atomic
+service boundaries. Phase 1 is complete.
 
 Phase 2 foundation now establishes the restricted local broker boundary:
 versioned bounded JSON framing over a protected Unix socket, kernel peer
@@ -82,11 +81,35 @@ objects. The required managed network is a separately created prerequisite;
 persistent storage, real-lab validation, readiness, and deployment remain later
 milestones.
 
-Controlled real-Docker validation has exercised provision, inventory, start,
-stop, and idempotent stop through the actual peer-authorized broker while leaving
-one stopped disposable fixture. The next Phase 2 slice adds only
-`deprovision_managed_container`: trusted persisted-revision resolution,
-label-based exactly-one discovery, immutable ID/revision and stopped-state
-preconditions, normal non-volume container removal, and dual absence
-postconditions. It removes no database/catalog state, image, network, volume, or
-legacy resource, and exposes no generic Docker removal primitive.
+The final destructive slice adds only `deprovision_managed_container`: trusted
+persisted-revision resolution, label-based exactly-one discovery, immutable
+ID/revision and stopped-state preconditions, normal non-volume container removal,
+and dual absence postconditions. It removes no database/catalog state, image,
+network, volume, or legacy resource, and exposes no generic Docker removal
+primitive.
+
+Phase 2 is complete. Fake/security tests cover the protocol, authorization,
+socket safety, Docker filtering and normalization, two-state reconciliation,
+provisioning drift/rollback, and proof-gated deprovision. Controlled development host
+validation additionally exercised peer authorization and the complete real
+Docker sequence: provision, stopped inventory, start, running inventory, stop,
+stopped inventory, idempotent stop, deprovision, and verified absence. The
+unprivileged client could not access the Docker socket, and protected legacy
+containers, networks, broker, and socket remained unchanged. The retained
+validation state is an unprovisioned disposable ManagedInstance plus the empty
+owned `kodi-lab-managed-v1` prerequisite network.
+
+The Phase 2 code closeout does not install production services or assign network
+lifecycle ownership. The collision between the intended
+`kodi-lab-broker.service` name and the protected legacy service remains a
+production-deployment blocker. Persistent-instance storage is also deliberately
+deferred; the completed creation contract is disposable-only.
+
+Phase 3 is the canonical **Single Kodi runtime end-to-end** phase. Its first
+coherent milestone should materialize and register one immutable real Kodi
+runtime artifact, use the existing broker contracts and managed network to
+provision and start one disposable instance, and add bounded Kodi process and
+JSON-RPC readiness observation. It must not treat the prior nginx infrastructure
+fixture as a validated Kodi runtime. Production service naming, persistent
+storage, and general managed-network cleanup may remain separate until their
+respective deployment or lifecycle milestones.

@@ -137,3 +137,22 @@ and absence of any remaining owned container for the instance. It does not delet
 application/catalog state, images, networks, or storage. Non-identity Docker
 configuration drift is deliberately not an ownership substitute or a permanent
 barrier to removing an otherwise exactly identified stopped container.
+
+## Phase 2 closeout boundary
+
+Phase 2 is complete at the repository and controlled-host-validation levels.
+The implemented broker surface is limited to health/capability metadata,
+managed inventory, disposable create-only provisioning, two-state start/stop
+reconciliation, and stopped-only deprovision. Controlled development host validation used
+the real Unix-socket authorization and Docker adapter paths for the full
+provision/inventory/start/stop/idempotency/deprovision sequence and confirmed
+legacy isolation. It left the canonical managed network and an unprovisioned
+validation-state record, but no managed validation container.
+
+This closeout does not make the broker a general runtime orchestrator. No
+component currently owns managed-network creation/removal as a product API;
+provisioning only validates the prerequisite network. Persistent-instance
+storage, production service installation/naming, and Kodi process/JSON-RPC
+readiness remain outside the Phase 2 boundary. Phase 3 consumes the immutable
+runtime artifact, managed-instance pin, typed broker client, ownership labels,
+and semantic lifecycle operations to establish one real Kodi runtime end to end.

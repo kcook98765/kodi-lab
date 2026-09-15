@@ -358,3 +358,25 @@ Raw Docker/storage exceptions remain internal. Audit records include only the
 managed-instance UUID, runtime-revision UUID, removed boolean, and normal bounded
 request/peer/outcome fields; they exclude container IDs, labels, inspect data,
 database rows, and exception representations.
+
+## Phase 2 closeout evidence and deferred work
+
+The security boundary has both fake/security-test coverage and controlled live
+development host evidence. The live path ran an ephemeral privileged broker with an
+authorized unprivileged peer over a non-production Unix socket. The peer was
+denied direct Docker-socket access. Through the typed client, the broker
+provisioned one disposable stopped container from trusted SQLite state,
+inventoried it, started it, observed it running, stopped it, observed idempotent
+stopped convergence, and proof-gated its deprovision. Independent Docker checks
+confirmed immutable identity, required labels, isolated managed network, and the
+absence of ports, mounts, caller command/environment, or elevated privilege.
+Post-deprovision checks found no owned validation container, while canonical
+database state and the empty managed network remained.
+
+Protected legacy containers, networks, broker process, and socket retained their
+identities and state throughout validation. The repository does not create or
+remove the managed network; product ownership of that lifecycle is deferred.
+The intended production unit name still collides with the protected legacy
+`kodi-lab-broker.service`, so production deployment remains blocked pending a
+separate naming/migration decision. Neither that deployment concern nor deferred
+persistent-instance storage weakens the completed disposable broker boundary.
