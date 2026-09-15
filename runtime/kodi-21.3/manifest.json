@@ -11,7 +11,7 @@
   ],
   "kodi_package_version": "2:21.3+dfsg-1ubuntu1",
   "repository_file_hashes": {
-    "Dockerfile": "sha256:4041cc98e098967581c1d2ce13631c82cb52f651bb92fab601e4d55fd8a4de9a",
+    "Dockerfile": "sha256:5be5ab3585d958ea7140234d8d9d5c50dbf540b278f29b13bb8d5757ec28cf6c",
     "entrypoint.sh": "sha256:8a4069f07d0066c12b8b01b37553eb81e9eb925008df22850b8efac840d62b7a",
     "healthcheck.sh": "sha256:b1230cb9a455d29021e60ae9fafd081b95cc003bbc2014d5d0fd198131a8cd1b",
     "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8"
@@ -24,9 +24,9 @@
     "no_cache": false
   },
   "result": {
-    "built_at": "2026-09-14T19:50:46.025142099-07:00",
-    "image_id": "sha256:1ac4521ef5f0f86eb497106c7fd3bdaff11ac989b34e803c3d105e5a24ff6247",
-    "build_log_reference": "<validation-state>/artifacts/kodi-21.3-build.log",
-    "build_log_digest": "sha256:4ca2818d6c943547f1d3b082a2ea223b8e5c61f815f97ef7175d1ff9ce6db2de"
+    "built_at": "2026-09-14T20:05:35.621574492-07:00",
+    "image_id": "sha256:70e0166fd79ea731c3f81056c2f0516f8fe5c9c8ec729b0c0f1c3e6bac66f254",
+    "build_log_reference": "evidence/build-logs/kodi-21.3-build-fix1.log",
+    "build_log_digest": "sha256:aff2d5a3d64652289d1b8b1bf9f9d308fb20f5b30f8a77edf9e0cac086ee92a8"
   }
 }

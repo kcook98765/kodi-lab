@@ -24,7 +24,10 @@ RUN apt-get update \
 RUN usermod --login kodi --home /home/kodi --move-home --shell /bin/sh ubuntu \
     && groupmod --new-name kodi ubuntu \
     && usermod --groups kodi kodi \
-    && install -d -o kodi -g kodi /home/kodi/.kodi/userdata /run/kodi \
+    && install -d -o kodi -g kodi \
+        /home/kodi/.kodi \
+        /home/kodi/.kodi/userdata \
+        /run/kodi \
     && install -d -m 1777 -o root -g root /tmp/.X11-unix
 
 COPY --chown=kodi:kodi entrypoint.sh /usr/local/bin/kodi-lab-entrypoint

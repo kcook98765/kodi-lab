@@ -11,6 +11,9 @@ def test_dockerfile_is_pinned_nonroot_and_has_fixed_healthcheck() -> None:
     ) in dockerfile
     assert "2:21.3+dfsg-1ubuntu1" in dockerfile
     assert "USER kodi" in dockerfile
+    assert any(
+        line.strip() == "/home/kodi/.kodi \\" for line in dockerfile.splitlines()
+    )
     assert 'ENTRYPOINT ["/usr/local/bin/kodi-lab-entrypoint"]' in dockerfile
     assert 'CMD ["/usr/local/bin/kodi-lab-kodi-healthcheck"]' in dockerfile
     assert "VOLUME" not in dockerfile
