@@ -1,0 +1,1 @@
+"""Narrow Kodi application adapters."""

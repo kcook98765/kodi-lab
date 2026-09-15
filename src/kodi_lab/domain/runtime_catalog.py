@@ -18,6 +18,24 @@ class RevisionApprovalState(StrEnum):
     APPROVED = "approved"
 
 
+class RuntimeKind(StrEnum):
+    """Execution kinds understood by trusted runtime adapters."""
+
+    KODI = "kodi"
+
+
+class ProcessObservationKind(StrEnum):
+    """Bounded process observation mechanisms."""
+
+    DOCKER_HEALTHCHECK = "docker_healthcheck"
+
+
+class ReadinessProbeKind(StrEnum):
+    """Bounded application readiness probe families."""
+
+    KODI_JSONRPC = "kodi_jsonrpc"
+
+
 def _require_nonblank(value: str, field_name: str) -> None:
     if not value.strip():
         raise ValueError(f"{field_name} must not be blank")
@@ -169,3 +187,47 @@ class RuntimeContainerArtifact:
         normalized = normalize_sha256_digest(self.image_id, "image_id")
         if normalized != self.image_id:
             raise ValueError("image_id must use canonical sha256 lowercase form")
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeExecutionProfile:
+    """Immutable trusted execution semantics for one finalized revision."""
+
+    runtime_revision_id: UUID
+    runtime_kind: RuntimeKind
+    expected_application_name: str
+    expected_kodi_version: str
+    expected_version_tag: str
+    jsonrpc_port: int
+    jsonrpc_path: str
+    process_observation: ProcessObservationKind
+    readiness_probe: ReadinessProbeKind
+    readiness_timeout_seconds: int
+    poll_interval_seconds: float
+    http_timeout_seconds: float
+
+    def __post_init__(self) -> None:
+        if self.runtime_kind is not RuntimeKind.KODI:
+            raise ValueError("runtime_kind is not supported")
+        if self.expected_application_name != "Kodi":
+            raise ValueError("expected_application_name must be Kodi")
+        if re.fullmatch(r"[1-9][0-9]*\.[0-9]+", self.expected_kodi_version) is None:
+            raise ValueError("expected_kodi_version must be canonical major.minor")
+        if self.expected_kodi_version != "21.3":
+            raise ValueError("expected_kodi_version must be 21.3 for this milestone")
+        if self.expected_version_tag != "stable":
+            raise ValueError("expected_version_tag must be stable")
+        if self.jsonrpc_port != 8080:
+            raise ValueError("jsonrpc_port must be the trusted Kodi port 8080")
+        if self.jsonrpc_path != "/jsonrpc":
+            raise ValueError("jsonrpc_path must be /jsonrpc")
+        if self.process_observation is not ProcessObservationKind.DOCKER_HEALTHCHECK:
+            raise ValueError("process_observation is not supported")
+        if self.readiness_probe is not ReadinessProbeKind.KODI_JSONRPC:
+            raise ValueError("readiness_probe is not supported")
+        if self.readiness_timeout_seconds != 90:
+            raise ValueError("readiness_timeout_seconds must be 90")
+        if self.poll_interval_seconds != 1.0:
+            raise ValueError("poll_interval_seconds must be 1")
+        if not 0.1 <= self.http_timeout_seconds <= 5.0:
+            raise ValueError("http_timeout_seconds must be between 0.1 and 5")

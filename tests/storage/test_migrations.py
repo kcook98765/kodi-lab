@@ -36,6 +36,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "managed_instances",
         "runtime_definitions",
         "runtime_container_artifacts",
+        "runtime_execution_profiles",
         "runtime_revisions",
         "targets",
     }
@@ -53,6 +54,9 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     artifact_foreign_key = inspector.get_foreign_keys("runtime_container_artifacts")[0]
     assert artifact_foreign_key["referred_table"] == "runtime_revisions"
     assert artifact_foreign_key["options"] == {"ondelete": "RESTRICT"}
+    profile_foreign_key = inspector.get_foreign_keys("runtime_execution_profiles")[0]
+    assert profile_foreign_key["referred_table"] == "runtime_revisions"
+    assert profile_foreign_key["options"] == {"ondelete": "RESTRICT"}
     unique_constraints = {
         constraint["name"]: constraint["column_names"]
         for constraint in inspector.get_unique_constraints("runtime_revisions")
@@ -102,6 +106,26 @@ def test_explicit_0002_upgrades_to_artifact_head(
     engine = create_database_engine(database_url)
     assert "runtime_container_artifacts" in inspect(engine).get_table_names()
     engine.dispose()
+    command.check(config)
+
+
+def test_prior_head_upgrades_to_execution_profile_head(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0003_runtime_container_artifacts")
+    engine = create_database_engine(database_url)
+    assert "runtime_execution_profiles" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    assert "runtime_execution_profiles" in inspect(engine).get_table_names()
+    engine.dispose()
+    command.check(config)
+
+    command.downgrade(config, "0003_runtime_container_artifacts")
+    command.upgrade(config, "head")
     command.check(config)
 
 

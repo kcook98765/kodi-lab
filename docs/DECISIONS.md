@@ -486,3 +486,80 @@ details that it did not specify.
   immediate exact-ID removal, and two absence checks reject observed-A/replaced-B
   deletion and false success. They cannot eliminate changes by another privileged
   Docker or database actor between checks; Phase 2 adds no lock or lease.
+
+## D-0046: First Kodi runtime artifact
+
+- Status: approved for Phase 3
+- Decision: the first runtime is Kodi 21.3 Omega stable, built as a dedicated
+  repository-owned image from digest-pinned Ubuntu 26.04 and the exact official
+  Ubuntu package `2:21.3+dfsg-1ubuntu1`. The declarative build manifest records
+  the base digest, package sources/version, repository input hashes, build
+  parameters and timestamp, immutable result image ID, and build-log digest.
+  Image build/pull remains a controlled development workflow and is not a broker
+  operation. Upstream repository metadata prevents a claim of bit-for-bit rebuild
+  reproducibility even though declared inputs and the result identity are fixed.
+- Runtime layout: Kodi runs as user `kodi` on internal Xvfb display `:99` with
+  software rendering and a small fixed entrypoint using `dbus-run-session`.
+  A minimal seeded profile enables unauthenticated JSON-RPC HTTP only on internal
+  port 8080. The image declares no volume or exposed port and has no VNC, noVNC,
+  host display, GPU/device, capability, or legacy-profile dependency.
+
+## D-0047: Immutable trusted runtime execution profile
+
+- Status: approved for Phase 3
+- Decision: migration `0004_runtime_execution_profiles` adds one immutable,
+  restrictive one-to-one `RuntimeExecutionProfile` per finalized revision.
+  For this milestone it fixes runtime kind Kodi, application `Kodi`, version
+  `21.3` tag `stable`, JSON-RPC port 8080/path `/jsonrpc`, Docker-health process
+  observation, fixed Kodi JSON-RPC probes, total timeout 90 seconds, poll cadence
+  one second, and per-request timeout three seconds. Registration is create-only;
+  every second registration conflicts, and no update/delete API exists.
+- Boundary: no command, environment, mount, host port, network, Docker option,
+  JSON-RPC method, or arbitrary endpoint is represented by this profile or
+  supplied by provisioning callers. Material behavior changes require a new
+  revision and profile.
+
+## D-0048: Process and endpoint observation
+
+- Status: approved for Phase 3
+- Decision: the image healthcheck is a fixed repository-owned `pgrep` check for
+  `kodi.bin`; it observes only the expected Kodi process and does not probe the
+  network. A new semantic broker operation accepts only canonical managed-instance
+  UUID and previously observed immutable container ID. Trusted persisted state
+  supplies the revision and profile. Fixed-label discovery and fresh inspect must
+  prove ownership, revision, running state, required health data, exact sole
+  attachment to `kodi-lab-managed-v1`, and one canonical IPv4 address in
+  `10.250.0.0/24`.
+- Result: the broker returns only instance/revision/container identities,
+  normalized container and Kodi-process states, managed IPv4 address, and the
+  profile-owned port 8080. The request has no network or port input and raw Docker
+  inspect/network dictionaries do not cross the boundary. The broker performs no
+  exec and no application-layer HTTP.
+
+## D-0049: Unprivileged fixed Kodi readiness
+
+- Status: approved for Phase 3
+- Decision: unprivileged code uses the trusted broker observation to perform only
+  `JSONRPC.Ping` and `Application.GetProperties` for `name` and `version`.
+  Requests use fixed `/jsonrpc`, validated JSON-RPC envelopes and IDs, a 64 KiB
+  response bound, no redirect handling, and a three-second connection/read
+  timeout. There is no public generic JSON-RPC call or endpoint-selection API.
+- Readiness: container state, Kodi process health, JSON-RPC state, and usability
+  remain separate. Usable requires running container, healthy process, valid
+  pong, application name `Kodi`, and exact 21.3 stable identity. Polling uses one
+  total 90-second monotonic deadline at one-second cadence. Terminal protocol or
+  identity failures return immediately; retryable absence/unavailability retains
+  its most specific last failure beneath `readiness_timeout`.
+
+## D-0050: Phase 3 validation isolation and shutdown
+
+- Status: approved for Phase 3
+- Decision: live validation uses distinct state under
+  `<validation-state>`, an ephemeral broker socket under
+  `/run/kodi-lab-phase3-validation`, and the existing managed network. It does not
+  reuse the retained Phase 2 nginx database or install production services.
+  Exactly one disposable managed runtime may be provisioned and started.
+- Shutdown continues to use the Phase 2 `stop_managed_container` contract with
+  its fixed 10-second Docker stop timeout. The entrypoint propagates termination
+  to Kodi and adds no kill/restart fallback. Protected legacy containers,
+  networks, profile data, broker, and service remain outside this workflow.

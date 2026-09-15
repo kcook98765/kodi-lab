@@ -20,7 +20,10 @@ from kodi_lab.domain import (
     HealthStatus,
     InstanceRuntimeState,
     InstanceType,
+    ProcessObservationKind,
+    ReadinessProbeKind,
     RevisionApprovalState,
+    RuntimeKind,
     TargetAvailability,
     TargetType,
 )
@@ -269,3 +272,35 @@ class RuntimeContainerArtifactRow(Base):
         primary_key=True,
     )
     image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+
+
+class RuntimeExecutionProfileRow(Base):
+    """Immutable trusted execution profile for one finalized revision."""
+
+    __tablename__ = "runtime_execution_profiles"
+
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    runtime_kind: Mapped[RuntimeKind] = mapped_column(
+        Enum(RuntimeKind, values_callable=_enum_values, native_enum=False),
+        nullable=False,
+    )
+    expected_application_name: Mapped[str] = mapped_column(String(32), nullable=False)
+    expected_kodi_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    expected_version_tag: Mapped[str] = mapped_column(String(16), nullable=False)
+    jsonrpc_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    jsonrpc_path: Mapped[str] = mapped_column(String(64), nullable=False)
+    process_observation: Mapped[ProcessObservationKind] = mapped_column(
+        Enum(ProcessObservationKind, values_callable=_enum_values, native_enum=False),
+        nullable=False,
+    )
+    readiness_probe: Mapped[ReadinessProbeKind] = mapped_column(
+        Enum(ReadinessProbeKind, values_callable=_enum_values, native_enum=False),
+        nullable=False,
+    )
+    readiness_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    poll_interval_seconds: Mapped[float] = mapped_column(nullable=False)
+    http_timeout_seconds: Mapped[float] = mapped_column(nullable=False)

@@ -122,13 +122,17 @@ Phase 2 contains exactly:
 - `deprovision_managed_container`: strict managed-instance, immutable container-ID,
   pinned runtime-revision, and stopped-state preconditions; removes only the
   verified container and returns a minimal verified-removal result.
+- `observe_managed_kodi_runtime`: strict managed-instance UUID and immutable
+  container-ID precondition; trusted persisted state fixes revision, process
+  health semantics, managed network, and port, and the result contains only
+  normalized process state plus one canonical managed endpoint.
 
 All require the authorized UID. There is no anonymous operation and no generic
 execution, raw Docker, shell, raw payload, file, path, environment, caller-driven
 inspection, generic create/remove/restart/kill/exec, or generic lifecycle
 operation.
 
-The unprivileged `BrokerClient` exposes explicit methods with those eight names.
+The unprivileged `BrokerClient` exposes explicit methods with those nine names.
 Its shared call implementation is private. It generates canonical UUIDs,
 validates outgoing envelopes, uses the bounded framing/timeouts, requires response
 version and correlation-ID consistency, validates operation-specific results, and
@@ -175,6 +179,32 @@ label-mutation, target/mutation, or raw passthrough method. Its only public
 mutations are semantic provision/start/stop/deprovision methods; provision alone
 may perform proof-gated rollback removal of the exact container it just created.
 Inventory observations are not persisted in SQLite.
+
+## Fixed Kodi process and endpoint observation
+
+`observe_managed_kodi_runtime` is the only broker addition for Phase 3
+readiness. Authorization still completes before framing, parsing, validation,
+resolution, or Docker access. The request accepts only canonical
+`managed_instance_id` and a previously observed immutable 64-hex container ID;
+there is no network, port, URL, HTTP, JSON-RPC, method, command, or inspect input.
+
+A read-only SQLite resolver loads the ManagedInstance's exact revision and its
+immutable trusted execution profile. Fixed ownership labels select exactly one
+container. Fresh inspect must prove immutable ID, managed and instance labels,
+revision label, and running state. The profile requires a Docker healthcheck;
+healthy, unhealthy, and starting are normalized to bounded Kodi-process states,
+while missing or malformed health fails as unknown/error rather than inferring
+process life from container state.
+
+The container must have exactly one network attachment, named
+`kodi-lab-managed-v1`, and exactly one canonical IPv4 address inside
+`10.250.0.0/24`. The returned port is the profile-owned 8080, never caller data.
+The minimal response excludes raw network dictionaries, other addresses, host
+network state, labels, environment, commands, logs, and raw inspect. The broker
+does no Docker exec and no Kodi HTTP/JSON-RPC; application probes remain in the
+unprivileged adapter. Stable errors distinguish missing profile/container,
+identity/revision conflicts, non-running state, endpoint failure, Docker failure,
+and malformed managed metadata.
 
 ## Existing-container two-state reconciliation
 

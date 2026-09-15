@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "runtime_kind": "kodi",
+  "kodi_version": "21.3",
+  "base_image_reference": "ubuntu:26.04@sha256:e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+  "base_image_digest": "sha256:e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+  "package_sources": [
+    "http://archive.ubuntu.com/ubuntu resolute main universe",
+    "http://archive.ubuntu.com/ubuntu resolute-updates main universe",
+    "http://security.ubuntu.com/ubuntu resolute-security main universe"
+  ],
+  "kodi_package_version": "2:21.3+dfsg-1ubuntu1",
+  "repository_file_hashes": {
+    "Dockerfile": "sha256:4041cc98e098967581c1d2ce13631c82cb52f651bb92fab601e4d55fd8a4de9a",
+    "entrypoint.sh": "sha256:8a4069f07d0066c12b8b01b37553eb81e9eb925008df22850b8efac840d62b7a",
+    "healthcheck.sh": "sha256:b1230cb9a455d29021e60ae9fafd081b95cc003bbc2014d5d0fd198131a8cd1b",
+    "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8"
+  },
+  "build": {
+    "context": ".",
+    "dockerfile": "Dockerfile",
+    "platform": "linux/amd64",
+    "pull": false,
+    "no_cache": false
+  },
+  "result": {
+    "built_at": "2026-09-14T19:50:46.025142099-07:00",
+    "image_id": "sha256:1ac4521ef5f0f86eb497106c7fd3bdaff11ac989b34e803c3d105e5a24ff6247",
+    "build_log_reference": "<validation-state>/artifacts/kodi-21.3-build.log",
+    "build_log_digest": "sha256:4ca2818d6c943547f1d3b082a2ea223b8e5c61f815f97ef7175d1ff9ce6db2de"
+  }
+}

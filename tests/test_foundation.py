@@ -61,6 +61,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "managed_instances",
         "runtime_container_artifacts",
         "runtime_definitions",
+        "runtime_execution_profiles",
         "runtime_revisions",
         "targets",
     }

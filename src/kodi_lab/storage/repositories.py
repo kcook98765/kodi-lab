@@ -10,6 +10,7 @@ from kodi_lab.domain import (
     ManagedInstance,
     RuntimeContainerArtifact,
     RuntimeDefinition,
+    RuntimeExecutionProfile,
     RuntimeRevision,
     Target,
 )
@@ -17,6 +18,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceRow,
     RuntimeContainerArtifactRow,
     RuntimeDefinitionRow,
+    RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
     TargetRow,
 )
@@ -353,4 +355,49 @@ class RuntimeContainerArtifactRepository:
         return RuntimeContainerArtifact(
             runtime_revision_id=UUID(row.runtime_revision_id),
             image_id=row.image_id,
+        )
+
+
+class RuntimeExecutionProfileRepository:
+    """Create/read-only persistence for immutable execution profiles."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, profile: RuntimeExecutionProfile) -> None:
+        self._session.add(
+            RuntimeExecutionProfileRow(
+                runtime_revision_id=str(profile.runtime_revision_id),
+                runtime_kind=profile.runtime_kind,
+                expected_application_name=profile.expected_application_name,
+                expected_kodi_version=profile.expected_kodi_version,
+                expected_version_tag=profile.expected_version_tag,
+                jsonrpc_port=profile.jsonrpc_port,
+                jsonrpc_path=profile.jsonrpc_path,
+                process_observation=profile.process_observation,
+                readiness_probe=profile.readiness_probe,
+                readiness_timeout_seconds=profile.readiness_timeout_seconds,
+                poll_interval_seconds=profile.poll_interval_seconds,
+                http_timeout_seconds=profile.http_timeout_seconds,
+            )
+        )
+        self._session.flush()
+
+    def get(self, runtime_revision_id: UUID) -> RuntimeExecutionProfile | None:
+        row = self._session.get(RuntimeExecutionProfileRow, str(runtime_revision_id))
+        if row is None:
+            return None
+        return RuntimeExecutionProfile(
+            runtime_revision_id=UUID(row.runtime_revision_id),
+            runtime_kind=row.runtime_kind,
+            expected_application_name=row.expected_application_name,
+            expected_kodi_version=row.expected_kodi_version,
+            expected_version_tag=row.expected_version_tag,
+            jsonrpc_port=row.jsonrpc_port,
+            jsonrpc_path=row.jsonrpc_path,
+            process_observation=row.process_observation,
+            readiness_probe=row.readiness_probe,
+            readiness_timeout_seconds=row.readiness_timeout_seconds,
+            poll_interval_seconds=row.poll_interval_seconds,
+            http_timeout_seconds=row.http_timeout_seconds,
         )

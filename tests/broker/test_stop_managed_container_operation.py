@@ -256,6 +256,7 @@ def test_capabilities_contains_only_the_stop_addition() -> None:
         "capabilities",
         "deprovision_managed_container",
         "managed_container_inventory",
+        "observe_managed_kodi_runtime",
         "ping",
         "provision_managed_container",
         "start_managed_container",

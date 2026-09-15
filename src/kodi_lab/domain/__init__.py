@@ -11,9 +11,13 @@ from kodi_lab.domain.models import (
     TargetType,
 )
 from kodi_lab.domain.runtime_catalog import (
+    ProcessObservationKind,
+    ReadinessProbeKind,
     RevisionApprovalState,
     RuntimeContainerArtifact,
     RuntimeDefinition,
+    RuntimeExecutionProfile,
+    RuntimeKind,
     RuntimeRevision,
     normalize_sha256_digest,
 )
@@ -24,9 +28,13 @@ __all__ = [
     "InstanceRuntimeState",
     "InstanceType",
     "ManagedInstance",
+    "ProcessObservationKind",
+    "ReadinessProbeKind",
     "RevisionApprovalState",
     "RuntimeContainerArtifact",
     "RuntimeDefinition",
+    "RuntimeExecutionProfile",
+    "RuntimeKind",
     "RuntimeRevision",
     "Target",
     "TargetAvailability",

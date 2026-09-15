@@ -34,6 +34,7 @@ from kodi_lab.broker.errors import (
     InventoryLimitClientError,
     ManagedContainerMetadataClientError,
     ManagedContainerNotFoundClientError,
+    ManagedRuntimeObservationClientError,
     PartialProvisioningClientError,
     PostCreateVerificationClientError,
     PostDeprovisionVerificationClientError,
@@ -55,6 +56,8 @@ from kodi_lab.broker.operations import (
     DeprovisionManagedContainerResult,
     EmptyParams,
     ManagedContainerInventoryResult,
+    ObserveManagedKodiRuntimeParams,
+    ObserveManagedKodiRuntimeResult,
     PingResult,
     ProvisionManagedContainerParams,
     ProvisionManagedContainerResult,
@@ -130,6 +133,32 @@ class BrokerClient:
             EmptyParams(),
             ManagedContainerInventoryResult,
         )
+
+    def observe_managed_kodi_runtime(
+        self, *, managed_instance_id: str, expected_container_id: str
+    ) -> ObserveManagedKodiRuntimeResult:
+        """Observe only the trusted Kodi process signal and managed endpoint."""
+
+        try:
+            params = ObserveManagedKodiRuntimeParams(
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "managed Kodi observation failed local validation"
+            ) from error
+        result = self._call(
+            "observe_managed_kodi_runtime", params, ObserveManagedKodiRuntimeResult
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "managed Kodi observation identity does not match the request"
+            )
+        return result
 
     def provision_managed_container(
         self, *, managed_instance_id: str
@@ -394,6 +423,9 @@ class BrokerClient:
                 "runtime_container_artifact_unavailable": (
                     ProvisioningPrerequisiteClientError
                 ),
+                "runtime_execution_profile_unavailable": (
+                    ProvisioningPrerequisiteClientError
+                ),
                 "runtime_image_unavailable": ProvisioningPrerequisiteClientError,
                 "managed_network_unavailable": ProvisioningPrerequisiteClientError,
                 "managed_network_conflict": ProvisioningConflictClientError,
@@ -438,6 +470,10 @@ class BrokerClient:
                 "docker_remove_failed": DockerRemoveClientError,
                 "post_deprovision_verification_failed": (
                     PostDeprovisionVerificationClientError
+                ),
+                "managed_runtime_not_running": ManagedRuntimeObservationClientError,
+                "managed_runtime_endpoint_invalid": (
+                    ManagedRuntimeObservationClientError
                 ),
             }
             error_type = error_types.get(error_response.error.code, RemoteBrokerError)

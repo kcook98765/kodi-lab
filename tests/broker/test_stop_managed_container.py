@@ -173,6 +173,7 @@ def test_adapter_exposes_only_inventory_and_semantic_stop_public_methods() -> No
     assert public_callables == {
         "deprovision_managed_container",
         "list_managed_containers",
+        "observe_managed_kodi_runtime",
         "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",

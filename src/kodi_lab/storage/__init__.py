@@ -5,6 +5,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceRow,
     RuntimeContainerArtifactRow,
     RuntimeDefinitionRow,
+    RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
     TargetRow,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "ManagedInstanceRow",
     "RuntimeContainerArtifactRow",
     "RuntimeDefinitionRow",
+    "RuntimeExecutionProfileRow",
     "RuntimeRevisionRow",
     "TargetRow",
     "metadata",

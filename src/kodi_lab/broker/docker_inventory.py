@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
+from ipaddress import IPv4Address, IPv4Network
 from typing import Protocol, cast
 
 import docker  # type: ignore[import-untyped]
@@ -33,6 +34,8 @@ from kodi_lab.broker.errors import (
     ManagedContainerNotFoundError,
     ManagedNetworkConflictError,
     ManagedNetworkUnavailableError,
+    ManagedRuntimeEndpointError,
+    ManagedRuntimeNotRunningError,
     PartialProvisioningError,
     PostCreateVerificationError,
     PostDeprovisionVerificationError,
@@ -50,6 +53,7 @@ from kodi_lab.broker.provisioning import (
     MANAGED_NETWORK_SUBNET,
     RUNTIME_REVISION_LABEL_KEY,
     ManagedContainerProvisioningSpec,
+    ManagedRuntimeObservationSpec,
 )
 
 MANAGED_LABEL_KEY = "io.kodi-lab.managed"
@@ -88,6 +92,15 @@ class ContainerHealthState(StrEnum):
     STARTING = "starting"
     NOT_CONFIGURED = "not_configured"
     UNKNOWN = "unknown"
+
+
+class KodiProcessState(StrEnum):
+    """Kodi process state derived only from the trusted image healthcheck."""
+
+    STARTING = "starting"
+    RUNNING = "running"
+    NOT_RUNNING = "not_running"
+    UNKNOWN_ERROR = "unknown_error"
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +154,19 @@ class DeprovisionedManagedContainerRecord:
     removed_container_id: str
     runtime_revision_id: str
     removed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedKodiRuntimeObservationRecord:
+    """Minimal fixed-network observation for unprivileged Kodi readiness."""
+
+    managed_instance_id: str
+    runtime_revision_id: str
+    container_id: str
+    runtime_state: ContainerRuntimeState
+    process_state: KodiProcessState
+    ipv4_address: str
+    jsonrpc_port: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +228,16 @@ class ManagedContainerDeprovisioningProvider(Protocol):
         expected_runtime_state: ContainerRuntimeState,
     ) -> DeprovisionedManagedContainerRecord:
         """Remove one exact, owned, stopped container under strict preconditions."""
+
+
+class ManagedKodiRuntimeObservationProvider(Protocol):
+    def observe_managed_kodi_runtime(
+        self,
+        *,
+        spec: ManagedRuntimeObservationSpec,
+        expected_container_id: str,
+    ) -> ManagedKodiRuntimeObservationRecord:
+        """Observe one exact owned Kodi runtime on the fixed managed network."""
 
 
 class _DockerClient(Protocol):
@@ -606,7 +642,7 @@ class DockerManagedContainerAdapter:
             raise InvalidManagedContainerMetadataError(
                 "Managed container ownership metadata is invalid"
             )
-        for field in ("Env", "Cmd", "Entrypoint"):
+        for field in ("Env", "Cmd", "Entrypoint", "Healthcheck"):
             if config.get(field) != image_config.get(field):
                 raise ProvisioningConflictError(
                     "Managed container image-default configuration has drifted"
@@ -878,6 +914,159 @@ class DockerManagedContainerAdapter:
             if client is not None:
                 with suppress(DockerException, OSError):
                     client.close()
+
+    def observe_managed_kodi_runtime(
+        self,
+        *,
+        spec: ManagedRuntimeObservationSpec,
+        expected_container_id: str,
+    ) -> ManagedKodiRuntimeObservationRecord:
+        """Return only process state and the canonical managed-network endpoint."""
+
+        if _CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None:
+            raise ContainerIdentityPreconditionError(
+                "Expected container identity is not canonical"
+            )
+        client: _DockerClient | None = None
+        try:
+            client = self._client_factory()
+            summaries = client.containers(
+                all=True,
+                filters={
+                    "label": [
+                        f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                        f"{INSTANCE_ID_LABEL_KEY}={spec.managed_instance_id}",
+                    ]
+                },
+            )
+            if not isinstance(summaries, list):
+                raise DockerInventoryReadError(
+                    "Docker returned malformed runtime selection data"
+                )
+            if not summaries:
+                raise ManagedContainerNotFoundError(
+                    "No owned container exists for the managed instance"
+                )
+            if len(summaries) != 1:
+                raise AmbiguousManagedContainerError(
+                    "Multiple containers have the managed instance identity"
+                )
+            selected = _require_mapping(summaries[0])
+            selected_id = _require_container_id(selected.get("Id"))
+            inspected = _require_mapping(client.inspect_container(selected_id))
+            runtime_state, process_state, address = (
+                self._runtime_observation_from_inspect(
+                    inspected,
+                    spec=spec,
+                    selected_container_id=selected_id,
+                    expected_container_id=expected_container_id,
+                )
+            )
+            return ManagedKodiRuntimeObservationRecord(
+                managed_instance_id=spec.managed_instance_id,
+                runtime_revision_id=spec.runtime_revision_id,
+                container_id=selected_id,
+                runtime_state=runtime_state,
+                process_state=process_state,
+                ipv4_address=address,
+                jsonrpc_port=spec.profile.jsonrpc_port,
+            )
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            ManagedRuntimeEndpointError,
+            ManagedRuntimeNotRunningError,
+            RuntimeRevisionPreconditionError,
+        ):
+            raise
+        except APIError as error:
+            raise DockerInventoryReadError(
+                "Docker managed-runtime observation failed"
+            ) from error
+        except (DockerException, OSError) as error:
+            raise DockerDaemonUnavailableError(
+                "Docker daemon is unavailable"
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
+    @staticmethod
+    def _runtime_observation_from_inspect(
+        inspected: Mapping[str, object],
+        *,
+        spec: ManagedRuntimeObservationSpec,
+        selected_container_id: str,
+        expected_container_id: str,
+    ) -> tuple[ContainerRuntimeState, KodiProcessState, str]:
+        container_id = _require_container_id(inspected.get("Id"))
+        if container_id != selected_container_id:
+            raise DockerInventoryReadError("Docker container identity changed")
+        if container_id != expected_container_id:
+            raise ContainerIdentityPreconditionError(
+                "Managed container identity differs from the precondition"
+            )
+        config = _require_mapping(inspected.get("Config"))
+        labels = _require_mapping(config.get("Labels"))
+        if (
+            labels.get(MANAGED_LABEL_KEY) != MANAGED_LABEL_VALUE
+            or labels.get(INSTANCE_ID_LABEL_KEY) != spec.managed_instance_id
+        ):
+            raise InvalidManagedContainerMetadataError(
+                "Selected container ownership metadata is invalid"
+            )
+        if labels.get(RUNTIME_REVISION_LABEL_KEY) != spec.runtime_revision_id:
+            raise RuntimeRevisionPreconditionError(
+                "Managed runtime revision differs from trusted state"
+            )
+        state = _require_mapping(inspected.get("State"))
+        runtime_state = normalize_runtime_state(state.get("Status"))
+        if runtime_state is not ContainerRuntimeState.RUNNING:
+            raise ManagedRuntimeNotRunningError(
+                "Managed runtime endpoint requires a running container"
+            )
+        try:
+            health_state = normalize_health_state(state)
+        except DockerInventoryReadError:
+            health_state = ContainerHealthState.UNKNOWN
+        process_state = {
+            ContainerHealthState.HEALTHY: KodiProcessState.RUNNING,
+            ContainerHealthState.UNHEALTHY: KodiProcessState.NOT_RUNNING,
+            ContainerHealthState.STARTING: KodiProcessState.STARTING,
+            ContainerHealthState.NOT_CONFIGURED: KodiProcessState.UNKNOWN_ERROR,
+            ContainerHealthState.UNKNOWN: KodiProcessState.UNKNOWN_ERROR,
+        }[health_state]
+        network_settings = _require_mapping(inspected.get("NetworkSettings"))
+        networks = _require_mapping(network_settings.get("Networks"))
+        if set(networks) != {MANAGED_NETWORK_NAME}:
+            raise ManagedRuntimeEndpointError(
+                "Managed runtime has an unexpected network attachment"
+            )
+        endpoint = _require_mapping(networks.get(MANAGED_NETWORK_NAME))
+        raw_address = endpoint.get("IPAddress")
+        if not isinstance(raw_address, str) or not raw_address:
+            raise ManagedRuntimeEndpointError(
+                "Managed runtime has no canonical IPv4 address"
+            )
+        try:
+            address = IPv4Address(raw_address)
+        except ValueError as error:
+            raise ManagedRuntimeEndpointError(
+                "Managed runtime IPv4 address is invalid"
+            ) from error
+        network = IPv4Network(MANAGED_NETWORK_SUBNET)
+        if address not in network or address in {
+            network.network_address,
+            network.broadcast_address,
+        }:
+            raise ManagedRuntimeEndpointError(
+                "Managed runtime IPv4 address is outside the managed subnet"
+            )
+        return runtime_state, process_state, str(address)
 
     def _reconcile_managed_container(
         self,

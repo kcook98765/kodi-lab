@@ -361,6 +361,7 @@ def test_adapter_has_only_the_five_semantic_public_methods() -> None:
     assert public_callables == {
         "deprovision_managed_container",
         "list_managed_containers",
+        "observe_managed_kodi_runtime",
         "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",

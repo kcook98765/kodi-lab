@@ -13,14 +13,16 @@ from kodi_lab.broker.errors import (
     PersistentProvisioningUnsupportedError,
     ProvisioningStateError,
     RuntimeContainerArtifactUnavailableError,
+    RuntimeExecutionProfileUnavailableError,
 )
 from kodi_lab.config import Settings
-from kodi_lab.domain import InstanceType
+from kodi_lab.domain import InstanceType, RuntimeExecutionProfile
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
+    RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
     TargetRepository,
 )
@@ -72,6 +74,20 @@ class ProvisioningResolver(Protocol):
 class ManagedInstanceRevisionResolver(Protocol):
     def resolve_runtime_revision_id(self, managed_instance_id: str) -> str:
         """Return the independently persisted runtime-revision pin."""
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedRuntimeObservationSpec:
+    """Trusted persisted identity and profile for narrow runtime observation."""
+
+    managed_instance_id: str
+    runtime_revision_id: str
+    profile: RuntimeExecutionProfile
+
+
+class RuntimeObservationResolver(Protocol):
+    def resolve(self, managed_instance_id: str) -> ManagedRuntimeObservationSpec:
+        """Resolve exact trusted runtime observation semantics."""
 
 
 class SqliteProvisioningResolver:
@@ -182,4 +198,49 @@ class SqliteManagedInstanceRevisionResolver:
         except SQLAlchemyError as error:
             raise ProvisioningStateError(
                 "Canonical managed-instance state could not be read"
+            ) from error
+
+
+class SqliteRuntimeObservationResolver:
+    """Read-only resolver for trusted managed-runtime observation semantics."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    @classmethod
+    def production(cls) -> SqliteRuntimeObservationResolver:
+        engine = create_database_engine(Settings().database_url)
+        return cls(sessionmaker(engine, expire_on_commit=False))
+
+    def resolve(self, managed_instance_id: str) -> ManagedRuntimeObservationSpec:
+        try:
+            identity = UUID(managed_instance_id)
+            if str(identity) != managed_instance_id:
+                raise ValueError
+        except ValueError as error:
+            raise ProvisioningStateError(
+                "Managed instance identity is not canonical"
+            ) from error
+        try:
+            with self._session_factory() as session:
+                instance = ManagedInstanceRepository(session).get(identity)
+                if instance is None:
+                    raise ProvisioningStateError("Managed instance does not exist")
+                profile = RuntimeExecutionProfileRepository(session).get(
+                    instance.runtime_revision_id
+                )
+                if profile is None:
+                    raise RuntimeExecutionProfileUnavailableError(
+                        "Pinned runtime execution profile does not exist"
+                    )
+                return ManagedRuntimeObservationSpec(
+                    managed_instance_id=managed_instance_id,
+                    runtime_revision_id=str(instance.runtime_revision_id),
+                    profile=profile,
+                )
+        except ProvisioningStateError:
+            raise
+        except SQLAlchemyError as error:
+            raise ProvisioningStateError(
+                "Canonical runtime observation state could not be read"
             ) from error

@@ -12,18 +12,24 @@ from kodi_lab.application.errors import (
     RuntimeContainerArtifactConflictError,
     RuntimeDefinitionConflictError,
     RuntimeDefinitionNotFoundError,
+    RuntimeExecutionProfileConflictError,
     RuntimeRevisionConflictError,
     RuntimeRevisionNotFoundError,
 )
 from kodi_lab.domain import (
+    ProcessObservationKind,
+    ReadinessProbeKind,
     RevisionApprovalState,
     RuntimeContainerArtifact,
     RuntimeDefinition,
+    RuntimeExecutionProfile,
+    RuntimeKind,
     RuntimeRevision,
 )
 from kodi_lab.storage.repositories import (
     RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
+    RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
 )
 
@@ -78,6 +84,50 @@ class RuntimeCatalogAdministrationService:
                 return artifact
         except IntegrityError as error:
             raise RuntimeContainerArtifactConflictError(runtime_revision_id) from error
+
+    def register_execution_profile(
+        self,
+        *,
+        runtime_revision_id: UUID,
+        runtime_kind: RuntimeKind,
+        expected_application_name: str,
+        expected_kodi_version: str,
+        expected_version_tag: str,
+        jsonrpc_port: int,
+        jsonrpc_path: str,
+        process_observation: ProcessObservationKind,
+        readiness_probe: ReadinessProbeKind,
+        readiness_timeout_seconds: int,
+        poll_interval_seconds: float,
+        http_timeout_seconds: float,
+    ) -> RuntimeExecutionProfile:
+        """Register one immutable trusted execution profile."""
+
+        try:
+            profile = RuntimeExecutionProfile(
+                runtime_revision_id=runtime_revision_id,
+                runtime_kind=runtime_kind,
+                expected_application_name=expected_application_name,
+                expected_kodi_version=expected_kodi_version,
+                expected_version_tag=expected_version_tag,
+                jsonrpc_port=jsonrpc_port,
+                jsonrpc_path=jsonrpc_path,
+                process_observation=process_observation,
+                readiness_probe=readiness_probe,
+                readiness_timeout_seconds=readiness_timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds,
+                http_timeout_seconds=http_timeout_seconds,
+            )
+        except ValueError as error:
+            raise CatalogDataValidationError(str(error)) from error
+        try:
+            with self._session_factory.begin() as session:
+                if RuntimeRevisionRepository(session).get(runtime_revision_id) is None:
+                    raise RuntimeRevisionNotFoundError(runtime_revision_id)
+                RuntimeExecutionProfileRepository(session).create(profile)
+                return profile
+        except IntegrityError as error:
+            raise RuntimeExecutionProfileConflictError(runtime_revision_id) from error
 
     def register_revision(
         self,

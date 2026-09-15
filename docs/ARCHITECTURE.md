@@ -86,7 +86,8 @@ parameters before invoking an explicit handler. It exposes `ping`, `broker_info`
 `capabilities`, the empty-parameter `managed_container_inventory`, UUID-only
 `provision_managed_container`, and explicit semantic `start_managed_container`
 and `stop_managed_container`, plus stopped-only
-`deprovision_managed_container`; all require the authorized peer. Existing-container
+`deprovision_managed_container` and fixed-purpose
+`observe_managed_kodi_runtime`; all require the authorized peer. Existing-container
 mutations retain strict ownership, immutable-identity, and runtime-state
 preconditions. There is no shell, path, environment, raw Docker, generic
 execution/reconciliation/create/remove/restart/exec, or other lifecycle
@@ -137,6 +138,38 @@ and absence of any remaining owned container for the instance. It does not delet
 application/catalog state, images, networks, or storage. Non-identity Docker
 configuration drift is deliberately not an ownership substitute or a permanent
 barrier to removing an otherwise exactly identified stopped container.
+
+## Phase 3 single-runtime readiness
+
+The first Phase 3 runtime is a dedicated Kodi 21.3 image whose immutable result
+is registered separately from its logical revision. Repository-owned build
+assets provide an internal Xvfb display, software rendering, a fixed signal-aware
+entrypoint, a minimal disposable seeded profile, and a process-only Docker
+healthcheck. Kodi runs as non-root user `kodi`; the container publishes no ports,
+declares no volumes, and uses no host display, device, capability, or legacy
+runtime resource.
+
+Each Kodi revision used for execution has one immutable trusted execution
+profile. The profile carries only bounded semantic expectations: exact Kodi
+identity, fixed internal JSON-RPC endpoint, process observation kind, readiness
+probe kind, and time bounds. It is persisted separately from provenance and has
+no update API. Provisioning remains UUID-only and continues to inherit image
+defaults; it gains no caller-provided Docker fields.
+
+The root broker performs only Docker-owned observation. Its fixed-purpose
+runtime operation resolves the persisted revision/profile, proves the immutable
+owned running container with fresh inspect, maps Docker health to Kodi process
+state, and returns one address from the sole canonical managed-network
+attachment plus the profile-owned port. It exposes neither raw inspect nor
+caller-selected networking and performs no HTTP or exec.
+
+Unprivileged Kodi code performs the application probes directly over the managed
+bridge. Its adapter has explicit ping and identity operations only. The readiness
+coordinator keeps container, process, JSON-RPC, and usability state separate and
+uses a single 90-second monotonic deadline, one-second polling, and bounded
+three-second HTTP attempts. Usability means a running container, healthy Kodi
+process, valid JSON-RPC ping, and exact Kodi 21.3 stable application identity.
+See `PHASE3-RUNTIME-READINESS.md` for the executable contract.
 
 ## Phase 2 closeout boundary
 

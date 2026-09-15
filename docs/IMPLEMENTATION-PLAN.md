@@ -106,10 +106,16 @@ production-deployment blocker. Persistent-instance storage is also deliberately
 deferred; the completed creation contract is disposable-only.
 
 Phase 3 is the canonical **Single Kodi runtime end-to-end** phase. Its first
-coherent milestone should materialize and register one immutable real Kodi
-runtime artifact, use the existing broker contracts and managed network to
-provision and start one disposable instance, and add bounded Kodi process and
-JSON-RPC readiness observation. It must not treat the prior nginx infrastructure
-fixture as a validated Kodi runtime. Production service naming, persistent
-storage, and general managed-network cleanup may remain separate until their
-respective deployment or lifecycle milestones.
+coherent milestone implements one dedicated Kodi 21.3 Omega stable runtime. The
+repository now contains digest-pinned build inputs, a minimal non-root Xvfb
+image, immutable artifact and execution-profile registration, process health
+normalization, fixed managed-endpoint observation, and an unprivileged bounded
+JSON-RPC readiness coordinator. Provisioning remains UUID-only and disposable;
+all runtime behavior comes from the image and trusted profile.
+
+The controlled live gate for this milestone is exactly one provision, start,
+four-layer readiness observation, and clean broker stop using separate Phase 3
+validation state and the existing managed network. The prior nginx fixture is
+not Kodi evidence. Production service naming, persistent storage, general
+managed-network cleanup, additional Kodi versions, addons, remote display, and
+product UI remain later milestones.

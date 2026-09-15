@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from ipaddress import IPv4Address, IPv4Network
 from typing import Literal, TypeVar, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -15,9 +16,11 @@ from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     DeprovisionedManagedContainerRecord,
     DockerManagedContainerAdapter,
+    KodiProcessState,
     ManagedContainerDeprovisioningProvider,
     ManagedContainerOperationsProvider,
     ManagedContainerProvisioningProvider,
+    ManagedKodiRuntimeObservationProvider,
 )
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
@@ -37,6 +40,8 @@ from kodi_lab.broker.errors import (
     ManagedContainerNotFoundError,
     ManagedNetworkConflictError,
     ManagedNetworkUnavailableError,
+    ManagedRuntimeEndpointError,
+    ManagedRuntimeNotRunningError,
     OperationError,
     PartialProvisioningError,
     PersistentProvisioningUnsupportedError,
@@ -48,6 +53,7 @@ from kodi_lab.broker.errors import (
     ProvisioningStateError,
     RequestError,
     RuntimeContainerArtifactUnavailableError,
+    RuntimeExecutionProfileUnavailableError,
     RuntimeImageUnavailableError,
     RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionError,
@@ -59,10 +65,13 @@ from kodi_lab.broker.protocol import (
     is_canonical_uuid,
 )
 from kodi_lab.broker.provisioning import (
+    MANAGED_NETWORK_SUBNET,
     ManagedInstanceRevisionResolver,
     ProvisioningResolver,
+    RuntimeObservationResolver,
     SqliteManagedInstanceRevisionResolver,
     SqliteProvisioningResolver,
+    SqliteRuntimeObservationResolver,
 )
 
 
@@ -130,6 +139,75 @@ class ManagedContainerInventoryResult(StrictModel):
     containers: list[ManagedContainerInventoryEntry] = Field(
         max_length=MAX_MANAGED_CONTAINERS
     )
+
+
+class ObserveManagedKodiRuntimeParams(StrictModel):
+    """Identity-only preconditions for fixed managed Kodi observation."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _canonical_instance_id(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("managed_instance_id must be a canonical UUID string")
+        return value
+
+
+class ObserveManagedKodiRuntimeResult(StrictModel):
+    """Minimal fixed-network Kodi process and endpoint observation."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    runtime_state: ContainerRuntimeState
+    process_state: KodiProcessState
+    ipv4_address: str = Field(min_length=7, max_length=15)
+    jsonrpc_port: int
+
+    @field_validator("runtime_state", mode="before")
+    @classmethod
+    def _runtime_state_from_wire(cls, value: object) -> object:
+        if isinstance(value, str):
+            return ContainerRuntimeState(value)
+        return value
+
+    @field_validator("process_state", mode="before")
+    @classmethod
+    def _process_state_from_wire(cls, value: object) -> object:
+        if isinstance(value, str):
+            return KodiProcessState(value)
+        return value
+
+    @field_validator("managed_instance_id", "runtime_revision_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+    @field_validator("ipv4_address")
+    @classmethod
+    def _managed_ipv4(cls, value: str) -> str:
+        try:
+            address = IPv4Address(value)
+        except ValueError as error:
+            raise ValueError("ipv4_address must be canonical IPv4") from error
+        network = IPv4Network(MANAGED_NETWORK_SUBNET)
+        if str(address) != value or address not in network:
+            raise ValueError("ipv4_address must be on the managed network")
+        return value
+
+    @model_validator(mode="after")
+    def _fixed_runtime_endpoint(self) -> ObserveManagedKodiRuntimeResult:
+        if self.runtime_state is not ContainerRuntimeState.RUNNING:
+            raise ValueError("managed Kodi observation requires running state")
+        if self.jsonrpc_port != 8080:
+            raise ValueError("managed Kodi JSON-RPC port must be 8080")
+        return self
 
 
 class ProvisionManagedContainerParams(StrictModel):
@@ -455,6 +533,8 @@ def build_foundation_registry(
     provisioning_provider: ManagedContainerProvisioningProvider | None = None,
     deprovisioning_provider: ManagedContainerDeprovisioningProvider | None = None,
     revision_resolver: ManagedInstanceRevisionResolver | None = None,
+    runtime_observation_resolver: RuntimeObservationResolver | None = None,
+    runtime_observation_provider: ManagedKodiRuntimeObservationProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -469,6 +549,12 @@ def build_foundation_registry(
     )
     pin_resolver = (
         revision_resolver or SqliteManagedInstanceRevisionResolver.production()
+    )
+    observation_resolver = (
+        runtime_observation_resolver or SqliteRuntimeObservationResolver.production()
+    )
+    observation_provider = runtime_observation_provider or cast(
+        ManagedKodiRuntimeObservationProvider, provider
     )
     registry.register(
         name="ping",
@@ -545,6 +631,106 @@ def build_foundation_registry(
         result_model=ManagedContainerInventoryResult,
         handler=managed_container_inventory,
         audit_builder=inventory_audit,
+    )
+
+    def observe_managed_kodi_runtime(
+        params: ObserveManagedKodiRuntimeParams,
+    ) -> ObserveManagedKodiRuntimeResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id
+        }
+        try:
+            spec = observation_resolver.resolve(params.managed_instance_id)
+            outcome = observation_provider.observe_managed_kodi_runtime(
+                spec=spec,
+                expected_container_id=params.expected_container_id,
+            )
+        except RuntimeExecutionProfileUnavailableError as error:
+            raise OperationError(
+                "runtime_execution_profile_unavailable",
+                "The pinned runtime has no trusted execution profile.",
+                audit_fields=audit_fields,
+            ) from error
+        except ProvisioningStateError as error:
+            raise OperationError(
+                "managed_instance_state_unavailable",
+                "Canonical managed-instance state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedContainerNotFoundError as error:
+            raise OperationError(
+                "managed_container_not_found",
+                "No Kodi Lab-owned container exists for the managed instance.",
+                audit_fields=audit_fields,
+            ) from error
+        except AmbiguousManagedContainerError as error:
+            raise OperationError(
+                "ambiguous_managed_container",
+                "Multiple containers claim the managed instance identity.",
+                audit_fields=audit_fields,
+            ) from error
+        except InvalidManagedContainerMetadataError as error:
+            raise OperationError(
+                "invalid_managed_container_metadata",
+                "Kodi Lab managed-container metadata is invalid.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerIdentityPreconditionError as error:
+            raise OperationError(
+                "container_identity_precondition_failed",
+                "The managed container identity changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeRevisionPreconditionError as error:
+            raise OperationError(
+                "runtime_revision_precondition_failed",
+                "The managed runtime revision differs from trusted state.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedRuntimeNotRunningError as error:
+            raise OperationError(
+                "managed_runtime_not_running",
+                "The managed Kodi runtime is not running.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedRuntimeEndpointError as error:
+            raise OperationError(
+                "managed_runtime_endpoint_invalid",
+                "The managed Kodi runtime endpoint is unavailable or invalid.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDaemonUnavailableError as error:
+            raise OperationError(
+                "docker_daemon_unavailable",
+                "The Docker daemon is unavailable to the broker.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerInventoryReadError as error:
+            raise OperationError(
+                "docker_inventory_failed",
+                "The broker could not safely observe the managed runtime.",
+                audit_fields=audit_fields,
+            ) from error
+        return ObserveManagedKodiRuntimeResult(
+            managed_instance_id=outcome.managed_instance_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            runtime_state=outcome.runtime_state,
+            process_state=outcome.process_state,
+            ipv4_address=outcome.ipv4_address,
+            jsonrpc_port=outcome.jsonrpc_port,
+        )
+
+    registry.register(
+        name="observe_managed_kodi_runtime",
+        params_model=ObserveManagedKodiRuntimeParams,
+        result_model=ObserveManagedKodiRuntimeResult,
+        handler=observe_managed_kodi_runtime,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_resulting_runtime_state": result.runtime_state.value,
+            "broker_kodi_process_state": result.process_state.value,
+        },
     )
 
     def provision_managed_container(

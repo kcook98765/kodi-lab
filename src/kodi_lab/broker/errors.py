@@ -156,6 +156,10 @@ class RuntimeContainerArtifactUnavailableError(ProvisioningStateError):
     """The pinned runtime revision has no immutable container artifact."""
 
 
+class RuntimeExecutionProfileUnavailableError(ProvisioningStateError):
+    """The pinned revision has no trusted execution profile."""
+
+
 class RuntimeImageUnavailableError(DockerInventoryError):
     """The exact immutable Docker image is not locally available."""
 
@@ -198,6 +202,18 @@ class DockerRemoveError(DockerInventoryError):
 
 class PostDeprovisionVerificationError(DockerInventoryError):
     """The broker could not prove the requested container is fully absent."""
+
+
+class ManagedRuntimeObservationError(DockerInventoryError):
+    """A fixed managed-runtime observation could not be safely produced."""
+
+
+class ManagedRuntimeNotRunningError(ManagedRuntimeObservationError):
+    """Endpoint observation requires the exact owned container to be running."""
+
+
+class ManagedRuntimeEndpointError(ManagedRuntimeObservationError):
+    """The canonical managed-network endpoint was absent or invalid."""
 
 
 class ClientError(BrokerError):
@@ -320,3 +336,7 @@ class DockerRemoveClientError(RemoteBrokerError):
 
 class PostDeprovisionVerificationClientError(RemoteBrokerError):
     """The broker could not prove the removed container is absent."""
+
+
+class ManagedRuntimeObservationClientError(RemoteBrokerError):
+    """The broker could not safely observe the managed Kodi runtime."""
