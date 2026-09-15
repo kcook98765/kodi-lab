@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Curated runtime matrix · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Curated runtime matrix</h1>
+        <a href="/">Managed instances</a>
+      </div>
+    </header>
+    <main>
+      <form method="get" action="/runtimes" class="matrix-filters">
+        <label><input type="checkbox" name="include_legacy" value="true" {% if matrix.include_legacy %}checked{% endif %}> Include Legacy</label>
+        <label><input type="checkbox" name="include_prerelease" value="true" {% if matrix.include_prerelease %}checked{% endif %}> Include Pre-release</label>
+        <button type="submit">Apply</button>
+      </form>
+      {% if not matrix.trusted_custom_builds_enabled %}
+      <p class="notice">Trusted custom builds are disabled by application policy.</p>
+      {% endif %}
+      <div class="matrix-table-wrap">
+        <table class="matrix-table">
+          <thead>
+            <tr><th>Version</th><th>Channel</th><th>Tier</th><th>Validation</th><th>Revision</th><th>Availability</th></tr>
+          </thead>
+          <tbody>
+            {% for runtime in matrix.runtimes %}
+            <tr data-runtime-definition-id="{{ runtime.runtime_definition_id }}" data-availability="{{ runtime.availability }}">
+              <th scope="row">{{ runtime.display_version }}</th>
+              <td>{{ runtime.release_channel|capitalize }}{% if runtime.prerelease_ordinal %} {{ runtime.prerelease_ordinal }}{% endif %}</td>
+              <td>{{ runtime.support_tier|capitalize }}</td>
+              <td>{{ runtime.effective_validation_state|capitalize }}{% if runtime.effective_validation_state == 'validated' %}<span class="secondary"> under kodi-runtime-v1</span>{% endif %}</td>
+              <td>{% if runtime.selected_revision_number %}{{ runtime.selected_revision_number }}{% elif runtime.newest_revision_number %}No eligible revision; newest is {{ runtime.newest_revision_number }}{% else %}None{% endif %}</td>
+              <td><strong>{{ runtime.availability|replace('_', ' ')|title }}</strong><br><span>{{ runtime.availability_detail }}</span>{% if runtime.pinned_instance_count %}<br><span class="secondary">{{ runtime.pinned_instance_count }} existing pinned instance{% if runtime.pinned_instance_count != 1 %}s{% endif %}</span>{% endif %}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No curated runtimes are registered.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </body>
+</html>

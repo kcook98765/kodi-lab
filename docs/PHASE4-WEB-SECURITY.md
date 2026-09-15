@@ -87,3 +87,18 @@ Same-origin session-authenticated JSON:
 
 This is not a public API. It has no API tokens and no generic execution,
 broker, Docker, or JSON-RPC route.
+
+Phase 5 Step 5 adds authenticated read-only routes without changing this
+mutation boundary:
+
+- `GET /runtimes`
+- `GET /api/runtime-matrix`
+- `GET /api/targets/{target_id}/runtime-selection`
+
+The two matrix query preferences accept only literal `true` or `false` for
+Include Legacy and Include Pre-release. They are not catalog state. Global
+Trusted Custom Build enablement remains deployment configuration and cannot be
+sent by the browser. Target resolution returns only semantic definition identity
+and revision number; it never returns or accepts revision UUID, image/artifact,
+evidence, support, approval, trust, or Docker authority. No instance or catalog
+mutation is added by these routes.

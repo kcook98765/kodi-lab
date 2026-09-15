@@ -169,3 +169,19 @@ precede passing `kodi-runtime-v1` evidence. Passing evidence leaves normal
 selection ineligible while trusted Include Pre-release selects only the exact
 Beta 2 definition; Beta 1, RC, stable, Current, and Legacy identities retain
 their existing exact behavior.
+
+Phase 5 Step 5 makes the proven curated matrix consumable from the authenticated
+localhost Web product without adding runtime or catalog mutation. One
+application-owned service lists semantic release/tier/validation/availability
+DTOs and resolves the newest eligible revision number for a trusted Target's
+exact release. Authenticated HTML and JSON accept only request-local Include
+Legacy and Include Pre-release preferences; global Trusted Custom Build policy
+remains deployment-owned. The browser receives no revision UUID, artifact,
+image, evidence path, provenance internals, Docker configuration, approval,
+support, validation, or trust mutation authority.
+
+ManagedInstance creation and reassignment remain deferred. Before exposing that
+mutation, a later milestone must define Target inventory/creation, ordinary
+instance metadata and naming, instance-type choice, and Target-version change
+semantics. The completed read-only resolution endpoint proves exact selection
+without silently changing Target identity or reinterpreting historical pins.

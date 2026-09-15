@@ -40,6 +40,14 @@ from kodi_lab.application.runtime_eligibility import (
     RuntimeRevisionEligibilityPolicy,
     RuntimeSelectionPolicy,
 )
+from kodi_lab.application.runtime_matrix import (
+    MatrixAvailability,
+    MatrixIneligibilityReason,
+    RuntimeMatrixEntry,
+    RuntimeMatrixResponse,
+    RuntimeMatrixService,
+    TargetRuntimeSelection,
+)
 
 __all__ = [
     "ApplicationServiceError",
@@ -52,6 +60,8 @@ __all__ = [
     "ManagedInstanceConflictError",
     "ManagedInstanceNotFoundError",
     "ManagedInstanceService",
+    "MatrixAvailability",
+    "MatrixIneligibilityReason",
     "NewestApprovedRevisionSelection",
     "NewestEligibleRevisionSelection",
     "NoApprovedRevisionError",
@@ -65,6 +75,9 @@ __all__ = [
     "RuntimeEligibility",
     "RuntimeExecutionProfileConflictError",
     "RuntimeIneligibilityReason",
+    "RuntimeMatrixEntry",
+    "RuntimeMatrixResponse",
+    "RuntimeMatrixService",
     "RuntimeRevisionConflictError",
     "RuntimeRevisionDefinitionMismatchError",
     "RuntimeRevisionEligibilityPolicy",
@@ -74,6 +87,7 @@ __all__ = [
     "RuntimeSelectionPolicy",
     "RuntimeValidationEvidenceConflictError",
     "TargetNotFoundError",
+    "TargetRuntimeSelection",
     "TrustedCustomBuildConfirmationRequiredError",
     "TrustedCustomBuildDisabledError",
 ]

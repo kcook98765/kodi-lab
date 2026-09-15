@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
     KODI_RUNTIME_VALIDATION_CONTRACT,
+    KodiReleaseIdentity,
     RevisionApprovalState,
     RuntimeDefinition,
     RuntimeRevision,
@@ -69,7 +70,26 @@ class RuntimeRevisionEligibilityPolicy:
         revision: RuntimeRevision,
         policy: RuntimeSelectionPolicy,
     ) -> RuntimeEligibility:
-        if target.kodi_release != definition.kodi_release:
+        return self.evaluate_for_release(
+            session,
+            required_release=target.kodi_release,
+            definition=definition,
+            revision=revision,
+            policy=policy,
+        )
+
+    def evaluate_for_release(
+        self,
+        session: Session,
+        *,
+        required_release: KodiReleaseIdentity,
+        definition: RuntimeDefinition,
+        revision: RuntimeRevision,
+        policy: RuntimeSelectionPolicy,
+    ) -> RuntimeEligibility:
+        """Evaluate a new pin against one trusted exact release requirement."""
+
+        if required_release != definition.kodi_release:
             return self._no(RuntimeIneligibilityReason.INCOMPATIBLE_RELEASE)
         if not policy.permits(definition.support_tier):
             return self._no(RuntimeIneligibilityReason.SUPPORT_TIER_NOT_PERMITTED)

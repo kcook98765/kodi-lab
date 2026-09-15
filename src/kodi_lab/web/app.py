@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -22,12 +22,20 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from kodi_lab.application.errors import ManagedInstanceNotFoundError
+from kodi_lab.application.errors import (
+    ManagedInstanceNotFoundError,
+    TargetNotFoundError,
+)
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.runtime_lifecycle import (
     LifecycleConflictError,
     ManagedRuntimeLifecycleService,
     ReadinessCoordinatorFactory,
+)
+from kodi_lab.application.runtime_matrix import (
+    RuntimeMatrixResponse,
+    RuntimeMatrixService,
+    TargetRuntimeSelection,
 )
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
@@ -62,6 +70,7 @@ class WebApplicationContext:
     throttler: LoginThrottler
     status: ManagedRuntimeStatusService
     lifecycle: ManagedRuntimeLifecycleService
+    matrix: RuntimeMatrixService
     readiness: ReadinessTaskRegistry
 
 
@@ -94,6 +103,10 @@ def create_app(
                 if coordinator_factory is None
                 else {"coordinator_factory": coordinator_factory}
             ),
+        ),
+        matrix=RuntimeMatrixService(
+            session_factory,
+            trusted_custom_builds_enabled=(settings.trusted_custom_builds_enabled),
         ),
         readiness=task_registry,
     )
@@ -158,6 +171,12 @@ def create_app(
         return _json_error(
             404, "managed_instance_not_found", "Managed instance not found."
         )
+
+    @app.exception_handler(TargetNotFoundError)
+    async def target_not_found(
+        _request: Request, _error: TargetNotFoundError
+    ) -> JSONResponse:
+        return _json_error(404, "target_not_found", "Target not found.")
 
     @app.exception_handler(LifecycleConflictError)
     async def lifecycle_conflict(
@@ -266,6 +285,53 @@ def create_app(
             },
         )
 
+    @app.get("/runtimes", response_class=HTMLResponse)
+    async def runtime_matrix_page(
+        request: Request,
+        include_legacy: Literal["false", "true"] = "false",
+        include_prerelease: Literal["false", "true"] = "false",
+    ) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        matrix = context.matrix.list_matrix(
+            include_legacy=_selection_bool(include_legacy),
+            include_prerelease=_selection_bool(include_prerelease),
+        )
+        return templates.TemplateResponse(
+            request,
+            "runtimes.html",
+            {"matrix": matrix},
+        )
+
+    @app.get("/api/runtime-matrix", response_model=RuntimeMatrixResponse)
+    def runtime_matrix(
+        include_legacy: Literal["false", "true"] = "false",
+        include_prerelease: Literal["false", "true"] = "false",
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> RuntimeMatrixResponse:
+        return context.matrix.list_matrix(
+            include_legacy=_selection_bool(include_legacy),
+            include_prerelease=_selection_bool(include_prerelease),
+        )
+
+    @app.get(
+        "/api/targets/{target_id}/runtime-selection",
+        response_model=TargetRuntimeSelection,
+    )
+    def target_runtime_selection(
+        target_id: UUID,
+        include_legacy: Literal["false", "true"] = "false",
+        include_prerelease: Literal["false", "true"] = "false",
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> TargetRuntimeSelection:
+        return context.matrix.resolve_target(
+            target_id,
+            include_legacy=_selection_bool(include_legacy),
+            include_prerelease=_selection_bool(include_prerelease),
+        )
+
     @app.get("/api/instances", response_model=list[ManagedRuntimeStatus])
     def list_instances(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
@@ -339,6 +405,10 @@ def _require_same_origin(request: Request) -> None:
     parsed = urlsplit(referer)
     if (parsed.scheme.lower(), parsed.netloc.lower()) != expected:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+
+def _selection_bool(value: Literal["false", "true"]) -> bool:
+    return value == "true"
 
 
 def _login_failure(

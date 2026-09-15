@@ -253,7 +253,21 @@ creation and reassignment continue to require passing evidence.
 Execution profiles retain immutable per-revision behavior but no longer encode
 Kodi 21.3 as the only possible identity. The 21.3 values remain unchanged, while
 prerelease ordinals and bounded future per-version endpoint/timing differences
-are representable. Build assets remain in version-owned directories. Phase 5
-adds no matrix Web mutation surface; a later application-owned DTO will expose
-release, tier, validation, revision, eligibility, and safe reasons without raw
-artifact authority.
+are representable. Build assets remain in version-owned directories.
+
+`RuntimeMatrixService` now projects that catalog into authenticated semantic
+DTOs. It lists every curated definition, including retired history, and reports
+exact release/channel/ordinal, support tier, effective validation, newest and
+selected revision numbers, bounded availability/reason, opt-in requirements,
+and existing-pin count. It returns neither revision UUIDs nor artifact, image,
+evidence-path, provenance, or Docker details. Newest-eligible evaluation remains
+owned by `RuntimeRevisionEligibilityPolicy`; templates do not reproduce it.
+
+The Web adapter adds authenticated read-only matrix HTML/JSON and exact
+Target-scoped resolution. Strict Include Legacy and Include Pre-release query
+flags are request-local preferences. Global Trusted Custom Build enablement is
+trusted deployment configuration and has no browser override. Resolution uses
+the Target's immutable exact Kodi identity and cannot cross definitions. This
+slice deliberately adds no instance creation/reassignment or catalog mutation:
+those require a later Target administration contract. Existing pins continue to
+be presented by status services without retroactive new-selection filtering.

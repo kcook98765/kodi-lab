@@ -4,6 +4,7 @@ header { display: flex; align-items: center; justify-content: space-between; }
 .login-panel { max-width: 28rem; margin: 10vh auto; }
 form { display: grid; gap: .75rem; }
 input, button { font: inherit; padding: .55rem .75rem; }
+input[type="checkbox"] { padding: 0; }
 .instance { border: 1px solid #8887; border-radius: .5rem; padding: 1rem; }
 dl { display: grid; grid-template-columns: 10rem 1fr; gap: .4rem; }
 dt { font-weight: 600; }
@@ -11,3 +12,12 @@ dd { margin: 0; }
 .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .error { color: #c33; }
 .notice { padding: .75rem; border: 1px solid #b98; }
+.matrix-filters { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+.matrix-filters label { display: flex; align-items: center; gap: .4rem; }
+.matrix-table-wrap { overflow-x: auto; }
+.matrix-table { width: 100%; border-collapse: collapse; }
+.matrix-table th, .matrix-table td { padding: .7rem; border-bottom: 1px solid #8887; text-align: left; vertical-align: top; }
+.matrix-table tr[data-availability="selectable"] { border-left: .3rem solid #3a7; }
+.matrix-table tr[data-availability="opt_in_required"] { border-left: .3rem solid #b98; }
+.matrix-table tr[data-availability="unavailable"], .matrix-table tr[data-availability="historical_only"] { border-left: .3rem solid #888; }
+.secondary { opacity: .75; }

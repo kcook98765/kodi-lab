@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     web_cookie_secure: Literal[False] = False
     web_session_idle_seconds: Literal[43_200] = 43_200
     web_session_absolute_seconds: Literal[604_800] = 604_800
+    trusted_custom_builds_enabled: bool = False
 
     @field_validator("web_port")
     @classmethod

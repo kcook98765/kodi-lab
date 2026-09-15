@@ -769,3 +769,24 @@ details that it did not specify.
   Beta 2 source-owned Matroska fast-scan patch is applied. This source-build
   path is local to Kodi 22.0 Beta 2 and adds no broker build or execution
   capability.
+
+## D-0067: Authenticated semantic matrix and Target-scoped resolution
+
+- Status: approved for Phase 5 implementation
+- Decision: `RuntimeMatrixService` is the sole application composition boundary
+  for curated runtime presentation and read-only Target-scoped selection
+  resolution. It delegates every revision decision to the shared eligibility
+  policy, reports the newest eligible revision number and bounded semantic
+  reasons, and exposes no revision UUID, artifact, image, evidence reference,
+  provenance internals, or Docker configuration.
+- Web policy: authenticated GET routes accept only strict Include Legacy and
+  Include Pre-release booleans. These are request-local selection preferences,
+  never catalog mutations. Trusted Custom Build enablement remains deployment
+  configuration and cannot be supplied by the browser.
+- Creation boundary: this slice does not create or reassign ManagedInstances.
+  Canonical documents establish one ManagedInstance subtype per Target but do
+  not yet define the browser Target inventory/creation metadata, naming,
+  instance-type choice, or Target-version transition workflow. The Web surface
+  therefore previews trusted exact-release resolution without inventing those
+  mutation semantics. Existing pins remain status/history authority and are not
+  re-evaluated as new selections.

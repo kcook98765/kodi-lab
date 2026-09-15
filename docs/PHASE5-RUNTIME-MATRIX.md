@@ -161,3 +161,29 @@ protected-resource isolation, followed by one passing `kodi-runtime-v1`
 evidence record. Passing evidence must leave normal selection ineligible while
 trusted Include Pre-release selects the exact Beta 2 revision; Beta 1, RC,
 stable, and all earlier-version targets remain exact and cannot fall through.
+
+## Authenticated matrix presentation and selection resolution
+
+Phase 5 Step 5 adds `RuntimeMatrixService` as the semantic presentation boundary
+over the shared eligibility policy. Its entries contain the definition UUID,
+canonical and display release, channel/ordinal, tier, newest revision number,
+selected eligible revision number, effective validation state, bounded
+availability/reason, opt-in/trust requirements, and existing-pin count. They do
+not contain revision UUIDs, image/artifact identity, evidence references,
+provenance internals, or Docker configuration.
+
+Authenticated `GET /runtimes` and `GET /api/runtime-matrix` always retain
+Current, Legacy, Preview, and Retired definitions for administration and
+history. Strict `include_legacy=true` and `include_prerelease=true` query flags
+change only request-local selection policy. Global Trusted Custom Build
+enablement remains application deployment configuration, so browser input
+cannot make Kodi 22 Beta 2 trusted. Safe availability text is mapped from typed
+policy reasons rather than exception strings.
+
+Authenticated `GET /api/targets/{target_id}/runtime-selection` resolves only the
+Target's persisted exact release and returns the matching definition UUID plus
+eligible revision number, never revision UUID or image authority. It cannot
+fall forward or cross channel/ordinal. ManagedInstance creation/reassignment is
+not exposed because Target inventory/creation metadata, naming, instance-type,
+and version-transition Web semantics are not yet canonical. Existing pins stay
+visible and operational independently of current new-selection eligibility.

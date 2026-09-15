@@ -17,6 +17,7 @@ def _isolate_settings_environment(
     monkeypatch.delenv("KODI_LAB_WEB_HOST", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_PORT", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_COOKIE_SECURE", raising=False)
+    monkeypatch.delenv("KODI_LAB_TRUSTED_CUSTOM_BUILDS_ENABLED", raising=False)
 
 
 def test_package_exposes_version() -> None:
@@ -35,6 +36,15 @@ def test_configuration_uses_documented_roots(
     assert settings.web_host == "127.0.0.1"
     assert settings.web_port == 8100
     assert settings.web_cookie_secure is False
+    assert settings.trusted_custom_builds_enabled is False
+
+
+def test_trusted_custom_builds_require_explicit_deployment_opt_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_settings_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("KODI_LAB_TRUSTED_CUSTOM_BUILDS_ENABLED", "true")
+    assert Settings().trusted_custom_builds_enabled is True
 
 
 @pytest.mark.parametrize(
