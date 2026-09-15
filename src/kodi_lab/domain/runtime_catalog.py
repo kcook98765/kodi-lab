@@ -156,3 +156,16 @@ class RuntimeRevision:
         """Return this revision with trust confirmation cleared."""
 
         return replace(self, trusted_build_confirmed_at=None)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeContainerArtifact:
+    """Immutable materialized Docker image identity for one runtime revision."""
+
+    runtime_revision_id: UUID
+    image_id: str
+
+    def __post_init__(self) -> None:
+        normalized = normalize_sha256_digest(self.image_id, "image_id")
+        if normalized != self.image_id:
+            raise ValueError("image_id must use canonical sha256 lowercase form")

@@ -12,6 +12,7 @@ from kodi_lab.domain.models import (
 )
 from kodi_lab.domain.runtime_catalog import (
     RevisionApprovalState,
+    RuntimeContainerArtifact,
     RuntimeDefinition,
     RuntimeRevision,
     normalize_sha256_digest,
@@ -24,6 +25,7 @@ __all__ = [
     "InstanceType",
     "ManagedInstance",
     "RevisionApprovalState",
+    "RuntimeContainerArtifact",
     "RuntimeDefinition",
     "RuntimeRevision",
     "Target",

@@ -10,13 +10,18 @@ from enum import StrEnum
 from typing import Protocol, cast
 
 import docker  # type: ignore[import-untyped]
-from docker.errors import APIError, DockerException  # type: ignore[import-untyped]
+from docker.errors import (  # type: ignore[import-untyped]
+    APIError,
+    DockerException,
+    NotFound,
+)
 
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
     ContainerIdentityPreconditionError,
     ContainerStateNotReconcilableError,
     ContainerStateNotStoppableError,
+    DockerCreateError,
     DockerDaemonUnavailableError,
     DockerInventoryReadError,
     DockerStartError,
@@ -24,11 +29,24 @@ from kodi_lab.broker.errors import (
     InvalidManagedContainerMetadataError,
     InventoryLimitExceededError,
     ManagedContainerNotFoundError,
+    ManagedNetworkConflictError,
+    ManagedNetworkUnavailableError,
+    PartialProvisioningError,
+    PostCreateVerificationError,
     PostStartVerificationError,
     PostStopVerificationError,
+    ProvisioningConflictError,
+    RuntimeImageUnavailableError,
     RuntimeStatePreconditionError,
 )
 from kodi_lab.broker.protocol import is_canonical_uuid
+from kodi_lab.broker.provisioning import (
+    MANAGED_NETWORK_DRIVER,
+    MANAGED_NETWORK_NAME,
+    MANAGED_NETWORK_SUBNET,
+    RUNTIME_REVISION_LABEL_KEY,
+    ManagedContainerProvisioningSpec,
+)
 
 MANAGED_LABEL_KEY = "io.kodi-lab.managed"
 MANAGED_LABEL_VALUE = "true"
@@ -37,6 +55,10 @@ MAX_MANAGED_CONTAINERS = 128
 DOCKER_API_BASE_URL = "unix:///var/run/docker.sock"
 DOCKER_API_TIMEOUT_SECONDS = 5
 DOCKER_STOP_TIMEOUT_SECONDS = 10
+NETWORK_RESOURCE_LABEL_KEY = "io.kodi-lab.resource"
+NETWORK_RESOURCE_LABEL_VALUE = "network"
+NETWORK_ID_LABEL_KEY = "io.kodi-lab.network-id"
+NETWORK_ID_LABEL_VALUE = "managed-v1"
 
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -96,6 +118,18 @@ class StartManagedContainerRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ProvisionedManagedContainerRecord:
+    """Minimal verified provisioning outcome."""
+
+    managed_instance_id: str
+    runtime_revision_id: str
+    container_id: str
+    image_id: str
+    runtime_state: ContainerRuntimeState
+    created: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _ReconciliationRecord:
     managed_instance_id: str
     container_id: str
@@ -137,6 +171,13 @@ class ManagedContainerOperationsProvider(ManagedContainerInventoryProvider, Prot
         """Stop one exactly owned container under optimistic preconditions."""
 
 
+class ManagedContainerProvisioningProvider(Protocol):
+    def provision_managed_container(
+        self, spec: ManagedContainerProvisioningSpec
+    ) -> ProvisionedManagedContainerRecord:
+        """Create or verify one container from broker-trusted state."""
+
+
 class _DockerClient(Protocol):
     def containers(
         self, *, all: bool, filters: Mapping[str, list[str]]
@@ -149,6 +190,38 @@ class _DockerClient(Protocol):
     def stop(self, container: str, *, timeout: int) -> None: ...
 
     def close(self) -> None: ...
+
+
+class _ProvisioningDockerClient(_DockerClient, Protocol):
+    def inspect_image(self, image: str) -> object: ...
+
+    def inspect_network(self, network: str) -> object: ...
+
+    def create_host_config(
+        self,
+        *,
+        privileged: bool,
+        restart_policy: Mapping[str, str],
+        network_mode: str,
+    ) -> object: ...
+
+    def create_endpoint_config(self) -> object: ...
+
+    def create_networking_config(
+        self, endpoints_config: Mapping[str, object]
+    ) -> object: ...
+
+    def create_container(
+        self,
+        *,
+        image: str,
+        name: str,
+        labels: Mapping[str, str],
+        host_config: object,
+        networking_config: object,
+    ) -> object: ...
+
+    def remove_container(self, container: str, *, force: bool) -> None: ...
 
 
 type DockerClientFactory = Callable[[], _DockerClient]
@@ -190,9 +263,9 @@ def normalize_runtime_state(value: object) -> ContainerRuntimeState:
         raise DockerInventoryReadError("Docker returned malformed runtime state")
     if value == "running":
         return ContainerRuntimeState.RUNNING
-    if value in {"exited", "dead"}:
+    if value in {"created", "exited", "dead"}:
         return ContainerRuntimeState.STOPPED
-    if value in {"created", "restarting", "removing", "paused"}:
+    if value in {"restarting", "removing", "paused"}:
         return ContainerRuntimeState.TRANSITIONAL
     return ContainerRuntimeState.UNKNOWN
 
@@ -274,6 +347,338 @@ class DockerManagedContainerAdapter:
             if client is not None:
                 with suppress(DockerException, OSError):
                     client.close()
+
+    def provision_managed_container(
+        self, spec: ManagedContainerProvisioningSpec
+    ) -> ProvisionedManagedContainerRecord:
+        """Create or verify one disposable container from trusted fixed policy."""
+
+        client: _ProvisioningDockerClient | None = None
+        created_id: str | None = None
+        try:
+            client = cast(_ProvisioningDockerClient, self._client_factory())
+            self._validate_managed_network(client)
+            image = self._inspect_required_image(client, spec.image_id)
+            image_config = _require_mapping(image.get("Config"))
+            if image_config.get("Volumes") not in (None, {}):
+                raise ProvisioningConflictError(
+                    "Runtime image declares volumes outside disposable policy"
+                )
+
+            owned = client.containers(
+                all=True,
+                filters={
+                    "label": [
+                        f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                        f"{INSTANCE_ID_LABEL_KEY}={spec.managed_instance_id}",
+                    ]
+                },
+            )
+            if not isinstance(owned, list):
+                raise DockerInventoryReadError(
+                    "Docker returned malformed container selection data"
+                )
+            if len(owned) > 1:
+                raise AmbiguousManagedContainerError(
+                    "Multiple containers have the managed instance identity"
+                )
+            if owned:
+                selected = _require_mapping(owned[0])
+                selected_id = _require_container_id(selected.get("Id"))
+                inspected = _require_mapping(client.inspect_container(selected_id))
+                state = self._validate_provisioned_container(
+                    inspected,
+                    expected_container_id=selected_id,
+                    spec=spec,
+                    image_config=image_config,
+                )
+                return ProvisionedManagedContainerRecord(
+                    managed_instance_id=spec.managed_instance_id,
+                    runtime_revision_id=spec.runtime_revision_id,
+                    container_id=selected_id,
+                    image_id=spec.image_id,
+                    runtime_state=state,
+                    created=False,
+                )
+
+            named = client.containers(all=True, filters={"name": [spec.container_name]})
+            if not isinstance(named, list):
+                raise DockerInventoryReadError(
+                    "Docker returned malformed name-conflict data"
+                )
+            for summary_value in named:
+                summary = _require_mapping(summary_value)
+                candidate_id = _require_container_id(summary.get("Id"))
+                candidate = _require_mapping(client.inspect_container(candidate_id))
+                if candidate.get("Name") in {
+                    spec.container_name,
+                    f"/{spec.container_name}",
+                }:
+                    raise ProvisioningConflictError(
+                        "Deterministic managed-container name is occupied"
+                    )
+
+            labels = {
+                MANAGED_LABEL_KEY: MANAGED_LABEL_VALUE,
+                INSTANCE_ID_LABEL_KEY: spec.managed_instance_id,
+                RUNTIME_REVISION_LABEL_KEY: spec.runtime_revision_id,
+            }
+            host_config = client.create_host_config(
+                privileged=False,
+                restart_policy={"Name": "no"},
+                network_mode=spec.network_name,
+            )
+            endpoint = client.create_endpoint_config()
+            networking = client.create_networking_config({spec.network_name: endpoint})
+            try:
+                created_value = client.create_container(
+                    image=spec.image_id,
+                    name=spec.container_name,
+                    labels=labels,
+                    host_config=host_config,
+                    networking_config=networking,
+                )
+                created = _require_mapping(created_value)
+                created_id = _require_container_id(created.get("Id"))
+            except (DockerException, OSError) as error:
+                raise DockerCreateError("Docker container creation failed") from error
+            except DockerInventoryReadError as error:
+                raise PartialProvisioningError(
+                    "Docker created an object but did not return a safe identity"
+                ) from error
+
+            try:
+                inspected = _require_mapping(client.inspect_container(created_id))
+                state = self._validate_provisioned_container(
+                    inspected,
+                    expected_container_id=created_id,
+                    spec=spec,
+                    image_config=image_config,
+                )
+                if state is not ContainerRuntimeState.STOPPED:
+                    raise PostCreateVerificationError(
+                        "Created container is not stopped"
+                    )
+            except Exception as error:
+                self._rollback_created_container(
+                    client, created_id=created_id, spec=spec
+                )
+                raise PostCreateVerificationError(
+                    "Created container did not pass verification"
+                ) from error
+
+            return ProvisionedManagedContainerRecord(
+                managed_instance_id=spec.managed_instance_id,
+                runtime_revision_id=spec.runtime_revision_id,
+                container_id=created_id,
+                image_id=spec.image_id,
+                runtime_state=ContainerRuntimeState.STOPPED,
+                created=True,
+            )
+        except (
+            AmbiguousManagedContainerError,
+            DockerCreateError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            ManagedNetworkConflictError,
+            ManagedNetworkUnavailableError,
+            PartialProvisioningError,
+            PostCreateVerificationError,
+            ProvisioningConflictError,
+            RuntimeImageUnavailableError,
+        ):
+            raise
+        except APIError as error:
+            raise DockerInventoryReadError(
+                "Docker provisioning preflight read failed"
+            ) from error
+        except (DockerException, OSError) as error:
+            raise DockerDaemonUnavailableError(
+                "Docker daemon is unavailable"
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
+    @staticmethod
+    def _validate_managed_network(client: _ProvisioningDockerClient) -> None:
+        try:
+            network_value = client.inspect_network(MANAGED_NETWORK_NAME)
+        except NotFound as error:
+            raise ManagedNetworkUnavailableError(
+                "Required managed network does not exist"
+            ) from error
+        try:
+            network = _require_mapping(network_value)
+            if network.get("Name") != MANAGED_NETWORK_NAME:
+                raise ManagedNetworkConflictError("Managed network name is invalid")
+            if network.get("Driver") != MANAGED_NETWORK_DRIVER:
+                raise ManagedNetworkConflictError("Managed network driver is invalid")
+            labels = _require_mapping(network.get("Labels"))
+            if (
+                labels.get(MANAGED_LABEL_KEY) != MANAGED_LABEL_VALUE
+                or labels.get(NETWORK_RESOURCE_LABEL_KEY)
+                != NETWORK_RESOURCE_LABEL_VALUE
+                or labels.get(NETWORK_ID_LABEL_KEY) != NETWORK_ID_LABEL_VALUE
+            ):
+                raise ManagedNetworkConflictError("Managed network labels are invalid")
+            ipam = _require_mapping(network.get("IPAM"))
+            configs = ipam.get("Config")
+            if not isinstance(configs, list) or len(configs) != 1:
+                raise ManagedNetworkConflictError("Managed network IPAM is invalid")
+            config = _require_mapping(configs[0])
+            if config.get("Subnet") != MANAGED_NETWORK_SUBNET:
+                raise ManagedNetworkConflictError("Managed network subnet is invalid")
+        except DockerInventoryReadError as error:
+            raise ManagedNetworkConflictError(
+                "Managed network configuration is malformed"
+            ) from error
+
+    @staticmethod
+    def _inspect_required_image(
+        client: _ProvisioningDockerClient, image_id: str
+    ) -> Mapping[str, object]:
+        try:
+            image = _require_mapping(client.inspect_image(image_id))
+        except NotFound as error:
+            raise RuntimeImageUnavailableError(
+                "Required immutable runtime image is unavailable"
+            ) from error
+        if _require_image_id(image.get("Id")) != image_id:
+            raise RuntimeImageUnavailableError(
+                "Required immutable runtime image identity is inconsistent"
+            )
+        return image
+
+    @staticmethod
+    def _validate_provisioned_container(
+        inspected: Mapping[str, object],
+        *,
+        expected_container_id: str,
+        spec: ManagedContainerProvisioningSpec,
+        image_config: Mapping[str, object],
+    ) -> ContainerRuntimeState:
+        if _require_container_id(inspected.get("Id")) != expected_container_id:
+            raise ProvisioningConflictError("Managed container identity has changed")
+        if inspected.get("Name") not in {
+            spec.container_name,
+            f"/{spec.container_name}",
+        }:
+            raise ProvisioningConflictError("Managed container name has drifted")
+        if _require_image_id(inspected.get("Image")) != spec.image_id:
+            raise ProvisioningConflictError("Managed container image has drifted")
+        config = _require_mapping(inspected.get("Config"))
+        labels = _require_mapping(config.get("Labels"))
+        if (
+            labels.get(MANAGED_LABEL_KEY) != MANAGED_LABEL_VALUE
+            or labels.get(INSTANCE_ID_LABEL_KEY) != spec.managed_instance_id
+            or labels.get(RUNTIME_REVISION_LABEL_KEY) != spec.runtime_revision_id
+        ):
+            raise InvalidManagedContainerMetadataError(
+                "Managed container ownership metadata is invalid"
+            )
+        for field in ("Env", "Cmd", "Entrypoint"):
+            if config.get(field) != image_config.get(field):
+                raise ProvisioningConflictError(
+                    "Managed container image-default configuration has drifted"
+                )
+        if config.get("Volumes") not in (None, {}):
+            raise ProvisioningConflictError("Managed container has volumes")
+        if inspected.get("Mounts") not in (None, []):
+            raise ProvisioningConflictError("Managed container has mounts")
+        host = _require_mapping(inspected.get("HostConfig"))
+        restart = _require_mapping(host.get("RestartPolicy"))
+        if restart.get("Name") != "no":
+            raise ProvisioningConflictError("Managed container restart policy drifted")
+        if host.get("Privileged") is not False:
+            raise ProvisioningConflictError("Managed container privilege drifted")
+        if host.get("NetworkMode") != spec.network_name:
+            raise ProvisioningConflictError("Managed container network mode drifted")
+        if host.get("PidMode") not in (None, ""):
+            raise ProvisioningConflictError("Managed container PID mode drifted")
+        if host.get("IpcMode") not in (None, "", "private"):
+            raise ProvisioningConflictError("Managed container IPC mode drifted")
+        for field in (
+            "CapAdd",
+            "CapDrop",
+            "Devices",
+            "DeviceRequests",
+            "SecurityOpt",
+            "PortBindings",
+            "Binds",
+        ):
+            if host.get(field) not in (None, [], {}):
+                raise ProvisioningConflictError(
+                    "Managed container host configuration has drifted"
+                )
+        for field in (
+            "Memory",
+            "MemoryReservation",
+            "MemorySwap",
+            "NanoCpus",
+            "CpuShares",
+            "CpuPeriod",
+            "CpuQuota",
+        ):
+            if host.get(field) not in (None, 0):
+                raise ProvisioningConflictError(
+                    "Managed container resource policy has drifted"
+                )
+        if host.get("CpusetCpus") not in (None, "") or host.get("PidsLimit") not in (
+            None,
+            0,
+            -1,
+        ):
+            raise ProvisioningConflictError(
+                "Managed container resource policy has drifted"
+            )
+        network_settings = _require_mapping(inspected.get("NetworkSettings"))
+        networks = _require_mapping(network_settings.get("Networks"))
+        if set(networks) != {spec.network_name}:
+            raise ProvisioningConflictError(
+                "Managed container network attachment drifted"
+            )
+        ports = network_settings.get("Ports")
+        if ports is not None and not isinstance(ports, Mapping):
+            raise ProvisioningConflictError("Managed container port state is malformed")
+        if isinstance(ports, Mapping) and any(ports.values()):
+            raise ProvisioningConflictError("Managed container publishes host ports")
+        state = _require_mapping(inspected.get("State"))
+        normalized = normalize_runtime_state(state.get("Status"))
+        if normalized not in {
+            ContainerRuntimeState.RUNNING,
+            ContainerRuntimeState.STOPPED,
+        }:
+            raise ProvisioningConflictError(
+                "Managed container is not in an acceptable provisioned state"
+            )
+        return normalized
+
+    @staticmethod
+    def _rollback_created_container(
+        client: _ProvisioningDockerClient,
+        *,
+        created_id: str,
+        spec: ManagedContainerProvisioningSpec,
+    ) -> None:
+        try:
+            inspected = _require_mapping(client.inspect_container(created_id))
+            if _require_container_id(inspected.get("Id")) != created_id:
+                raise ValueError
+            config = _require_mapping(inspected.get("Config"))
+            labels = _require_mapping(config.get("Labels"))
+            if (
+                labels.get(MANAGED_LABEL_KEY) != MANAGED_LABEL_VALUE
+                or labels.get(INSTANCE_ID_LABEL_KEY) != spec.managed_instance_id
+                or labels.get(RUNTIME_REVISION_LABEL_KEY) != spec.runtime_revision_id
+            ):
+                raise ValueError
+            client.remove_container(created_id, force=False)
+        except Exception as cleanup_error:
+            raise PartialProvisioningError(
+                "Partial provisioning requires operator reconciliation"
+            ) from cleanup_error
 
     def start_managed_container(
         self,

@@ -147,6 +147,15 @@ class RuntimeRevisionConflictError(PersistenceConflictError):
         )
 
 
+class RuntimeContainerArtifactConflictError(PersistenceConflictError):
+    def __init__(self, runtime_revision_id: UUID) -> None:
+        self.runtime_revision_id = runtime_revision_id
+        super().__init__(
+            f"runtime container artifact for revision {runtime_revision_id} "
+            "already exists"
+        )
+
+
 class CatalogDataValidationError(ApplicationServiceError):
     """Catalog registration data failed domain validation."""
 

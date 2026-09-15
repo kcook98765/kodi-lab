@@ -83,16 +83,17 @@ part of this local protocol.
 The broker uses one bounded, length-prefixed JSON request and response per Unix
 stream connection. A closed operation registry validates operation-specific
 parameters before invoking an explicit handler. It exposes `ping`, `broker_info`,
-`capabilities`, and the empty-parameter `managed_container_inventory`; all
-require the authorized peer. Phase 2 additionally exposes only explicit semantic
-`start_managed_container` and `stop_managed_container` mutations for existing
-containers, with strict ownership, immutable-identity, and runtime-state
+`capabilities`, the empty-parameter `managed_container_inventory`, UUID-only
+`provision_managed_container`, and explicit semantic `start_managed_container`
+and `stop_managed_container`; all require the authorized peer. Existing-container
+mutations retain strict ownership, immutable-identity, and runtime-state
 preconditions. There is no shell, path, environment, raw Docker, generic
-execution/reconciliation, create/remove/restart/exec, or other lifecycle operation.
+execution/reconciliation/create, remove/restart/exec, or other lifecycle
+operation.
 
-The client/broker boundary is independent of Phase 1's domain, storage, and
-application services. A narrow infrastructure adapter performs fixed read-only
-Docker list/inspect calls for inventory and fixed semantic start/stop. It selects
+The client/broker boundary is independent of Phase 1's service policy. A narrow
+infrastructure adapter performs fixed read-only Docker list/inspect calls for
+inventory and fixed semantic provision/start/stop operations. It selects
 containers by the
 exact `io.kodi-lab.managed=true` and canonical
 `io.kodi-lab.instance-id=<UUID>` ownership contract, then emits a bounded
@@ -108,3 +109,20 @@ adapters likewise remain behind semantic allowlisted handlers rather than being
 imported into Phase 1 services. See
 `BROKER-SECURITY.md` for the protocol, threat model, path-safety, audit, and
 deployment contracts.
+
+Provisioning adds a read-only trusted-state resolver inside the privileged
+boundary. Given only managed-instance UUID, it reads the Target, ManagedInstance,
+exact pinned RuntimeRevision/RuntimeDefinition, and separate immutable
+RuntimeContainerArtifact mapping. The resolved Docker specification never comes
+from the client. The adapter may then create only a disposable, stopped container
+with deterministic name, fixed ownership/revision labels, exact image ID, and the
+validated `kodi-lab-managed-v1` prerequisite network. It publishes no ports and
+adds no mounts, environment, command, entrypoint, privilege, devices,
+capabilities, host namespaces, or resource limits. Creation, start, and stop
+remain separate explicit operations.
+
+Provisioning retries adopt nothing by name. Existing owned state is idempotent
+only after full invariant validation. Post-create failures remove only the exact
+new ID after fresh ownership proof; uncertain partial state is retained for
+operator reconciliation. The broker never creates or rolls back images,
+networks, or volumes. Persistent storage remains deferred.

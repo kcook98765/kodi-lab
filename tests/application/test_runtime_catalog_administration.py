@@ -13,6 +13,7 @@ from kodi_lab.application import (
     ManagedInstanceService,
     RevisionNotApprovedError,
     RuntimeCatalogAdministrationService,
+    RuntimeContainerArtifactConflictError,
     RuntimeDefinitionConflictError,
     RuntimeDefinitionNotFoundError,
     RuntimeRevisionConflictError,
@@ -34,6 +35,7 @@ from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
+    RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
     RuntimeRevisionRepository,
     TargetRepository,
@@ -124,6 +126,43 @@ def test_register_runtime_definition(catalog_factory: sessionmaker[Session]) -> 
 
     with catalog_factory() as session:
         assert RuntimeDefinitionRepository(session).get(definition.id) == definition
+
+
+def test_register_immutable_runtime_container_artifact(
+    catalog_factory: sessionmaker[Session],
+) -> None:
+    service = RuntimeCatalogAdministrationService(catalog_factory)
+    revision = register_revision(service, register_definition(service))
+
+    artifact = service.register_container_artifact(
+        runtime_revision_id=revision.id, image_id="sha256:" + ("a" * 64)
+    )
+    assert artifact.image_id == "sha256:" + ("a" * 64)
+    with catalog_factory() as session:
+        assert RuntimeContainerArtifactRepository(session).get(revision.id) == artifact
+
+    with pytest.raises(RuntimeContainerArtifactConflictError):
+        service.register_container_artifact(
+            runtime_revision_id=revision.id, image_id="sha256:" + ("b" * 64)
+        )
+
+
+def test_container_artifact_registration_validates_revision_and_image(
+    catalog_factory: sessionmaker[Session],
+) -> None:
+    service = RuntimeCatalogAdministrationService(catalog_factory)
+    with pytest.raises(RuntimeRevisionNotFoundError):
+        service.register_container_artifact(
+            runtime_revision_id=uuid4(), image_id="sha256:" + ("a" * 64)
+        )
+    with pytest.raises(CatalogDataValidationError):
+        service.register_container_artifact(
+            runtime_revision_id=uuid4(), image_id="mutable:tag"
+        )
+    with pytest.raises(CatalogDataValidationError):
+        service.register_container_artifact(
+            runtime_revision_id=uuid4(), image_id="A" * 64
+        )
 
 
 def test_invalid_definition_data_is_typed_and_not_persisted(

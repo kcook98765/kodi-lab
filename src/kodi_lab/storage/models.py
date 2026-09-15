@@ -249,3 +249,23 @@ class RuntimeRevisionRow(Base):
         server_default=text("0"),
     )
     trusted_build_confirmed_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RuntimeContainerArtifactRow(Base):
+    """One immutable Docker image artifact for a finalized runtime revision."""
+
+    __tablename__ = "runtime_container_artifacts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(image_id) = 71 AND substr(image_id, 1, 7) = 'sha256:' "
+            "AND substr(image_id, 8) NOT GLOB '*[^0-9a-f]*'",
+            name="runtime_container_artifact_image_id_sha256",
+        ),
+    )
+
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    image_id: Mapped[str] = mapped_column(String(71), nullable=False)

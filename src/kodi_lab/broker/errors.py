@@ -144,6 +144,46 @@ class PostStartVerificationError(DockerInventoryError):
     """The broker could not verify the required running postcondition."""
 
 
+class ProvisioningStateError(BrokerError):
+    """Canonical Kodi Lab state could not produce a provisioning specification."""
+
+
+class PersistentProvisioningUnsupportedError(ProvisioningStateError):
+    """The first provisioning slice does not support persistent instances."""
+
+
+class RuntimeContainerArtifactUnavailableError(ProvisioningStateError):
+    """The pinned runtime revision has no immutable container artifact."""
+
+
+class RuntimeImageUnavailableError(DockerInventoryError):
+    """The exact immutable Docker image is not locally available."""
+
+
+class ManagedNetworkUnavailableError(DockerInventoryError):
+    """The required managed Docker network does not exist."""
+
+
+class ManagedNetworkConflictError(DockerInventoryError):
+    """The managed network does not satisfy its fixed ownership/config contract."""
+
+
+class ProvisioningConflictError(DockerInventoryError):
+    """An existing Docker object conflicts with the provisioning contract."""
+
+
+class DockerCreateError(DockerInventoryError):
+    """Docker did not safely complete the fixed semantic create request."""
+
+
+class PostCreateVerificationError(DockerInventoryError):
+    """The newly created container did not satisfy its semantic postcondition."""
+
+
+class PartialProvisioningError(DockerInventoryError):
+    """A created container could not be safely reconciled or removed."""
+
+
 class ClientError(BrokerError):
     """Base class for typed unprivileged-client failures."""
 
@@ -228,3 +268,23 @@ class PostStopVerificationClientError(RemoteBrokerError):
 
 class PostStartVerificationClientError(RemoteBrokerError):
     """The broker could not verify the running postcondition."""
+
+
+class ProvisioningPrerequisiteClientError(RemoteBrokerError):
+    """Trusted state or a fixed Docker prerequisite is unavailable."""
+
+
+class ProvisioningConflictClientError(RemoteBrokerError):
+    """Existing Docker state conflicts with canonical provisioning."""
+
+
+class DockerCreateClientError(RemoteBrokerError):
+    """The broker could not safely complete Docker creation."""
+
+
+class PostCreateVerificationClientError(RemoteBrokerError):
+    """The broker could not verify the created container."""
+
+
+class PartialProvisioningClientError(RemoteBrokerError):
+    """Provisioning left an uncertain object requiring reconciliation."""

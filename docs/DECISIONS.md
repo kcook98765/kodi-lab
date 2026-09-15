@@ -327,8 +327,8 @@ details that it did not specify.
   container ID, immutable `sha256:<64 lowercase hex>` image ID, bounded runtime
   state, and bounded health state. More than 128 matching summaries fails without
   inspection or truncation. No observations are persisted.
-- Runtime mapping: Docker `running` is `running`; `exited`/`dead` are `stopped`;
-  `created`/`restarting`/`removing`/`paused` are `transitional`; other string
+- Runtime mapping: Docker `running` is `running`; `created`/`exited`/`dead` are
+  `stopped`; `restarting`/`removing`/`paused` are `transitional`; other string
   states are `unknown`. Health `healthy`, `unhealthy`, and `starting` retain those
   meanings; absent health is `not_configured`; other string states are `unknown`.
 - Reason: 128 is conservative for a local lab and keeps the worst-case typed
@@ -394,3 +394,68 @@ details that it did not specify.
   replacement and false-success cases but cannot eliminate the interval between
   pre-mutation inspect and Docker start/stop when another privileged Docker actor
   can change the same object. This phase adds no lock or lease.
+
+## D-0040: Immutable runtime-container artifact mapping
+
+- Status: approved for Phase 2
+- Decision: materialized Docker identity is a separate immutable one-to-one
+  `RuntimeContainerArtifact` keyed by runtime-revision UUID and containing only a
+  canonical `sha256:<64 lowercase hex>` image ID. `RuntimeRevision.content_digest`
+  is never reinterpreted as Docker identity. Registration requires an existing
+  revision and conflicts on every second mapping; there is no update/delete,
+  pull, build, or materialization API. Migration `0003_runtime_container_artifacts`
+  adds the restrictive historical foreign key.
+
+## D-0041: Trusted provisioning resolution and protocol input
+
+- Status: approved for Phase 2
+- Decision: `provision_managed_container` accepts only canonical managed-instance
+  UUID. A broker-side read-only SQLite resolver loads the Target, existing
+  ManagedInstance, exact pinned RuntimeRevision, RuntimeDefinition, and immutable
+  RuntimeContainerArtifact. It neither reselects a revision nor re-evaluates
+  historical approval/trust. The resolved specification fixes name, image,
+  revision, and network; ORM rows and caller substitutions do not cross the
+  boundary.
+
+## D-0042: Disposable create-only container policy
+
+- Status: approved for Phase 2
+- Decision: the first provisioning slice supports disposable instances only and
+  creates without starting. The deterministic name is
+  `kodi-lab-managed-<32 lowercase UUID hex>`. Labels are exactly the established
+  managed/instance labels plus
+  `io.kodi-lab.runtime-revision-id=<canonical UUID>`. Creation uses the immutable
+  image ID and image-owned environment/command/entrypoint, publishes no ports,
+  creates no mounts/volumes, sets restart policy `no`, sets `privileged=false`,
+  and adds no devices, capabilities, host namespaces, custom security profiles,
+  or resource limits. Dynamic Docker addressing is used. Start remains a separate
+  secured operation. Docker's raw create-only `created` state normalizes to the
+  broker's semantic `stopped` state.
+
+## D-0043: Managed Docker network prerequisite
+
+- Status: approved for Phase 2
+- Decision: provisioning requires but never creates the bridge network
+  `kodi-lab-managed-v1`, with exact required labels
+  `io.kodi-lab.managed=true`, `io.kodi-lab.resource=network`, and
+  `io.kodi-lab.network-id=managed-v1`, and subnet `10.250.0.0/24`. A dedicated
+  2026-09-14 read-only development host revalidation inspected all 19 Docker networks and
+  found no overlap; the five protected networks retained their documented
+  subnets. Missing or mismatched network state fails closed and legacy networks
+  are never substituted.
+
+## D-0044: Provisioning idempotency and rollback
+
+- Status: approved for Phase 2
+- Decision: exactly one already-owned container is idempotent only when immutable
+  identity, deterministic name, all three labels, image defaults, image ID,
+  managed network, no ports/mounts/volumes, restart/security profile, and a
+  running-or-stopped normalized state all match. Drift, duplicate ownership, and
+  any exact-name collision fail without adoption or repair. New creation must
+  freshly verify the same invariants and stopped state.
+- Rollback: post-create failure removes only the exact returned immutable ID after
+  a second fresh inspect proves all three ownership labels. Removal is non-forced
+  because provisioning never starts the container. Failure to prove identity or
+  ownership, an unusable create response, or removal failure returns
+  `partial_provisioning_requires_reconciliation`; pre-existing containers and
+  images/networks/volumes are never removed.

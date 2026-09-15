@@ -203,7 +203,7 @@ def test_duplicate_managed_instance_identity_fails_whole_inventory() -> None:
         ("running", ContainerRuntimeState.RUNNING),
         ("exited", ContainerRuntimeState.STOPPED),
         ("dead", ContainerRuntimeState.STOPPED),
-        ("created", ContainerRuntimeState.TRANSITIONAL),
+        ("created", ContainerRuntimeState.STOPPED),
         ("restarting", ContainerRuntimeState.TRANSITIONAL),
         ("paused", ContainerRuntimeState.TRANSITIONAL),
         ("future-state", ContainerRuntimeState.UNKNOWN),

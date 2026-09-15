@@ -172,6 +172,7 @@ def test_adapter_exposes_only_inventory_and_semantic_stop_public_methods() -> No
     }
     assert public_callables == {
         "list_managed_containers",
+        "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",
     }
@@ -195,7 +196,7 @@ def test_running_container_rejects_expected_stopped_state() -> None:
     assert client.stop_calls == []
 
 
-@pytest.mark.parametrize("state", ["created", "future-state"])
+@pytest.mark.parametrize("state", ["restarting", "future-state"])
 def test_transitional_and_unknown_states_are_not_mutated(state: str) -> None:
     client = FakeStopDockerClient(inspections=(inspect_data(1, state=state),))
     with pytest.raises(ContainerStateNotStoppableError):

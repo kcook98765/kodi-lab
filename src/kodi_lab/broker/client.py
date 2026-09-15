@@ -23,6 +23,7 @@ from kodi_lab.broker.errors import (
     ContainerIdentityPreconditionClientError,
     ContainerStateNotReconcilableClientError,
     ContainerStateNotStoppableClientError,
+    DockerCreateClientError,
     DockerDaemonUnavailableClientError,
     DockerInventoryClientError,
     DockerStartClientError,
@@ -31,8 +32,12 @@ from kodi_lab.broker.errors import (
     InventoryLimitClientError,
     ManagedContainerMetadataClientError,
     ManagedContainerNotFoundClientError,
+    PartialProvisioningClientError,
+    PostCreateVerificationClientError,
     PostStartVerificationClientError,
     PostStopVerificationClientError,
+    ProvisioningConflictClientError,
+    ProvisioningPrerequisiteClientError,
     RemoteBrokerError,
     RequestError,
     RuntimeStatePreconditionClientError,
@@ -45,6 +50,8 @@ from kodi_lab.broker.operations import (
     EmptyParams,
     ManagedContainerInventoryResult,
     PingResult,
+    ProvisionManagedContainerParams,
+    ProvisionManagedContainerResult,
     StartManagedContainerParams,
     StartManagedContainerResult,
     StopManagedContainerParams,
@@ -72,6 +79,7 @@ STOP_RESPONSE_TIMEOUT_SECONDS = float(
     (4 * DOCKER_API_TIMEOUT_SECONDS) + DOCKER_STOP_TIMEOUT_SECONDS + 5
 )
 START_RESPONSE_TIMEOUT_SECONDS = float((4 * DOCKER_API_TIMEOUT_SECONDS) + 5)
+PROVISION_RESPONSE_TIMEOUT_SECONDS = float((8 * DOCKER_API_TIMEOUT_SECONDS) + 5)
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
@@ -115,6 +123,31 @@ class BrokerClient:
             EmptyParams(),
             ManagedContainerInventoryResult,
         )
+
+    def provision_managed_container(
+        self, *, managed_instance_id: str
+    ) -> ProvisionManagedContainerResult:
+        """Provision one container entirely from broker-trusted canonical state."""
+
+        try:
+            params = ProvisionManagedContainerParams(
+                managed_instance_id=managed_instance_id
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "provision request failed local validation"
+            ) from error
+        result = self._call(
+            "provision_managed_container",
+            params,
+            ProvisionManagedContainerResult,
+            response_timeout=PROVISION_RESPONSE_TIMEOUT_SECONDS,
+        )
+        if result.managed_instance_id != managed_instance_id:
+            raise ClientProtocolError(
+                "broker provisioning result identity does not match the request"
+            )
+        return result
 
     def stop_managed_container(
         self,
@@ -310,6 +343,24 @@ class BrokerClient:
             error_types: dict[str, type[RemoteBrokerError]] = {
                 "unauthorized_peer": BrokerAuthorizationError,
                 "docker_daemon_unavailable": DockerDaemonUnavailableClientError,
+                "provisioning_state_unavailable": ProvisioningPrerequisiteClientError,
+                "persistent_provisioning_unsupported": (
+                    ProvisioningPrerequisiteClientError
+                ),
+                "runtime_container_artifact_unavailable": (
+                    ProvisioningPrerequisiteClientError
+                ),
+                "runtime_image_unavailable": ProvisioningPrerequisiteClientError,
+                "managed_network_unavailable": ProvisioningPrerequisiteClientError,
+                "managed_network_conflict": ProvisioningConflictClientError,
+                "managed_container_provisioning_conflict": (
+                    ProvisioningConflictClientError
+                ),
+                "docker_create_failed": DockerCreateClientError,
+                "post_create_verification_failed": (PostCreateVerificationClientError),
+                "partial_provisioning_requires_reconciliation": (
+                    PartialProvisioningClientError
+                ),
                 "docker_inventory_failed": DockerInventoryClientError,
                 "invalid_managed_container_metadata": (
                     ManagedContainerMetadataClientError

@@ -15,12 +15,14 @@ from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     DockerManagedContainerAdapter,
     ManagedContainerOperationsProvider,
+    ManagedContainerProvisioningProvider,
 )
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
     ContainerIdentityPreconditionError,
     ContainerStateNotReconcilableError,
     ContainerStateNotStoppableError,
+    DockerCreateError,
     DockerDaemonUnavailableError,
     DockerInventoryReadError,
     DockerStartError,
@@ -29,10 +31,19 @@ from kodi_lab.broker.errors import (
     InvalidManagedContainerMetadataError,
     InventoryLimitExceededError,
     ManagedContainerNotFoundError,
+    ManagedNetworkConflictError,
+    ManagedNetworkUnavailableError,
     OperationError,
+    PartialProvisioningError,
+    PersistentProvisioningUnsupportedError,
+    PostCreateVerificationError,
     PostStartVerificationError,
     PostStopVerificationError,
+    ProvisioningConflictError,
+    ProvisioningStateError,
     RequestError,
+    RuntimeContainerArtifactUnavailableError,
+    RuntimeImageUnavailableError,
     RuntimeStatePreconditionError,
 )
 from kodi_lab.broker.protocol import (
@@ -40,6 +51,10 @@ from kodi_lab.broker.protocol import (
     Request,
     StrictModel,
     is_canonical_uuid,
+)
+from kodi_lab.broker.provisioning import (
+    ProvisioningResolver,
+    SqliteProvisioningResolver,
 )
 
 
@@ -107,6 +122,57 @@ class ManagedContainerInventoryResult(StrictModel):
     containers: list[ManagedContainerInventoryEntry] = Field(
         max_length=MAX_MANAGED_CONTAINERS
     )
+
+
+class ProvisionManagedContainerParams(StrictModel):
+    """The sole public input to trusted provisioning resolution."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _canonical_managed_instance_id(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("managed_instance_id must be a canonical UUID string")
+        return value
+
+
+class ProvisionManagedContainerResult(StrictModel):
+    """Minimal verified creation/idempotency result."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    image_id: str = Field(
+        min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
+    runtime_state: ContainerRuntimeState
+    created: bool
+
+    @field_validator("managed_instance_id", "runtime_revision_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+    @field_validator("runtime_state", mode="before")
+    @classmethod
+    def _runtime_state_from_wire(cls, value: object) -> object:
+        if isinstance(value, str):
+            return ContainerRuntimeState(value)
+        return value
+
+    @model_validator(mode="after")
+    def _require_provisioned_state(self) -> ProvisionManagedContainerResult:
+        if self.runtime_state not in {
+            ContainerRuntimeState.RUNNING,
+            ContainerRuntimeState.STOPPED,
+        }:
+            raise ValueError("provisioned state must be running or stopped")
+        if self.created and self.runtime_state is not ContainerRuntimeState.STOPPED:
+            raise ValueError("newly created container must be stopped")
+        return self
 
 
 class StartManagedContainerParams(StrictModel):
@@ -340,11 +406,18 @@ def _broker_info(_params: EmptyParams) -> BrokerInfoResult:
 
 def build_foundation_registry(
     container_provider: ManagedContainerOperationsProvider | None = None,
+    *,
+    provisioning_resolver: ProvisioningResolver | None = None,
+    provisioning_provider: ManagedContainerProvisioningProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
     registry = OperationRegistry()
     provider = container_provider or DockerManagedContainerAdapter()
+    resolver = provisioning_resolver or SqliteProvisioningResolver.production()
+    provisioner = provisioning_provider or cast(
+        ManagedContainerProvisioningProvider, provider
+    )
     registry.register(
         name="ping",
         params_model=EmptyParams,
@@ -420,6 +493,129 @@ def build_foundation_registry(
         result_model=ManagedContainerInventoryResult,
         handler=managed_container_inventory,
         audit_builder=inventory_audit,
+    )
+
+    def provision_managed_container(
+        params: ProvisionManagedContainerParams,
+    ) -> ProvisionManagedContainerResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id
+        }
+        try:
+            spec = resolver.resolve(params.managed_instance_id)
+            outcome = provisioner.provision_managed_container(spec)
+        except PersistentProvisioningUnsupportedError as error:
+            raise OperationError(
+                "persistent_provisioning_unsupported",
+                "Persistent managed-container provisioning is not supported.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeContainerArtifactUnavailableError as error:
+            raise OperationError(
+                "runtime_container_artifact_unavailable",
+                "The pinned runtime has no materialized container artifact.",
+                audit_fields=audit_fields,
+            ) from error
+        except ProvisioningStateError as error:
+            raise OperationError(
+                "provisioning_state_unavailable",
+                "Canonical managed-instance provisioning state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeImageUnavailableError as error:
+            raise OperationError(
+                "runtime_image_unavailable",
+                "The exact immutable runtime image is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedNetworkUnavailableError as error:
+            raise OperationError(
+                "managed_network_unavailable",
+                "The required managed Docker network is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedNetworkConflictError as error:
+            raise OperationError(
+                "managed_network_conflict",
+                "The managed Docker network does not match its trusted contract.",
+                audit_fields=audit_fields,
+            ) from error
+        except AmbiguousManagedContainerError as error:
+            raise OperationError(
+                "ambiguous_managed_container",
+                "Multiple containers claim the managed instance identity.",
+                audit_fields=audit_fields,
+            ) from error
+        except (
+            ProvisioningConflictError,
+            InvalidManagedContainerMetadataError,
+        ) as error:
+            raise OperationError(
+                "managed_container_provisioning_conflict",
+                "Existing Docker state conflicts with managed provisioning.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerCreateError as error:
+            raise OperationError(
+                "docker_create_failed",
+                "Docker could not safely create the managed container.",
+                audit_fields=audit_fields,
+            ) from error
+        except PostCreateVerificationError as error:
+            raise OperationError(
+                "post_create_verification_failed",
+                "The broker could not verify the created container.",
+                audit_fields=audit_fields,
+            ) from error
+        except PartialProvisioningError as error:
+            raise OperationError(
+                "partial_provisioning_requires_reconciliation",
+                "Partial provisioning requires operator reconciliation.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDaemonUnavailableError as error:
+            raise OperationError(
+                "docker_daemon_unavailable",
+                "The Docker daemon is unavailable to the broker.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerInventoryReadError as error:
+            raise OperationError(
+                "docker_inventory_failed",
+                "The broker could not safely inspect Docker prerequisites.",
+                audit_fields=audit_fields,
+            ) from error
+
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.runtime_revision_id != spec.runtime_revision_id
+            or outcome.image_id != spec.image_id
+        ):
+            raise RuntimeError("Provisioning result identity is inconsistent")
+        return ProvisionManagedContainerResult(
+            managed_instance_id=outcome.managed_instance_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            image_id=outcome.image_id,
+            runtime_state=outcome.runtime_state,
+            created=outcome.created,
+        )
+
+    def provision_audit(
+        result: ProvisionManagedContainerResult,
+    ) -> dict[str, object]:
+        return {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_container_created": result.created,
+            "broker_resulting_runtime_state": result.runtime_state.value,
+        }
+
+    registry.register(
+        name="provision_managed_container",
+        params_model=ProvisionManagedContainerParams,
+        result_model=ProvisionManagedContainerResult,
+        handler=provision_managed_container,
+        audit_builder=provision_audit,
     )
 
     def start_managed_container(

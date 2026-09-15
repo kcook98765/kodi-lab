@@ -75,6 +75,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "capabilities",
                 "managed_container_inventory",
                 "ping",
+                "provision_managed_container",
                 "start_managed_container",
                 "stop_managed_container",
             ],

@@ -8,12 +8,14 @@ from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
     ManagedInstance,
+    RuntimeContainerArtifact,
     RuntimeDefinition,
     RuntimeRevision,
     Target,
 )
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
+    RuntimeContainerArtifactRow,
     RuntimeDefinitionRow,
     RuntimeRevisionRow,
     TargetRow,
@@ -327,3 +329,28 @@ class RuntimeRevisionRepository:
         if row is None:
             raise EntityNotFoundError(f"runtime revision {revision_id} does not exist")
         return _revision_from_row(row), row
+
+
+class RuntimeContainerArtifactRepository:
+    """Create/read-only persistence for immutable container artifacts."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, artifact: RuntimeContainerArtifact) -> None:
+        self._session.add(
+            RuntimeContainerArtifactRow(
+                runtime_revision_id=str(artifact.runtime_revision_id),
+                image_id=artifact.image_id,
+            )
+        )
+        self._session.flush()
+
+    def get(self, runtime_revision_id: UUID) -> RuntimeContainerArtifact | None:
+        row = self._session.get(RuntimeContainerArtifactRow, str(runtime_revision_id))
+        if row is None:
+            return None
+        return RuntimeContainerArtifact(
+            runtime_revision_id=UUID(row.runtime_revision_id),
+            image_id=row.image_id,
+        )

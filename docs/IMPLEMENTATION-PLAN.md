@@ -65,8 +65,19 @@ explicit `start_managed_container` and consolidates both operations behind one
 private two-state reconciliation flow. Desired-state convergence is idempotent;
 required mutations demand expected state equal fresh observed state; and both
 directions revalidate ownership/identity and postconditions. It adds no create,
-restart, remove, kill, exec, readiness polling, or generic mutation. A next slice
-may define safe deterministic managed-container creation only after image,
-network, storage, port, naming, and rollback contracts are approved. The development host
-service-name collision remains an independent deployment blocker and is not
-resolved by repository runtime work.
+restart, remove, kill, exec, readiness polling, or generic mutation. The later
+provisioning slice proceeds only after image, network, storage, port, naming, and
+rollback contracts were explicitly approved. The development host service-name collision
+remains an independent deployment blocker and is not resolved by repository
+runtime work.
+
+The managed-container provisioning foundation adds immutable one-to-one runtime
+container artifact metadata and migration `0003`, a broker-side read-only trusted
+resolver, and fake-only `provision_managed_container`. The operation accepts only
+managed-instance UUID and creates or verifies a disposable stopped container with
+fixed name/labels/image/network and no ports, mounts, command/environment
+overrides, elevated privilege, or guessed resource limits. Full drift checking
+and proof-gated rollback prevent adoption or deletion of uncertain/pre-existing
+objects. The required managed network is a separately created prerequisite;
+persistent storage, real-lab validation, readiness, and deployment remain later
+milestones.

@@ -1,9 +1,9 @@
 # Restricted broker security contract
 
 This document derives from `V1-SPEC.md` plus approved decisions D-0018 through
-D-0039. It describes the Phase 2 implementation boundary; it authorizes one
-read-only Docker inventory operation and explicit start/stop reconciliation for
-already-existing owned containers only.
+D-0044. It describes the Phase 2 implementation boundary; it authorizes read-only
+Docker inventory, disposable create-only provisioning, and explicit start/stop
+reconciliation for owned containers.
 
 ## Threat model and privilege boundary
 
@@ -111,6 +111,8 @@ Phase 2 contains exactly:
   version.
 - `managed_container_inventory`: empty parameters; returns only the bounded typed
   Kodi Lab-owned container inventory described below.
+- `provision_managed_container`: canonical managed-instance UUID only; resolves
+  trusted state and creates or verifies one disposable managed container.
 - `start_managed_container`: strict managed-instance, immutable container-ID, and
   normalized runtime-state preconditions; returns only verified running state and
   whether a start call was performed.
@@ -122,7 +124,7 @@ All require the authorized UID. There is no anonymous operation and no generic
 execution, raw Docker, shell, raw payload, file, path, environment, caller-driven
 inspection, create/remove/restart/kill/exec, or generic lifecycle operation.
 
-The unprivileged `BrokerClient` exposes explicit methods with those six names.
+The unprivileged `BrokerClient` exposes explicit methods with those seven names.
 Its shared call implementation is private. It generates canonical UUIDs,
 validates outgoing envelopes, uses the bounded framing/timeouts, requires response
 version and correlation-ID consistency, validates operation-specific results, and
@@ -156,18 +158,19 @@ The result has at most 128 entries, sorted by canonical instance UUID. Each entr
 contains only the managed instance UUID, immutable full container ID, immutable
 image content ID, normalized runtime state, and normalized health state. More
 than 128 matching summaries fails with `inventory_limit_exceeded`; it is never
-silently truncated. Docker `running` maps to `running`, `exited`/`dead` to
-`stopped`, known intermediate states to `transitional`, and other strings to
-`unknown`. Health is `healthy`, `unhealthy`, `starting`, `not_configured`, or
-`unknown`.
+silently truncated. Docker `running` maps to `running`;
+`created`/`exited`/`dead` map to `stopped`. Restarting, removing, and paused
+states map to `transitional`, and other strings to `unknown`. Health is
+`healthy`, `unhealthy`, `starting`, `not_configured`, or `unknown`.
 
 Environment, command/entrypoint, mounts and host paths, raw labels, networks and
 addresses, ports, logs, daemon information, capabilities/security options, raw
 inspect responses, mutable image tags, and arbitrary annotations are excluded.
-The adapter has no create, restart, remove, exec, image, volume, network,
-label-mutation, generic target/mutation, or raw passthrough method. Its only
-mutations are the semantic start/stop methods below. Observations are not
-persisted in SQLite.
+The adapter has no generic create, restart, remove, exec, image, volume, network,
+label-mutation, target/mutation, or raw passthrough method. Its only public
+mutations are semantic provision/start/stop methods; provision alone may perform
+proof-gated rollback removal of the exact container it just created. Inventory
+observations are not persisted in SQLite.
 
 ## Existing-container two-state reconciliation
 
@@ -262,6 +265,43 @@ Stop failures additionally use `managed_container_not_found`,
 `runtime_state_precondition_failed`, `container_state_not_stoppable`,
 `docker_stop_failed`, and `post_stop_verification_failed`. Raw Docker exception
 details remain internal.
+
+## Disposable managed-container provisioning
+
+The provisioning request contains only `managed_instance_id`. A read-only trusted
+resolver independently loads canonical Target, ManagedInstance, pinned
+RuntimeRevision and RuntimeDefinition, and the revision's separate immutable
+RuntimeContainerArtifact from SQLite. A missing relationship/artifact or a
+persistent instance fails before Docker access. Approval and Trusted Custom Build
+selection are historical application concerns and are not re-run or caller
+parameters.
+
+The adapter requires the pre-existing bridge network `kodi-lab-managed-v1`,
+subnet `10.250.0.0/24`, and its three exact ownership/resource labels. It never
+creates or substitutes a network. Docker assigns the address dynamically. The
+fixed create request uses name `kodi-lab-managed-<uuidhex>`, immutable image ID,
+the managed/instance/runtime-revision labels, restart `no`, non-privileged host
+configuration, and only the managed network endpoint. Command, entrypoint,
+environment, ports, mounts, volumes, binds, devices, added capabilities, host
+namespaces, custom security options, and resource limits are absent. Image
+defaults are compared during verification; images declaring volumes are rejected.
+
+Existing same-name state is never adopted. Exactly one label-selected container
+is idempotent only when every fixed create invariant matches and state is running
+or stopped; drift and duplicate ownership fail. A new container must freshly
+verify exact ID/name/labels/image, image defaults, network, no publication or
+storage, restart/security profile, and stopped state before success.
+
+On post-create failure, cleanup performs another exact-ID inspect and removes
+only when all ownership/revision labels still match. It uses non-forced removal
+and never touches a pre-existing container, image, network, or volume. Uncertain
+identity/ownership or cleanup failure produces
+`partial_provisioning_requires_reconciliation` and leaves the object untouched.
+Provisioning failures use stable prerequisite/conflict codes for trusted state,
+artifact/image/network availability, ambiguous/drifted containers, create,
+post-create verification, and uncertain partial state. The typed client uses a
+fixed 45-second response window derived from the bounded Docker calls; neither
+raw Docker exception text nor inspect data crosses the protocol or audit event.
 Start reuses the common not-found, ambiguity, metadata, identity, state,
 daemon, and inventory errors; its additional stable errors are
 `container_state_not_reconcilable`, `docker_start_failed`, and

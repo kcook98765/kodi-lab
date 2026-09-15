@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.errors import (
     CatalogDataValidationError,
     InvalidRevisionLifecycleTransitionError,
+    RuntimeContainerArtifactConflictError,
     RuntimeDefinitionConflictError,
     RuntimeDefinitionNotFoundError,
     RuntimeRevisionConflictError,
@@ -16,10 +17,12 @@ from kodi_lab.application.errors import (
 )
 from kodi_lab.domain import (
     RevisionApprovalState,
+    RuntimeContainerArtifact,
     RuntimeDefinition,
     RuntimeRevision,
 )
 from kodi_lab.storage.repositories import (
+    RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
     RuntimeRevisionRepository,
 )
@@ -54,6 +57,27 @@ class RuntimeCatalogAdministrationService:
                 runtime_definition_id=definition.id,
                 slug=definition.slug,
             ) from error
+
+    def register_container_artifact(
+        self, *, runtime_revision_id: UUID, image_id: str
+    ) -> RuntimeContainerArtifact:
+        """Register one immutable Docker image mapping for an existing revision."""
+
+        try:
+            artifact = RuntimeContainerArtifact(
+                runtime_revision_id=runtime_revision_id,
+                image_id=image_id,
+            )
+        except ValueError as error:
+            raise CatalogDataValidationError(str(error)) from error
+        try:
+            with self._session_factory.begin() as session:
+                if RuntimeRevisionRepository(session).get(runtime_revision_id) is None:
+                    raise RuntimeRevisionNotFoundError(runtime_revision_id)
+                RuntimeContainerArtifactRepository(session).create(artifact)
+                return artifact
+        except IntegrityError as error:
+            raise RuntimeContainerArtifactConflictError(runtime_revision_id) from error
 
     def register_revision(
         self,

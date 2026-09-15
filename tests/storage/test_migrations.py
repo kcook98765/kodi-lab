@@ -35,6 +35,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "alembic_version",
         "managed_instances",
         "runtime_definitions",
+        "runtime_container_artifacts",
         "runtime_revisions",
         "targets",
     }
@@ -49,6 +50,9 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     revision_foreign_key = inspector.get_foreign_keys("runtime_revisions")[0]
     assert revision_foreign_key["referred_table"] == "runtime_definitions"
     assert revision_foreign_key["options"] == {"ondelete": "RESTRICT"}
+    artifact_foreign_key = inspector.get_foreign_keys("runtime_container_artifacts")[0]
+    assert artifact_foreign_key["referred_table"] == "runtime_revisions"
+    assert artifact_foreign_key["options"] == {"ondelete": "RESTRICT"}
     unique_constraints = {
         constraint["name"]: constraint["column_names"]
         for constraint in inspector.get_unique_constraints("runtime_revisions")
@@ -83,6 +87,22 @@ def test_explicit_0001_upgrades_to_head(
     assert "runtime_revision" not in columns
     assert "runtime_revision_id" in columns
     engine.dispose()
+
+
+def test_explicit_0002_upgrades_to_artifact_head(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0002_runtime_catalog")
+    engine = create_database_engine(database_url)
+    assert "runtime_container_artifacts" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    assert "runtime_container_artifacts" in inspect(engine).get_table_names()
+    engine.dispose()
+    command.check(config)
 
 
 def test_populated_0001_migration_refuses_ambiguous_legacy_revision(
@@ -152,3 +172,52 @@ def test_head_downgrades_to_0001_and_upgrades_again(
 
     command.upgrade(config, "head")
     command.check(config)
+
+
+def test_populated_artifact_mapping_refuses_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions (id, slug, kodi_version) "
+                "VALUES ('00000000-0000-0000-0000-000000000001', 'kodi-21', '21')"
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO runtime_revisions (
+                    id, runtime_definition_id, revision_number, source_kind,
+                    source_reference, content_digest, manifest_reference,
+                    manifest_digest, built_at, approval_state,
+                    requires_trusted_build_confirmation
+                ) VALUES (
+                    '00000000-0000-0000-0000-000000000002',
+                    '00000000-0000-0000-0000-000000000001', 1, 'test', 'test',
+                    :digest, 'test', :digest, '2026-09-14T00:00:00Z',
+                    'not_approved', 0
+                )
+                """
+            ),
+            {"digest": "sha256:" + ("a" * 64)},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_container_artifacts "
+                "(runtime_revision_id, image_id) VALUES "
+                "('00000000-0000-0000-0000-000000000002', :image_id)"
+            ),
+            {"image_id": "sha256:" + ("b" * 64)},
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated runtime-container artifact"):
+        command.downgrade(config, "0002_runtime_catalog")
+
+    engine = create_database_engine(database_url)
+    assert "runtime_container_artifacts" in inspect(engine).get_table_names()
+    engine.dispose()

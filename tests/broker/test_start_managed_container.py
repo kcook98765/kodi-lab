@@ -178,7 +178,7 @@ def test_stopped_container_rejects_stale_expected_running_state() -> None:
     assert client.start_calls == []
 
 
-@pytest.mark.parametrize("state", ["created", "future-state"])
+@pytest.mark.parametrize("state", ["restarting", "future-state"])
 def test_transitional_and_unknown_states_are_not_reconciled(state: str) -> None:
     client = FakeStartDockerClient(inspections=(inspect_data(state=state),))
     with pytest.raises(ContainerStateNotReconcilableError):

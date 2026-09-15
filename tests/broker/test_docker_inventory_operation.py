@@ -187,6 +187,7 @@ def test_capabilities_reports_inventory_and_stop_operations() -> None:
         "capabilities",
         "managed_container_inventory",
         "ping",
+        "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",
     ]
@@ -281,6 +282,7 @@ def test_registry_has_no_generic_docker_or_execution_operation() -> None:
         "capabilities",
         "managed_container_inventory",
         "ping",
+        "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",
     )
