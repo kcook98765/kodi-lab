@@ -34,6 +34,7 @@ from kodi_lab.fixtures.seed_audit import (
     audit_small_mixed_v3_seed,
     audit_small_mixed_v4_seed,
     audit_small_movies_v1_seed,
+    audit_small_tv_v1_seed,
 )
 from kodi_lab.fixtures.semantics import (
     MIXED_FIXTURE_SEMANTICS,
@@ -48,6 +49,7 @@ SMALL_MIXED_V2_FIXTURE_SLUG = "small-mixed-v2"
 SMALL_MIXED_V3_FIXTURE_SLUG = "small-mixed-v3"
 SMALL_MIXED_V4_FIXTURE_SLUG = "small-mixed-v4"
 SMALL_MOVIES_V1_FIXTURE_SLUG = "small-movies-v1"
+SMALL_TV_V1_FIXTURE_SLUG = "small-tv-v1"
 # Kept as the original public name so existing v1 callers remain unchanged.
 SMALL_MIXED_FIXTURE_SLUG = SMALL_MIXED_V1_FIXTURE_SLUG
 TRUSTED_FIXTURE_SLUGS = frozenset(
@@ -57,6 +59,7 @@ TRUSTED_FIXTURE_SLUGS = frozenset(
         SMALL_MIXED_V3_FIXTURE_SLUG,
         SMALL_MIXED_V4_FIXTURE_SLUG,
         SMALL_MOVIES_V1_FIXTURE_SLUG,
+        SMALL_TV_V1_FIXTURE_SLUG,
     }
 )
 FIXTURE_CONTAINER_DESTINATION = "/home/kodi/.kodi"
@@ -75,6 +78,7 @@ FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS = MappingProxyType(
             f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
         ),
         SMALL_MOVIES_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
+        SMALL_TV_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
     }
 )
 KODI_UID = 1000
@@ -111,8 +115,12 @@ _SEED_MANIFEST_KEYS = frozenset(
     }
 )
 _MOVIES_SEED_MANIFEST_KEYS = _SEED_MANIFEST_KEYS - {"tv_path", "tv_content"}
+_TV_SEED_MANIFEST_KEYS = _SEED_MANIFEST_KEYS - {"movie_path", "movie_content"}
 _SEMANTIC_EXPECTATION_KEYS = frozenset(
     {"movies", "tvshows", "episodes", "scan_plan", "drift_movie_unique_id"}
+)
+_TV_SEMANTIC_EXPECTATION_KEYS = frozenset(
+    {"movies", "tvshows", "episodes", "scan_plan", "drift_episode_unique_id"}
 )
 
 
@@ -192,7 +200,7 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
         raise PackagedFixtureError(
             "fixture manifest is unavailable or invalid"
         ) from error
-    if slug == SMALL_MOVIES_V1_FIXTURE_SLUG:
+    if slug in {SMALL_MOVIES_V1_FIXTURE_SLUG, SMALL_TV_V1_FIXTURE_SLUG}:
         expected_keys = _SEMANTIC_SEEDED_MANIFEST_KEYS
     elif slug in FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS:
         expected_keys = _SEEDED_MANIFEST_KEYS
@@ -240,8 +248,8 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
         else None
     )
     semantics = (
-        _parse_semantics(document)
-        if slug == SMALL_MOVIES_V1_FIXTURE_SLUG
+        _parse_semantics(document, slug=slug)
+        if slug in {SMALL_MOVIES_V1_FIXTURE_SLUG, SMALL_TV_V1_FIXTURE_SLUG}
         else MIXED_FIXTURE_SEMANTICS
     )
     return PackagedFixture(
@@ -263,6 +271,7 @@ def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> N
         SMALL_MIXED_V3_FIXTURE_SLUG: (3, 3),
         SMALL_MIXED_V4_FIXTURE_SLUG: (4, 4),
         SMALL_MOVIES_V1_FIXTURE_SLUG: (5, 1),
+        SMALL_TV_V1_FIXTURE_SLUG: (6, 1),
     }.get(slug)
     if expected is None:
         raise PackagedFixtureError("fixture manifest identity is invalid")
@@ -328,6 +337,8 @@ def _audit_seed(
     expected_seed_keys = (
         _MOVIES_SEED_MANIFEST_KEYS
         if slug == SMALL_MOVIES_V1_FIXTURE_SLUG
+        else _TV_SEED_MANIFEST_KEYS
+        if slug == SMALL_TV_V1_FIXTURE_SLUG
         else _SEED_MANIFEST_KEYS
     )
     if not isinstance(raw, dict) or frozenset(raw) != expected_seed_keys:
@@ -353,6 +364,11 @@ def _audit_seed(
             KODI_VIDEO_DATABASE_SCHEMA_VERSION,
             audit_small_movies_v1_seed,
         ),
+        SMALL_TV_V1_FIXTURE_SLUG: (
+            KODI_VIDEO_DATABASE_FILENAME,
+            KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_tv_v1_seed,
+        ),
     }.get(slug)
     if seed_contract is None:
         raise PackagedFixtureError("fixture database seed metadata is invalid")
@@ -362,10 +378,12 @@ def _audit_seed(
         "database_filename": database_filename,
         "schema_version": schema_version,
         "container_relative_path": expected_path,
-        "movie_path": FIXTURE_MOVIE_DIRECTORY,
-        "movie_content": "movies",
         "scraper": FIXTURE_LOCAL_SCRAPER,
     }
+    if slug != SMALL_TV_V1_FIXTURE_SLUG:
+        expected.update(
+            {"movie_path": FIXTURE_MOVIE_DIRECTORY, "movie_content": "movies"}
+        )
     if slug != SMALL_MOVIES_V1_FIXTURE_SLUG:
         expected.update({"tv_path": FIXTURE_TV_DIRECTORY, "tv_content": "tvshows"})
     if any(raw.get(key) != value for key, value in expected.items()):
@@ -395,21 +413,33 @@ def _require_int(document: MappingProxyType[str, Any], key: str) -> int:
 
 def _parse_semantics(
     document: MappingProxyType[str, Any],
+    *,
+    slug: str,
 ) -> FixtureSemanticSpecification:
     raw = document.get("semantic_expectations")
-    if not isinstance(raw, dict) or frozenset(raw) != _SEMANTIC_EXPECTATION_KEYS:
+    expected_keys = (
+        _SEMANTIC_EXPECTATION_KEYS
+        if slug == SMALL_MOVIES_V1_FIXTURE_SLUG
+        else _TV_SEMANTIC_EXPECTATION_KEYS
+    )
+    if not isinstance(raw, dict) or frozenset(raw) != expected_keys:
         raise PackagedFixtureError("fixture semantic expectations are invalid")
     movies = raw.get("movies")
     shows = raw.get("tvshows")
     episodes = raw.get("episodes")
     scan_plan = raw.get("scan_plan")
-    drift_id = raw.get("drift_movie_unique_id")
+    drift_movie_id = raw.get("drift_movie_unique_id")
+    drift_episode_id = raw.get("drift_episode_unique_id")
+    expected_scan_plan = ["movies"] if slug == SMALL_MOVIES_V1_FIXTURE_SLUG else ["tv"]
     if (
         not isinstance(movies, list)
         or not isinstance(shows, list)
         or not isinstance(episodes, list)
-        or scan_plan != ["movies"]
-        or not isinstance(drift_id, str)
+        or scan_plan != expected_scan_plan
+        or (
+            slug == SMALL_MOVIES_V1_FIXTURE_SLUG and not isinstance(drift_movie_id, str)
+        )
+        or (slug == SMALL_TV_V1_FIXTURE_SLUG and not isinstance(drift_episode_id, str))
     ):
         raise PackagedFixtureError("fixture semantic expectations are invalid")
     try:
@@ -426,7 +456,11 @@ def _parse_semantics(
         )
         show_specs = tuple(
             FixtureSeriesExpectation(
-                title=_semantic_str(item, "title"),
+                title=_semantic_str(
+                    item,
+                    "title",
+                    {"title", "year", "unique_id", "directory"},
+                ),
                 year=_semantic_int(item, "year"),
                 unique_id=_semantic_str(item, "unique_id"),
                 directory=_semantic_str(item, "directory"),
@@ -435,7 +469,18 @@ def _parse_semantics(
         )
         episode_specs = tuple(
             FixtureEpisodeExpectation(
-                title=_semantic_str(item, "title"),
+                title=_semantic_str(
+                    item,
+                    "title",
+                    {
+                        "title",
+                        "show_title",
+                        "season",
+                        "episode",
+                        "unique_id",
+                        "file",
+                    },
+                ),
                 show_title=_semantic_str(item, "show_title"),
                 season=_semantic_int(item, "season"),
                 episode=_semantic_int(item, "episode"),
@@ -448,21 +493,42 @@ def _parse_semantics(
         raise PackagedFixtureError(
             "fixture semantic expectations are invalid"
         ) from error
-    if (
-        len(movie_specs) != 3
-        or show_specs
-        or episode_specs
-        or drift_id not in {movie.unique_id for movie in movie_specs}
-        or len({movie.unique_id for movie in movie_specs}) != len(movie_specs)
-    ):
+    movie_ids = {movie.unique_id for movie in movie_specs}
+    episode_ids = {episode.unique_id for episode in episode_specs}
+    movies_contract = (
+        len(movie_specs) == 3
+        and not show_specs
+        and not episode_specs
+        and drift_movie_id in movie_ids
+        and len(movie_ids) == len(movie_specs)
+    )
+    tv_contract = (
+        not movie_specs
+        and len(show_specs) == 1
+        and len(episode_specs) == 3
+        and drift_episode_id in episode_ids
+        and len(episode_ids) == len(episode_specs)
+        and all(
+            episode.show_title == show_specs[0].title
+            and episode.season == 1
+            and episode.episode == index
+            for index, episode in enumerate(episode_specs, 1)
+        )
+    )
+    if not (movies_contract if slug == SMALL_MOVIES_V1_FIXTURE_SLUG else tv_contract):
         raise PackagedFixtureError("fixture semantic expectations are invalid")
     return FixtureSemanticSpecification(
         movies=movie_specs,
         series=show_specs,
         episodes=episode_specs,
-        scan_movies=True,
-        scan_tv=False,
-        drift_movie_unique_id=drift_id,
+        scan_movies=slug == SMALL_MOVIES_V1_FIXTURE_SLUG,
+        scan_tv=slug == SMALL_TV_V1_FIXTURE_SLUG,
+        drift_movie_unique_id=(
+            drift_movie_id if isinstance(drift_movie_id, str) else None
+        ),
+        drift_episode_unique_id=(
+            drift_episode_id if isinstance(drift_episode_id, str) else None
+        ),
     )
 
 

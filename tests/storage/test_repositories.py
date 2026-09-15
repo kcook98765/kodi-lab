@@ -50,6 +50,25 @@ def test_movies_fixture_definition_persists_and_reloads(db_session: Session) -> 
     assert repository.get(fixture.id) == fixture
 
 
+def test_tv_fixture_definition_persists_and_reloads(db_session: Session) -> None:
+    fixture = FixtureDefinition(
+        id=uuid4(),
+        slug="test-small-tv-v1",
+        fixture_version=1,
+        size_category=FixtureSizeCategory.SMALL,
+        content_category=FixtureContentCategory.TV,
+        content_digest="sha256:" + "b" * 64,
+        compatible_kodi_version="21.3",
+        description="Repository round-trip for TV taxonomy.",
+    )
+    repository = FixtureDefinitionRepository(db_session)
+    repository.create(fixture)
+    db_session.commit()
+    db_session.expire_all()
+
+    assert repository.get(fixture.id) == fixture
+
+
 def make_target(name: str = "Kodi 21") -> Target:
     return Target(
         id=uuid4(),

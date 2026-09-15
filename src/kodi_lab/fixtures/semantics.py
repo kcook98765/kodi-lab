@@ -38,7 +38,8 @@ class FixtureSemanticSpecification:
     episodes: tuple[FixtureEpisodeExpectation, ...]
     scan_movies: bool
     scan_tv: bool
-    drift_movie_unique_id: str
+    drift_movie_unique_id: str | None
+    drift_episode_unique_id: str | None
 
 
 MIXED_FIXTURE_SEMANTICS = FixtureSemanticSpecification(
@@ -80,4 +81,5 @@ MIXED_FIXTURE_SEMANTICS = FixtureSemanticSpecification(
     scan_movies=True,
     scan_tv=True,
     drift_movie_unique_id="small-mixed-v1-movie",
+    drift_episode_unique_id=None,
 )

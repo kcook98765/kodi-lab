@@ -340,6 +340,7 @@ class FakeBroker:
                     "small-mixed-v3",
                     "small-mixed-v4",
                     "small-movies-v1",
+                    "small-tv-v1",
                 ],
                 fixture.slug,
             ),
@@ -573,6 +574,34 @@ def test_small_movies_reset_uses_generic_flow_and_retains_exact_assignment(
 
     assert result.runtime_revision_id == revision_id
     assert result.fixture_slug == "small-movies-v1"
+    assert result.fixture_state is not None and result.fixture_state.is_baseline
+    assert broker.calls.index("apply_fixture") < broker.calls.index("start")
+    with session_factory() as session:
+        retained = ManagedInstanceRepository(session).get(instance_id)
+        assert retained is not None
+        assert retained.runtime_revision_id == revision_id
+        assert retained.fixture_definition_id == fixture_id
+
+
+def test_small_tv_reset_uses_generic_flow_and_retains_exact_assignment(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, fixture_id = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-tv-v1",
+    )
+    broker = FakeBroker(instance_id, revision_id, fixture_slug="small-tv-v1")
+    adapter = FakeFixtureAdapter(
+        state=FixtureLibraryState(False, True, True, 0, 1, 3, 0, 1, 3)
+    )
+
+    result = service(session_factory, broker, fixture_adapter=adapter).reset(
+        instance_id
+    )
+
+    assert result.runtime_revision_id == revision_id
+    assert result.fixture_slug == "small-tv-v1"
     assert result.fixture_state is not None and result.fixture_state.is_baseline
     assert broker.calls.index("apply_fixture") < broker.calls.index("start")
     with session_factory() as session:

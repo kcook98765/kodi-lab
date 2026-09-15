@@ -52,6 +52,10 @@ _SMALL_MOVIES_EXPECTED_PATH_ROWS: tuple[tuple[object, ...], ...] = (
     _EXPECTED_PATH_ROWS[0],
 )
 
+_SMALL_TV_EXPECTED_PATH_ROWS: tuple[tuple[object, ...], ...] = (
+    (1, *_EXPECTED_PATH_ROWS[1][1:]),
+)
+
 # A Kodi-created empty Omega database has only the version row and Kodi's
 # built-in video-version type catalog. The fixture seed adds exactly two path
 # configuration rows. Every library and user-state table must remain empty.
@@ -111,6 +115,18 @@ def audit_small_movies_v1_seed(database: bytes) -> FixtureSeedAudit:
         schema_version=KODI_VIDEO_DATABASE_SCHEMA_VERSION,
         expected_nonzero_table_counts=_SMALL_MOVIES_EXPECTED_NONZERO_TABLE_COUNTS,
         expected_paths=_SMALL_MOVIES_EXPECTED_PATH_ROWS,
+    )
+
+
+def audit_small_tv_v1_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the fixed Kodi 21.3 TV-only configuration seed."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=_SMALL_MOVIES_EXPECTED_NONZERO_TABLE_COUNTS,
+        expected_paths=_SMALL_TV_EXPECTED_PATH_ROWS,
     )
 
 

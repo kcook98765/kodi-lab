@@ -393,6 +393,128 @@ def test_movies_fixture_refuses_lossy_0009_downgrade(
     engine.dispose()
 
 
+def test_0009_upgrades_to_tv_taxonomy_and_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, _database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0009_fixture_content_taxonomy")
+    command.upgrade(config, "head")
+    command.check(config)
+    command.downgrade(config, "0009_fixture_content_taxonomy")
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_existing_movies_definition_survives_0010_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0009_fixture_content_taxonomy")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO fixture_definitions "
+                "(id, slug, fixture_version, size_category, content_category, "
+                "content_digest, compatible_kodi_version, description) VALUES "
+                "('85500000-0000-4000-8000-000000000001', 'movies-existing', 1, "
+                "'small', 'movies', :digest, '21.3', 'existing Movies fixture')"
+            ),
+            {"digest": "sha256:" + "5" * 64},
+        )
+        before = connection.execute(
+            text(
+                "SELECT * FROM fixture_definitions "
+                "WHERE id = '85500000-0000-4000-8000-000000000001'"
+            )
+        ).one()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        after = connection.execute(
+            text(
+                "SELECT * FROM fixture_definitions "
+                "WHERE id = '85500000-0000-4000-8000-000000000001'"
+            )
+        ).one()
+    assert after == before
+    engine.dispose()
+
+
+def test_tv_taxonomy_constraint_accepts_only_three_supported_categories(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    statement = text(
+        "INSERT INTO fixture_definitions "
+        "(id, slug, fixture_version, size_category, content_category, "
+        "content_digest, compatible_kodi_version, description) VALUES "
+        "(:id, :slug, 1, 'small', :category, :digest, '21.3', 'taxonomy')"
+    )
+    with engine.begin() as connection:
+        for ordinal, category in enumerate(("mixed", "movies", "tv"), start=1):
+            connection.execute(
+                statement,
+                {
+                    "id": f"85000000-0000-4000-8000-{ordinal:012d}",
+                    "slug": f"supported-{category}",
+                    "category": category,
+                    "digest": "sha256:" + f"{ordinal:064x}",
+                },
+            )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            statement,
+            {
+                "id": "85000000-0000-4000-8000-000000000004",
+                "slug": "unsupported-category",
+                "category": "unknown",
+                "digest": "sha256:" + "4" * 64,
+            },
+        )
+    engine.dispose()
+
+
+def test_tv_fixture_refuses_lossy_0010_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO fixture_definitions "
+                "(id, slug, fixture_version, size_category, content_category, "
+                "content_digest, compatible_kodi_version, description) VALUES "
+                "('86000000-0000-4000-8000-000000000001', 'tv-retained', 1, "
+                "'small', 'tv', :digest, '21.3', 'TV retained')"
+            ),
+            {"digest": "sha256:" + "e" * 64},
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated TV definitions"):
+        command.downgrade(config, "0009_fixture_content_taxonomy")
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT slug, content_category FROM fixture_definitions "
+                "WHERE id = '86000000-0000-4000-8000-000000000001'"
+            )
+        ).one() == ("tv-retained", "tv")
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0010_fixture_tv_taxonomy"
+        )
+    engine.dispose()
+
+
 def test_prior_head_upgrades_to_execution_profile_head(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

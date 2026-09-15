@@ -106,17 +106,21 @@ class SmallMixedFixtureKodiAdapter:
         self._tv_scan_requested = False
 
     def scan_assigned_fixture_library(self) -> None:
-        if not self._semantics.scan_movies:
-            raise ValueError("trusted fixture scan plan has no Movies source")
-        document = self._request(
-            "kodi-lab-fixture-scan-movies",
-            "VideoLibrary.Scan",
-            {"directory": FIXTURE_MOVIE_DIRECTORY, "showdialogs": False},
-        )
-        if document.get("result") != "OK":
-            raise JsonRpcInvalidResponseError("fixture scan result is invalid")
-        self._movie_scan_requested = True
-        self._tv_scan_requested = False
+        if self._semantics.scan_movies:
+            document = self._request(
+                "kodi-lab-fixture-scan-movies",
+                "VideoLibrary.Scan",
+                {"directory": FIXTURE_MOVIE_DIRECTORY, "showdialogs": False},
+            )
+            if document.get("result") != "OK":
+                raise JsonRpcInvalidResponseError("fixture scan result is invalid")
+            self._movie_scan_requested = True
+            self._tv_scan_requested = False
+        elif self._semantics.scan_tv:
+            self._movie_scan_requested = False
+            self._scan_tv_fixture_library()
+        else:
+            raise ValueError("trusted fixture scan plan is empty")
 
     def _scan_tv_fixture_library(self) -> None:
         document = self._request(
@@ -234,6 +238,8 @@ class SmallMixedFixtureKodiAdapter:
             "VideoLibrary.GetMovies",
             {"properties": ["title", "year", "uniqueid", "file"]},
         )
+        if self._semantics.drift_movie_unique_id is None:
+            raise ValueError("trusted fixture has no bounded movie drift target")
         target = next(
             movie
             for movie in self._semantics.movies
@@ -272,6 +278,94 @@ class SmallMixedFixtureKodiAdapter:
             )
         return state
 
+    def remove_fixture_episode_for_reset_test(self) -> FixtureLibraryState:
+        """Remove only the trusted fixture episode; accepts no selected identity."""
+
+        target_id = self._semantics.drift_episode_unique_id
+        if target_id is None:
+            raise ValueError("trusted fixture has no bounded episode drift target")
+        document = self._request(
+            "kodi-lab-fixture-mutation-find-episode",
+            "VideoLibrary.GetEpisodes",
+            {
+                "properties": [
+                    "title",
+                    "showtitle",
+                    "season",
+                    "episode",
+                    "uniqueid",
+                    "file",
+                ]
+            },
+        )
+        target = next(
+            episode
+            for episode in self._semantics.episodes
+            if episode.unique_id == target_id
+        )
+        items = self._items(document, "episodes")
+        matches = [item for item in items if self._is_episode(item, target)]
+        if len(matches) != 1:
+            raise JsonRpcInvalidResponseError(
+                "fixture episode identity is missing or ambiguous"
+            )
+        episode_id = matches[0].get("episodeid")
+        if (
+            not isinstance(episode_id, int)
+            or isinstance(episode_id, bool)
+            or episode_id < 1
+        ):
+            raise JsonRpcInvalidResponseError("fixture episode ID is invalid")
+        removed = self._request(
+            "kodi-lab-fixture-mutation-remove-episode",
+            "VideoLibrary.RemoveEpisode",
+            {"episodeid": episode_id},
+        )
+        if removed.get("result") != "OK":
+            raise JsonRpcInvalidResponseError(
+                "fixture episode removal result is invalid"
+            )
+        remaining_document = self._request(
+            "kodi-lab-fixture-mutation-remaining-episodes",
+            "VideoLibrary.GetEpisodes",
+            {
+                "properties": [
+                    "title",
+                    "showtitle",
+                    "season",
+                    "episode",
+                    "uniqueid",
+                    "file",
+                ]
+            },
+        )
+        remaining_items = self._items(remaining_document, "episodes")
+        remaining_expected = tuple(
+            episode
+            for episode in self._semantics.episodes
+            if episode.unique_id != target_id
+        )
+        if len(remaining_items) != len(remaining_expected) or not all(
+            any(self._is_episode(item, expected) for item in remaining_items)
+            for expected in remaining_expected
+        ):
+            raise JsonRpcInvalidResponseError(
+                "fixture episode drift identities are invalid"
+            )
+        state = self.get_fixture_library_state()
+        if (
+            state.movie_count != len(self._semantics.movies)
+            or state.series_count != len(self._semantics.series)
+            or state.episode_count != len(self._semantics.episodes) - 1
+            or state.movie_present != bool(self._semantics.movies)
+            or state.series_present != bool(self._semantics.series)
+            or state.episode_present
+        ):
+            raise JsonRpcInvalidResponseError(
+                "fixture episode drift mutation postcondition failed"
+            )
+        return state
+
     def _request(
         self,
         request_id: str,
@@ -281,6 +375,7 @@ class SmallMixedFixtureKodiAdapter:
             "VideoLibrary.GetTVShows",
             "VideoLibrary.GetEpisodes",
             "VideoLibrary.RemoveMovie",
+            "VideoLibrary.RemoveEpisode",
         ],
         params: dict[str, object],
     ) -> dict[str, object]:

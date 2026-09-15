@@ -970,3 +970,20 @@ details that it did not specify.
   service does not branch on fixture slug; the broker operation, archive-copy
   authority, exact RuntimeRevision pin, Web reset request, and durable reset
   coordination are unchanged.
+
+## D-0079: Complete Small taxonomy with a TV-only semantic fixture
+
+- Status: approved for Phase 6 Step 7
+- Decision: migration `0010_fixture_tv_taxonomy` extends the closed persisted
+  content taxonomy to exactly `mixed`, `movies`, and `tv`. Existing data and the
+  bounded `VARCHAR(16)` column are unchanged. Downgrade refuses while any TV
+  FixtureDefinition exists and never converts or deletes taxonomy data.
+- Small/TV contract: canonical V1 names Small and TV but defines no count. The
+  executable v1 dataset is one show, one season, and three episodes. Trusted
+  package expectations require the exact show, each episode's stable identity,
+  show relationship, season 1, episode numbers 1 through 3, and zero movies.
+- Scan and drift boundary: trusted specification selects only the fixed TV
+  scan. The validation-only episode mutation resolves Episode 1 from packaged
+  expectations and invokes fixed `VideoLibrary.RemoveEpisode`; it accepts no
+  ID, title, path, method, or parameters. Reset orchestration and broker
+  authority remain unchanged.

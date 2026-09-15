@@ -403,3 +403,45 @@ or caller-selectable scan API.
 exact-release fixture versions provide the Kodi-specific initialization seed.**
 The existing reset flow, broker request and privilege, durable operation lease,
 authenticated reset confirmation, and exact-pin behavior do not change.
+
+## Step 7 Small/TV taxonomy
+
+Migration `0010_fixture_tv_taxonomy` completes the persisted Small content
+taxonomy with exactly Mixed, Movies, and TV. It retains the existing bounded
+column and replaces only its closed check constraint. Downgrade to `0009`
+refuses when any TV definition exists; existing fixture definitions,
+assignments, pins, and ResetOperations are preserved.
+
+Canonical V1 defines the Small and TV categories but not a count. Small/TV v1
+is therefore one fictional show, one season, and three episodes:
+
+- show `Kodi Lab Fixture Series TV`, ID `small-tv-v1-series`;
+- `Kodi Lab Fixture Episode 1`, season 1 episode 1, ID
+  `small-tv-v1-episode-1`;
+- `Kodi Lab Fixture Episode 2`, season 1 episode 2, ID
+  `small-tv-v1-episode-2`;
+- `Kodi Lab Fixture Episode 3`, season 1 episode 3, ID
+  `small-tv-v1-episode-3`.
+
+`small-tv-v1` is UUID `6143bf65-b438-442a-a017-6ff1c7232b59`, fixture version
+1, Small/TV, and compatible only with exact Kodi 21.3 stable. Its aggregate
+digest is
+`sha256:1a04f9eb0e47c146909e22fb06610abae61715a670c4dcff6be7afd83ff06185`.
+The fresh exact-image-generated `MyVideos131.db` hash is
+`2bfba8f2e2b7f103bc1c0c7cdd7ac0489e57dbfecf355224578c64ea6f11b549`.
+The fixed development helper inserts only one `metadata.local` TV path row;
+the finalized seed hash is
+`90e1593266b383ca2d47d7800b0c5e1857107edaab4107340fa0152c6e737a85`.
+Its schema-aware purity audit requires that row, the version row, Omega's 387
+built-in video-version types, and zero library or user-state rows elsewhere.
+
+Definition-driven verification now supports exact Mixed 1/1/1, Movies 3/0/0,
+and TV 0/1/3. TV verification checks stable show and episode identities, every
+episode's show title, season, episode number, and fixed file path. Trusted scan
+plans are Movies then TV, Movies only, and TV only respectively. The fixed
+Episode 1 drift method uses Kodi 21.3's bounded `VideoLibrary.RemoveEpisode`
+method and accepts no caller target. Reset, broker, durable coordination, and
+authenticated Web authority are unchanged.
+
+The Small tier now has executable Mixed, Movies, and TV content-family
+definitions on an exact stable runtime.

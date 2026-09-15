@@ -279,3 +279,17 @@ The next coherent Phase 6 milestone should add Small/TV on Kodi 21.3 to complete
 the three Small content categories. That tests zero-movie initialization,
 TV-only scan planning, and episode/show relationship verification before
 multiplying another taxonomy family across releases.
+
+Phase 6 Step 7 completes the Small content taxonomy. Migration
+`0010_fixture_tv_taxonomy` admits exactly TV alongside Mixed and Movies with
+loss-refusing downgrade. Immutable `small-tv-v1` defines one show, one season,
+and three episodes on exact Kodi 21.3 using a TV-only Omega configuration seed.
+Trusted verification proves each show/episode relationship and TV-only scan
+planning; a fixed Episode 1 mutation proves reset restores 0/1/2 drift to exact
+0/1/3. Reset, broker, durable Web coordination, and exact-pin behavior remain
+unchanged.
+
+The next coherent Phase 6 milestone should port the now-proven Small/Movies and
+Small/TV semantic families to Kodi 20.5. This tests whether taxonomy-specific
+seeds and relationship verification remain portable without the instability of
+a Preview runtime or the scale complexity of Medium datasets.

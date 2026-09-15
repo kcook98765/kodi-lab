@@ -203,6 +203,22 @@ def test_small_movies_seed_uses_the_same_bounded_archive_operation() -> None:
     assert not any(name.startswith("fixture-media/tvshows/") for name in names)
 
 
+def test_small_tv_seed_uses_the_same_bounded_archive_operation() -> None:
+    client = FakeFixtureDockerClient()
+    fixture_spec = spec("small-tv-v1")
+    result = DockerManagedContainerAdapter(lambda: client).apply_assigned_fixture(
+        spec=fixture_spec, expected_container_id=CONTAINER_ID
+    )
+
+    assert result.fixture_slug == "small-tv-v1"
+    assert result.fixture_version == 1
+    assert len(client.put_calls) == 1
+    with tarfile.open(fileobj=io.BytesIO(client.put_calls[0][2])) as archive:
+        names = {member.name for member in archive.getmembers()}
+    assert "userdata/Database/MyVideos131.db" in names
+    assert not any(name.startswith("fixture-media/movies/") for name in names)
+
+
 def test_running_container_and_preexisting_fixture_state_fail_closed() -> None:
     with pytest.raises(ContainerMustBeStoppedError):
         apply(FakeFixtureDockerClient(inspection=inspect_data(state="running")))
