@@ -102,3 +102,13 @@ sent by the browser. Target resolution returns only semantic definition identity
 and revision number; it never returns or accepts revision UUID, image/artifact,
 evidence, support, approval, trust, or Docker authority. No instance or catalog
 mutation is added by these routes.
+
+Phase 6 adds one destructive disposable-reset flow without changing network or
+session policy. The authenticated confirmation names the exact pin and fixture
+and explains data loss. Its JSON POST requires same-origin, CSRF, and literal
+`{ "confirmed": true }`; other fields are forbidden. It creates only a durable
+queued reset and returns 202. Background execution requires the reset-specific
+database lease, and conflicting lifecycle calls return semantic 409. Web still
+uses the restricted broker client and has no Docker socket. Password re-entry is
+not required for this localhost single-admin profile; future LAN exposure must
+revisit sensitive-action reauthentication.

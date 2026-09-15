@@ -27,7 +27,15 @@ from kodi_lab.application.errors import (
     TargetNotFoundError,
 )
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.reset import DisposableInstanceResetService
 from kodi_lab.application.reset_activity import ResetActivityRegistry
+from kodi_lab.application.reset_operations import (
+    QueuedResetOperation,
+    ResetExecutor,
+    ResetOperationConflictError,
+    ResetOperationCoordinator,
+    ResetServiceFactory,
+)
 from kodi_lab.application.reset_status import (
     ManagedInstanceResetStatus,
     ResetStatusService,
@@ -68,6 +76,13 @@ class EmptyActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ResetConfirmationRequest(BaseModel):
+    """One explicit confirmation bit, with no runtime or Docker authority."""
+
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
@@ -79,6 +94,8 @@ class WebApplicationContext:
     readiness: ReadinessTaskRegistry
     reset_activity: ResetActivityRegistry
     reset_status: ResetStatusService
+    reset_operations: ResetOperationCoordinator
+    reset_executor: ResetExecutor
 
 
 def create_app(
@@ -91,12 +108,23 @@ def create_app(
     auth: WebAuthenticationService | None = None,
     throttler: LoginThrottler | None = None,
     coordinator_factory: ReadinessCoordinatorFactory | None = None,
+    reset_service_factory: ResetServiceFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
     task_registry = readiness or ReadinessTaskRegistry()
     reset_registry = reset_activity or ResetActivityRegistry()
+    reset_operations = ResetOperationCoordinator(session_factory)
     status_service = ManagedRuntimeStatusService(session_factory, broker, task_registry)
+    reset_status_service = ResetStatusService(
+        session_factory, broker, reset_registry, reset_operations
+    )
+    service_factory = reset_service_factory or (
+        lambda observer: DisposableInstanceResetService(
+            session_factory, broker, activity=observer
+        )
+    )
+    reset_executor = ResetExecutor(reset_operations, reset_registry, service_factory)
     context = WebApplicationContext(
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
@@ -112,6 +140,7 @@ def create_app(
                 if coordinator_factory is None
                 else {"coordinator_factory": coordinator_factory}
             ),
+            reset_operations=reset_operations,
         ),
         matrix=RuntimeMatrixService(
             session_factory,
@@ -119,14 +148,18 @@ def create_app(
         ),
         readiness=task_registry,
         reset_activity=reset_registry,
-        reset_status=ResetStatusService(session_factory, broker, reset_registry),
+        reset_status=reset_status_service,
+        reset_operations=reset_operations,
+        reset_executor=reset_executor,
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        context.reset_executor.start()
         try:
             yield
         finally:
+            context.reset_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -194,6 +227,12 @@ def create_app(
         _request: Request, error: LifecycleConflictError
     ) -> JSONResponse:
         return _json_error(409, "lifecycle_conflict", str(error)[:256])
+
+    @app.exception_handler(ResetOperationConflictError)
+    async def reset_operation_conflict(
+        _request: Request, error: ResetOperationConflictError
+    ) -> JSONResponse:
+        return _json_error(409, "reset_operation_conflict", str(error)[:256])
 
     @app.exception_handler(ClientError)
     async def broker_failure(_request: Request, error: ClientError) -> JSONResponse:
@@ -321,6 +360,24 @@ def create_app(
             {"matrix": matrix},
         )
 
+    @app.get("/instances/{instance_id}/reset", response_class=HTMLResponse)
+    async def reset_confirmation_page(request: Request, instance_id: UUID) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        reset_status = context.reset_status.get(instance_id)
+        instance = context.status.get(instance_id)
+        return templates.TemplateResponse(
+            request,
+            "reset-confirmation.html",
+            {
+                "instance": instance,
+                "reset": reset_status,
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
     @app.get("/api/runtime-matrix", response_model=RuntimeMatrixResponse)
     def runtime_matrix(
         include_legacy: Literal["false", "true"] = "false",
@@ -370,6 +427,29 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> ManagedInstanceResetStatus:
         return context.reset_status.get(instance_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/reset",
+        response_model=QueuedResetOperation,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def queue_instance_reset(
+        instance_id: UUID,
+        _body: ResetConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> QueuedResetOperation:
+        existing = context.reset_operations.active_for_instance(instance_id)
+        if existing is not None:
+            return QueuedResetOperation(
+                context.reset_operations.to_status(existing), False
+            )
+        current = context.reset_status.get(instance_id)
+        if current.eligibility.value != "supported":
+            raise ResetOperationConflictError(current.eligibility_detail)
+        queued = context.reset_operations.queue(instance_id)
+        if queued.created:
+            context.reset_executor.submit(queued.operation.operation_id)
+        return queued
 
     @app.post(
         "/api/instances/{instance_id}/provision",

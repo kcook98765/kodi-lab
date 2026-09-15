@@ -332,3 +332,22 @@ projection. The registry is bounded memory, not durable history or a
 multi-worker lease; a process restart truthfully returns to idle and rebuilds
 current eligibility from persistence plus broker observation. Destructive Web
 reset, confirmation UX, and cross-process coordination remain deferred.
+
+Phase 6 Step 3 adds a reset-specific durable coordinator. `ResetOperation`
+stores one bounded state/phase, timestamps, safe failure, reconciliation flag,
+and opaque lease-token digest. A SQLite partial unique index permits at most one
+queued or running operation per instance; conditional updates require the
+matching digest and an unexpired lease. Queue, claim, heartbeat, and terminal
+updates use short transactions and never span broker/readiness work. The newest
+20 terminal rows per instance are retained.
+
+Queued work is claimable after restart. Expired started work is never resumed:
+it becomes reconciliation-required with its last phase retained. The local
+registry improves same-process presentation but grants no ownership. Manual
+acknowledgement is deferred until its durable audit/evidence semantics exist.
+
+The localhost Web adapter adds an informational confirmation and strict POST
+that creates a queue record and returns 202. Only the lease winner invokes the
+existing reset service. Active reset blocks Web lifecycle and trusted
+fixture/revision changes. Browser input cannot select revision, fixture,
+container, image, phase, or operation authority; Web retains no Docker socket.

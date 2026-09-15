@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import time
+from threading import Event
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.reset_operations import DurableResetActivityObserver
+from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
 from kodi_lab.broker.errors import BrokerUnavailableError
 from kodi_lab.config import Settings
@@ -188,35 +191,186 @@ def test_reset_activity_failure_and_reconciliation_are_read_only(
     assert "The fresh container could not be safely stopped." in failed_page
 
 
-def test_persistent_reset_status_is_unsupported_and_no_mutation_route_exists(
+def test_persistent_reset_status_is_unsupported_and_reset_requires_confirmation(
     client: TestClient, database: sessionmaker[Session]
 ) -> None:
+    csrf = login(client)
+    confirmation = client.get(f"/instances/{INSTANCE_ID}/reset")
+    assert confirmation.status_code == 200
     with database.begin() as session:
         instance = session.get(ManagedInstanceRow, str(INSTANCE_ID))
         assert instance is not None
         instance.instance_type = InstanceType.PERSISTENT
-    csrf = login(client)
     status_response = client.get(f"/api/instances/{INSTANCE_ID}/reset-status")
     assert status_response.json()["eligibility_reason"] == "persistent_instance"
-    mutation_headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
-    for method in ("post", "put", "patch", "delete"):
-        response = client.request(
-            method.upper(),
-            f"/api/instances/{INSTANCE_ID}/reset",
-            json={},
-            headers=mutation_headers,
-        )
-        assert response.status_code in {404, 405}
-    routes = cast(FastAPI, client.app).routes
-    assert not any(
-        getattr(route, "path", "").endswith("/reset")
-        or (
-            "fixture" in getattr(route, "path", "")
-            and set(getattr(route, "methods", set()))
-            & {"POST", "PUT", "PATCH", "DELETE"}
-        )
-        for route in routes
+    response = client.post(
+        f"/api/instances/{INSTANCE_ID}/reset",
+        json={"confirmed": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
     )
+    assert response.status_code == 409
+
+
+def test_reset_confirmation_and_authenticated_csrf_protected_queue(
+    client: TestClient,
+) -> None:
+    assert (
+        client.get(
+            f"/instances/{INSTANCE_ID}/reset", follow_redirects=False
+        ).status_code
+        == 303
+    )
+    assert (
+        client.post(
+            f"/api/instances/{INSTANCE_ID}/reset", json={"confirmed": True}
+        ).status_code
+        == 401
+    )
+    csrf = login(client)
+    confirmation = client.get(f"/instances/{INSTANCE_ID}/reset")
+    assert confirmation.status_code == 200
+    for expected in (
+        "Kodi 21.3",
+        "revision 2",
+        "discards changes",
+        "will not be upgraded",
+        "provisioned and stopped",
+        "Fixture",
+    ):
+        assert expected in confirmation.text
+    route = f"/api/instances/{INSTANCE_ID}/reset"
+    assert (
+        client.post(route, json={"confirmed": True}, headers=ORIGIN).status_code == 403
+    )
+    assert (
+        client.post(
+            route,
+            json={"confirmed": True},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": "x" * 43},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            route,
+            json={"confirmed": True},
+            headers={"Origin": "http://attacker.invalid", "X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 403
+    )
+    injected = client.post(
+        route,
+        json={
+            "confirmed": True,
+            "runtime_revision_id": str(uuid4()),
+            "fixture_id": str(uuid4()),
+            "container_id": "a" * 64,
+            "image": "attacker",
+            "command": "id",
+        },
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert injected.status_code == 422
+    accepted = client.post(
+        route,
+        json={"confirmed": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert accepted.status_code == 202
+    body = accepted.json()
+    assert body["created"] is True
+    assert body["operation"]["managed_instance_id"] == str(INSTANCE_ID)
+    assert "container" not in accepted.text
+    assert "revision" not in accepted.text
+
+
+class BlockingResetService:
+    def __init__(
+        self,
+        observer: DurableResetActivityObserver,
+        started: Event,
+        release: Event,
+        calls: list[UUID],
+    ) -> None:
+        self._observer = observer
+        self._started = started
+        self._release = release
+        self._calls = calls
+
+    def reset(self, instance_id: UUID) -> object:
+        self._calls.append(instance_id)
+        activity = self._observer.begin(instance_id)
+        self._started.set()
+        assert self._release.wait(5)
+        self._observer.succeed(instance_id, activity.generation)
+        return object()
+
+
+def test_duplicate_reset_returns_existing_and_lifecycle_is_blocked(
+    database: sessionmaker[Session], broker: FakeBroker
+) -> None:
+    auth = WebAuthenticationService(database)
+    auth.set_password(PASSWORD)
+    started, release = Event(), Event()
+    calls: list[UUID] = []
+    app = create_app(
+        settings=Settings(),
+        session_factory=database,
+        broker=broker,
+        auth=auth,
+        reset_service_factory=lambda observer: BlockingResetService(
+            observer, started, release, calls
+        ),
+    )
+    with TestClient(app, base_url="http://127.0.0.1") as test_client:
+        csrf = login(test_client)
+        headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+        route = f"/api/instances/{INSTANCE_ID}/reset"
+        first = test_client.post(route, json={"confirmed": True}, headers=headers)
+        assert first.status_code == 202
+        assert started.wait(2)
+        second = test_client.post(route, json={"confirmed": True}, headers=headers)
+        assert second.status_code == 202
+        assert second.json()["created"] is False
+        assert (
+            second.json()["operation"]["operation_id"]
+            == first.json()["operation"]["operation_id"]
+        )
+        for action in ("provision", "start", "stop", "deprovision"):
+            lifecycle = test_client.post(
+                f"/api/instances/{INSTANCE_ID}/{action}", json={}, headers=headers
+            )
+            assert lifecycle.status_code == 409
+            assert lifecycle.json()["error"]["code"] == "reset_operation_conflict"
+        status_body = test_client.get(
+            f"/api/instances/{INSTANCE_ID}/reset-status"
+        ).json()
+        assert status_body["operation"]["state"] == "running"
+        assert (
+            not {
+                "lease_token_digest",
+                "lease_expires_at",
+                "token",
+            }
+            & status_body["operation"].keys()
+        )
+        release.set()
+        for _ in range(100):
+            status_body = test_client.get(
+                f"/api/instances/{INSTANCE_ID}/reset-status"
+            ).json()
+            if status_body["operation"]["state"] == "succeeded":
+                break
+            time.sleep(0.01)
+        assert (
+            test_client.post(
+                f"/api/instances/{INSTANCE_ID}/provision",
+                json={},
+                headers=headers,
+            ).status_code
+            == 200
+        )
+    assert calls == [INSTANCE_ID]
 
 
 def test_status_models_unprovisioned_stopped_running_and_broker_failure(

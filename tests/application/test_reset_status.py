@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -9,6 +10,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.reset_activity import (
     ResetActivityRegistry,
     ResetActivityState,
+)
+from kodi_lab.application.reset_operations import (
+    LEASE_DURATION,
+    ResetOperationCoordinator,
 )
 from kodi_lab.application.reset_status import (
     FixtureCompatibilityState,
@@ -360,3 +365,44 @@ def test_status_does_not_substitute_newer_revision_or_mutate_assignment(
         instance = session.get(ManagedInstanceRow, str(INSTANCE_ID))
         assert instance is not None
         assert instance.fixture_definition_id == str(fixture.id)
+
+
+def test_durable_operation_is_authoritative_across_status_service_restart(
+    factory: sessionmaker[Session],
+) -> None:
+    coordinator = ResetOperationCoordinator(factory)
+    queued = coordinator.queue(INSTANCE_ID)
+    first_process = ResetStatusService(
+        factory, InventoryBroker(), ResetActivityRegistry(), coordinator
+    ).get(INSTANCE_ID)
+    assert first_process.activity_state is ResetActivityState.QUEUED
+    assert first_process.operation is not None
+    assert first_process.operation.operation_id == queued.operation.operation_id
+    assert first_process.eligibility_reason is ResetEligibilityReason.RESET_IN_PROGRESS
+
+    restarted = ResetStatusService(
+        factory,
+        InventoryBroker(),
+        ResetActivityRegistry(),
+        ResetOperationCoordinator(factory),
+    ).get(INSTANCE_ID)
+    assert restarted.operation is not None
+    assert restarted.operation.state == "queued"
+    assert restarted.activity_state is ResetActivityState.QUEUED
+
+
+def test_stale_durable_running_operation_becomes_reconciliation_required(
+    factory: sessionmaker[Session],
+) -> None:
+    current = [datetime(2026, 9, 15, tzinfo=UTC)]
+    coordinator = ResetOperationCoordinator(factory, clock=lambda: current[0])
+    queued = coordinator.queue(INSTANCE_ID)
+    assert coordinator.acquire(queued.operation.operation_id) is not None
+    current[0] += LEASE_DURATION + timedelta(seconds=1)
+    status = ResetStatusService(
+        factory, InventoryBroker(), ResetActivityRegistry(), coordinator
+    ).get(INSTANCE_ID)
+    assert status.operation is not None
+    assert status.operation.state == "reconciliation_required"
+    assert status.reconciliation_required
+    assert status.eligibility_reason is ResetEligibilityReason.RECONCILIATION_REQUIRED

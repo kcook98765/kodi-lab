@@ -16,6 +16,7 @@ from kodi_lab.application.reset_activity import (
     ResetActivityCapacityError,
     ResetActivityConflictError,
     ResetActivityRegistry,
+    ResetActivitySnapshot,
     ResetActivityState,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
@@ -178,6 +179,26 @@ class _FixtureAdapter(Protocol):
     def wait_for_fixture_state(self) -> FixtureLibraryState: ...
 
 
+class ResetActivityObserver(Protocol):
+    def begin(self, instance_id: UUID) -> ResetActivitySnapshot: ...
+
+    def transition(
+        self, instance_id: UUID, generation: int, state: ResetActivityState
+    ) -> ResetActivitySnapshot: ...
+
+    def succeed(self, instance_id: UUID, generation: int) -> ResetActivitySnapshot: ...
+
+    def fail(
+        self,
+        instance_id: UUID,
+        generation: int,
+        *,
+        failure_phase: str,
+        failure_reason: str,
+        reconciliation_required: bool,
+    ) -> ResetActivitySnapshot: ...
+
+
 type FixtureAdapterFactory = Callable[
     [ObserveManagedKodiRuntimeResult, RuntimeExecutionProfile], _FixtureAdapter
 ]
@@ -205,7 +226,7 @@ class DisposableInstanceResetService:
         broker: _ResetBroker,
         *,
         locks: PerInstanceResetLocks | None = None,
-        activity: ResetActivityRegistry | None = None,
+        activity: ResetActivityObserver | None = None,
         readiness_factory: Callable[
             [_ResetBroker, RuntimeExecutionProfile], _ReadinessWaiter
         ] = KodiReadinessCoordinator,
@@ -259,7 +280,7 @@ class DisposableInstanceResetService:
             lock.release()
 
     @property
-    def activity_registry(self) -> ResetActivityRegistry:
+    def activity_registry(self) -> ResetActivityObserver:
         return self._activity
 
     def _reset_locked(

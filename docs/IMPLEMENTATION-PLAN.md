@@ -227,3 +227,15 @@ mutation as one coherent contract: destructive confirmation and authorization,
 operation monitoring, and coordination appropriate for the intended worker
 deployment. It must continue accepting only ManagedInstance identity and must
 not expose mutation until cross-process behavior is explicitly resolved.
+
+Phase 6 Step 3 implements `ResetOperation`, a SQLite-enforced one-active partial
+unique index, digest-bound leases and phase heartbeats, stale-running
+reconciliation, and 20 terminal rows of bounded history. Multiple Web processes
+may run executors, but only the lease winner calls the exact-pin reset service.
+The confirmed localhost POST queues work and returns 202; durable status survives
+restart, and active reset blocks Web lifecycle plus trusted fixture/revision
+mutation.
+
+The next coherent Phase 6 milestone should validate and materialize a distinct
+immutable Small/Mixed fixture version for Kodi 20.5 using its exact generated
+video-database schema, without changing v1/v2 or broadening selection authority.

@@ -907,3 +907,32 @@ details that it did not specify.
   warning without container identity, image, paths, exceptions, or mutation
   authority. No reset/fixture mutation route, durable job/history, distributed
   lock, migration, or broker operation is added.
+
+## D-0075: Reset-specific durable operation lease and bounded retention
+
+- Status: approved for Phase 6 Step 3
+- Decision: `ResetOperation` is reset-only durable coordination, not a generic
+  job payload. SQLite enforces one queued/running row per ManagedInstance with a
+  partial unique index. Acquisition and each phase or terminal update use
+  conditional writes bound to the SHA-256 digest of an opaque high-entropy
+  worker token and a fresh ten-minute lease. Meaningful phases renew the
+  heartbeat; readiness polling does not write SQLite.
+- Crash and retention: queued work may be acquired after restart. Expired
+  started work is never resumed and becomes reconciliation-required with its
+  last safe phase retained. The latest 20 terminal rows per instance are kept;
+  active rows are never pruned. No generic queue, cancellation, retry, or worker
+  framework is introduced.
+
+## D-0076: Confirmed localhost Web reset queues outside request lifetime
+
+- Status: approved for Phase 6 Step 3
+- Decision: authenticated confirmation shows exact release/revision, fixture,
+  destructive disposable-state warning, no-upgrade promise, and stopped
+  completion. The CSRF/same-origin POST accepts only literal confirmation plus
+  the route instance UUID, revalidates current status, creates or returns the
+  sole active operation, submits it to the reset executor, and returns 202.
+- Boundary: durable state is authoritative across processes; local activity is
+  supplemental. Web lifecycle and trusted fixture/revision changes reject an
+  active reset. Web still reaches Docker only through the broker client. Stale
+  acknowledgement remains read-only until its audit/evidence semantics are
+  defined; there is no auto-resume or generic repair control.

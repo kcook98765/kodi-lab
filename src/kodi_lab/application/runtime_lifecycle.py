@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.reset_operations import ResetOperationCoordinator
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -93,20 +94,24 @@ class ManagedRuntimeLifecycleService:
         readiness: ReadinessTaskRegistry,
         status: ManagedRuntimeStatusService,
         coordinator_factory: ReadinessCoordinatorFactory = KodiReadinessCoordinator,
+        reset_operations: ResetOperationCoordinator | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._broker = broker
         self._readiness = readiness
         self._status = status
         self._coordinator_factory = coordinator_factory
+        self._reset_operations = reset_operations
 
     def provision(self, instance_id: UUID) -> ManagedRuntimeStatus:
+        self._require_no_reset(instance_id)
         self._load_instance(instance_id)
         self._broker.provision_managed_container(managed_instance_id=str(instance_id))
         self._readiness.clear(instance_id)
         return self._status.get(instance_id)
 
     def start(self, instance_id: UUID) -> ManagedRuntimeStatus:
+        self._require_no_reset(instance_id)
         profile = self._load_instance(instance_id)
         container = self._require_container(instance_id)
         self._broker.start_managed_container(
@@ -125,6 +130,7 @@ class ManagedRuntimeLifecycleService:
         return self._status.get(instance_id)
 
     def stop(self, instance_id: UUID) -> ManagedRuntimeStatus:
+        self._require_no_reset(instance_id)
         self._load_instance(instance_id)
         container = self._require_container(instance_id)
         self._readiness.cancel(instance_id)
@@ -136,6 +142,7 @@ class ManagedRuntimeLifecycleService:
         return self._status.get(instance_id)
 
     def deprovision(self, instance_id: UUID) -> ManagedRuntimeStatus:
+        self._require_no_reset(instance_id)
         self._load_instance(instance_id)
         container = self._require_container(instance_id)
         if container.runtime_state is not ContainerRuntimeState.STOPPED:
@@ -181,3 +188,7 @@ class ManagedRuntimeLifecycleService:
         if match is None:
             raise LifecycleConflictError("managed runtime is not provisioned")
         return match
+
+    def _require_no_reset(self, instance_id: UUID) -> None:
+        if self._reset_operations is not None:
+            self._reset_operations.require_no_active(instance_id)

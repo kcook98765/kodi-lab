@@ -22,6 +22,7 @@ from kodi_lab.application.errors import (
     TrustedCustomBuildConfirmationRequiredError,
     TrustedCustomBuildDisabledError,
 )
+from kodi_lab.application.reset_operations import ResetOperationCoordinator
 from kodi_lab.application.runtime_eligibility import (
     RuntimeIneligibilityReason,
     RuntimeRevisionEligibilityPolicy,
@@ -74,6 +75,7 @@ class ManagedInstanceService:
         trusted_custom_builds_enabled: bool = False,
         include_legacy: bool = False,
         include_prerelease: bool = False,
+        reset_operations: ResetOperationCoordinator | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._selection_policy = RuntimeSelectionPolicy(
@@ -82,6 +84,7 @@ class ManagedInstanceService:
             include_prerelease=include_prerelease,
         )
         self._eligibility = RuntimeRevisionEligibilityPolicy()
+        self._reset_operations = reset_operations
 
     def create(
         self,
@@ -121,6 +124,9 @@ class ManagedInstanceService:
         selection: RuntimeSelection,
     ) -> ManagedInstance:
         """Atomically change only an existing instance's exact revision."""
+
+        if self._reset_operations is not None:
+            self._reset_operations.require_no_active(target_id)
 
         try:
             with self._session_factory.begin() as session:

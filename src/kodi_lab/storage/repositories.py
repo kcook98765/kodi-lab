@@ -3,12 +3,15 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
     FixtureDefinition,
     ManagedInstance,
+    ResetOperation,
+    ResetOperationPhase,
+    ResetOperationState,
     RuntimeContainerArtifact,
     RuntimeDefinition,
     RuntimeExecutionProfile,
@@ -20,6 +23,7 @@ from kodi_lab.domain import (
 from kodi_lab.storage.models import (
     FixtureDefinitionRow,
     ManagedInstanceRow,
+    ResetOperationRow,
     RuntimeContainerArtifactRow,
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
@@ -251,6 +255,217 @@ class FixtureDefinitionRepository:
             compatible_kodi_version=row.compatible_kodi_version,
             description=row.description,
         )
+
+
+def _reset_operation_from_row(row: ResetOperationRow) -> ResetOperation:
+    return ResetOperation(
+        id=UUID(row.id),
+        managed_instance_id=UUID(row.managed_instance_id),
+        requested_at=_timestamp_from_text(row.requested_at),
+        started_at=None
+        if row.started_at is None
+        else _timestamp_from_text(row.started_at),
+        heartbeat_at=(
+            None if row.heartbeat_at is None else _timestamp_from_text(row.heartbeat_at)
+        ),
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        state=row.state,
+        phase=row.phase,
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=(
+            None
+            if row.lease_expires_at is None
+            else _timestamp_from_text(row.lease_expires_at)
+        ),
+    )
+
+
+class ResetOperationRepository:
+    """Short-transaction coordination for reset-specific durable work."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: ResetOperation) -> None:
+        self._session.add(
+            ResetOperationRow(
+                id=str(operation.id),
+                managed_instance_id=str(operation.managed_instance_id),
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+                reconciliation_required=operation.reconciliation_required,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> ResetOperation | None:
+        row = self._session.get(ResetOperationRow, str(operation_id))
+        return None if row is None else _reset_operation_from_row(row)
+
+    def active_for_instance(self, instance_id: UUID) -> ResetOperation | None:
+        row = self._session.scalar(
+            select(ResetOperationRow)
+            .where(
+                ResetOperationRow.managed_instance_id == str(instance_id),
+                ResetOperationRow.state.in_(
+                    [ResetOperationState.QUEUED, ResetOperationState.RUNNING]
+                ),
+            )
+            .order_by(
+                ResetOperationRow.requested_at.desc(), ResetOperationRow.id.desc()
+            )
+        )
+        return None if row is None else _reset_operation_from_row(row)
+
+    def latest_for_instance(self, instance_id: UUID) -> ResetOperation | None:
+        row = self._session.scalar(
+            select(ResetOperationRow)
+            .where(ResetOperationRow.managed_instance_id == str(instance_id))
+            .order_by(
+                ResetOperationRow.requested_at.desc(), ResetOperationRow.id.desc()
+            )
+            .limit(1)
+        )
+        return None if row is None else _reset_operation_from_row(row)
+
+    def list_queued(self) -> list[ResetOperation]:
+        rows = self._session.scalars(
+            select(ResetOperationRow)
+            .where(ResetOperationRow.state == ResetOperationState.QUEUED)
+            .order_by(ResetOperationRow.requested_at, ResetOperationRow.id)
+        )
+        return [_reset_operation_from_row(row) for row in rows]
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(ResetOperationRow)
+            .where(
+                ResetOperationRow.id == str(operation_id),
+                ResetOperationRow.state == ResetOperationState.QUEUED,
+            )
+            .values(
+                state=ResetOperationState.RUNNING,
+                phase=ResetOperationPhase.PREFLIGHT,
+                started_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: ResetOperationPhase,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(ResetOperationRow)
+            .where(
+                ResetOperationRow.id == str(operation_id),
+                ResetOperationRow.state == ResetOperationState.RUNNING,
+                ResetOperationRow.lease_token_digest == token_digest,
+                ResetOperationRow.lease_expires_at > _timestamp_to_text(now),
+            )
+            .values(
+                phase=phase,
+                heartbeat_at=_timestamp_to_text(now),
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: ResetOperationState,
+        phase: ResetOperationPhase,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(ResetOperationRow)
+            .where(
+                ResetOperationRow.id == str(operation_id),
+                ResetOperationRow.state == ResetOperationState.RUNNING,
+                ResetOperationRow.lease_token_digest == token_digest,
+                ResetOperationRow.lease_expires_at > _timestamp_to_text(now),
+            )
+            .values(
+                state=state,
+                phase=phase,
+                completed_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+        result = self._session.execute(
+            update(ResetOperationRow)
+            .where(
+                ResetOperationRow.id == str(operation_id),
+                ResetOperationRow.state == ResetOperationState.RUNNING,
+                ResetOperationRow.lease_expires_at <= _timestamp_to_text(now),
+            )
+            .values(
+                state=ResetOperationState.RECONCILIATION_REQUIRED,
+                completed_at=_timestamp_to_text(now),
+                failure_reason=(
+                    "Reset worker lease expired; reconciliation is required."
+                ),
+                reconciliation_required=True,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        old_ids = list(
+            self._session.scalars(
+                select(ResetOperationRow.id)
+                .where(
+                    ResetOperationRow.managed_instance_id == str(instance_id),
+                    ResetOperationRow.state.not_in(
+                        [ResetOperationState.QUEUED, ResetOperationState.RUNNING]
+                    ),
+                )
+                .order_by(
+                    ResetOperationRow.requested_at.desc(), ResetOperationRow.id.desc()
+                )
+                .offset(retain)
+            )
+        )
+        if not old_ids:
+            return 0
+        result = self._session.execute(
+            delete(ResetOperationRow).where(ResetOperationRow.id.in_(old_ids))
+        )
+        return int(getattr(result, "rowcount", 0))
 
 
 class RuntimeDefinitionRepository:

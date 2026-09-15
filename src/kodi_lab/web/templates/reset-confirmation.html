@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <title>Confirm reset · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main class="confirmation-panel">
+      <h1>Confirm disposable reset</h1>
+      <h2>{{ instance.name }}</h2>
+      <dl>
+        <dt>Exact runtime</dt><dd>Kodi {{ reset.pinned_kodi_release }} · revision {{ reset.pinned_runtime_revision_number }}</dd>
+        <dt>Fixture</dt><dd>{% if reset.fixture.assignment == 'none' %}None{% else %}{{ reset.fixture.display_name }} v{{ reset.fixture.fixture_version }}{% endif %}</dd>
+        <dt>Current status</dt><dd>{{ reset.eligibility_detail }}</dd>
+      </dl>
+      <p class="notice">Reset permanently discards changes made inside this disposable runtime.</p>
+      <p>The assigned fixture will be reapplied. Kodi and the exact runtime revision remain pinned and will not be upgraded.</p>
+      <p>A successful reset finishes provisioned and stopped.</p>
+      <p id="reset-error" class="error" role="alert" hidden></p>
+      <div class="actions">
+        <button id="confirm-reset" type="button" data-instance-id="{{ instance.managed_instance_id }}" {% if reset.eligibility != 'supported' %}disabled{% endif %}>Confirm reset</button>
+        <a href="/">Cancel</a>
+      </div>
+    </main>
+    <script src="{{ url_for('static', path='/reset-confirmation.js') }}" defer></script>
+  </body>
+</html>

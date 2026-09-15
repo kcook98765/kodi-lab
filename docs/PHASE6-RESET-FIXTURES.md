@@ -249,3 +249,33 @@ The authenticated dashboard and
 does not contain container IDs, image IDs, archive/database paths, evidence
 paths, traceback or raw exception text. There is no reset button, reset POST,
 fixture mutation route, schema change, or broker protocol/capability change.
+
+## Step 3 durable coordination and confirmed Web reset
+
+Migration `0008_reset_operations` adds reset-specific queued/running/succeeded/
+failed/reconciliation-required state, latest phase, request/start/heartbeat/
+completion times, bounded failure, and lease-token digest. A SQLite partial
+unique index over queued/running rows is the cross-process one-active invariant.
+Atomic conditional updates require the lease digest and unexpired ten-minute
+lease. Meaningful phases renew it. The newest 20 terminal rows per instance are
+retained without event or log payloads.
+
+Each Web process may host an executor, but only the lease winner calls
+`DisposableInstanceResetService`. Queued work is picked up after restart. An
+expired running operation is not resumed; it becomes reconciliation-required
+with its last phase. Durable status is authoritative and local activity only
+supplemental. No generic jobs, payload, retry, cancellation, Redis, Celery, or
+broker operation is added.
+
+Authenticated `GET /instances/{instance_id}/reset` presents confirmation.
+`POST /api/instances/{instance_id}/reset` requires existing same-origin,
+session, and CSRF gates and exactly `{ "confirmed": true }`. It reloads reset
+eligibility, queues or returns the existing operation, and returns 202 promptly.
+The page warns that drift is discarded, fixture is reapplied, the exact revision
+is not upgraded, and success ends stopped. Server services reject lifecycle and
+trusted fixture/revision changes while active.
+
+Stale acknowledgement remains read-only: clearing durable intervention state
+needs an explicit audit/evidence contract. There is no destructive auto-resume
+or generic Docker repair. The surface remains localhost-only through the
+existing root broker boundary.

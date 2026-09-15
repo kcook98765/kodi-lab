@@ -40,6 +40,9 @@ function updateResetStatus(card, status) {
     eligibility: status.eligibility_detail,
     activity: status.activity_state,
     outcome: status.last_outcome,
+    requested: status.operation?.requested_at || "None",
+    started: status.operation?.started_at || "None",
+    completed: status.operation?.completed_at || "None",
     "pin-statement": status.exact_pin_statement,
     "fixture-note": status.fixture.baseline_note || "",
     "reset-failure": status.failure_reason || "",
@@ -55,6 +58,12 @@ function updateResetStatus(card, status) {
   if (failure) failure.hidden = !status.failure_reason;
   const reconciliation = card.querySelector('[data-reset-field="reconciliation"]');
   if (reconciliation) reconciliation.hidden = !status.reconciliation_required;
+  const active = status.operation && ["queued", "running"].includes(status.operation.state);
+  for (const control of card.querySelectorAll("button[data-action]")) {
+    control.disabled = Boolean(active);
+  }
+  const resetAction = card.querySelector("[data-reset-action]");
+  if (resetAction) resetAction.hidden = status.eligibility !== "supported";
 }
 
 async function refreshResetStatus(instanceId) {

@@ -103,6 +103,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
     assert set(metadata.tables) == {
         "fixture_definitions",
         "managed_instances",
+        "reset_operations",
         "runtime_container_artifacts",
         "runtime_definitions",
         "runtime_execution_profiles",

@@ -25,6 +25,8 @@ from kodi_lab.domain import (
     InstanceType,
     ProcessObservationKind,
     ReadinessProbeKind,
+    ResetOperationPhase,
+    ResetOperationState,
     RevisionApprovalState,
     RuntimeKind,
     RuntimeSupportTier,
@@ -192,6 +194,82 @@ class FixtureDefinitionRow(Base):
     content_digest: Mapped[str] = mapped_column(String(71), nullable=False)
     compatible_kodi_version: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str] = mapped_column(String(512), nullable=False)
+
+
+class ResetOperationRow(Base):
+    """Bounded durable coordination for one destructive disposable reset."""
+
+    __tablename__ = "reset_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="reset_operation_failure_reason_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="reset_operation_lease_digest_sha256",
+        ),
+        CheckConstraint(
+            "(state = 'queued' AND started_at IS NULL AND completed_at IS NULL "
+            "AND lease_token_digest IS NULL AND lease_expires_at IS NULL) OR "
+            "(state = 'running' AND started_at IS NOT NULL "
+            "AND completed_at IS NULL AND heartbeat_at IS NOT NULL "
+            "AND lease_token_digest IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(state IN ('succeeded', 'failed', 'reconciliation_required') "
+            "AND completed_at IS NOT NULL AND lease_token_digest IS NULL "
+            "AND lease_expires_at IS NULL)",
+            name="reset_operation_state_fields_consistent",
+        ),
+        Index(
+            "uq_reset_operations_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued', 'running')"),
+        ),
+        Index(
+            "ix_reset_operations_instance_requested",
+            "managed_instance_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    state: Mapped[ResetOperationState] = mapped_column(
+        Enum(
+            ResetOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="reset_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[ResetOperationPhase] = mapped_column(
+        Enum(
+            ResetOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="reset_operation_phase",
+        ),
+        nullable=False,
+    )
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class RuntimeDefinitionRow(Base):

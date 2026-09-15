@@ -15,6 +15,10 @@ from kodi_lab.application.managed_instances import (
     ExactRevisionSelection,
     ManagedInstanceService,
 )
+from kodi_lab.application.reset_operations import (
+    ResetOperationConflictError,
+    ResetOperationCoordinator,
+)
 from kodi_lab.domain import (
     KODI_RUNTIME_VALIDATION_CONTRACT,
     ConnectionState,
@@ -249,3 +253,40 @@ def test_revision_reassignment_rejects_existing_incompatible_fixture(
                 runtime_revision_id=revision.id,
             ),
         )
+
+
+def test_active_reset_blocks_fixture_and_revision_administration(
+    session_factory: sessionmaker[Session],
+) -> None:
+    target, definition, revision = seed_instance(session_factory)
+    coordinator = ResetOperationCoordinator(session_factory)
+    fixture_service = FixtureAdministrationService(
+        session_factory, reset_operations=coordinator
+    )
+    fixture = fixture_service.register_packaged_fixture("small-mixed-v2")
+    coordinator.queue(target.id)
+
+    with pytest.raises(ResetOperationConflictError):
+        fixture_service.assign(
+            managed_instance_id=target.id, fixture_definition_id=fixture.id
+        )
+    with pytest.raises(ResetOperationConflictError):
+        fixture_service.unassign(managed_instance_id=target.id)
+    with pytest.raises(ResetOperationConflictError):
+        ManagedInstanceService(
+            session_factory, reset_operations=coordinator
+        ).reassign_runtime(
+            target_id=target.id,
+            selection=ExactRevisionSelection(definition.id, revision.id),
+        )
+    active = coordinator.active_for_instance(target.id)
+    assert active is not None
+    lease = coordinator.acquire(active.id)
+    assert lease is not None
+    coordinator.finish_success(lease)
+    assert (
+        fixture_service.assign(
+            managed_instance_id=target.id, fixture_definition_id=fixture.id
+        ).fixture_definition_id
+        == fixture.id
+    )

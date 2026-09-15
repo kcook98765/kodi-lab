@@ -17,6 +17,10 @@ from kodi_lab.application.reset_activity import (
     ResetActivityState,
     ResetOutcome,
 )
+from kodi_lab.application.reset_operations import (
+    ResetOperationCoordinator,
+    ResetOperationStatus,
+)
 from kodi_lab.application.runtime_status import ProvisionState
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.errors import ClientError
@@ -103,6 +107,7 @@ class ManagedInstanceResetStatus(BaseModel):
     failure_phase: str | None = Field(default=None, max_length=64)
     failure_reason: str | None = Field(default=None, max_length=256)
     reconciliation_required: bool
+    operation: ResetOperationStatus | None = None
 
 
 class _ResetStatusBroker(Protocol):
@@ -126,10 +131,12 @@ class ResetStatusService:
         session_factory: sessionmaker[Session],
         broker: _ResetStatusBroker,
         activity: ResetActivityRegistry,
+        operations: ResetOperationCoordinator | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._broker = broker
         self._activity = activity
+        self._operations = operations
 
     def list_statuses(self) -> list[ManagedInstanceResetStatus]:
         contexts = self._load_contexts()
@@ -194,6 +201,46 @@ class ResetStatusService:
         broker_unavailable: bool = False,
     ) -> ManagedInstanceResetStatus:
         activity = self._activity.snapshot(context.instance.target_id)
+        operation = (
+            None
+            if self._operations is None
+            else self._operations.latest_for_instance(context.instance.target_id)
+        )
+        if operation is not None and self._operations is not None:
+            operation = self._operations.terminalize_expired(operation)
+        operation_status = (
+            None
+            if operation is None or self._operations is None
+            else self._operations.to_status(operation)
+        )
+        if operation is not None:
+            activity_state = (
+                ResetActivityState.SUCCEEDED
+                if operation.state.value == "succeeded"
+                else ResetActivityState.RECONCILIATION_REQUIRED
+                if operation.reconciliation_required
+                else ResetActivityState.FAILED
+                if operation.state.value == "failed"
+                else ResetActivityState(operation.phase.value)
+            )
+            activity = ResetActivitySnapshot(
+                generation=activity.generation,
+                state=activity_state,
+                last_outcome=(
+                    ResetOutcome.SUCCEEDED
+                    if operation.state.value == "succeeded"
+                    else ResetOutcome.RECONCILIATION_REQUIRED
+                    if operation.reconciliation_required
+                    else ResetOutcome.FAILED
+                    if operation.state.value == "failed"
+                    else ResetOutcome.NONE
+                ),
+                failure_phase=(
+                    operation.phase.value if operation.failure_reason else None
+                ),
+                failure_reason=operation.failure_reason,
+                reconciliation_required=operation.reconciliation_required,
+            )
         fixture = self._fixture_status(context)
         provision, container = self._container_status(containers, broker_unavailable)
         eligibility, reason, detail = self._eligibility(
@@ -222,6 +269,7 @@ class ResetStatusService:
             failure_phase=activity.failure_phase,
             failure_reason=activity.failure_reason,
             reconciliation_required=activity.reconciliation_required,
+            operation=operation_status,
         )
 
     @staticmethod

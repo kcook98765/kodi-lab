@@ -35,6 +35,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "alembic_version",
         "fixture_definitions",
         "managed_instances",
+        "reset_operations",
         "runtime_definitions",
         "runtime_container_artifacts",
         "runtime_execution_profiles",
@@ -55,6 +56,13 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     assert managed_foreign_keys["fixture_definitions"]["options"] == {
         "ondelete": "RESTRICT"
     }
+    reset_foreign_key = inspector.get_foreign_keys("reset_operations")[0]
+    assert reset_foreign_key["referred_table"] == "managed_instances"
+    assert reset_foreign_key["options"] == {"ondelete": "RESTRICT"}
+    reset_indexes = {
+        index["name"]: index for index in inspector.get_indexes("reset_operations")
+    }
+    assert reset_indexes["uq_reset_operations_active_instance"]["unique"] == 1
     revision_foreign_key = inspector.get_foreign_keys("runtime_revisions")[0]
     assert revision_foreign_key["referred_table"] == "runtime_definitions"
     assert revision_foreign_key["options"] == {"ondelete": "RESTRICT"}
@@ -114,6 +122,78 @@ def test_explicit_0002_upgrades_to_artifact_head(
     assert "runtime_container_artifacts" in inspect(engine).get_table_names()
     engine.dispose()
     command.check(config)
+
+
+def test_0007_upgrades_to_reset_operations_and_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0007_fixture_definitions")
+    engine = create_database_engine(database_url)
+    assert "reset_operations" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    assert "reset_operations" in inspect(engine).get_table_names()
+    engine.dispose()
+    command.check(config)
+    command.downgrade(config, "0007_fixture_definitions")
+    command.upgrade(config, "head")
+    command.check(config)
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id, slug, kodi_version, support_tier) "
+                "VALUES ('81000000-0000-4000-8000-000000000001', 'reset-test', "
+                "'21.3', 'current')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
+                "revision_number, source_kind, source_reference, content_digest, "
+                "manifest_reference, manifest_digest, built_at, approval_state, "
+                "requires_trusted_build_confirmation) VALUES "
+                "('81000000-0000-4000-8000-000000000002', "
+                "'81000000-0000-4000-8000-000000000001', 1, 'test', 'test', "
+                ":digest, 'test', :digest, '2026-09-15T00:00:00Z', "
+                "'not_approved', 0)"
+            ),
+            {"digest": "sha256:" + "a" * 64},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO targets (id, name, target_type, kodi_version, "
+                "availability, health, connection_state) VALUES "
+                "('81000000-0000-4000-8000-000000000003', 'reset', 'managed', "
+                "'21.3', 'unavailable', 'warning', 'disconnected')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances (target_id, instance_type, "
+                "runtime_revision_id, runtime_state, start_on_host_boot) VALUES "
+                "('81000000-0000-4000-8000-000000000003', 'disposable', "
+                "'81000000-0000-4000-8000-000000000002', 'stopped', 0)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO reset_operations (id, managed_instance_id, requested_at, "
+                "completed_at, state, phase, reconciliation_required) VALUES "
+                "('81000000-0000-4000-8000-000000000004', "
+                "'81000000-0000-4000-8000-000000000003', "
+                "'2026-09-15T00:00:00.000000Z', "
+                "'2026-09-15T00:01:00.000000Z', 'succeeded', 'succeeded', 0)"
+            )
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated reset operations"):
+        command.downgrade(config, "0007_fixture_definitions")
 
 
 def test_prior_head_upgrades_to_execution_profile_head(

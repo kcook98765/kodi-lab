@@ -11,6 +11,7 @@ from uuid import UUID
 
 class ResetActivityState(StrEnum):
     IDLE = "idle"
+    QUEUED = "queued"
     PREFLIGHT = "preflight"
     STOPPING = "stopping"
     DEPROVISIONING = "deprovisioning"
@@ -35,6 +36,7 @@ class ResetOutcome(StrEnum):
 
 
 _ACTIVE_STATES = (
+    ResetActivityState.QUEUED,
     ResetActivityState.PREFLIGHT,
     ResetActivityState.STOPPING,
     ResetActivityState.DEPROVISIONING,

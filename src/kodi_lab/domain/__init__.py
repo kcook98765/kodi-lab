@@ -22,6 +22,11 @@ from kodi_lab.domain.models import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.domain.reset_operations import (
+    ResetOperation,
+    ResetOperationPhase,
+    ResetOperationState,
+)
 from kodi_lab.domain.runtime_catalog import (
     KODI_RUNTIME_VALIDATION_CONTRACT,
     RECOGNIZED_VALIDATION_CONTRACTS,
@@ -56,6 +61,9 @@ __all__ = [
     "ManagedInstance",
     "ProcessObservationKind",
     "ReadinessProbeKind",
+    "ResetOperation",
+    "ResetOperationPhase",
+    "ResetOperationState",
     "RevisionApprovalState",
     "RuntimeContainerArtifact",
     "RuntimeDefinition",
