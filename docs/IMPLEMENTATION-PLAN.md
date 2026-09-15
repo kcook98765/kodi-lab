@@ -157,3 +157,15 @@ and clean-stop cycles, deprovision, absence, and isolation proof precede passing
 `kodi-runtime-v1` evidence. Passing evidence must leave normal selection
 ineligible while trusted Include Legacy selects the exact 19.5 revision; 20.5
 and 21.3 selection remains exact and unaffected.
+
+Phase 5 Step 4 implements only Kodi 22.0 Beta 2 as Preview. Its version-owned,
+multi-stage Ubuntu 26.04 image builds the exact signed Team Kodi release commit
+from a digest-verified source archive, records the declared toolchain/options,
+and excludes build tools from the final non-root headless runtime. The source
+build remains subject to global and per-revision Trusted Custom Build gates.
+Two independent readiness and clean-stop cycles must observe exact JSON-RPC
+`beta` tagversion `2`, then deprovision, absence, and isolation proof must
+precede passing `kodi-runtime-v1` evidence. Passing evidence leaves normal
+selection ineligible while trusted Include Pre-release selects only the exact
+Beta 2 definition; Beta 1, RC, stable, Current, and Legacy identities retain
+their existing exact behavior.

@@ -83,9 +83,39 @@ def test_manifest_accepts_exact_team_kodi_old_stable_package(tmp_path: Path) -> 
     assert manifest.package_artifact_hashes["kodi.deb"].startswith("sha256:")
 
 
+def test_manifest_accepts_exact_trusted_source_build(tmp_path: Path) -> None:
+    path = manifest_for(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["kodi_version"] = "22.0-beta.2"
+    data["kodi_package_version"] = None
+    data["source_build"] = {
+        "repository_url": "https://github.com/xbmc/xbmc",
+        "release_tag": "22.0b2-Piers",
+        "commit_sha": "e513e0ff4331fc25fd2454659a9dd3e6b7670146",
+        "source_archive_url": (
+            "https://codeload.github.com/xbmc/xbmc/tar.gz/"
+            "e513e0ff4331fc25fd2454659a9dd3e6b7670146"
+        ),
+        "source_archive_digest": "sha256:" + ("d" * 64),
+        "kodi_version": "22.0-beta.2",
+        "toolchain_packages": ["cmake", "ninja-build"],
+        "cmake_options": ["-DCMAKE_BUILD_TYPE=Release"],
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
+    manifest = load_runtime_build_manifest(path)
+    assert manifest.source_build is not None
+    assert manifest.source_build.release_tag == "22.0b2-Piers"
+    assert manifest.source_build.commit_sha.startswith("e513e0ff")
+
+
 @pytest.mark.parametrize(
     ("directory", "version"),
-    (("kodi-19.5", "19.5"), ("kodi-20.5", "20.5"), ("kodi-21.3", "21.3")),
+    (
+        ("kodi-19.5", "19.5"),
+        ("kodi-20.5", "20.5"),
+        ("kodi-21.3", "21.3"),
+        ("kodi-22.0-beta2", "22.0-beta.2"),
+    ),
 )
 def test_repository_runtime_manifest_matches_immutable_inputs(
     directory: str, version: str
@@ -154,4 +184,34 @@ def test_manifest_rejects_unbounded_package_artifact_name(tmp_path: Path) -> Non
     data["package_artifact_hashes"] = {"../kodi.deb": "sha256:" + ("d" * 64)}
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValidationError, match="relative and bounded"):
+        load_runtime_build_manifest(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("commit_sha", "e513e0f", "full lowercase Git SHA"),
+        ("kodi_version", "22.0-beta.1", "exact release identity"),
+    ],
+)
+def test_source_build_rejects_ambiguous_or_mismatched_identity(
+    tmp_path: Path, field: str, value: str, message: str
+) -> None:
+    path = manifest_for(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["kodi_version"] = "22.0-beta.2"
+    data["kodi_package_version"] = None
+    data["source_build"] = {
+        "repository_url": "https://github.com/xbmc/xbmc",
+        "release_tag": "22.0b2-Piers",
+        "commit_sha": "e513e0ff4331fc25fd2454659a9dd3e6b7670146",
+        "source_archive_url": "https://codeload.github.com/xbmc/xbmc/tar.gz/source",
+        "source_archive_digest": "sha256:" + ("d" * 64),
+        "kodi_version": "22.0-beta.2",
+        "toolchain_packages": ["cmake"],
+        "cmake_options": ["-DCMAKE_BUILD_TYPE=Release"],
+    }
+    data["source_build"][field] = value
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValidationError, match=message):
         load_runtime_build_manifest(path)

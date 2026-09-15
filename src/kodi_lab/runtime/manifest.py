@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -39,6 +40,54 @@ class RuntimeBuildResult(_StrictModel):
         return value
 
 
+class SourceBuildProvenance(_StrictModel):
+    repository_url: str = Field(min_length=1, max_length=256)
+    release_tag: str = Field(min_length=1, max_length=128)
+    commit_sha: str
+    source_archive_url: str = Field(min_length=1, max_length=256)
+    source_archive_digest: str
+    kodi_version: str
+    toolchain_packages: tuple[str, ...]
+    cmake_options: tuple[str, ...]
+
+    @field_validator("commit_sha")
+    @classmethod
+    def _commit_sha(cls, value: str) -> str:
+        if re.fullmatch(r"[0-9a-f]{40}", value) is None:
+            raise ValueError("source commit must be a full lowercase Git SHA")
+        return value
+
+    @field_validator("source_archive_digest")
+    @classmethod
+    def _archive_digest(cls, value: str) -> str:
+        if value != normalize_sha256_digest(value):
+            raise ValueError("source archive digest must be canonical")
+        return value
+
+    @field_validator("kodi_version")
+    @classmethod
+    def _version(cls, value: str) -> str:
+        if value != KodiReleaseIdentity.parse(value).canonical:
+            raise ValueError("source release must use canonical Kodi identity")
+        return value
+
+    @field_validator("toolchain_packages")
+    @classmethod
+    def _toolchain(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or any(not item.strip() or len(item) > 128 for item in value):
+            raise ValueError("source toolchain packages must be bounded and nonempty")
+        return value
+
+    @field_validator("cmake_options")
+    @classmethod
+    def _cmake_options(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or any(
+            not item.startswith("-D") or len(item) > 160 for item in value
+        ):
+            raise ValueError("source CMake options must be bounded -D options")
+        return value
+
+
 class RuntimeBuildManifest(_StrictModel):
     schema_version: int = 1
     runtime_kind: str
@@ -46,8 +95,9 @@ class RuntimeBuildManifest(_StrictModel):
     base_image_reference: str = Field(min_length=1, max_length=256)
     base_image_digest: str
     package_sources: tuple[str, ...]
-    kodi_package_version: str
+    kodi_package_version: str | None = None
     package_artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    source_build: SourceBuildProvenance | None = None
     compatibility_assets: tuple[str, ...] = ()
     repository_file_hashes: dict[str, str]
     build: BuildParameters
@@ -113,20 +163,34 @@ class RuntimeBuildManifest(_StrictModel):
                 raise ValueError("repository file paths must be relative and bounded")
             if digest != normalize_sha256_digest(digest):
                 raise ValueError("repository file digests must be canonical")
-        expected_ubuntu_prefix = f"2:{self.kodi_version}+dfsg-"
-        team_kodi_old_source = any(
-            "ppa.launchpadcontent.net/team-xbmc/kodi-old/ubuntu/" in source
-            for source in self.package_sources
-        )
-        expected_team_kodi_old_prefix = f"6:{self.kodi_version}+git"
-        package_matches_release = self.kodi_package_version.startswith(
-            expected_ubuntu_prefix
-        ) or (
-            team_kodi_old_source
-            and self.kodi_package_version.startswith(expected_team_kodi_old_prefix)
-        )
-        if not package_matches_release:
-            raise ValueError("Kodi package version must match exact release identity")
+        if self.source_build is not None:
+            if self.kodi_package_version is not None or self.package_artifact_hashes:
+                raise ValueError("source builds cannot declare a Kodi package artifact")
+            if self.source_build.kodi_version != self.kodi_version:
+                raise ValueError(
+                    "source build release must match exact release identity"
+                )
+        else:
+            if self.kodi_package_version is None:
+                raise ValueError(
+                    "package runtime requires an exact Kodi package version"
+                )
+            expected_ubuntu_prefix = f"2:{self.kodi_version}+dfsg-"
+            team_kodi_old_source = any(
+                "ppa.launchpadcontent.net/team-xbmc/kodi-old/ubuntu/" in source
+                for source in self.package_sources
+            )
+            expected_team_kodi_old_prefix = f"6:{self.kodi_version}+git"
+            package_matches_release = self.kodi_package_version.startswith(
+                expected_ubuntu_prefix
+            ) or (
+                team_kodi_old_source
+                and self.kodi_package_version.startswith(expected_team_kodi_old_prefix)
+            )
+            if not package_matches_release:
+                raise ValueError(
+                    "Kodi package version must match exact release identity"
+                )
         return self
 
     def verify_repository_files(self, manifest_directory: Path) -> None:

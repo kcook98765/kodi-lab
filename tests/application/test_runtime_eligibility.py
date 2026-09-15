@@ -328,6 +328,52 @@ def test_trust_and_exact_compatibility_gates(factory: sessionmaker[Session]) -> 
     )
 
 
+def test_preview_source_build_requires_tier_trust_and_validation(
+    factory: sessionmaker[Session],
+) -> None:
+    parent = definition(version="22.0-beta.2", tier=RuntimeSupportTier.PREVIEW)
+    target_item = target("22.0-beta.2")
+    item = revision(parent, requires_trust=True, confirmed=True)
+    seed(factory, parent, target_item, (item,), validation=None)
+    assert (
+        evaluate(factory, target_item, parent, item)
+        is RuntimeIneligibilityReason.SUPPORT_TIER_NOT_PERMITTED
+    )
+    include_preview = RuntimeSelectionPolicy(include_prerelease=True)
+    assert (
+        evaluate(factory, target_item, parent, item, include_preview)
+        is RuntimeIneligibilityReason.TRUSTED_CUSTOM_BUILDS_DISABLED
+    )
+    trusted_preview = RuntimeSelectionPolicy(
+        include_prerelease=True, trusted_custom_builds_enabled=True
+    )
+    assert (
+        evaluate(factory, target_item, parent, item, trusted_preview)
+        is RuntimeIneligibilityReason.UNVALIDATED
+    )
+    with factory.begin() as session:
+        add_evidence(session, item, RuntimeValidationResult.PASSED)
+    assert evaluate(factory, target_item, parent, item, trusted_preview) is None
+
+
+def test_retired_preview_remains_excluded_with_all_options(
+    factory: sessionmaker[Session],
+) -> None:
+    parent = definition(version="22.0-beta.2", tier=RuntimeSupportTier.RETIRED)
+    target_item = target("22.0-beta.2")
+    item = revision(parent)
+    seed(factory, parent, target_item, (item,))
+    all_options = RuntimeSelectionPolicy(
+        include_legacy=True,
+        include_prerelease=True,
+        trusted_custom_builds_enabled=True,
+    )
+    assert (
+        evaluate(factory, target_item, parent, item, all_options)
+        is RuntimeIneligibilityReason.SUPPORT_TIER_NOT_PERMITTED
+    )
+
+
 def test_latest_applicable_evidence_controls_effective_state(
     factory: sessionmaker[Session],
 ) -> None:

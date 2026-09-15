@@ -750,3 +750,22 @@ details that it did not specify.
   dynamic package selection, or use of the Kodi 19 source for any other runtime.
   Ubuntu base and dependency packages remain distribution-owned and the final
   image identity remains immutable.
+
+## D-0066: Pinned official-source Kodi 22 prerelease build
+
+- Status: approved for Phase 5 implementation
+- Decision: Kodi 22.0 Beta 2 is built only from Team Kodi's official
+  `22.0b2-Piers` release tag, which points to the verified-signed commit
+  `e513e0ff4331fc25fd2454659a9dd3e6b7670146`; the source archive and pinned
+  Ubuntu base are digest-verified. The version-owned manifest records the
+  source, toolchain inputs, CMake options, copied assets, build log, and
+  resulting immutable image without claiming bit-for-bit reproducibility.
+- Trust: although the source is official, compiling it into a repository-owned
+  image is classified through the existing Trusted Custom Build policy. Global
+  Custom Build opt-in and per-revision confirmation therefore remain mandatory
+  in addition to approval, validation, and Preview selection policy.
+- Runtime boundary: the multi-stage build keeps compilers and build tooling out
+  of the final image. Kodi's internal TagLib 2.3.1 build is enabled so the
+  Beta 2 source-owned Matroska fast-scan patch is applied. This source-build
+  path is local to Kodi 22.0 Beta 2 and adds no broker build or execution
+  capability.

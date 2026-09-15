@@ -132,3 +132,32 @@ legacy isolation, followed by one passing `kodi-runtime-v1` evidence record.
 After that evidence, normal policy must still reject the Legacy definition and
 trusted Include Legacy must select its newest eligible revision without any
 cross-version fallback.
+
+## Kodi 22.0 Beta 2 Preview implementation
+
+Phase 5 Step 4 adds only `runtime/kodi-22.0-beta2/`. It builds the exact Team
+Kodi `22.0b2-Piers` tag at commit
+`e513e0ff4331fc25fd2454659a9dd3e6b7670146` in a digest-pinned Ubuntu 26.04
+multi-stage build. The downloaded source archive is hash-verified and the
+manifest records the declared toolchain, CMake options, source and base
+identities, copied assets, build log, and immutable result. Build tooling stays
+outside the final image. Kodi's internal TagLib 2.3.1 is selected so the
+source-owned Beta 2 Matroska compatibility patch is applied.
+
+The image retains the bounded non-root Xvfb, D-Bus, software-rendering,
+disposable seeded-profile, and process-health architecture. Exact readiness
+requires JSON-RPC to report application Kodi, major 22, minor 0, tag `beta`, and
+tagversion `2`; a response that omits or changes the ordinal cannot satisfy the
+profile. The repository-owned source build uses the existing Trusted Custom
+Build path, so Include Pre-release alone cannot bypass global opt-in or
+per-revision confirmation.
+
+The dedicated validation state is
+`<validation-state>`. Before evidence,
+normal policy rejects Preview and Include Pre-release reaches the remaining
+trust/validation gates. Completion requires two independent broker-mediated
+start/readiness/clean-stop cycles, safe deprovision, verified absence and
+protected-resource isolation, followed by one passing `kodi-runtime-v1`
+evidence record. Passing evidence must leave normal selection ineligible while
+trusted Include Pre-release selects the exact Beta 2 revision; Beta 1, RC,
+stable, and all earlier-version targets remain exact and cannot fall through.
