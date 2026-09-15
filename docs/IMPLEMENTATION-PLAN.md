@@ -138,8 +138,12 @@ approval/trust, artifact, profile, and current passing validation evidence;
 newest-eligible selection may retain an older eligible revision but never changes
 release identity. Existing exact pins remain historical authority.
 
-The next separately authorized Phase 5 milestone is one Kodi 20.5 stable runtime:
-create its version-owned build assets, register its exact definition/revision,
-artifact, and execution profile, then complete two independent readiness/clean
-stop cycles and safe deprovision before recording validation evidence. No Kodi
-20.5 build or runtime work is part of Step 1.
+Phase 5 Step 2 implements only Kodi 20.5 stable. Its version-owned Noble image
+uses the exact official 20.5 package, minimal non-root headless architecture,
+and a Kodi-20-only Roboto compatibility link. A dedicated non-production catalog
+registers the Current definition, immutable revision/artifact/profile, and
+approval before live work; absence of validation evidence keeps it ineligible.
+The implementation checkpoint precedes two independent broker-mediated
+start/readiness/clean-stop cycles. Only safe deprovision, verified absence and
+legacy isolation permit appending passing `kodi-runtime-v1` evidence and proving
+normal Current eligibility.

@@ -84,7 +84,24 @@ and a bounded ineligibility reason. The browser cannot submit image identity,
 artifact authority, approval, support, or validation state. Phase 5 Step 1 adds
 no matrix UI.
 
-The next runtime milestone is Kodi 20.5 stable: build/register its version-owned
-artifact and profile, perform the two-cycle `kodi-runtime-v1` workflow, safely
-deprovision the validation container, then record truthful evidence. That work
-requires separate authorization.
+## Kodi 20.5 stable implementation
+
+Phase 5 Step 2 adds only the version-owned `runtime/kodi-20.5/` build. It uses
+the official Ubuntu Noble `2:20.5+dfsg-1ubuntu1` packages on the pinned
+linux/amd64 Ubuntu 24.04 base and retains the minimal Phase 3 Xvfb, D-Bus,
+software-rendering, seeded-profile, and process-health architecture. The image
+adds no port, volume, mount, VNC, device, capability, or generic command surface.
+
+Kodi 20.5 receives one local compatibility accommodation: its Kodi media font
+path links to Roboto Thin from `fonts-roboto-unhinted`, because Estuary requests
+that font while the Noble Kodi package does not own the media-font path. Kodi
+21.3 remains unchanged.
+
+The dedicated validation state is
+`<validation-state>`. Its exact Current
+definition/revision, immutable artifact/profile, approval, and initially absent
+evidence must produce `unvalidated` before live work. Completion requires two
+independent broker-mediated start/readiness/clean-stop cycles, safe deprovision,
+post-removal and legacy-isolation proof, then one passing `kodi-runtime-v1`
+evidence record referencing the retained structured report. No result is
+inferred from the image build alone.

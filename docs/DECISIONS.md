@@ -721,3 +721,18 @@ details that it did not specify.
 - Next target: Kodi 20.5 stable is the next separately authorized runtime because
   it is Current, exercises backward compatibility, and has less packaging/build
   divergence than Kodi 19 or Kodi 22 prerelease.
+
+## D-0064: Isolated validation-pin bootstrap
+
+- Status: approved for Phase 5 implementation
+- Decision: a trusted validation workflow may bootstrap exactly one stopped,
+  disposable ManagedInstance pin directly in its dedicated non-production
+  validation database after exact definition/revision, artifact, execution
+  profile, approval/trust, and compatibility state are established. This narrow
+  bootstrap resolves the necessary validation-before-selection dependency; it
+  is not an alternative product creation path.
+- Boundary: browsers and broker requests receive no bootstrap authority or raw
+  revision/image fields. Normal ManagedInstance creation and reassignment still
+  use shared current eligibility, while the validation fixture uses the exact
+  pre-registered immutable revision solely for provision, two readiness cycles,
+  clean stops, and deprovision before evidence registration.

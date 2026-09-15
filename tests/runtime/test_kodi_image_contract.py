@@ -1,15 +1,32 @@
 from pathlib import Path
 
-RUNTIME = Path(__file__).parents[2] / "runtime" / "kodi-21.3"
+import pytest
+
+RUNTIME_ROOT = Path(__file__).parents[2] / "runtime"
+
+RUNTIMES = (
+    (
+        "kodi-21.3",
+        "ubuntu:26.04@sha256:"
+        "e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+        "2:21.3+dfsg-1ubuntu1",
+    ),
+    (
+        "kodi-20.5",
+        "ubuntu:24.04@sha256:"
+        "a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61",
+        "2:20.5+dfsg-1ubuntu1",
+    ),
+)
 
 
-def test_dockerfile_is_pinned_nonroot_and_has_fixed_healthcheck() -> None:
-    dockerfile = (RUNTIME / "Dockerfile").read_text(encoding="utf-8")
-    assert (
-        "FROM ubuntu:26.04@sha256:"
-        "e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d"
-    ) in dockerfile
-    assert "2:21.3+dfsg-1ubuntu1" in dockerfile
+@pytest.mark.parametrize(("directory", "base", "package"), RUNTIMES)
+def test_dockerfile_is_pinned_nonroot_and_has_fixed_healthcheck(
+    directory: str, base: str, package: str
+) -> None:
+    dockerfile = (RUNTIME_ROOT / directory / "Dockerfile").read_text(encoding="utf-8")
+    assert f"FROM {base}" in dockerfile
+    assert package in dockerfile
     assert "USER kodi" in dockerfile
     assert any(
         line.strip() == "/home/kodi/.kodi \\" for line in dockerfile.splitlines()
@@ -22,8 +39,13 @@ def test_dockerfile_is_pinned_nonroot_and_has_fixed_healthcheck() -> None:
     assert "x11vnc" not in dockerfile.lower()
 
 
-def test_entrypoint_is_fixed_headless_kodi_sequence_without_exec_escape() -> None:
-    entrypoint = (RUNTIME / "entrypoint.sh").read_text(encoding="utf-8")
+@pytest.mark.parametrize("directory", (item[0] for item in RUNTIMES))
+def test_entrypoint_is_fixed_headless_kodi_sequence_without_exec_escape(
+    directory: str,
+) -> None:
+    entrypoint = (RUNTIME_ROOT / directory / "entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
     assert "Xvfb :99" in entrypoint
     assert "dbus-run-session -- /usr/bin/kodi --standalone" in entrypoint
     assert 'kill -TERM "$kodi_pid"' in entrypoint
@@ -33,15 +55,23 @@ def test_entrypoint_is_fixed_headless_kodi_sequence_without_exec_escape() -> Non
     assert "websockify" not in entrypoint
 
 
-def test_healthcheck_observes_only_expected_kodi_process() -> None:
-    healthcheck = (RUNTIME / "healthcheck.sh").read_text(encoding="utf-8")
+@pytest.mark.parametrize("directory", (item[0] for item in RUNTIMES))
+def test_healthcheck_observes_only_expected_kodi_process(directory: str) -> None:
+    healthcheck = (RUNTIME_ROOT / directory / "healthcheck.sh").read_text(
+        encoding="utf-8"
+    )
     assert healthcheck.strip().endswith("pgrep -x kodi.bin >/dev/null")
     assert "curl" not in healthcheck
     assert "http" not in healthcheck
 
 
-def test_seed_profile_enables_only_internal_jsonrpc_without_user_content() -> None:
-    settings = (RUNTIME / "profile" / "guisettings.xml").read_text(encoding="utf-8")
+@pytest.mark.parametrize("directory", (item[0] for item in RUNTIMES))
+def test_seed_profile_enables_only_internal_jsonrpc_without_user_content(
+    directory: str,
+) -> None:
+    settings = (RUNTIME_ROOT / directory / "profile" / "guisettings.xml").read_text(
+        encoding="utf-8"
+    )
     assert '<setting id="services.webserver">true</setting>' in settings
     assert '<setting id="services.webserverport">8080</setting>' in settings
     assert '<setting id="services.webserverauthentication">false</setting>' in settings
@@ -49,3 +79,13 @@ def test_seed_profile_enables_only_internal_jsonrpc_without_user_content() -> No
     assert '<setting id="services.webserverpassword"></setting>' in settings
     for forbidden in ("sources", "library", "addon", "history"):
         assert forbidden not in settings.lower()
+
+
+def test_kodi_20_font_compatibility_link_is_version_owned() -> None:
+    kodi20 = (RUNTIME_ROOT / "kodi-20.5" / "Dockerfile").read_text(encoding="utf-8")
+    kodi21 = (RUNTIME_ROOT / "kodi-21.3" / "Dockerfile").read_text(encoding="utf-8")
+    source = "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Thin.ttf"
+    target = "/usr/share/kodi/media/Fonts/roboto-thin.ttf"
+    assert source in kodi20
+    assert target in kodi20
+    assert target not in kodi21

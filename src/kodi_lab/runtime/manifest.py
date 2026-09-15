@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from kodi_lab.domain import normalize_sha256_digest
+from kodi_lab.domain import KodiReleaseIdentity, normalize_sha256_digest
 
 
 class _StrictModel(BaseModel):
@@ -47,6 +47,7 @@ class RuntimeBuildManifest(_StrictModel):
     base_image_digest: str
     package_sources: tuple[str, ...]
     kodi_package_version: str
+    compatibility_assets: tuple[str, ...] = ()
     repository_file_hashes: dict[str, str]
     build: BuildParameters
     result: RuntimeBuildResult
@@ -61,8 +62,9 @@ class RuntimeBuildManifest(_StrictModel):
     @field_validator("kodi_version")
     @classmethod
     def _version(cls, value: str) -> str:
-        if value != "21.3":
-            raise ValueError("kodi_version must be 21.3")
+        release = KodiReleaseIdentity.parse(value)
+        if value != release.canonical:
+            raise ValueError("kodi_version must use canonical release identity")
         return value
 
     @field_validator("base_image_digest")
@@ -73,18 +75,18 @@ class RuntimeBuildManifest(_StrictModel):
             raise ValueError("base digest must be canonical")
         return value
 
-    @field_validator("kodi_package_version")
-    @classmethod
-    def _package_version(cls, value: str) -> str:
-        if value != "2:21.3+dfsg-1ubuntu1":
-            raise ValueError("unexpected Kodi package version")
-        return value
-
     @field_validator("package_sources")
     @classmethod
     def _sources(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if not value or any(not item.strip() for item in value):
             raise ValueError("package_sources must be nonempty")
+        return value
+
+    @field_validator("compatibility_assets")
+    @classmethod
+    def _compatibility_assets(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item.strip() or len(item) > 256 for item in value):
+            raise ValueError("compatibility_assets must be bounded and nonblank")
         return value
 
     @model_validator(mode="after")
@@ -99,6 +101,9 @@ class RuntimeBuildManifest(_StrictModel):
                 raise ValueError("repository file paths must be relative and bounded")
             if digest != normalize_sha256_digest(digest):
                 raise ValueError("repository file digests must be canonical")
+        expected_package_prefix = f"2:{self.kodi_version}+dfsg-"
+        if not self.kodi_package_version.startswith(expected_package_prefix):
+            raise ValueError("Kodi package version must match exact release identity")
         return self
 
     def verify_repository_files(self, manifest_directory: Path) -> None:

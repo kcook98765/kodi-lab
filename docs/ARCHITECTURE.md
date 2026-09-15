@@ -243,6 +243,13 @@ selection stays within one definition and chooses the highest eligible revision,
 allowing a valid older revision when a newer one is unapproved, incomplete, or
 failed. Existing ManagedInstance pins are not reinterpreted through this policy.
 
+New revision validation uses an isolated, privileged validation database. Its
+orchestrator may bootstrap one exact stopped disposable pin after catalog,
+artifact, profile, approval, and compatibility checks, because validation
+evidence cannot exist before the runtime is exercised. This is not a product
+selection path and is not exposed through Web or broker request fields; ordinary
+creation and reassignment continue to require passing evidence.
+
 Execution profiles retain immutable per-revision behavior but no longer encode
 Kodi 21.3 as the only possible identity. The 21.3 values remain unchanged, while
 prerelease ordinals and bounded future per-version endpoint/timing differences
