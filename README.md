@@ -2,13 +2,17 @@
 
 Kodi Lab is a self-hosted environment for developing and testing isolated Kodi
 installations. The repository currently includes the Phase 1 domain/storage
-core, the completed Phase 2 restricted-broker foundation, and the first Phase 3
-single-runtime slice. The broker exposes
+core, the completed Phase 2 restricted-broker foundation, the first Phase 3
+single-runtime slice, and the initial authenticated Phase 4 localhost Web UI.
+The broker exposes
 only typed health/capability calls and bounded semantic inventory, provision,
 start, stop, and deprovision operations for exactly owned disposable containers.
 It does not expose raw Docker access. The first Kodi 21.3 runtime uses a fixed
-process-health observation and unprivileged, bounded JSON-RPC readiness path;
-additional runtimes and product surfaces remain later work.
+process-health observation and unprivileged, bounded JSON-RPC readiness path.
+The Web slice uses a locally bootstrapped administrator, opaque server-side
+sessions, CSRF/origin protection, semantic lifecycle actions, and ephemeral
+readiness polling. Additional runtimes and broader product surfaces remain later
+work.
 
 [`docs/V1-SPEC.md`](docs/V1-SPEC.md) is the authoritative v1 product and
 architecture specification. [`docs/PROJECT-HANDOFF.md`](docs/PROJECT-HANDOFF.md)

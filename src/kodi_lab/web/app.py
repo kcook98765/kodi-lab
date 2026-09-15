@@ -1,0 +1,366 @@
+"""Explicit FastAPI application factory for the Phase 4 Web slice."""
+
+# FastAPI intentionally represents dependencies and body metadata as defaults.
+# ruff: noqa: B008
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
+from uuid import UUID
+
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy.orm import Session, sessionmaker
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+from kodi_lab.application.errors import ManagedInstanceNotFoundError
+from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.runtime_lifecycle import (
+    LifecycleConflictError,
+    ManagedRuntimeLifecycleService,
+    ReadinessCoordinatorFactory,
+)
+from kodi_lab.application.runtime_status import (
+    ManagedRuntimeStatus,
+    ManagedRuntimeStatusService,
+)
+from kodi_lab.auth import (
+    AuthenticatedWebSession,
+    LoginThrottler,
+    WebAuthenticationService,
+)
+from kodi_lab.broker.errors import (
+    BrokerUnavailableError,
+    ClientError,
+    ClientTransportError,
+    RemoteBrokerError,
+)
+from kodi_lab.config import Settings
+
+_WEB_ROOT = Path(__file__).parent
+
+
+class EmptyActionRequest(BaseModel):
+    """Lifecycle requests deliberately contain no browser authority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+@dataclass(frozen=True, slots=True)
+class WebApplicationContext:
+    settings: Settings
+    auth: WebAuthenticationService
+    throttler: LoginThrottler
+    status: ManagedRuntimeStatusService
+    lifecycle: ManagedRuntimeLifecycleService
+    readiness: ReadinessTaskRegistry
+
+
+def create_app(
+    *,
+    settings: Settings,
+    session_factory: sessionmaker[Session],
+    broker: Any,
+    readiness: ReadinessTaskRegistry | None = None,
+    auth: WebAuthenticationService | None = None,
+    throttler: LoginThrottler | None = None,
+    coordinator_factory: ReadinessCoordinatorFactory | None = None,
+) -> FastAPI:
+    """Build an app entirely from injected storage and typed broker boundaries."""
+
+    task_registry = readiness or ReadinessTaskRegistry()
+    status_service = ManagedRuntimeStatusService(session_factory, broker, task_registry)
+    context = WebApplicationContext(
+        settings=settings,
+        auth=auth or WebAuthenticationService(session_factory),
+        throttler=throttler or LoginThrottler(),
+        status=status_service,
+        lifecycle=ManagedRuntimeLifecycleService(
+            session_factory,
+            broker,
+            task_registry,
+            status_service,
+            **(
+                {}
+                if coordinator_factory is None
+                else {"coordinator_factory": coordinator_factory}
+            ),
+        ),
+        readiness=task_registry,
+    )
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            context.readiness.close()
+
+    app = FastAPI(
+        title="Kodi Lab",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
+    app.state.kodi_lab = context
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=[settings.web_host, "localhost"],
+    )
+    templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
+    app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
+
+    @app.middleware("http")
+    async def security_headers(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        )
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    def current_session(request: Request) -> AuthenticatedWebSession:
+        token = request.cookies.get(settings.web_session_cookie_name)
+        authenticated = context.auth.resolve(token)
+        if authenticated is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        return authenticated
+
+    def mutation_session(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AuthenticatedWebSession:
+        _require_same_origin(request)
+        supplied = request.headers.get("X-Kodi-Lab-CSRF")
+        if not context.auth.csrf_matches(authenticated, supplied):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        return authenticated
+
+    @app.exception_handler(ManagedInstanceNotFoundError)
+    async def instance_not_found(
+        _request: Request, _error: ManagedInstanceNotFoundError
+    ) -> JSONResponse:
+        return _json_error(
+            404, "managed_instance_not_found", "Managed instance not found."
+        )
+
+    @app.exception_handler(LifecycleConflictError)
+    async def lifecycle_conflict(
+        _request: Request, error: LifecycleConflictError
+    ) -> JSONResponse:
+        return _json_error(409, "lifecycle_conflict", str(error)[:256])
+
+    @app.exception_handler(ClientError)
+    async def broker_failure(_request: Request, error: ClientError) -> JSONResponse:
+        if isinstance(error, (BrokerUnavailableError, ClientTransportError)):
+            return _json_error(
+                503, "runtime_service_unavailable", "Runtime service unavailable."
+            )
+        if isinstance(error, RemoteBrokerError):
+            conflict_codes = {
+                "managed_container_not_found",
+                "ambiguous_managed_container",
+                "container_identity_precondition_failed",
+                "runtime_state_precondition_failed",
+                "container_state_not_reconcilable",
+                "container_state_not_stoppable",
+                "runtime_revision_precondition_failed",
+                "container_must_be_stopped",
+                "provisioning_conflict",
+            }
+            code = 409 if error.code in conflict_codes else 503
+            return _json_error(code, error.code, error.safe_message[:256])
+        return _json_error(
+            503, "runtime_service_unavailable", "Runtime service unavailable."
+        )
+
+    @app.get("/login", response_class=HTMLResponse)
+    async def login_page(request: Request) -> Response:
+        token = request.cookies.get(settings.web_session_cookie_name)
+        if context.auth.resolve(token) is not None:
+            return RedirectResponse("/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {
+                "error": None,
+                "credentials_configured": context.auth.credentials_configured(),
+            },
+        )
+
+    @app.post("/login", response_class=HTMLResponse)
+    async def login(request: Request) -> Response:
+        _require_same_origin(request)
+        form = await request.form()
+        password_value = form.get("password")
+        password = password_value if isinstance(password_value, str) else ""
+        source = "unknown" if request.client is None else request.client.host
+        if not context.throttler.allowed(source):
+            return _login_failure(templates, request, context, status_code=401)
+        created = context.auth.login(password)
+        if created is None:
+            context.throttler.record_failure(source)
+            return _login_failure(templates, request, context, status_code=401)
+        context.throttler.record_success(source)
+        context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(
+            settings.web_session_cookie_name,
+            created.token,
+            max_age=settings.web_session_absolute_seconds,
+            httponly=True,
+            secure=settings.web_cookie_secure,
+            samesite="strict",
+            path="/",
+        )
+        return response
+
+    @app.post("/logout")
+    async def logout(request: Request) -> Response:
+        _require_same_origin(request)
+        authenticated = current_session(request)
+        form = await request.form()
+        csrf_value = form.get("csrf_token")
+        csrf_token = csrf_value if isinstance(csrf_value, str) else None
+        if not context.auth.csrf_matches(authenticated, csrf_token):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie(
+            settings.web_session_cookie_name,
+            path="/",
+            secure=settings.web_cookie_secure,
+            httponly=True,
+            samesite="strict",
+        )
+        return response
+
+    @app.get("/", response_class=HTMLResponse)
+    async def main_page(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "instances": context.status.list_statuses(),
+                "csrf_token": authenticated.csrf_token,
+                "poll_interval_ms": 2000,
+            },
+        )
+
+    @app.get("/api/instances", response_model=list[ManagedRuntimeStatus])
+    def list_instances(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[ManagedRuntimeStatus]:
+        return context.status.list_statuses()
+
+    @app.get("/api/instances/{instance_id}", response_model=ManagedRuntimeStatus)
+    def get_instance(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ManagedRuntimeStatus:
+        return context.status.get(instance_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/provision",
+        response_model=ManagedRuntimeStatus,
+    )
+    def provision(
+        instance_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        return context.lifecycle.provision(instance_id)
+
+    @app.post("/api/instances/{instance_id}/start", response_model=ManagedRuntimeStatus)
+    def start(
+        instance_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        return context.lifecycle.start(instance_id)
+
+    @app.post("/api/instances/{instance_id}/stop", response_model=ManagedRuntimeStatus)
+    def stop(
+        instance_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        return context.lifecycle.stop(instance_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/deprovision",
+        response_model=ManagedRuntimeStatus,
+    )
+    def deprovision(
+        instance_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        return context.lifecycle.deprovision(instance_id)
+
+    return app
+
+
+def _require_same_origin(request: Request) -> None:
+    expected = (request.url.scheme.lower(), request.url.netloc.lower())
+    origin = request.headers.get("origin")
+    if origin is not None:
+        parsed = urlsplit(origin)
+        if (
+            parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or (parsed.scheme.lower(), parsed.netloc.lower()) != expected
+        ):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        return
+    referer = request.headers.get("referer")
+    if referer is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    parsed = urlsplit(referer)
+    if (parsed.scheme.lower(), parsed.netloc.lower()) != expected:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+
+def _login_failure(
+    templates: Jinja2Templates,
+    request: Request,
+    context: WebApplicationContext,
+    *,
+    status_code: int,
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "error": "Authentication failed.",
+            "credentials_configured": context.auth.credentials_configured(),
+        },
+        status_code=status_code,
+    )
+
+
+def _json_error(status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"code": code, "message": message}},
+    )

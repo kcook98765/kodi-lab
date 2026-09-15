@@ -73,6 +73,10 @@ class JsonRpcInvalidResponseError(RuntimeError):
     pass
 
 
+class ReadinessCancelledError(RuntimeError):
+    """The Web layer invalidated an ephemeral readiness observation."""
+
+
 class _BrokerObservationClient(Protocol):
     def managed_container_inventory(self) -> ManagedContainerInventoryResult: ...
 
@@ -257,7 +261,12 @@ class KodiReadinessCoordinator:
             )
         )
 
-    def wait_until_usable(self, managed_instance_id: str) -> ReadinessResult:
+    def wait_until_usable(
+        self,
+        managed_instance_id: str,
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> ReadinessResult:
         started = self._clock()
         deadline = started + self._profile.readiness_timeout_seconds
         attempts = 0
@@ -267,6 +276,8 @@ class KodiReadinessCoordinator:
         last_failure = ReadinessFailureReason.CONTAINER_NOT_RUNNING
 
         while self._clock() < deadline:
+            if cancelled is not None and cancelled():
+                raise ReadinessCancelledError("readiness observation was cancelled")
             attempts += 1
             inventory = self._broker.managed_container_inventory()
             match = next(

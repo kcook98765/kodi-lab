@@ -39,6 +39,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "runtime_execution_profiles",
         "runtime_revisions",
         "targets",
+        "web_admin_credentials",
+        "web_sessions",
     }
     managed_foreign_keys = {
         foreign_key["referred_table"]: foreign_key
@@ -127,6 +129,52 @@ def test_prior_head_upgrades_to_execution_profile_head(
     command.downgrade(config, "0003_runtime_container_artifacts")
     command.upgrade(config, "head")
     command.check(config)
+
+
+def test_0004_upgrades_to_web_auth_head_and_empty_state_round_trips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0004_runtime_execution_profiles")
+    engine = create_database_engine(database_url)
+    assert "web_admin_credentials" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {"web_admin_credentials", "web_sessions"}.issubset(
+        inspector.get_table_names()
+    )
+    session_foreign_key = inspector.get_foreign_keys("web_sessions")[0]
+    assert session_foreign_key["referred_table"] == "web_admin_credentials"
+    assert session_foreign_key["options"] == {"ondelete": "RESTRICT"}
+    engine.dispose()
+    command.check(config)
+
+    command.downgrade(config, "0004_runtime_execution_profiles")
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_populated_web_auth_state_refuses_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO web_admin_credentials "
+                "(admin_key, password_hash, password_updated_at) VALUES "
+                "('local-admin', '$argon2id$test', '2026-09-15T00:00:00.000000Z')"
+            )
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated Web authentication"):
+        command.downgrade(config, "0004_runtime_execution_profiles")
 
 
 def test_populated_0001_migration_refuses_ambiguous_legacy_revision(

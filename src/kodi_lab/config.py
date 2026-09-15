@@ -1,8 +1,9 @@
 """Typed bootstrap configuration for Kodi Lab."""
 
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,19 @@ class Settings(BaseSettings):
 
     data_root: Path = Field(default=Path("/var/lib/kodi-lab"))
     runtime_root: Path = Field(default=Path("/run/kodi-lab"))
+    web_host: Literal["127.0.0.1"] = "127.0.0.1"
+    web_port: int = Field(default=8100, ge=1, le=65_535)
+    web_session_cookie_name: Literal["kodi_lab_session"] = "kodi_lab_session"
+    web_cookie_secure: Literal[False] = False
+    web_session_idle_seconds: Literal[43_200] = 43_200
+    web_session_absolute_seconds: Literal[604_800] = 604_800
+
+    @field_validator("web_port")
+    @classmethod
+    def _approved_web_port(cls, value: int) -> int:
+        if value not in {8100, 8180}:
+            raise ValueError("Phase 4 Web port must be 8100 or 8180")
+        return value
 
     @property
     def database_url(self) -> str:

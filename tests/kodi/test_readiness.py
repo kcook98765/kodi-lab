@@ -28,6 +28,7 @@ from kodi_lab.kodi.readiness import (
     KodiApplicationIdentity,
     KodiJsonRpcReadinessAdapter,
     KodiReadinessCoordinator,
+    ReadinessCancelledError,
     ReadinessFailureReason,
     UsabilityState,
 )
@@ -321,6 +322,15 @@ def test_programming_errors_are_not_hidden_as_readiness_timeouts() -> None:
             profile(),
             adapter_factory=factory(FakeAdapter()),  # type: ignore[arg-type]
         ).wait_until_usable(INSTANCE_ID)
+
+
+def test_readiness_can_be_cancelled_by_ephemeral_web_registry() -> None:
+    with pytest.raises(ReadinessCancelledError):
+        KodiReadinessCoordinator(
+            FakeBroker(),
+            profile(),
+            adapter_factory=factory(FakeAdapter()),  # type: ignore[arg-type]
+        ).wait_until_usable(INSTANCE_ID, cancelled=lambda: True)
 
 
 def test_identity_probe_does_not_start_after_total_deadline() -> None:

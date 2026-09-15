@@ -304,3 +304,55 @@ class RuntimeExecutionProfileRow(Base):
     readiness_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     poll_interval_seconds: Mapped[float] = mapped_column(nullable=False)
     http_timeout_seconds: Mapped[float] = mapped_column(nullable=False)
+
+
+class WebAdminCredentialRow(Base):
+    """The single local administrator credential."""
+
+    __tablename__ = "web_admin_credentials"
+    __table_args__ = (
+        CheckConstraint("admin_key = 'local-admin'", name="web_admin_single_identity"),
+        CheckConstraint(
+            "length(trim(password_hash)) > 0", name="web_admin_password_hash_not_blank"
+        ),
+        CheckConstraint(
+            "length(password_updated_at) = 27",
+            name="web_admin_password_updated_at_format",
+        ),
+    )
+
+    admin_key: Mapped[str] = mapped_column(String(11), primary_key=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    password_updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class WebSessionRow(Base):
+    """A server-side Web session addressed by a bearer-token digest."""
+
+    __tablename__ = "web_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(token_digest) = 64 AND token_digest NOT GLOB '*[^0-9a-f]*'",
+            name="web_session_token_digest_sha256",
+        ),
+        CheckConstraint("admin_key = 'local-admin'", name="web_session_single_admin"),
+        CheckConstraint(
+            "length(csrf_token) = 43", name="web_session_csrf_token_length"
+        ),
+        CheckConstraint(
+            "length(created_at) = 27 AND length(last_used_at) = 27 "
+            "AND length(absolute_expires_at) = 27",
+            name="web_session_timestamp_format",
+        ),
+    )
+
+    token_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    admin_key: Mapped[str] = mapped_column(
+        String(11),
+        ForeignKey("web_admin_credentials.admin_key", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    csrf_token: Mapped[str] = mapped_column(String(43), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    last_used_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    absolute_expires_at: Mapped[str] = mapped_column(String(27), nullable=False)

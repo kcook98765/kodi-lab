@@ -119,3 +119,11 @@ validation state and the existing managed network. The prior nginx fixture is
 not Kodi evidence. Production service naming, persistent storage, general
 managed-network cleanup, additional Kodi versions, addons, remote display, and
 product UI remain later milestones.
+
+Phase 4 begins with one authenticated localhost-only Web vertical slice over the
+existing canonical managed instance. It adds the single-admin Argon2id bootstrap,
+opaque SQLite-backed sessions, CSRF/origin/Host protection, server-rendered
+status UI, a bounded semantic JSON surface, trusted lifecycle orchestration, and
+ephemeral per-instance readiness tasks. It exposes only existing
+provision/start/stop/deprovision semantics and adds no target/catalog creation,
+matrix, generic Docker/JSON-RPC, LAN/Nginx, or production deployment surface.

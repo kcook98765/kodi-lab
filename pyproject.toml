@@ -11,21 +11,30 @@ requires-python = ">=3.12,<3.13"
 authors = [{ name = "Kodi Lab contributors" }]
 dependencies = [
   "alembic>=1.16,<2",
+  "argon2-cffi>=25.1,<26",
   "docker>=7.2,<8",
   "fastapi>=0.116,<1",
+  "jinja2>=3.1,<4",
   "pydantic>=2.13,<3",
   "pydantic-settings>=2.10,<3",
+  "python-multipart>=0.0.20,<1",
   "sqlalchemy>=2.0,<3",
+  "uvicorn>=0.35,<1",
 ]
 
 [dependency-groups]
 dev = [
   "build>=1.2,<2",
   "hatchling>=1.27,<2",
+  "httpx>=0.28,<1",
   "mypy>=1.17,<2",
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
 ]
+
+[project.scripts]
+kodi-lab-admin = "kodi_lab.admin_cli:main"
+kodi-lab-web = "kodi_lab.web.run:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kodi_lab"]

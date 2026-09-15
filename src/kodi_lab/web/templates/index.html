@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <meta name="kodi-lab-poll-ms" content="{{ poll_interval_ms }}">
+    <title>Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+  </head>
+  <body>
+    <header>
+      <h1>Kodi Lab</h1>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Sign out</button>
+      </form>
+    </header>
+    <main>
+      <p id="global-error" class="error" role="alert" hidden></p>
+      <section id="instances" aria-live="polite">
+        {% for instance in instances %}
+        <article class="instance" data-instance-id="{{ instance.managed_instance_id }}">
+          <h2 data-field="name">{{ instance.name }}</h2>
+          <p>Kodi <span data-field="kodi_version">{{ instance.kodi_version }}</span> · revision <span data-field="runtime_revision_number">{{ instance.runtime_revision_number }}</span></p>
+          <dl>
+            <dt>Provisioning</dt><dd data-field="provision_state">{{ instance.provision_state }}</dd>
+            <dt>Container</dt><dd data-field="container_state">{{ instance.container_state }}</dd>
+            <dt>Kodi process</dt><dd data-field="process_state">{{ instance.process_state }}</dd>
+            <dt>JSON-RPC</dt><dd data-field="jsonrpc_state">{{ instance.jsonrpc_state }}</dd>
+            <dt>Usability</dt><dd data-field="usability_state">{{ instance.usability_state }}</dd>
+          </dl>
+          <p class="error" data-field="failure_detail" {% if not instance.failure_detail %}hidden{% endif %}>{{ instance.failure_detail or '' }}</p>
+          <div class="actions">
+            {% for action in ['provision', 'start', 'stop', 'deprovision'] %}
+            <button type="button" data-action="{{ action }}" {% if action not in instance.allowed_actions %}hidden{% endif %}>{{ action|capitalize }}</button>
+            {% endfor %}
+          </div>
+        </article>
+        {% else %}
+        <p id="empty-state">No managed instances are configured.</p>
+        {% endfor %}
+      </section>
+    </main>
+  </body>
+</html>

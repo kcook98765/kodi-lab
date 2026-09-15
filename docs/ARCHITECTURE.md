@@ -189,3 +189,31 @@ storage, production service installation/naming, and Kodi process/JSON-RPC
 readiness remain outside the Phase 2 boundary. Phase 3 consumes the immutable
 runtime artifact, managed-instance pin, typed broker client, ownership labels,
 and semantic lifecycle operations to establish one real Kodi runtime end to end.
+
+## Phase 4 authenticated Web slice
+
+The first Web adapter is a localhost-only FastAPI application at
+`127.0.0.1:8100`; `127.0.0.1:8180` is reserved for ephemeral validation. It uses
+server-rendered Jinja2 templates, local CSS, and a small polling/action script.
+Configuration rejects wildcard, LAN, and unapproved port values. There is no
+Nginx, CORS, public API, production service, or LAN exposure in this slice.
+
+Authentication uses one fixed local administrator provisioned only by the
+hidden-input `kodi-lab-admin set-password` command. Argon2id protects the
+password. Browser sessions are opaque 256-bit bearer tokens whose SHA-256
+digests and expirations are stored in SQLite. Cookie-authenticated mutations
+require a session-bound synchronizer token and same-origin validation; login is
+also origin-checked and has bounded in-process throttling.
+
+`ManagedRuntimeStatusService` is the sole display aggregation boundary. It joins
+short-lived canonical repository reads with bounded typed broker inventory and
+process observation plus ephemeral readiness results. A separate lifecycle
+service reloads trusted immutable container/revision/state preconditions before
+calling explicit BrokerClient methods. Browser requests never carry those
+preconditions and no Web module imports or invokes the Docker SDK.
+
+After broker start, a per-instance in-process registry runs the existing bounded
+readiness coordinator without holding the HTTP action open. Generation and
+cancellation state invalidate stale work. Results are never persisted; after a
+Web restart, running runtime status is reconstructed and readiness is reported
+as not checked until a new approved readiness run.

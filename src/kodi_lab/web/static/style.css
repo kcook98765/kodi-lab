@@ -1,0 +1,13 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { max-width: 64rem; margin: 0 auto; padding: 1.5rem; }
+header { display: flex; align-items: center; justify-content: space-between; }
+.login-panel { max-width: 28rem; margin: 10vh auto; }
+form { display: grid; gap: .75rem; }
+input, button { font: inherit; padding: .55rem .75rem; }
+.instance { border: 1px solid #8887; border-radius: .5rem; padding: 1rem; }
+dl { display: grid; grid-template-columns: 10rem 1fr; gap: .4rem; }
+dt { font-weight: 600; }
+dd { margin: 0; }
+.actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.error { color: #c33; }
+.notice { padding: .75rem; border: 1px solid #b98; }

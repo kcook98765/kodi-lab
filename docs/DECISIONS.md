@@ -563,3 +563,76 @@ details that it did not specify.
   its fixed 10-second Docker stop timeout. The entrypoint propagates termination
   to Kodi and adds no kill/restart fallback. Protected legacy containers,
   networks, profile data, broker, and service remain outside this workflow.
+
+## D-0051: Localhost-only FastAPI Web profile
+
+- Status: approved for Phase 4
+- Decision: the initial product Web process uses FastAPI, Jinja2 server-rendered
+  HTML, local static assets, and minimal vanilla JavaScript. Product configuration
+  accepts only `127.0.0.1` and port 8100; port 8180 is the sole alternate for
+  ephemeral validation. Wildcard, IPv6-wildcard, and LAN binds fail validation.
+  Nginx, LAN exposure, HTTPS, CORS, and frontend build tooling remain deferred.
+
+## D-0052: Single administrator credential and local bootstrap
+
+- Status: approved for Phase 4
+- Decision: v1 has exactly one fixed `local-admin` credential record. The narrow
+  `kodi-lab-admin set-password` local command prompts twice through hidden input
+  and writes only an Argon2id password hash and update timestamp. There is no
+  browser bootstrap, signup, reset, user list, role, OAuth, or SSO surface.
+  Password replacement atomically invalidates every existing Web session.
+
+## D-0053: Opaque server-side Web sessions
+
+- Status: approved for Phase 4
+- Decision: successful login creates independent 256-bit random session and CSRF
+  values. The browser receives only the session bearer token; SQLite stores its
+  SHA-256 digest, the session-bound CSRF token, creation/last-use timestamps, and
+  absolute expiry. Idle expiry is 12 hours, absolute expiry seven days, and
+  last-use writes are limited to five-minute intervals. Logout and expiration
+  delete the server record. The `kodi_lab_session` cookie is HTTPOnly,
+  SameSite=Strict, Path `/`, has no Domain, and uses `Secure=false` only for this
+  loopback HTTP milestone.
+
+## D-0054: Browser mutation and login abuse controls
+
+- Status: approved for Phase 4
+- Decision: logout and every lifecycle POST require a session-bound synchronizer
+  token plus an exact same-origin Origin or Referer check. Login also requires
+  same-origin context and uses a small per-process, per-source failed-attempt
+  backoff before further Argon2 work. Trusted Host validation prevents an
+  arbitrary Host header from defining the accepted origin. CORS is absent.
+  Broader exposure requires a new cookie, proxy, origin, Host, and throttling
+  review.
+
+## D-0055: Semantic Web status and lifecycle authority
+
+- Status: approved for Phase 4
+- Decision: one application status service combines canonical Target,
+  ManagedInstance, RuntimeRevision, broker inventory/process observation, and
+  ephemeral readiness state into a bounded DTO. The browser receives no
+  container ID, image, network, address, labels, or raw inspect data. Lifecycle
+  routes accept only canonical instance UUID plus CSRF and reload inventory,
+  revision, and immutable container preconditions server-side immediately before
+  invoking explicit typed BrokerClient methods.
+
+## D-0056: Ephemeral readiness registry
+
+- Status: approved for Phase 4
+- Decision: successful start returns after broker start and schedules at most one
+  effective in-process readiness task per instance. Generation checks discard
+  stale completion, stop/deprovision signal cancellation, and the existing
+  coordinator retains its 90-second bound. Task states are idle, checking,
+  usable, failed, timed out, or cancelled. No result is persisted, and process
+  restart reconstructs storage/broker status with readiness not checked.
+
+## D-0057: Initial authenticated Web surface
+
+- Status: approved for Phase 4
+- Decision: server-rendered routes are `GET/POST /login`, `POST /logout`, and
+  `GET /`. Same-origin JSON routes list/get existing managed instances and expose
+  only provision/start/stop/deprovision. Polling is two seconds; WebSockets, SSE,
+  API tokens, generic broker calls, generic JSON-RPC, target creation, catalog
+  administration, and matrix controls are absent. Safe typed failures map to
+  authentication/CSRF/not-found/conflict/dependency HTTP classes without raw
+  exceptions.

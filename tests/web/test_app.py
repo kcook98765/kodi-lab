@@ -1,0 +1,358 @@
+from __future__ import annotations
+
+import time
+from typing import cast
+from uuid import uuid4
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+
+from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
+from kodi_lab.broker.errors import BrokerUnavailableError
+from kodi_lab.config import Settings
+from kodi_lab.kodi.readiness import (
+    JsonRpcState,
+    ReadinessFailureReason,
+    ReadinessResult,
+    UsabilityState,
+)
+from kodi_lab.storage.models import ManagedInstanceRow, WebSessionRow
+from kodi_lab.web.app import create_app
+
+from .conftest import (
+    CONTAINER_ID,
+    INSTANCE_ID,
+    ORIGIN,
+    PASSWORD,
+    REVISION_ID,
+    FakeBroker,
+    coordinator_factory,
+    inventory_entry,
+    login,
+)
+
+
+def test_protected_routes_require_authentication(client: TestClient) -> None:
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+    assert client.get("/api/instances").status_code == 401
+
+
+def test_login_cookie_is_opaque_and_hardened(
+    client: TestClient, database: sessionmaker[Session]
+) -> None:
+    response = client.post(
+        "/login",
+        data={"password": PASSWORD},
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    cookie = response.headers["set-cookie"]
+    assert "kodi_lab_session=" in cookie
+    assert "HttpOnly" in cookie
+    assert "SameSite=strict" in cookie
+    assert "Path=/" in cookie
+    assert "Secure" not in cookie
+    raw_token = client.cookies.get("kodi_lab_session")
+    assert raw_token is not None
+    with database() as session:
+        stored = session.scalar(select(WebSessionRow))
+        assert stored is not None
+        assert stored.token_digest != raw_token
+
+
+def test_invalid_login_is_generic_and_origin_is_required(client: TestClient) -> None:
+    rejected = client.post("/login", data={"password": "wrong"}, headers=ORIGIN)
+    assert rejected.status_code == 401
+    assert "Authentication failed." in rejected.text
+    assert "wrong" not in rejected.text
+    assert client.post("/login", data={"password": PASSWORD}).status_code == 403
+    assert (
+        client.post(
+            "/login",
+            data={"password": PASSWORD},
+            headers={"Referer": "http://127.0.0.1/login"},
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+
+
+def test_login_rotates_existing_session(client: TestClient) -> None:
+    login(client)
+    first = client.cookies.get("kodi_lab_session")
+    response = client.post(
+        "/login",
+        data={"password": PASSWORD},
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    second = client.cookies.get("kodi_lab_session")
+    assert first is not None and second is not None and first != second
+
+
+def test_main_page_autoescapes_and_has_local_assets(client: TestClient) -> None:
+    login(client)
+    page = client.get("/")
+    assert "&lt;script&gt;not markup&lt;/script&gt;" in page.text
+    assert "https://" not in page.text
+    assert "Content-Security-Policy" in page.headers
+
+
+def test_status_models_unprovisioned_stopped_running_and_broker_failure(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    login(client)
+    unprovisioned = client.get("/api/instances").json()[0]
+    assert unprovisioned["provision_state"] == "unprovisioned"
+    assert unprovisioned["allowed_actions"] == ["provision"]
+
+    broker.container = inventory_entry(ContainerRuntimeState.STOPPED)
+    stopped = client.get(f"/api/instances/{INSTANCE_ID}").json()
+    assert stopped["container_state"] == "stopped"
+    assert stopped["process_state"] == "not_running"
+    assert stopped["allowed_actions"] == ["start", "deprovision"]
+
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    broker.process_state = KodiProcessState.STARTING
+    running = client.get(f"/api/instances/{INSTANCE_ID}").json()
+    assert running["container_state"] == "running"
+    assert running["process_state"] == "starting"
+    assert running["jsonrpc_state"] == "not_checked"
+
+    broker.inventory_error = BrokerUnavailableError("secret internal path")
+    unavailable = client.get(f"/api/instances/{INSTANCE_ID}").json()
+    assert unavailable["failure_code"] == "broker_unavailable"
+    assert unavailable["failure_detail"] == "The runtime service is unavailable."
+    assert "secret internal path" not in str(unavailable)
+
+
+def test_status_list_handles_no_managed_instances(
+    client: TestClient, database: sessionmaker[Session]
+) -> None:
+    login(client)
+    with database.begin() as session:
+        row = session.get(ManagedInstanceRow, str(INSTANCE_ID))
+        assert row is not None
+        session.delete(row)
+    assert client.get("/api/instances").json() == []
+
+
+def test_status_exposes_bounded_readiness_failure_states(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    login(client)
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    registry = cast(FastAPI, client.app).state.kodi_lab.readiness
+
+    timeout = ReadinessResult(
+        container_state=ContainerRuntimeState.RUNNING,
+        process_state=KodiProcessState.RUNNING,
+        jsonrpc_state=JsonRpcState.UNAVAILABLE,
+        usability_state=UsabilityState.NOT_USABLE,
+        failure_reason=ReadinessFailureReason.READINESS_TIMEOUT,
+        last_observed_failure=ReadinessFailureReason.JSONRPC_UNREACHABLE,
+        identity=None,
+        elapsed_seconds=90,
+        attempts=90,
+    )
+    registry.start(INSTANCE_ID, lambda _cancelled: timeout)
+    for _ in range(50):
+        timed_out = client.get(f"/api/instances/{INSTANCE_ID}").json()
+        if timed_out["readiness_state"] == "timed_out":
+            break
+        time.sleep(0.01)
+    assert timed_out["jsonrpc_state"] == "unavailable"
+    assert timed_out["failure_code"] == "readiness_timeout"
+    assert "jsonrpc unreachable" in timed_out["failure_detail"]
+
+    protocol = ReadinessResult(
+        container_state=ContainerRuntimeState.RUNNING,
+        process_state=KodiProcessState.RUNNING,
+        jsonrpc_state=JsonRpcState.PROTOCOL_ERROR,
+        usability_state=UsabilityState.NOT_USABLE,
+        failure_reason=ReadinessFailureReason.JSONRPC_INVALID_RESPONSE,
+        last_observed_failure=ReadinessFailureReason.JSONRPC_INVALID_RESPONSE,
+        identity=None,
+        elapsed_seconds=1,
+        attempts=1,
+    )
+    registry.start(INSTANCE_ID, lambda _cancelled: protocol)
+    for _ in range(50):
+        failed = client.get(f"/api/instances/{INSTANCE_ID}").json()
+        if failed["readiness_state"] == "failed":
+            break
+        time.sleep(0.01)
+    assert failed["jsonrpc_state"] == "protocol_error"
+    assert failed["failure_code"] == "jsonrpc_invalid_response"
+
+
+def test_lifecycle_uses_only_fresh_trusted_preconditions(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    csrf = login(client)
+    mutation_headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    provisioned = client.post(
+        f"/api/instances/{INSTANCE_ID}/provision",
+        json={},
+        headers=mutation_headers,
+    )
+    assert provisioned.status_code == 200, provisioned.text
+    assert broker.calls[-1] == (
+        "provision",
+        {"managed_instance_id": str(INSTANCE_ID)},
+    )
+
+    started = client.post(
+        f"/api/instances/{INSTANCE_ID}/start", json={}, headers=mutation_headers
+    )
+    assert started.status_code == 200
+    assert str(broker.calls[-1][0]) == "start"
+    assert broker.calls[-1][1]["expected_container_id"] == CONTAINER_ID
+    assert broker.calls[-1][1]["expected_runtime_state"] == "stopped"
+    for _ in range(50):
+        current = client.get(f"/api/instances/{INSTANCE_ID}").json()
+        if current["usability_state"] == "usable":
+            break
+        time.sleep(0.01)
+    assert current["jsonrpc_state"] == "responsive"
+
+    stopped = client.post(
+        f"/api/instances/{INSTANCE_ID}/stop", json={}, headers=mutation_headers
+    )
+    assert stopped.status_code == 200
+    assert str(broker.calls[-1][0]) == "stop"
+    assert broker.calls[-1][1]["expected_runtime_state"] == "running"
+    assert stopped.json()["readiness_state"] == "cancelled"
+
+    removed = client.post(
+        f"/api/instances/{INSTANCE_ID}/deprovision",
+        json={},
+        headers=mutation_headers,
+    )
+    assert removed.status_code == 200
+    assert str(broker.calls[-1][0]) == "deprovision"
+    assert broker.calls[-1][1]["expected_runtime_revision_id"] == str(REVISION_ID)
+    assert broker.calls[-1][1]["expected_container_id"] == CONTAINER_ID
+    assert removed.json()["readiness_state"] == "idle"
+
+
+def test_start_without_provisioning_is_a_bounded_conflict(client: TestClient) -> None:
+    csrf = login(client)
+    response = client.post(
+        f"/api/instances/{INSTANCE_ID}/start",
+        json={},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": {
+            "code": "lifecycle_conflict",
+            "message": "managed runtime is not provisioned",
+        }
+    }
+
+
+def test_mutations_reject_csrf_cross_origin_and_browser_docker_fields(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    csrf = login(client)
+    route = f"/api/instances/{INSTANCE_ID}/provision"
+    assert client.post(route, json={}, headers=ORIGIN).status_code == 403
+    assert (
+        client.post(
+            route,
+            json={},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": "x" * 43},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            route,
+            json={},
+            headers={
+                "Origin": "http://attacker.invalid",
+                "X-Kodi-Lab-CSRF": csrf,
+            },
+        ).status_code
+        == 403
+    )
+    injected = client.post(
+        route,
+        json={
+            "container_id": "f" * 64,
+            "runtime_revision_id": str(uuid4()),
+            "image": "attacker",
+            "network": "host",
+            "command": "id",
+        },
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert injected.status_code == 422
+    assert broker.calls == []
+
+
+def test_unknown_and_invalid_instance_identifiers(client: TestClient) -> None:
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    assert client.get("/api/instances/not-a-uuid").status_code == 422
+    response = client.post(
+        f"/api/instances/{uuid4()}/provision", json={}, headers=headers
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "managed_instance_not_found"
+
+
+def test_logout_requires_csrf_and_invalidates_cookie(client: TestClient) -> None:
+    csrf = login(client)
+    assert client.post("/logout", data={}, headers=ORIGIN).status_code == 403
+    response = client.post(
+        "/logout",
+        data={"csrf_token": csrf},
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert client.get("/api/instances").status_code == 401
+
+
+def test_cors_is_not_enabled(client: TestClient) -> None:
+    login(client)
+    response = client.options(
+        "/api/instances",
+        headers={
+            "Origin": "http://attacker.invalid",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_unapproved_host_header_is_rejected(client: TestClient) -> None:
+    assert client.get("/login", headers={"Host": "attacker.invalid"}).status_code == 400
+
+
+def test_unconfigured_credentials_have_no_browser_bootstrap_route(
+    database: sessionmaker[Session], broker: FakeBroker
+) -> None:
+    app = create_app(
+        settings=Settings(),
+        session_factory=database,
+        broker=broker,
+        coordinator_factory=coordinator_factory,
+    )
+    with TestClient(app, base_url="http://127.0.0.1") as test_client:
+        page = test_client.get("/login")
+        assert page.status_code == 200
+        assert "kodi-lab-admin set-password" in page.text
+        response = test_client.post(
+            "/login", data={"password": "anything"}, headers=ORIGIN
+        )
+        assert response.status_code == 401
+        assert test_client.post("/signup", headers=ORIGIN).status_code == 404
