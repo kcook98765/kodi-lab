@@ -19,15 +19,18 @@ from kodi_lab.broker.docker_inventory import (
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
     ContainerIdentityPreconditionError,
+    ContainerStateNotReconcilableError,
     ContainerStateNotStoppableError,
     DockerDaemonUnavailableError,
     DockerInventoryReadError,
+    DockerStartError,
     DockerStopError,
     HandlerExecutionError,
     InvalidManagedContainerMetadataError,
     InventoryLimitExceededError,
     ManagedContainerNotFoundError,
     OperationError,
+    PostStartVerificationError,
     PostStopVerificationError,
     RequestError,
     RuntimeStatePreconditionError,
@@ -106,6 +109,30 @@ class ManagedContainerInventoryResult(StrictModel):
     )
 
 
+class StartManagedContainerParams(StrictModel):
+    """Optimistic identity/state preconditions for one semantic start."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+    expected_runtime_state: ContainerRuntimeState
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _canonical_managed_instance_id(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("managed_instance_id must be a canonical UUID string")
+        return value
+
+    @field_validator("expected_runtime_state", mode="before")
+    @classmethod
+    def _runtime_state_from_wire(cls, value: object) -> object:
+        if isinstance(value, str):
+            return ContainerRuntimeState(value)
+        return value
+
+
 class StopManagedContainerParams(StrictModel):
     """Optimistic identity/state preconditions for one semantic stop."""
 
@@ -156,6 +183,35 @@ class StopManagedContainerResult(StrictModel):
     def _require_stopped_state(self) -> StopManagedContainerResult:
         if self.runtime_state is not ContainerRuntimeState.STOPPED:
             raise ValueError("stop result must report stopped state")
+        return self
+
+
+class StartManagedContainerResult(StrictModel):
+    """Verified running state without raw Docker response data."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    runtime_state: ContainerRuntimeState
+    start_performed: bool
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _canonical_managed_instance_id(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("managed_instance_id must be a canonical UUID string")
+        return value
+
+    @field_validator("runtime_state", mode="before")
+    @classmethod
+    def _running_state_from_wire(cls, value: object) -> object:
+        if isinstance(value, str):
+            return ContainerRuntimeState(value)
+        return value
+
+    @model_validator(mode="after")
+    def _require_running_state(self) -> StartManagedContainerResult:
+        if self.runtime_state is not ContainerRuntimeState.RUNNING:
+            raise ValueError("start result must report running state")
         return self
 
 
@@ -364,6 +420,107 @@ def build_foundation_registry(
         result_model=ManagedContainerInventoryResult,
         handler=managed_container_inventory,
         audit_builder=inventory_audit,
+    )
+
+    def start_managed_container(
+        params: StartManagedContainerParams,
+    ) -> StartManagedContainerResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id
+        }
+        try:
+            outcome = provider.start_managed_container(
+                managed_instance_id=params.managed_instance_id,
+                expected_container_id=params.expected_container_id,
+                expected_runtime_state=params.expected_runtime_state,
+            )
+        except DockerDaemonUnavailableError as error:
+            raise OperationError(
+                "docker_daemon_unavailable",
+                "The Docker daemon is unavailable to the broker.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedContainerNotFoundError as error:
+            raise OperationError(
+                "managed_container_not_found",
+                "No Kodi Lab-owned container exists for the managed instance.",
+                audit_fields=audit_fields,
+            ) from error
+        except AmbiguousManagedContainerError as error:
+            raise OperationError(
+                "ambiguous_managed_container",
+                "Multiple containers claim the managed instance identity.",
+                audit_fields=audit_fields,
+            ) from error
+        except InvalidManagedContainerMetadataError as error:
+            raise OperationError(
+                "invalid_managed_container_metadata",
+                "Kodi Lab managed-container metadata is invalid or inconsistent.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerIdentityPreconditionError as error:
+            raise OperationError(
+                "container_identity_precondition_failed",
+                "The managed container identity changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeStatePreconditionError as error:
+            raise OperationError(
+                "runtime_state_precondition_failed",
+                "The managed container runtime state changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerStateNotReconcilableError as error:
+            raise OperationError(
+                "container_state_not_reconcilable",
+                "The managed container is outside safe two-state reconciliation.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerStartError as error:
+            raise OperationError(
+                "docker_start_failed",
+                "Docker could not safely complete the managed-container start.",
+                audit_fields=audit_fields,
+            ) from error
+        except PostStartVerificationError as error:
+            raise OperationError(
+                "post_start_verification_failed",
+                "The broker could not verify the running postcondition.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerInventoryReadError as error:
+            raise OperationError(
+                "docker_inventory_failed",
+                "The broker could not safely read Docker container state.",
+                audit_fields=audit_fields,
+            ) from error
+
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.container_id != params.expected_container_id
+        ):
+            raise RuntimeError("Docker adapter returned inconsistent start identity")
+
+        return StartManagedContainerResult(
+            managed_instance_id=outcome.managed_instance_id,
+            container_id=outcome.container_id,
+            runtime_state=outcome.runtime_state,
+            start_performed=outcome.start_performed,
+        )
+
+    def start_audit(result: StartManagedContainerResult) -> dict[str, object]:
+        return {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_start_performed": result.start_performed,
+            "broker_resulting_runtime_state": result.runtime_state.value,
+        }
+
+    registry.register(
+        name="start_managed_container",
+        params_model=StartManagedContainerParams,
+        result_model=StartManagedContainerResult,
+        handler=start_managed_container,
+        audit_builder=start_audit,
     )
 
     def stop_managed_container(

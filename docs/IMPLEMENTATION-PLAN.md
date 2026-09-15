@@ -60,8 +60,13 @@ sorted data-minimized observations. It performs no persistence or Docker/Kodi
 lifecycle mutation. The first mutating slice adds only
 `stop_managed_container`: exact label-based discovery, immutable container-ID and
 runtime-state preconditions, idempotent already-stopped convergence, fixed
-10-second Docker stop, and fresh postcondition verification. It adds no start,
-create, restart, remove, kill, exec, or generic mutation. A next slice may unify
-start/stop desired-state reconciliation once start-specific restart-policy and
-readiness semantics are approved. The development host service-name collision remains an
-independent deployment blocker and is not resolved by repository runtime work.
+10-second Docker stop, and fresh postcondition verification. The next slice adds
+explicit `start_managed_container` and consolidates both operations behind one
+private two-state reconciliation flow. Desired-state convergence is idempotent;
+required mutations demand expected state equal fresh observed state; and both
+directions revalidate ownership/identity and postconditions. It adds no create,
+restart, remove, kill, exec, readiness polling, or generic mutation. A next slice
+may define safe deterministic managed-container creation only after image,
+network, storage, port, naming, and rollback contracts are approved. The development host
+service-name collision remains an independent deployment blocker and is not
+resolved by repository runtime work.

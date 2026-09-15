@@ -16,6 +16,7 @@ from kodi_lab.broker.client import BrokerClient
 from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     ManagedContainerRecord,
+    StartManagedContainerRecord,
     StopManagedContainerRecord,
 )
 from kodi_lab.broker.errors import (
@@ -99,6 +100,15 @@ class FakeContainerProvider:
         if self.error is not None:
             raise self.error
         return self.outcome
+
+    def start_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> StartManagedContainerRecord:
+        raise AssertionError("stop operation reached start mutation")
 
 
 def raw_stop_request(params: object) -> bytes:
@@ -246,6 +256,7 @@ def test_capabilities_contains_only_the_stop_addition() -> None:
         "capabilities",
         "managed_container_inventory",
         "ping",
+        "start_managed_container",
         "stop_managed_container",
     )
 

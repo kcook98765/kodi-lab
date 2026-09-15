@@ -15,13 +15,16 @@ from docker.errors import APIError, DockerException  # type: ignore[import-untyp
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
     ContainerIdentityPreconditionError,
+    ContainerStateNotReconcilableError,
     ContainerStateNotStoppableError,
     DockerDaemonUnavailableError,
     DockerInventoryReadError,
+    DockerStartError,
     DockerStopError,
     InvalidManagedContainerMetadataError,
     InventoryLimitExceededError,
     ManagedContainerNotFoundError,
+    PostStartVerificationError,
     PostStopVerificationError,
     RuntimeStatePreconditionError,
 )
@@ -82,6 +85,29 @@ class StopManagedContainerRecord:
     stop_performed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class StartManagedContainerRecord:
+    """Minimal verified outcome of the semantic start operation."""
+
+    managed_instance_id: str
+    container_id: str
+    runtime_state: ContainerRuntimeState
+    start_performed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _ReconciliationRecord:
+    managed_instance_id: str
+    container_id: str
+    runtime_state: ContainerRuntimeState
+    mutation_performed: bool
+
+
+class _MutationDirection(StrEnum):
+    START = "start"
+    STOP = "stop"
+
+
 class ManagedContainerInventoryProvider(Protocol):
     """Only Docker capability exposed to the broker operation layer."""
 
@@ -91,6 +117,15 @@ class ManagedContainerInventoryProvider(Protocol):
 
 class ManagedContainerOperationsProvider(ManagedContainerInventoryProvider, Protocol):
     """Exact semantic Docker capability exposed to broker handlers."""
+
+    def start_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> StartManagedContainerRecord:
+        """Start one exactly owned container under optimistic preconditions."""
 
     def stop_managed_container(
         self,
@@ -108,6 +143,8 @@ class _DockerClient(Protocol):
     ) -> list[object]: ...
 
     def inspect_container(self, container: str) -> object: ...
+
+    def start(self, container: str) -> None: ...
 
     def stop(self, container: str, *, timeout: int) -> None: ...
 
@@ -238,6 +275,28 @@ class DockerManagedContainerAdapter:
                 with suppress(DockerException, OSError):
                     client.close()
 
+    def start_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> StartManagedContainerRecord:
+        """Start one label-selected container under shared reconciliation rules."""
+
+        outcome = self._reconcile_managed_container(
+            managed_instance_id=managed_instance_id,
+            expected_container_id=expected_container_id,
+            expected_runtime_state=expected_runtime_state,
+            direction=_MutationDirection.START,
+        )
+        return StartManagedContainerRecord(
+            managed_instance_id=outcome.managed_instance_id,
+            container_id=outcome.container_id,
+            runtime_state=outcome.runtime_state,
+            start_performed=outcome.mutation_performed,
+        )
+
     def stop_managed_container(
         self,
         *,
@@ -245,7 +304,30 @@ class DockerManagedContainerAdapter:
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
     ) -> StopManagedContainerRecord:
-        """Stop one label-selected container after exact identity/state checks."""
+        """Stop one label-selected container under shared reconciliation rules."""
+
+        outcome = self._reconcile_managed_container(
+            managed_instance_id=managed_instance_id,
+            expected_container_id=expected_container_id,
+            expected_runtime_state=expected_runtime_state,
+            direction=_MutationDirection.STOP,
+        )
+        return StopManagedContainerRecord(
+            managed_instance_id=outcome.managed_instance_id,
+            container_id=outcome.container_id,
+            runtime_state=outcome.runtime_state,
+            stop_performed=outcome.mutation_performed,
+        )
+
+    def _reconcile_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+        direction: _MutationDirection,
+    ) -> _ReconciliationRecord:
+        """Reconcile one exact owned container to one fixed two-state outcome."""
 
         if not is_canonical_uuid(managed_instance_id):
             raise InvalidManagedContainerMetadataError(
@@ -286,45 +368,59 @@ class DockerManagedContainerAdapter:
             inspected = _require_mapping(
                 client.inspect_container(selected_container_id)
             )
-            current_state = self._validate_stop_candidate(
+            current_state = self._validate_reconciliation_candidate(
                 inspected,
                 selected_container_id=selected_container_id,
                 managed_instance_id=managed_instance_id,
                 expected_container_id=expected_container_id,
             )
 
-            if current_state is ContainerRuntimeState.STOPPED:
-                return StopManagedContainerRecord(
+            desired_state = (
+                ContainerRuntimeState.RUNNING
+                if direction is _MutationDirection.START
+                else ContainerRuntimeState.STOPPED
+            )
+            if current_state is desired_state:
+                return _ReconciliationRecord(
                     managed_instance_id=managed_instance_id,
                     container_id=expected_container_id,
-                    runtime_state=ContainerRuntimeState.STOPPED,
-                    stop_performed=False,
+                    runtime_state=desired_state,
+                    mutation_performed=False,
                 )
             if current_state in {
                 ContainerRuntimeState.TRANSITIONAL,
                 ContainerRuntimeState.UNKNOWN,
             }:
-                raise ContainerStateNotStoppableError(
-                    "Managed container is not in a safely stoppable state"
+                if direction is _MutationDirection.STOP:
+                    raise ContainerStateNotStoppableError(
+                        "Managed container is not in a safely stoppable state"
+                    )
+                raise ContainerStateNotReconcilableError(
+                    "Managed container is outside safe two-state reconciliation"
                 )
-            if expected_runtime_state is not ContainerRuntimeState.RUNNING:
+            if expected_runtime_state is not current_state:
                 raise RuntimeStatePreconditionError(
                     "Managed container runtime state differs from the precondition"
                 )
 
             try:
-                client.stop(
-                    selected_container_id,
-                    timeout=DOCKER_STOP_TIMEOUT_SECONDS,
-                )
+                if direction is _MutationDirection.START:
+                    client.start(selected_container_id)
+                else:
+                    client.stop(
+                        selected_container_id,
+                        timeout=DOCKER_STOP_TIMEOUT_SECONDS,
+                    )
             except (DockerException, OSError) as error:
+                if direction is _MutationDirection.START:
+                    raise DockerStartError("Docker start failed") from error
                 raise DockerStopError("Docker stop failed") from error
 
             try:
                 final_inspected = _require_mapping(
                     client.inspect_container(selected_container_id)
                 )
-                final_state = self._validate_stop_candidate(
+                final_state = self._validate_reconciliation_candidate(
                     final_inspected,
                     selected_container_id=selected_container_id,
                     managed_instance_id=managed_instance_id,
@@ -337,28 +433,38 @@ class DockerManagedContainerAdapter:
                 InvalidManagedContainerMetadataError,
                 ContainerIdentityPreconditionError,
             ) as error:
+                if direction is _MutationDirection.START:
+                    raise PostStartVerificationError(
+                        "Running state could not be verified"
+                    ) from error
                 raise PostStopVerificationError(
                     "Stopped state could not be verified"
                 ) from error
-            if final_state is not ContainerRuntimeState.STOPPED:
+            if final_state is not desired_state:
+                if direction is _MutationDirection.START:
+                    raise PostStartVerificationError(
+                        "Managed container did not reach running state"
+                    )
                 raise PostStopVerificationError(
                     "Managed container did not reach stopped state"
                 )
 
-            return StopManagedContainerRecord(
+            return _ReconciliationRecord(
                 managed_instance_id=managed_instance_id,
                 container_id=expected_container_id,
-                runtime_state=ContainerRuntimeState.STOPPED,
-                stop_performed=True,
+                runtime_state=desired_state,
+                mutation_performed=True,
             )
         except (
             AmbiguousManagedContainerError,
             ContainerIdentityPreconditionError,
-            ContainerStateNotStoppableError,
+            ContainerStateNotReconcilableError,
             DockerInventoryReadError,
+            DockerStartError,
             DockerStopError,
             InvalidManagedContainerMetadataError,
             ManagedContainerNotFoundError,
+            PostStartVerificationError,
             PostStopVerificationError,
             RuntimeStatePreconditionError,
         ):
@@ -411,7 +517,7 @@ class DockerManagedContainerAdapter:
         )
 
     @staticmethod
-    def _validate_stop_candidate(
+    def _validate_reconciliation_candidate(
         inspected: Mapping[str, object],
         *,
         selected_container_id: str,

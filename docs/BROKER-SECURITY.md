@@ -1,8 +1,9 @@
 # Restricted broker security contract
 
 This document derives from `V1-SPEC.md` plus approved decisions D-0018 through
-D-0038. It describes the Phase 2 implementation boundary; it authorizes one
-read-only Docker inventory operation and one semantic stop mutation only.
+D-0039. It describes the Phase 2 implementation boundary; it authorizes one
+read-only Docker inventory operation and explicit start/stop reconciliation for
+already-existing owned containers only.
 
 ## Threat model and privilege boundary
 
@@ -110,15 +111,18 @@ Phase 2 contains exactly:
   version.
 - `managed_container_inventory`: empty parameters; returns only the bounded typed
   Kodi Lab-owned container inventory described below.
+- `start_managed_container`: strict managed-instance, immutable container-ID, and
+  normalized runtime-state preconditions; returns only verified running state and
+  whether a start call was performed.
 - `stop_managed_container`: strict managed-instance, immutable container-ID, and
   normalized runtime-state preconditions; returns only verified stopped state and
   whether a stop call was performed.
 
 All require the authorized UID. There is no anonymous operation and no generic
 execution, raw Docker, shell, raw payload, file, path, environment, caller-driven
-inspection, start/create/remove/restart/kill/exec, or generic lifecycle operation.
+inspection, create/remove/restart/kill/exec, or generic lifecycle operation.
 
-The unprivileged `BrokerClient` exposes explicit methods with those five names.
+The unprivileged `BrokerClient` exposes explicit methods with those six names.
 Its shared call implementation is private. It generates canonical UUIDs,
 validates outgoing envelopes, uses the bounded framing/timeouts, requires response
 version and correlation-ID consistency, validates operation-specific results, and
@@ -160,9 +164,36 @@ silently truncated. Docker `running` maps to `running`, `exited`/`dead` to
 Environment, command/entrypoint, mounts and host paths, raw labels, networks and
 addresses, ports, logs, daemon information, capabilities/security options, raw
 inspect responses, mutable image tags, and arbitrary annotations are excluded.
-The adapter has no create, start, restart, remove, exec, image, volume, network,
-label-mutation, generic target/stop, or raw passthrough method. Its only mutation
-is the semantic stop below. Observations are not persisted in SQLite.
+The adapter has no create, restart, remove, exec, image, volume, network,
+label-mutation, generic target/mutation, or raw passthrough method. Its only
+mutations are the semantic start/stop methods below. Observations are not
+persisted in SQLite.
+
+## Existing-container two-state reconciliation
+
+`start_managed_container` and `stop_managed_container` share one private trusted
+adapter flow. Both accept exactly canonical managed-instance UUID, previously
+observed immutable 64-lowercase-hex Docker container ID, and normalized expected
+runtime state. Neither ID is a discovery key. After peer authorization and strict
+schema validation, fixed exact ownership labels select exactly one candidate. A
+fresh inspect then proves selected immutable ID, managed label, canonical matching
+instance UUID, expected immutable ID, and normalized state.
+
+The operation name fixes the desired state (`running` for start, `stopped` for
+stop). If fresh observed state already equals desired state, the broker returns
+success with its operation-specific `*_performed=false` regardless of stale
+expected state. If mutation is required, expected state must equal fresh observed
+state; only stopped-to-running and running-to-stopped transitions exist.
+Transitional and unknown observations fail without mutation. Inventory and both
+mutations use the same normalization function, so inventory state can be used
+directly as a later precondition.
+
+Start supplies Docker only the trusted selected immutable ID and no caller
+lifecycle options. Stop additionally supplies the broker-fixed 10-second timeout.
+After either mutation returns, a fresh inspect repeats ownership, instance, and
+immutable-ID validation and must prove the desired normalized state. There is no
+polling/retry, kill fallback, restart, restart-policy control, or Kodi/application
+readiness claim.
 
 ## Semantic stop mutation
 
@@ -231,3 +262,9 @@ Stop failures additionally use `managed_container_not_found`,
 `runtime_state_precondition_failed`, `container_state_not_stoppable`,
 `docker_stop_failed`, and `post_stop_verification_failed`. Raw Docker exception
 details remain internal.
+Start reuses the common not-found, ambiguity, metadata, identity, state,
+daemon, and inventory errors; its additional stable errors are
+`container_state_not_reconcilable`, `docker_start_failed`, and
+`post_start_verification_failed`. Successful start audit adds only managed-instance
+UUID, whether start was performed, and resulting semantic state. No immutable
+container ID or Docker response is logged.

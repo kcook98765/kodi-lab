@@ -107,6 +107,9 @@ class FakeStopDockerClient:
             raise result
         return result
 
+    def start(self, container: str) -> None:
+        raise AssertionError(f"unexpected start call for {container}")
+
     def stop(self, container: str, *, timeout: int) -> None:
         self.events.append(("stop", container, timeout))
         self.stop_calls.append((container, timeout))
@@ -169,6 +172,7 @@ def test_adapter_exposes_only_inventory_and_semantic_stop_public_methods() -> No
     }
     assert public_callables == {
         "list_managed_containers",
+        "start_managed_container",
         "stop_managed_container",
     }
 

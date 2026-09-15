@@ -49,8 +49,14 @@ def raw_round_trip(path: Path, payload: bytes) -> dict[str, object]:
     try:
         connection.settimeout(2)
         connection.connect(str(path))
-        send_frame(connection, payload)
-        connection.shutdown(socket.SHUT_WR)
+        try:
+            send_frame(connection, payload)
+        except (BrokenPipeError, ConnectionResetError):
+            # Authorization precedes request reads, so a denied peer may have a
+            # complete response waiting after the broker closes its read side.
+            pass
+        else:
+            connection.shutdown(socket.SHUT_WR)
         return decode_json_object(receive_frame(connection))
     finally:
         connection.close()
@@ -69,6 +75,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "capabilities",
                 "managed_container_inventory",
                 "ping",
+                "start_managed_container",
                 "stop_managed_container",
             ],
             protocol_version=1,

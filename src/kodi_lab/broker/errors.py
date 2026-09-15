@@ -120,8 +120,16 @@ class RuntimeStatePreconditionError(DockerInventoryError):
     """The owned container runtime state changed after caller observation."""
 
 
-class ContainerStateNotStoppableError(DockerInventoryError):
+class ContainerStateNotReconcilableError(DockerInventoryError):
+    """The owned container is outside the safe running/stopped state pair."""
+
+
+class ContainerStateNotStoppableError(ContainerStateNotReconcilableError):
     """The owned container is in a state this operation will not mutate."""
+
+
+class DockerStartError(DockerInventoryError):
+    """Docker did not safely complete the fixed semantic start request."""
 
 
 class DockerStopError(DockerInventoryError):
@@ -130,6 +138,10 @@ class DockerStopError(DockerInventoryError):
 
 class PostStopVerificationError(DockerInventoryError):
     """The broker could not verify the required stopped postcondition."""
+
+
+class PostStartVerificationError(DockerInventoryError):
+    """The broker could not verify the required running postcondition."""
 
 
 class ClientError(BrokerError):
@@ -198,9 +210,21 @@ class ContainerStateNotStoppableClientError(RemoteBrokerError):
     """The owned Docker container is not safely stoppable."""
 
 
+class ContainerStateNotReconcilableClientError(RemoteBrokerError):
+    """The owned Docker container is outside safe two-state reconciliation."""
+
+
+class DockerStartClientError(RemoteBrokerError):
+    """The broker could not safely complete Docker start."""
+
+
 class DockerStopClientError(RemoteBrokerError):
     """The broker could not safely complete Docker stop."""
 
 
 class PostStopVerificationClientError(RemoteBrokerError):
     """The broker could not verify the stopped postcondition."""
+
+
+class PostStartVerificationClientError(RemoteBrokerError):
+    """The broker could not verify the running postcondition."""

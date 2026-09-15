@@ -105,6 +105,9 @@ class FakeDockerClient:
             raise self.inspect_error
         return self.inspections[container]
 
+    def start(self, container: str) -> None:
+        raise AssertionError(f"inventory adapter attempted start: {container}")
+
     def stop(self, container: str, *, timeout: int) -> None:
         raise AssertionError(f"inventory adapter attempted stop: {container} {timeout}")
 

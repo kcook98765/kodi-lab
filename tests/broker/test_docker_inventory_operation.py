@@ -18,6 +18,7 @@ from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
     ContainerRuntimeState,
     ManagedContainerRecord,
+    StartManagedContainerRecord,
     StopManagedContainerRecord,
 )
 from kodi_lab.broker.errors import (
@@ -85,6 +86,15 @@ class FakeInventoryProvider:
         expected_runtime_state: ContainerRuntimeState,
     ) -> StopManagedContainerRecord:
         raise AssertionError("inventory-only test reached stop mutation")
+
+    def start_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> StartManagedContainerRecord:
+        raise AssertionError("inventory-only test reached start mutation")
 
 
 def raw_inventory_request(params: object) -> bytes:
@@ -177,6 +187,7 @@ def test_capabilities_reports_inventory_and_stop_operations() -> None:
         "capabilities",
         "managed_container_inventory",
         "ping",
+        "start_managed_container",
         "stop_managed_container",
     ]
     assert provider.calls == 0
@@ -270,6 +281,7 @@ def test_registry_has_no_generic_docker_or_execution_operation() -> None:
         "capabilities",
         "managed_container_inventory",
         "ping",
+        "start_managed_container",
         "stop_managed_container",
     )
     assert not {"docker", "execute", "shell", "command", "raw"}.intersection(names)

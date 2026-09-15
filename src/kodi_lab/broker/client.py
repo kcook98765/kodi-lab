@@ -21,14 +21,17 @@ from kodi_lab.broker.errors import (
     ClientProtocolError,
     ClientTransportError,
     ContainerIdentityPreconditionClientError,
+    ContainerStateNotReconcilableClientError,
     ContainerStateNotStoppableClientError,
     DockerDaemonUnavailableClientError,
     DockerInventoryClientError,
+    DockerStartClientError,
     DockerStopClientError,
     FrameTooLargeError,
     InventoryLimitClientError,
     ManagedContainerMetadataClientError,
     ManagedContainerNotFoundClientError,
+    PostStartVerificationClientError,
     PostStopVerificationClientError,
     RemoteBrokerError,
     RequestError,
@@ -42,6 +45,8 @@ from kodi_lab.broker.operations import (
     EmptyParams,
     ManagedContainerInventoryResult,
     PingResult,
+    StartManagedContainerParams,
+    StartManagedContainerResult,
     StopManagedContainerParams,
     StopManagedContainerResult,
 )
@@ -66,6 +71,7 @@ WRITE_TIMEOUT_SECONDS = 5.0
 STOP_RESPONSE_TIMEOUT_SECONDS = float(
     (4 * DOCKER_API_TIMEOUT_SECONDS) + DOCKER_STOP_TIMEOUT_SECONDS + 5
 )
+START_RESPONSE_TIMEOUT_SECONDS = float((4 * DOCKER_API_TIMEOUT_SECONDS) + 5)
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
@@ -139,6 +145,40 @@ class BrokerClient:
         ):
             raise ClientProtocolError(
                 "broker stop result identity does not match the request"
+            )
+        return result
+
+    def start_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_state: ContainerRuntimeState,
+    ) -> StartManagedContainerResult:
+        """Start the exact owned container previously observed by the caller."""
+
+        try:
+            params = StartManagedContainerParams(
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_state=expected_runtime_state,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "start request failed local validation"
+            ) from error
+        result = self._call(
+            "start_managed_container",
+            params,
+            StartManagedContainerResult,
+            response_timeout=START_RESPONSE_TIMEOUT_SECONDS,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "broker start result identity does not match the request"
             )
         return result
 
@@ -286,7 +326,12 @@ class BrokerClient:
                 "container_state_not_stoppable": (
                     ContainerStateNotStoppableClientError
                 ),
+                "container_state_not_reconcilable": (
+                    ContainerStateNotReconcilableClientError
+                ),
+                "docker_start_failed": DockerStartClientError,
                 "docker_stop_failed": DockerStopClientError,
+                "post_start_verification_failed": (PostStartVerificationClientError),
                 "post_stop_verification_failed": PostStopVerificationClientError,
             }
             error_type = error_types.get(error_response.error.code, RemoteBrokerError)

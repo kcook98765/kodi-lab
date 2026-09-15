@@ -367,3 +367,30 @@ details that it did not specify.
   SDK extending the stop request for its fixed 10-second stop timeout. The typed
   client allows a fixed 35-second response window for this synchronous operation;
   other protocol operations retain the five-second response timeout.
+
+## D-0039: Existing-container two-state reconciliation
+
+- Status: approved for Phase 2
+- Decision: add explicit `start_managed_container` and retain explicit
+  `stop_managed_container`; do not expose a generic reconciliation or Docker
+  lifecycle operation. Both use one private adapter flow for fixed-label
+  discovery, exactly-one selection, fresh ownership/instance/immutable-ID
+  validation, normalized-state evaluation, mutation, and fresh postcondition
+  validation. The only desired states are `running` and `stopped`.
+- State rule: when the exact owned container is already in the operation's desired
+  state, return successful convergence without mutation regardless of the
+  caller's expected state. When mutation is required, the caller's expected state
+  must equal the freshly observed state; only `stopped` to `running` and `running`
+  to `stopped` may mutate. Transitional and unknown states fail closed.
+- Start rule: a start request contains only canonical managed-instance UUID,
+  previously observed immutable 64-hex container ID, and normalized expected
+  runtime state. The adapter starts only the trusted label-selected immutable ID,
+  passes no caller lifecycle options, and freshly verifies the same ownership,
+  instance identity, immutable ID, and `running` state after Docker returns.
+  There is no retry, polling, restart-policy manipulation, or Kodi readiness
+  claim. The typed start client uses a fixed 25-second response window derived
+  from bounded Docker API calls.
+- Race policy: exact-ID checks and repeated post-mutation validation reject stale
+  replacement and false-success cases but cannot eliminate the interval between
+  pre-mutation inspect and Docker start/stop when another privileged Docker actor
+  can change the same object. This phase adds no lock or lease.

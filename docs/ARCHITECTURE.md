@@ -84,22 +84,26 @@ The broker uses one bounded, length-prefixed JSON request and response per Unix
 stream connection. A closed operation registry validates operation-specific
 parameters before invoking an explicit handler. It exposes `ping`, `broker_info`,
 `capabilities`, and the empty-parameter `managed_container_inventory`; all
-require the authorized peer. Phase 2 additionally exposes only the semantic
-`stop_managed_container` mutation with strict ownership, immutable-identity, and
-runtime-state preconditions. There is no shell, path, environment, raw Docker,
-generic execution, start/create/remove/restart/exec, or other lifecycle operation.
+require the authorized peer. Phase 2 additionally exposes only explicit semantic
+`start_managed_container` and `stop_managed_container` mutations for existing
+containers, with strict ownership, immutable-identity, and runtime-state
+preconditions. There is no shell, path, environment, raw Docker, generic
+execution/reconciliation, create/remove/restart/exec, or other lifecycle operation.
 
 The client/broker boundary is independent of Phase 1's domain, storage, and
 application services. A narrow infrastructure adapter performs fixed read-only
-Docker list/inspect calls for inventory and one fixed semantic stop. It selects
+Docker list/inspect calls for inventory and fixed semantic start/stop. It selects
 containers by the
 exact `io.kodi-lab.managed=true` and canonical
 `io.kodi-lab.instance-id=<UUID>` ownership contract, then emits a bounded
 Docker-independent schema. Names, legacy labels, images, networks, and Compose
 metadata never establish ownership. Raw inspect data does not cross the broker
-boundary. Stop resolves through both labels, freshly revalidates the selected
-object against the caller's observed immutable container ID/state, uses a fixed
-10-second timeout, and verifies stopped state afterward. Future lifecycle
+boundary. Start and stop resolve through both labels, freshly revalidate the
+selected object against the caller's observed immutable container ID/state, and
+verify the desired state afterward; stop alone uses a fixed 10-second timeout.
+Already-converged containers succeed without mutation, while a required mutation
+requires expected state to match fresh observed state. Transitional/unknown
+states are never mutated, and no Kodi readiness is inferred. Future lifecycle
 adapters likewise remain behind semantic allowlisted handlers rather than being
 imported into Phase 1 services. See
 `BROKER-SECURITY.md` for the protocol, threat model, path-safety, audit, and
