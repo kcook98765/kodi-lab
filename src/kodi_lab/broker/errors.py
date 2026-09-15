@@ -160,6 +160,22 @@ class RuntimeExecutionProfileUnavailableError(ProvisioningStateError):
     """The pinned revision has no trusted execution profile."""
 
 
+class AssignedFixtureStateError(ProvisioningStateError):
+    """Trusted state cannot produce an assigned-fixture specification."""
+
+
+class AssignedFixtureMissingError(AssignedFixtureStateError):
+    """The managed instance has no assigned fixture."""
+
+
+class AssignedFixtureIncompatibleError(AssignedFixtureStateError):
+    """The assigned fixture does not match the pinned runtime release."""
+
+
+class PackagedFixtureUnavailableError(AssignedFixtureStateError):
+    """The assigned fixture package is missing or differs from persistence."""
+
+
 class RuntimeImageUnavailableError(DockerInventoryError):
     """The exact immutable Docker image is not locally available."""
 
@@ -202,6 +218,14 @@ class DockerRemoveError(DockerInventoryError):
 
 class PostDeprovisionVerificationError(DockerInventoryError):
     """The broker could not prove the requested container is fully absent."""
+
+
+class FixtureBaselineConflictError(DockerInventoryError):
+    """A supposedly fresh container already contains fixture-owned paths."""
+
+
+class DockerFixtureArchiveError(DockerInventoryError):
+    """Docker could not apply or verify the fixed trusted fixture archive."""
 
 
 class ManagedRuntimeObservationError(DockerInventoryError):
@@ -340,3 +364,11 @@ class PostDeprovisionVerificationClientError(RemoteBrokerError):
 
 class ManagedRuntimeObservationClientError(RemoteBrokerError):
     """The broker could not safely observe the managed Kodi runtime."""
+
+
+class FixturePrerequisiteClientError(RemoteBrokerError):
+    """Trusted assigned-fixture state is missing or incompatible."""
+
+
+class FixtureApplicationClientError(RemoteBrokerError):
+    """The fixed trusted fixture archive could not be safely applied."""

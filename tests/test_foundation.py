@@ -101,6 +101,7 @@ def test_runtime_root_environment_override_is_independent(
 
 def test_migration_metadata_contains_core_storage_tables() -> None:
     assert set(metadata.tables) == {
+        "fixture_definitions",
         "managed_instances",
         "runtime_container_artifacts",
         "runtime_definitions",

@@ -56,6 +56,7 @@ def test_exact_uid_policy_accepts_only_uid() -> None:
 def test_foundation_registry_contains_exact_operation_set() -> None:
     registry = build_foundation_registry()
     assert registry.names == (
+        "apply_assigned_fixture",
         "broker_info",
         "capabilities",
         "deprovision_managed_container",
@@ -72,6 +73,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
     assert isinstance(registry.dispatch(request("broker_info")), BrokerInfoResult)
     assert registry.dispatch(request("capabilities")) == CapabilitiesResult(
         operations=[
+            "apply_assigned_fixture",
             "broker_info",
             "capabilities",
             "deprovision_managed_container",

@@ -89,3 +89,4 @@ class ManagedInstance:
     runtime_state: InstanceRuntimeState
     start_on_host_boot: bool = False
     notes: str | None = None
+    fixture_definition_id: UUID | None = None

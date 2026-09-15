@@ -71,6 +71,7 @@ def test_real_temporary_unix_server_client_round_trip(
         assert isinstance(client.broker_info(), BrokerInfoResult)
         assert client.capabilities() == CapabilitiesResult(
             operations=[
+                "apply_assigned_fixture",
                 "broker_info",
                 "capabilities",
                 "deprovision_managed_container",

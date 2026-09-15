@@ -18,6 +18,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from kodi_lab.domain import (
     ConnectionState,
+    FixtureContentCategory,
+    FixtureSizeCategory,
     HealthStatus,
     InstanceRuntimeState,
     InstanceType,
@@ -134,6 +136,62 @@ class ManagedInstanceRow(Base):
         server_default=text("0"),
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fixture_definition_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("fixture_definitions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+
+
+class FixtureDefinitionRow(Base):
+    """Finalized metadata for one trusted package-owned fixture version."""
+
+    __tablename__ = "fixture_definitions"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_fixture_definitions_slug"),
+        CheckConstraint("fixture_version > 0", name="fixture_version_positive"),
+        CheckConstraint(
+            "length(content_digest) = 71 "
+            "AND substr(content_digest, 1, 7) = 'sha256:' "
+            "AND substr(content_digest, 8) NOT GLOB '*[^0-9a-f]*'",
+            name="fixture_content_digest_sha256",
+        ),
+        CheckConstraint(
+            "length(trim(compatible_kodi_version)) BETWEEN 1 AND 32",
+            name="fixture_compatible_release_bounded",
+        ),
+        CheckConstraint(
+            "length(trim(description)) BETWEEN 1 AND 512",
+            name="fixture_description_bounded",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(64), nullable=False)
+    fixture_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    size_category: Mapped[FixtureSizeCategory] = mapped_column(
+        Enum(
+            FixtureSizeCategory,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="fixture_size_category",
+        ),
+        nullable=False,
+    )
+    content_category: Mapped[FixtureContentCategory] = mapped_column(
+        Enum(
+            FixtureContentCategory,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="fixture_content_category",
+        ),
+        nullable=False,
+    )
+    content_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    compatible_kodi_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), nullable=False)
 
 
 class RuntimeDefinitionRow(Base):

@@ -790,3 +790,79 @@ details that it did not specify.
   therefore previews trusted exact-release resolution without inventing those
   mutation semantics. Existing pins remain status/history authority and are not
   re-evaluated as new selections.
+
+## D-0068: Disposable reset preserves exact catalog identity
+
+- Status: approved for Phase 6 Step 1
+- Decision: `DisposableInstanceResetService` is one bounded destructive
+  application operation accepting only ManagedInstance UUID. It supports only
+  disposable instances, preserves Target and ManagedInstance identity, the exact
+  RuntimeRevision pin and all non-container catalog state, and never calls a
+  newest-eligible selector. Persistent reset returns
+  `persistent_reset_unsupported`; transitional, unknown, or ambiguous ownership
+  fails closed.
+- Completion and failure: success always means one freshly provisioned stopped
+  container. A running old container is normally stopped before stopped-only
+  deprovision; prior running state is not restored. Reset is not atomic: after
+  successful old-container removal, provision failure leaves the durable pin
+  intact and the instance operationally unprovisioned. Fixture failures retain
+  the fresh container stopped when that postcondition can be established, or
+  require explicit reconciliation.
+
+## D-0069: Immutable small-mixed-v1 fixture catalog and assignment
+
+- Status: approved for Phase 6 Step 1
+- Decision: the only predefined fixture is repository-owned `small-mixed-v1`,
+  version 1, Small/Mixed, compatible only with exact Kodi 21.3 stable. It contains
+  one fictional movie and one fictional one-episode series with deterministic
+  NFO, generated artwork, and tiny generated playable media. The manifest fixes
+  UUID, complete file hashes, aggregate content digest, compatibility, and the
+  container-relative layout. Any byte change requires a new fixture version.
+- Persistence: immutable `FixtureDefinition` metadata is stored separately from
+  binary package resources. A ManagedInstance has zero or one restrictive
+  fixture reference. Trusted administration explicitly registers packaged
+  definitions and assigns or removes compatible disposable assignments. Runtime
+  reassignment refuses an incompatible retained assignment and never silently
+  removes it or changes the fixture to make selection succeed.
+
+## D-0070: Fixture copying is a narrow semantic broker capability
+
+- Status: approved for Phase 6 Step 1
+- Decision: `apply_assigned_fixture` accepts only ManagedInstance UUID and the
+  expected immutable container ID. The broker resolves the disposable instance,
+  exact revision, assignment, compatibility, package bytes, and digest from
+  trusted state. It proves exactly one owned stopped container and exact revision
+  label, independently revalidates the sole packaged archive, and copies it only
+  to `/home/kodi/.kodi` with fixed uid/gid 1000 archive metadata.
+- Boundary: **fixture copying is a narrow semantic broker capability, not a
+  generic file-copy primitive.** No caller fixture ID, path, destination, bytes,
+  URL, mount, command, script, exec, or JSON-RPC field exists. Safe archive names
+  are manifest-validated; symlinks, hardlinks, absolute names, traversal, and
+  content disagreement fail closed. Root performs no Kodi JSON-RPC.
+
+## D-0071: Fixed unprivileged fixture initialization and proof
+
+- Status: approved for Phase 6 Step 1
+- Decision: after stopped archive application, reset uses normal broker start,
+  the existing readiness coordinator, and a Kodi-21.3-only unprivileged adapter.
+  The adapter has fixed calls for the fixture scan and movie/show/episode reads,
+  waits at most 60 seconds, verifies stable synthetic metadata rather than Kodi
+  row IDs, then reset normally stops the container. Whole or directory scan
+  behavior is fixed by the implementation and is never caller-selectable.
+- Validation support: one fixed test-only semantic mutation may remove only the
+  known synthetic fixture movie after resolving its Kodi row ID internally. It
+  accepts no title, path, media ID, method, or parameters and exists solely to
+  prove reset removes disposable drift.
+
+## D-0072: Reset coordination and exposure boundary
+
+- Status: approved for Phase 6 Step 1
+- Decision: reset uses a keyed non-blocking in-process lock per ManagedInstance
+  and never holds a SQLite transaction across Docker, readiness, or scan work.
+  This is not a distributed lease; broker proof gates remain the cross-process
+  fail-closed defense. Multi-worker mutation exposure requires a later durable
+  coordination decision.
+- Boundary: fixture definition and assignment are durable, while reset results
+  are ephemeral and no reset-job/history table is introduced. Web reset and
+  fixture administration are deferred; existing authenticated Web lifecycle and
+  matrix surfaces remain unchanged.

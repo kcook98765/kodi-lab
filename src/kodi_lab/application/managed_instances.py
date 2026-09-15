@@ -7,6 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import (
+    FixtureDefinitionNotFoundError,
+    FixtureIncompatibleError,
     KodiVersionIncompatibleError,
     ManagedInstanceConflictError,
     ManagedInstanceNotFoundError,
@@ -34,6 +36,7 @@ from kodi_lab.domain import (
     Target,
 )
 from kodi_lab.storage.repositories import (
+    FixtureDefinitionRepository,
     ManagedInstanceRepository,
     RuntimeDefinitionRepository,
     RuntimeRevisionRepository,
@@ -127,6 +130,24 @@ class ManagedInstanceService:
                 if current is None:
                     raise ManagedInstanceNotFoundError(target_id)
                 revision = self._resolve_revision(session, target, selection)
+                if current.fixture_definition_id is not None:
+                    fixture = FixtureDefinitionRepository(session).get(
+                        current.fixture_definition_id
+                    )
+                    if fixture is None:
+                        raise FixtureDefinitionNotFoundError(
+                            current.fixture_definition_id
+                        )
+                    definition = RuntimeDefinitionRepository(session).get(
+                        revision.runtime_definition_id
+                    )
+                    assert definition is not None
+                    if fixture.compatible_kodi_release != definition.kodi_release:
+                        raise FixtureIncompatibleError(
+                            fixture_definition_id=fixture.id,
+                            fixture_kodi_version=fixture.compatible_kodi_version,
+                            runtime_kodi_version=definition.kodi_version,
+                        )
                 updated = replace(current, runtime_revision_id=revision.id)
                 instances.update(updated)
                 return updated

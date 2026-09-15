@@ -475,6 +475,7 @@ def test_adapter_public_surface_has_no_generic_docker_mutation() -> None:
         and callable(getattr(DockerManagedContainerAdapter, name))
     }
     assert public == {
+        "apply_assigned_fixture",
         "deprovision_managed_container",
         "list_managed_containers",
         "observe_managed_kodi_runtime",

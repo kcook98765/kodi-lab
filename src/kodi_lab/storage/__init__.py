@@ -2,6 +2,7 @@
 
 from kodi_lab.storage.metadata import Base, metadata
 from kodi_lab.storage.models import (
+    FixtureDefinitionRow,
     ManagedInstanceRow,
     RuntimeContainerArtifactRow,
     RuntimeDefinitionRow,
@@ -12,6 +13,7 @@ from kodi_lab.storage.models import (
 
 __all__ = [
     "Base",
+    "FixtureDefinitionRow",
     "ManagedInstanceRow",
     "RuntimeContainerArtifactRow",
     "RuntimeDefinitionRow",

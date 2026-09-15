@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
+    FixtureDefinition,
     ManagedInstance,
     RuntimeContainerArtifact,
     RuntimeDefinition,
@@ -17,6 +18,7 @@ from kodi_lab.domain import (
     Target,
 )
 from kodi_lab.storage.models import (
+    FixtureDefinitionRow,
     ManagedInstanceRow,
     RuntimeContainerArtifactRow,
     RuntimeDefinitionRow,
@@ -51,6 +53,11 @@ def _instance_from_row(row: ManagedInstanceRow) -> ManagedInstance:
         runtime_state=row.runtime_state,
         start_on_host_boot=row.start_on_host_boot,
         notes=row.notes,
+        fixture_definition_id=(
+            None
+            if row.fixture_definition_id is None
+            else UUID(row.fixture_definition_id)
+        ),
     )
 
 
@@ -163,6 +170,11 @@ class ManagedInstanceRepository:
                 runtime_state=instance.runtime_state,
                 start_on_host_boot=instance.start_on_host_boot,
                 notes=instance.notes,
+                fixture_definition_id=(
+                    None
+                    if instance.fixture_definition_id is None
+                    else str(instance.fixture_definition_id)
+                ),
             )
         )
         self._session.flush()
@@ -188,7 +200,57 @@ class ManagedInstanceRepository:
         row.runtime_state = instance.runtime_state
         row.start_on_host_boot = instance.start_on_host_boot
         row.notes = instance.notes
+        row.fixture_definition_id = (
+            None
+            if instance.fixture_definition_id is None
+            else str(instance.fixture_definition_id)
+        )
         self._session.flush()
+
+
+class FixtureDefinitionRepository:
+    """Create/read-only persistence for finalized fixture definitions."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, fixture: FixtureDefinition) -> None:
+        self._session.add(
+            FixtureDefinitionRow(
+                id=str(fixture.id),
+                slug=fixture.slug,
+                fixture_version=fixture.fixture_version,
+                size_category=fixture.size_category,
+                content_category=fixture.content_category,
+                content_digest=fixture.content_digest,
+                compatible_kodi_version=fixture.compatible_kodi_version,
+                description=fixture.description,
+            )
+        )
+        self._session.flush()
+
+    def get(self, fixture_id: UUID) -> FixtureDefinition | None:
+        row = self._session.get(FixtureDefinitionRow, str(fixture_id))
+        return None if row is None else self._from_row(row)
+
+    def get_by_slug(self, slug: str) -> FixtureDefinition | None:
+        row = self._session.scalar(
+            select(FixtureDefinitionRow).where(FixtureDefinitionRow.slug == slug)
+        )
+        return None if row is None else self._from_row(row)
+
+    @staticmethod
+    def _from_row(row: FixtureDefinitionRow) -> FixtureDefinition:
+        return FixtureDefinition(
+            id=UUID(row.id),
+            slug=row.slug,
+            fixture_version=row.fixture_version,
+            size_category=row.size_category,
+            content_category=row.content_category,
+            content_digest=row.content_digest,
+            compatible_kodi_version=row.compatible_kodi_version,
+            description=row.description,
+        )
 
 
 class RuntimeDefinitionRepository:

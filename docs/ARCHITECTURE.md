@@ -271,3 +271,42 @@ the Target's immutable exact Kodi identity and cannot cross definitions. This
 slice deliberately adds no instance creation/reassignment or catalog mutation:
 those require a later Target administration contract. Existing pins continue to
 be presented by status services without retroactive new-selection filtering.
+
+## Phase 6 disposable reset and predefined fixture slice
+
+`FixtureDefinition` is finalized create-only catalog metadata for trusted
+package resources, not a binary store or scripting language. A ManagedInstance
+may reference one exact definition through a restrictive nullable foreign key.
+The first and only package is `small-mixed-v1`, compatible with Kodi 21.3 stable;
+trusted application administration registers its fixed manifest and assigns it
+only to a compatible disposable exact pin. Runtime reassignment validates a
+retained assignment before changing the pin.
+
+`apply_assigned_fixture` adds one semantic operation to the restricted broker.
+Its request carries only ManagedInstance UUID and expected container ID. Trusted
+broker-side resolution joins persisted assignment and revision state to the
+package-owned manifest, then the Docker adapter revalidates the exact canonical
+archive before fixed-destination extraction into `/home/kodi/.kodi`. Archive
+members have fixed Kodi uid/gid and permissions, and the operation requires one
+exact owned stopped container whose revision label matches the persisted pin.
+There is no generic Docker copy surface and no exec or caller-selected path,
+payload, fixture, destination, method, or parameter.
+
+`DisposableInstanceResetService` owns stop/deprovision/provision and optional
+fixture initialization as one application state machine. It takes only
+ManagedInstance UUID, holds one process-local keyed lock, performs short catalog
+reads without spanning infrastructure work, and provisions from the existing
+exact RuntimeRevision pin. It never invokes runtime eligibility or revision
+selection. Success always ends provisioned and stopped; no-fixture instances do
+not temporarily start. Assigned fixtures are applied while stopped, initialized
+through normal start/readiness plus a fixed unprivileged Kodi adapter, verified
+semantically within 60 seconds, and normally stopped again.
+
+Reset is bounded reconciliation, not a transaction over Docker. Failure before
+old-container removal retains the proven old state; failure provisioning after
+removal leaves the catalog pin intact and no container. Fixture application or
+initialization failure retains the fresh container stopped if that state can be
+proved, otherwise it returns reconciliation-required. Persistent reset,
+transitional or ambiguous state, force removal, revision upgrade, distributed
+locking, reset history, and Web reset are absent from this slice. See
+`PHASE6-RESET-FIXTURES.md` for the executable contract.

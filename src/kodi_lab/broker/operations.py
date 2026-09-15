@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from kodi_lab import __version__
 from kodi_lab.broker.docker_inventory import (
     MAX_MANAGED_CONTAINERS,
+    AppliedAssignedFixtureRecord,
+    AssignedFixtureApplicationProvider,
     ContainerHealthState,
     ContainerRuntimeState,
     DeprovisionedManagedContainerRecord,
@@ -24,16 +26,20 @@ from kodi_lab.broker.docker_inventory import (
 )
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
+    AssignedFixtureIncompatibleError,
+    AssignedFixtureMissingError,
     ContainerIdentityPreconditionError,
     ContainerMustBeStoppedError,
     ContainerStateNotReconcilableError,
     ContainerStateNotStoppableError,
     DockerCreateError,
     DockerDaemonUnavailableError,
+    DockerFixtureArchiveError,
     DockerInventoryReadError,
     DockerRemoveError,
     DockerStartError,
     DockerStopError,
+    FixtureBaselineConflictError,
     HandlerExecutionError,
     InvalidManagedContainerMetadataError,
     InventoryLimitExceededError,
@@ -43,6 +49,7 @@ from kodi_lab.broker.errors import (
     ManagedRuntimeEndpointError,
     ManagedRuntimeNotRunningError,
     OperationError,
+    PackagedFixtureUnavailableError,
     PartialProvisioningError,
     PersistentProvisioningUnsupportedError,
     PostCreateVerificationError,
@@ -57,6 +64,10 @@ from kodi_lab.broker.errors import (
     RuntimeImageUnavailableError,
     RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionError,
+)
+from kodi_lab.broker.fixtures import (
+    AssignedFixtureResolver,
+    SqliteAssignedFixtureResolver,
 )
 from kodi_lab.broker.protocol import (
     PROTOCOL_VERSION,
@@ -403,6 +414,43 @@ class DeprovisionManagedContainerResult(StrictModel):
         return value
 
 
+class ApplyAssignedFixtureParams(StrictModel):
+    """Only identity preconditions for the one trusted fixture operation."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _canonical_instance_id(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("managed_instance_id must be a canonical UUID string")
+        return value
+
+
+class ApplyAssignedFixtureResult(StrictModel):
+    """Bounded semantic result with no path, archive, or Docker configuration."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    fixture_slug: Literal["small-mixed-v1"]
+    fixture_version: Literal[1]
+    content_digest: str = Field(
+        min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
+    runtime_state: Literal[ContainerRuntimeState.STOPPED]
+
+    @field_validator("managed_instance_id", "runtime_revision_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
 type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
@@ -535,6 +583,8 @@ def build_foundation_registry(
     revision_resolver: ManagedInstanceRevisionResolver | None = None,
     runtime_observation_resolver: RuntimeObservationResolver | None = None,
     runtime_observation_provider: ManagedKodiRuntimeObservationProvider | None = None,
+    assigned_fixture_resolver: AssignedFixtureResolver | None = None,
+    assigned_fixture_provider: AssignedFixtureApplicationProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -555,6 +605,12 @@ def build_foundation_registry(
     )
     observation_provider = runtime_observation_provider or cast(
         ManagedKodiRuntimeObservationProvider, provider
+    )
+    fixture_resolver = (
+        assigned_fixture_resolver or SqliteAssignedFixtureResolver.production()
+    )
+    fixture_provider = assigned_fixture_provider or cast(
+        AssignedFixtureApplicationProvider, provider
     )
     registry.register(
         name="ping",
@@ -1179,5 +1235,142 @@ def build_foundation_registry(
         result_model=DeprovisionManagedContainerResult,
         handler=deprovision_managed_container,
         audit_builder=deprovision_audit,
+    )
+
+    def apply_assigned_fixture(
+        params: ApplyAssignedFixtureParams,
+    ) -> ApplyAssignedFixtureResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id
+        }
+        try:
+            spec = fixture_resolver.resolve(params.managed_instance_id)
+            outcome: AppliedAssignedFixtureRecord = (
+                fixture_provider.apply_assigned_fixture(
+                    spec=spec,
+                    expected_container_id=params.expected_container_id,
+                )
+            )
+        except PersistentProvisioningUnsupportedError as error:
+            raise OperationError(
+                "persistent_fixture_unsupported",
+                "Fixtures are not supported for persistent managed instances.",
+                audit_fields=audit_fields,
+            ) from error
+        except AssignedFixtureMissingError as error:
+            raise OperationError(
+                "assigned_fixture_missing",
+                "The managed instance has no assigned fixture.",
+                audit_fields=audit_fields,
+            ) from error
+        except AssignedFixtureIncompatibleError as error:
+            raise OperationError(
+                "assigned_fixture_incompatible",
+                "The assigned fixture is incompatible with the pinned runtime.",
+                audit_fields=audit_fields,
+            ) from error
+        except PackagedFixtureUnavailableError as error:
+            raise OperationError(
+                "packaged_fixture_unavailable",
+                "The trusted packaged fixture is unavailable or inconsistent.",
+                audit_fields=audit_fields,
+            ) from error
+        except ProvisioningStateError as error:
+            raise OperationError(
+                "assigned_fixture_state_unavailable",
+                "Canonical assigned-fixture state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedContainerNotFoundError as error:
+            raise OperationError(
+                "managed_container_not_found",
+                "No Kodi Lab-owned container exists for the managed instance.",
+                audit_fields=audit_fields,
+            ) from error
+        except AmbiguousManagedContainerError as error:
+            raise OperationError(
+                "ambiguous_managed_container",
+                "Multiple containers claim the managed instance identity.",
+                audit_fields=audit_fields,
+            ) from error
+        except InvalidManagedContainerMetadataError as error:
+            raise OperationError(
+                "invalid_managed_container_metadata",
+                "Kodi Lab managed-container identity metadata is invalid.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerIdentityPreconditionError as error:
+            raise OperationError(
+                "container_identity_precondition_failed",
+                "The managed container identity changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeRevisionPreconditionError as error:
+            raise OperationError(
+                "runtime_revision_precondition_failed",
+                "The managed runtime revision differs from trusted state.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerMustBeStoppedError as error:
+            raise OperationError(
+                "container_must_be_stopped",
+                "The managed container must be stopped for fixture application.",
+                audit_fields=audit_fields,
+            ) from error
+        except FixtureBaselineConflictError as error:
+            raise OperationError(
+                "fixture_baseline_conflict",
+                "The fresh container already contains fixture-owned state.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerFixtureArchiveError as error:
+            raise OperationError(
+                "fixture_archive_failed",
+                "Docker could not safely apply the trusted fixture archive.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDaemonUnavailableError as error:
+            raise OperationError(
+                "docker_daemon_unavailable",
+                "The Docker daemon is unavailable to the broker.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerInventoryReadError as error:
+            raise OperationError(
+                "docker_inventory_failed",
+                "The broker could not safely inspect fixture container state.",
+                audit_fields=audit_fields,
+            ) from error
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.container_id != params.expected_container_id
+            or outcome.runtime_revision_id != spec.runtime_revision_id
+            or outcome.runtime_state is not ContainerRuntimeState.STOPPED
+            or outcome.fixture_slug != "small-mixed-v1"
+            or outcome.fixture_version != 1
+            or outcome.content_digest != spec.content_digest
+        ):
+            raise RuntimeError("Docker adapter returned inconsistent fixture identity")
+        return ApplyAssignedFixtureResult(
+            managed_instance_id=outcome.managed_instance_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            fixture_slug="small-mixed-v1",
+            fixture_version=1,
+            content_digest=outcome.content_digest,
+            runtime_state=ContainerRuntimeState.STOPPED,
+        )
+
+    registry.register(
+        name="apply_assigned_fixture",
+        params_model=ApplyAssignedFixtureParams,
+        result_model=ApplyAssignedFixtureResult,
+        handler=apply_assigned_fixture,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_fixture_slug": result.fixture_slug,
+            "broker_fixture_version": result.fixture_version,
+            "broker_resulting_runtime_state": result.runtime_state.value,
+        },
     )
     return registry

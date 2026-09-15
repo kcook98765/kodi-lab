@@ -351,7 +351,7 @@ def test_daemon_unavailable_before_discovery_is_sanitized() -> None:
     assert "PRIVATE" not in str(raised.value)
 
 
-def test_adapter_has_only_the_five_semantic_public_methods() -> None:
+def test_adapter_has_only_the_bounded_semantic_public_methods() -> None:
     public_callables = {
         name
         for name in dir(DockerManagedContainerAdapter)
@@ -359,6 +359,7 @@ def test_adapter_has_only_the_five_semantic_public_methods() -> None:
         and callable(getattr(DockerManagedContainerAdapter, name))
     }
     assert public_callables == {
+        "apply_assigned_fixture",
         "deprovision_managed_container",
         "list_managed_containers",
         "observe_managed_kodi_runtime",

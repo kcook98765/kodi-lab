@@ -248,10 +248,11 @@ def test_broker_sanitizes_adapter_result_for_different_identity(
     assert raised.value.code == "internal_error"
 
 
-def test_capabilities_contains_only_the_stop_addition() -> None:
+def test_capabilities_contains_exact_bounded_operation_set() -> None:
     provider = FakeContainerProvider()
     registry = build_foundation_registry(provider)
     assert registry.names == (
+        "apply_assigned_fixture",
         "broker_info",
         "capabilities",
         "deprovision_managed_container",

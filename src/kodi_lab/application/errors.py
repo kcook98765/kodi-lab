@@ -35,6 +35,12 @@ class ManagedInstanceNotFoundError(EntityNotFoundError):
         super().__init__(f"managed instance for target {target_id} does not exist")
 
 
+class FixtureDefinitionNotFoundError(EntityNotFoundError):
+    def __init__(self, fixture_definition_id: UUID) -> None:
+        self.fixture_definition_id = fixture_definition_id
+        super().__init__(f"fixture definition {fixture_definition_id} does not exist")
+
+
 class RuntimeSelectionError(ApplicationServiceError):
     """Base class for revisions that cannot be selected under current policy."""
 
@@ -136,6 +142,43 @@ class ManagedInstanceConflictError(PersistenceConflictError):
     def __init__(self, target_id: UUID) -> None:
         self.target_id = target_id
         super().__init__(f"managed instance for target {target_id} already exists")
+
+
+class FixtureDefinitionConflictError(PersistenceConflictError):
+    def __init__(self, *, fixture_definition_id: UUID, slug: str) -> None:
+        self.fixture_definition_id = fixture_definition_id
+        self.slug = slug
+        super().__init__(
+            f"fixture definition identity {fixture_definition_id} or slug {slug!r} "
+            "already exists"
+        )
+
+
+class FixtureAssignmentError(ApplicationServiceError):
+    """A fixture cannot be assigned under the approved compatibility policy."""
+
+
+class PersistentFixtureUnsupportedError(FixtureAssignmentError):
+    def __init__(self, managed_instance_id: UUID) -> None:
+        self.managed_instance_id = managed_instance_id
+        super().__init__("fixtures are supported only for disposable managed instances")
+
+
+class FixtureIncompatibleError(FixtureAssignmentError):
+    def __init__(
+        self,
+        *,
+        fixture_definition_id: UUID,
+        fixture_kodi_version: str,
+        runtime_kodi_version: str,
+    ) -> None:
+        self.fixture_definition_id = fixture_definition_id
+        self.fixture_kodi_version = fixture_kodi_version
+        self.runtime_kodi_version = runtime_kodi_version
+        super().__init__(
+            f"fixture {fixture_definition_id} for Kodi {fixture_kodi_version} "
+            f"is incompatible with runtime Kodi {runtime_kodi_version}"
+        )
 
 
 class RuntimeDefinitionConflictError(PersistenceConflictError):

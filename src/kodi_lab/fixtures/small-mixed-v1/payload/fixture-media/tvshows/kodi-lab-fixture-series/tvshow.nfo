@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<tvshow>
+  <title>Kodi Lab Fixture Series</title>
+  <originaltitle>Kodi Lab Fixture Series</originaltitle>
+  <sorttitle>Kodi Lab Fixture Series</sorttitle>
+  <year>2024</year>
+  <premiered>2024-01-01</premiered>
+  <plot>A fictional series generated solely for deterministic Kodi Lab testing.</plot>
+  <genre>Synthetic</genre>
+  <studio>Kodi Lab</studio>
+  <uniqueid type="kodi-lab" default="true">small-mixed-v1-series</uniqueid>
+  <art>
+    <poster>poster.png</poster>
+    <fanart>fanart.png</fanart>
+  </art>
+</tvshow>

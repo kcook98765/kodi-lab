@@ -30,6 +30,8 @@ from kodi_lab.broker.errors import (
     DockerRemoveClientError,
     DockerStartClientError,
     DockerStopClientError,
+    FixtureApplicationClientError,
+    FixturePrerequisiteClientError,
     FrameTooLargeError,
     InventoryLimitClientError,
     ManagedContainerMetadataClientError,
@@ -50,6 +52,8 @@ from kodi_lab.broker.errors import (
     TruncatedFrameError,
 )
 from kodi_lab.broker.operations import (
+    ApplyAssignedFixtureParams,
+    ApplyAssignedFixtureResult,
     BrokerInfoResult,
     CapabilitiesResult,
     DeprovisionManagedContainerParams,
@@ -288,6 +292,35 @@ class BrokerClient:
             )
         return result
 
+    def apply_assigned_fixture(
+        self, *, managed_instance_id: str, expected_container_id: str
+    ) -> ApplyAssignedFixtureResult:
+        """Apply only the broker-resolved predefined fixture to a stopped container."""
+
+        try:
+            params = ApplyAssignedFixtureParams(
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "assigned fixture request failed local validation"
+            ) from error
+        result = self._call(
+            "apply_assigned_fixture",
+            params,
+            ApplyAssignedFixtureResult,
+            response_timeout=15.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "assigned fixture result identity does not match the request"
+            )
+        return result
+
     def _call(
         self,
         operation: str,
@@ -475,6 +508,13 @@ class BrokerClient:
                 "managed_runtime_endpoint_invalid": (
                     ManagedRuntimeObservationClientError
                 ),
+                "persistent_fixture_unsupported": FixturePrerequisiteClientError,
+                "assigned_fixture_missing": FixturePrerequisiteClientError,
+                "assigned_fixture_incompatible": FixturePrerequisiteClientError,
+                "packaged_fixture_unavailable": FixturePrerequisiteClientError,
+                "assigned_fixture_state_unavailable": FixturePrerequisiteClientError,
+                "fixture_baseline_conflict": FixtureApplicationClientError,
+                "fixture_archive_failed": FixtureApplicationClientError,
             }
             error_type = error_types.get(error_response.error.code, RemoteBrokerError)
             raise error_type(

@@ -1,5 +1,10 @@
 """Core Kodi Lab domain models."""
 
+from kodi_lab.domain.fixtures import (
+    FixtureContentCategory,
+    FixtureDefinition,
+    FixtureSizeCategory,
+)
 from kodi_lab.domain.kodi_release import (
     KodiReleaseChannel,
     KodiReleaseIdentity,
@@ -40,6 +45,9 @@ __all__ = [
     "RECOGNIZED_VALIDATION_CONTRACTS",
     "ConnectionState",
     "EffectiveValidationState",
+    "FixtureContentCategory",
+    "FixtureDefinition",
+    "FixtureSizeCategory",
     "HealthStatus",
     "InstanceRuntimeState",
     "InstanceType",

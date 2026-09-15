@@ -33,6 +33,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
         "alembic_version",
+        "fixture_definitions",
         "managed_instances",
         "runtime_definitions",
         "runtime_container_artifacts",
@@ -49,6 +50,9 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     }
     assert managed_foreign_keys["targets"]["options"] == {"ondelete": "CASCADE"}
     assert managed_foreign_keys["runtime_revisions"]["options"] == {
+        "ondelete": "RESTRICT"
+    }
+    assert managed_foreign_keys["fixture_definitions"]["options"] == {
         "ondelete": "RESTRICT"
     }
     revision_foreign_key = inspector.get_foreign_keys("runtime_revisions")[0]
@@ -511,6 +515,7 @@ def test_phase5_history_and_support_policy_refuse_lossy_downgrade(
             {"timestamp": timestamp},
         )
     engine.dispose()
+
     with pytest.raises(RuntimeError, match="validation evidence"):
         command.downgrade(config, "0005_web_auth_sessions")
 
@@ -520,3 +525,94 @@ def test_phase5_history_and_support_policy_refuse_lossy_downgrade(
     engine.dispose()
     with pytest.raises(RuntimeError, match="support policy"):
         command.downgrade(config, "0005_web_auth_sessions")
+
+
+def test_0006_populated_state_upgrades_with_null_fixture_assignment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0006_runtime_matrix_contract")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id, slug, kodi_version, support_tier) VALUES "
+                "('10000000-0000-4000-8000-000000000001', "
+                "'kodi-21-3-fixture-test', '21.3', 'current')"
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO runtime_revisions (
+                    id, runtime_definition_id, revision_number, source_kind,
+                    source_reference, content_digest, manifest_reference,
+                    manifest_digest, built_at, approval_state,
+                    requires_trusted_build_confirmation
+                ) VALUES (
+                    '10000000-0000-4000-8000-000000000002',
+                    '10000000-0000-4000-8000-000000000001', 1, 'test', 'test',
+                    :digest, 'manifest', :digest, '2026-09-15T00:00:00Z',
+                    'not_approved', 0
+                )
+                """
+            ),
+            {"digest": "sha256:" + ("a" * 64)},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO targets "
+                "(id, name, target_type, kodi_version, availability, health, "
+                "connection_state) VALUES "
+                "('10000000-0000-4000-8000-000000000003', 'fixture migration', "
+                "'managed', '21.3', 'unavailable', 'warning', 'disconnected')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances "
+                "(target_id, instance_type, runtime_revision_id, runtime_state, "
+                "start_on_host_boot) VALUES "
+                "('10000000-0000-4000-8000-000000000003', 'disposable', "
+                "'10000000-0000-4000-8000-000000000002', 'stopped', 0)"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT fixture_definition_id FROM managed_instances")
+            )
+            is None
+        )
+    engine.dispose()
+    command.check(config)
+
+
+def test_fixture_migration_empty_round_trip_and_populated_downgrade_refusal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0006_runtime_matrix_contract")
+    command.upgrade(config, "head")
+    command.downgrade(config, "0006_runtime_matrix_contract")
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO fixture_definitions "
+                "(id, slug, fixture_version, size_category, content_category, "
+                "content_digest, compatible_kodi_version, description) VALUES "
+                "('35d6854d-6cfc-5247-97df-7f2023c6ae9d', 'small-mixed-v1', "
+                "1, 'small', 'mixed', :digest, '21.3', 'fixture')"
+            ),
+            {"digest": "sha256:" + ("a" * 64)},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated fixture"):
+        command.downgrade(config, "0006_runtime_matrix_contract")

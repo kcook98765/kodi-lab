@@ -25,10 +25,12 @@ from kodi_lab.broker.errors import (
     ContainerStateNotStoppableError,
     DockerCreateError,
     DockerDaemonUnavailableError,
+    DockerFixtureArchiveError,
     DockerInventoryReadError,
     DockerRemoveError,
     DockerStartError,
     DockerStopError,
+    FixtureBaselineConflictError,
     InvalidManagedContainerMetadataError,
     InventoryLimitExceededError,
     ManagedContainerNotFoundError,
@@ -46,6 +48,7 @@ from kodi_lab.broker.errors import (
     RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionError,
 )
+from kodi_lab.broker.fixtures import AssignedFixtureSpec
 from kodi_lab.broker.protocol import is_canonical_uuid
 from kodi_lab.broker.provisioning import (
     MANAGED_NETWORK_DRIVER,
@@ -54,6 +57,11 @@ from kodi_lab.broker.provisioning import (
     RUNTIME_REVISION_LABEL_KEY,
     ManagedContainerProvisioningSpec,
     ManagedRuntimeObservationSpec,
+)
+from kodi_lab.fixtures.package import (
+    FIXTURE_CONTAINER_DESTINATION,
+    PackagedFixtureError,
+    load_packaged_fixture,
 )
 
 MANAGED_LABEL_KEY = "io.kodi-lab.managed"
@@ -170,6 +178,19 @@ class ManagedKodiRuntimeObservationRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class AppliedAssignedFixtureRecord:
+    """Minimal verified result of the one fixed fixture archive operation."""
+
+    managed_instance_id: str
+    runtime_revision_id: str
+    container_id: str
+    fixture_slug: str
+    fixture_version: int
+    content_digest: str
+    runtime_state: ContainerRuntimeState
+
+
+@dataclass(frozen=True, slots=True)
 class _ReconciliationRecord:
     managed_instance_id: str
     container_id: str
@@ -240,6 +261,13 @@ class ManagedKodiRuntimeObservationProvider(Protocol):
         """Observe one exact owned Kodi runtime on the fixed managed network."""
 
 
+class AssignedFixtureApplicationProvider(Protocol):
+    def apply_assigned_fixture(
+        self, *, spec: AssignedFixtureSpec, expected_container_id: str
+    ) -> AppliedAssignedFixtureRecord:
+        """Apply one broker-resolved fixture to one exact fresh stopped container."""
+
+
 class _DockerClient(Protocol):
     def containers(
         self, *, all: bool, filters: Mapping[str, list[str]]
@@ -286,6 +314,12 @@ class _ProvisioningDockerClient(_DeprovisionDockerClient, Protocol):
         host_config: object,
         networking_config: object,
     ) -> object: ...
+
+
+class _FixtureDockerClient(_DockerClient, Protocol):
+    def get_archive(self, container: str, path: str) -> tuple[object, object]: ...
+
+    def put_archive(self, container: str, path: str, data: bytes) -> bool: ...
 
 
 type DockerClientFactory = Callable[[], _DockerClient]
@@ -914,6 +948,157 @@ class DockerManagedContainerAdapter:
             if client is not None:
                 with suppress(DockerException, OSError):
                     client.close()
+
+    def apply_assigned_fixture(
+        self, *, spec: AssignedFixtureSpec, expected_container_id: str
+    ) -> AppliedAssignedFixtureRecord:
+        """Copy one trusted package archive to one exact fresh stopped container."""
+
+        if _CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None:
+            raise ContainerIdentityPreconditionError(
+                "Expected container identity is not canonical"
+            )
+        try:
+            packaged = load_packaged_fixture("small-mixed-v1")
+        except PackagedFixtureError as error:
+            raise DockerFixtureArchiveError(
+                "Trusted fixture package could not be validated"
+            ) from error
+        if (
+            spec.fixture_id != str(packaged.definition.id)
+            or spec.fixture_slug != packaged.definition.slug
+            or spec.fixture_version != packaged.definition.fixture_version
+            or spec.content_digest != packaged.definition.content_digest
+            or spec.destination != FIXTURE_CONTAINER_DESTINATION
+            or spec.destination != packaged.destination
+            or spec.members != packaged.members
+            or spec.archive != packaged.build_archive()
+        ):
+            raise DockerFixtureArchiveError(
+                "Fixture application specification is not the trusted package"
+            )
+        client: _FixtureDockerClient | None = None
+        try:
+            client = cast(_FixtureDockerClient, self._client_factory())
+            filters = {
+                "label": [
+                    f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                    f"{INSTANCE_ID_LABEL_KEY}={spec.managed_instance_id}",
+                ]
+            }
+            summaries = client.containers(all=True, filters=filters)
+            if not isinstance(summaries, list):
+                raise DockerInventoryReadError(
+                    "Docker returned malformed fixture container selection"
+                )
+            if not summaries:
+                raise ManagedContainerNotFoundError(
+                    "No owned container exists for fixture application"
+                )
+            if len(summaries) != 1:
+                raise AmbiguousManagedContainerError(
+                    "Multiple containers have the managed instance identity"
+                )
+            summary = _require_mapping(summaries[0])
+            selected_id = _require_container_id(summary.get("Id"))
+            inspected = _require_mapping(client.inspect_container(selected_id))
+            self._validate_deprovision_candidate(
+                inspected,
+                selected_container_id=selected_id,
+                managed_instance_id=spec.managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=spec.runtime_revision_id,
+            )
+            for fixed_path in (
+                "/home/kodi/.kodi/fixture-media",
+                "/home/kodi/.kodi/userdata/sources.xml",
+            ):
+                if self._fixed_container_path_exists(client, selected_id, fixed_path):
+                    raise FixtureBaselineConflictError(
+                        "Fresh container already contains fixture-owned state"
+                    )
+            try:
+                applied = client.put_archive(
+                    selected_id,
+                    spec.destination,
+                    spec.archive,
+                )
+            except (DockerException, OSError) as error:
+                raise DockerFixtureArchiveError(
+                    "Docker fixture archive application failed"
+                ) from error
+            if applied is not True:
+                raise DockerFixtureArchiveError(
+                    "Docker did not confirm fixture archive application"
+                )
+            for fixed_path in (
+                "/home/kodi/.kodi/fixture-media",
+                "/home/kodi/.kodi/userdata/sources.xml",
+            ):
+                if not self._fixed_container_path_exists(
+                    client, selected_id, fixed_path
+                ):
+                    raise DockerFixtureArchiveError(
+                        "Docker could not verify fixture archive postcondition"
+                    )
+            final = _require_mapping(client.inspect_container(selected_id))
+            self._validate_deprovision_candidate(
+                final,
+                selected_container_id=selected_id,
+                managed_instance_id=spec.managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=spec.runtime_revision_id,
+            )
+            return AppliedAssignedFixtureRecord(
+                managed_instance_id=spec.managed_instance_id,
+                runtime_revision_id=spec.runtime_revision_id,
+                container_id=selected_id,
+                fixture_slug=spec.fixture_slug,
+                fixture_version=spec.fixture_version,
+                content_digest=spec.content_digest,
+                runtime_state=ContainerRuntimeState.STOPPED,
+            )
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            DockerFixtureArchiveError,
+            DockerInventoryReadError,
+            FixtureBaselineConflictError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ):
+            raise
+        except APIError as error:
+            raise DockerInventoryReadError(
+                "Docker fixture application preflight failed"
+            ) from error
+        except (DockerException, OSError) as error:
+            raise DockerDaemonUnavailableError(
+                "Docker daemon is unavailable"
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
+    @staticmethod
+    def _fixed_container_path_exists(
+        client: _FixtureDockerClient, container_id: str, path: str
+    ) -> bool:
+        try:
+            stream, _stat = client.get_archive(container_id, path)
+        except NotFound:
+            return False
+        except (DockerException, OSError) as error:
+            raise DockerFixtureArchiveError(
+                "Docker could not inspect fixed fixture path"
+            ) from error
+        close = getattr(stream, "close", None)
+        if callable(close):
+            close()
+        return True
 
     def observe_managed_kodi_runtime(
         self,

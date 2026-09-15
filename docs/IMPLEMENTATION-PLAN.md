@@ -185,3 +185,27 @@ mutation, a later milestone must define Target inventory/creation, ordinary
 instance metadata and naming, instance-type choice, and Target-version change
 semantics. The completed read-only resolution endpoint proves exact selection
 without silently changing Target identity or reinterpreting historical pins.
+
+Phase 6 Step 1 implements the smallest disposable reset and fixture baseline.
+One application reset operation accepts only ManagedInstance UUID, reconciles
+unprovisioned/stopped/running starting states, recreates from the unchanged exact
+RuntimeRevision pin, and always ends provisioned/stopped. Persistent,
+transitional, unknown, and ambiguous states fail closed. The process-local keyed
+lock prevents duplicate resets within one application process; distributed
+coordination and durable reset history remain deferred.
+
+The only fixture is immutable repository-owned `small-mixed-v1` for exact Kodi
+21.3 stable: one synthetic movie and one synthetic one-episode series with fixed
+NFO, artwork, playable placeholders, manifest, and digest. Immutable definition
+metadata and nullable instance assignment are durable; payload bytes remain
+package resources. One broker operation applies only the persisted assignment to
+one exact stopped owned container using a fixed validated archive and fixed
+destination. An unprivileged fixed-method Kodi adapter scans and semantically
+verifies the baseline within 60 seconds before normal stop. This adds no fixture
+language, upload, generic copy/exec/JSON-RPC, revision selection, persistent
+storage, Web mutation, or production deployment.
+
+The next separately authorized Phase 6 milestone should expose bounded fixture
+and reset status in application-owned semantic DTOs while retaining Web mutation
+deferral until durable multi-worker coordination and destructive-action UX are
+specified.

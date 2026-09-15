@@ -172,7 +172,7 @@ def test_invalid_params_are_rejected_before_docker_adapter(
     assert error["code"] == "invalid_params"
 
 
-def test_capabilities_reports_inventory_and_stop_operations() -> None:
+def test_capabilities_reports_exact_semantic_operations() -> None:
     provider = FakeInventoryProvider()
     result = build_foundation_registry(provider).dispatch(
         Request(
@@ -183,6 +183,7 @@ def test_capabilities_reports_inventory_and_stop_operations() -> None:
         )
     )
     assert result.model_dump(mode="json")["operations"] == [
+        "apply_assigned_fixture",
         "broker_info",
         "capabilities",
         "deprovision_managed_container",
@@ -280,6 +281,7 @@ def test_success_audit_contains_count_not_inventory_data(
 def test_registry_has_no_generic_docker_or_execution_operation() -> None:
     names = build_foundation_registry(FakeInventoryProvider()).names
     assert names == (
+        "apply_assigned_fixture",
         "broker_info",
         "capabilities",
         "deprovision_managed_container",
