@@ -66,8 +66,26 @@ def test_manifest_accepts_exact_kodi_20_package_identity(tmp_path: Path) -> None
     assert manifest.kodi_version == "20.5"
 
 
+def test_manifest_accepts_exact_team_kodi_old_stable_package(tmp_path: Path) -> None:
+    path = manifest_for(
+        tmp_path,
+        kodi_version="19.5",
+        kodi_package_version="6:19.5+git20221224.1006-f8fdeb6b1b-0~jammy",
+    )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["package_sources"] = [
+        "https://ppa.launchpadcontent.net/team-xbmc/kodi-old/ubuntu/ jammy main"
+    ]
+    data["package_artifact_hashes"] = {"kodi.deb": "sha256:" + ("d" * 64)}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    manifest = load_runtime_build_manifest(path)
+    assert manifest.kodi_version == "19.5"
+    assert manifest.package_artifact_hashes["kodi.deb"].startswith("sha256:")
+
+
 @pytest.mark.parametrize(
-    ("directory", "version"), (("kodi-20.5", "20.5"), ("kodi-21.3", "21.3"))
+    ("directory", "version"),
+    (("kodi-19.5", "19.5"), ("kodi-20.5", "20.5"), ("kodi-21.3", "21.3")),
 )
 def test_repository_runtime_manifest_matches_immutable_inputs(
     directory: str, version: str
@@ -127,4 +145,13 @@ def test_manifest_rejects_unbounded_compatibility_asset(tmp_path: Path) -> None:
     data["compatibility_assets"] = ["x" * 257]
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValidationError, match="bounded and nonblank"):
+        load_runtime_build_manifest(path)
+
+
+def test_manifest_rejects_unbounded_package_artifact_name(tmp_path: Path) -> None:
+    path = manifest_for(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["package_artifact_hashes"] = {"../kodi.deb": "sha256:" + ("d" * 64)}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValidationError, match="relative and bounded"):
         load_runtime_build_manifest(path)

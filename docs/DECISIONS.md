@@ -736,3 +736,17 @@ details that it did not specify.
   use shared current eligibility, while the validation fixture uses the exact
   pre-registered immutable revision solely for provision, two readiness cycles,
   clean stops, and deprovision before evidence registration.
+
+## D-0065: Source-bound Kodi 19.5 package provenance
+
+- Status: approved for Phase 5 implementation
+- Decision: the Kodi 19.5 version-owned build may use only the exact Jammy
+  packages `6:19.5+git20221224.1006-f8fdeb6b1b-0~jammy` from Team Kodi's
+  `kodi-old-stable` Launchpad PPA. The manifest records the source URL, Launchpad
+  signing fingerprint, and exact downloaded package hashes; the build verifies
+  those hashes and installed versions. Runtime-manifest validation accepts this
+  alternate epoch/release shape only when bound to that named source.
+- Boundary: this narrow legacy-source rule does not authorize arbitrary PPAs,
+  dynamic package selection, or use of the Kodi 19 source for any other runtime.
+  Ubuntu base and dependency packages remain distribution-owned and the final
+  image identity remains immutable.

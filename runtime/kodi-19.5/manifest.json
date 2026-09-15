@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "runtime_kind": "kodi",
+  "kodi_version": "19.5",
+  "base_image_reference": "ubuntu:22.04@sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986",
+  "base_image_digest": "sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986",
+  "package_sources": [
+    "https://ppa.launchpadcontent.net/team-xbmc/kodi-old/ubuntu/ jammy main; Launchpad signing fingerprint 04AE50726660A0D55355E966C8B28F649961BE33",
+    "http://archive.ubuntu.com/ubuntu jammy main universe",
+    "http://archive.ubuntu.com/ubuntu jammy-updates main universe",
+    "http://security.ubuntu.com/ubuntu jammy-security main universe"
+  ],
+  "kodi_package_version": "6:19.5+git20221224.1006-f8fdeb6b1b-0~jammy",
+  "package_artifact_hashes": {
+    "kodi-bin_19.5+git20221224.1006-f8fdeb6b1b-0~jammy_amd64.deb": "sha256:b48f7483f95fd4e336f00a5d765b1b9e86e6ae045bfd2e4bf1a4845afb370bf2",
+    "kodi_19.5+git20221224.1006-f8fdeb6b1b-0~jammy_all.deb": "sha256:7aaaa271143cffdd4509dba7f41df0669add970e6ecadc582441a43df83e722d"
+  },
+  "compatibility_assets": [],
+  "repository_file_hashes": {
+    "Dockerfile": "sha256:72a0a0ed04de34a7736abcdea9c51c80436f2eb1366d7f92f52d1a8f32bc2344",
+    "README.md": "sha256:4bf7aa251e747aa69911a89c21f8962230b3b9fa4b3f41be98d6e5dabd93b3ab",
+    "entrypoint.sh": "sha256:8a4069f07d0066c12b8b01b37553eb81e9eb925008df22850b8efac840d62b7a",
+    "healthcheck.sh": "sha256:b1230cb9a455d29021e60ae9fafd081b95cc003bbc2014d5d0fd198131a8cd1b",
+    "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8"
+  },
+  "build": {
+    "context": ".",
+    "dockerfile": "Dockerfile",
+    "platform": "linux/amd64",
+    "pull": false,
+    "no_cache": false
+  },
+  "result": {
+    "built_at": "2026-09-15T11:17:22.352319715-07:00",
+    "image_id": "sha256:73c221f1fc1fc14cbfdfd82e62fd4b87752ef71e0521227cb6790451fa51d2bd",
+    "build_log_reference": "evidence/build-logs/kodi-19.5-build-r1.log",
+    "build_log_digest": "sha256:f149adf150f37f0721e7c0c7d625922ae4c7a117483cde31ad46cc0bb9d86205"
+  }
+}

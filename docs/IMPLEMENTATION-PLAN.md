@@ -147,3 +147,13 @@ The implementation checkpoint precedes two independent broker-mediated
 start/readiness/clean-stop cycles. Only safe deprovision, verified absence and
 legacy isolation permit appending passing `kodi-runtime-v1` evidence and proving
 normal Current eligibility.
+
+Phase 5 Step 3 implements only Kodi 19.5 stable as Legacy. Its version-owned
+Jammy image uses exact hash-pinned packages from Team Kodi's signed old-stable
+Launchpad PPA and preserves the same bounded, non-root headless architecture.
+A dedicated non-production catalog registers the Legacy definition and exact
+immutable revision/artifact/profile before live work. Two independent readiness
+and clean-stop cycles, deprovision, absence, and isolation proof precede passing
+`kodi-runtime-v1` evidence. Passing evidence must leave normal selection
+ineligible while trusted Include Legacy selects the exact 19.5 revision; 20.5
+and 21.3 selection remains exact and unaffected.

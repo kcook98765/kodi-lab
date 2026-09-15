@@ -47,6 +47,7 @@ class RuntimeBuildManifest(_StrictModel):
     base_image_digest: str
     package_sources: tuple[str, ...]
     kodi_package_version: str
+    package_artifact_hashes: dict[str, str] = Field(default_factory=dict)
     compatibility_assets: tuple[str, ...] = ()
     repository_file_hashes: dict[str, str]
     build: BuildParameters
@@ -89,6 +90,17 @@ class RuntimeBuildManifest(_StrictModel):
             raise ValueError("compatibility_assets must be bounded and nonblank")
         return value
 
+    @field_validator("package_artifact_hashes")
+    @classmethod
+    def _package_artifact_hashes(cls, value: dict[str, str]) -> dict[str, str]:
+        for name, digest in value.items():
+            path = PurePosixPath(name)
+            if path.is_absolute() or ".." in path.parts or len(name) > 160:
+                raise ValueError("package artifact names must be relative and bounded")
+            if digest != normalize_sha256_digest(digest):
+                raise ValueError("package artifact digests must be canonical")
+        return value
+
     @model_validator(mode="after")
     def _base_reference_is_pinned(self) -> RuntimeBuildManifest:
         if f"@{self.base_image_digest}" not in self.base_image_reference:
@@ -101,8 +113,19 @@ class RuntimeBuildManifest(_StrictModel):
                 raise ValueError("repository file paths must be relative and bounded")
             if digest != normalize_sha256_digest(digest):
                 raise ValueError("repository file digests must be canonical")
-        expected_package_prefix = f"2:{self.kodi_version}+dfsg-"
-        if not self.kodi_package_version.startswith(expected_package_prefix):
+        expected_ubuntu_prefix = f"2:{self.kodi_version}+dfsg-"
+        team_kodi_old_source = any(
+            "ppa.launchpadcontent.net/team-xbmc/kodi-old/ubuntu/" in source
+            for source in self.package_sources
+        )
+        expected_team_kodi_old_prefix = f"6:{self.kodi_version}+git"
+        package_matches_release = self.kodi_package_version.startswith(
+            expected_ubuntu_prefix
+        ) or (
+            team_kodi_old_source
+            and self.kodi_package_version.startswith(expected_team_kodi_old_prefix)
+        )
+        if not package_matches_release:
             raise ValueError("Kodi package version must match exact release identity")
         return self
 

@@ -105,3 +105,30 @@ independent broker-mediated start/readiness/clean-stop cycles, safe deprovision,
 post-removal and legacy-isolation proof, then one passing `kodi-runtime-v1`
 evidence record referencing the retained structured report. No result is
 inferred from the image build alone.
+
+## Kodi 19.5 stable implementation
+
+Phase 5 Step 3 adds only the version-owned `runtime/kodi-19.5/` build. It uses
+the exact Team Kodi old-stable Launchpad PPA packages
+`6:19.5+git20221224.1006-f8fdeb6b1b-0~jammy` on the pinned linux/amd64 Ubuntu
+22.04 base. The manifest binds the PPA identity and signing fingerprint, both
+downloaded package hashes, the exact base digest, copied-file hashes, build log,
+and immutable result image. This source exception is local to Kodi 19.5 and
+does not broaden package policy for other matrix members.
+
+The image retains the minimal non-root Xvfb, bounded D-Bus,
+software-rendering, disposable seeded-profile, and process-health architecture.
+Read-only comparison found no Kodi-19-specific font link was needed. The fixed
+Kodi JSON-RPC adapter accepts Kodi 19.5's additional `revision` response field
+while still requiring exact application, major, minor, and stable channel.
+
+The dedicated validation state is
+`<validation-state>`. The exact Legacy
+definition/revision, artifact/profile, and approval remain ineligible before
+evidence: normal policy excludes Legacy, while Include Legacy reaches the
+validation gate. Completion requires two independent broker-mediated
+start/readiness/clean-stop cycles, safe deprovision, verified absence and
+legacy isolation, followed by one passing `kodi-runtime-v1` evidence record.
+After that evidence, normal policy must still reject the Legacy definition and
+trusted Include Legacy must select its newest eligible revision without any
+cross-version fallback.

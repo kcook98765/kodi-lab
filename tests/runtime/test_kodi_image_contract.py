@@ -6,6 +6,12 @@ RUNTIME_ROOT = Path(__file__).parents[2] / "runtime"
 
 RUNTIMES = (
     (
+        "kodi-19.5",
+        "ubuntu:22.04@sha256:"
+        "281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986",
+        "6:19.5+git20221224.1006-f8fdeb6b1b-0~jammy",
+    ),
+    (
         "kodi-21.3",
         "ubuntu:26.04@sha256:"
         "e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
@@ -82,10 +88,25 @@ def test_seed_profile_enables_only_internal_jsonrpc_without_user_content(
 
 
 def test_kodi_20_font_compatibility_link_is_version_owned() -> None:
+    kodi19 = (RUNTIME_ROOT / "kodi-19.5" / "Dockerfile").read_text(encoding="utf-8")
     kodi20 = (RUNTIME_ROOT / "kodi-20.5" / "Dockerfile").read_text(encoding="utf-8")
     kodi21 = (RUNTIME_ROOT / "kodi-21.3" / "Dockerfile").read_text(encoding="utf-8")
     source = "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Thin.ttf"
     target = "/usr/share/kodi/media/Fonts/roboto-thin.ttf"
     assert source in kodi20
     assert target in kodi20
+    assert target not in kodi19
     assert target not in kodi21
+
+
+def test_kodi_19_uses_only_pinned_team_kodi_old_packages() -> None:
+    dockerfile = (RUNTIME_ROOT / "kodi-19.5" / "Dockerfile").read_text(encoding="utf-8")
+    assert "team-xbmc/kodi-old" in dockerfile
+    assert "04AE50726660A0D55355E966C8B28F649961BE33" in dockerfile
+    assert (
+        "7aaaa271143cffdd4509dba7f41df0669add970e6ecadc582441a43df83e722d" in dockerfile
+    )
+    assert (
+        "b48f7483f95fd4e336f00a5d765b1b9e86e6ae045bfd2e4bf1a4845afb370bf2" in dockerfile
+    )
+    assert "add-apt-repository" not in dockerfile

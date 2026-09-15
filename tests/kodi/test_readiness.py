@@ -168,6 +168,29 @@ def test_identity_preserves_observable_prerelease_ordinal() -> None:
     assert identity == KodiApplicationIdentity("Kodi", 22, 0, "beta", 2)
 
 
+def test_kodi_19_identity_accepts_revision_without_broadening_release() -> None:
+    transport = FakeTransport(
+        [
+            response(
+                "kodi-lab-readiness-identity",
+                {
+                    "name": "Kodi",
+                    "version": {
+                        "major": 19,
+                        "minor": 5,
+                        "revision": "20221224-f8fdeb6b1b",
+                        "tag": "stable",
+                    },
+                },
+            )
+        ]
+    )
+    identity = KodiJsonRpcReadinessAdapter(
+        observation(), profile(), transport=transport
+    ).get_application_identity()
+    assert identity == KodiApplicationIdentity("Kodi", 19, 5, "stable")
+
+
 @pytest.mark.parametrize(
     "payload",
     [
