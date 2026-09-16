@@ -424,3 +424,32 @@ After Step 8 proof, the smallest next Phase 7 product slice is typed
 lifecycle-operation history plus a unified read projection and narrow instance
 detail/history presentation. Proof-gated reconciliation resolution remains a
 separate later architecture decision because it introduces mutation authority.
+
+Phase 7 Step 9 implements that bounded history/presentation slice. Migration
+`0016_lifecycle_history` adds one closed typed lifecycle-operation table for
+provision/start/stop/deprovision with semantic prior/result state, original
+instance identity, a nullable live FK, safe outcome data, and newest-20 ordinary
+retention that protects unresolved rows. Synchronous lifecycle authority and
+normal broker postconditions remain unchanged; lifecycle is not converted into
+a durable queue.
+
+The Step 8 stale dispatcher now terminalizes an exactly owned expired lifecycle
+row from trusted semantic observation and releases its exact lease without
+resuming work. Stable observed state warns without over-blocking, while
+transitional/ambiguous state uses the central gate to block all instance
+mutations. A read-only `ManagedInstanceActivityItem` projection deterministically
+merges lifecycle, reset, Snapshot create/restore/delete, and instance-delete
+history without duplicate persistence.
+
+Authenticated instance detail composes existing DTOs for exact runtime,
+fixture, readiness, Snapshots, reconciliation, current escaped notes, and ten
+recent items; full history is uncapped within retained data. Deleted-instance
+list/detail views are anchored by instance-delete history and immutable original
+UUID, omit notes-at-deletion, and link preserved archive-only Snapshots back to
+history. No edit, restore, undelete, retry, acknowledgment, finalization,
+repair, generic export, or configurable retention control is introduced.
+
+The next Phase 7 milestone is the proof-gated reconciliation finalization
+architecture gate. It must define evidence sufficient to finalize each
+unresolved typed operation without adding generic repair or retry authority;
+this plan does not authorize its implementation.

@@ -1,0 +1,196 @@
+"""Coordination for typed synchronous lifecycle-operation history."""
+
+from __future__ import annotations
+
+import hashlib
+import secrets
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
+
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, sessionmaker
+
+from kodi_lab.application.mutations import MUTATION_LEASE_DURATION
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+    StaleOperationReconciliationDispatcher,
+)
+from kodi_lab.domain import (
+    ManagedInstanceLifecycleKind,
+    ManagedInstanceLifecycleOperation,
+    ManagedInstanceLifecycleOperationState,
+    ManagedInstanceMutationKind,
+    ManagedInstanceSemanticState,
+)
+from kodi_lab.storage.repositories import (
+    ManagedInstanceLifecycleOperationRepository,
+    ManagedInstanceMutationLeaseRepository,
+)
+
+
+class LifecycleOperationConflictError(RuntimeError):
+    """Lifecycle history or lease authority conflicts with another mutation."""
+
+
+class LifecycleOperationLeaseLostError(RuntimeError):
+    """The operation can no longer prove its exact mutation authority."""
+
+
+@dataclass(frozen=True, slots=True)
+class RunningLifecycleOperation:
+    operation_id: UUID
+    instance_id: UUID
+    token: str
+
+    @property
+    def token_digest(self) -> str:
+        return hashlib.sha256(self.token.encode("utf-8")).hexdigest()
+
+
+_ACTION = {
+    ManagedInstanceLifecycleKind.PROVISION: ReconciliationAction.PROVISION,
+    ManagedInstanceLifecycleKind.START: ReconciliationAction.START,
+    ManagedInstanceLifecycleKind.STOP: ReconciliationAction.STOP,
+    ManagedInstanceLifecycleKind.DEPROVISION: ReconciliationAction.DEPROVISION,
+}
+
+
+class ManagedInstanceLifecycleOperationCoordinator:
+    """Atomically bind a running typed record to the existing mutation lease."""
+
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        *,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        stale_dispatcher: StaleOperationReconciliationDispatcher | None = None,
+        reconciliation: ManagedInstanceReconciliationService | None = None,
+    ) -> None:
+        self._session_factory = session_factory
+        self._clock = clock
+        self._stale = stale_dispatcher or StaleOperationReconciliationDispatcher(
+            session_factory, clock=clock
+        )
+        self._reconciliation = reconciliation or ManagedInstanceReconciliationService(
+            session_factory
+        )
+
+    def begin(
+        self,
+        instance_id: UUID,
+        *,
+        instance_name: str,
+        kind: ManagedInstanceLifecycleKind,
+        prior_state: ManagedInstanceSemanticState,
+    ) -> RunningLifecycleOperation:
+        self._stale.sweep_instance(instance_id)
+        self._reconciliation.require_allowed(instance_id, _ACTION[kind])
+        handle = RunningLifecycleOperation(
+            uuid4(), instance_id, secrets.token_urlsafe(32)
+        )
+        now = self._clock()
+        operation = ManagedInstanceLifecycleOperation(
+            id=handle.operation_id,
+            original_managed_instance_id=instance_id,
+            managed_instance_id=instance_id,
+            instance_name=instance_name,
+            kind=kind,
+            requested_at=now,
+            started_at=now,
+            prior_state=prior_state,
+        )
+        try:
+            with self._session_factory.begin() as session:
+                leases = ManagedInstanceMutationLeaseRepository(session)
+                leases.reserve(
+                    instance_id,
+                    kind=ManagedInstanceMutationKind.LIFECYCLE,
+                    operation_id=handle.operation_id,
+                )
+                if not leases.claim(
+                    instance_id,
+                    operation_id=handle.operation_id,
+                    token_digest=handle.token_digest,
+                    now=now,
+                    expires_at=now + MUTATION_LEASE_DURATION,
+                ):
+                    raise LifecycleOperationConflictError(
+                        "Lifecycle mutation authority could not be acquired."
+                    )
+                ManagedInstanceLifecycleOperationRepository(session).create(operation)
+        except IntegrityError as error:
+            raise LifecycleOperationConflictError(
+                "Another mutation is active for this managed instance."
+            ) from error
+        return handle
+
+    def terminalize(
+        self,
+        handle: RunningLifecycleOperation,
+        *,
+        state: ManagedInstanceLifecycleOperationState,
+        resulting_state: ManagedInstanceSemanticState,
+        failure_reason: str | None = None,
+    ) -> ManagedInstanceLifecycleOperation:
+        now = self._clock()
+        reconciliation_required = (
+            state is ManagedInstanceLifecycleOperationState.RECONCILIATION_REQUIRED
+        )
+        with self._session_factory.begin() as session:
+            operations = ManagedInstanceLifecycleOperationRepository(session)
+            if not operations.terminalize(
+                handle.operation_id,
+                state=state,
+                resulting_state=resulting_state,
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+                now=now,
+            ):
+                raise LifecycleOperationLeaseLostError(
+                    "Lifecycle operation is no longer running."
+                )
+            if not ManagedInstanceMutationLeaseRepository(session).release(
+                handle.instance_id,
+                operation_id=handle.operation_id,
+                token_digest=handle.token_digest,
+            ):
+                raise LifecycleOperationLeaseLostError(
+                    "Lifecycle mutation lease is no longer owned."
+                )
+            operations.prune_terminal(handle.instance_id)
+            operation = operations.get(handle.operation_id)
+            assert operation is not None
+            return operation
+
+    def record_prior_state(
+        self,
+        handle: RunningLifecycleOperation,
+        prior_state: ManagedInstanceSemanticState,
+    ) -> None:
+        """Record the trusted observation while exact mutation authority is held."""
+
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            lease = ManagedInstanceMutationLeaseRepository(session).current(
+                handle.instance_id
+            )
+            if (
+                lease is None
+                or lease.operation_id != str(handle.operation_id)
+                or lease.lease_token_digest != handle.token_digest
+                or lease.lease_expires_at is None
+                or datetime.fromisoformat(lease.lease_expires_at.replace("Z", "+00:00"))
+                <= now
+            ):
+                raise LifecycleOperationLeaseLostError(
+                    "Lifecycle mutation authority is no longer current."
+                )
+            if not ManagedInstanceLifecycleOperationRepository(
+                session
+            ).update_prior_state(handle.operation_id, prior_state=prior_state):
+                raise LifecycleOperationLeaseLostError(
+                    "Lifecycle operation is no longer running."
+                )

@@ -1357,3 +1357,73 @@ details that it did not specify.
   never pruning candidates. `ManagedInstanceDeleteOperation` remains
   unbounded. This is operation-history retention only and never prunes Snapshot
   artifacts.
+
+## D-0111: Lifecycle history is typed synchronous operation state
+
+- Status: approved for Phase 7 Step 9
+- Decision: provision, start, stop, and deprovision each create exactly one
+  `ManagedInstanceLifecycleOperation` while holding the existing per-instance
+  lifecycle mutation lease. The closed operation kind has no arbitrary action,
+  queue, worker, Docker command, raw broker response, log, path, network field,
+  or lease material. The existing synchronous lifecycle service remains the
+  sole mutation authority.
+- Semantics: the row starts `running` before broker mutation and records a
+  trusted post-lease prior state from the closed vocabulary `unprovisioned`,
+  `stopped`, `running_usable`, `running_not_ready`, `transitional`, or
+  `ambiguous`. It terminalizes `succeeded`, `failed`, or
+  `reconciliation_required` with observed resulting state, timestamps, and at
+  most one bounded safe reason. Success additionally requires the exact
+  kind-specific postcondition.
+
+## D-0112: Lifecycle history survives instance deletion with bounded retention
+
+- Status: approved for Phase 7 Step 9
+- Decision: every lifecycle row retains the immutable original ManagedInstance
+  UUID and bounded name snapshot. Its optional live ManagedInstance FK uses
+  `ON DELETE SET NULL`, so deletion cannot erase or block history. There is no
+  instance tombstone or generic event table.
+- Retention: per original UUID, pruning retains the newest 20 ordinary
+  succeeded/failed lifecycle rows. Running and reconciliation-required rows
+  are never pruning candidates.
+
+## D-0113: Interrupted lifecycle uses the Step 8 stale dispatcher
+
+- Status: approved for Phase 7 Step 9
+- Decision: an exactly matched expired lifecycle lease and running typed row
+  are handled by the existing cross-kind dispatcher. Trusted current inventory,
+  process, and readiness observations produce only a closed semantic result;
+  the operation becomes reconciliation-required and the exact lease is
+  released atomically. No lifecycle, broker, or Docker action resumes.
+- Blocking policy: for interrupted provision, start, stop, and deprovision,
+  `unprovisioned`, `stopped`, `running_usable`, or `running_not_ready` is an
+  explicit warning but does not itself block a new mutation; each new request
+  still enforces its normal state precondition. `transitional` or `ambiguous`
+  blocks all instance mutations. Multiple unresolved records continue to fail
+  closed.
+
+## D-0114: Unified activity is a deterministic read projection
+
+- Status: approved for Phase 7 Step 9
+- Decision: `ManagedInstanceActivityItem` projects retained lifecycle, reset,
+  Snapshot create/restore/delete, and instance-delete records without
+  persisting a duplicate activity row. Ordering is requested time descending,
+  operation UUID descending, then a fixed source-kind tie break. The live
+  detail view uses ten items; full history is not silently limited.
+- Exposure: items contain bounded kind, operation/original-instance UUID,
+  timestamps, typed outcome, safe semantic summary, reconciliation flag, and
+  only necessary Snapshot/lifecycle/deletion subtypes. They exclude notes,
+  container/image identity, leases, paths, broker errors, manifests, members,
+  credentials, and media identity.
+
+## D-0115: Instance and deleted-history presentation is narrow and read-only
+
+- Status: approved for Phase 7 Step 9
+- Decision: authenticated live detail composes existing runtime, fixture,
+  Snapshot, readiness, reconciliation, and activity DTOs and shows the current
+  bounded notes value with exact whitespace and HTML escaping. Notes have no
+  edit route. Dashboard cards link to detail rather than duplicating history.
+- Deleted history: a global view is anchored only by surviving typed
+  `ManagedInstanceDeleteOperation` records and grouped by immutable original
+  UUID. Detail projects all retained typed history and preserved Snapshot
+  backlinks. It exposes neither notes-at-deletion nor restore, undelete,
+  acknowledgment, finalization, retry, repair, export, or retention controls.

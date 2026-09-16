@@ -26,3 +26,4 @@ dd { margin: 0; }
 .matrix-table tr[data-availability="opt_in_required"] { border-left: .3rem solid #b98; }
 .matrix-table tr[data-availability="unavailable"], .matrix-table tr[data-availability="historical_only"] { border-left: .3rem solid #888; }
 .secondary { opacity: .75; }
+.instance-notes { white-space: pre-wrap; overflow-wrap: anywhere; }

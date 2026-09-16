@@ -11,12 +11,12 @@
       <h1>Preserved snapshots</h1>
       {% for snapshot in snapshots %}
       {% set reconciliation = reconciliation_statuses.get(snapshot.snapshot_id) %}
-      <article>
+      <article id="snapshot-{{ snapshot.snapshot_id }}">
         <h2>{{ snapshot.label or snapshot.snapshot_id }}</h2>
         <dl>
           <dt>Snapshot UUID</dt><dd>{{ snapshot.snapshot_id }}</dd>
           <dt>Captured</dt><dd>{{ snapshot.captured_at }}</dd>
-          <dt>Original instance</dt><dd>{{ snapshot.original_source_instance_name }} ({{ snapshot.original_source_managed_instance_id }})</dd>
+          <dt>Original instance</dt><dd>{{ snapshot.original_source_instance_name }} ({{ snapshot.original_source_managed_instance_id }}) · <a href="/history/instances/{{ snapshot.original_source_managed_instance_id }}">view typed history</a></dd>
           <dt>Kodi</dt><dd>{{ snapshot.kodi_release }} · revision {{ snapshot.runtime_revision_number }}</dd>
           <dt>Fixture</dt><dd>{{ snapshot.fixture_slug or 'None' }}{% if snapshot.fixture_definition_id %} ({{ snapshot.fixture_definition_id }}){% endif %}</dd>
           <dt>Archive bytes</dt><dd>{{ snapshot.archive_size if snapshot.archive_size is not none else 'Unknown' }}</dd>

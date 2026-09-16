@@ -478,3 +478,48 @@ resolution mutation in this slice. Ordinary terminal operation history is
 bounded to 20 per original instance and type; active and
 reconciliation-required records are never pruned, and instance-delete history
 remains unbounded.
+
+## Typed lifecycle history and activity presentation
+
+Provision, start, stop, and deprovision remain synchronous methods on the
+existing runtime lifecycle service. Each request acquires the existing closed
+`lifecycle` mutation authority and creates one
+`ManagedInstanceLifecycleOperation` before broker mutation. While that exact
+lease is held, trusted current inspection records the prior semantic state; the
+service then uses its existing broker path and records the resulting semantic
+state. Success requires stopped after provision, running-usable or
+running-not-ready after start, stopped after stop, and unprovisioned after
+deprovision. Known-safe failures and ambiguous outcomes remain distinct.
+
+Lifecycle persistence contains only closed semantic kind/state values, UUIDs,
+the immutable original instance identity, a nullable live FK, bounded name and
+safe reason, and timestamps. The FK clears on ManagedInstance deletion while
+the original UUID remains. Per original UUID, the newest 20 succeeded/failed
+rows are retained; running and reconciliation-required rows are protected.
+There is no generic activity table and no queued lifecycle worker.
+
+Expired running lifecycle work joins the existing stale dispatcher. The
+dispatcher proves exact row/lease ownership, obtains trusted inventory/process/
+readiness observation, terminalizes reconciliation-required, and releases only
+that lease without resuming work. For every lifecycle kind, the closed stable
+observations unprovisioned, stopped, running-usable, and running-not-ready are
+shown as warnings but are not independently mutation-blocking; normal action
+preconditions still apply. Transitional or ambiguous observation blocks all
+instance mutations.
+
+`ManagedInstanceActivityItem` is an application-only merge over lifecycle,
+reset, Snapshot create/restore/delete, and ManagedInstance-delete histories.
+It orders by requested time descending, UUID descending, and a fixed source
+tie-break and emits only bounded semantic summaries and optional typed
+references. Live instance detail shows exact runtime/revision, fixture,
+readiness, reconciliation, Snapshot summary, current escaped notes, and ten
+recent items. Full live history returns the retained projection without that
+ten-item cap.
+
+Deleted-instance discovery is anchored by surviving instance-delete history,
+not a tombstone. The authenticated global view groups by immutable original
+UUID and exposes historical name, exact runtime/revision, fixture, explicit
+Snapshot policy, deletion result, and reconciliation flag without notes.
+Deleted detail projects all retained typed operations and links any detached
+archive-only Snapshots back to their original history. These views add no edit,
+restore, undelete, repair, retry, acknowledge, or finalization authority.

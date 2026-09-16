@@ -28,7 +28,10 @@ from kodi_lab.domain import (
     ManagedInstanceDeleteOperationPhase,
     ManagedInstanceDeleteOperationState,
     ManagedInstanceDeletePriorState,
+    ManagedInstanceLifecycleKind,
+    ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
+    ManagedInstanceSemanticState,
     ProcessObservationKind,
     ReadinessProbeKind,
     ResetOperationPhase,
@@ -822,6 +825,103 @@ class ManagedInstanceDeleteOperationRow(Base):
     )
     lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class ManagedInstanceLifecycleOperationRow(Base):
+    """Durable typed history for one synchronous lifecycle request."""
+
+    __tablename__ = "managed_instance_lifecycle_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(instance_name) BETWEEN 1 AND 256",
+            name="lifecycle_operation_instance_name_bounded",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="lifecycle_operation_failure_reason_bounded",
+        ),
+        CheckConstraint(
+            "resulting_state IS NULL OR resulting_state IN "
+            "('unprovisioned','stopped','running_usable','running_not_ready',"
+            "'transitional','ambiguous')",
+            name="lifecycle_operation_resulting_state_closed",
+        ),
+        CheckConstraint(
+            "(state = 'running' AND completed_at IS NULL "
+            "AND resulting_state IS NULL AND failure_reason IS NULL "
+            "AND reconciliation_required = 0) OR "
+            "(state = 'succeeded' AND completed_at IS NOT NULL "
+            "AND resulting_state IS NOT NULL AND failure_reason IS NULL "
+            "AND reconciliation_required = 0) OR "
+            "(state = 'failed' AND completed_at IS NOT NULL "
+            "AND resulting_state IS NOT NULL AND failure_reason IS NOT NULL "
+            "AND reconciliation_required = 0) OR "
+            "(state = 'reconciliation_required' AND completed_at IS NOT NULL "
+            "AND resulting_state IS NOT NULL AND failure_reason IS NOT NULL "
+            "AND reconciliation_required = 1)",
+            name="lifecycle_operation_state_fields_consistent",
+        ),
+        Index(
+            "uq_lifecycle_operation_running_instance",
+            "original_managed_instance_id",
+            unique=True,
+            sqlite_where=text("state = 'running'"),
+        ),
+        Index(
+            "ix_lifecycle_operation_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    instance_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    kind: Mapped[ManagedInstanceLifecycleKind] = mapped_column(
+        Enum(
+            ManagedInstanceLifecycleKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="managed_instance_lifecycle_kind",
+        ),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    prior_state: Mapped[ManagedInstanceSemanticState] = mapped_column(
+        Enum(
+            ManagedInstanceSemanticState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="managed_instance_lifecycle_semantic_state",
+        ),
+        nullable=False,
+    )
+    resulting_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    state: Mapped[ManagedInstanceLifecycleOperationState] = mapped_column(
+        Enum(
+            ManagedInstanceLifecycleOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="managed_instance_lifecycle_operation_state",
+        ),
+        nullable=False,
+    )
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
 
 
 class ManagedInstanceMutationLeaseRow(Base):

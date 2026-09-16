@@ -352,3 +352,54 @@ succeeded/failed rows per original instance and operation type. Queued, running
 and reconciliation-required records are never automatically pruned.
 Instance-delete history remains unbounded. Operation-history retention is
 independent of Snapshot artifact retention.
+
+## Typed lifecycle history and unified activity
+
+Provision, start, stop, and deprovision remain synchronous. Each accepted
+request acquires the existing per-instance lifecycle lease and persists one
+closed `ManagedInstanceLifecycleOperation` before broker mutation. Trusted
+inspection while authority is held records a prior semantic state; terminal
+inspection records the resulting state and distinguishes succeeded, failed,
+and reconciliation-required outcomes. Success is kind-specific: provision must
+end stopped, start running-usable or running-not-ready, stop stopped, and
+deprovision unprovisioned. Docker state strings, commands, IDs, logs, broker
+payloads, paths, networks, credentials, and lease material are not history.
+
+The row retains immutable original ManagedInstance UUID and bounded name. Its
+optional live FK clears on deletion. The newest 20 ordinary succeeded/failed
+lifecycle records per original UUID are retained; running and
+reconciliation-required rows cannot be pruned. No queued lifecycle job,
+generic event table, or activity table exists.
+
+If a lifecycle process disappears, the Step 8 dispatcher proves the expired
+lease and running row match, uses trusted current runtime inspection to select
+the closed semantic observation, marks the row reconciliation-required, and
+releases only the exact lease. It never invokes the interrupted action. For all
+four kinds, stable unprovisioned/stopped/running observations remain visible but
+do not alone block new work; normal lifecycle preconditions decide safety.
+Transitional or ambiguous observation blocks every instance mutation, and
+multiple unresolved histories remain fail closed.
+
+The read-only `ManagedInstanceActivityItem` projection merges lifecycle, reset,
+Snapshot create/restore/delete, and ManagedInstance-delete histories. It is
+ordered deterministically by requested time descending, operation UUID
+descending, then fixed source-kind tie break. Items contain only typed UUIDs,
+timestamps, bounded state/summary, reconciliation status, and necessary
+Snapshot/lifecycle/deletion subtypes. They never contain notes, raw errors,
+paths, container/image IDs, leases, manifests, members, credentials, or media
+paths.
+
+Authenticated live detail presents exact runtime/revision, assigned fixture,
+current lifecycle/readiness, Snapshot summary/link, reconciliation warning,
+current notes, and ten recent activity items. Notes preserve exact whitespace
+and are HTML escaped; this milestone has no note edit route. Full live history
+returns all retained projection items rather than silently applying the recent
+limit.
+
+Deleted-instance discovery is anchored by retained
+`ManagedInstanceDeleteOperation` records and grouped by immutable original
+UUID. The global view shows bounded historical identity, exact runtime/revision,
+fixture, explicit preserve/destroy policy, time, and reconciliation status, but
+never notes-at-deletion. Deleted detail shows full typed retained history and
+preserved Snapshot links. Preserved Snapshot presentation links back to that
+history but offers no restore or undelete action.

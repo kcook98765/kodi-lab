@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ instance.name }} history · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>{{ instance.name }} full retained history</h1>
+      <p class="secondary">{{ instance.managed_instance_id }}</p>
+      {% for item in activity %}
+      <article id="activity-{{ item.operation_uuid }}">
+        <h2>{{ item.summary }}</h2>
+        <dl>
+          <dt>Kind</dt><dd>{{ item.kind }}</dd>
+          <dt>Operation UUID</dt><dd>{{ item.operation_uuid }}</dd>
+          <dt>Requested</dt><dd>{{ item.requested_at }}</dd>
+          <dt>Started</dt><dd>{{ item.started_at or 'Not started' }}</dd>
+          <dt>Completed</dt><dd>{{ item.completed_at or 'Not completed' }}</dd>
+          <dt>State</dt><dd>{{ item.state }}</dd>
+          {% if item.snapshot_uuid %}<dt>Snapshot UUID</dt><dd>{{ item.snapshot_uuid }}</dd>{% endif %}
+        </dl>
+        {% if item.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}
+      </article>
+      {% else %}<p>No retained activity.</p>{% endfor %}
+      <p><a href="/instances/{{ instance.managed_instance_id }}">Back to instance detail</a></p>
+    </main>
+  </body>
+</html>

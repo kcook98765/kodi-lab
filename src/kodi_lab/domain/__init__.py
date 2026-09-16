@@ -12,6 +12,12 @@ from kodi_lab.domain.kodi_release import (
     validate_support_tier_for_release,
     validate_support_transition,
 )
+from kodi_lab.domain.lifecycle_operations import (
+    ManagedInstanceLifecycleKind,
+    ManagedInstanceLifecycleOperation,
+    ManagedInstanceLifecycleOperationState,
+    ManagedInstanceSemanticState,
+)
 from kodi_lab.domain.models import (
     MAX_MANAGED_INSTANCE_NOTES_LENGTH,
     ConnectionState,
@@ -90,7 +96,11 @@ __all__ = [
     "ManagedInstanceDeleteOperationPhase",
     "ManagedInstanceDeleteOperationState",
     "ManagedInstanceDeletePriorState",
+    "ManagedInstanceLifecycleKind",
+    "ManagedInstanceLifecycleOperation",
+    "ManagedInstanceLifecycleOperationState",
     "ManagedInstanceMutationKind",
+    "ManagedInstanceSemanticState",
     "ProcessObservationKind",
     "ReadinessProbeKind",
     "ResetOperation",

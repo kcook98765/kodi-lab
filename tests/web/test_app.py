@@ -34,6 +34,8 @@ from kodi_lab.kodi.readiness import (
 )
 from kodi_lab.storage.models import (
     ManagedInstanceDeleteOperationRow,
+    ManagedInstanceLifecycleOperationRow,
+    ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ResetOperationRow,
     SnapshotDeleteOperationRow,
@@ -639,7 +641,7 @@ def test_status_exposes_bounded_readiness_failure_states(
 
 
 def test_lifecycle_uses_only_fresh_trusted_preconditions(
-    client: TestClient, broker: FakeBroker
+    client: TestClient, broker: FakeBroker, database: sessionmaker[Session]
 ) -> None:
     csrf = login(client)
     mutation_headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
@@ -686,9 +688,44 @@ def test_lifecycle_uses_only_fresh_trusted_preconditions(
     assert broker.calls[-1][1]["expected_runtime_revision_id"] == str(REVISION_ID)
     assert broker.calls[-1][1]["expected_container_id"] == CONTAINER_ID
     assert removed.json()["readiness_state"] == "idle"
+    with database() as session:
+        operations = list(
+            session.scalars(
+                select(ManagedInstanceLifecycleOperationRow).where(
+                    ManagedInstanceLifecycleOperationRow.original_managed_instance_id
+                    == str(INSTANCE_ID)
+                )
+            )
+        )
+        assert session.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is None
+    by_kind = {operation.kind.value: operation for operation in operations}
+    assert set(by_kind) == {"provision", "start", "stop", "deprovision"}
+    assert (
+        by_kind["provision"].prior_state.value,
+        by_kind["provision"].resulting_state,
+    ) == (
+        "unprovisioned",
+        "stopped",
+    )
+    assert by_kind["start"].prior_state.value == "stopped"
+    assert by_kind["start"].resulting_state in {
+        "running_not_ready",
+        "running_usable",
+    }
+    assert by_kind["stop"].resulting_state == "stopped"
+    assert (
+        by_kind["deprovision"].prior_state.value,
+        by_kind["deprovision"].resulting_state,
+    ) == (
+        "stopped",
+        "unprovisioned",
+    )
+    assert all(operation.state.value == "succeeded" for operation in operations)
 
 
-def test_start_without_provisioning_is_a_bounded_conflict(client: TestClient) -> None:
+def test_start_without_provisioning_is_a_bounded_conflict(
+    client: TestClient, database: sessionmaker[Session]
+) -> None:
     csrf = login(client)
     response = client.post(
         f"/api/instances/{INSTANCE_ID}/start",
@@ -702,6 +739,14 @@ def test_start_without_provisioning_is_a_bounded_conflict(client: TestClient) ->
             "message": "managed runtime is not provisioned",
         }
     }
+    with database() as session:
+        operation = session.scalar(select(ManagedInstanceLifecycleOperationRow))
+    assert operation is not None
+    assert operation.kind.value == "start"
+    assert operation.prior_state.value == "unprovisioned"
+    assert operation.resulting_state == "unprovisioned"
+    assert operation.state.value == "failed"
+    assert operation.failure_reason == "managed runtime is not provisioned"
 
 
 def test_mutations_reject_csrf_cross_origin_and_browser_docker_fields(

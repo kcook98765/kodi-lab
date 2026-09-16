@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ history.summary.historical_name }} history · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>{{ history.summary.historical_name }} retained history</h1>
+      <dl>
+        <dt>Original instance UUID</dt><dd>{{ history.summary.original_managed_instance_id }}</dd>
+        <dt>Deletion time</dt><dd>{{ history.summary.deletion_time or 'Not completed' }}</dd>
+        <dt>Exact runtime</dt><dd>Kodi {{ history.summary.kodi_release }} · revision {{ history.summary.runtime_revision_number }} ({{ history.summary.runtime_revision_id }})</dd>
+        <dt>Fixture</dt><dd>{{ history.summary.fixture_slug or 'None' }}</dd>
+        <dt>Snapshot policy</dt><dd>{{ 'Preserve' if history.summary.preserve_snapshots else 'Destroy' }}</dd>
+        <dt>Deletion state</dt><dd>{{ history.summary.operation_state }}</dd>
+      </dl>
+      {% if history.summary.reconciliation_required %}<p class="reconciliation-warning">Instance deletion reconciliation is required. No repair or undelete action is available.</p>{% endif %}
+      <section>
+        <h2>Preserved Snapshots</h2>
+        {% for snapshot in history.preserved_snapshots %}<p><a href="/snapshots/preserved#snapshot-{{ snapshot.snapshot_id }}">{{ snapshot.label or snapshot.snapshot_id }}</a> · {{ snapshot.state }}</p>{% else %}<p>No preserved Snapshots.</p>{% endfor %}
+      </section>
+      <section>
+        <h2>Full retained activity</h2>
+        {% for item in history.activity %}
+        <article id="activity-{{ item.operation_uuid }}">
+          <h3>{{ item.summary }}</h3>
+          <p>{{ item.requested_at }} · {{ item.kind }} · {{ item.state }}</p>
+          {% if item.snapshot_uuid %}<p>Snapshot UUID: {{ item.snapshot_uuid }}</p>{% endif %}
+          {% if item.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}
+        </article>
+        {% else %}<p>No retained activity.</p>{% endfor %}
+      </section>
+      <p><a href="/history/instances">Back to deleted instance history</a></p>
+    </main>
+  </body>
+</html>

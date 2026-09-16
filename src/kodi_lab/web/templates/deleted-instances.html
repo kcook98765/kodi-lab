@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Deleted instance history · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>Deleted instance history</h1>
+      {% for instance in instances %}
+      <article>
+        <h2><a href="/history/instances/{{ instance.original_managed_instance_id }}">{{ instance.historical_name }}</a></h2>
+        <dl>
+          <dt>Original instance UUID</dt><dd>{{ instance.original_managed_instance_id }}</dd>
+          <dt>Deletion time</dt><dd>{{ instance.deletion_time or 'Not completed' }}</dd>
+          <dt>Exact runtime</dt><dd>Kodi {{ instance.kodi_release }} · revision {{ instance.runtime_revision_number }} ({{ instance.runtime_revision_id }})</dd>
+          <dt>Snapshot policy</dt><dd>{{ 'Preserve' if instance.preserve_snapshots else 'Destroy' }}</dd>
+          <dt>State</dt><dd>{{ instance.operation_state }}</dd>
+        </dl>
+        {% if instance.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}
+      </article>
+      {% else %}<p>No deleted instance history exists.</p>{% endfor %}
+      <p><a href="/">Back to dashboard</a></p>
+    </main>
+  </body>
+</html>

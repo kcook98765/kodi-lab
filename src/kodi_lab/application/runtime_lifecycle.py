@@ -10,7 +10,14 @@ from uuid import UUID
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
-from kodi_lab.application.mutations import ManagedInstanceMutationCoordinator
+from kodi_lab.application.lifecycle_operations import (
+    ManagedInstanceLifecycleOperationCoordinator,
+    RunningLifecycleOperation,
+)
+from kodi_lab.application.lifecycle_status import (
+    observe_lifecycle_semantic_state,
+    semantic_state_is_unambiguous,
+)
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.reset_operations import ResetOperationCoordinator
 from kodi_lab.application.runtime_status import (
@@ -18,6 +25,7 @@ from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatusService,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.broker.errors import ClientError, RemoteBrokerError
 from kodi_lab.broker.operations import (
     DeprovisionManagedContainerResult,
     ManagedContainerInventoryEntry,
@@ -27,11 +35,17 @@ from kodi_lab.broker.operations import (
     StartManagedContainerResult,
     StopManagedContainerResult,
 )
-from kodi_lab.domain import ManagedInstanceMutationKind, RuntimeExecutionProfile
+from kodi_lab.domain import (
+    ManagedInstanceLifecycleKind,
+    ManagedInstanceLifecycleOperationState,
+    ManagedInstanceSemanticState,
+    RuntimeExecutionProfile,
+)
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator, ReadinessResult
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeExecutionProfileRepository,
+    TargetRepository,
 )
 
 
@@ -96,7 +110,8 @@ class ManagedRuntimeLifecycleService:
         status: ManagedRuntimeStatusService,
         coordinator_factory: ReadinessCoordinatorFactory = KodiReadinessCoordinator,
         reset_operations: ResetOperationCoordinator | None = None,
-        mutation_coordinator: ManagedInstanceMutationCoordinator | None = None,
+        lifecycle_operations: ManagedInstanceLifecycleOperationCoordinator
+        | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._broker = broker
@@ -104,87 +119,192 @@ class ManagedRuntimeLifecycleService:
         self._status = status
         self._coordinator_factory = coordinator_factory
         self._reset_operations = reset_operations
-        self._mutations = mutation_coordinator or ManagedInstanceMutationCoordinator(
-            session_factory
+        self._operations = lifecycle_operations or (
+            ManagedInstanceLifecycleOperationCoordinator(session_factory)
         )
 
     def provision(self, instance_id: UUID) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
-        with self._mutations.hold(instance_id, ManagedInstanceMutationKind.LIFECYCLE):
-            self._load_instance(instance_id)
-            self._broker.provision_managed_container(
-                managed_instance_id=str(instance_id)
-            )
-            self._readiness.clear(instance_id)
-            return self._status.get(instance_id)
+        return self._run(
+            instance_id,
+            ManagedInstanceLifecycleKind.PROVISION,
+            self._provision,
+        )
+
+    def _provision(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:
+        self._broker.provision_managed_container(managed_instance_id=str(instance_id))
+        self._readiness.clear(instance_id)
 
     def start(self, instance_id: UUID) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
-        with self._mutations.hold(instance_id, ManagedInstanceMutationKind.LIFECYCLE):
-            profile = self._load_instance(instance_id)
-            container = self._require_container(instance_id)
-            self._broker.start_managed_container(
-                managed_instance_id=str(instance_id),
-                expected_container_id=container.container_id,
-                expected_runtime_state=container.runtime_state,
+        return self._run(instance_id, ManagedInstanceLifecycleKind.START, self._start)
+
+    def _start(self, instance_id: UUID, profile: RuntimeExecutionProfile) -> None:
+        container = self._require_container(instance_id)
+        self._broker.start_managed_container(
+            managed_instance_id=str(instance_id),
+            expected_container_id=container.container_id,
+            expected_runtime_state=container.runtime_state,
+        )
+
+        def run(cancel_event: Event) -> ReadinessResult:
+            coordinator = self._coordinator_factory(self._broker, profile)
+            return coordinator.wait_until_usable(
+                str(instance_id), cancelled=cancel_event.is_set
             )
 
-            def run(cancel_event: Event) -> ReadinessResult:
-                coordinator = self._coordinator_factory(self._broker, profile)
-                return coordinator.wait_until_usable(
-                    str(instance_id), cancelled=cancel_event.is_set
-                )
-
-            self._readiness.start(instance_id, run)
-            return self._status.get(instance_id)
+        self._readiness.start(instance_id, run)
 
     def stop(self, instance_id: UUID) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
-        with self._mutations.hold(instance_id, ManagedInstanceMutationKind.LIFECYCLE):
-            self._load_instance(instance_id)
-            container = self._require_container(instance_id)
-            self._readiness.cancel(instance_id)
-            self._broker.stop_managed_container(
-                managed_instance_id=str(instance_id),
-                expected_container_id=container.container_id,
-                expected_runtime_state=container.runtime_state,
-            )
-            return self._status.get(instance_id)
+        return self._run(instance_id, ManagedInstanceLifecycleKind.STOP, self._stop)
+
+    def _stop(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:
+        container = self._require_container(instance_id)
+        self._readiness.cancel(instance_id)
+        self._broker.stop_managed_container(
+            managed_instance_id=str(instance_id),
+            expected_container_id=container.container_id,
+            expected_runtime_state=container.runtime_state,
+        )
 
     def deprovision(self, instance_id: UUID) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
-        with self._mutations.hold(instance_id, ManagedInstanceMutationKind.LIFECYCLE):
-            self._load_instance(instance_id)
-            container = self._require_container(instance_id)
-            if container.runtime_state is not ContainerRuntimeState.STOPPED:
-                raise LifecycleConflictError("managed runtime must be stopped")
-            self._readiness.clear(instance_id)
-            self._broker.deprovision_managed_container(
-                managed_instance_id=str(instance_id),
-                expected_container_id=container.container_id,
-                expected_runtime_revision_id=str(self._revision_id(instance_id)),
-                expected_runtime_state=ContainerRuntimeState.STOPPED,
-            )
-            return self._status.get(instance_id)
+        return self._run(
+            instance_id,
+            ManagedInstanceLifecycleKind.DEPROVISION,
+            self._deprovision,
+        )
 
-    def _load_instance(self, instance_id: UUID) -> RuntimeExecutionProfile:
+    def _deprovision(self, instance_id: UUID, profile: RuntimeExecutionProfile) -> None:
+        container = self._require_container(instance_id)
+        if container.runtime_state is not ContainerRuntimeState.STOPPED:
+            raise LifecycleConflictError("managed runtime must be stopped")
+        self._readiness.clear(instance_id)
+        self._broker.deprovision_managed_container(
+            managed_instance_id=str(instance_id),
+            expected_container_id=container.container_id,
+            expected_runtime_revision_id=str(profile.runtime_revision_id),
+            expected_runtime_state=ContainerRuntimeState.STOPPED,
+        )
+
+    def _load_instance(self, instance_id: UUID) -> tuple[str, RuntimeExecutionProfile]:
         with self._session_factory() as session:
             instance = ManagedInstanceRepository(session).get(instance_id)
             if instance is None:
+                raise ManagedInstanceNotFoundError(instance_id)
+            target = TargetRepository(session).get(instance_id)
+            if target is None:
                 raise ManagedInstanceNotFoundError(instance_id)
             profile = RuntimeExecutionProfileRepository(session).get(
                 instance.runtime_revision_id
             )
             if profile is None:
                 raise LifecycleConflictError("runtime execution profile is unavailable")
-            return profile
+            return target.name, profile
 
-    def _revision_id(self, instance_id: UUID) -> UUID:
-        with self._session_factory() as session:
-            instance = ManagedInstanceRepository(session).get(instance_id)
-            if instance is None:
-                raise ManagedInstanceNotFoundError(instance_id)
-            return instance.runtime_revision_id
+    def _run(
+        self,
+        instance_id: UUID,
+        kind: ManagedInstanceLifecycleKind,
+        action: Callable[[UUID, RuntimeExecutionProfile], None],
+    ) -> ManagedRuntimeStatus:
+        instance_name, profile = self._load_instance(instance_id)
+        handle = self._operations.begin(
+            instance_id,
+            instance_name=instance_name,
+            kind=kind,
+            prior_state=ManagedInstanceSemanticState.AMBIGUOUS,
+        )
+        try:
+            prior = self._observe(instance_id)
+            self._operations.record_prior_state(handle, prior)
+            action(instance_id, profile)
+            result = self._status.get(instance_id)
+            resulting_state = self._observe(instance_id)
+        except Exception as error:
+            resulting_state = self._observe(instance_id)
+            self._terminalize_failure(handle, resulting_state, error)
+            raise
+        if self._is_expected_result(kind, resulting_state):
+            self._operations.terminalize(
+                handle,
+                state=ManagedInstanceLifecycleOperationState.SUCCEEDED,
+                resulting_state=resulting_state,
+            )
+        elif semantic_state_is_unambiguous(resulting_state):
+            self._operations.terminalize(
+                handle,
+                state=ManagedInstanceLifecycleOperationState.FAILED,
+                resulting_state=resulting_state,
+                failure_reason="Lifecycle postcondition was not satisfied.",
+            )
+            raise LifecycleConflictError("lifecycle postcondition was not satisfied")
+        else:
+            self._operations.terminalize(
+                handle,
+                state=(ManagedInstanceLifecycleOperationState.RECONCILIATION_REQUIRED),
+                resulting_state=resulting_state,
+                failure_reason=(
+                    "Lifecycle result is ambiguous; reconciliation is required."
+                ),
+            )
+        return result
+
+    @staticmethod
+    def _is_expected_result(
+        kind: ManagedInstanceLifecycleKind,
+        state: ManagedInstanceSemanticState,
+    ) -> bool:
+        expected = {
+            ManagedInstanceLifecycleKind.PROVISION: {
+                ManagedInstanceSemanticState.STOPPED
+            },
+            ManagedInstanceLifecycleKind.START: {
+                ManagedInstanceSemanticState.RUNNING_NOT_READY,
+                ManagedInstanceSemanticState.RUNNING_USABLE,
+            },
+            ManagedInstanceLifecycleKind.STOP: {ManagedInstanceSemanticState.STOPPED},
+            ManagedInstanceLifecycleKind.DEPROVISION: {
+                ManagedInstanceSemanticState.UNPROVISIONED
+            },
+        }
+        return state in expected[kind]
+
+    def _observe(self, instance_id: UUID) -> ManagedInstanceSemanticState:
+        return observe_lifecycle_semantic_state(
+            self._broker, self._readiness, instance_id
+        )
+
+    def _terminalize_failure(
+        self,
+        handle: RunningLifecycleOperation,
+        resulting_state: ManagedInstanceSemanticState,
+        error: Exception,
+    ) -> None:
+        known = semantic_state_is_unambiguous(resulting_state)
+        self._operations.terminalize(
+            handle,
+            state=(
+                ManagedInstanceLifecycleOperationState.FAILED
+                if known
+                else ManagedInstanceLifecycleOperationState.RECONCILIATION_REQUIRED
+            ),
+            resulting_state=resulting_state,
+            failure_reason=self._safe_reason(error, reconciliation=not known),
+        )
+
+    @staticmethod
+    def _safe_reason(error: Exception, *, reconciliation: bool) -> str:
+        if reconciliation:
+            return "Lifecycle outcome is ambiguous; reconciliation is required."
+        if isinstance(error, LifecycleConflictError):
+            return str(error)[:256]
+        if isinstance(error, RemoteBrokerError):
+            return error.safe_message[:256]
+        if isinstance(error, ClientError):
+            return "The runtime service is unavailable."
+        return "Lifecycle operation failed."
 
     def _require_container(self, instance_id: UUID) -> ManagedContainerInventoryEntry:
         inventory = self._broker.managed_container_inventory()

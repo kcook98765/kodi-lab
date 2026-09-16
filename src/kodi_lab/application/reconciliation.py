@@ -12,6 +12,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.lifecycle_status import (
+    observe_lifecycle_semantic_state,
+    semantic_state_is_unambiguous,
+)
 from kodi_lab.application.readiness_tasks import (
     ReadinessTaskRegistry,
     ReadinessTaskState,
@@ -28,7 +32,10 @@ from kodi_lab.domain import (
     InstanceRuntimeState,
     ManagedInstanceDeleteOperation,
     ManagedInstanceDeleteOperationState,
+    ManagedInstanceLifecycleOperation,
+    ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
+    ManagedInstanceSemanticState,
     ResetOperation,
     ResetOperationState,
     Snapshot,
@@ -49,6 +56,7 @@ from kodi_lab.storage.models import (
 from kodi_lab.storage.repositories import (
     GlobalHeavyOperationLeaseRepository,
     ManagedInstanceDeleteOperationRepository,
+    ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
     ResetOperationRepository,
@@ -78,6 +86,7 @@ class ManagedInstanceReconciliationRequiredError(RuntimeError):
 
 
 class ReconciliationOperationKind(StrEnum):
+    LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
@@ -186,9 +195,13 @@ class StaleOperationReconciliationDispatcher:
         session_factory: sessionmaker[Session],
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        broker: _ObservationBroker | None = None,
+        readiness: ReadinessTaskRegistry | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
+        self._broker = broker
+        self._readiness = readiness
 
     def sweep_startup(self) -> StaleSweepResult:
         with self._session_factory() as session:
@@ -290,10 +303,50 @@ class StaleOperationReconciliationDispatcher:
             | SnapshotCreateOperation
             | SnapshotRestoreOperation
             | ManagedInstanceDeleteOperation
+            | ManagedInstanceLifecycleOperation
             | None
         )
+        if kind is ManagedInstanceMutationKind.LIFECYCLE:
+            operation = ManagedInstanceLifecycleOperationRepository(session).get(
+                operation_id
+            )
+            if (
+                operation is None
+                or operation.original_managed_instance_id != instance_id
+                or operation.state is not ManagedInstanceLifecycleOperationState.RUNNING
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired lifecycle ownership is inconsistent."
+                )
+            observed = (
+                observe_lifecycle_semantic_state(
+                    self._broker, self._readiness, instance_id
+                )
+                if self._broker is not None
+                else ManagedInstanceSemanticState.AMBIGUOUS
+            )
+            if not ManagedInstanceLifecycleOperationRepository(
+                session
+            ).mark_stale_reconciliation(
+                operation_id, resulting_state=observed, now=now
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired lifecycle operation ownership changed."
+                )
+            if not ManagedInstanceMutationLeaseRepository(
+                session
+            ).release_expired_exact(
+                instance_id,
+                kind=kind,
+                operation_id=operation_id,
+                token_digest=digest,
+                now=now,
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired lifecycle lease ownership changed."
+                )
+            return operation_id, 1
         if kind in {
-            ManagedInstanceMutationKind.LIFECYCLE,
             ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT,
             ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT,
         }:
@@ -565,6 +618,12 @@ class ManagedInstanceReconciliationService:
         with self._session_factory() as session:
             records: list[tuple[ReconciliationOperationKind, object]] = []
             records.extend(
+                (ReconciliationOperationKind.LIFECYCLE, item)
+                for item in ManagedInstanceLifecycleOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
+            records.extend(
                 (ReconciliationOperationKind.RESET, item)
                 for item in ResetOperationRepository(
                     session
@@ -627,7 +686,21 @@ class ManagedInstanceReconciliationService:
             observed = self._observe_instance_delete(instance_id)
         elif kind is ReconciliationOperationKind.RESET:
             observed = self._observe_reset(instance_id)
+        elif kind is ReconciliationOperationKind.LIFECYCLE:
+            assert isinstance(operation, ManagedInstanceLifecycleOperation)
+            semantic = (
+                observe_lifecycle_semantic_state(
+                    self._broker, self._readiness, instance_id
+                )
+                if self._broker is not None
+                else ManagedInstanceSemanticState.AMBIGUOUS
+            )
+            observed = semantic.value
+            blocking = not semantic_state_is_unambiguous(semantic)
         reason = {
+            ReconciliationOperationKind.LIFECYCLE: (
+                "Lifecycle state requires operator reconciliation."
+            ),
             ReconciliationOperationKind.RESET: (
                 "Reset state requires operator reconciliation."
             ),
@@ -648,6 +721,7 @@ class ManagedInstanceReconciliationService:
                 SnapshotCreateOperation,
                 SnapshotRestoreOperation,
                 ManagedInstanceDeleteOperation,
+                ManagedInstanceLifecycleOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(
@@ -656,7 +730,11 @@ class ManagedInstanceReconciliationService:
             operation_kind=kind,
             operation_uuid=operation.id,
             operation_state=operation.state.value,
-            last_phase=operation.phase.value,
+            last_phase=(
+                operation.kind.value
+                if isinstance(operation, ManagedInstanceLifecycleOperation)
+                else operation.phase.value
+            ),
             safe_reason=reason,
             observed_state=observed,
             blocked_actions=INSTANCE_MUTATIONS if blocking else [],

@@ -18,7 +18,7 @@
       </form>
     </header>
     <main>
-      <nav aria-label="Administration"><a href="/runtimes">Curated runtime matrix</a> · <a href="/snapshots/preserved">Preserved snapshots</a></nav>
+      <nav aria-label="Administration"><a href="/runtimes">Curated runtime matrix</a> · <a href="/snapshots/preserved">Preserved snapshots</a> · <a href="/history/instances">Deleted instance history</a></nav>
       <p id="global-error" class="error" role="alert" hidden></p>
       <section id="instances" aria-live="polite">
         {% for instance in instances %}
@@ -26,7 +26,7 @@
         {% set reconciliation = reconciliation_statuses.get(instance.managed_instance_id) %}
         {% set reset_active = reset and reset.operation and reset.operation.state in ['queued', 'running'] %}
         <article class="instance" data-instance-id="{{ instance.managed_instance_id }}">
-          <h2 data-field="name">{{ instance.name }}</h2>
+          <h2 data-field="name"><a href="/instances/{{ instance.managed_instance_id }}">{{ instance.name }}</a></h2>
           <p>Kodi <span data-field="kodi_version">{{ instance.kodi_version }}</span> · revision <span data-field="runtime_revision_number">{{ instance.runtime_revision_number }}</span></p>
           <dl>
             <dt>Provisioning</dt><dd data-field="provision_state">{{ instance.provision_state }}</dd>

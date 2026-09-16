@@ -13,7 +13,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -22,6 +22,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from kodi_lab.application.activity import (
+    ManagedInstanceActivityItem,
+    ManagedInstanceActivityService,
+)
 from kodi_lab.application.errors import (
     ManagedInstanceNotFoundError,
     TargetNotFoundError,
@@ -37,6 +41,15 @@ from kodi_lab.application.instance_deletions import (
     DisposableManagedInstanceDeletionService,
     ManagedInstanceDeleteExecutor,
     ManagedInstanceDeleteServiceFactory,
+)
+from kodi_lab.application.instance_history import (
+    DeletedManagedInstanceHistoryNotFoundError,
+    DeletedManagedInstanceHistoryService,
+    ManagedInstanceDetailService,
+)
+from kodi_lab.application.lifecycle_operations import (
+    LifecycleOperationConflictError,
+    ManagedInstanceLifecycleOperationCoordinator,
 )
 from kodi_lab.application.mutations import ManagedInstanceMutationConflictError
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
@@ -227,6 +240,10 @@ class WebApplicationContext:
     reconciliation: ManagedInstanceReconciliationService
     snapshot_reconciliation: SnapshotReconciliationService
     stale_dispatcher: StaleOperationReconciliationDispatcher
+    lifecycle_operations: ManagedInstanceLifecycleOperationCoordinator
+    activity: ManagedInstanceActivityService
+    instance_detail: ManagedInstanceDetailService
+    deleted_history: DeletedManagedInstanceHistoryService
 
 
 def create_app(
@@ -249,7 +266,9 @@ def create_app(
 
     task_registry = readiness or ReadinessTaskRegistry()
     reset_registry = reset_activity or ResetActivityRegistry()
-    stale_dispatcher = StaleOperationReconciliationDispatcher(session_factory)
+    stale_dispatcher = StaleOperationReconciliationDispatcher(
+        session_factory, broker=broker, readiness=task_registry
+    )
     reconciliation = ManagedInstanceReconciliationService(
         session_factory,
         broker=broker,
@@ -258,6 +277,11 @@ def create_app(
     )
     snapshot_reconciliation = SnapshotReconciliationService(
         session_factory, data_root=settings.data_root
+    )
+    lifecycle_operations = ManagedInstanceLifecycleOperationCoordinator(
+        session_factory,
+        stale_dispatcher=stale_dispatcher,
+        reconciliation=reconciliation,
     )
     reset_operations = ResetOperationCoordinator(
         session_factory,
@@ -345,6 +369,18 @@ def create_app(
     instance_delete_executor = ManagedInstanceDeleteExecutor(
         instance_delete_operations, instance_delete_factory
     )
+    activity = ManagedInstanceActivityService(session_factory)
+    snapshot_status = SnapshotStatusService(session_factory)
+    instance_detail = ManagedInstanceDetailService(
+        session_factory,
+        status_service,
+        snapshot_status,
+        activity,
+        reconciliation,
+    )
+    deleted_history = DeletedManagedInstanceHistoryService(
+        session_factory, activity, snapshot_status
+    )
     context = WebApplicationContext(
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
@@ -357,6 +393,7 @@ def create_app(
             status_service,
             coordinator_factory=coordinator_factory or KodiReadinessCoordinator,
             reset_operations=reset_operations,
+            lifecycle_operations=lifecycle_operations,
         ),
         matrix=RuntimeMatrixService(
             session_factory,
@@ -367,7 +404,7 @@ def create_app(
         reset_status=reset_status_service,
         reset_operations=reset_operations,
         reset_executor=reset_executor,
-        snapshot_status=SnapshotStatusService(session_factory),
+        snapshot_status=snapshot_status,
         snapshot_operations=snapshot_operations,
         snapshot_executor=snapshot_executor,
         snapshot_restore_operations=snapshot_restore_operations,
@@ -379,6 +416,10 @@ def create_app(
         reconciliation=reconciliation,
         snapshot_reconciliation=snapshot_reconciliation,
         stale_dispatcher=stale_dispatcher,
+        lifecycle_operations=lifecycle_operations,
+        activity=activity,
+        instance_detail=instance_detail,
+        deleted_history=deleted_history,
     )
 
     @asynccontextmanager
@@ -476,6 +517,22 @@ def create_app(
         _request: Request, error: ManagedInstanceMutationConflictError
     ) -> JSONResponse:
         return _json_error(409, "managed_instance_mutation_conflict", str(error)[:256])
+
+    @app.exception_handler(LifecycleOperationConflictError)
+    async def lifecycle_operation_conflict(
+        _request: Request, error: LifecycleOperationConflictError
+    ) -> JSONResponse:
+        return _json_error(409, "lifecycle_operation_conflict", str(error)[:256])
+
+    @app.exception_handler(DeletedManagedInstanceHistoryNotFoundError)
+    async def deleted_history_not_found(
+        _request: Request, _error: DeletedManagedInstanceHistoryNotFoundError
+    ) -> JSONResponse:
+        return _json_error(
+            404,
+            "deleted_instance_history_not_found",
+            "Deleted instance history was not found.",
+        )
 
     @app.exception_handler(ManagedInstanceReconciliationRequiredError)
     async def reconciliation_required(
@@ -702,6 +759,60 @@ def create_app(
             request,
             "runtimes.html",
             {"matrix": matrix},
+        )
+
+    @app.get("/instances/{instance_id}", response_class=HTMLResponse)
+    async def instance_detail_page(request: Request, instance_id: UUID) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "instance-detail.html",
+            {"detail": context.instance_detail.get(instance_id)},
+        )
+
+    @app.get("/instances/{instance_id}/history", response_class=HTMLResponse)
+    async def instance_history_page(request: Request, instance_id: UUID) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        instance = context.status.get(instance_id)
+        return templates.TemplateResponse(
+            request,
+            "instance-history.html",
+            {
+                "instance": instance,
+                "activity": context.activity.list_for_live_instance(instance_id),
+            },
+        )
+
+    @app.get("/history/instances", response_class=HTMLResponse)
+    async def deleted_instance_list_page(request: Request) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "deleted-instances.html",
+            {"instances": context.deleted_history.list()},
+        )
+
+    @app.get("/history/instances/{original_instance_id}", response_class=HTMLResponse)
+    async def deleted_instance_history_page(
+        request: Request, original_instance_id: UUID
+    ) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "deleted-instance-history.html",
+            {"history": context.deleted_history.get(original_instance_id)},
         )
 
     @app.get("/instances/{instance_id}/reset", response_class=HTMLResponse)
@@ -965,6 +1076,17 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> ManagedRuntimeStatus:
         return context.status.get(instance_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/activity",
+        response_model=list[ManagedInstanceActivityItem],
+    )
+    def get_instance_activity(
+        instance_id: UUID,
+        limit: int | None = Query(default=None, ge=1, le=1000),
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[ManagedInstanceActivityItem]:
+        return context.activity.list_for_live_instance(instance_id, limit=limit)
 
     @app.get(
         "/api/instances/{instance_id}/reset-status",

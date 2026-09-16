@@ -38,6 +38,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_instance_delete_operations",
+        "managed_instance_lifecycle_operations",
         "managed_instance_mutation_leases",
         "reset_operations",
         "runtime_definitions",
@@ -1723,3 +1724,57 @@ def test_0015_relaxed_terminal_history_retains_original_instance_uuid(
 
     with pytest.raises(RuntimeError, match="operation history"):
         command.downgrade(config, "0014_snapshot_deletion")
+
+
+def test_0016_lifecycle_history_schema_and_guarded_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0015_instance_deletion")
+    engine = create_database_engine(database_url)
+    assert (
+        "managed_instance_lifecycle_operations" not in inspect(engine).get_table_names()
+    )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    indexes = {
+        index["name"]: index
+        for index in inspector.get_indexes("managed_instance_lifecycle_operations")
+    }
+    assert indexes["uq_lifecycle_operation_running_instance"]["unique"] == 1
+    assert indexes["ix_lifecycle_operation_original_requested"]["column_names"] == [
+        "original_managed_instance_id",
+        "requested_at",
+    ]
+    foreign_key = inspector.get_foreign_keys("managed_instance_lifecycle_operations")[0]
+    assert foreign_key["referred_table"] == "managed_instances"
+    assert foreign_key["options"] == {"ondelete": "SET NULL"}
+    engine.dispose()
+    command.check(config)
+    command.downgrade(config, "0015_instance_deletion")
+    command.upgrade(config, "head")
+
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-16T00:00:00.000000Z"
+    with engine.begin() as connection:
+        _seed_0014_instance_with_notes(connection, notes="bounded")
+        connection.execute(
+            text(
+                "INSERT INTO managed_instance_lifecycle_operations "
+                "(id, original_managed_instance_id, managed_instance_id, "
+                "instance_name, kind, requested_at, started_at, completed_at, "
+                "prior_state, resulting_state, state, reconciliation_required) "
+                "VALUES ('89900000-0000-4000-8000-000000000001', "
+                "'89800000-0000-4000-8000-000000000003', "
+                "'89800000-0000-4000-8000-000000000003', 'source', 'start', "
+                ":timestamp, :timestamp, :timestamp, 'stopped', "
+                "'running_not_ready', 'succeeded', 0)"
+            ),
+            {"timestamp": timestamp},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated lifecycle operation history"):
+        command.downgrade(config, "0015_instance_deletion")

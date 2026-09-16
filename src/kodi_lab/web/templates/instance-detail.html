@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ detail.runtime.name }} · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>{{ detail.runtime.name }}</h1>
+      <p class="secondary">{{ detail.runtime.managed_instance_id }}</p>
+      <dl>
+        <dt>Exact runtime</dt><dd>Kodi {{ detail.runtime.kodi_version }} · revision {{ detail.runtime.runtime_revision_number }} ({{ detail.runtime.runtime_revision_id }})</dd>
+        <dt>Instance type</dt><dd>{{ detail.instance_type }}</dd>
+        <dt>Fixture</dt><dd>{% if detail.fixture %}{{ detail.fixture.slug }} v{{ detail.fixture.fixture_version }} ({{ detail.fixture.size_category }}, {{ detail.fixture.content_category }}){% else %}None{% endif %}</dd>
+        <dt>Provisioning</dt><dd>{{ detail.runtime.provision_state }}</dd>
+        <dt>Container</dt><dd>{{ detail.runtime.container_state }}</dd>
+        <dt>Kodi process</dt><dd>{{ detail.runtime.process_state }}</dd>
+        <dt>JSON-RPC</dt><dd>{{ detail.runtime.jsonrpc_state }}</dd>
+        <dt>Usability</dt><dd>{{ detail.runtime.usability_state }}</dd>
+        <dt>Readiness</dt><dd>{{ detail.runtime.readiness_state }}</dd>
+      </dl>
+      {% if detail.reconciliation.required %}
+      <section class="reconciliation-warning" role="alert">
+        <h2>Operator reconciliation required</h2>
+        <p>{{ detail.reconciliation.safe_reason }} Observed state: {{ detail.reconciliation.observed_state or 'unknown' }}.</p>
+        {% if detail.reconciliation.blocking %}<p>Blocked actions: {{ detail.reconciliation.blocked_actions|join(', ') }}.</p>{% else %}<p>The current semantic state is unambiguous, so unrelated safe mutations are not blocked.</p>{% endif %}
+        {% if detail.reconciliation.operation_uuid %}<p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ detail.reconciliation.operation_uuid }}">View the exact history item</a></p>{% endif %}
+      </section>
+      {% endif %}
+      <section>
+        <h2>Notes</h2>
+        {% if detail.notes is none %}<p>No notes.</p>{% elif detail.notes == '' %}<p>Notes are empty.</p>{% else %}<pre class="instance-notes">{{ detail.notes }}</pre>{% endif %}
+      </section>
+      <section>
+        <h2>Snapshots</h2>
+        <p>{{ detail.snapshots|length }} retained Snapshot{{ '' if detail.snapshots|length == 1 else 's' }}. <a href="/instances/{{ detail.runtime.managed_instance_id }}/snapshots">View Snapshots</a></p>
+      </section>
+      <section>
+        <h2>Recent activity</h2>
+        {% for item in detail.recent_activity %}
+        <article id="activity-{{ item.operation_uuid }}">
+          <h3>{{ item.summary }}</h3>
+          <p>{{ item.requested_at }} · {{ item.kind }} · {{ item.state }}</p>
+          {% if item.reconciliation_required %}<p class="reconciliation-warning">Reconciliation required.</p>{% endif %}
+        </article>
+        {% else %}<p>No retained activity.</p>{% endfor %}
+        <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history">View full retained history</a></p>
+      </section>
+      <p><a href="/">Back to dashboard</a></p>
+    </main>
+  </body>
+</html>

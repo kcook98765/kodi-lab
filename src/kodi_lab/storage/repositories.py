@@ -15,7 +15,10 @@ from kodi_lab.domain import (
     ManagedInstanceDeleteOperationPhase,
     ManagedInstanceDeleteOperationState,
     ManagedInstanceDeletePriorState,
+    ManagedInstanceLifecycleOperation,
+    ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
+    ManagedInstanceSemanticState,
     ResetOperation,
     ResetOperationPhase,
     ResetOperationState,
@@ -44,6 +47,7 @@ from kodi_lab.storage.models import (
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceDeleteOperationRow,
+    ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ResetOperationRow,
@@ -244,6 +248,34 @@ def _managed_instance_delete_operation_from_row(
             if row.lease_expires_at is None
             else _timestamp_from_text(row.lease_expires_at)
         ),
+    )
+
+
+def _managed_instance_lifecycle_operation_from_row(
+    row: ManagedInstanceLifecycleOperationRow,
+) -> ManagedInstanceLifecycleOperation:
+    return ManagedInstanceLifecycleOperation(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=(
+            None if row.managed_instance_id is None else UUID(row.managed_instance_id)
+        ),
+        instance_name=row.instance_name,
+        kind=row.kind,
+        requested_at=_timestamp_from_text(row.requested_at),
+        started_at=_timestamp_from_text(row.started_at),
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        prior_state=row.prior_state,
+        resulting_state=(
+            None
+            if row.resulting_state is None
+            else ManagedInstanceSemanticState(row.resulting_state)
+        ),
+        state=row.state,
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
     )
 
 
@@ -550,6 +582,16 @@ class ResetOperationRepository:
             .limit(1)
         )
         return None if row is None else _reset_operation_from_row(row)
+
+    def list_for_instance(self, instance_id: UUID) -> list[ResetOperation]:
+        rows = self._session.scalars(
+            select(ResetOperationRow)
+            .where(ResetOperationRow.managed_instance_id == str(instance_id))
+            .order_by(
+                ResetOperationRow.requested_at.desc(), ResetOperationRow.id.desc()
+            )
+        )
+        return [_reset_operation_from_row(row) for row in rows]
 
     def reconciliation_for_instance(
         self, instance_id: UUID, *, limit: int = 2
@@ -1245,6 +1287,17 @@ class SnapshotCreateOperationRepository:
         )
         return None if row is None else _snapshot_operation_from_row(row)
 
+    def list_for_instance(self, instance_id: UUID) -> list[SnapshotCreateOperation]:
+        rows = self._session.scalars(
+            select(SnapshotCreateOperationRow)
+            .where(SnapshotCreateOperationRow.managed_instance_id == str(instance_id))
+            .order_by(
+                SnapshotCreateOperationRow.requested_at.desc(),
+                SnapshotCreateOperationRow.id.desc(),
+            )
+        )
+        return [_snapshot_operation_from_row(row) for row in rows]
+
     def reconciliation_for_instance(
         self, instance_id: UUID, *, limit: int = 2
     ) -> list[SnapshotCreateOperation]:
@@ -1497,6 +1550,17 @@ class SnapshotRestoreOperationRepository:
         )
         return None if row is None else _snapshot_restore_operation_from_row(row)
 
+    def list_for_instance(self, instance_id: UUID) -> list[SnapshotRestoreOperation]:
+        rows = self._session.scalars(
+            select(SnapshotRestoreOperationRow)
+            .where(SnapshotRestoreOperationRow.managed_instance_id == str(instance_id))
+            .order_by(
+                SnapshotRestoreOperationRow.requested_at.desc(),
+                SnapshotRestoreOperationRow.id.desc(),
+            )
+        )
+        return [_snapshot_restore_operation_from_row(row) for row in rows]
+
     def list_queued(self) -> list[SnapshotRestoreOperation]:
         rows = self._session.scalars(
             select(SnapshotRestoreOperationRow)
@@ -1718,6 +1782,17 @@ class SnapshotDeleteOperationRepository:
     def get(self, operation_id: UUID) -> SnapshotDeleteOperation | None:
         row = self._session.get(SnapshotDeleteOperationRow, str(operation_id))
         return None if row is None else _snapshot_delete_operation_from_row(row)
+
+    def list_for_instance(self, instance_id: UUID) -> list[SnapshotDeleteOperation]:
+        rows = self._session.scalars(
+            select(SnapshotDeleteOperationRow)
+            .where(SnapshotDeleteOperationRow.managed_instance_id == str(instance_id))
+            .order_by(
+                SnapshotDeleteOperationRow.requested_at.desc(),
+                SnapshotDeleteOperationRow.id.desc(),
+            )
+        )
+        return [_snapshot_delete_operation_from_row(row) for row in rows]
 
     def reconciliation_for_snapshot(
         self, snapshot_id: UUID, *, limit: int = 2
@@ -1963,6 +2038,31 @@ class ManagedInstanceDeleteOperationRepository:
         row = self._session.get(ManagedInstanceDeleteOperationRow, str(operation_id))
         return None if row is None else _managed_instance_delete_operation_from_row(row)
 
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[ManagedInstanceDeleteOperation]:
+        rows = self._session.scalars(
+            select(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                ManagedInstanceDeleteOperationRow.requested_at.desc(),
+                ManagedInstanceDeleteOperationRow.id.desc(),
+            )
+        )
+        return [_managed_instance_delete_operation_from_row(row) for row in rows]
+
+    def list_all(self) -> list[ManagedInstanceDeleteOperation]:
+        rows = self._session.scalars(
+            select(ManagedInstanceDeleteOperationRow).order_by(
+                ManagedInstanceDeleteOperationRow.requested_at.desc(),
+                ManagedInstanceDeleteOperationRow.id.desc(),
+            )
+        )
+        return [_managed_instance_delete_operation_from_row(row) for row in rows]
+
     def active_for_instance(
         self, instance_id: UUID
     ) -> ManagedInstanceDeleteOperation | None:
@@ -2188,6 +2288,175 @@ class ManagedInstanceDeleteOperationRepository:
         return int(getattr(result, "rowcount", 0)) == 1
 
 
+class ManagedInstanceLifecycleOperationRepository:
+    """Transactional persistence for typed synchronous lifecycle history."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: ManagedInstanceLifecycleOperation) -> None:
+        self._session.add(
+            ManagedInstanceLifecycleOperationRow(
+                id=str(operation.id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                managed_instance_id=(
+                    None
+                    if operation.managed_instance_id is None
+                    else str(operation.managed_instance_id)
+                ),
+                instance_name=operation.instance_name,
+                kind=operation.kind,
+                requested_at=_timestamp_to_text(operation.requested_at),
+                started_at=_timestamp_to_text(operation.started_at),
+                completed_at=(
+                    None
+                    if operation.completed_at is None
+                    else _timestamp_to_text(operation.completed_at)
+                ),
+                prior_state=operation.prior_state,
+                resulting_state=operation.resulting_state,
+                state=operation.state,
+                failure_reason=operation.failure_reason,
+                reconciliation_required=operation.reconciliation_required,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> ManagedInstanceLifecycleOperation | None:
+        row = self._session.get(ManagedInstanceLifecycleOperationRow, str(operation_id))
+        return (
+            None if row is None else _managed_instance_lifecycle_operation_from_row(row)
+        )
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[ManagedInstanceLifecycleOperation]:
+        rows = self._session.scalars(
+            select(ManagedInstanceLifecycleOperationRow)
+            .where(
+                ManagedInstanceLifecycleOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                ManagedInstanceLifecycleOperationRow.requested_at.desc(),
+                ManagedInstanceLifecycleOperationRow.id.desc(),
+            )
+        )
+        return [_managed_instance_lifecycle_operation_from_row(row) for row in rows]
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[ManagedInstanceLifecycleOperation]:
+        rows = self._session.scalars(
+            select(ManagedInstanceLifecycleOperationRow)
+            .where(
+                ManagedInstanceLifecycleOperationRow.original_managed_instance_id
+                == str(instance_id),
+                ManagedInstanceLifecycleOperationRow.reconciliation_required.is_(True),
+            )
+            .order_by(
+                ManagedInstanceLifecycleOperationRow.requested_at.desc(),
+                ManagedInstanceLifecycleOperationRow.id.desc(),
+            )
+            .limit(limit)
+        )
+        return [_managed_instance_lifecycle_operation_from_row(row) for row in rows]
+
+    def terminalize(
+        self,
+        operation_id: UUID,
+        *,
+        state: ManagedInstanceLifecycleOperationState,
+        resulting_state: ManagedInstanceSemanticState,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceLifecycleOperationRow)
+            .where(
+                ManagedInstanceLifecycleOperationRow.id == str(operation_id),
+                ManagedInstanceLifecycleOperationRow.state
+                == ManagedInstanceLifecycleOperationState.RUNNING,
+            )
+            .values(
+                state=state,
+                resulting_state=resulting_state,
+                completed_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_prior_state(
+        self,
+        operation_id: UUID,
+        *,
+        prior_state: ManagedInstanceSemanticState,
+    ) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceLifecycleOperationRow)
+            .where(
+                ManagedInstanceLifecycleOperationRow.id == str(operation_id),
+                ManagedInstanceLifecycleOperationRow.state
+                == ManagedInstanceLifecycleOperationState.RUNNING,
+            )
+            .values(prior_state=prior_state)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale_reconciliation(
+        self,
+        operation_id: UUID,
+        *,
+        resulting_state: ManagedInstanceSemanticState,
+        now: datetime,
+    ) -> bool:
+        return self.terminalize(
+            operation_id,
+            state=ManagedInstanceLifecycleOperationState.RECONCILIATION_REQUIRED,
+            resulting_state=resulting_state,
+            failure_reason=(
+                "Lifecycle worker lease expired; reconciliation is required."
+            ),
+            reconciliation_required=True,
+            now=now,
+        )
+
+    def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        old_ids = list(
+            self._session.scalars(
+                select(ManagedInstanceLifecycleOperationRow.id)
+                .where(
+                    ManagedInstanceLifecycleOperationRow.original_managed_instance_id
+                    == str(instance_id),
+                    ManagedInstanceLifecycleOperationRow.state.in_(
+                        (
+                            ManagedInstanceLifecycleOperationState.SUCCEEDED,
+                            ManagedInstanceLifecycleOperationState.FAILED,
+                        )
+                    ),
+                )
+                .order_by(
+                    ManagedInstanceLifecycleOperationRow.requested_at.desc(),
+                    ManagedInstanceLifecycleOperationRow.id.desc(),
+                )
+                .offset(retain)
+            )
+        )
+        if not old_ids:
+            return 0
+        result = self._session.execute(
+            delete(ManagedInstanceLifecycleOperationRow).where(
+                ManagedInstanceLifecycleOperationRow.id.in_(old_ids)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
 class ManagedInstanceMutationLeaseRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -2216,7 +2485,6 @@ class ManagedInstanceMutationLeaseRepository:
                 ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
                 ManagedInstanceMutationLeaseRow.operation_kind.in_(
                     (
-                        ManagedInstanceMutationKind.LIFECYCLE,
                         ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT,
                         ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT,
                     )
