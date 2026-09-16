@@ -55,6 +55,18 @@ from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
 )
+from kodi_lab.application.snapshot_delete_operations import (
+    SnapshotDeleteConflictError,
+    SnapshotDeleteNotFoundError,
+    SnapshotDeleteOperationCoordinator,
+    SnapshotDeleteStatus,
+    SnapshotDeleteUnsupportedError,
+)
+from kodi_lab.application.snapshot_deletions import (
+    DisposableSnapshotDeletionService,
+    SnapshotDeleteExecutor,
+    SnapshotDeleteServiceFactory,
+)
 from kodi_lab.application.snapshot_operations import (
     SnapshotCreateConflictError,
     SnapshotCreateOperationCoordinator,
@@ -94,6 +106,7 @@ from kodi_lab.broker.errors import (
     RemoteBrokerError,
 )
 from kodi_lab.config import Settings
+from kodi_lab.domain import SnapshotState
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.storage.repositories import ManagedInstanceRepository
 
@@ -141,6 +154,20 @@ class SnapshotRestoreAccepted(BaseModel):
     operation: SnapshotRestoreStatus
 
 
+class SnapshotDeleteRequest(BaseModel):
+    """One permanent-deletion confirmation bit and no storage authority."""
+
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
+
+
+class SnapshotDeleteAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: UUID
+    operation: SnapshotDeleteStatus
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
@@ -159,6 +186,8 @@ class WebApplicationContext:
     snapshot_executor: SnapshotCreateExecutor
     snapshot_restore_operations: SnapshotRestoreOperationCoordinator
     snapshot_restore_executor: SnapshotRestoreExecutor
+    snapshot_delete_operations: SnapshotDeleteOperationCoordinator
+    snapshot_delete_executor: SnapshotDeleteExecutor
 
 
 def create_app(
@@ -174,6 +203,7 @@ def create_app(
     reset_service_factory: ResetServiceFactory | None = None,
     snapshot_service_factory: SnapshotServiceFactory | None = None,
     snapshot_restore_service_factory: SnapshotRestoreServiceFactory | None = None,
+    snapshot_delete_service_factory: SnapshotDeleteServiceFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -214,6 +244,19 @@ def create_app(
     snapshot_restore_executor = SnapshotRestoreExecutor(
         snapshot_restore_operations, snapshot_restore_factory
     )
+    snapshot_delete_operations = SnapshotDeleteOperationCoordinator(session_factory)
+    snapshot_delete_factory = snapshot_delete_service_factory or (
+        lambda lease: DisposableSnapshotDeletionService(
+            session_factory,
+            broker,
+            snapshot_delete_operations,
+            lease,
+            data_root=settings.data_root,
+        )
+    )
+    snapshot_delete_executor = SnapshotDeleteExecutor(
+        snapshot_delete_operations, snapshot_delete_factory
+    )
     context = WebApplicationContext(
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
@@ -241,6 +284,8 @@ def create_app(
         snapshot_executor=snapshot_executor,
         snapshot_restore_operations=snapshot_restore_operations,
         snapshot_restore_executor=snapshot_restore_executor,
+        snapshot_delete_operations=snapshot_delete_operations,
+        snapshot_delete_executor=snapshot_delete_executor,
     )
 
     @asynccontextmanager
@@ -248,12 +293,14 @@ def create_app(
         context.reset_executor.start()
         context.snapshot_executor.start()
         context.snapshot_restore_executor.start()
+        context.snapshot_delete_executor.start()
         try:
             yield
         finally:
             context.reset_executor.close()
             context.snapshot_executor.close()
             context.snapshot_restore_executor.close()
+            context.snapshot_delete_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -357,6 +404,24 @@ def create_app(
         _request: Request, error: SnapshotRestoreUnsupportedError
     ) -> JSONResponse:
         return _json_error(409, "snapshot_restore_unsupported", str(error)[:256])
+
+    @app.exception_handler(SnapshotDeleteConflictError)
+    async def snapshot_delete_conflict(
+        _request: Request, error: SnapshotDeleteConflictError
+    ) -> JSONResponse:
+        return _json_error(409, "snapshot_delete_conflict", str(error)[:256])
+
+    @app.exception_handler(SnapshotDeleteUnsupportedError)
+    async def snapshot_delete_unsupported(
+        _request: Request, error: SnapshotDeleteUnsupportedError
+    ) -> JSONResponse:
+        return _json_error(409, "snapshot_delete_unsupported", str(error)[:256])
+
+    @app.exception_handler(SnapshotDeleteNotFoundError)
+    async def snapshot_delete_not_found(
+        _request: Request, _error: SnapshotDeleteNotFoundError
+    ) -> JSONResponse:
+        return _json_error(404, "snapshot_not_found", "Snapshot not found.")
 
     @app.exception_handler(ClientError)
     async def broker_failure(_request: Request, error: ClientError) -> JSONResponse:
@@ -553,6 +618,7 @@ def create_app(
             ),
             None,
         )
+
         if snapshot is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         with session_factory() as session:
@@ -572,6 +638,44 @@ def create_app(
                     instance.runtime_revision_id == snapshot.runtime_revision_id
                 ),
                 "fixture_match": fixture_id == snapshot.fixture_definition_id,
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
+    @app.get(
+        "/instances/{instance_id}/snapshots/{snapshot_id}/delete",
+        response_class=HTMLResponse,
+    )
+    async def snapshot_delete_page(
+        request: Request, instance_id: UUID, snapshot_id: UUID
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        instance = context.status.get(instance_id)
+        snapshot = next(
+            (
+                item
+                for item in context.snapshot_status.list_for_instance(instance_id)
+                if item.snapshot_id == snapshot_id
+            ),
+            None,
+        )
+        if snapshot is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        if snapshot.state not in {
+            SnapshotState.AVAILABLE,
+            SnapshotState.FAILED,
+            SnapshotState.QUARANTINED,
+        }:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT)
+        return templates.TemplateResponse(
+            request,
+            "snapshot-delete.html",
+            {
+                "instance": instance,
+                "snapshot": snapshot,
                 "csrf_token": authenticated.csrf_token,
             },
         )
@@ -670,6 +774,31 @@ def create_app(
             result = result.model_copy(update={"reconciliation_state": observation})
         return result
 
+    @app.get(
+        "/api/instances/{instance_id}/snapshot-delete-operations/{operation_id}",
+        response_model=SnapshotDeleteStatus,
+    )
+    def snapshot_delete_operation(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SnapshotDeleteStatus:
+        operation = context.snapshot_delete_operations.get(operation_id)
+        if operation is None or operation.managed_instance_id != instance_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        result = context.snapshot_delete_operations.to_status(operation)
+        if operation.reconciliation_required:
+            result = result.model_copy(
+                update={
+                    "reconciliation_state": (
+                        context.snapshot_delete_operations.inspect_reconciliation(
+                            operation, data_root=settings.data_root
+                        )
+                    )
+                }
+            )
+        return result
+
     @app.post(
         "/api/instances/{instance_id}/snapshots",
         response_model=SnapshotCreateAccepted,
@@ -712,6 +841,23 @@ def create_app(
         if operation.state.value == "queued":
             context.snapshot_restore_executor.submit(operation.operation_id)
         return SnapshotRestoreAccepted(snapshot_id=snapshot_id, operation=operation)
+
+    @app.post(
+        "/api/instances/{instance_id}/snapshots/{snapshot_id}/delete",
+        response_model=SnapshotDeleteAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def queue_snapshot_delete(
+        instance_id: UUID,
+        snapshot_id: UUID,
+        _body: SnapshotDeleteRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> SnapshotDeleteAccepted:
+        context.status.get(instance_id)
+        operation = context.snapshot_delete_operations.queue(instance_id, snapshot_id)
+        if operation.state.value == "queued":
+            context.snapshot_delete_executor.submit(operation.operation_id)
+        return SnapshotDeleteAccepted(snapshot_id=snapshot_id, operation=operation)
 
     @app.post(
         "/api/instances/{instance_id}/reset",

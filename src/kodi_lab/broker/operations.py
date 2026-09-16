@@ -91,11 +91,16 @@ from kodi_lab.broker.provisioning import (
     SqliteRuntimeObservationResolver,
 )
 from kodi_lab.broker.snapshots import (
+    LocalSnapshotArtifactDeletionProvider,
+    SnapshotArtifactDeletionProvider,
     SnapshotCaptureResolver,
+    SnapshotDeleteResolver,
     SnapshotRestoreResolver,
     SqliteSnapshotCaptureResolver,
+    SqliteSnapshotDeleteResolver,
     SqliteSnapshotRestoreResolver,
 )
+from kodi_lab.snapshot.storage import SnapshotArtifactDeletionError
 
 
 class EmptyParams(StrictModel):
@@ -577,6 +582,34 @@ class ApplyManagedInstanceSnapshotResult(StrictModel):
         return value
 
 
+class DeleteManagedSnapshotArtifactParams(StrictModel):
+    """The only deletion authority is one canonical Snapshot UUID."""
+
+    snapshot_id: str = Field(min_length=36, max_length=36)
+
+    @field_validator("snapshot_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("snapshot_id must be a canonical UUID string")
+        return value
+
+
+class DeleteManagedSnapshotArtifactResult(StrictModel):
+    """Bounded proof that the exact UUID artifact directory is absent."""
+
+    snapshot_id: str = Field(min_length=36, max_length=36)
+    artifact_absent: Literal[True]
+    artifact_was_present: bool
+
+    @field_validator("snapshot_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("snapshot_id must be a canonical UUID string")
+        return value
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
 type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
@@ -715,6 +748,8 @@ def build_foundation_registry(
     snapshot_capture_provider: ManagedInstanceSnapshotCaptureProvider | None = None,
     snapshot_restore_resolver: SnapshotRestoreResolver | None = None,
     snapshot_restore_provider: ManagedInstanceSnapshotApplyProvider | None = None,
+    snapshot_delete_resolver: SnapshotDeleteResolver | None = None,
+    snapshot_delete_provider: SnapshotArtifactDeletionProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -753,6 +788,12 @@ def build_foundation_registry(
     )
     restore_provider = snapshot_restore_provider or cast(
         ManagedInstanceSnapshotApplyProvider, provider
+    )
+    delete_resolver = (
+        snapshot_delete_resolver or SqliteSnapshotDeleteResolver.production()
+    )
+    delete_provider = (
+        snapshot_delete_provider or LocalSnapshotArtifactDeletionProvider()
     )
     registry.register(
         name="ping",
@@ -1760,6 +1801,48 @@ def build_foundation_registry(
             "broker_snapshot_id": result.snapshot_id,
             "broker_snapshot_member_count": result.member_count,
             "broker_snapshot_databases_checked": result.recognized_databases_checked,
+        },
+    )
+
+    def delete_managed_snapshot_artifact(
+        params: DeleteManagedSnapshotArtifactParams,
+    ) -> DeleteManagedSnapshotArtifactResult:
+        audit_fields: dict[str, object] = {
+            "broker_snapshot_id": params.snapshot_id,
+        }
+        try:
+            spec = delete_resolver.resolve(params.snapshot_id)
+            outcome = delete_provider.delete_managed_snapshot_artifact(spec=spec)
+        except SnapshotStateError as error:
+            raise OperationError(
+                "snapshot_delete_incompatible",
+                "Canonical snapshot deletion state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except SnapshotArtifactDeletionError as error:
+            raise OperationError(
+                error.code,
+                error.safe_message,
+                audit_fields=audit_fields,
+            ) from error
+        if outcome.snapshot_id != spec.snapshot_id:
+            raise RuntimeError(
+                "Snapshot deletion adapter returned inconsistent identity"
+            )
+        return DeleteManagedSnapshotArtifactResult(
+            snapshot_id=str(outcome.snapshot_id),
+            artifact_absent=True,
+            artifact_was_present=outcome.artifact_was_present,
+        )
+
+    registry.register(
+        name="delete_managed_snapshot_artifact",
+        params_model=DeleteManagedSnapshotArtifactParams,
+        result_model=DeleteManagedSnapshotArtifactResult,
+        handler=delete_managed_snapshot_artifact,
+        audit_builder=lambda result: {
+            "broker_snapshot_id": result.snapshot_id,
+            "broker_snapshot_artifact_was_present": result.artifact_was_present,
         },
     )
     return registry

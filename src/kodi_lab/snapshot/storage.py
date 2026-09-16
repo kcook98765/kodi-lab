@@ -11,6 +11,7 @@ import tarfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from errno import ENOENT
 from pathlib import Path, PurePosixPath
 from typing import IO, Any, Literal, cast
 from uuid import UUID
@@ -39,6 +40,15 @@ _EXCLUDED_PREFIXES = (
 
 class SnapshotStorageError(RuntimeError):
     """Trusted snapshot storage rejected or could not publish an artifact."""
+
+    def __init__(self, code: str, safe_message: str) -> None:
+        self.code = code
+        self.safe_message = safe_message
+        super().__init__(safe_message)
+
+
+class SnapshotArtifactDeletionError(RuntimeError):
+    """The fixed UUID artifact subtree could not be removed safely."""
 
     def __init__(self, code: str, safe_message: str) -> None:
         self.code = code
@@ -209,6 +219,151 @@ def snapshot_directory(data_root: Path, snapshot_id: UUID) -> Path:
     """Derive the only allowed final artifact location from a UUID."""
 
     return data_root / "snapshots" / str(snapshot_id)
+
+
+def snapshot_artifact_presence(data_root: Path, snapshot_id: UUID) -> str:
+    """Inspect only the fixed UUID path without following its final component."""
+
+    path = snapshot_directory(data_root, snapshot_id)
+    try:
+        metadata = path.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        return "absent"
+    except OSError:
+        return "inconsistent"
+    return "directory" if stat.S_ISDIR(metadata.st_mode) else "inconsistent"
+
+
+def _unlink_snapshot_tree(directory_fd: int) -> None:
+    with os.scandir(directory_fd) as entries:
+        names = sorted(entry.name for entry in entries)
+    for name in names:
+        if not name or name in {".", ".."} or "/" in name or "\x00" in name:
+            raise SnapshotArtifactDeletionError(
+                "snapshot_delete_unsafe",
+                "Snapshot artifact contains an unsafe directory entry.",
+            )
+        try:
+            metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            if stat.S_ISDIR(metadata.st_mode):
+                child_fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=directory_fd,
+                )
+                try:
+                    opened = os.fstat(child_fd)
+                    if (opened.st_dev, opened.st_ino) != (
+                        metadata.st_dev,
+                        metadata.st_ino,
+                    ):
+                        raise SnapshotArtifactDeletionError(
+                            "snapshot_delete_race",
+                            "Snapshot artifact changed during deletion.",
+                        )
+                    _unlink_snapshot_tree(child_fd)
+                finally:
+                    os.close(child_fd)
+                os.rmdir(name, dir_fd=directory_fd)
+            else:
+                os.unlink(name, dir_fd=directory_fd)
+        except SnapshotArtifactDeletionError:
+            raise
+        except OSError as error:
+            raise SnapshotArtifactDeletionError(
+                "snapshot_delete_failed",
+                "Snapshot artifact could not be removed safely.",
+            ) from error
+
+
+def delete_snapshot_artifact(
+    *,
+    data_root: Path,
+    snapshot_id: UUID,
+    owner_uid: int = 0,
+    owner_gid: int,
+) -> bool:
+    """Remove one descriptor-relative UUID subtree; return whether it existed."""
+
+    snapshot_root = data_root / "snapshots"
+    try:
+        root_metadata = snapshot_root.stat(follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or root_metadata.st_uid != owner_uid
+            or root_metadata.st_gid != owner_gid
+            or stat.S_IMODE(root_metadata.st_mode) & 0o022
+        ):
+            raise SnapshotArtifactDeletionError(
+                "snapshot_delete_storage_unsafe",
+                "Snapshot storage root identity is not trusted.",
+            )
+        root_fd = os.open(snapshot_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except SnapshotArtifactDeletionError:
+        raise
+    except OSError as error:
+        raise SnapshotArtifactDeletionError(
+            "snapshot_delete_storage_unsafe",
+            "Snapshot storage root identity is not trusted.",
+        ) from error
+    name = str(snapshot_id)
+    target_fd: int | None = None
+    try:
+        try:
+            target_metadata = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+        except OSError as error:
+            if error.errno == ENOENT:
+                return False
+            raise
+        if (
+            not stat.S_ISDIR(target_metadata.st_mode)
+            or target_metadata.st_uid != owner_uid
+            or target_metadata.st_gid != owner_gid
+            or stat.S_IMODE(target_metadata.st_mode) & 0o022
+        ):
+            raise SnapshotArtifactDeletionError(
+                "snapshot_delete_target_unsafe",
+                "Snapshot artifact directory identity is not trusted.",
+            )
+        target_fd = os.open(
+            name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=root_fd,
+        )
+        opened = os.fstat(target_fd)
+        if (opened.st_dev, opened.st_ino) != (
+            target_metadata.st_dev,
+            target_metadata.st_ino,
+        ):
+            raise SnapshotArtifactDeletionError(
+                "snapshot_delete_race", "Snapshot artifact changed during deletion."
+            )
+        _unlink_snapshot_tree(target_fd)
+        os.close(target_fd)
+        target_fd = None
+        os.rmdir(name, dir_fd=root_fd)
+        os.fsync(root_fd)
+        try:
+            os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+        except OSError as error:
+            if error.errno == ENOENT:
+                return True
+            raise
+        raise SnapshotArtifactDeletionError(
+            "snapshot_delete_absence_unproven",
+            "Snapshot artifact absence could not be proven.",
+        )
+    except SnapshotArtifactDeletionError:
+        raise
+    except OSError as error:
+        raise SnapshotArtifactDeletionError(
+            "snapshot_delete_failed",
+            "Snapshot artifact could not be removed safely.",
+        ) from error
+    finally:
+        if target_fd is not None:
+            os.close(target_fd)
+        os.close(root_fd)
 
 
 def _normalized_source_path(name: str) -> str | None:

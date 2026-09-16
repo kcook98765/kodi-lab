@@ -410,3 +410,7 @@ class SnapshotCaptureClientError(RemoteBrokerError):
 
 class SnapshotRestoreClientError(RemoteBrokerError):
     """The broker could not safely apply and verify a trusted snapshot."""
+
+
+class SnapshotDeleteClientError(RemoteBrokerError):
+    """The broker could not safely delete one trusted snapshot artifact."""

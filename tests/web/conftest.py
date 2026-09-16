@@ -20,6 +20,7 @@ from kodi_lab.broker.docker_inventory import (
     KodiProcessState,
 )
 from kodi_lab.broker.operations import (
+    DeleteManagedSnapshotArtifactResult,
     DeprovisionManagedContainerResult,
     ManagedContainerInventoryEntry,
     ManagedContainerInventoryResult,
@@ -36,6 +37,7 @@ from kodi_lab.kodi.readiness import (
     ReadinessResult,
     UsabilityState,
 )
+from kodi_lab.snapshot.storage import delete_snapshot_artifact
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
@@ -62,6 +64,7 @@ class FakeBroker:
     process_state: KodiProcessState = KodiProcessState.RUNNING
     calls: list[tuple[str, dict[str, object]]] = field(default_factory=list)
     inventory_error: BaseException | None = None
+    snapshot_data_root: Path | None = None
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         if self.inventory_error is not None:
@@ -174,6 +177,25 @@ class FakeBroker:
             removed_container_id=expected_container_id,
             runtime_revision_id=expected_runtime_revision_id,
             removed=True,
+        )
+
+    def delete_managed_snapshot_artifact(
+        self, *, snapshot_id: str
+    ) -> DeleteManagedSnapshotArtifactResult:
+        assert self.snapshot_data_root is not None
+        snapshots_root = self.snapshot_data_root / "snapshots"
+        stat_result = snapshots_root.stat()
+        delete_snapshot_artifact(
+            data_root=self.snapshot_data_root,
+            snapshot_id=UUID(snapshot_id),
+            owner_uid=stat_result.st_uid,
+            owner_gid=stat_result.st_gid,
+        )
+        self.calls.append(("delete_snapshot", {"snapshot_id": snapshot_id}))
+        return DeleteManagedSnapshotArtifactResult(
+            snapshot_id=snapshot_id,
+            artifact_absent=True,
+            artifact_was_present=True,
         )
 
 
@@ -292,16 +314,23 @@ def seed_instance(factory: sessionmaker[Session]) -> None:
 
 
 @pytest.fixture
-def broker() -> FakeBroker:
-    return FakeBroker()
+def data_root(tmp_path: Path) -> Path:
+    return tmp_path / "web-data"
 
 
 @pytest.fixture
-def client(database: sessionmaker[Session], broker: FakeBroker) -> Iterator[TestClient]:
+def broker(data_root: Path) -> FakeBroker:
+    return FakeBroker(snapshot_data_root=data_root)
+
+
+@pytest.fixture
+def client(
+    database: sessionmaker[Session], broker: FakeBroker, data_root: Path
+) -> Iterator[TestClient]:
     auth = WebAuthenticationService(database)
     auth.set_password(PASSWORD)
     app = create_app(
-        settings=Settings(),
+        settings=Settings(data_root=data_root),
         session_factory=database,
         broker=broker,
         readiness=ReadinessTaskRegistry(max_workers=1),

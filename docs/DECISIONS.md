@@ -1175,3 +1175,58 @@ details that it did not specify.
   `confirmed=true`, revalidates current eligibility, returns 202, and exposes
   only bounded operation status. Snapshot artifacts and manifests remain
   immutable, secret-bearing, and unavailable to Web download or browsing.
+
+## D-0096: Explicit artifact-first snapshot deletion
+
+- Status: approved for Phase 7 Step 4
+- Decision: only an authenticated administrator may explicitly delete one
+  Snapshot. Available, failed, and quarantined records atomically enter the
+  non-restorable `deleting` state before filesystem work. Successful deletion
+  removes the exact artifact first, independently proves absence, and only then
+  removes the Snapshot row. There is no TTL, retention cap, pruning, bulk
+  deletion, or automatic disk-pressure cleanup.
+- History: `SnapshotDeleteOperation` is a separate bounded durable record. It
+  copies the Snapshot and source ManagedInstance UUIDs and therefore survives
+  removal of the Snapshot row; create and restore operation histories retain
+  their immutable target UUIDs for the same reason. The primary Snapshot table
+  has no deletion tombstone.
+
+## D-0097: UUID-only semantic artifact removal
+
+- Status: approved for Phase 7 Step 4
+- Decision: `delete_managed_snapshot_artifact` accepts only a canonical
+  Snapshot UUID. The broker proves the trusted record is `deleting`, derives
+  the fixed `KODI_LAB_DATA_ROOT/snapshots/<uuid>` path, verifies storage and
+  target identity, and recursively removes only that descriptor-relative UUID
+  subtree without following links. No path, filename, wildcard, recursive
+  option, shell, Docker, or generic filesystem authority is exposed.
+- Absence: an absent artifact is acceptable only after the Snapshot is already
+  `deleting`, covering the proven crash window after filesystem removal. An
+  available Snapshot whose artifact is absent cannot be silently deleted.
+
+## D-0098: Delete-specific global coordination and reconciliation
+
+- Status: approved for Phase 7 Step 4
+- Decision: snapshot delete joins create and restore under the singleton
+  global-heavy lease, but takes no per-instance mutation lease because it does
+  not change Kodi, container, runtime, or fixture state. Snapshot `deleting`
+  also independently blocks restore and duplicate deletion. Ordinary source
+  lifecycle and reset are not globally serialized by deletion.
+- Failure: metadata is never removed without independently proven artifact
+  absence. Partial or uncertain removal leaves the Snapshot `deleting` and the
+  operation failed or reconciliation-required; it never rolls back to
+  available without proof that deletion did not begin. Expired running delete
+  work is inspected and terminalized reconciliation-required, never
+  destructively resumed.
+
+## D-0099: Per-snapshot Web deletion is confirmation-only
+
+- Status: approved for Phase 7 Step 4
+- Decision: authenticated same-origin, CSRF-protected Web confirmation exposes
+  safe Snapshot metadata and warns that deletion is permanent, disables future
+  restore, and does not alter the source Kodi instance. POST accepts only
+  `confirmed=true`, revalidates the source-instance association and state,
+  queues durable work, and returns 202. While deleting, restore and duplicate
+  delete actions disappear; after success the Snapshot disappears while safe
+  operation history remains. No download, content view, retention control,
+  bulk delete, or delete-all route exists.

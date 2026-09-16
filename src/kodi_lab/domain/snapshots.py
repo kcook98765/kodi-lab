@@ -15,6 +15,7 @@ class SnapshotState(StrEnum):
     AVAILABLE = "available"
     FAILED = "failed"
     QUARANTINED = "quarantined"
+    DELETING = "deleting"
 
 
 class SnapshotValidationResult(StrEnum):
@@ -82,6 +83,32 @@ class SnapshotRestoreReconciliationState(StrEnum):
     AMBIGUOUS_TRANSITIONAL = "ambiguous_transitional"
 
 
+class SnapshotDeleteOperationState(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class SnapshotDeleteOperationPhase(StrEnum):
+    QUEUED = "queued"
+    ACQUIRING_HEAVY_LEASE = "acquiring_heavy_lease"
+    VALIDATING = "validating"
+    DELETING_ARTIFACT = "deleting_artifact"
+    VERIFYING_ABSENCE = "verifying_absence"
+    DELETING_METADATA = "deleting_metadata"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class SnapshotDeleteReconciliationState(StrEnum):
+    SNAPSHOT_AND_ARTIFACT_PRESENT = "snapshot_and_artifact_present"
+    SNAPSHOT_PRESENT_ARTIFACT_ABSENT = "snapshot_present_artifact_absent"
+    INCONSISTENT_STORAGE = "inconsistent_storage"
+
+
 class ManagedInstanceMutationKind(StrEnum):
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -94,6 +121,7 @@ class ManagedInstanceMutationKind(StrEnum):
 class GlobalHeavyOperationKind(StrEnum):
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
+    SNAPSHOT_DELETE = "snapshot_delete"
 
 
 def normalize_snapshot_label(value: str | None) -> str | None:
@@ -199,4 +227,29 @@ class SnapshotRestoreOperation:
         return self.state in {
             SnapshotRestoreOperationState.QUEUED,
             SnapshotRestoreOperationState.RUNNING,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotDeleteOperation:
+    id: UUID
+    snapshot_id: UUID
+    managed_instance_id: UUID
+    prior_snapshot_state: SnapshotState
+    requested_at: datetime
+    state: SnapshotDeleteOperationState = SnapshotDeleteOperationState.QUEUED
+    phase: SnapshotDeleteOperationPhase = SnapshotDeleteOperationPhase.QUEUED
+    started_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    completed_at: datetime | None = None
+    failure_reason: str | None = None
+    reconciliation_required: bool = False
+    lease_token_digest: str | None = None
+    lease_expires_at: datetime | None = None
+
+    @property
+    def active(self) -> bool:
+        return self.state in {
+            SnapshotDeleteOperationState.QUEUED,
+            SnapshotDeleteOperationState.RUNNING,
         }

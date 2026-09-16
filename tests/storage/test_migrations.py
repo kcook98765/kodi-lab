@@ -45,6 +45,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "runtime_revisions",
         "runtime_validation_evidence",
         "snapshot_create_operations",
+        "snapshot_delete_operations",
         "snapshot_restore_operations",
         "snapshots",
         "targets",
@@ -769,7 +770,7 @@ def test_populated_snapshot_restore_state_refuses_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    command.upgrade(config, "0013_disposable_snapshot_restore")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
     digest = "sha256:" + "6" * 64
@@ -848,6 +849,140 @@ def test_populated_snapshot_restore_state_refuses_downgrade(
         assert (
             connection.scalar(text("SELECT COUNT(*) FROM snapshot_restore_operations"))
             == 1
+        )
+    engine.dispose()
+
+
+def test_0014_preserves_history_across_snapshot_delete_and_refuses_lossy_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0013_disposable_snapshot_restore")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-16T00:00:00.000000Z"
+    digest = "sha256:" + "7" * 64
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id, slug, kodi_version, support_tier) VALUES "
+                "('89700000-0000-4000-8000-000000000001', 'delete-test', "
+                "'21.3', 'current')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
+                "revision_number, source_kind, source_reference, content_digest, "
+                "manifest_reference, manifest_digest, built_at, approval_state, "
+                "requires_trusted_build_confirmation) VALUES "
+                "('89700000-0000-4000-8000-000000000002', "
+                "'89700000-0000-4000-8000-000000000001', 1, 'test', 'test', "
+                ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
+            ),
+            {"digest": digest, "timestamp": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO targets (id, name, target_type, kodi_version, "
+                "availability, health, connection_state) VALUES "
+                "('89700000-0000-4000-8000-000000000003', 'delete', 'managed', "
+                "'21.3', 'unavailable', 'warning', 'disconnected')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances (target_id, instance_type, "
+                "runtime_revision_id, runtime_state, start_on_host_boot) VALUES "
+                "('89700000-0000-4000-8000-000000000003', 'disposable', "
+                "'89700000-0000-4000-8000-000000000002', 'stopped', 0)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO snapshots (id, source_managed_instance_id, "
+                "runtime_revision_id, captured_at, prior_runtime_state, "
+                "manifest_version, archive_digest, manifest_digest, archive_size, "
+                "member_count, state, validation_at, validation_result) VALUES "
+                "('89700000-0000-4000-8000-000000000004', "
+                "'89700000-0000-4000-8000-000000000003', "
+                "'89700000-0000-4000-8000-000000000002', :timestamp, 'stopped', "
+                "1, :digest, :digest, 10240, 1, 'available', :timestamp, 'passed')"
+            ),
+            {"digest": digest, "timestamp": timestamp},
+        )
+        for table, operation_id in (
+            ("snapshot_create_operations", "89700000-0000-4000-8000-000000000005"),
+            ("snapshot_restore_operations", "89700000-0000-4000-8000-000000000006"),
+        ):
+            connection.execute(
+                text(
+                    f"INSERT INTO {table} (id, snapshot_id, managed_instance_id, "
+                    "requested_at, completed_at, state, phase, "
+                    "reconciliation_required) VALUES (:id, "
+                    "'89700000-0000-4000-8000-000000000004', "
+                    "'89700000-0000-4000-8000-000000000003', :timestamp, "
+                    ":timestamp, 'succeeded', 'succeeded', 0)"
+                ),
+                {"id": operation_id, "timestamp": timestamp},
+            )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        assert not any(
+            foreign_key["constrained_columns"] == ["snapshot_id"]
+            for table in (
+                "snapshot_create_operations",
+                "snapshot_restore_operations",
+            )
+            for foreign_key in inspect(connection).get_foreign_keys(table)
+        )
+        connection.execute(
+            text(
+                "UPDATE snapshots SET state='deleting' WHERE "
+                "id='89700000-0000-4000-8000-000000000004'"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO snapshot_delete_operations "
+                "(id, snapshot_id, managed_instance_id, prior_snapshot_state, "
+                "requested_at, completed_at, state, phase, reconciliation_required) "
+                "VALUES ('89700000-0000-4000-8000-000000000007', "
+                "'89700000-0000-4000-8000-000000000004', "
+                "'89700000-0000-4000-8000-000000000003', 'available', :timestamp, "
+                ":timestamp, 'succeeded', 'succeeded', 0)"
+            ),
+            {"timestamp": timestamp},
+        )
+        connection.execute(
+            text(
+                "DELETE FROM snapshots WHERE id='89700000-0000-4000-8000-000000000004'"
+            )
+        )
+        assert connection.scalar(text("SELECT COUNT(*) FROM snapshots")) == 0
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM snapshot_create_operations"))
+            == 1
+        )
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM snapshot_restore_operations"))
+            == 1
+        )
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM snapshot_delete_operations"))
+            == 1
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated snapshot deletion history"):
+        command.downgrade(config, "0013_disposable_snapshot_restore")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0014_snapshot_deletion"
         )
     engine.dispose()
 

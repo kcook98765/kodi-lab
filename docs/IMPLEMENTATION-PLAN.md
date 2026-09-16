@@ -364,11 +364,22 @@ required rather than automatically retried.
 
 Authenticated Web adds destructive confirmation, a strict confirmation-only
 202 POST, and bounded status. No safety snapshot is automatic. Snapshot bytes
-remain immutable and unavailable for browser access; deletion, persistence,
+remain immutable and unavailable for browser access; persistence,
 cross-instance/cross-version behavior, and generic archive authority remain
 absent.
 
-After live restore repeatability is proven, the smallest next milestone should
-be snapshot deletion. It can define one narrow destructive storage lifecycle
-without first broadening instance semantics to persistent profiles or coupling
-Snapshot retention to ManagedInstance deletion.
+Phase 7 Step 4 implements explicit deletion of one user-selected Snapshot.
+Queueing atomically marks it deleting and creates a typed durable operation.
+The UUID-only broker operation removes the exact descriptor-relative artifact
+subtree; application absence proof precedes Snapshot-row removal, while copied
+operation identity remains as bounded history. Delete shares the singleton
+global-heavy lease with create and restore but takes no instance mutation lease.
+Authenticated Web provides permanent-delete confirmation, a strict 202 POST,
+and bounded status only. There is no automatic retention, bulk/delete-all,
+archive access, instance deletion, or persistent Snapshot behavior.
+
+After live deletion and sibling-artifact isolation are proven, the smallest
+next milestone should define instance deletion with explicit user-Snapshot
+preservation. That boundary must be resolved before source-bound Snapshot rows
+can safely outlive their ManagedInstance; persistent-instance snapshots remain
+a larger, separate consistency design.

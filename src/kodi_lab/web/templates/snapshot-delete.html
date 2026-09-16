@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <title>Delete snapshot · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main class="confirmation-panel">
+      <h1>Permanently delete snapshot</h1>
+      <h2>{{ instance.name }}</h2>
+      <dl>
+        <dt>Snapshot</dt><dd>{{ snapshot.label or snapshot.snapshot_id }}</dd>
+        <dt>Snapshot ID</dt><dd>{{ snapshot.snapshot_id }}</dd>
+        <dt>Captured</dt><dd>{{ snapshot.captured_at }}</dd>
+        <dt>Size</dt><dd>{{ snapshot.archive_size if snapshot.archive_size is not none else 'No published artifact' }}</dd>
+        <dt>Exact runtime</dt><dd>Kodi {{ snapshot.kodi_release }} · revision {{ snapshot.runtime_revision_number }}</dd>
+        <dt>Fixture</dt><dd>{{ snapshot.fixture_slug or 'None' }}</dd>
+      </dl>
+      <p class="notice">Deletion is permanent. This snapshot can no longer be restored.</p>
+      <p>This does not alter the currently running or stopped Kodi instance.</p>
+      <p id="snapshot-delete-error" class="error" role="alert" hidden></p>
+      <div class="actions">
+        <button id="confirm-snapshot-delete" type="button" data-instance-id="{{ instance.managed_instance_id }}" data-snapshot-id="{{ snapshot.snapshot_id }}">Permanently delete snapshot</button>
+        <a href="/instances/{{ instance.managed_instance_id }}/snapshots">Cancel</a>
+      </div>
+    </main>
+    <script src="{{ url_for('static', path='/snapshot-delete.js') }}" defer></script>
+  </body>
+</html>

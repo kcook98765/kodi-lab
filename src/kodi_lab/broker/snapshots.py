@@ -17,7 +17,11 @@ from kodi_lab.broker.errors import (
 )
 from kodi_lab.config import Settings
 from kodi_lab.domain import InstanceType, SnapshotState, SnapshotValidationResult
-from kodi_lab.snapshot.storage import SnapshotArtifactIdentity, SnapshotCaptureContext
+from kodi_lab.snapshot.storage import (
+    SnapshotArtifactIdentity,
+    SnapshotCaptureContext,
+    delete_snapshot_artifact,
+)
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.repositories import (
     FixtureDefinitionRepository,
@@ -45,6 +49,41 @@ class SnapshotRestoreSpec:
     owner_gid: int
 
 
+@dataclass(frozen=True, slots=True)
+class SnapshotDeleteSpec:
+    snapshot_id: UUID
+    data_root: Path
+    owner_uid: int
+    owner_gid: int
+
+
+@dataclass(frozen=True, slots=True)
+class DeletedSnapshotArtifactRecord:
+    snapshot_id: UUID
+    artifact_was_present: bool
+
+
+class SnapshotArtifactDeletionProvider(Protocol):
+    def delete_managed_snapshot_artifact(
+        self, *, spec: SnapshotDeleteSpec
+    ) -> DeletedSnapshotArtifactRecord: ...
+
+
+class LocalSnapshotArtifactDeletionProvider:
+    """Root broker adapter for one fixed UUID-derived artifact subtree."""
+
+    def delete_managed_snapshot_artifact(
+        self, *, spec: SnapshotDeleteSpec
+    ) -> DeletedSnapshotArtifactRecord:
+        present = delete_snapshot_artifact(
+            data_root=spec.data_root,
+            snapshot_id=spec.snapshot_id,
+            owner_uid=spec.owner_uid,
+            owner_gid=spec.owner_gid,
+        )
+        return DeletedSnapshotArtifactRecord(spec.snapshot_id, present)
+
+
 class SnapshotCaptureResolver(Protocol):
     def resolve(
         self, snapshot_id: str, managed_instance_id: str
@@ -55,6 +94,10 @@ class SnapshotRestoreResolver(Protocol):
     def resolve(
         self, snapshot_id: str, managed_instance_id: str
     ) -> SnapshotRestoreSpec: ...
+
+
+class SnapshotDeleteResolver(Protocol):
+    def resolve(self, snapshot_id: str) -> SnapshotDeleteSpec: ...
 
 
 class SqliteSnapshotCaptureResolver:
@@ -281,4 +324,71 @@ class SqliteSnapshotRestoreResolver:
         except SQLAlchemyError as error:
             raise SnapshotStateError(
                 "Canonical snapshot restore state could not be read"
+            ) from error
+
+
+class SqliteSnapshotDeleteResolver:
+    """Resolve one deleting Snapshot to its fixed central artifact identity."""
+
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        *,
+        data_root: Path,
+        owner_uid: int = 0,
+        owner_gid: int | None,
+    ) -> None:
+        self._session_factory = session_factory
+        self._data_root = data_root
+        self._owner_uid = owner_uid
+        self._owner_gid = owner_gid
+
+    @classmethod
+    def production(cls) -> SqliteSnapshotDeleteResolver:
+        settings = Settings()
+        engine = create_database_engine(settings.database_url)
+        return cls(
+            sessionmaker(engine, expire_on_commit=False),
+            data_root=settings.data_root,
+            owner_gid=None,
+        )
+
+    def resolve(self, snapshot_id: str) -> SnapshotDeleteSpec:
+        try:
+            identity = UUID(snapshot_id)
+            if str(identity) != snapshot_id:
+                raise ValueError
+        except ValueError as error:
+            raise SnapshotStateError("Snapshot identity is not canonical") from error
+        try:
+            with self._session_factory() as session:
+                snapshot = SnapshotRepository(session).get(identity)
+                if snapshot is None or snapshot.state is not SnapshotState.DELETING:
+                    raise SnapshotStateError("Snapshot is not awaiting deletion")
+                if (
+                    ManagedInstanceRepository(session).get(
+                        snapshot.source_managed_instance_id
+                    )
+                    is None
+                ):
+                    raise SnapshotStateError("Snapshot source state does not exist")
+                owner_gid = self._owner_gid
+                if owner_gid is None:
+                    try:
+                        owner_gid = grp.getgrnam("kodi-lab").gr_gid
+                    except KeyError as error:
+                        raise SnapshotStateError(
+                            "Dedicated snapshot storage group is unavailable"
+                        ) from error
+                return SnapshotDeleteSpec(
+                    snapshot_id=identity,
+                    data_root=self._data_root,
+                    owner_uid=self._owner_uid,
+                    owner_gid=owner_gid,
+                )
+        except SnapshotStateError:
+            raise
+        except SQLAlchemyError as error:
+            raise SnapshotStateError(
+                "Canonical snapshot deletion state could not be read"
             ) from error

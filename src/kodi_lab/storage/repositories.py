@@ -25,6 +25,9 @@ from kodi_lab.domain import (
     SnapshotCreateOperation,
     SnapshotCreateOperationPhase,
     SnapshotCreateOperationState,
+    SnapshotDeleteOperation,
+    SnapshotDeleteOperationPhase,
+    SnapshotDeleteOperationState,
     SnapshotRestoreOperation,
     SnapshotRestoreOperationPhase,
     SnapshotRestoreOperationState,
@@ -44,6 +47,7 @@ from kodi_lab.storage.models import (
     RuntimeRevisionRow,
     RuntimeValidationEvidenceRow,
     SnapshotCreateOperationRow,
+    SnapshotDeleteOperationRow,
     SnapshotRestoreOperationRow,
     SnapshotRow,
     TargetRow,
@@ -125,6 +129,37 @@ def _snapshot_restore_operation_from_row(
         prior_source_runtime_state=row.prior_source_runtime_state,
         old_container_id=row.old_container_id,
         fresh_container_id=row.fresh_container_id,
+        started_at=(
+            None if row.started_at is None else _timestamp_from_text(row.started_at)
+        ),
+        heartbeat_at=(
+            None if row.heartbeat_at is None else _timestamp_from_text(row.heartbeat_at)
+        ),
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=(
+            None
+            if row.lease_expires_at is None
+            else _timestamp_from_text(row.lease_expires_at)
+        ),
+    )
+
+
+def _snapshot_delete_operation_from_row(
+    row: SnapshotDeleteOperationRow,
+) -> SnapshotDeleteOperation:
+    return SnapshotDeleteOperation(
+        id=UUID(row.id),
+        snapshot_id=UUID(row.snapshot_id),
+        managed_instance_id=UUID(row.managed_instance_id),
+        prior_snapshot_state=row.prior_snapshot_state,
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
         started_at=(
             None if row.started_at is None else _timestamp_from_text(row.started_at)
         ),
@@ -997,6 +1032,23 @@ class SnapshotRepository:
         )
         return int(getattr(result, "rowcount", 0)) == 1
 
+    def mark_deleting(self, snapshot_id: UUID, *, prior_state: SnapshotState) -> bool:
+        result = self._session.execute(
+            update(SnapshotRow)
+            .where(SnapshotRow.id == str(snapshot_id), SnapshotRow.state == prior_state)
+            .values(state=SnapshotState.DELETING)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def delete_deleting(self, snapshot_id: UUID) -> bool:
+        result = self._session.execute(
+            delete(SnapshotRow).where(
+                SnapshotRow.id == str(snapshot_id),
+                SnapshotRow.state == SnapshotState.DELETING,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
 
 class SnapshotCreateOperationRepository:
     def __init__(self, session: Session) -> None:
@@ -1433,6 +1485,190 @@ class SnapshotRestoreOperationRepository:
         result = self._session.execute(
             delete(SnapshotRestoreOperationRow).where(
                 SnapshotRestoreOperationRow.id.in_(rows)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
+class SnapshotDeleteOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: SnapshotDeleteOperation) -> None:
+        self._session.add(
+            SnapshotDeleteOperationRow(
+                id=str(operation.id),
+                snapshot_id=str(operation.snapshot_id),
+                managed_instance_id=str(operation.managed_instance_id),
+                prior_snapshot_state=operation.prior_snapshot_state,
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+                reconciliation_required=False,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> SnapshotDeleteOperation | None:
+        row = self._session.get(SnapshotDeleteOperationRow, str(operation_id))
+        return None if row is None else _snapshot_delete_operation_from_row(row)
+
+    def active_for_snapshot(self, snapshot_id: UUID) -> SnapshotDeleteOperation | None:
+        row = self._session.scalar(
+            select(SnapshotDeleteOperationRow)
+            .where(
+                SnapshotDeleteOperationRow.snapshot_id == str(snapshot_id),
+                SnapshotDeleteOperationRow.state.in_(
+                    (
+                        SnapshotDeleteOperationState.QUEUED,
+                        SnapshotDeleteOperationState.RUNNING,
+                    )
+                ),
+            )
+            .order_by(SnapshotDeleteOperationRow.requested_at.desc())
+            .limit(1)
+        )
+        return None if row is None else _snapshot_delete_operation_from_row(row)
+
+    def list_queued(self) -> list[SnapshotDeleteOperation]:
+        rows = self._session.scalars(
+            select(SnapshotDeleteOperationRow)
+            .where(
+                SnapshotDeleteOperationRow.state == SnapshotDeleteOperationState.QUEUED
+            )
+            .order_by(SnapshotDeleteOperationRow.requested_at)
+        )
+        return [_snapshot_delete_operation_from_row(row) for row in rows]
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(SnapshotDeleteOperationRow)
+            .where(
+                SnapshotDeleteOperationRow.id == str(operation_id),
+                SnapshotDeleteOperationRow.state == SnapshotDeleteOperationState.QUEUED,
+            )
+            .values(
+                state=SnapshotDeleteOperationState.RUNNING,
+                phase=SnapshotDeleteOperationPhase.ACQUIRING_HEAVY_LEASE,
+                started_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: SnapshotDeleteOperationPhase,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(SnapshotDeleteOperationRow)
+            .where(
+                SnapshotDeleteOperationRow.id == str(operation_id),
+                SnapshotDeleteOperationRow.state
+                == SnapshotDeleteOperationState.RUNNING,
+                SnapshotDeleteOperationRow.lease_token_digest == token_digest,
+                SnapshotDeleteOperationRow.lease_expires_at > _timestamp_to_text(now),
+            )
+            .values(
+                phase=phase,
+                heartbeat_at=_timestamp_to_text(now),
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: SnapshotDeleteOperationState,
+        phase: SnapshotDeleteOperationPhase,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(SnapshotDeleteOperationRow)
+            .where(
+                SnapshotDeleteOperationRow.id == str(operation_id),
+                SnapshotDeleteOperationRow.state
+                == SnapshotDeleteOperationState.RUNNING,
+                SnapshotDeleteOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                state=state,
+                phase=phase,
+                heartbeat_at=_timestamp_to_text(now),
+                completed_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+        result = self._session.execute(
+            update(SnapshotDeleteOperationRow)
+            .where(
+                SnapshotDeleteOperationRow.id == str(operation_id),
+                SnapshotDeleteOperationRow.state
+                == SnapshotDeleteOperationState.RUNNING,
+                SnapshotDeleteOperationRow.lease_expires_at <= _timestamp_to_text(now),
+            )
+            .values(
+                state=SnapshotDeleteOperationState.RECONCILIATION_REQUIRED,
+                heartbeat_at=_timestamp_to_text(now),
+                completed_at=_timestamp_to_text(now),
+                failure_reason="Snapshot deletion requires operator reconciliation.",
+                reconciliation_required=True,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        rows = list(
+            self._session.scalars(
+                select(SnapshotDeleteOperationRow.id)
+                .where(
+                    SnapshotDeleteOperationRow.managed_instance_id == str(instance_id),
+                    SnapshotDeleteOperationRow.state.not_in(
+                        (
+                            SnapshotDeleteOperationState.QUEUED,
+                            SnapshotDeleteOperationState.RUNNING,
+                        )
+                    ),
+                )
+                .order_by(
+                    SnapshotDeleteOperationRow.requested_at.desc(),
+                    SnapshotDeleteOperationRow.id.desc(),
+                )
+                .offset(retain)
+            )
+        )
+        if not rows:
+            return 0
+        result = self._session.execute(
+            delete(SnapshotDeleteOperationRow).where(
+                SnapshotDeleteOperationRow.id.in_(rows)
             )
         )
         return int(getattr(result, "rowcount", 0))

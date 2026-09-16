@@ -49,6 +49,7 @@ from kodi_lab.broker.errors import (
     RuntimeRevisionPreconditionClientError,
     RuntimeStatePreconditionClientError,
     SnapshotCaptureClientError,
+    SnapshotDeleteClientError,
     SnapshotPrerequisiteClientError,
     SnapshotRestoreClientError,
     TrailingFrameDataError,
@@ -63,6 +64,8 @@ from kodi_lab.broker.operations import (
     CapabilitiesResult,
     CaptureManagedInstanceSnapshotParams,
     CaptureManagedInstanceSnapshotResult,
+    DeleteManagedSnapshotArtifactParams,
+    DeleteManagedSnapshotArtifactResult,
     DeprovisionManagedContainerParams,
     DeprovisionManagedContainerResult,
     EmptyParams,
@@ -398,6 +401,29 @@ class BrokerClient:
             )
         return result
 
+    def delete_managed_snapshot_artifact(
+        self, *, snapshot_id: str
+    ) -> DeleteManagedSnapshotArtifactResult:
+        """Delete only the broker-resolved UUID artifact subtree."""
+
+        try:
+            params = DeleteManagedSnapshotArtifactParams(snapshot_id=snapshot_id)
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "snapshot deletion request failed local validation"
+            ) from error
+        result = self._call(
+            "delete_managed_snapshot_artifact",
+            params,
+            DeleteManagedSnapshotArtifactResult,
+            response_timeout=600.0,
+        )
+        if result.snapshot_id != snapshot_id or not result.artifact_absent:
+            raise ClientProtocolError(
+                "snapshot deletion result identity does not match the request"
+            )
+        return result
+
     def _call(
         self,
         operation: str,
@@ -598,6 +624,13 @@ class BrokerClient:
                 "insufficient_snapshot_storage": SnapshotCaptureClientError,
                 "snapshot_restore_incompatible": SnapshotPrerequisiteClientError,
                 "snapshot_restore_failed": SnapshotRestoreClientError,
+                "snapshot_delete_incompatible": SnapshotPrerequisiteClientError,
+                "snapshot_delete_storage_unsafe": SnapshotDeleteClientError,
+                "snapshot_delete_target_unsafe": SnapshotDeleteClientError,
+                "snapshot_delete_unsafe": SnapshotDeleteClientError,
+                "snapshot_delete_race": SnapshotDeleteClientError,
+                "snapshot_delete_failed": SnapshotDeleteClientError,
+                "snapshot_delete_absence_unproven": SnapshotDeleteClientError,
             }
             error_type = error_types.get(error_response.error.code, RemoteBrokerError)
             raise error_type(

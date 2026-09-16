@@ -1,10 +1,12 @@
 # Phase 7 snapshot contract
 
-Phase 7 Steps 2 and 3 implement creation and source-bound restore of centrally
-stored immutable snapshots for disposable ManagedInstances only. A Snapshot is captured mutable instance state;
+Phase 7 Steps 2 through 4 implement creation, source-bound restore, and explicit
+deletion of centrally stored immutable snapshots for disposable ManagedInstances
+only. A Snapshot is captured mutable instance state;
 it is neither a RuntimeRevision, a FixtureDefinition, nor a reset baseline.
-Deletion, persistent snapshots, archive transfer, content browsing,
-incremental storage, compression, and cross-revision behavior are deferred.
+Persistent snapshots, instance deletion/preservation, archive transfer, content
+browsing, incremental storage, compression, and cross-revision behavior are
+deferred.
 
 ## Content and capture state
 
@@ -83,7 +85,7 @@ failed or quarantined non-restorable Snapshot.
 `Snapshot` durably records immutable source/revision/fixture/capture identity,
 optional validated label, manifest version, digests, archive size/member count,
 availability state, and validation result/time. Available snapshots have no
-automatic pruning. Delete is absent.
+automatic pruning.
 
 `SnapshotCreateOperation` is a separate durable workflow with queued, running,
 succeeded, failed, and reconciliation-required states and bounded real phases.
@@ -95,7 +97,7 @@ existing bounded operation convention.
 A closed `ManagedInstanceMutationLease` excludes reset, snapshot create/
 restore, lifecycle, fixture assignment, and runtime reassignment for one
 instance. Reset retains its own operation model. A singleton global-heavy lease
-allows only one create or restore across the lab; ordinary lifecycle on
+allows only one create, restore, or delete across the lab; ordinary lifecycle on
 other instances remains independent. SQLite unique/conditional writes, opaque
 token digests, expiry, and phase renewal enforce ownership across processes.
 
@@ -117,7 +119,8 @@ state, central local storage, and lack of automatic retention.
 
 Snapshots are secret-bearing. Web never exposes storage paths, member names,
 raw manifests, archive bytes, credentials, media paths, preview, download,
-import, or delete controls.
+or import authority. Deletion is available only through the explicit bounded
+per-Snapshot workflow below.
 
 ## Failure and identity semantics
 
@@ -186,3 +189,60 @@ confirmation states that current disposable state is discarded and no
 automatic safety snapshot is created. It exposes no archive, manifest, member,
 path, container, runtime-selection, fixture-selection, download, or repair
 authority.
+
+## Explicit snapshot deletion contract
+
+Deletion is administrator-initiated only. There is no TTL, automatic pruning,
+retention cap, disk-pressure policy, bulk operation, or delete-all control. One
+available, failed, or quarantined Snapshot may be selected through its source
+ManagedInstance route. Queueing atomically changes it to `deleting` and creates
+a separate `SnapshotDeleteOperation`; creating and deleting states are not
+eligible. Once deleting, the Snapshot is immediately non-restorable and cannot
+receive a second delete operation.
+
+The delete operation records copied Snapshot and source-instance UUIDs, prior
+terminal state, bounded timestamps/state/phase, lease ownership, and safe
+failure status. It intentionally has no retaining Snapshot foreign key, so the
+history survives successful Snapshot-row removal. Existing create and restore
+operation records likewise retain copied target UUID identity. Terminal delete
+history follows the bounded operation convention and stores no member, content,
+archive-path, or secret data.
+
+Deletion follows one ordering: transition to deleting, acquire the singleton
+global-heavy lease, invoke the broker, independently prove the UUID directory
+absent, delete Snapshot metadata, then terminalize operation success in the same
+database transaction. Artifact removal therefore always precedes metadata
+removal. No Snapshot tombstone remains in the primary table. The source
+ManagedInstance and its container, pin, fixture, and runtime state are not
+mutated, so deletion does not acquire the per-instance mutation lease.
+
+`delete_managed_snapshot_artifact` accepts exactly one canonical Snapshot UUID.
+Broker-side persistence must prove that Snapshot exists in `deleting` state.
+The broker derives only
+`KODI_LAB_DATA_ROOT/snapshots/<snapshot-uuid>`, verifies root and target
+ownership/modes, opens both without following links, and recursively removes
+only descriptor-relative children. Symlinks are unlinked rather than followed;
+the snapshots root, siblings, staging directories, and outside paths are never
+targets. No host path, filename, wildcard, recursive flag, Docker field, shell,
+or generic deletion authority crosses the protocol.
+
+An absent exact artifact is acceptable only for an already-deleting Snapshot,
+including failed/quarantined captures with no published artifact and the crash
+window after broker removal. An available Snapshot missing its artifact cannot
+be silently treated as deleted. The application independently checks the fixed
+UUID path after the broker returns before it removes metadata.
+
+Failure or uncertainty after filesystem deletion begins leaves the Snapshot
+`deleting` and the operation failed or reconciliation-required; it never assumes
+the artifact is intact and never rolls back to available. Trusted read-only
+inspection distinguishes row-plus-artifact present, row-plus-artifact absent,
+and inconsistent storage. Expired running delete operations are terminalized
+reconciliation-required and never automatically invoke deletion again.
+
+Authenticated Web confirmation displays only safe capture metadata and warns
+that deletion is permanent, prevents future restore, and does not alter the
+current Kodi instance. The same-origin CSRF-protected POST accepts only
+`confirmed=true`, returns 202, and exposes bounded operation status. Deleting
+Snapshots show pending status without restore or duplicate-delete actions;
+successful ones disappear from the list. No content, member, manifest, path,
+download, retention, bulk, or automatic deletion interface exists.

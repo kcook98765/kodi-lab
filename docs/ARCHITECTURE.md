@@ -352,13 +352,13 @@ existing reset service. Active reset blocks Web lifecycle and trusted
 fixture/revision changes. Browser input cannot select revision, fixture,
 container, image, phase, or operation authority; Web retains no Docker socket.
 
-## Phase 7 disposable snapshot creation and restore
+## Phase 7 disposable snapshot creation, restore, and deletion
 
 Snapshot creation is a distinct typed workflow over mutable Kodi profile
 state. It does not alter RuntimeRevision identity, FixtureDefinition assignment,
-or reset semantics. Phase 7 Steps 2 and 3 support provisioned disposable
-instances only and deliberately supply no delete, import/export, download, or
-persistent-instance behavior.
+or reset semantics. Phase 7 Steps 2 through 4 support provisioned disposable
+instances only and deliberately supply no import/export, download, automatic
+retention, bulk deletion, or persistent-instance behavior.
 
 The broker is the only snapshot byte writer. From a request containing only
 snapshot UUID, ManagedInstance UUID, and expected immutable container ID, it
@@ -402,6 +402,19 @@ required; stale running restore is never automatically resumed.
 Snapshot metadata is safe for authenticated list/status/restore-confirmation
 presentation, but snapshot files and manifests are secret-bearing. Web has no
 archive, manifest, member-list, path, preview, download, import, or deletion
-route. Restore confirmation accepts no container, path, revision, fixture, or
-archive authority and warns that there is no automatic backup. See
+route outside the exact per-Snapshot delete workflow. Restore confirmation
+accepts no container, path, revision, fixture, or archive authority and warns
+that there is no automatic backup.
+
+Deletion is its own durable typed operation. Queueing atomically changes one
+available, failed, or quarantined Snapshot to `deleting`, making it immediately
+non-restorable, and reserves the singleton global-heavy lease without taking a
+per-instance mutation lease. The broker accepts only the Snapshot UUID, resolves
+the trusted root-owned path, and uses descriptor-relative no-follow removal for
+that exact UUID subtree. The application independently proves artifact absence
+before one transaction deletes Snapshot metadata and terminalizes retained
+operation history. Stale or uncertain destructive work is never resumed or
+represented as available; it remains reconciliation-required. Web exposes only
+explicit confirmation, 202 queueing, bounded status, and list state, with no
+retention policy, delete-all, or bulk authority. See
 `PHASE7-SNAPSHOTS.md` for the executable contract.

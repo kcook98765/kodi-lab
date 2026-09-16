@@ -36,6 +36,8 @@ from kodi_lab.domain import (
     RuntimeValidationResult,
     SnapshotCreateOperationPhase,
     SnapshotCreateOperationState,
+    SnapshotDeleteOperationPhase,
+    SnapshotDeleteOperationState,
     SnapshotRestoreOperationPhase,
     SnapshotRestoreOperationState,
     SnapshotState,
@@ -323,7 +325,9 @@ class SnapshotRow(Base):
             "AND manifest_digest IS NOT NULL AND archive_size IS NOT NULL "
             "AND member_count IS NOT NULL AND prior_runtime_state IS NOT NULL) OR "
             "(state IN ('failed', 'quarantined') "
-            "AND validation_result = 'failed' AND validation_at IS NOT NULL)",
+            "AND validation_result = 'failed' AND validation_at IS NOT NULL) OR "
+            "(state = 'deleting' AND validation_result IN ('passed', 'failed') "
+            "AND validation_at IS NOT NULL)",
             name="snapshot_state_fields_consistent",
         ),
         Index(
@@ -428,9 +432,7 @@ class SnapshotCreateOperationRow(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    snapshot_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("snapshots.id", ondelete="RESTRICT"), nullable=False
-    )
+    snapshot_id: Mapped[str] = mapped_column(String(36), nullable=False)
     managed_instance_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
@@ -518,9 +520,7 @@ class SnapshotRestoreOperationRow(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    snapshot_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("snapshots.id", ondelete="RESTRICT"), nullable=False
-    )
+    snapshot_id: Mapped[str] = mapped_column(String(36), nullable=False)
     managed_instance_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
@@ -560,6 +560,98 @@ class SnapshotRestoreOperationRow(Base):
             create_constraint=True,
             name="snapshot_restore_operation_phase",
             length=32,
+        ),
+        nullable=False,
+    )
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class SnapshotDeleteOperationRow(Base):
+    """Durable explicit snapshot deletion history independent of Snapshot rows."""
+
+    __tablename__ = "snapshot_delete_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "prior_snapshot_state IN ('available','failed','quarantined')",
+            name="snapshot_delete_prior_state",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="snapshot_delete_failure_reason_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="snapshot_delete_lease_digest_sha256",
+        ),
+        CheckConstraint(
+            "(state = 'queued' AND started_at IS NULL AND completed_at IS NULL "
+            "AND lease_token_digest IS NULL AND lease_expires_at IS NULL) OR "
+            "(state = 'running' AND started_at IS NOT NULL "
+            "AND completed_at IS NULL AND heartbeat_at IS NOT NULL "
+            "AND lease_token_digest IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(state IN ('succeeded', 'failed', 'reconciliation_required') "
+            "AND completed_at IS NOT NULL AND lease_token_digest IS NULL "
+            "AND lease_expires_at IS NULL)",
+            name="snapshot_delete_state_fields_consistent",
+        ),
+        Index(
+            "uq_snapshot_delete_active_snapshot",
+            "snapshot_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued', 'running')"),
+        ),
+        Index(
+            "ix_snapshot_delete_instance_requested",
+            "managed_instance_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    snapshot_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    prior_snapshot_state: Mapped[SnapshotState] = mapped_column(
+        Enum(
+            SnapshotState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=False,
+            length=11,
+        ),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    state: Mapped[SnapshotDeleteOperationState] = mapped_column(
+        Enum(
+            SnapshotDeleteOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_delete_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[SnapshotDeleteOperationPhase] = mapped_column(
+        Enum(
+            SnapshotDeleteOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_delete_operation_phase",
+            length=24,
         ),
         nullable=False,
     )

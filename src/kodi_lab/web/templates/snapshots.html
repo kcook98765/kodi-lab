@@ -26,6 +26,11 @@
         {% if snapshot.state.value == 'available' %}
         <p><a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots/{{ snapshot.snapshot_id }}/restore">Restore snapshot</a></p>
         {% endif %}
+        {% if snapshot.state.value in ['available', 'failed', 'quarantined'] %}
+        <p><a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots/{{ snapshot.snapshot_id }}/delete">Delete snapshot</a></p>
+        {% elif snapshot.state.value == 'deleting' %}
+        <p class="secondary">Deletion is pending. Restore and duplicate deletion are unavailable.</p>
+        {% endif %}
       </article>
       {% else %}
       <p>No snapshots have been captured for this instance.</p>

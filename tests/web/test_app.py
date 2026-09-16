@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from threading import Event
 from typing import cast
 from uuid import UUID, uuid4
@@ -30,7 +31,7 @@ from kodi_lab.kodi.readiness import (
     ReadinessResult,
     UsabilityState,
 )
-from kodi_lab.storage.models import ManagedInstanceRow, WebSessionRow
+from kodi_lab.storage.models import ManagedInstanceRow, SnapshotRow, WebSessionRow
 from kodi_lab.storage.repositories import (
     FixtureDefinitionRepository,
     SnapshotRepository,
@@ -76,6 +77,20 @@ def test_protected_routes_require_authentication(client: TestClient) -> None:
         ).status_code
         == 401
     )
+    assert (
+        client.get(
+            f"/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/delete",
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+    assert (
+        client.post(
+            f"/api/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/delete",
+            json={"confirmed": True},
+        ).status_code
+        == 401
+    )
 
 
 def _assign_v2(database: sessionmaker[Session]) -> None:
@@ -110,6 +125,17 @@ def _seed_available_snapshot(database: sessionmaker[Session]) -> UUID:
             )
         )
     return snapshot_id
+
+
+def _seed_snapshot_artifact(data_root: Path, snapshot_id: UUID) -> None:
+    snapshots_root = data_root / "snapshots"
+    snapshots_root.mkdir(parents=True, mode=0o750)
+    snapshots_root.chmod(0o750)
+    snapshot_root = snapshots_root / str(snapshot_id)
+    snapshot_root.mkdir(mode=0o750)
+    (snapshot_root / "manifest.json").write_text("{}", encoding="utf-8")
+    (snapshot_root / "state.tar").write_bytes(b"test archive")
+    snapshot_root.chmod(0o750)
 
 
 def test_login_cookie_is_opaque_and_hardened(
@@ -864,3 +890,145 @@ def test_restore_post_returns_202_with_bounded_status(
         ).status_code
         == 404
     )
+
+
+def test_delete_confirmation_is_authenticated_safe_and_permanent(
+    client: TestClient,
+    database: sessionmaker[Session],
+) -> None:
+    login(client)
+    snapshot_id = _seed_available_snapshot(database)
+    page = client.get(f"/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/delete")
+    assert page.status_code == 200
+    assert "Deletion is permanent" in page.text
+    assert "can no longer be restored" in page.text
+    assert "does not alter the currently running or stopped Kodi instance" in page.text
+    assert "manifest.json" not in page.text
+    assert "/var/" not in page.text
+
+
+def test_delete_post_requires_csrf_origin_and_rejects_extra_authority(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+) -> None:
+    csrf = login(client)
+    snapshot_id = _seed_available_snapshot(database)
+    route = f"/api/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/delete"
+    assert client.post(route, json={"confirmed": True}).status_code == 403
+    assert (
+        client.post(
+            route,
+            json={"confirmed": True},
+            headers={
+                "Origin": "http://attacker.invalid",
+                "X-Kodi-Lab-CSRF": csrf,
+            },
+        ).status_code
+        == 403
+    )
+    response = client.post(
+        route,
+        json={
+            "confirmed": True,
+            "path": "/tmp/attacker",
+            "archive": "state.tar",
+            "recursive": True,
+            "wildcard": "*",
+        },
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 422
+    assert not any(call[0] == "delete_snapshot" for call in broker.calls)
+
+
+def test_delete_returns_202_removes_snapshot_and_retains_safe_history(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    data_root: Path,
+) -> None:
+    csrf = login(client)
+    snapshot_id = _seed_available_snapshot(database)
+    _seed_snapshot_artifact(data_root, snapshot_id)
+    response = client.post(
+        f"/api/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/delete",
+        json={"confirmed": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 202
+    document = response.json()
+    assert document["snapshot_id"] == str(snapshot_id)
+    assert set(document) == {"snapshot_id", "operation"}
+    operation_id = document["operation"]["operation_id"]
+
+    deadline = time.monotonic() + 2
+    status_document: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        status_response = client.get(
+            f"/api/instances/{INSTANCE_ID}/snapshot-delete-operations/{operation_id}"
+        )
+        assert status_response.status_code == 200
+        status_document = status_response.json()
+        if status_document["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+    assert status_document["state"] == "succeeded"
+    assert status_document["snapshot_id"] == str(snapshot_id)
+    assert not {
+        "path",
+        "archive",
+        "manifest",
+        "members",
+        "container_id",
+    }.intersection(status_document)
+    assert not (data_root / "snapshots" / str(snapshot_id)).exists()
+    assert (data_root / "snapshots").is_dir()
+    assert broker.container is None
+    with database() as session:
+        assert session.get(SnapshotRow, str(snapshot_id)) is None
+    listing = client.get(f"/api/instances/{INSTANCE_ID}/snapshots")
+    assert listing.status_code == 200
+    assert all(item["snapshot_id"] != str(snapshot_id) for item in listing.json())
+    repeated = client.post(
+        f"/api/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/delete",
+        json={"confirmed": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert repeated.status_code == 404
+
+
+def test_deleting_snapshot_list_offers_no_restore_or_second_delete(
+    client: TestClient,
+    database: sessionmaker[Session],
+) -> None:
+    login(client)
+    snapshot_id = _seed_available_snapshot(database)
+    with database.begin() as session:
+        row = session.get(SnapshotRow, str(snapshot_id))
+        assert row is not None
+        row.state = SnapshotState.DELETING
+    page = client.get(f"/instances/{INSTANCE_ID}/snapshots")
+    assert page.status_code == 200
+    assert "Deletion is pending" in page.text
+    assert f"snapshots/{snapshot_id}/restore" not in page.text
+    assert f"snapshots/{snapshot_id}/delete" not in page.text
+    assert (
+        client.get(
+            f"/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/delete"
+        ).status_code
+        == 409
+    )
+
+
+def test_no_bulk_delete_or_retention_controls(
+    client: TestClient,
+) -> None:
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    for route in (
+        f"/api/instances/{INSTANCE_ID}/snapshots/delete-all",
+        f"/api/instances/{INSTANCE_ID}/snapshots/bulk-delete",
+        f"/api/instances/{INSTANCE_ID}/snapshots/retention",
+    ):
+        assert client.post(route, json={}, headers=headers).status_code == 404
