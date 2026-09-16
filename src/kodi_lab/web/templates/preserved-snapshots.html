@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Preserved snapshots · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>Preserved snapshots</h1>
+      {% for snapshot in snapshots %}
+      <article>
+        <h2>{{ snapshot.label or snapshot.snapshot_id }}</h2>
+        <dl>
+          <dt>Snapshot UUID</dt><dd>{{ snapshot.snapshot_id }}</dd>
+          <dt>Captured</dt><dd>{{ snapshot.captured_at }}</dd>
+          <dt>Original instance</dt><dd>{{ snapshot.original_source_instance_name }} ({{ snapshot.original_source_managed_instance_id }})</dd>
+          <dt>Kodi</dt><dd>{{ snapshot.kodi_release }} · revision {{ snapshot.runtime_revision_number }}</dd>
+          <dt>Fixture</dt><dd>{{ snapshot.fixture_slug or 'None' }}{% if snapshot.fixture_definition_id %} ({{ snapshot.fixture_definition_id }}){% endif %}</dd>
+          <dt>Archive bytes</dt><dd>{{ snapshot.archive_size if snapshot.archive_size is not none else 'Unknown' }}</dd>
+          <dt>Validity</dt><dd>{{ snapshot.state }}</dd>
+          <dt>Source binding</dt><dd>{{ snapshot.source_binding }}</dd>
+        </dl>
+        {% if snapshot.state in ['available', 'failed', 'quarantined'] %}
+        <a class="button-link destructive" href="/snapshots/preserved/{{ snapshot.snapshot_id }}/delete">Delete</a>
+        {% endif %}
+      </article>
+      {% else %}
+      <p>No preserved snapshots exist.</p>
+      {% endfor %}
+      <p><a href="/">Back to instances</a></p>
+    </main>
+  </body>
+</html>

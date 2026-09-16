@@ -25,6 +25,7 @@ from kodi_lab.domain import (
     SnapshotRestoreOperationPhase,
     SnapshotRestoreOperationState,
     SnapshotRestoreReconciliationState,
+    SnapshotSourceBinding,
     SnapshotState,
     SnapshotValidationResult,
 )
@@ -46,6 +47,10 @@ class SnapshotRestoreConflictError(RuntimeError):
 
 class SnapshotRestoreUnsupportedError(RuntimeError):
     """Restore eligibility failed before Docker mutation."""
+
+
+class SnapshotSourceInstanceDeletedError(SnapshotRestoreUnsupportedError):
+    """A detached archive-only Snapshot cannot be restored in v1."""
 
 
 class SnapshotRestoreLeaseLostError(RuntimeError):
@@ -109,8 +114,12 @@ class SnapshotRestoreOperationCoordinator:
             with self._session_factory.begin() as session:
                 instances = ManagedInstanceRepository(session)
                 snapshots = SnapshotRepository(session)
-                instance = instances.get(instance_id)
                 snapshot = snapshots.get(snapshot_id)
+                if snapshot is not None and (
+                    snapshot.source_binding is SnapshotSourceBinding.DELETED_SOURCE
+                ):
+                    raise SnapshotSourceInstanceDeletedError("source_instance_deleted")
+                instance = instances.get(instance_id)
                 if instance is None or snapshot is None:
                     raise SnapshotRestoreUnsupportedError(
                         "Managed instance or snapshot does not exist."

@@ -352,11 +352,11 @@ existing reset service. Active reset blocks Web lifecycle and trusted
 fixture/revision changes. Browser input cannot select revision, fixture,
 container, image, phase, or operation authority; Web retains no Docker socket.
 
-## Phase 7 disposable snapshot creation, restore, and deletion
+## Phase 7 disposable snapshot and instance lifecycle
 
 Snapshot creation is a distinct typed workflow over mutable Kodi profile
 state. It does not alter RuntimeRevision identity, FixtureDefinition assignment,
-or reset semantics. Phase 7 Steps 2 through 4 support provisioned disposable
+or reset semantics. Phase 7 Steps 2 through 6 support disposable
 instances only and deliberately supply no import/export, download, automatic
 retention, bulk deletion, or persistent-instance behavior.
 
@@ -418,3 +418,38 @@ represented as available; it remains reconciliation-required. Web exposes only
 explicit confirmation, 202 queueing, bounded status, and list state, with no
 retention policy, delete-all, or bulk authority. See
 `PHASE7-SNAPSHOTS.md` for the executable contract.
+
+Disposable ManagedInstance deletion is a separate container-first durable
+workflow. Its strict Web request requires explicit confirmation and an explicit
+preserve-or-destroy Boolean; the server, never the browser, reloads the complete
+Snapshot set. Queueing atomically reserves the `INSTANCE_DELETE` per-instance
+mutation kind and rejects any active reset, Snapshot operation, transitional
+Snapshot, lifecycle, fixture, or revision mutation. The destroy branch also
+reserves the singleton global-heavy lease; preservation does not.
+
+After exact container absence is proven, preservation performs one final
+transaction that changes each Snapshot source binding from `attached` to
+`deleted_source`, clears only the live source FK, records immutable original
+UUID/name/deletion time, removes ManagedInstance/Target metadata, copies the
+bounded current note once into retained delete history, releases authority, and
+terminalizes success. Artifact UUID-derived paths and bytes never move. Source
+binding remains separate from artifact validity. Detached Snapshots are
+archive-only and reject restore before any lease, Docker, or broker activity.
+
+Destruction iterates the authoritative terminal Snapshot set in UUID order only
+after container absence. Under both leases it marks one row deleting, invokes
+the existing UUID-only broker removal, proves fixed artifact absence, then
+removes that row and records progress. It creates no nested Snapshot delete
+operations. Thus each artifact precedes its metadata, and final instance
+metadata removal occurs only after all enumerated rows and artifacts are proven
+absent. Stale destructive work is never automatically resumed; bounded
+read-only reconciliation exposes state without repair authority.
+
+Terminal reset and Snapshot operation histories keep immutable ManagedInstance
+UUID identity without a mandatory live FK. The dedicated delete history also
+retains revision/fixture identity, policy, counts, prior container state, and
+safe reconciliation fields. ManagedInstance notes are exact nullable strings
+bounded to 4,096 Unicode code points and copied once only at successful metadata
+deletion. Global authenticated preserved browsing is metadata-only; its Delete
+action reuses artifact-first Snapshot deletion and offers no restore, content,
+path, export, import, or clone capability.

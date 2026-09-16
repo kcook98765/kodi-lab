@@ -13,6 +13,7 @@ from kodi_lab.domain.kodi_release import (
     validate_support_transition,
 )
 from kodi_lab.domain.models import (
+    MAX_MANAGED_INSTANCE_NOTES_LENGTH,
     ConnectionState,
     HealthStatus,
     InstanceRuntimeState,
@@ -46,6 +47,10 @@ from kodi_lab.domain.runtime_catalog import (
 )
 from kodi_lab.domain.snapshots import (
     GlobalHeavyOperationKind,
+    ManagedInstanceDeleteOperation,
+    ManagedInstanceDeleteOperationPhase,
+    ManagedInstanceDeleteOperationState,
+    ManagedInstanceDeletePriorState,
     ManagedInstanceMutationKind,
     Snapshot,
     SnapshotCreateOperation,
@@ -59,6 +64,7 @@ from kodi_lab.domain.snapshots import (
     SnapshotRestoreOperationPhase,
     SnapshotRestoreOperationState,
     SnapshotRestoreReconciliationState,
+    SnapshotSourceBinding,
     SnapshotState,
     SnapshotValidationResult,
     normalize_snapshot_label,
@@ -66,6 +72,7 @@ from kodi_lab.domain.snapshots import (
 
 __all__ = [
     "KODI_RUNTIME_VALIDATION_CONTRACT",
+    "MAX_MANAGED_INSTANCE_NOTES_LENGTH",
     "RECOGNIZED_VALIDATION_CONTRACTS",
     "ConnectionState",
     "EffectiveValidationState",
@@ -79,6 +86,10 @@ __all__ = [
     "KodiReleaseChannel",
     "KodiReleaseIdentity",
     "ManagedInstance",
+    "ManagedInstanceDeleteOperation",
+    "ManagedInstanceDeleteOperationPhase",
+    "ManagedInstanceDeleteOperationState",
+    "ManagedInstanceDeletePriorState",
     "ManagedInstanceMutationKind",
     "ProcessObservationKind",
     "ReadinessProbeKind",
@@ -106,6 +117,7 @@ __all__ = [
     "SnapshotRestoreOperationPhase",
     "SnapshotRestoreOperationState",
     "SnapshotRestoreReconciliationState",
+    "SnapshotSourceBinding",
     "SnapshotState",
     "SnapshotValidationResult",
     "Target",

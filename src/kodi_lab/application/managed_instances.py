@@ -11,6 +11,7 @@ from kodi_lab.application.errors import (
     FixtureIncompatibleError,
     KodiVersionIncompatibleError,
     ManagedInstanceConflictError,
+    ManagedInstanceDataValidationError,
     ManagedInstanceNotFoundError,
     NoEligibleRevisionError,
     RevisionNotApprovedError,
@@ -110,14 +111,17 @@ class ManagedInstanceService:
                 if instances.get(target_id) is not None:
                     raise ManagedInstanceConflictError(target_id)
                 revision = self._resolve_revision(session, target, selection)
-                instance = ManagedInstance(
-                    target_id=target_id,
-                    instance_type=instance_type,
-                    runtime_revision_id=revision.id,
-                    runtime_state=InstanceRuntimeState.STOPPED,
-                    start_on_host_boot=start_on_host_boot,
-                    notes=notes,
-                )
+                try:
+                    instance = ManagedInstance(
+                        target_id=target_id,
+                        instance_type=instance_type,
+                        runtime_revision_id=revision.id,
+                        runtime_state=InstanceRuntimeState.STOPPED,
+                        start_on_host_boot=start_on_host_boot,
+                        notes=notes,
+                    )
+                except ValueError as error:
+                    raise ManagedInstanceDataValidationError(str(error)) from error
                 instances.create(instance)
                 return instance
         except IntegrityError as error:

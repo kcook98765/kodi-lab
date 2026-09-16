@@ -21,6 +21,7 @@ from kodi_lab.domain import (
     InstanceRuntimeState,
     InstanceType,
     Snapshot,
+    SnapshotSourceBinding,
     SnapshotState,
     SnapshotValidationResult,
 )
@@ -31,7 +32,13 @@ from kodi_lab.kodi.readiness import (
     ReadinessResult,
     UsabilityState,
 )
-from kodi_lab.storage.models import ManagedInstanceRow, SnapshotRow, WebSessionRow
+from kodi_lab.storage.models import (
+    ManagedInstanceDeleteOperationRow,
+    ManagedInstanceRow,
+    SnapshotDeleteOperationRow,
+    SnapshotRow,
+    WebSessionRow,
+)
 from kodi_lab.storage.repositories import (
     FixtureDefinitionRepository,
     SnapshotRepository,
@@ -58,6 +65,15 @@ def test_protected_routes_require_authentication(client: TestClient) -> None:
     assert client.get("/api/instances").status_code == 401
     assert client.get(f"/api/instances/{INSTANCE_ID}/reset-status").status_code == 401
     assert client.get(f"/api/instances/{INSTANCE_ID}/snapshots").status_code == 401
+    assert client.get("/snapshots/preserved", follow_redirects=False).status_code == 303
+    assert client.get("/api/snapshots/preserved").status_code == 401
+    assert (
+        client.post(
+            f"/api/instances/{INSTANCE_ID}/delete",
+            json={"confirmed": True, "preserve_snapshots": True},
+        ).status_code
+        == 401
+    )
     assert (
         client.post(f"/api/instances/{INSTANCE_ID}/snapshots", json={}).status_code
         == 401
@@ -136,6 +152,20 @@ def _seed_snapshot_artifact(data_root: Path, snapshot_id: UUID) -> None:
     (snapshot_root / "manifest.json").write_text("{}", encoding="utf-8")
     (snapshot_root / "state.tar").write_bytes(b"test archive")
     snapshot_root.chmod(0o750)
+
+
+def _wait_for_instance_delete(
+    client: TestClient, operation_id: str
+) -> dict[str, object]:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/instance-delete-operations/{operation_id}")
+        assert response.status_code == 200
+        document = response.json()
+        if document["state"] not in {"queued", "running"}:
+            return cast(dict[str, object], document)
+        time.sleep(0.01)
+    raise AssertionError("instance deletion did not complete")
 
 
 def test_login_cookie_is_opaque_and_hardened(
@@ -1032,3 +1062,199 @@ def test_no_bulk_delete_or_retention_controls(
         f"/api/instances/{INSTANCE_ID}/snapshots/retention",
     ):
         assert client.post(route, json={}, headers=headers).status_code == 404
+
+
+def test_instance_delete_confirmation_has_explicit_unselected_policy(
+    client: TestClient,
+    database: sessionmaker[Session],
+) -> None:
+    login(client)
+    _seed_available_snapshot(database)
+    with database.begin() as session:
+        instance = session.get(ManagedInstanceRow, str(INSTANCE_ID))
+        assert instance is not None
+        instance.notes = "potentially sensitive note"
+
+    response = client.get(f"/instances/{INSTANCE_ID}/delete")
+
+    assert response.status_code == 200
+    assert "Preserve snapshots" in response.text
+    assert "Permanently delete snapshots" in response.text
+    assert "not restorable in v1" in response.text
+    assert "Snapshots</dt><dd>1" in response.text
+    assert "Notes present</dt><dd>Yes" in response.text
+    assert "potentially sensitive note" not in response.text
+    assert 'name="snapshot-policy" value="preserve" checked' not in response.text
+    assert 'name="snapshot-policy" value="delete" checked' not in response.text
+
+
+def test_instance_delete_post_is_strict_and_origin_and_csrf_protected(
+    client: TestClient,
+) -> None:
+    csrf = login(client)
+    route = f"/api/instances/{INSTANCE_ID}/delete"
+    authorized = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+
+    assert client.post(route, json={}, headers=authorized).status_code == 422
+    assert (
+        client.post(route, json={"confirmed": True}, headers=authorized).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            route, json={"preserve_snapshots": True}, headers=authorized
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            route,
+            json={"confirmed": True, "preserve_snapshots": "true"},
+            headers=authorized,
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            route,
+            json={
+                "confirmed": True,
+                "preserve_snapshots": True,
+                "snapshot_ids": [],
+            },
+            headers=authorized,
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            route,
+            json={"confirmed": True, "preserve_snapshots": True},
+            headers={"X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            route,
+            json={"confirmed": True, "preserve_snapshots": True},
+            headers=ORIGIN,
+        ).status_code
+        == 403
+    )
+
+
+def test_instance_delete_preserve_reloads_snapshots_and_exposes_metadata_only(
+    client: TestClient,
+    database: sessionmaker[Session],
+) -> None:
+    csrf = login(client)
+    first_id = _seed_available_snapshot(database)
+    confirmation = client.get(f"/instances/{INSTANCE_ID}/delete")
+    assert confirmation.status_code == 200
+    assert "Snapshots</dt><dd>1" in confirmation.text
+
+    second_id = _seed_available_snapshot(database)
+    response = client.post(
+        f"/api/instances/{INSTANCE_ID}/delete",
+        json={"confirmed": True, "preserve_snapshots": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 202
+    operation_id = response.json()["operation_id"]
+    status_document = _wait_for_instance_delete(client, operation_id)
+    assert status_document["state"] == "succeeded"
+    assert status_document["snapshot_count"] == 2
+    assert status_document["completed_snapshot_count"] == 2
+
+    listing_response = client.get("/api/snapshots/preserved")
+    assert listing_response.status_code == 200
+    listing = listing_response.json()
+    assert {item["snapshot_id"] for item in listing} == {
+        str(first_id),
+        str(second_id),
+    }
+    for item in listing:
+        assert item["source_binding"] == "deleted_source"
+        assert item["original_source_managed_instance_id"] == str(INSTANCE_ID)
+        assert not {
+            "path",
+            "archive",
+            "manifest",
+            "members",
+            "notes",
+            "container_id",
+        }.intersection(item)
+    page = client.get("/snapshots/preserved")
+    assert page.status_code == 200
+    assert "Restore" not in page.text
+    assert "Delete" in page.text
+    assert client.get(f"/api/instances/{INSTANCE_ID}").status_code == 404
+
+    with database() as session:
+        assert session.get(ManagedInstanceRow, str(INSTANCE_ID)) is None
+        assert all(
+            row.source_managed_instance_id is None
+            for row in session.scalars(select(SnapshotRow)).all()
+        )
+        operation = session.get(ManagedInstanceDeleteOperationRow, operation_id)
+        assert operation is not None
+        assert operation.state == "succeeded"
+
+
+def test_preserved_snapshot_delete_is_artifact_first_and_keeps_history(
+    client: TestClient,
+    database: sessionmaker[Session],
+    data_root: Path,
+) -> None:
+    csrf = login(client)
+    snapshot_id = _seed_available_snapshot(database)
+    _seed_snapshot_artifact(data_root, snapshot_id)
+    with database.begin() as session:
+        snapshot = session.get(SnapshotRow, str(snapshot_id))
+        assert snapshot is not None
+        snapshot.source_binding = SnapshotSourceBinding.DELETED_SOURCE
+        snapshot.source_instance_name = "Deleted source"
+        snapshot.source_deleted_at = "2026-09-16T01:00:00.000000Z"
+        snapshot.source_managed_instance_id = None
+
+    page = client.get(f"/snapshots/preserved/{snapshot_id}/delete")
+    assert page.status_code == 200
+    response = client.post(
+        f"/api/snapshots/preserved/{snapshot_id}/delete",
+        json={"confirmed": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 202
+    operation_id = response.json()["operation"]["operation_id"]
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        with database() as session:
+            operation = session.get(SnapshotDeleteOperationRow, operation_id)
+            assert operation is not None
+            if operation.state not in {"queued", "running"}:
+                break
+        time.sleep(0.01)
+    assert operation is not None
+    assert operation.state == "succeeded"
+    assert operation.managed_instance_id == str(INSTANCE_ID)
+    assert not (data_root / "snapshots" / str(snapshot_id)).exists()
+    with database() as session:
+        assert session.get(SnapshotRow, str(snapshot_id)) is None
+
+
+def test_attached_snapshot_cannot_use_preserved_delete_route(
+    client: TestClient,
+    database: sessionmaker[Session],
+) -> None:
+    csrf = login(client)
+    snapshot_id = _seed_available_snapshot(database)
+
+    assert client.get(f"/snapshots/preserved/{snapshot_id}/delete").status_code == 404
+    response = client.post(
+        f"/api/snapshots/preserved/{snapshot_id}/delete",
+        json={"confirmed": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 409

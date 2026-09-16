@@ -10,6 +10,7 @@ from kodi_lab.application import (
     ExactRevisionSelection,
     KodiVersionIncompatibleError,
     ManagedInstanceConflictError,
+    ManagedInstanceDataValidationError,
     ManagedInstanceNotFoundError,
     ManagedInstanceService,
     NewestApprovedRevisionSelection,
@@ -203,6 +204,41 @@ def test_create_with_exact_approved_revision(
     assert created.runtime_revision_id == revision.id
     assert created.runtime_state is InstanceRuntimeState.STOPPED
     assert load_instance(session_factory, target.id) == created
+
+
+@pytest.mark.parametrize("notes", [None, "", "🐍" * 4096])
+def test_create_preserves_bounded_notes_by_code_point(
+    session_factory: sessionmaker[Session], notes: str | None
+) -> None:
+    target = make_target()
+    definition = make_definition()
+    revision = make_revision(definition, 1)
+    seed(session_factory, target=target, definition=definition, revisions=(revision,))
+    created = ManagedInstanceService(session_factory).create(
+        target_id=target.id,
+        selection=exact(definition, revision),
+        instance_type=InstanceType.DISPOSABLE,
+        notes=notes,
+    )
+    assert created.notes == notes
+    assert load_instance(session_factory, target.id) == created
+
+
+def test_create_rejects_4097_note_code_points_without_persistence(
+    session_factory: sessionmaker[Session],
+) -> None:
+    target = make_target()
+    definition = make_definition()
+    revision = make_revision(definition, 1)
+    seed(session_factory, target=target, definition=definition, revisions=(revision,))
+    with pytest.raises(ManagedInstanceDataValidationError, match="4096"):
+        ManagedInstanceService(session_factory).create(
+            target_id=target.id,
+            selection=exact(definition, revision),
+            instance_type=InstanceType.DISPOSABLE,
+            notes="🐍" * 4097,
+        )
+    assert load_instance(session_factory, target.id) is None
 
 
 def test_create_with_newest_approved_uses_greatest_revision_number(

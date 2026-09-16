@@ -16,7 +16,12 @@ from kodi_lab.broker.errors import (
     SnapshotStateError,
 )
 from kodi_lab.config import Settings
-from kodi_lab.domain import InstanceType, SnapshotState, SnapshotValidationResult
+from kodi_lab.domain import (
+    InstanceType,
+    SnapshotSourceBinding,
+    SnapshotState,
+    SnapshotValidationResult,
+)
 from kodi_lab.snapshot.storage import (
     SnapshotArtifactIdentity,
     SnapshotCaptureContext,
@@ -365,8 +370,9 @@ class SqliteSnapshotDeleteResolver:
                 snapshot = SnapshotRepository(session).get(identity)
                 if snapshot is None or snapshot.state is not SnapshotState.DELETING:
                     raise SnapshotStateError("Snapshot is not awaiting deletion")
-                if (
-                    ManagedInstanceRepository(session).get(
+                if snapshot.source_binding is SnapshotSourceBinding.ATTACHED and (
+                    snapshot.source_managed_instance_id is None
+                    or ManagedInstanceRepository(session).get(
                         snapshot.source_managed_instance_id
                     )
                     is None

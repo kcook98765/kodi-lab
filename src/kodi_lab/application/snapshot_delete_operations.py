@@ -16,15 +16,18 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.domain import (
     GlobalHeavyOperationKind,
+    ManagedInstanceMutationKind,
     SnapshotDeleteOperation,
     SnapshotDeleteOperationPhase,
     SnapshotDeleteOperationState,
     SnapshotDeleteReconciliationState,
+    SnapshotSourceBinding,
     SnapshotState,
 )
 from kodi_lab.snapshot.storage import snapshot_artifact_presence
 from kodi_lab.storage.repositories import (
     GlobalHeavyOperationLeaseRepository,
+    ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
     SnapshotDeleteOperationRepository,
     SnapshotRepository,
@@ -101,6 +104,17 @@ class SnapshotDeleteOperationCoordinator:
                     raise SnapshotDeleteNotFoundError(
                         "Managed instance does not exist."
                     )
+                mutation = ManagedInstanceMutationLeaseRepository(session).current(
+                    instance_id
+                )
+                if (
+                    mutation is not None
+                    and mutation.operation_kind
+                    is ManagedInstanceMutationKind.INSTANCE_DELETE
+                ):
+                    raise SnapshotDeleteConflictError(
+                        "Managed-instance deletion is already reserved."
+                    )
                 snapshots = SnapshotRepository(session)
                 operations = SnapshotDeleteOperationRepository(session)
                 snapshot = snapshots.get(snapshot_id)
@@ -125,6 +139,58 @@ class SnapshotDeleteOperationCoordinator:
                     id=uuid4(),
                     snapshot_id=snapshot.id,
                     managed_instance_id=instance_id,
+                    prior_snapshot_state=snapshot.state,
+                    requested_at=now,
+                )
+                if not snapshots.mark_deleting(snapshot_id, prior_state=snapshot.state):
+                    raise SnapshotDeleteConflictError(
+                        "Snapshot state changed before deletion could be reserved."
+                    )
+                operations.create(operation)
+                GlobalHeavyOperationLeaseRepository(session).reserve(
+                    kind=GlobalHeavyOperationKind.SNAPSHOT_DELETE,
+                    operation_id=operation.id,
+                )
+        except IntegrityError as error:
+            raise SnapshotDeleteConflictError(
+                "Another snapshot deletion or global heavy operation is active."
+            ) from error
+        return self.to_status(operation)
+
+    def queue_preserved(self, snapshot_id: UUID) -> SnapshotDeleteStatus:
+        self._terminalize_stale_heavy_operation()
+        now = self._clock()
+        try:
+            with self._session_factory.begin() as session:
+                snapshots = SnapshotRepository(session)
+                operations = SnapshotDeleteOperationRepository(session)
+                snapshot = snapshots.get(snapshot_id)
+                if snapshot is None:
+                    raise SnapshotDeleteNotFoundError("Snapshot does not exist.")
+                if snapshot.source_binding is not SnapshotSourceBinding.DELETED_SOURCE:
+                    raise SnapshotDeleteUnsupportedError(
+                        "Only a preserved detached Snapshot may use this route."
+                    )
+                if snapshot.state is SnapshotState.DELETING:
+                    existing = operations.active_for_snapshot(snapshot_id)
+                    if existing is not None:
+                        return self.to_status(existing)
+                    raise SnapshotDeleteUnsupportedError(
+                        "Snapshot deletion requires operator reconciliation."
+                    )
+                if snapshot.state not in ELIGIBLE_STATES:
+                    raise SnapshotDeleteUnsupportedError(
+                        "Snapshot is not in a terminal deletable state."
+                    )
+                original_id = snapshot.original_source_managed_instance_id
+                if original_id is None:
+                    raise SnapshotDeleteUnsupportedError(
+                        "Snapshot historical source identity is unavailable."
+                    )
+                operation = SnapshotDeleteOperation(
+                    id=uuid4(),
+                    snapshot_id=snapshot.id,
+                    managed_instance_id=original_id,
                     prior_snapshot_state=snapshot.state,
                     requested_at=now,
                 )

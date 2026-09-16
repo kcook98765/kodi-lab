@@ -25,6 +25,9 @@ from kodi_lab.domain import (
     HealthStatus,
     InstanceRuntimeState,
     InstanceType,
+    ManagedInstanceDeleteOperationPhase,
+    ManagedInstanceDeleteOperationState,
+    ManagedInstanceDeletePriorState,
     ManagedInstanceMutationKind,
     ProcessObservationKind,
     ReadinessProbeKind,
@@ -40,6 +43,7 @@ from kodi_lab.domain import (
     SnapshotDeleteOperationState,
     SnapshotRestoreOperationPhase,
     SnapshotRestoreOperationState,
+    SnapshotSourceBinding,
     SnapshotState,
     SnapshotValidationResult,
     TargetAvailability,
@@ -112,6 +116,12 @@ class ManagedInstanceRow(Base):
     """Managed-target subtype data with a shared stable identity."""
 
     __tablename__ = "managed_instances"
+    __table_args__ = (
+        CheckConstraint(
+            "notes IS NULL OR length(notes) <= 4096",
+            name="managed_instance_notes_bounded",
+        ),
+    )
     target_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("targets.id", ondelete="CASCADE"),
@@ -148,7 +158,7 @@ class ManagedInstanceRow(Base):
         default=False,
         server_default=text("0"),
     )
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(4096), nullable=True)
     fixture_definition_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("fixture_definitions.id", ondelete="RESTRICT"),
@@ -250,7 +260,6 @@ class ResetOperationRow(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     managed_instance_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
         nullable=False,
     )
     requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -291,6 +300,15 @@ class SnapshotRow(Base):
     __tablename__ = "snapshots"
     __table_args__ = (
         CheckConstraint("manifest_version = 1", name="snapshot_manifest_version_v1"),
+        CheckConstraint(
+            "(source_binding = 'attached' AND source_managed_instance_id IS NOT NULL "
+            "AND original_source_managed_instance_id = source_managed_instance_id "
+            "AND source_instance_name IS NULL AND source_deleted_at IS NULL) OR "
+            "(source_binding = 'deleted_source' AND source_managed_instance_id IS NULL "
+            "AND source_instance_name IS NOT NULL AND length(source_instance_name) > 0 "
+            "AND source_deleted_at IS NOT NULL)",
+            name="snapshot_source_binding_consistent",
+        ),
         CheckConstraint(
             "label IS NULL OR length(label) BETWEEN 1 AND 480",
             name="snapshot_label_bounded",
@@ -338,11 +356,26 @@ class SnapshotRow(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    source_managed_instance_id: Mapped[str] = mapped_column(
+    source_managed_instance_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    original_source_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    source_binding: Mapped[SnapshotSourceBinding] = mapped_column(
+        Enum(
+            SnapshotSourceBinding,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_source_binding",
+        ),
         nullable=False,
     )
+    source_instance_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_deleted_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     runtime_revision_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
@@ -435,7 +468,6 @@ class SnapshotCreateOperationRow(Base):
     snapshot_id: Mapped[str] = mapped_column(String(36), nullable=False)
     managed_instance_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
         nullable=False,
     )
     requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -523,7 +555,6 @@ class SnapshotRestoreOperationRow(Base):
     snapshot_id: Mapped[str] = mapped_column(String(36), nullable=False)
     managed_instance_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
         nullable=False,
     )
     requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -617,7 +648,6 @@ class SnapshotDeleteOperationRow(Base):
     snapshot_id: Mapped[str] = mapped_column(String(36), nullable=False)
     managed_instance_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
         nullable=False,
     )
     prior_snapshot_state: Mapped[SnapshotState] = mapped_column(
@@ -652,6 +682,137 @@ class SnapshotDeleteOperationRow(Base):
             create_constraint=True,
             name="snapshot_delete_operation_phase",
             length=24,
+        ),
+        nullable=False,
+    )
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class ManagedInstanceDeleteOperationRow(Base):
+    """Durable disposable-instance deletion and retained historical identity."""
+
+    __tablename__ = "managed_instance_delete_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(source_instance_name) BETWEEN 1 AND 256",
+            name="instance_delete_source_name_bounded",
+        ),
+        CheckConstraint(
+            "snapshot_count >= 0 AND completed_snapshot_count "
+            "BETWEEN 0 AND snapshot_count",
+            name="instance_delete_snapshot_progress_valid",
+        ),
+        CheckConstraint(
+            "aggregate_snapshot_bytes >= 0",
+            name="instance_delete_snapshot_bytes_nonnegative",
+        ),
+        CheckConstraint(
+            "notes_at_deletion IS NULL OR length(notes_at_deletion) <= 4096",
+            name="instance_delete_notes_bounded",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="instance_delete_failure_reason_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="instance_delete_lease_digest_sha256",
+        ),
+        CheckConstraint(
+            "expected_container_id IS NULL OR (length(expected_container_id) = 64 "
+            "AND expected_container_id NOT GLOB '*[^0-9a-f]*')",
+            name="instance_delete_expected_container_id",
+        ),
+        CheckConstraint(
+            "observed_container_id IS NULL OR (length(observed_container_id) = 64 "
+            "AND observed_container_id NOT GLOB '*[^0-9a-f]*')",
+            name="instance_delete_observed_container_id",
+        ),
+        CheckConstraint(
+            "(state = 'queued' AND started_at IS NULL AND completed_at IS NULL "
+            "AND lease_token_digest IS NULL AND lease_expires_at IS NULL) OR "
+            "(state = 'running' AND started_at IS NOT NULL AND completed_at IS NULL "
+            "AND heartbeat_at IS NOT NULL AND lease_token_digest IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL) OR "
+            "(state IN ('succeeded','failed','reconciliation_required') "
+            "AND completed_at IS NOT NULL AND lease_token_digest IS NULL "
+            "AND lease_expires_at IS NULL)",
+            name="instance_delete_state_fields_consistent",
+        ),
+        Index(
+            "uq_instance_delete_active_instance",
+            "original_managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued', 'running')"),
+        ),
+        Index(
+            "ix_instance_delete_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    source_instance_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    fixture_definition_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("fixture_definitions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    preserve_snapshots: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    snapshot_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    aggregate_snapshot_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    current_snapshot_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    completed_snapshot_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    expected_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    observed_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    prior_state: Mapped[ManagedInstanceDeletePriorState | None] = mapped_column(
+        Enum(
+            ManagedInstanceDeletePriorState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="managed_instance_delete_prior_state",
+        ),
+        nullable=True,
+    )
+    notes_at_deletion: Mapped[str | None] = mapped_column(String(4096), nullable=True)
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    state: Mapped[ManagedInstanceDeleteOperationState] = mapped_column(
+        Enum(
+            ManagedInstanceDeleteOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="managed_instance_delete_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[ManagedInstanceDeleteOperationPhase] = mapped_column(
+        Enum(
+            ManagedInstanceDeleteOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="managed_instance_delete_operation_phase",
+            length=32,
         ),
         nullable=False,
     )

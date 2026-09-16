@@ -18,7 +18,7 @@
       </form>
     </header>
     <main>
-      <nav aria-label="Administration"><a href="/runtimes">Curated runtime matrix</a></nav>
+      <nav aria-label="Administration"><a href="/runtimes">Curated runtime matrix</a> · <a href="/snapshots/preserved">Preserved snapshots</a></nav>
       <p id="global-error" class="error" role="alert" hidden></p>
       <section id="instances" aria-live="polite">
         {% for instance in instances %}
@@ -64,6 +64,7 @@
             <a class="button-link" data-reset-action href="/instances/{{ instance.managed_instance_id }}/reset">Reset</a>
             {% endif %}
             <a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots">Snapshots</a>
+            <a class="button-link destructive" href="/instances/{{ instance.managed_instance_id }}/delete">Delete instance</a>
           </div>
         </article>
         {% else %}

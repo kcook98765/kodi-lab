@@ -1,12 +1,12 @@
 # Phase 7 snapshot contract
 
-Phase 7 Steps 2 through 4 implement creation, source-bound restore, and explicit
-deletion of centrally stored immutable snapshots for disposable ManagedInstances
-only. A Snapshot is captured mutable instance state;
+Phase 7 Steps 2 through 6 implement creation, source-bound restore, explicit
+deletion, and preserve-or-destroy disposable ManagedInstance deletion for
+centrally stored immutable snapshots. A Snapshot is captured mutable instance state;
 it is neither a RuntimeRevision, a FixtureDefinition, nor a reset baseline.
-Persistent snapshots, instance deletion/preservation, archive transfer, content
-browsing, incremental storage, compression, and cross-revision behavior are
-deferred.
+Persistent snapshots/instance deletion, clone/import, undelete, archive
+transfer, content browsing, incremental storage, compression, cross-instance
+restore, and cross-revision behavior are deferred.
 
 ## Content and capture state
 
@@ -246,3 +246,73 @@ current Kodi instance. The same-origin CSRF-protected POST accepts only
 Snapshots show pending status without restore or duplicate-delete actions;
 successful ones disappear from the list. No content, member, manifest, path,
 download, retention, bulk, or automatic deletion interface exists.
+
+## Disposable ManagedInstance deletion contract
+
+Deletion requires an authenticated same-origin CSRF-protected strict request
+containing exactly `confirmed=true` and an explicitly supplied
+`preserve_snapshots` Boolean. Neither choice is defaulted. Confirmation counts
+and aggregate known bytes are informational; queueing reloads every Snapshot
+and active operation server-side, accepts only available/failed/quarantined
+rows, and atomically reserves the `INSTANCE_DELETE` mutation kind. The browser
+never selects Snapshot UUIDs. Snapshot delete queueing reciprocally rejects an
+attached source with an instance-delete reservation.
+
+The durable disposable-only operation stores immutable original instance,
+name, revision and fixture identity; explicit policy; authoritative count and
+aggregate bytes; current UUID and completed progress; expected/observed
+container identity and prior state; bounded timestamps/lease/safe failure; and
+reconciliation status. It is not a generic job. Active reset, Snapshot
+create/restore/delete, transitional Snapshot, lifecycle, fixture, revision, or
+second deletion work conflicts. Preserve holds only the instance lease. Destroy
+also holds the singleton global-heavy lease across artifact work.
+
+Both branches cancel readiness observation, resolve exactly zero or one owned
+container, normally stop and prove a running container stopped, deprovision an
+owned stopped container, and prove complete absence before touching user
+Snapshots. Unsupported/ambiguous container state fails closed. This ordering
+prevents Snapshot destruction followed by discovery that the instance cannot
+be removed.
+
+Preservation finishes in one database transaction. The complete unchanged
+Snapshot set is revalidated; each row keeps its UUID, artifact bytes/digests,
+runtime and fixture references, capture time, label, and validity state while
+its independent source binding becomes `deleted_source`. The live source FK is
+cleared and immutable original ManagedInstance UUID, source display name, and
+deletion timestamp remain. Authority is released, ManagedInstance/Target
+metadata is removed, notes are copied once to deletion history, and the
+operation succeeds atomically. No committed detached/live-usable intermediate
+state exists and artifact paths are never moved or renamed.
+
+Destroy re-enumerates the unchanged terminal set in deterministic UUID order.
+For each row it records deleting/current progress, runs the existing UUID-only
+broker deletion core, independently proves artifact absence, removes metadata,
+and increments progress. No nested `SnapshotDeleteOperation` is created. Only
+after every enumerated artifact and row is absent does the final transaction
+release authority, remove instance/Target metadata, copy bounded notes, and
+terminalize success. Failed and quarantined rows follow the selected policy and
+are never silently discarded.
+
+Source binding and validity are orthogonal. A `deleted_source` Snapshot remains
+available/failed/quarantined as appropriate but is archive-only in v1. Restore
+returns `source_instance_deleted` before mutation/global-heavy leases, Docker,
+or broker work. Authenticated `/snapshots/preserved` presentation exposes only
+label, UUID, capture/source identity, trusted Kodi release/revision, captured
+fixture, size, validity and binding. It offers exact Delete through the proven
+artifact-first operation, but no Restore, manifest, member, path, bytes,
+download, preview, clone, or import.
+
+Terminal reset and Snapshot operation histories have no mandatory live
+ManagedInstance FK; their existing ManagedInstance UUID is immutable historical
+identity. Instance-delete history is retained without automatic pruning.
+`ManagedInstance.notes` and `notes_at_deletion` preserve null/empty semantics
+and exact content but accept at most 4,096 Unicode code points. They are never
+trimmed, normalized, or truncated. Migration refuses any oversized legacy note,
+and the UI reports only whether a note exists. Notes never enter Snapshot
+metadata or other operation histories.
+
+Any stale/expired destructive instance deletion becomes
+reconciliation-required and is never resumed. Read-only inspection reports
+live instance and container presence, policy, attached/detached/deleting row
+counts, artifact presence/absence, phase, and durable progress. It does not
+delete, repair, clone, restore, or infer completion.

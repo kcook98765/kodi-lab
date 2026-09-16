@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <title>Delete preserved snapshot · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    <script src="{{ url_for('static', path='/preserved-snapshot-delete.js') }}" defer></script>
+  </head>
+  <body>
+    <main>
+      <h1>Permanently delete preserved snapshot</h1>
+      <p>{{ snapshot.label or snapshot.snapshot_id }} from {{ snapshot.original_source_instance_name }} ({{ snapshot.original_source_managed_instance_id }})</p>
+      <p>This permanently removes its locally stored artifact. No automatic recovery is available.</p>
+      <p class="error" id="snapshot-delete-error" role="alert" hidden></p>
+      <button id="confirm-preserved-snapshot-delete" data-snapshot-id="{{ snapshot.snapshot_id }}">Delete preserved snapshot</button>
+      <a href="/snapshots/preserved">Cancel</a>
+    </main>
+  </body>
+</html>

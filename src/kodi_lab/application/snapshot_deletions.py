@@ -42,6 +42,27 @@ class SnapshotDeletionError(RuntimeError):
         super().__init__(safe_reason)
 
 
+def delete_snapshot_artifact_core(
+    broker: SnapshotDeleteBroker, *, data_root: Path, snapshot_id: UUID
+) -> None:
+    """Delete and independently prove absence of one UUID-derived artifact."""
+
+    try:
+        result = broker.delete_managed_snapshot_artifact(snapshot_id=str(snapshot_id))
+    except Exception as error:
+        raise SnapshotDeletionError(
+            "Snapshot artifact deletion could not be proven complete."
+        ) from error
+    if str(result.snapshot_id) != str(snapshot_id) or not result.artifact_absent:
+        raise SnapshotDeletionError(
+            "Snapshot artifact deletion returned inconsistent identity."
+        )
+    if snapshot_artifact_presence(data_root, snapshot_id) != "absent":
+        raise SnapshotDeletionError(
+            "Snapshot artifact absence could not be independently proven."
+        )
+
+
 class DisposableSnapshotDeletionService:
     def __init__(
         self,
@@ -66,7 +87,8 @@ class DisposableSnapshotDeletionService:
             snapshot = SnapshotRepository(session).get(self._lease.snapshot_id)
         if (
             snapshot is None
-            or snapshot.source_managed_instance_id != self._lease.managed_instance_id
+            or snapshot.original_source_managed_instance_id
+            != self._lease.managed_instance_id
             or snapshot.state is not SnapshotState.DELETING
         ):
             raise SnapshotDeletionError(
@@ -76,31 +98,15 @@ class DisposableSnapshotDeletionService:
         self._coordinator.update_phase(
             self._lease, SnapshotDeleteOperationPhase.DELETING_ARTIFACT
         )
-        try:
-            result = self._broker.delete_managed_snapshot_artifact(
-                snapshot_id=str(self._lease.snapshot_id)
-            )
-        except Exception as error:
-            raise SnapshotDeletionError(
-                "Snapshot artifact deletion could not be proven complete."
-            ) from error
-        if str(result.snapshot_id) != str(self._lease.snapshot_id) or not (
-            result.artifact_absent
-        ):
-            raise SnapshotDeletionError(
-                "Snapshot artifact deletion returned inconsistent identity."
-            )
+        delete_snapshot_artifact_core(
+            self._broker,
+            data_root=self._data_root,
+            snapshot_id=self._lease.snapshot_id,
+        )
 
         self._coordinator.update_phase(
             self._lease, SnapshotDeleteOperationPhase.VERIFYING_ABSENCE
         )
-        if (
-            snapshot_artifact_presence(self._data_root, self._lease.snapshot_id)
-            != "absent"
-        ):
-            raise SnapshotDeletionError(
-                "Snapshot artifact absence could not be independently proven."
-            )
         self._coordinator.update_phase(
             self._lease, SnapshotDeleteOperationPhase.DELETING_METADATA
         )

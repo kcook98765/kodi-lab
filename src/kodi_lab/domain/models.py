@@ -6,6 +6,8 @@ from uuid import UUID
 
 from kodi_lab.domain.kodi_release import KodiReleaseIdentity
 
+MAX_MANAGED_INSTANCE_NOTES_LENGTH = 4096
+
 
 class TargetType(StrEnum):
     """Kinds of targets implemented by the current domain slice."""
@@ -90,3 +92,12 @@ class ManagedInstance:
     start_on_host_boot: bool = False
     notes: str | None = None
     fixture_definition_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.notes is not None
+            and len(self.notes) > MAX_MANAGED_INSTANCE_NOTES_LENGTH
+        ):
+            raise ValueError(
+                "managed instance notes must contain at most 4096 Unicode code points"
+            )

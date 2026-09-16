@@ -11,6 +11,10 @@ from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
     ManagedInstance,
+    ManagedInstanceDeleteOperation,
+    ManagedInstanceDeleteOperationPhase,
+    ManagedInstanceDeleteOperationState,
+    ManagedInstanceDeletePriorState,
     ManagedInstanceMutationKind,
     ResetOperation,
     ResetOperationPhase,
@@ -31,6 +35,7 @@ from kodi_lab.domain import (
     SnapshotRestoreOperation,
     SnapshotRestoreOperationPhase,
     SnapshotRestoreOperationState,
+    SnapshotSourceBinding,
     SnapshotState,
     SnapshotValidationResult,
     Target,
@@ -38,6 +43,7 @@ from kodi_lab.domain import (
 from kodi_lab.storage.models import (
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
+    ManagedInstanceDeleteOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ResetOperationRow,
@@ -61,7 +67,21 @@ class EntityNotFoundError(LookupError):
 def _snapshot_from_row(row: SnapshotRow) -> Snapshot:
     return Snapshot(
         id=UUID(row.id),
-        source_managed_instance_id=UUID(row.source_managed_instance_id),
+        source_managed_instance_id=(
+            None
+            if row.source_managed_instance_id is None
+            else UUID(row.source_managed_instance_id)
+        ),
+        original_source_managed_instance_id=UUID(
+            row.original_source_managed_instance_id
+        ),
+        source_binding=row.source_binding,
+        source_instance_name=row.source_instance_name,
+        source_deleted_at=(
+            None
+            if row.source_deleted_at is None
+            else _timestamp_from_text(row.source_deleted_at)
+        ),
         runtime_revision_id=UUID(row.runtime_revision_id),
         captured_fixture_definition_id=(
             None
@@ -157,6 +177,53 @@ def _snapshot_delete_operation_from_row(
         snapshot_id=UUID(row.snapshot_id),
         managed_instance_id=UUID(row.managed_instance_id),
         prior_snapshot_state=row.prior_snapshot_state,
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
+        started_at=(
+            None if row.started_at is None else _timestamp_from_text(row.started_at)
+        ),
+        heartbeat_at=(
+            None if row.heartbeat_at is None else _timestamp_from_text(row.heartbeat_at)
+        ),
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=(
+            None
+            if row.lease_expires_at is None
+            else _timestamp_from_text(row.lease_expires_at)
+        ),
+    )
+
+
+def _managed_instance_delete_operation_from_row(
+    row: ManagedInstanceDeleteOperationRow,
+) -> ManagedInstanceDeleteOperation:
+    return ManagedInstanceDeleteOperation(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        source_instance_name=row.source_instance_name,
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        fixture_definition_id=(
+            None
+            if row.fixture_definition_id is None
+            else UUID(row.fixture_definition_id)
+        ),
+        preserve_snapshots=row.preserve_snapshots,
+        snapshot_count=row.snapshot_count,
+        aggregate_snapshot_bytes=row.aggregate_snapshot_bytes,
+        current_snapshot_id=(
+            None if row.current_snapshot_id is None else UUID(row.current_snapshot_id)
+        ),
+        completed_snapshot_count=row.completed_snapshot_count,
+        expected_container_id=row.expected_container_id,
+        observed_container_id=row.observed_container_id,
+        prior_state=row.prior_state,
+        notes_at_deletion=row.notes_at_deletion,
         requested_at=_timestamp_from_text(row.requested_at),
         state=row.state,
         phase=row.phase,
@@ -353,6 +420,14 @@ class ManagedInstanceRepository:
             else str(instance.fixture_definition_id)
         )
         self._session.flush()
+
+    def delete(self, target_id: UUID) -> bool:
+        row = self._session.get(ManagedInstanceRow, str(target_id))
+        if row is None:
+            return False
+        self._session.delete(row)
+        self._session.flush()
+        return True
 
 
 class FixtureDefinitionRepository:
@@ -924,10 +999,25 @@ class SnapshotRepository:
         self._session = session
 
     def create(self, snapshot: Snapshot) -> None:
+        original_source_id = snapshot.original_source_managed_instance_id
+        if original_source_id is None:
+            raise ValueError("snapshot original source identity is required")
         self._session.add(
             SnapshotRow(
                 id=str(snapshot.id),
-                source_managed_instance_id=str(snapshot.source_managed_instance_id),
+                source_managed_instance_id=(
+                    None
+                    if snapshot.source_managed_instance_id is None
+                    else str(snapshot.source_managed_instance_id)
+                ),
+                original_source_managed_instance_id=str(original_source_id),
+                source_binding=snapshot.source_binding,
+                source_instance_name=snapshot.source_instance_name,
+                source_deleted_at=(
+                    None
+                    if snapshot.source_deleted_at is None
+                    else _timestamp_to_text(snapshot.source_deleted_at)
+                ),
                 runtime_revision_id=str(snapshot.runtime_revision_id),
                 captured_fixture_definition_id=(
                     None
@@ -964,6 +1054,40 @@ class SnapshotRepository:
             .order_by(SnapshotRow.captured_at.desc(), SnapshotRow.id.desc())
         )
         return [_snapshot_from_row(row) for row in rows]
+
+    def list_preserved(self) -> list[Snapshot]:
+        rows = self._session.scalars(
+            select(SnapshotRow)
+            .where(SnapshotRow.source_binding == SnapshotSourceBinding.DELETED_SOURCE)
+            .order_by(SnapshotRow.captured_at.desc(), SnapshotRow.id.desc())
+        )
+        return [_snapshot_from_row(row) for row in rows]
+
+    def list_for_original_instance(self, instance_id: UUID) -> list[Snapshot]:
+        rows = self._session.scalars(
+            select(SnapshotRow)
+            .where(SnapshotRow.original_source_managed_instance_id == str(instance_id))
+            .order_by(SnapshotRow.id)
+        )
+        return [_snapshot_from_row(row) for row in rows]
+
+    def detach_for_deleted_source(
+        self, instance_id: UUID, *, source_name: str, deleted_at: datetime
+    ) -> int:
+        result = self._session.execute(
+            update(SnapshotRow)
+            .where(
+                SnapshotRow.source_managed_instance_id == str(instance_id),
+                SnapshotRow.source_binding == SnapshotSourceBinding.ATTACHED,
+            )
+            .values(
+                source_managed_instance_id=None,
+                source_binding=SnapshotSourceBinding.DELETED_SOURCE,
+                source_instance_name=source_name,
+                source_deleted_at=_timestamp_to_text(deleted_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
 
     def set_prior_runtime_state(
         self,
@@ -1672,6 +1796,286 @@ class SnapshotDeleteOperationRepository:
             )
         )
         return int(getattr(result, "rowcount", 0))
+
+    def active_for_instance(self, instance_id: UUID) -> SnapshotDeleteOperation | None:
+        row = self._session.scalar(
+            select(SnapshotDeleteOperationRow)
+            .where(
+                SnapshotDeleteOperationRow.managed_instance_id == str(instance_id),
+                SnapshotDeleteOperationRow.state.in_(
+                    (
+                        SnapshotDeleteOperationState.QUEUED,
+                        SnapshotDeleteOperationState.RUNNING,
+                    )
+                ),
+            )
+            .order_by(SnapshotDeleteOperationRow.requested_at.desc())
+            .limit(1)
+        )
+        return None if row is None else _snapshot_delete_operation_from_row(row)
+
+
+class ManagedInstanceDeleteOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: ManagedInstanceDeleteOperation) -> None:
+        self._session.add(
+            ManagedInstanceDeleteOperationRow(
+                id=str(operation.id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                source_instance_name=operation.source_instance_name,
+                runtime_revision_id=str(operation.runtime_revision_id),
+                fixture_definition_id=(
+                    None
+                    if operation.fixture_definition_id is None
+                    else str(operation.fixture_definition_id)
+                ),
+                preserve_snapshots=operation.preserve_snapshots,
+                snapshot_count=operation.snapshot_count,
+                aggregate_snapshot_bytes=operation.aggregate_snapshot_bytes,
+                current_snapshot_id=(
+                    None
+                    if operation.current_snapshot_id is None
+                    else str(operation.current_snapshot_id)
+                ),
+                completed_snapshot_count=operation.completed_snapshot_count,
+                expected_container_id=operation.expected_container_id,
+                observed_container_id=operation.observed_container_id,
+                prior_state=operation.prior_state,
+                notes_at_deletion=operation.notes_at_deletion,
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+                reconciliation_required=operation.reconciliation_required,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> ManagedInstanceDeleteOperation | None:
+        row = self._session.get(ManagedInstanceDeleteOperationRow, str(operation_id))
+        return None if row is None else _managed_instance_delete_operation_from_row(row)
+
+    def active_for_instance(
+        self, instance_id: UUID
+    ) -> ManagedInstanceDeleteOperation | None:
+        row = self._session.scalar(
+            select(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.original_managed_instance_id
+                == str(instance_id),
+                ManagedInstanceDeleteOperationRow.state.in_(
+                    (
+                        ManagedInstanceDeleteOperationState.QUEUED,
+                        ManagedInstanceDeleteOperationState.RUNNING,
+                    )
+                ),
+            )
+            .order_by(ManagedInstanceDeleteOperationRow.requested_at.desc())
+            .limit(1)
+        )
+        return None if row is None else _managed_instance_delete_operation_from_row(row)
+
+    def list_queued(self) -> list[ManagedInstanceDeleteOperation]:
+        rows = self._session.scalars(
+            select(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.state
+                == ManagedInstanceDeleteOperationState.QUEUED
+            )
+            .order_by(ManagedInstanceDeleteOperationRow.requested_at)
+        )
+        return [_managed_instance_delete_operation_from_row(row) for row in rows]
+
+    def list_expired_running(
+        self, *, now: datetime
+    ) -> list[ManagedInstanceDeleteOperation]:
+        rows = self._session.scalars(
+            select(ManagedInstanceDeleteOperationRow).where(
+                ManagedInstanceDeleteOperationRow.state
+                == ManagedInstanceDeleteOperationState.RUNNING,
+                ManagedInstanceDeleteOperationRow.lease_expires_at
+                <= _timestamp_to_text(now),
+            )
+        )
+        return [_managed_instance_delete_operation_from_row(row) for row in rows]
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID
+    ) -> ManagedInstanceDeleteOperation | None:
+        row = self._session.scalar(
+            select(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.original_managed_instance_id
+                == str(instance_id),
+                ManagedInstanceDeleteOperationRow.reconciliation_required.is_(True),
+            )
+            .order_by(ManagedInstanceDeleteOperationRow.requested_at.desc())
+            .limit(1)
+        )
+        return None if row is None else _managed_instance_delete_operation_from_row(row)
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.id == str(operation_id),
+                ManagedInstanceDeleteOperationRow.state
+                == ManagedInstanceDeleteOperationState.QUEUED,
+            )
+            .values(
+                state=ManagedInstanceDeleteOperationState.RUNNING,
+                phase=ManagedInstanceDeleteOperationPhase.ACQUIRING_LEASES,
+                started_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: ManagedInstanceDeleteOperationPhase,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.id == str(operation_id),
+                ManagedInstanceDeleteOperationRow.state
+                == ManagedInstanceDeleteOperationState.RUNNING,
+                ManagedInstanceDeleteOperationRow.lease_token_digest == token_digest,
+                ManagedInstanceDeleteOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+            )
+            .values(
+                phase=phase,
+                heartbeat_at=_timestamp_to_text(now),
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def set_container_resolution(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        prior_state: ManagedInstanceDeletePriorState,
+        container_id: str | None,
+    ) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.id == str(operation_id),
+                ManagedInstanceDeleteOperationRow.state
+                == ManagedInstanceDeleteOperationState.RUNNING,
+                ManagedInstanceDeleteOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                prior_state=prior_state,
+                expected_container_id=container_id,
+                observed_container_id=container_id,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_progress(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        current_snapshot_id: UUID | None,
+        completed_snapshot_count: int,
+    ) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.id == str(operation_id),
+                ManagedInstanceDeleteOperationRow.state
+                == ManagedInstanceDeleteOperationState.RUNNING,
+                ManagedInstanceDeleteOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                current_snapshot_id=(
+                    None if current_snapshot_id is None else str(current_snapshot_id)
+                ),
+                completed_snapshot_count=completed_snapshot_count,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: ManagedInstanceDeleteOperationState,
+        phase: ManagedInstanceDeleteOperationPhase,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        notes_at_deletion: str | None,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.id == str(operation_id),
+                ManagedInstanceDeleteOperationRow.state
+                == ManagedInstanceDeleteOperationState.RUNNING,
+                ManagedInstanceDeleteOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                state=state,
+                phase=phase,
+                heartbeat_at=_timestamp_to_text(now),
+                completed_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+                notes_at_deletion=notes_at_deletion,
+                current_snapshot_id=None,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceDeleteOperationRow)
+            .where(
+                ManagedInstanceDeleteOperationRow.id == str(operation_id),
+                ManagedInstanceDeleteOperationRow.state
+                == ManagedInstanceDeleteOperationState.RUNNING,
+                ManagedInstanceDeleteOperationRow.lease_expires_at
+                <= _timestamp_to_text(now),
+            )
+            .values(
+                state=ManagedInstanceDeleteOperationState.RECONCILIATION_REQUIRED,
+                phase=ManagedInstanceDeleteOperationPhase.RECONCILIATION_REQUIRED,
+                heartbeat_at=_timestamp_to_text(now),
+                completed_at=_timestamp_to_text(now),
+                failure_reason="Instance deletion requires operator reconciliation.",
+                reconciliation_required=True,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
 
 
 class ManagedInstanceMutationLeaseRepository:

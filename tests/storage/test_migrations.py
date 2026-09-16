@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import String, inspect, text
+from sqlalchemy import Connection, String, inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.storage.engine import create_database_engine
@@ -37,6 +37,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "fixture_definitions",
         "global_heavy_operation_lease",
         "managed_instances",
+        "managed_instance_delete_operations",
         "managed_instance_mutation_leases",
         "reset_operations",
         "runtime_definitions",
@@ -63,9 +64,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     assert managed_foreign_keys["fixture_definitions"]["options"] == {
         "ondelete": "RESTRICT"
     }
-    reset_foreign_key = inspector.get_foreign_keys("reset_operations")[0]
-    assert reset_foreign_key["referred_table"] == "managed_instances"
-    assert reset_foreign_key["options"] == {"ondelete": "RESTRICT"}
+    assert inspector.get_foreign_keys("reset_operations") == []
     reset_indexes = {
         index["name"]: index for index in inspector.get_indexes("reset_operations")
     }
@@ -743,10 +742,12 @@ def test_populated_phase7_snapshot_state_refuses_downgrade(
         connection.execute(
             text(
                 "INSERT INTO snapshots (id, source_managed_instance_id, "
+                "original_source_managed_instance_id, source_binding, "
                 "runtime_revision_id, captured_at, manifest_version, state, "
                 "validation_result) VALUES "
                 "('89500000-0000-4000-8000-000000000004', "
                 "'89500000-0000-4000-8000-000000000003', "
+                "'89500000-0000-4000-8000-000000000003', 'attached', "
                 "'89500000-0000-4000-8000-000000000002', :timestamp, 1, "
                 "'creating', 'pending')"
             ),
@@ -1487,3 +1488,238 @@ def test_fixture_migration_empty_round_trip_and_populated_downgrade_refusal(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated fixture"):
         command.downgrade(config, "0006_runtime_matrix_contract")
+
+
+def _seed_0014_instance_with_notes(connection: Connection, *, notes: str) -> None:
+    execute = connection.execute
+    timestamp = "2026-09-16T00:00:00.000000Z"
+    digest = "sha256:" + "a" * 64
+    execute(
+        text(
+            "INSERT INTO runtime_definitions "
+            "(id, slug, kodi_version, support_tier) VALUES "
+            "('89800000-0000-4000-8000-000000000001', 'instance-delete', "
+            "'21.3', 'current')"
+        )
+    )
+    execute(
+        text(
+            "INSERT INTO runtime_revisions (id, runtime_definition_id, "
+            "revision_number, source_kind, source_reference, content_digest, "
+            "manifest_reference, manifest_digest, built_at, approval_state, "
+            "requires_trusted_build_confirmation) VALUES "
+            "('89800000-0000-4000-8000-000000000002', "
+            "'89800000-0000-4000-8000-000000000001', 1, 'test', 'test', "
+            ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
+        ),
+        {"digest": digest, "timestamp": timestamp},
+    )
+    execute(
+        text(
+            "INSERT INTO targets (id, name, target_type, kodi_version, "
+            "availability, health, connection_state) VALUES "
+            "('89800000-0000-4000-8000-000000000003', 'delete source', "
+            "'managed', '21.3', 'unavailable', 'warning', 'disconnected')"
+        )
+    )
+    execute(
+        text(
+            "INSERT INTO managed_instances (target_id, instance_type, "
+            "runtime_revision_id, runtime_state, start_on_host_boot, notes) VALUES "
+            "('89800000-0000-4000-8000-000000000003', 'disposable', "
+            "'89800000-0000-4000-8000-000000000002', 'stopped', 0, :notes)"
+        ),
+        {"notes": notes},
+    )
+
+
+@pytest.mark.parametrize("notes", ["short 🐍 note", "🐍" * 4096])
+def test_0015_preserves_bounded_notes_exactly_and_backfills_snapshot_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, notes: str
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0014_snapshot_deletion")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-16T00:00:00.000000Z"
+    digest = "sha256:" + "b" * 64
+    with engine.begin() as connection:
+        _seed_0014_instance_with_notes(connection, notes=notes)
+        connection.execute(
+            text(
+                "INSERT INTO snapshots (id, source_managed_instance_id, "
+                "runtime_revision_id, captured_at, prior_runtime_state, "
+                "manifest_version, archive_digest, manifest_digest, archive_size, "
+                "member_count, state, validation_at, validation_result) VALUES "
+                "('89800000-0000-4000-8000-000000000004', "
+                "'89800000-0000-4000-8000-000000000003', "
+                "'89800000-0000-4000-8000-000000000002', :timestamp, 'stopped', "
+                "1, :digest, :digest, 10, 1, 'available', :timestamp, 'passed')"
+            ),
+            {"digest": digest, "timestamp": timestamp},
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT notes FROM managed_instances")) == notes
+        snapshot = connection.execute(
+            text(
+                "SELECT source_managed_instance_id, "
+                "original_source_managed_instance_id, source_binding "
+                "FROM snapshots"
+            )
+        ).one()
+    assert snapshot == (
+        "89800000-0000-4000-8000-000000000003",
+        "89800000-0000-4000-8000-000000000003",
+        "attached",
+    )
+    engine.dispose()
+
+
+def test_0015_refuses_oversized_existing_notes_without_rewriting_database(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0014_snapshot_deletion")
+    oversized = "🐍" * 4097
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        _seed_0014_instance_with_notes(connection, notes=oversized)
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="exceed 4096 Unicode code points"):
+        command.upgrade(config, "head")
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(text("SELECT notes FROM managed_instances")) == oversized
+        )
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0014_snapshot_deletion"
+        )
+        assert (
+            "managed_instance_delete_operations"
+            not in inspect(connection).get_table_names()
+        )
+    engine.dispose()
+
+
+def test_0015_downgrade_refuses_detached_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0014_snapshot_deletion")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-16T00:00:00.000000Z"
+    digest = "sha256:" + "b" * 64
+    with engine.begin() as connection:
+        _seed_0014_instance_with_notes(connection, notes="bounded")
+        connection.execute(
+            text(
+                "INSERT INTO snapshots (id, source_managed_instance_id, "
+                "runtime_revision_id, captured_at, prior_runtime_state, "
+                "manifest_version, archive_digest, manifest_digest, archive_size, "
+                "member_count, state, validation_at, validation_result) VALUES "
+                "('89800000-0000-4000-8000-000000000004', "
+                "'89800000-0000-4000-8000-000000000003', "
+                "'89800000-0000-4000-8000-000000000002', :timestamp, 'stopped', 1, "
+                ":digest, :digest, 10, 1, 'available', :timestamp, 'passed')"
+            ),
+            {"digest": digest, "timestamp": timestamp},
+        )
+    engine.dispose()
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE snapshots SET source_managed_instance_id=NULL, "
+                "source_binding='deleted_source', source_instance_name='source', "
+                "source_deleted_at=:timestamp"
+            ),
+            {"timestamp": timestamp},
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="detached snapshots"):
+        command.downgrade(config, "0014_snapshot_deletion")
+
+
+def test_0015_downgrade_refuses_populated_instance_delete_history(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0014_snapshot_deletion")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-16T00:00:00.000000Z"
+    with engine.begin() as connection:
+        _seed_0014_instance_with_notes(connection, notes="bounded")
+    engine.dispose()
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO managed_instance_delete_operations "
+                "(id, original_managed_instance_id, source_instance_name, "
+                "runtime_revision_id, preserve_snapshots, snapshot_count, "
+                "aggregate_snapshot_bytes, completed_snapshot_count, "
+                "notes_at_deletion, "
+                "requested_at, completed_at, state, phase, reconciliation_required) "
+                "VALUES ('89800000-0000-4000-8000-000000000005', "
+                "'89800000-0000-4000-8000-000000000003', 'delete source', "
+                "'89800000-0000-4000-8000-000000000002', 1, 0, 0, 0, 'bounded', "
+                ":timestamp, :timestamp, 'succeeded', 'succeeded', 0)"
+            ),
+            {"timestamp": timestamp},
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated instance deletion history"):
+        command.downgrade(config, "0014_snapshot_deletion")
+
+
+def test_0015_relaxed_terminal_history_retains_original_instance_uuid(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0014_snapshot_deletion")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-16T00:00:00.000000Z"
+    with engine.begin() as connection:
+        _seed_0014_instance_with_notes(connection, notes="bounded")
+        connection.execute(
+            text(
+                "INSERT INTO reset_operations "
+                "(id, managed_instance_id, requested_at, completed_at, state, phase, "
+                "reconciliation_required) VALUES "
+                "('89800000-0000-4000-8000-000000000006', "
+                "'89800000-0000-4000-8000-000000000003', :timestamp, :timestamp, "
+                "'succeeded', 'succeeded', 0)"
+            ),
+            {"timestamp": timestamp},
+        )
+    engine.dispose()
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "DELETE FROM managed_instances WHERE target_id="
+                "'89800000-0000-4000-8000-000000000003'"
+            )
+        )
+        connection.execute(
+            text("DELETE FROM targets WHERE id='89800000-0000-4000-8000-000000000003'")
+        )
+        retained = connection.scalar(
+            text("SELECT managed_instance_id FROM reset_operations")
+        )
+    assert retained == "89800000-0000-4000-8000-000000000003"
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="operation history"):
+        command.downgrade(config, "0014_snapshot_deletion")

@@ -383,3 +383,21 @@ next milestone should define instance deletion with explicit user-Snapshot
 preservation. That boundary must be resolved before source-bound Snapshot rows
 can safely outlive their ManagedInstance; persistent-instance snapshots remain
 a larger, separate consistency design.
+
+Phase 7 Step 6 implements disposable ManagedInstance deletion after that
+architecture decision. A dedicated durable operation uses the new closed
+`INSTANCE_DELETE` mutation kind and container-first ordering. The strict request
+requires explicit confirmation plus explicit preserve/destroy policy, and
+reloads the complete server-side Snapshot set. Preservation atomically detaches
+metadata without touching UUID-derived artifacts; detached Snapshots are
+archive-only but remain globally discoverable and individually deletable.
+Destruction additionally holds the singleton global-heavy lease and reuses the
+proven UUID-only artifact-first deletion core without nested delete operations.
+
+Migration 0015 also bounds ManagedInstance notes and the one-time deletion
+history copy to 4,096 Unicode code points, refusing oversized legacy data rather
+than truncating it. Typed terminal reset/Snapshot histories retain immutable
+instance UUIDs without a live-parent FK. Reconciliation remains read-only and
+never automatically resumes stale destructive work. Persistent-instance
+deletion/snapshots, clone/import, undelete, archive transfer, cross-instance
+restore, and general bulk deletion remain outside Step 6.

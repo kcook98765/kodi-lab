@@ -70,6 +70,31 @@ def test_valid_managed_instance_construction() -> None:
     assert instance.notes is None
 
 
+@pytest.mark.parametrize("notes", [None, "", "x" * 4096, "🐍" * 4096])
+def test_managed_instance_notes_preserve_bounded_code_points(
+    notes: str | None,
+) -> None:
+    instance = ManagedInstance(
+        target_id=uuid4(),
+        instance_type=InstanceType.DISPOSABLE,
+        runtime_revision_id=uuid4(),
+        runtime_state=InstanceRuntimeState.STOPPED,
+        notes=notes,
+    )
+    assert instance.notes == notes
+
+
+def test_managed_instance_notes_reject_4097_code_points() -> None:
+    with pytest.raises(ValueError, match="4096 Unicode code points"):
+        ManagedInstance(
+            target_id=uuid4(),
+            instance_type=InstanceType.DISPOSABLE,
+            runtime_revision_id=uuid4(),
+            runtime_state=InstanceRuntimeState.STOPPED,
+            notes="🐍" * 4097,
+        )
+
+
 @pytest.mark.parametrize(
     ("name", "kodi_version", "invalid_field"),
     [("  ", "21.3", "name"), ("target", "  ", "kodi_version")],

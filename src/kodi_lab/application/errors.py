@@ -144,6 +144,10 @@ class ManagedInstanceConflictError(PersistenceConflictError):
         super().__init__(f"managed instance for target {target_id} already exists")
 
 
+class ManagedInstanceDataValidationError(ApplicationServiceError):
+    """Managed-instance user metadata failed bounded domain validation."""
+
+
 class FixtureDefinitionConflictError(PersistenceConflictError):
     def __init__(self, *, fixture_definition_id: UUID, slug: str) -> None:
         self.fixture_definition_id = fixture_definition_id

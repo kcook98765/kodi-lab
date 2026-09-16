@@ -18,6 +18,11 @@ class SnapshotState(StrEnum):
     DELETING = "deleting"
 
 
+class SnapshotSourceBinding(StrEnum):
+    ATTACHED = "attached"
+    DELETED_SOURCE = "deleted_source"
+
+
 class SnapshotValidationResult(StrEnum):
     PENDING = "pending"
     PASSED = "passed"
@@ -116,12 +121,14 @@ class ManagedInstanceMutationKind(StrEnum):
     LIFECYCLE = "lifecycle"
     FIXTURE_ASSIGNMENT = "fixture_assignment"
     RUNTIME_REASSIGNMENT = "runtime_reassignment"
+    INSTANCE_DELETE = "instance_delete"
 
 
 class GlobalHeavyOperationKind(StrEnum):
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
     SNAPSHOT_DELETE = "snapshot_delete"
+    INSTANCE_DELETE = "instance_delete"
 
 
 def normalize_snapshot_label(value: str | None) -> str | None:
@@ -142,7 +149,7 @@ def normalize_snapshot_label(value: str | None) -> str | None:
 @dataclass(frozen=True, slots=True)
 class Snapshot:
     id: UUID
-    source_managed_instance_id: UUID
+    source_managed_instance_id: UUID | None
     runtime_revision_id: UUID
     captured_fixture_definition_id: UUID | None
     captured_at: datetime
@@ -156,6 +163,10 @@ class Snapshot:
     state: SnapshotState
     validation_at: datetime | None
     validation_result: SnapshotValidationResult
+    original_source_managed_instance_id: UUID | None = None
+    source_binding: SnapshotSourceBinding = SnapshotSourceBinding.ATTACHED
+    source_instance_name: str | None = None
+    source_deleted_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.captured_at.tzinfo is None or self.captured_at.utcoffset() is None:
@@ -164,6 +175,35 @@ class Snapshot:
             self.validation_at.tzinfo is None or self.validation_at.utcoffset() is None
         ):
             raise ValueError("snapshot validation_at must be timezone-aware")
+        if self.source_deleted_at is not None and (
+            self.source_deleted_at.tzinfo is None
+            or self.source_deleted_at.utcoffset() is None
+        ):
+            raise ValueError("snapshot source_deleted_at must be timezone-aware")
+        if self.original_source_managed_instance_id is None:
+            object.__setattr__(
+                self,
+                "original_source_managed_instance_id",
+                self.source_managed_instance_id,
+            )
+        if self.original_source_managed_instance_id is None:
+            raise ValueError("snapshot original source identity is required")
+        if self.source_binding is SnapshotSourceBinding.ATTACHED:
+            if (
+                self.source_managed_instance_id is None
+                or self.source_managed_instance_id
+                != self.original_source_managed_instance_id
+                or self.source_instance_name is not None
+                or self.source_deleted_at is not None
+            ):
+                raise ValueError("attached snapshot source identity is inconsistent")
+        elif (
+            self.source_managed_instance_id is not None
+            or self.source_instance_name is None
+            or not self.source_instance_name.strip()
+            or self.source_deleted_at is None
+        ):
+            raise ValueError("deleted-source snapshot identity is inconsistent")
         object.__setattr__(self, "label", normalize_snapshot_label(self.label))
         if self.manifest_version != 1:
             raise ValueError("snapshot manifest version must be 1")
@@ -252,4 +292,90 @@ class SnapshotDeleteOperation:
         return self.state in {
             SnapshotDeleteOperationState.QUEUED,
             SnapshotDeleteOperationState.RUNNING,
+        }
+
+
+class ManagedInstanceDeleteOperationState(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class ManagedInstanceDeleteOperationPhase(StrEnum):
+    QUEUED = "queued"
+    ACQUIRING_LEASES = "acquiring_leases"
+    RESOLVING_INSTANCE = "resolving_instance"
+    STOPPING = "stopping"
+    DEPROVISIONING = "deprovisioning"
+    VERIFYING_CONTAINER_ABSENCE = "verifying_container_absence"
+    PRESERVING_SNAPSHOTS = "preserving_snapshots"
+    DELETING_SNAPSHOTS = "deleting_snapshots"
+    VERIFYING_SNAPSHOT_ABSENCE = "verifying_snapshot_absence"
+    DELETING_METADATA = "deleting_metadata"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class ManagedInstanceDeletePriorState(StrEnum):
+    UNPROVISIONED = "unprovisioned"
+    STOPPED = "stopped"
+    RUNNING = "running"
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedInstanceDeleteOperation:
+    id: UUID
+    original_managed_instance_id: UUID
+    source_instance_name: str
+    runtime_revision_id: UUID
+    fixture_definition_id: UUID | None
+    preserve_snapshots: bool
+    snapshot_count: int
+    aggregate_snapshot_bytes: int
+    requested_at: datetime
+    current_snapshot_id: UUID | None = None
+    completed_snapshot_count: int = 0
+    expected_container_id: str | None = None
+    observed_container_id: str | None = None
+    prior_state: ManagedInstanceDeletePriorState | None = None
+    notes_at_deletion: str | None = None
+    state: ManagedInstanceDeleteOperationState = (
+        ManagedInstanceDeleteOperationState.QUEUED
+    )
+    phase: ManagedInstanceDeleteOperationPhase = (
+        ManagedInstanceDeleteOperationPhase.QUEUED
+    )
+    started_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    completed_at: datetime | None = None
+    failure_reason: str | None = None
+    reconciliation_required: bool = False
+    lease_token_digest: str | None = None
+    lease_expires_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if not 1 <= len(self.source_instance_name) <= 256:
+            raise ValueError("delete operation source instance name must be bounded")
+        if (
+            self.snapshot_count < 0
+            or not 0 <= self.completed_snapshot_count <= self.snapshot_count
+        ):
+            raise ValueError("delete operation snapshot progress is invalid")
+        if self.aggregate_snapshot_bytes < 0:
+            raise ValueError("delete operation aggregate bytes must not be negative")
+        if self.notes_at_deletion is not None and len(self.notes_at_deletion) > 4096:
+            raise ValueError(
+                "delete operation notes must contain at most 4096 code points"
+            )
+        if self.failure_reason is not None and not 1 <= len(self.failure_reason) <= 256:
+            raise ValueError("delete operation failure reason must be bounded")
+
+    @property
+    def active(self) -> bool:
+        return self.state in {
+            ManagedInstanceDeleteOperationState.QUEUED,
+            ManagedInstanceDeleteOperationState.RUNNING,
         }

@@ -25,6 +25,7 @@ from kodi_lab.broker.snapshots import (
 from kodi_lab.domain import (
     InstanceRuntimeState,
     Snapshot,
+    SnapshotSourceBinding,
     SnapshotState,
     SnapshotValidationResult,
 )
@@ -37,7 +38,11 @@ from kodi_lab.storage.models import (
     RuntimeRevisionRow,
     TargetRow,
 )
-from kodi_lab.storage.repositories import SnapshotRepository
+from kodi_lab.storage.repositories import (
+    ManagedInstanceRepository,
+    SnapshotRepository,
+    TargetRepository,
+)
 
 SNAPSHOT_ID = UUID("94200000-0000-4000-8000-000000000001")
 INSTANCE_ID = UUID("94200000-0000-4000-8000-000000000002")
@@ -210,3 +215,36 @@ def test_absent_is_accepted_only_after_deleting_transition(
     result = registry.dispatch(request({"snapshot_id": str(SNAPSHOT_ID)}))
     assert isinstance(result, DeleteManagedSnapshotArtifactResult)
     assert result.artifact_absent and not result.artifact_was_present
+
+
+def test_detached_deleting_snapshot_needs_no_live_source_parent(
+    factory: sessionmaker[Session], tmp_path: Path
+) -> None:
+    with factory.begin() as session:
+        snapshot = SnapshotRepository(session)
+        assert (
+            snapshot.detach_for_deleted_source(
+                INSTANCE_ID,
+                source_name="deleted source",
+                deleted_at=datetime(2026, 9, 16, 1, tzinfo=UTC),
+            )
+            == 1
+        )
+        detached = snapshot.get(SNAPSHOT_ID)
+        assert detached is not None
+        assert detached.source_binding is SnapshotSourceBinding.DELETED_SOURCE
+        assert snapshot.mark_deleting(SNAPSHOT_ID, prior_state=SnapshotState.AVAILABLE)
+        assert ManagedInstanceRepository(session).delete(INSTANCE_ID)
+        assert TargetRepository(session).delete(INSTANCE_ID)
+
+    resolved = SqliteSnapshotDeleteResolver(
+        factory, data_root=tmp_path, owner_uid=os.getuid(), owner_gid=os.getgid()
+    ).resolve(str(SNAPSHOT_ID))
+    assert resolved.snapshot_id == SNAPSHOT_ID
+    with pytest.raises(SnapshotStateError, match="does not exist"):
+        SqliteSnapshotRestoreResolver(
+            factory,
+            data_root=tmp_path,
+            owner_uid=os.getuid(),
+            owner_gid=os.getgid(),
+        ).resolve(str(SNAPSHOT_ID), str(INSTANCE_ID))

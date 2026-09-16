@@ -1230,3 +1230,84 @@ details that it did not specify.
   delete actions disappear; after success the Snapshot disappears while safe
   operation history remains. No download, content view, retention control,
   bulk delete, or delete-all route exists.
+
+## D-0100: Detached Snapshot source binding
+
+- Status: approved for Phase 7 Step 6
+- Decision: Snapshot source ownership has an independently closed binding:
+  `attached` requires a live nullable source ManagedInstance FK, while
+  `deleted_source` requires that FK to be null. Every Snapshot retains an
+  immutable non-FK original source ManagedInstance UUID. Detachment also copies
+  the bounded source display name and deletion timestamp. Artifact UUID, path,
+  bytes, digests, runtime/fixture references, capture time, label, and validity
+  state do not change or move.
+
+## D-0101: Detached Snapshots are archive-only in v1
+
+- Status: approved for Phase 7 Step 6
+- Decision: `deleted_source` Snapshots cannot be restored. Eligibility rejects
+  them as `source_instance_deleted` before mutation/global-heavy leases, Docker,
+  or broker work. Detachment supplies no clone, import, cross-instance restore,
+  original-instance recreation, or undelete semantics.
+
+## D-0102: Explicit instance-deletion Snapshot policy
+
+- Status: approved for Phase 7 Step 6
+- Decision: disposable ManagedInstance deletion requires both explicit
+  confirmation and an explicit `preserve_snapshots` Boolean, with no default.
+  The server reloads and applies that policy to the complete authoritative
+  Snapshot set; the browser supplies no Snapshot UUID list. Creating/deleting
+  Snapshot state or any active reset/create/restore/delete/mutation blocks
+  queueing before partial work.
+
+## D-0103: Container-first durable instance deletion
+
+- Status: approved for Phase 7 Step 6
+- Decision: `ManagedInstanceDeleteOperation` is a dedicated typed durable
+  disposable-only workflow, never a direct Web repository deletion or generic
+  job. It owns `INSTANCE_DELETE` per-instance mutation authority. The exact
+  running/stopped container is stopped when necessary, removed, and proven
+  absent before preserved metadata is detached or destructive Snapshot work
+  starts.
+
+## D-0104: Deletion history and bounded notes survive
+
+- Status: approved for Phase 7 Step 6
+- Decision: reset and Snapshot create/restore/delete histories retain their
+  immutable ManagedInstance UUID without requiring a live parent. The delete
+  operation itself retains original instance, revision, fixture, Snapshot
+  counts/bytes/progress, prior container state and bounded reconciliation data.
+  It does not copy credentials, paths, health, mutable runtime state, Snapshot
+  contents, or manifests, and it is not automatically pruned in this milestone.
+
+## D-0104A: ManagedInstance notes are bounded at 4,096 code points
+
+- Status: approved for Phase 7 Step 6
+- Decision: `ManagedInstance.notes` and the one-time
+  `ManagedInstanceDeleteOperation.notes_at_deletion` copy accept `None`, empty,
+  or at most 4,096 Unicode code points. They are never trimmed, normalized,
+  rewritten, or truncated; oversized input and migration data are rejected.
+  Application validation is authoritative and SQLite uses a compatible
+  `length(...) <= 4096` check. Notes are potentially sensitive: confirmation
+  exposes presence only, and Snapshot metadata/history never receives them.
+
+## D-0105: Global preserved browsing and exact deletion
+
+- Status: approved for Phase 7 Step 6
+- Decision: authenticated global preserved-Snapshot browsing exposes only safe
+  source, runtime, fixture, time, size, label, UUID, binding, and validity
+  metadata, with Delete but no Restore. Detached deletion reuses the proven
+  `SnapshotDeleteOperation` and UUID-only artifact-first broker core without a
+  live source FK or generic filesystem authority. Its retained history keeps
+  the immutable original source UUID.
+
+## D-0106: Instance-deletion reconciliation is fail closed
+
+- Status: approved for Phase 7 Step 6
+- Decision: expired or stale destructive instance deletion is never resumed.
+  Read-only inspection reports instance/container presence, policy, remaining
+  attached/detached/deleting rows, artifact presence, and durable progress.
+  Preserve success atomically detaches every Snapshot, removes instance/Target
+  metadata, releases authority, copies bounded notes, and terminalizes history.
+  Delete success retains artifact-first ordering for every UUID before the same
+  final metadata transaction.

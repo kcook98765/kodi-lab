@@ -7,7 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
-from kodi_lab.domain import SnapshotState, SnapshotValidationResult
+from kodi_lab.domain import (
+    SnapshotSourceBinding,
+    SnapshotState,
+    SnapshotValidationResult,
+)
 from kodi_lab.storage.repositories import (
     FixtureDefinitionRepository,
     ManagedInstanceRepository,
@@ -32,6 +36,10 @@ class SnapshotHistoryItem(BaseModel):
     fixture_definition_id: UUID | None
     fixture_slug: str | None = Field(default=None, max_length=64)
     validation_result: SnapshotValidationResult
+    source_binding: SnapshotSourceBinding
+    original_source_managed_instance_id: UUID
+    original_source_instance_name: str | None = Field(default=None, max_length=256)
+    source_deleted_at: datetime | None
 
 
 class SnapshotStatusService:
@@ -74,6 +82,55 @@ class SnapshotStatusService:
                         fixture_definition_id=snapshot.captured_fixture_definition_id,
                         fixture_slug=None if fixture is None else fixture.slug,
                         validation_result=snapshot.validation_result,
+                        source_binding=snapshot.source_binding,
+                        original_source_managed_instance_id=(
+                            snapshot.original_source_managed_instance_id or instance_id
+                        ),
+                        original_source_instance_name=snapshot.source_instance_name,
+                        source_deleted_at=snapshot.source_deleted_at,
+                    )
+                )
+            return result
+
+    def list_preserved(self) -> list[SnapshotHistoryItem]:
+        with self._session_factory() as session:
+            revisions = RuntimeRevisionRepository(session)
+            definitions = RuntimeDefinitionRepository(session)
+            fixtures = FixtureDefinitionRepository(session)
+            result: list[SnapshotHistoryItem] = []
+            for snapshot in SnapshotRepository(session).list_preserved():
+                revision = revisions.get(snapshot.runtime_revision_id)
+                if revision is None:
+                    continue
+                definition = definitions.get(revision.runtime_definition_id)
+                if definition is None:
+                    continue
+                fixture = (
+                    None
+                    if snapshot.captured_fixture_definition_id is None
+                    else fixtures.get(snapshot.captured_fixture_definition_id)
+                )
+                original_id = snapshot.original_source_managed_instance_id
+                if original_id is None:
+                    continue
+                result.append(
+                    SnapshotHistoryItem(
+                        snapshot_id=snapshot.id,
+                        label=snapshot.label,
+                        captured_at=snapshot.captured_at,
+                        state=snapshot.state,
+                        archive_size=snapshot.archive_size,
+                        member_count=snapshot.member_count,
+                        kodi_release=definition.kodi_version,
+                        runtime_revision_id=revision.id,
+                        runtime_revision_number=revision.revision_number,
+                        fixture_definition_id=snapshot.captured_fixture_definition_id,
+                        fixture_slug=None if fixture is None else fixture.slug,
+                        validation_result=snapshot.validation_result,
+                        source_binding=snapshot.source_binding,
+                        original_source_managed_instance_id=original_id,
+                        original_source_instance_name=snapshot.source_instance_name,
+                        source_deleted_at=snapshot.source_deleted_at,
                     )
                 )
             return result
