@@ -322,3 +322,17 @@ and TV paths. Verification uses package-owned keyed identity maps, the scan plan
 remains Movies then TV, and fixed validation drift removes only Movie 001 plus
 Series 01 S01E01. Reset, broker, Web, lease, exact pin, and the 60-second fixture
 deadline remain unchanged pending measured live scale validation.
+
+Live scale validation proved initial, restoration, and repeat reset in
+16.77/14.89/15.83 seconds with exact 25/5/50 semantics and fixed 24/5/49 drift.
+The longest component was normal readiness at roughly 7.35 seconds; each scan
+was under 3.8 seconds, archive application under 0.7 seconds, and final stop
+under 0.35 seconds. The existing 60-second fixture deadline, ten-minute lease,
+and archive bounds therefore remain unchanged.
+
+The next coherent milestone should begin the Phase 7 snapshot vertical slice
+with its canonical architecture stop gate. Medium scale is now proven and
+Medium/Movies, Medium/TV, stable portability, and Preview portability reuse
+already-proven patterns. Snapshots are a first-class v1 feature and introduce
+the higher-risk unproven storage, stop/restore, validation, prior-state restore,
+and global-heavy-operation coordination contract.

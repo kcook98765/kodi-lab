@@ -543,3 +543,14 @@ giving exact 24/5/49. It adds no generic bulk-delete or arbitrary JSON-RPC
 surface. Reset remains fixture-definition driven, exact-pin preserving, and
 release/category agnostic. The broker operation, Web mutation contract, and
 durable reset coordination are unchanged.
+
+Dedicated live A/drift/B/C validation completed without a deadline or safety
+bound change. Initial, restoration, and repeat resets completed in 16.77,
+14.89, and 15.83 seconds. Readiness was 7.34–7.36 seconds; Movies scanning was
+3.30–3.59 seconds; TV scanning was 3.01–3.77 seconds; accumulated semantic-read
+and keyed-verification work was 2.26–3.25 seconds. Archive application was at
+most 0.70 seconds and final stop at most 0.35 seconds. All three containers were
+distinct, every result was exact 25/5/50 and stopped, fixed drift was exact
+24/5/49, and ManagedInstance, RuntimeRevision, and fixture identities were
+unchanged. The 60-second fixture deadline, ten-minute reset lease, and current
+archive handling remain comfortable at this measured Medium scale.
