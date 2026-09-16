@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from kodi_lab.domain import (
     ConnectionState,
+    DevelopmentSourceKind,
     FixtureContentCategory,
     FixtureSizeCategory,
     GlobalHeavyOperationKind,
@@ -57,6 +58,84 @@ from kodi_lab.storage.metadata import Base
 
 def _enum_values(enum_type: type[StrEnum]) -> list[str]:
     return [item.value for item in enum_type]
+
+
+class DevelopmentSourceRow(Base):
+    """Persisted registration-time observation of one local development source."""
+
+    __tablename__ = "development_sources"
+    __table_args__ = (
+        UniqueConstraint("logical_name", name="uq_development_source_logical_name"),
+        UniqueConstraint(
+            "relative_locator", name="uq_development_source_relative_locator"
+        ),
+        UniqueConstraint("addon_id", name="uq_development_source_addon_id"),
+        CheckConstraint(
+            "length(logical_name) BETWEEN 1 AND 120 "
+            "AND logical_name = trim(logical_name)",
+            name="development_source_logical_name_bounded",
+        ),
+        CheckConstraint(
+            "length(relative_locator) BETWEEN 1 AND 1024 "
+            "AND substr(relative_locator, 1, 1) <> '/' "
+            "AND instr(relative_locator, '\\') = 0 "
+            "AND instr(relative_locator, '//') = 0 "
+            "AND relative_locator <> '.' AND relative_locator <> '..' "
+            "AND relative_locator NOT LIKE './%' "
+            "AND relative_locator NOT LIKE '../%' "
+            "AND relative_locator NOT LIKE '%/./%' "
+            "AND relative_locator NOT LIKE '%/../%' "
+            "AND relative_locator NOT LIKE '%/.' "
+            "AND relative_locator NOT LIKE '%/..'",
+            name="development_source_relative_locator_safe",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 "
+            "AND addon_id = lower(addon_id) "
+            "AND addon_id = trim(addon_id) "
+            "AND instr(addon_id, '/') = 0 AND instr(addon_id, '\\') = 0 "
+            "AND instr(addon_id, '..') = 0",
+            name="development_source_addon_id_bounded",
+        ),
+        CheckConstraint(
+            "length(observed_name) BETWEEN 1 AND 256",
+            name="development_source_observed_name_bounded",
+        ),
+        CheckConstraint(
+            "length(observed_version) BETWEEN 1 AND 128",
+            name="development_source_observed_version_bounded",
+        ),
+        CheckConstraint(
+            "length(extension_types_json) BETWEEN 2 AND 8192",
+            name="development_source_extensions_bounded",
+        ),
+        CheckConstraint(
+            "length(registered_at) BETWEEN 20 AND 32 "
+            "AND length(validated_at) BETWEEN 20 AND 32",
+            name="development_source_timestamps_bounded",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    logical_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_kind: Mapped[DevelopmentSourceKind] = mapped_column(
+        Enum(
+            DevelopmentSourceKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_kind",
+            length=32,
+        ),
+        nullable=False,
+    )
+    relative_locator: Mapped[str] = mapped_column(String(1024), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    observed_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    observed_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    extension_types_json: Mapped[str] = mapped_column(Text, nullable=False)
+    registered_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    validated_at: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
 class TargetRow(Base):

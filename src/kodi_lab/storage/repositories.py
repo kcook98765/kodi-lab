@@ -1,5 +1,6 @@
 """Explicit repositories for targets and managed instances."""
 
+import json
 from datetime import datetime
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
+    DevelopmentSource,
     FixtureDefinition,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
@@ -44,6 +46,7 @@ from kodi_lab.domain import (
     Target,
 )
 from kodi_lab.storage.models import (
+    DevelopmentSourceRow,
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceDeleteOperationRow,
@@ -291,6 +294,26 @@ def _target_from_row(row: TargetRow) -> Target:
     )
 
 
+def _development_source_from_row(row: DevelopmentSourceRow) -> DevelopmentSource:
+    extension_types = json.loads(row.extension_types_json)
+    if not isinstance(extension_types, list) or not all(
+        isinstance(value, str) for value in extension_types
+    ):
+        raise ValueError("stored development-source extension metadata is invalid")
+    return DevelopmentSource(
+        id=UUID(row.id),
+        logical_name=row.logical_name,
+        source_kind=row.source_kind,
+        relative_locator=row.relative_locator,
+        addon_id=row.addon_id,
+        observed_name=row.observed_name,
+        observed_version=row.observed_version,
+        extension_types=tuple(extension_types),
+        registered_at=_timestamp_from_text(row.registered_at),
+        validated_at=_timestamp_from_text(row.validated_at),
+    )
+
+
 def _instance_from_row(row: ManagedInstanceRow) -> ManagedInstance:
     return ManagedInstance(
         target_id=UUID(row.target_id),
@@ -348,6 +371,70 @@ def _revision_from_row(row: RuntimeRevisionRow) -> RuntimeRevision:
             else _timestamp_from_text(row.trusted_build_confirmed_at)
         ),
     )
+
+
+class DevelopmentSourceRepository:
+    """Create/read-only persistence for global development-source registrations."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, source: DevelopmentSource) -> None:
+        self._session.add(
+            DevelopmentSourceRow(
+                id=str(source.id),
+                logical_name=source.logical_name,
+                source_kind=source.source_kind,
+                relative_locator=source.relative_locator,
+                addon_id=source.addon_id,
+                observed_name=source.observed_name,
+                observed_version=source.observed_version,
+                extension_types_json=json.dumps(
+                    list(source.extension_types), separators=(",", ":")
+                ),
+                registered_at=_timestamp_to_text(source.registered_at),
+                validated_at=_timestamp_to_text(source.validated_at),
+            )
+        )
+        self._session.flush()
+
+    def get(self, source_id: UUID) -> DevelopmentSource | None:
+        row = self._session.get(DevelopmentSourceRow, str(source_id))
+        return None if row is None else _development_source_from_row(row)
+
+    def get_by_logical_name(self, logical_name: str) -> DevelopmentSource | None:
+        row = self._session.scalar(
+            select(DevelopmentSourceRow).where(
+                DevelopmentSourceRow.logical_name == logical_name
+            )
+        )
+        return None if row is None else _development_source_from_row(row)
+
+    def get_by_relative_locator(
+        self, relative_locator: str
+    ) -> DevelopmentSource | None:
+        row = self._session.scalar(
+            select(DevelopmentSourceRow).where(
+                DevelopmentSourceRow.relative_locator == relative_locator
+            )
+        )
+        return None if row is None else _development_source_from_row(row)
+
+    def get_by_addon_id(self, addon_id: str) -> DevelopmentSource | None:
+        row = self._session.scalar(
+            select(DevelopmentSourceRow).where(
+                DevelopmentSourceRow.addon_id == addon_id
+            )
+        )
+        return None if row is None else _development_source_from_row(row)
+
+    def list(self) -> list[DevelopmentSource]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceRow).order_by(
+                DevelopmentSourceRow.logical_name, DevelopmentSourceRow.id
+            )
+        )
+        return [_development_source_from_row(row) for row in rows]
 
 
 class TargetRepository:

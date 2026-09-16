@@ -1,5 +1,21 @@
 """Core Kodi Lab domain models."""
 
+from kodi_lab.domain.development_sources import (
+    MAX_ADDON_ID,
+    MAX_ADDON_NAME,
+    MAX_ADDON_VERSION,
+    MAX_DEVELOPMENT_SOURCE_LOCATOR,
+    MAX_DEVELOPMENT_SOURCE_LOGICAL_NAME,
+    MAX_EXTENSION_TYPE,
+    MAX_EXTENSION_TYPES,
+    DevelopmentSource,
+    DevelopmentSourceKind,
+    normalize_development_source_locator,
+    normalize_development_source_logical_name,
+    normalize_extension_types,
+    validate_addon_id,
+    validate_observed_metadata,
+)
 from kodi_lab.domain.fixtures import (
     FixtureContentCategory,
     FixtureDefinition,
@@ -78,9 +94,18 @@ from kodi_lab.domain.snapshots import (
 
 __all__ = [
     "KODI_RUNTIME_VALIDATION_CONTRACT",
+    "MAX_ADDON_ID",
+    "MAX_ADDON_NAME",
+    "MAX_ADDON_VERSION",
+    "MAX_DEVELOPMENT_SOURCE_LOCATOR",
+    "MAX_DEVELOPMENT_SOURCE_LOGICAL_NAME",
+    "MAX_EXTENSION_TYPE",
+    "MAX_EXTENSION_TYPES",
     "MAX_MANAGED_INSTANCE_NOTES_LENGTH",
     "RECOGNIZED_VALIDATION_CONTRACTS",
     "ConnectionState",
+    "DevelopmentSource",
+    "DevelopmentSourceKind",
     "EffectiveValidationState",
     "FixtureContentCategory",
     "FixtureDefinition",
@@ -134,8 +159,13 @@ __all__ = [
     "TargetAvailability",
     "TargetType",
     "effective_validation_state",
+    "normalize_development_source_locator",
+    "normalize_development_source_logical_name",
+    "normalize_extension_types",
     "normalize_sha256_digest",
     "normalize_snapshot_label",
+    "validate_addon_id",
+    "validate_observed_metadata",
     "validate_support_tier_for_release",
     "validate_support_transition",
 ]

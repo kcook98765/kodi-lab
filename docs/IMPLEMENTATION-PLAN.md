@@ -449,7 +449,21 @@ UUID, omit notes-at-deletion, and link preserved archive-only Snapshots back to
 history. No edit, restore, undelete, retry, acknowledgment, finalization,
 repair, generic export, or configurable retention control is introduced.
 
-The next Phase 7 milestone is the proof-gated reconciliation finalization
-architecture gate. It must define evidence sufficient to finalize each
-unresolved typed operation without adding generic repair or retry authority;
-this plan does not authorize its implementation.
+The proof-gated reconciliation-finalization architecture gate concluded that
+explicit finalization is not required by canonical v1 or Phase 7. Phase 7 is
+complete at Step 9; optional finalization remains unapproved future enhancement
+work and is not part of Phase 8.
+
+Phase 8 is the canonical add-on development workflow phase. Step 1 adds only the
+global local-directory `DevelopmentSource` catalog. One explicitly configured
+development root confines normalized relative locators; descriptor-relative
+no-follow validation reads a bounded safe root-level `addon.xml` and derives
+stable add-on identity plus registration-time name, version, and extension
+observations. UUID, logical name, locator, and parsed add-on ID provide immutable
+catalog identity while source content remains mutable. The schema is create/read
+only, and the conservative application DTO contains no host path.
+
+ManagedInstance attachment, deployment, copy/sync, bind mounts, ZIP installation,
+repository URL testing, Git semantics, add-on inventory, source watchers,
+history, reconciliation, broker/Docker capability, and Web mutation remain
+separately authorized future Phase 8 milestones.

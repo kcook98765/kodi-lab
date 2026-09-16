@@ -1427,3 +1427,66 @@ details that it did not specify.
   UUID. Detail projects all retained typed history and preserved Snapshot
   backlinks. It exposes neither notes-at-deletion nor restore, undelete,
   acknowledgment, finalization, retry, repair, export, or retention controls.
+
+## D-0116: Phase 8 input taxonomy starts with local directories only
+
+- Status: approved for Phase 8 Step 1
+- Decision: `DevelopmentSource` has one closed source kind,
+  `local_directory`. ZIP installation and repository URL testing remain
+  separate later Phase 8 workflows. A Git checkout may later be registered as
+  an ordinary local directory, but registration records no repository, remote,
+  branch, commit, or revision semantics.
+- Boundary: Step 1 adds no ManagedInstance association, deployment, copy/sync,
+  bind mount, broker, Docker, Web mutation, add-on inventory, watcher, history,
+  or reconciliation authority.
+
+## D-0117: Development-source locators are confined beneath one explicit root
+
+- Status: approved for Phase 8 Step 1
+- Decision: `KODI_LAB_DEVELOPMENT_ROOT` is unset by default because no safe
+  general host path exists. Registration is unavailable until an administrator
+  explicitly configures one normalized non-root absolute directory. Requests
+  carry only a canonical POSIX-style relative locator with no empty, dot,
+  parent, absolute, NUL, backslash, or overlong component.
+- Resolution: validation opens the configured absolute path and every locator
+  component descriptor-relatively with `O_DIRECTORY`, `O_NOFOLLOW`, and bounded
+  path rules. Missing, unreadable, non-directory, linked, or escaped state fails
+  closed. The absolute effective path is never persisted or returned in the
+  ordinary application DTO. There is no filesystem browser or generic host-path
+  authority.
+
+## D-0118: DevelopmentSource is immutable registration identity and observation
+
+- Status: approved for Phase 8 Step 1
+- Decision: a global reusable registration has server-generated UUID, trimmed
+  NFC logical name, closed source kind, canonical relative locator, parsed
+  add-on ID, observed name/version, sorted unique extension points, and UTC
+  registration/validation timestamps. Logical name is bounded to 120 Unicode
+  code points; observed name and version are bounded to 256 and 128.
+- Uniqueness: logical name, relative locator, and parsed add-on ID are each
+  globally unique. Canonical V1 calls sources global/reusable and does not
+  establish alternative trees for one add-on ID; one registration therefore
+  supplies one unambiguous future attachment identity.
+- Mutability: parsed add-on ID is stable identity and is never caller supplied.
+  Name, version, and content are registration-time observations of a mutable
+  directory. Later filesystem changes do not rewrite catalog data. An add-on ID
+  change requires a future explicit replacement/re-registration workflow.
+
+## D-0119: Registration validates only bounded root addon.xml metadata
+
+- Status: approved for Phase 8 Step 1
+- Decision: registration opens exact root-level `addon.xml` without following
+  links, requires one regular file with link count one, bounds it to 1 MiB, and
+  parses UTF-8 XML without executing source code. DTD and entity declarations
+  are rejected before Python's non-networking ElementTree parser runs.
+- Metadata: the root must be `addon`; ID, name, version, and at least one
+  extension point are required. IDs use 1 to 128 lowercase ASCII letters,
+  numbers, dots, underscores, or hyphens, begin with a letter or number, and
+  reject consecutive dots. This follows Kodi's documented lowercase ID
+  character set while remaining safe as future derived destination identity.
+  Extension points use the same bounded identifier alphabet, are limited to 64,
+  and persist as sorted unique canonical JSON.
+- Boundary: dependencies are not stored and create no compatibility policy.
+  Registration does not recursively inspect the source, so VCS directories and
+  full tree safety remain deployment decisions. A reusable read-only validator
+  may observe current metadata but never updates the persisted registration.

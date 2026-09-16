@@ -148,6 +148,23 @@ class ManagedInstanceDataValidationError(ApplicationServiceError):
     """Managed-instance user metadata failed bounded domain validation."""
 
 
+class DevelopmentSourceNotFoundError(EntityNotFoundError):
+    def __init__(self, source_id: UUID) -> None:
+        self.source_id = source_id
+        super().__init__(f"development source {source_id} does not exist")
+
+
+class DevelopmentSourceDataValidationError(ApplicationServiceError):
+    """Development-source registration metadata failed bounded validation."""
+
+
+class DevelopmentSourceConflictError(PersistenceConflictError):
+    def __init__(self, *, field: str, value: str) -> None:
+        self.field = field
+        self.value = value
+        super().__init__(f"development source {field} {value!r} already exists")
+
+
 class FixtureDefinitionConflictError(PersistenceConflictError):
     def __init__(self, *, fixture_definition_id: UUID, slug: str) -> None:
         self.fixture_definition_id = fixture_definition_id

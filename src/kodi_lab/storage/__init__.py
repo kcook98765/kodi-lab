@@ -2,6 +2,7 @@
 
 from kodi_lab.storage.metadata import Base, metadata
 from kodi_lab.storage.models import (
+    DevelopmentSourceRow,
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceMutationLeaseRow,
@@ -18,6 +19,7 @@ from kodi_lab.storage.models import (
 
 __all__ = [
     "Base",
+    "DevelopmentSourceRow",
     "FixtureDefinitionRow",
     "GlobalHeavyOperationLeaseRow",
     "ManagedInstanceMutationLeaseRow",

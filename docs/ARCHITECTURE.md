@@ -523,3 +523,31 @@ Snapshot policy, deletion result, and reconciliation flag without notes.
 Deleted detail projects all retained typed operations and links any detached
 archive-only Snapshots back to their original history. These views add no edit,
 restore, undelete, repair, retry, acknowledge, or finalization authority.
+
+## Phase 8 local-directory development-source catalog foundation
+
+Phase 8 as a whole owns ZIP installation, bind-mounted and copied/synced local
+development sources, repository URL testing, protected replacement behavior,
+and known add-on provenance. Step 1 implements only the global reusable source
+catalog required before any ManagedInstance association or deployment exists.
+
+`DevelopmentSource` is a create-only registration-time observation. Its UUID,
+logical name, `local_directory` kind, root-relative locator, parsed add-on ID,
+observed name/version, deterministic extension points, and timestamps are
+persisted independently of ManagedInstance, runtime, fixture, Snapshot, and
+deployment state. Logical name, locator, and add-on ID are independently unique.
+The application DTO omits the locator and every absolute host path.
+
+There is no safe default development root. Explicit deployment configuration
+supplies one normalized non-root absolute directory. The application validator
+opens that root and locator components descriptor-relatively without following
+links, then reads only a fixed root-level `addon.xml`. It admits one bounded
+non-linked regular UTF-8 file, rejects DTD/entity declarations, parses identity
+and observations without executing code, and performs no recursive tree walk.
+Read-only revalidation reports current metadata but never changes the stored
+observation.
+
+This foundation adds no attachment table, deployment or inventory state,
+history, broker operation, Docker access, Web route, ZIP/repository handling,
+Git interpretation, source watcher, or reconciliation behavior. Those remain
+separately gated Phase 8 slices. See `PHASE8-ADDON-DEVELOPMENT.md`.

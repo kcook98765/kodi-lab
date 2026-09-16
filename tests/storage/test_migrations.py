@@ -34,6 +34,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
         "alembic_version",
+        "development_sources",
         "fixture_definitions",
         "global_heavy_operation_lease",
         "managed_instances",
@@ -1778,3 +1779,75 @@ def test_0016_lifecycle_history_schema_and_guarded_round_trip(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated lifecycle operation history"):
         command.downgrade(config, "0015_instance_deletion")
+
+
+def test_0017_development_sources_schema_constraints_and_guarded_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0016_lifecycle_history")
+    engine = create_database_engine(database_url)
+    assert "development_sources" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    unique = {
+        item["name"]: item["column_names"]
+        for item in inspector.get_unique_constraints("development_sources")
+    }
+    assert unique == {
+        "uq_development_source_addon_id": ["addon_id"],
+        "uq_development_source_logical_name": ["logical_name"],
+        "uq_development_source_relative_locator": ["relative_locator"],
+    }
+    engine.dispose()
+    command.check(config)
+    command.downgrade(config, "0016_lifecycle_history")
+    command.upgrade(config, "head")
+
+    engine = create_database_engine(database_url)
+    insert = text(
+        "INSERT INTO development_sources "
+        "(id, logical_name, source_kind, relative_locator, addon_id, observed_name, "
+        "observed_version, extension_types_json, registered_at, validated_at) VALUES "
+        "(:id, :name, :kind, :locator, :addon_id, 'Example', '1.0.0', "
+        "'[\"xbmc.python.pluginsource\"]', :timestamp, :timestamp)"
+    )
+    timestamp = "2026-09-16T20:00:00.000000Z"
+    with engine.begin() as connection:
+        connection.execute(
+            insert,
+            {
+                "id": "94000000-0000-4000-8000-000000000001",
+                "name": "Example",
+                "kind": "local_directory",
+                "locator": "sources/example",
+                "addon_id": "plugin.video.example",
+                "timestamp": timestamp,
+            },
+        )
+    for ordinal, (field, value) in enumerate(
+        (
+            ("kind", "git"),
+            ("locator", "/absolute/source"),
+            ("addon_id", "Plugin.Video.Upper"),
+        ),
+        start=2,
+    ):
+        values = {
+            "id": f"94000000-0000-4000-8000-{ordinal:012d}",
+            "name": f"Invalid {field}",
+            "kind": "local_directory",
+            "locator": f"sources/invalid-{field}",
+            "addon_id": f"plugin.video.invalid-{field}",
+            "timestamp": timestamp,
+        }
+        values[field] = value
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(insert, values)
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated development-source catalog"):
+        command.downgrade(config, "0016_lifecycle_history")

@@ -14,6 +14,7 @@ def _isolate_settings_environment(
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("KODI_LAB_DATA_ROOT", raising=False)
     monkeypatch.delenv("KODI_LAB_RUNTIME_ROOT", raising=False)
+    monkeypatch.delenv("KODI_LAB_DEVELOPMENT_ROOT", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_HOST", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_PORT", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_COOKIE_SECURE", raising=False)
@@ -32,6 +33,7 @@ def test_configuration_uses_documented_roots(
 
     assert settings.data_root == Path("/var/lib/kodi-lab")
     assert settings.runtime_root == Path("/run/kodi-lab")
+    assert settings.development_root is None
     assert settings.database_url == "sqlite:////var/lib/kodi-lab/database/kodi-lab.db"
     assert settings.web_host == "127.0.0.1"
     assert settings.web_port == 8100
@@ -99,8 +101,29 @@ def test_runtime_root_environment_override_is_independent(
     assert settings.database_url == "sqlite:////var/lib/kodi-lab/database/kodi-lab.db"
 
 
+def test_development_root_requires_explicit_safe_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_settings_environment(monkeypatch, tmp_path)
+    configured = tmp_path / "development"
+    monkeypatch.setenv("KODI_LAB_DEVELOPMENT_ROOT", str(configured))
+
+    assert Settings().development_root == configured
+
+
+@pytest.mark.parametrize("value", ("relative/path", "/", "/var/tmp/../escape"))
+def test_development_root_rejects_unsafe_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str
+) -> None:
+    _isolate_settings_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("KODI_LAB_DEVELOPMENT_ROOT", value)
+    with pytest.raises(ValidationError):
+        Settings()
+
+
 def test_migration_metadata_contains_core_storage_tables() -> None:
     assert set(metadata.tables) == {
+        "development_sources",
         "fixture_definitions",
         "global_heavy_operation_lease",
         "managed_instances",
