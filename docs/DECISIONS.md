@@ -1107,3 +1107,18 @@ details that it did not specify.
   not an upgrade mechanism. Reset continues to restore the assigned fixture
   baseline and does not consume snapshots. There is no automatic snapshot
   retention or deletion.
+
+## D-0091: Empty-only Kodi runtime scaffolding
+
+- Status: approved for Phase 7 Step 2 follow-up
+- Decision: exact top-level directories `media` and `system` beneath
+  `/home/kodi/.kodi` are recognized empty-only Kodi runtime scaffolding.
+  Each may exist only as an empty directory and is omitted from both archive
+  and manifest. Any member beneath either directory, of any type, fails capture
+  with a bounded typed error before publication.
+- Boundary: recognized empty-only scaffolding is distinct from included and
+  excluded state. It is not a recursive allowlist or a general exception for
+  empty directories. Every other unknown top-level profile entry, whether
+  empty or populated, continues to fail closed. Both source-enumeration passes
+  apply the same classification so newly appearing scaffolding content cannot
+  be silently omitted.

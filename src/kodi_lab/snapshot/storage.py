@@ -29,6 +29,7 @@ MANIFEST_VERSION = 1
 _PROFILE_ROOT = ".kodi"
 _ALLOWED_TOP_LEVEL = frozenset({"userdata", "addons", "fixture-media", ".smb"})
 _EXCLUDED_TOP_LEVEL = frozenset({"temp"})
+_EMPTY_ONLY_SCAFFOLDING = frozenset({"media", "system"})
 _EXCLUDED_PREFIXES = (
     PurePosixPath("addons/packages"),
     PurePosixPath("addons/temp"),
@@ -246,18 +247,36 @@ def _is_log_or_runtime_artifact(path: PurePosixPath) -> bool:
         return False
     name = path.name.lower()
     return (
-        name in {"kodi.log", "kodi.old.log", "kodi.pid", "kodi.lock", "core"}
+        name
+        in {
+            "kodi.log",
+            "kodi.old.log",
+            "kodi-stdout.log",
+            "xvfb.log",
+            "kodi.pid",
+            "kodi.lock",
+            "core",
+        }
         or name.startswith("crashlog")
         or name.startswith("core.")
         or name.endswith((".pid", ".lock"))
     )
 
 
-def _classify_path(path_text: str) -> Literal["include", "exclude"]:
+def _classify_path(
+    path_text: str,
+) -> Literal["include", "exclude", "recognized_empty_only"]:
     path = PurePosixPath(path_text)
     top = path.parts[0]
     if top in _EXCLUDED_TOP_LEVEL or _is_log_or_runtime_artifact(path):
         return "exclude"
+    if top in _EMPTY_ONLY_SCAFFOLDING:
+        if len(path.parts) == 1:
+            return "recognized_empty_only"
+        raise SnapshotStorageError(
+            "nonempty_snapshot_scaffolding",
+            "Recognized Kodi runtime scaffolding contains state.",
+        )
     if top not in _ALLOWED_TOP_LEVEL:
         raise SnapshotStorageError(
             "unknown_snapshot_profile_state",
@@ -292,7 +311,15 @@ def _safe_source_member(info: tarfile.TarInfo) -> SnapshotSourceMember | None:
             "unsafe_snapshot_member",
             "Snapshot source contains an unsupported filesystem object.",
         )
-    if _classify_path(path) == "exclude":
+    classification = _classify_path(path)
+    if classification == "exclude":
+        return None
+    if classification == "recognized_empty_only":
+        if not info.isdir():
+            raise SnapshotStorageError(
+                "nonempty_snapshot_scaffolding",
+                "Recognized Kodi runtime scaffolding contains state.",
+            )
         return None
     size = info.size if info.isfile() else 0
     if size < 0 or size > MAX_FILE_BYTES:

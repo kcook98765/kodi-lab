@@ -10,13 +10,23 @@ incremental storage, compression, and cross-revision behavior are deferred.
 
 The broker captures a closed subset beneath `/home/kodi/.kodi`:
 
-- include `userdata/**`, `addons/**`, `fixture-media/**`, and `.smb/**`;
-- exclude `temp/**`, `addons/packages/**`, `addons/temp/**`,
+- included state is `userdata/**`, `addons/**`, `fixture-media/**`, and
+  `.smb/**`;
+- excluded state is `temp/**`, `addons/packages/**`, `addons/temp/**`,
   `userdata/Thumbnails/**`, `userdata/Database/Textures*.db*`, Kodi logs,
   crash/core files, and PID/lock artifacts;
+- recognized empty-only runtime scaffolding is exactly top-level `media/` and
+  `system/`. Either may exist only as an empty directory and is omitted from
+  archive and manifest. Any child of any type fails capture before publication;
 - reject every unknown top-level entry rather than silently omitting it;
 - reject symlinks, hardlinks, sockets, FIFOs, devices, and every type other than
   regular file or directory.
+
+Empty-only scaffolding is neither included nor excluded state. It does not
+recursively allow `media` or `system`, and it does not generalize to arbitrary
+empty trees. Both streamed source passes use the same safe archive
+classification; content appearing between passes is observed and causes
+capture failure rather than being ignored.
 
 The source must be one exact owned provisioned disposable container whose
 revision label matches the persisted pin. A stopped source remains stopped. A

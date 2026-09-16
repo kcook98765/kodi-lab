@@ -154,10 +154,146 @@ def test_unsafe_paths_are_rejected(raw_name: str) -> None:
         enumerate_snapshot_source([output.getvalue()])
 
 
-def test_unknown_top_level_state_fails_closed() -> None:
-    payload = source_tar([("mystery", None, tarfile.DIRTYPE)])
+@pytest.mark.parametrize("populated", [False, True])
+def test_other_unknown_top_level_state_fails_closed(populated: bool) -> None:
+    members: list[tuple[str, bytes | None, bytes]] = [
+        ("mystery", None, tarfile.DIRTYPE)
+    ]
+    if populated:
+        members.append(("mystery/file", b"secret", tarfile.REGTYPE))
+    payload = source_tar(members)
     with pytest.raises(SnapshotStorageError) as captured:
         enumerate_snapshot_source([payload])
+    assert captured.value.code == "unknown_snapshot_profile_state"
+
+
+@pytest.mark.parametrize("scaffolding", ["media", "system"])
+def test_empty_runtime_scaffolding_is_accepted_and_omitted(
+    tmp_path: Path, scaffolding: str
+) -> None:
+    payload = source_tar(
+        [
+            (scaffolding, None, tarfile.DIRTYPE),
+            ("userdata", None, tarfile.DIRTYPE),
+            ("userdata/guisettings.xml", b"<settings/>", tarfile.REGTYPE),
+        ]
+    )
+    inventory = enumerate_snapshot_source([payload])
+    assert scaffolding not in {member.path for member in inventory}
+    publish(tmp_path, payload)
+    snapshot_root = tmp_path / "snapshots" / str(SNAPSHOT_ID)
+    manifest = json.loads((snapshot_root / "manifest.json").read_text())
+    assert scaffolding not in {member["path"] for member in manifest["members"]}
+    with tarfile.open(snapshot_root / "state.tar", "r:") as archive:
+        assert scaffolding not in archive.getnames()
+
+
+def test_both_empty_runtime_scaffolding_directories_are_accepted() -> None:
+    payload = source_tar(
+        [
+            ("media", None, tarfile.DIRTYPE),
+            ("system", None, tarfile.DIRTYPE),
+            ("userdata", None, tarfile.DIRTYPE),
+        ]
+    )
+    inventory = enumerate_snapshot_source([payload])
+    assert {member.path for member in inventory} == {"userdata"}
+
+
+@pytest.mark.parametrize("scaffolding", ["media", "system"])
+@pytest.mark.parametrize(
+    ("suffix", "data", "member_type"),
+    [
+        ("file", b"secret", tarfile.REGTYPE),
+        ("nested", None, tarfile.DIRTYPE),
+    ],
+)
+def test_nonempty_runtime_scaffolding_is_rejected(
+    scaffolding: str,
+    suffix: str,
+    data: bytes | None,
+    member_type: bytes,
+) -> None:
+    payload = source_tar(
+        [
+            (scaffolding, None, tarfile.DIRTYPE),
+            (f"{scaffolding}/{suffix}", data, member_type),
+            ("userdata", None, tarfile.DIRTYPE),
+        ]
+    )
+    with pytest.raises(SnapshotStorageError) as captured:
+        enumerate_snapshot_source([payload])
+    assert captured.value.code == "nonempty_snapshot_scaffolding"
+    assert suffix not in captured.value.safe_message
+
+
+@pytest.mark.parametrize("scaffolding", ["media", "system"])
+@pytest.mark.parametrize("member_type", [tarfile.SYMTYPE, tarfile.FIFOTYPE])
+def test_unsafe_runtime_scaffolding_entry_is_rejected(
+    scaffolding: str, member_type: bytes
+) -> None:
+    payload = source_tar(
+        [
+            (scaffolding, None, tarfile.DIRTYPE),
+            (f"{scaffolding}/unsafe", None, member_type),
+            ("userdata", None, tarfile.DIRTYPE),
+        ]
+    )
+    with pytest.raises(SnapshotStorageError) as captured:
+        enumerate_snapshot_source([payload])
+    assert captured.value.code == "unsafe_snapshot_member"
+    assert "unsafe" not in captured.value.safe_message
+
+
+def test_scaffolding_change_between_passes_fails_before_publication(
+    tmp_path: Path,
+) -> None:
+    empty = source_tar(
+        [
+            ("media", None, tarfile.DIRTYPE),
+            ("userdata", None, tarfile.DIRTYPE),
+        ]
+    )
+    changed = source_tar(
+        [
+            ("media", None, tarfile.DIRTYPE),
+            ("media/future-state", b"secret", tarfile.REGTYPE),
+            ("userdata", None, tarfile.DIRTYPE),
+        ]
+    )
+    inventory = enumerate_snapshot_source([empty])
+    with pytest.raises(SnapshotStorageError) as captured:
+        publish_snapshot_from_source(
+            data_root=tmp_path,
+            context=context(),
+            expected_members=inventory,
+            source_chunks=[changed],
+            owner_uid=os.getuid(),
+            owner_gid=os.getgid(),
+        )
+    assert captured.value.code == "nonempty_snapshot_scaffolding"
+    assert not (tmp_path / "snapshots" / str(SNAPSHOT_ID)).exists()
+
+
+def test_exact_runtime_logs_are_excluded_without_broad_log_ignore() -> None:
+    payload = source_tar(
+        [
+            ("kodi-stdout.log", b"excluded", tarfile.REGTYPE),
+            ("userdata", None, tarfile.DIRTYPE),
+            ("xvfb.log", b"excluded", tarfile.REGTYPE),
+        ]
+    )
+    inventory = enumerate_snapshot_source([payload])
+    assert {member.path for member in inventory} == {"userdata"}
+
+    unknown = source_tar(
+        [
+            ("mystery.log", b"secret", tarfile.REGTYPE),
+            ("userdata", None, tarfile.DIRTYPE),
+        ]
+    )
+    with pytest.raises(SnapshotStorageError) as captured:
+        enumerate_snapshot_source([unknown])
     assert captured.value.code == "unknown_snapshot_profile_state"
 
 

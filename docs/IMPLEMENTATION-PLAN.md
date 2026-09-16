@@ -346,6 +346,13 @@ Authenticated Web can create, list, and poll safe metadata only. Runtime pins,
 fixture assignments, reset baselines, broker narrowness, and protected legacy
 resources remain unchanged.
 
+The Phase 7 Step 2 live-validation follow-up classifies exact top-level
+`media/` and `system/` as recognized empty-only Kodi runtime scaffolding.
+They are accepted and omitted only when empty; any member beneath either fails
+closed before publication. This is a third state alongside included and
+excluded profile state, not a recursive allowlist or a general exception for
+unknown empty directories.
+
 The next coherent milestone should implement the snapshot restore vertical
 slice for disposable instances. Restore is the first consumer of the captured
 artifact and reserved operation kinds; it must define and prove destructive
