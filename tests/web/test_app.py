@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 from threading import Event
 from typing import cast
 from uuid import UUID, uuid4
@@ -15,7 +16,13 @@ from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
 from kodi_lab.broker.errors import BrokerUnavailableError
 from kodi_lab.config import Settings
-from kodi_lab.domain import InstanceType
+from kodi_lab.domain import (
+    InstanceRuntimeState,
+    InstanceType,
+    Snapshot,
+    SnapshotState,
+    SnapshotValidationResult,
+)
 from kodi_lab.fixtures.package import load_packaged_fixture
 from kodi_lab.kodi.readiness import (
     JsonRpcState,
@@ -24,7 +31,10 @@ from kodi_lab.kodi.readiness import (
     UsabilityState,
 )
 from kodi_lab.storage.models import ManagedInstanceRow, WebSessionRow
-from kodi_lab.storage.repositories import FixtureDefinitionRepository
+from kodi_lab.storage.repositories import (
+    FixtureDefinitionRepository,
+    SnapshotRepository,
+)
 from kodi_lab.web.app import create_app
 
 from .conftest import (
@@ -51,6 +61,21 @@ def test_protected_routes_require_authentication(client: TestClient) -> None:
         client.post(f"/api/instances/{INSTANCE_ID}/snapshots", json={}).status_code
         == 401
     )
+    snapshot_id = uuid4()
+    assert (
+        client.get(
+            f"/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/restore",
+            follow_redirects=False,
+        ).status_code
+        == 303
+    )
+    assert (
+        client.post(
+            f"/api/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/restore",
+            json={"confirmed": True},
+        ).status_code
+        == 401
+    )
 
 
 def _assign_v2(database: sessionmaker[Session]) -> None:
@@ -60,6 +85,31 @@ def _assign_v2(database: sessionmaker[Session]) -> None:
         instance = session.get(ManagedInstanceRow, str(INSTANCE_ID))
         assert instance is not None
         instance.fixture_definition_id = str(fixture.id)
+
+
+def _seed_available_snapshot(database: sessionmaker[Session]) -> UUID:
+    snapshot_id = uuid4()
+    with database.begin() as session:
+        SnapshotRepository(session).create(
+            Snapshot(
+                id=snapshot_id,
+                source_managed_instance_id=INSTANCE_ID,
+                runtime_revision_id=REVISION_ID,
+                captured_fixture_definition_id=None,
+                captured_at=datetime(2026, 9, 16, tzinfo=UTC),
+                prior_runtime_state=InstanceRuntimeState.STOPPED,
+                label="safe restore",
+                manifest_version=1,
+                archive_digest="sha256:" + "1" * 64,
+                manifest_digest="sha256:" + "2" * 64,
+                archive_size=10240,
+                member_count=3,
+                state=SnapshotState.AVAILABLE,
+                validation_at=datetime(2026, 9, 16, tzinfo=UTC),
+                validation_result=SnapshotValidationResult.PASSED,
+            )
+        )
+    return snapshot_id
 
 
 def test_login_cookie_is_opaque_and_hardened(
@@ -727,3 +777,90 @@ def test_snapshot_html_escapes_labels_and_no_content_routes_exist(
             ).status_code
             == 404
         )
+
+
+def test_restore_confirmation_is_authenticated_safe_and_destructive(
+    client: TestClient,
+    database: sessionmaker[Session],
+) -> None:
+    login(client)
+    snapshot_id = _seed_available_snapshot(database)
+    page = client.get(f"/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/restore")
+    assert page.status_code == 200
+    assert "permanently discards" in page.text
+    assert "No automatic backup is created" in page.text
+    assert "Exact match" in page.text
+    assert "archive" not in page.text.lower()
+    assert "/var/" not in page.text
+
+
+def test_restore_post_requires_csrf_origin_and_rejects_extra_authority(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+) -> None:
+    csrf = login(client)
+    snapshot_id = _seed_available_snapshot(database)
+    broker.container = inventory_entry(ContainerRuntimeState.STOPPED)
+    route = f"/api/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/restore"
+    assert client.post(route, json={"confirmed": True}).status_code == 403
+    assert (
+        client.post(
+            route,
+            json={"confirmed": True},
+            headers={
+                "Origin": "http://attacker.invalid",
+                "X-Kodi-Lab-CSRF": csrf,
+            },
+        ).status_code
+        == 403
+    )
+    response = client.post(
+        route,
+        json={
+            "confirmed": True,
+            "runtime_revision_id": str(REVISION_ID),
+            "container_id": CONTAINER_ID,
+            "fixture": None,
+            "path": "/tmp/attacker",
+            "archive": "bytes",
+        },
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 422
+
+
+def test_restore_post_returns_202_with_bounded_status(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+) -> None:
+    csrf = login(client)
+    snapshot_id = _seed_available_snapshot(database)
+    broker.container = inventory_entry(ContainerRuntimeState.STOPPED)
+    response = client.post(
+        f"/api/instances/{INSTANCE_ID}/snapshots/{snapshot_id}/restore",
+        json={"confirmed": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 202
+    document = response.json()
+    assert document["snapshot_id"] == str(snapshot_id)
+    assert set(document) == {"snapshot_id", "operation"}
+    assert not {"path", "archive", "manifest", "members", "container_id"}.intersection(
+        document["operation"]
+    )
+    operation_id = document["operation"]["operation_id"]
+    status_response = client.get(
+        f"/api/instances/{INSTANCE_ID}/snapshot-restore-operations/{operation_id}"
+    )
+    assert status_response.status_code == 200
+    assert status_response.json()["snapshot_id"] == str(snapshot_id)
+    assert (
+        client.post(
+            f"/api/snapshots/{snapshot_id}/delete",
+            json={},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 404
+    )

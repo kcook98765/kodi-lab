@@ -57,6 +57,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
     registry = build_foundation_registry()
     assert registry.names == (
         "apply_assigned_fixture",
+        "apply_managed_instance_snapshot",
         "broker_info",
         "capabilities",
         "capture_managed_instance_snapshot",
@@ -75,6 +76,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
     assert registry.dispatch(request("capabilities")) == CapabilitiesResult(
         operations=[
             "apply_assigned_fixture",
+            "apply_managed_instance_snapshot",
             "broker_info",
             "capabilities",
             "capture_managed_instance_snapshot",

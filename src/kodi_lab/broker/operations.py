@@ -22,6 +22,7 @@ from kodi_lab.broker.docker_inventory import (
     ManagedContainerDeprovisioningProvider,
     ManagedContainerOperationsProvider,
     ManagedContainerProvisioningProvider,
+    ManagedInstanceSnapshotApplyProvider,
     ManagedInstanceSnapshotCaptureProvider,
     ManagedKodiRuntimeObservationProvider,
 )
@@ -39,6 +40,7 @@ from kodi_lab.broker.errors import (
     DockerInventoryReadError,
     DockerRemoveError,
     DockerSnapshotCaptureError,
+    DockerSnapshotRestoreError,
     DockerStartError,
     DockerStopError,
     FixtureBaselineConflictError,
@@ -90,7 +92,9 @@ from kodi_lab.broker.provisioning import (
 )
 from kodi_lab.broker.snapshots import (
     SnapshotCaptureResolver,
+    SnapshotRestoreResolver,
     SqliteSnapshotCaptureResolver,
+    SqliteSnapshotRestoreResolver,
 )
 
 
@@ -531,6 +535,48 @@ class CaptureManagedInstanceSnapshotResult(StrictModel):
         return value
 
 
+class ApplyManagedInstanceSnapshotParams(StrictModel):
+    """Only snapshot, source-instance, and fresh-container identities."""
+
+    snapshot_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("snapshot_id", "managed_instance_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class ApplyManagedInstanceSnapshotResult(StrictModel):
+    """Bounded artifact and readback proof without file or Docker authority."""
+
+    snapshot_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    archive_digest: str = Field(
+        min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
+    manifest_digest: str = Field(
+        min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
+    archive_size: int = Field(gt=0, le=16 * 1024**3)
+    member_count: int = Field(gt=0, le=250_000)
+    recognized_databases_checked: int = Field(ge=0, le=250_000)
+
+    @field_validator("snapshot_id", "managed_instance_id", "runtime_revision_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
 type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
@@ -667,6 +713,8 @@ def build_foundation_registry(
     assigned_fixture_provider: AssignedFixtureApplicationProvider | None = None,
     snapshot_capture_resolver: SnapshotCaptureResolver | None = None,
     snapshot_capture_provider: ManagedInstanceSnapshotCaptureProvider | None = None,
+    snapshot_restore_resolver: SnapshotRestoreResolver | None = None,
+    snapshot_restore_provider: ManagedInstanceSnapshotApplyProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -699,6 +747,12 @@ def build_foundation_registry(
     )
     snapshot_provider = snapshot_capture_provider or cast(
         ManagedInstanceSnapshotCaptureProvider, provider
+    )
+    restore_resolver = (
+        snapshot_restore_resolver or SqliteSnapshotRestoreResolver.production()
+    )
+    restore_provider = snapshot_restore_provider or cast(
+        ManagedInstanceSnapshotApplyProvider, provider
     )
     registry.register(
         name="ping",
@@ -1594,6 +1648,118 @@ def build_foundation_registry(
             "broker_snapshot_id": result.snapshot_id,
             "broker_snapshot_archive_size": result.archive_size,
             "broker_snapshot_member_count": result.member_count,
+        },
+    )
+
+    def apply_managed_instance_snapshot(
+        params: ApplyManagedInstanceSnapshotParams,
+    ) -> ApplyManagedInstanceSnapshotResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_snapshot_id": params.snapshot_id,
+        }
+        try:
+            spec = restore_resolver.resolve(
+                params.snapshot_id, params.managed_instance_id
+            )
+            outcome = restore_provider.apply_managed_instance_snapshot(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except PersistentSnapshotUnsupportedError as error:
+            raise OperationError(
+                "persistent_snapshot_unsupported",
+                "Persistent snapshot restore is not supported.",
+                audit_fields=audit_fields,
+            ) from error
+        except SnapshotStateError as error:
+            raise OperationError(
+                "snapshot_restore_incompatible",
+                "Canonical snapshot restore state is unavailable or incompatible.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedContainerNotFoundError as error:
+            raise OperationError(
+                "managed_container_not_found",
+                "No Kodi Lab-owned container exists for the managed instance.",
+                audit_fields=audit_fields,
+            ) from error
+        except AmbiguousManagedContainerError as error:
+            raise OperationError(
+                "ambiguous_managed_container",
+                "Multiple containers claim the managed instance identity.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerIdentityPreconditionError as error:
+            raise OperationError(
+                "container_identity_precondition_failed",
+                "The managed container identity changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerMustBeStoppedError as error:
+            raise OperationError(
+                "container_must_be_stopped",
+                "Snapshot restore requires a stopped fresh container.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeRevisionPreconditionError as error:
+            raise OperationError(
+                "runtime_revision_precondition_failed",
+                "The managed runtime revision differs from trusted state.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerSnapshotRestoreError as error:
+            raise OperationError(
+                "snapshot_restore_failed",
+                "The broker could not safely apply and verify the snapshot.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDaemonUnavailableError as error:
+            raise OperationError(
+                "docker_daemon_unavailable",
+                "The Docker daemon is unavailable to the broker.",
+                audit_fields=audit_fields,
+            ) from error
+        except (
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+        ) as error:
+            raise OperationError(
+                "docker_inventory_failed",
+                "The broker could not safely inspect restore container state.",
+                audit_fields=audit_fields,
+            ) from error
+        artifact = outcome.artifact
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.container_id != params.expected_container_id
+            or outcome.runtime_revision_id != str(spec.context.runtime_revision_id)
+            or artifact != spec.artifact
+        ):
+            raise RuntimeError(
+                "Snapshot restore adapter returned inconsistent identity"
+            )
+        return ApplyManagedInstanceSnapshotResult(
+            snapshot_id=str(artifact.snapshot_id),
+            managed_instance_id=outcome.managed_instance_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            archive_digest=artifact.archive_digest,
+            manifest_digest=artifact.manifest_digest,
+            archive_size=artifact.archive_size,
+            member_count=artifact.member_count,
+            recognized_databases_checked=outcome.recognized_databases_checked,
+        )
+
+    registry.register(
+        name="apply_managed_instance_snapshot",
+        params_model=ApplyManagedInstanceSnapshotParams,
+        result_model=ApplyManagedInstanceSnapshotResult,
+        handler=apply_managed_instance_snapshot,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_snapshot_id": result.snapshot_id,
+            "broker_snapshot_member_count": result.member_count,
+            "broker_snapshot_databases_checked": result.recognized_databases_checked,
         },
     )
     return registry

@@ -160,6 +160,7 @@ class SnapshotCreateOperationCoordinator:
             heavy = GlobalHeavyOperationLeaseRepository(session).current()
             if (
                 heavy is None
+                or heavy.operation_kind is not GlobalHeavyOperationKind.SNAPSHOT_CREATE
                 or heavy.lease_token_digest is None
                 or heavy.lease_expires_at is None
                 or datetime.fromisoformat(heavy.lease_expires_at.replace("Z", "+00:00"))

@@ -245,6 +245,15 @@ class DockerSnapshotCaptureError(DockerInventoryError):
         super().__init__(safe_message)
 
 
+class DockerSnapshotRestoreError(DockerInventoryError):
+    """Fixed snapshot application or readback verification failed safely."""
+
+    def __init__(self, code: str, safe_message: str) -> None:
+        self.code = code
+        self.safe_message = safe_message
+        super().__init__(safe_message)
+
+
 class ManagedRuntimeObservationError(DockerInventoryError):
     """A fixed managed-runtime observation could not be safely produced."""
 
@@ -397,3 +406,7 @@ class SnapshotPrerequisiteClientError(RemoteBrokerError):
 
 class SnapshotCaptureClientError(RemoteBrokerError):
     """The broker could not capture the fixed snapshot profile scope."""
+
+
+class SnapshotRestoreClientError(RemoteBrokerError):
+    """The broker could not safely apply and verify a trusted snapshot."""

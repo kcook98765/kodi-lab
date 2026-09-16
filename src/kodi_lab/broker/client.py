@@ -50,12 +50,15 @@ from kodi_lab.broker.errors import (
     RuntimeStatePreconditionClientError,
     SnapshotCaptureClientError,
     SnapshotPrerequisiteClientError,
+    SnapshotRestoreClientError,
     TrailingFrameDataError,
     TruncatedFrameError,
 )
 from kodi_lab.broker.operations import (
     ApplyAssignedFixtureParams,
     ApplyAssignedFixtureResult,
+    ApplyManagedInstanceSnapshotParams,
+    ApplyManagedInstanceSnapshotResult,
     BrokerInfoResult,
     CapabilitiesResult,
     CaptureManagedInstanceSnapshotParams,
@@ -360,6 +363,41 @@ class BrokerClient:
             )
         return result
 
+    def apply_managed_instance_snapshot(
+        self,
+        *,
+        snapshot_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> ApplyManagedInstanceSnapshotResult:
+        """Apply one broker-resolved snapshot to the fixed Kodi profile root."""
+
+        try:
+            params = ApplyManagedInstanceSnapshotParams(
+                snapshot_id=snapshot_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "snapshot restore request failed local validation"
+            ) from error
+        result = self._call(
+            "apply_managed_instance_snapshot",
+            params,
+            ApplyManagedInstanceSnapshotResult,
+            response_timeout=600.0,
+        )
+        if (
+            result.snapshot_id != snapshot_id
+            or result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "snapshot restore result identity does not match the request"
+            )
+        return result
+
     def _call(
         self,
         operation: str,
@@ -558,6 +596,8 @@ class BrokerClient:
                 "snapshot_state_unavailable": SnapshotPrerequisiteClientError,
                 "snapshot_capture_failed": SnapshotCaptureClientError,
                 "insufficient_snapshot_storage": SnapshotCaptureClientError,
+                "snapshot_restore_incompatible": SnapshotPrerequisiteClientError,
+                "snapshot_restore_failed": SnapshotRestoreClientError,
             }
             error_type = error_types.get(error_response.error.code, RemoteBrokerError)
             raise error_type(

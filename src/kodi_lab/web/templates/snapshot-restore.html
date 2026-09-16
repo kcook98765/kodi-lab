@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <title>Restore snapshot · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main class="confirmation-panel">
+      <h1>Restore disposable snapshot</h1>
+      <h2>{{ instance.name }}</h2>
+      <dl>
+        <dt>Snapshot</dt><dd>{{ snapshot.label or snapshot.snapshot_id }}</dd>
+        <dt>Snapshot ID</dt><dd>{{ snapshot.snapshot_id }}</dd>
+        <dt>Captured</dt><dd>{{ snapshot.captured_at }}</dd>
+        <dt>Exact runtime</dt><dd>Kodi {{ snapshot.kodi_release }} · revision {{ snapshot.runtime_revision_number }}</dd>
+        <dt>Fixture</dt><dd>{{ snapshot.fixture_slug or 'None' }}</dd>
+        <dt>Runtime match</dt><dd>{{ 'Exact match' if runtime_match else 'Mismatch — restore blocked' }}</dd>
+        <dt>Fixture match</dt><dd>{{ 'Exact match' if fixture_match else 'Mismatch — restore blocked' }}</dd>
+      </dl>
+      <p class="notice">This permanently discards the instance's current disposable Kodi state and replaces it with this snapshot.</p>
+      <p class="notice">No automatic backup is created. Create a separate snapshot first if the current state must be preserved.</p>
+      <p>Kodi's current running or stopped state will be preserved across a successful restore.</p>
+      <p id="snapshot-restore-error" class="error" role="alert" hidden></p>
+      <div class="actions">
+        <button id="confirm-snapshot-restore" type="button" data-instance-id="{{ instance.managed_instance_id }}" data-snapshot-id="{{ snapshot.snapshot_id }}"{% if not runtime_match or not fixture_match %} disabled{% endif %}>Discard current state and restore</button>
+        <a href="/instances/{{ instance.managed_instance_id }}/snapshots">Cancel</a>
+      </div>
+    </main>
+    <script src="{{ url_for('static', path='/snapshot-restore.js') }}" defer></script>
+  </body>
+</html>

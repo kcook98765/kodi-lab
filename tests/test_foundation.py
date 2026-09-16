@@ -112,6 +112,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "runtime_revisions",
         "runtime_validation_evidence",
         "snapshot_create_operations",
+        "snapshot_restore_operations",
         "snapshots",
         "targets",
         "web_admin_credentials",

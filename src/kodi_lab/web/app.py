@@ -61,6 +61,17 @@ from kodi_lab.application.snapshot_operations import (
     SnapshotCreateStatus,
     SnapshotCreateUnsupportedError,
 )
+from kodi_lab.application.snapshot_restore_operations import (
+    SnapshotRestoreConflictError,
+    SnapshotRestoreOperationCoordinator,
+    SnapshotRestoreStatus,
+    SnapshotRestoreUnsupportedError,
+)
+from kodi_lab.application.snapshot_restores import (
+    DisposableSnapshotRestoreService,
+    SnapshotRestoreExecutor,
+    SnapshotRestoreServiceFactory,
+)
 from kodi_lab.application.snapshot_status import (
     SnapshotHistoryItem,
     SnapshotStatusService,
@@ -75,6 +86,7 @@ from kodi_lab.auth import (
     LoginThrottler,
     WebAuthenticationService,
 )
+from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.errors import (
     BrokerUnavailableError,
     ClientError,
@@ -83,6 +95,7 @@ from kodi_lab.broker.errors import (
 )
 from kodi_lab.config import Settings
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
+from kodi_lab.storage.repositories import ManagedInstanceRepository
 
 _WEB_ROOT = Path(__file__).parent
 
@@ -114,6 +127,20 @@ class SnapshotCreateAccepted(BaseModel):
     operation: SnapshotCreateStatus
 
 
+class SnapshotRestoreRequest(BaseModel):
+    """One destructive confirmation bit and no artifact or runtime authority."""
+
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
+
+
+class SnapshotRestoreAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: UUID
+    operation: SnapshotRestoreStatus
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
@@ -130,6 +157,8 @@ class WebApplicationContext:
     snapshot_status: SnapshotStatusService
     snapshot_operations: SnapshotCreateOperationCoordinator
     snapshot_executor: SnapshotCreateExecutor
+    snapshot_restore_operations: SnapshotRestoreOperationCoordinator
+    snapshot_restore_executor: SnapshotRestoreExecutor
 
 
 def create_app(
@@ -144,6 +173,7 @@ def create_app(
     coordinator_factory: ReadinessCoordinatorFactory | None = None,
     reset_service_factory: ResetServiceFactory | None = None,
     snapshot_service_factory: SnapshotServiceFactory | None = None,
+    snapshot_restore_service_factory: SnapshotRestoreServiceFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -171,6 +201,19 @@ def create_app(
         )
     )
     snapshot_executor = SnapshotCreateExecutor(snapshot_operations, snapshot_factory)
+    snapshot_restore_operations = SnapshotRestoreOperationCoordinator(session_factory)
+    snapshot_restore_factory = snapshot_restore_service_factory or (
+        lambda lease: DisposableSnapshotRestoreService(
+            session_factory,
+            broker,
+            snapshot_restore_operations,
+            lease,
+            data_root=settings.data_root,
+        )
+    )
+    snapshot_restore_executor = SnapshotRestoreExecutor(
+        snapshot_restore_operations, snapshot_restore_factory
+    )
     context = WebApplicationContext(
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
@@ -196,17 +239,21 @@ def create_app(
         snapshot_status=SnapshotStatusService(session_factory),
         snapshot_operations=snapshot_operations,
         snapshot_executor=snapshot_executor,
+        snapshot_restore_operations=snapshot_restore_operations,
+        snapshot_restore_executor=snapshot_restore_executor,
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         context.reset_executor.start()
         context.snapshot_executor.start()
+        context.snapshot_restore_executor.start()
         try:
             yield
         finally:
             context.reset_executor.close()
             context.snapshot_executor.close()
+            context.snapshot_restore_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -298,6 +345,18 @@ def create_app(
         _request: Request, error: SnapshotCreateUnsupportedError
     ) -> JSONResponse:
         return _json_error(409, "snapshot_create_unsupported", str(error)[:256])
+
+    @app.exception_handler(SnapshotRestoreConflictError)
+    async def snapshot_restore_conflict(
+        _request: Request, error: SnapshotRestoreConflictError
+    ) -> JSONResponse:
+        return _json_error(409, "snapshot_restore_conflict", str(error)[:256])
+
+    @app.exception_handler(SnapshotRestoreUnsupportedError)
+    async def snapshot_restore_unsupported(
+        _request: Request, error: SnapshotRestoreUnsupportedError
+    ) -> JSONResponse:
+        return _json_error(409, "snapshot_restore_unsupported", str(error)[:256])
 
     @app.exception_handler(ClientError)
     async def broker_failure(_request: Request, error: ClientError) -> JSONResponse:
@@ -474,6 +533,49 @@ def create_app(
             },
         )
 
+    @app.get(
+        "/instances/{instance_id}/snapshots/{snapshot_id}/restore",
+        response_class=HTMLResponse,
+    )
+    async def snapshot_restore_page(
+        request: Request, instance_id: UUID, snapshot_id: UUID
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        instance = context.status.get(instance_id)
+        snapshot = next(
+            (
+                item
+                for item in context.snapshot_status.list_for_instance(instance_id)
+                if item.snapshot_id == snapshot_id
+            ),
+            None,
+        )
+        if snapshot is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        with session_factory() as session:
+            persisted_instance = ManagedInstanceRepository(session).get(instance_id)
+        fixture_id = (
+            None
+            if persisted_instance is None
+            else persisted_instance.fixture_definition_id
+        )
+        return templates.TemplateResponse(
+            request,
+            "snapshot-restore.html",
+            {
+                "instance": instance,
+                "snapshot": snapshot,
+                "runtime_match": (
+                    instance.runtime_revision_id == snapshot.runtime_revision_id
+                ),
+                "fixture_match": fixture_id == snapshot.fixture_definition_id,
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
     @app.get("/api/runtime-matrix", response_model=RuntimeMatrixResponse)
     def runtime_matrix(
         include_legacy: Literal["false", "true"] = "false",
@@ -548,6 +650,26 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         return context.snapshot_operations.to_status(operation)
 
+    @app.get(
+        "/api/instances/{instance_id}/snapshot-restore-operations/{operation_id}",
+        response_model=SnapshotRestoreStatus,
+    )
+    def snapshot_restore_operation(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SnapshotRestoreStatus:
+        operation = context.snapshot_restore_operations.get(operation_id)
+        if operation is None or operation.managed_instance_id != instance_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        result = context.snapshot_restore_operations.to_status(operation)
+        if operation.reconciliation_required:
+            observation = context.snapshot_restore_operations.inspect_reconciliation(
+                operation, broker
+            )
+            result = result.model_copy(update={"reconciliation_state": observation})
+        return result
+
     @app.post(
         "/api/instances/{instance_id}/snapshots",
         response_model=SnapshotCreateAccepted,
@@ -565,6 +687,31 @@ def create_app(
             snapshot_id=queued.snapshot.id,
             operation=queued.operation,
         )
+
+    @app.post(
+        "/api/instances/{instance_id}/snapshots/{snapshot_id}/restore",
+        response_model=SnapshotRestoreAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def queue_snapshot_restore(
+        instance_id: UUID,
+        snapshot_id: UUID,
+        _body: SnapshotRestoreRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> SnapshotRestoreAccepted:
+        current = context.status.get(instance_id)
+        if (
+            current.provision_state.value != "provisioned"
+            or current.container_state
+            not in {ContainerRuntimeState.RUNNING, ContainerRuntimeState.STOPPED}
+        ):
+            raise SnapshotRestoreUnsupportedError(
+                "Restore requires one exactly running or stopped managed container."
+            )
+        operation = context.snapshot_restore_operations.queue(instance_id, snapshot_id)
+        if operation.state.value == "queued":
+            context.snapshot_restore_executor.submit(operation.operation_id)
+        return SnapshotRestoreAccepted(snapshot_id=snapshot_id, operation=operation)
 
     @app.post(
         "/api/instances/{instance_id}/reset",

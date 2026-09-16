@@ -360,6 +360,7 @@ def test_adapter_has_only_the_bounded_semantic_public_methods() -> None:
     }
     assert public_callables == {
         "apply_assigned_fixture",
+        "apply_managed_instance_snapshot",
         "capture_managed_instance_snapshot",
         "deprovision_managed_container",
         "list_managed_containers",

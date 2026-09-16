@@ -9,7 +9,7 @@ import sqlite3
 import stat
 import tarfile
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC
 from pathlib import Path, PurePosixPath
@@ -25,9 +25,12 @@ from kodi_lab.snapshot.storage import (
     MAX_MEMBERS,
     SnapshotArtifactIdentity,
     SnapshotCaptureContext,
+    SnapshotMemberRecord,
     SnapshotStorageError,
     _classify_path,
+    _IteratorReader,
     _normalized_source_path,
+    _safe_source_member,
     snapshot_directory,
 )
 
@@ -36,6 +39,7 @@ from kodi_lab.snapshot.storage import (
 class SnapshotValidation:
     artifact: SnapshotArtifactIdentity
     recognized_databases_checked: int
+    members: tuple[SnapshotMemberRecord, ...] = ()
 
 
 def _load_manifest(path: Path) -> tuple[dict[str, Any], bytes, str]:
@@ -395,6 +399,16 @@ def validate_published_snapshot(
         raise SnapshotStorageError(
             "snapshot_archive_invalid", "Snapshot archive is invalid."
         ) from error
+    validated_records = tuple(
+        SnapshotMemberRecord(
+            path=cast(str, member["path"]),
+            member_type=cast(Any, member["type"]),
+            size=cast(int, member["size"]),
+            mode=cast(int, member["mode"]),
+            sha256=cast(str | None, member["sha256"]),
+        )
+        for member in expected_members
+    )
     return SnapshotValidation(
         artifact=SnapshotArtifactIdentity(
             snapshot_id=context.snapshot_id,
@@ -404,4 +418,85 @@ def validate_published_snapshot(
             member_count=expected_count,
         ),
         recognized_databases_checked=checked,
+        members=validated_records,
     )
+
+
+def validate_restored_snapshot_source(
+    *,
+    source_chunks: Iterable[bytes],
+    expected_members: tuple[SnapshotMemberRecord, ...],
+) -> int:
+    """Verify the fixed restored profile readback against the trusted manifest."""
+
+    expected_index = 0
+    checked = 0
+    try:
+        with (
+            tempfile.TemporaryDirectory(prefix="kodi-lab-restore-validate-") as temp,
+            _IteratorReader(source_chunks) as reader,
+            tarfile.open(fileobj=cast(Any, reader), mode="r|*") as archive,
+        ):
+            for source_index, info in enumerate(archive):
+                source_member = _safe_source_member(info)
+                if source_member is None:
+                    continue
+                if expected_index >= len(expected_members):
+                    raise SnapshotStorageError(
+                        "snapshot_restore_verification_failed",
+                        "Restored profile contains unexpected approved state.",
+                    )
+                expected = expected_members[expected_index]
+                expected_index += 1
+                if (
+                    source_member.path != expected.path
+                    or source_member.member_type != expected.member_type
+                    or source_member.size != expected.size
+                    or source_member.mode != expected.mode
+                ):
+                    raise SnapshotStorageError(
+                        "snapshot_restore_verification_failed",
+                        "Restored profile differs from the snapshot manifest.",
+                    )
+                if info.isfile():
+                    extracted = archive.extractfile(info)
+                    if extracted is None:
+                        raise SnapshotStorageError(
+                            "snapshot_restore_verification_failed",
+                            "Restored profile member could not be read.",
+                        )
+                    hasher = hashlib.sha256()
+                    database_target: Path | None = None
+                    database_file = None
+                    if _recognized_database(expected.path):
+                        database_target = Path(temp) / f"database-{source_index}.db"
+                        database_file = database_target.open("xb")
+                    try:
+                        while chunk := extracted.read(1024 * 1024):
+                            hasher.update(chunk)
+                            if database_file is not None:
+                                database_file.write(chunk)
+                    finally:
+                        if database_file is not None:
+                            database_file.close()
+                    if f"sha256:{hasher.hexdigest()}" != expected.sha256:
+                        raise SnapshotStorageError(
+                            "snapshot_restore_verification_failed",
+                            "Restored profile member digest differs.",
+                        )
+                    if database_target is not None:
+                        _check_sqlite(database_target)
+                        checked += 1
+        if expected_index != len(expected_members):
+            raise SnapshotStorageError(
+                "snapshot_restore_verification_failed",
+                "Restored profile is missing snapshot members.",
+            )
+    except SnapshotStorageError:
+        raise
+    except (OSError, tarfile.TarError, ValueError) as error:
+        raise SnapshotStorageError(
+            "snapshot_restore_verification_failed",
+            "Restored profile could not be verified safely.",
+        ) from error
+    return checked

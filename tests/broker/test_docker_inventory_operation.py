@@ -184,6 +184,7 @@ def test_capabilities_reports_exact_semantic_operations() -> None:
     )
     assert result.model_dump(mode="json")["operations"] == [
         "apply_assigned_fixture",
+        "apply_managed_instance_snapshot",
         "broker_info",
         "capabilities",
         "capture_managed_instance_snapshot",
@@ -283,6 +284,7 @@ def test_registry_has_no_generic_docker_or_execution_operation() -> None:
     names = build_foundation_registry(FakeInventoryProvider()).names
     assert names == (
         "apply_assigned_fixture",
+        "apply_managed_instance_snapshot",
         "broker_info",
         "capabilities",
         "capture_managed_instance_snapshot",

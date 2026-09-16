@@ -1122,3 +1122,56 @@ details that it did not specify.
   empty or populated, continues to fail closed. Both source-enumeration passes
   apply the same classification so newly appearing scaffolding content cannot
   be silently omitted.
+
+## D-0092: Source-bound exact-compatible disposable restore
+
+- Status: approved for Phase 7 Step 3
+- Decision: an available Snapshot may be restored only to its recorded source
+  disposable ManagedInstance. The current RuntimeRevision and fixture
+  assignment, including null assignment, must exactly equal the captured
+  identities before any Docker mutation. Restore never selects or rewrites a
+  revision or fixture. Persistent, cross-instance, cross-revision, and
+  cross-fixture restore remain unsupported.
+- Separation: restore replaces captured mutable Kodi state. Reset continues to
+  recreate the current assigned fixture baseline and ignores snapshots.
+
+## D-0093: Fresh-container restore and one semantic broker apply
+
+- Status: approved for Phase 7 Step 3
+- Decision: restore validates the immutable central artifact, preserves the
+  current running/stopped state, removes the exact stopped old container,
+  provisions a fresh container from the unchanged exact pin, and applies the
+  snapshot only to `/home/kodi/.kodi`. It never applies a fixture first.
+- Boundary: `apply_managed_instance_snapshot` accepts exactly Snapshot UUID,
+  source ManagedInstance UUID, and expected fresh container ID. The broker
+  resolves the UUID-derived artifact and fixed destination, independently
+  revalidates it, admits only the known fresh runtime seed profile, extracts no
+  unsafe type, and reads the result back to prove manifest hashes, modes,
+  inventory, and recognized SQLite integrity. No generic copy, tar, path,
+  destination, exec, archive, or Docker authority is introduced.
+
+## D-0094: Restore-specific durability and destructive reconciliation
+
+- Status: approved for Phase 7 Step 3
+- Decision: `SnapshotRestoreOperation` is a distinct queued/running/succeeded/
+  failed/reconciliation-required record with bounded semantic phases, prior
+  source state, and a ten-minute lease. It uses the existing per-instance
+  mutation and singleton global-heavy leases; create and restore cannot run
+  globally together, while reset and lifecycle conflict only on their target
+  instance. It is not a generic job table.
+- Failure: before old-container removal, an operation that stopped a running
+  source attempts normal start/readiness recovery. After removal, provision,
+  apply, verification, or prior-state recovery uncertainty requires
+  reconciliation. A structurally restored container whose readiness fails is
+  retained stopped when provable. Expired running restores are never resumed
+  destructively and become reconciliation-required.
+
+## D-0095: Explicit destructive confirmation without automatic backup
+
+- Status: approved for Phase 7 Step 3
+- Decision: restore creates no hidden safety snapshot. Authenticated
+  same-origin, CSRF-protected Web confirmation warns that current mutable state
+  is discarded and no automatic backup exists. POST accepts only
+  `confirmed=true`, revalidates current eligibility, returns 202, and exposes
+  only bounded operation status. Snapshot artifacts and manifests remain
+  immutable, secret-bearing, and unavailable to Web download or browsing.

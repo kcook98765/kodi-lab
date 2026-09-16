@@ -352,12 +352,12 @@ existing reset service. Active reset blocks Web lifecycle and trusted
 fixture/revision changes. Browser input cannot select revision, fixture,
 container, image, phase, or operation authority; Web retains no Docker socket.
 
-## Phase 7 disposable snapshot creation
+## Phase 7 disposable snapshot creation and restore
 
 Snapshot creation is a distinct typed workflow over mutable Kodi profile
 state. It does not alter RuntimeRevision identity, FixtureDefinition assignment,
-or reset semantics. Phase 7 Step 2 supports provisioned disposable instances
-only and deliberately supplies no restore, delete, import/export, download, or
+or reset semantics. Phase 7 Steps 2 and 3 support provisioned disposable
+instances only and deliberately supply no delete, import/export, download, or
 persistent-instance behavior.
 
 The broker is the only snapshot byte writer. From a request containing only
@@ -384,7 +384,24 @@ stopped sources remain stopped. A valid available artifact survives a later
 restart failure, while the operation records the source-state recovery failure
 or reconciliation requirement.
 
-Snapshot metadata is safe for authenticated list/status presentation, but
-snapshot files and manifests are secret-bearing. Web has no archive, manifest,
-member-list, path, preview, download, restore, or deletion route. See
-`PHASE7-SNAPSHOTS.md` for the executable create-only contract.
+Restore adds one equally narrow broker operation. The caller supplies only
+Snapshot UUID, source ManagedInstance UUID, and expected fresh container ID;
+the broker resolves and revalidates the immutable artifact, applies it only to
+the fixed Kodi profile root, and reads the stopped container back to prove
+manifest inventory, modes, hashes, and recognized database integrity. The
+application validates before lifecycle mutation and revalidates the central
+artifact afterward.
+
+`SnapshotRestoreOperation` is distinct from create and reset. It uses the same
+per-instance and singleton global-heavy leases, records the source's immediate
+running/stopped state, and drives exact old-container removal, unchanged-pin
+fresh provisioning, fixed snapshot application, verification, and optional
+start/readiness. Any uncertainty after destructive removal is reconciliation
+required; stale running restore is never automatically resumed.
+
+Snapshot metadata is safe for authenticated list/status/restore-confirmation
+presentation, but snapshot files and manifests are secret-bearing. Web has no
+archive, manifest, member-list, path, preview, download, import, or deletion
+route. Restore confirmation accepts no container, path, revision, fixture, or
+archive authority and warns that there is no automatic backup. See
+`PHASE7-SNAPSHOTS.md` for the executable contract.

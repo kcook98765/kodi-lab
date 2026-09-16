@@ -29,6 +29,7 @@ from kodi_lab.broker.errors import (
     DockerInventoryReadError,
     DockerRemoveError,
     DockerSnapshotCaptureError,
+    DockerSnapshotRestoreError,
     DockerStartError,
     DockerStopError,
     FixtureBaselineConflictError,
@@ -59,7 +60,7 @@ from kodi_lab.broker.provisioning import (
     ManagedContainerProvisioningSpec,
     ManagedRuntimeObservationSpec,
 )
-from kodi_lab.broker.snapshots import SnapshotCaptureSpec
+from kodi_lab.broker.snapshots import SnapshotCaptureSpec, SnapshotRestoreSpec
 from kodi_lab.fixtures.package import (
     FIXTURE_CONTAINER_DESTINATION,
     FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS,
@@ -71,6 +72,11 @@ from kodi_lab.snapshot.storage import (
     SnapshotStorageError,
     enumerate_snapshot_source,
     publish_snapshot_from_source,
+    snapshot_directory,
+)
+from kodi_lab.snapshot.validation import (
+    validate_published_snapshot,
+    validate_restored_snapshot_source,
 )
 
 MANAGED_LABEL_KEY = "io.kodi-lab.managed"
@@ -210,6 +216,17 @@ class CapturedManagedInstanceSnapshotRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class AppliedManagedInstanceSnapshotRecord:
+    """Bounded proof of fixed snapshot application and container readback."""
+
+    managed_instance_id: str
+    runtime_revision_id: str
+    container_id: str
+    artifact: SnapshotArtifactIdentity
+    recognized_databases_checked: int
+
+
+@dataclass(frozen=True, slots=True)
 class _ReconciliationRecord:
     managed_instance_id: str
     container_id: str
@@ -294,6 +311,13 @@ class ManagedInstanceSnapshotCaptureProvider(Protocol):
         """Capture the fixed safe profile scope of one exact stopped container."""
 
 
+class ManagedInstanceSnapshotApplyProvider(Protocol):
+    def apply_managed_instance_snapshot(
+        self, *, spec: SnapshotRestoreSpec, expected_container_id: str
+    ) -> AppliedManagedInstanceSnapshotRecord:
+        """Apply one trusted central snapshot to one exact fresh stopped container."""
+
+
 class _DockerClient(Protocol):
     def containers(
         self, *, all: bool, filters: Mapping[str, list[str]]
@@ -350,6 +374,8 @@ class _FixtureDockerClient(_DockerClient, Protocol):
 
 class _SnapshotDockerClient(_DockerClient, Protocol):
     def get_archive(self, container: str, path: str) -> tuple[object, object]: ...
+
+    def put_archive(self, container: str, path: str, data: object) -> bool: ...
 
 
 type DockerClientFactory = Callable[[], _DockerClient]
@@ -1212,6 +1238,138 @@ class DockerManagedContainerAdapter:
         except (DockerException, OSError) as error:
             raise DockerSnapshotCaptureError(
                 "snapshot_capture_failed", "Docker snapshot capture failed"
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
+    def apply_managed_instance_snapshot(
+        self, *, spec: SnapshotRestoreSpec, expected_container_id: str
+    ) -> AppliedManagedInstanceSnapshotRecord:
+        """Revalidate and apply one UUID-resolved artifact to the fixed profile root."""
+
+        context = spec.context
+        managed_instance_id = str(context.source_managed_instance_id)
+        runtime_revision_id = str(context.runtime_revision_id)
+        if _CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None:
+            raise ContainerIdentityPreconditionError(
+                "Expected container identity is not canonical"
+            )
+        client: _SnapshotDockerClient | None = None
+        try:
+            validated = validate_published_snapshot(
+                data_root=spec.data_root,
+                context=context,
+                owner_uid=spec.owner_uid,
+                owner_gid=spec.owner_gid,
+            )
+            if validated.artifact != spec.artifact:
+                raise DockerSnapshotRestoreError(
+                    "snapshot_identity_mismatch",
+                    "Snapshot artifact differs from trusted persistence",
+                )
+            client = cast(_SnapshotDockerClient, self._client_factory())
+            summaries = client.containers(
+                all=True,
+                filters={
+                    "label": [
+                        f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                        f"{INSTANCE_ID_LABEL_KEY}={managed_instance_id}",
+                    ]
+                },
+            )
+            if not isinstance(summaries, list):
+                raise DockerInventoryReadError("Docker returned malformed selection")
+            if not summaries:
+                raise ManagedContainerNotFoundError(
+                    "No owned container exists for snapshot restore"
+                )
+            if len(summaries) != 1:
+                raise AmbiguousManagedContainerError(
+                    "Multiple containers have the managed instance identity"
+                )
+            selected_id = _require_container_id(
+                _require_mapping(summaries[0]).get("Id")
+            )
+            inspected = _require_mapping(client.inspect_container(selected_id))
+            self._validate_deprovision_candidate(
+                inspected,
+                selected_container_id=selected_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=runtime_revision_id,
+            )
+
+            preflight_stream, _ = client.get_archive(selected_id, "/home/kodi/.kodi")
+            fresh_members = enumerate_snapshot_source(
+                cast(Iterable[bytes], preflight_stream)
+            )
+            allowed = {
+                ("userdata", "directory"),
+                ("userdata/guisettings.xml", "file"),
+            }
+            snapshot_inventory = {
+                (member.path, member.member_type) for member in validated.members
+            }
+            if any(
+                (member.path, member.member_type) not in allowed
+                or (member.path, member.member_type) not in snapshot_inventory
+                for member in fresh_members
+            ):
+                raise DockerSnapshotRestoreError(
+                    "snapshot_destination_conflict",
+                    "Fresh profile contains state outside the snapshot manifest",
+                )
+
+            archive_path = (
+                snapshot_directory(spec.data_root, context.snapshot_id) / "state.tar"
+            )
+            with archive_path.open("rb") as archive_file:
+                applied = client.put_archive(
+                    selected_id, "/home/kodi/.kodi", archive_file
+                )
+            if applied is not True:
+                raise DockerSnapshotRestoreError(
+                    "snapshot_apply_failed",
+                    "Docker did not confirm snapshot application",
+                )
+            readback_stream, _ = client.get_archive(selected_id, "/home/kodi/.kodi")
+            databases_checked = validate_restored_snapshot_source(
+                source_chunks=cast(Iterable[bytes], readback_stream),
+                expected_members=validated.members,
+            )
+            final = _require_mapping(client.inspect_container(selected_id))
+            self._validate_deprovision_candidate(
+                final,
+                selected_container_id=selected_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=runtime_revision_id,
+            )
+            return AppliedManagedInstanceSnapshotRecord(
+                managed_instance_id=managed_instance_id,
+                runtime_revision_id=runtime_revision_id,
+                container_id=selected_id,
+                artifact=validated.artifact,
+                recognized_databases_checked=databases_checked,
+            )
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            DockerInventoryReadError,
+            DockerSnapshotRestoreError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ):
+            raise
+        except SnapshotStorageError as error:
+            raise DockerSnapshotRestoreError(error.code, error.safe_message) from error
+        except (APIError, DockerException, OSError) as error:
+            raise DockerSnapshotRestoreError(
+                "snapshot_apply_failed", "Docker snapshot application failed"
             ) from error
         finally:
             if client is not None:

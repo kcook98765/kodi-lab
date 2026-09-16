@@ -72,6 +72,7 @@ def test_real_temporary_unix_server_client_round_trip(
         assert client.capabilities() == CapabilitiesResult(
             operations=[
                 "apply_assigned_fixture",
+                "apply_managed_instance_snapshot",
                 "broker_info",
                 "capabilities",
                 "capture_managed_instance_snapshot",

@@ -47,6 +47,41 @@ class SnapshotCreateOperationPhase(StrEnum):
     RECONCILIATION_REQUIRED = "reconciliation_required"
 
 
+class SnapshotRestoreOperationState(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class SnapshotRestoreOperationPhase(StrEnum):
+    QUEUED = "queued"
+    ACQUIRING_LEASES = "acquiring_leases"
+    VALIDATING_SNAPSHOT = "validating_snapshot"
+    RESOLVING_INSTANCE = "resolving_instance"
+    STOPPING = "stopping"
+    DEPROVISIONING = "deprovisioning"
+    PROVISIONING = "provisioning"
+    APPLYING_SNAPSHOT = "applying_snapshot"
+    VERIFYING_FILES = "verifying_files"
+    VERIFYING_DATABASES = "verifying_databases"
+    RESTORING_RUNNING_STATE = "restoring_running_state"
+    WAITING_READINESS = "waiting_readiness"
+    FINAL_VERIFICATION = "final_verification"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class SnapshotRestoreReconciliationState(StrEnum):
+    OLD_CONTAINER_PRESENT = "old_container_present"
+    UNPROVISIONED = "unprovisioned"
+    FRESH_CONTAINER_STOPPED = "fresh_container_stopped"
+    FRESH_CONTAINER_RUNNING = "fresh_container_running"
+    AMBIGUOUS_TRANSITIONAL = "ambiguous_transitional"
+
+
 class ManagedInstanceMutationKind(StrEnum):
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -137,4 +172,31 @@ class SnapshotCreateOperation:
         return self.state in {
             SnapshotCreateOperationState.QUEUED,
             SnapshotCreateOperationState.RUNNING,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotRestoreOperation:
+    id: UUID
+    snapshot_id: UUID
+    managed_instance_id: UUID
+    requested_at: datetime
+    state: SnapshotRestoreOperationState = SnapshotRestoreOperationState.QUEUED
+    phase: SnapshotRestoreOperationPhase = SnapshotRestoreOperationPhase.QUEUED
+    prior_source_runtime_state: InstanceRuntimeState | None = None
+    old_container_id: str | None = None
+    fresh_container_id: str | None = None
+    started_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    completed_at: datetime | None = None
+    failure_reason: str | None = None
+    reconciliation_required: bool = False
+    lease_token_digest: str | None = None
+    lease_expires_at: datetime | None = None
+
+    @property
+    def active(self) -> bool:
+        return self.state in {
+            SnapshotRestoreOperationState.QUEUED,
+            SnapshotRestoreOperationState.RUNNING,
         }

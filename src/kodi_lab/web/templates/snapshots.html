@@ -23,6 +23,9 @@
           <dt>Exact runtime</dt><dd>Kodi {{ snapshot.kodi_release }} · revision {{ snapshot.runtime_revision_number }}</dd>
           <dt>Fixture</dt><dd>{{ snapshot.fixture_slug or 'None' }}</dd>
         </dl>
+        {% if snapshot.state.value == 'available' %}
+        <p><a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots/{{ snapshot.snapshot_id }}/restore">Restore snapshot</a></p>
+        {% endif %}
       </article>
       {% else %}
       <p>No snapshots have been captured for this instance.</p>

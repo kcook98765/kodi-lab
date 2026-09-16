@@ -353,9 +353,22 @@ closed before publication. This is a third state alongside included and
 excluded profile state, not a recursive allowlist or a general exception for
 unknown empty directories.
 
-The next coherent milestone should implement the snapshot restore vertical
-slice for disposable instances. Restore is the first consumer of the captured
-artifact and reserved operation kinds; it must define and prove destructive
-fresh-container replacement, prior-state preservation, validation, and
-reconciliation without adding import/export, cross-revision behavior, delete,
-or persistent snapshots.
+Phase 7 Step 3 implements the disposable snapshot restore vertical slice.
+Restore is exact-source, exact-RuntimeRevision, and exact-fixture compatible;
+it independently validates before mutation, replaces the old container with a
+fresh exact-pin stopped container, uses one fixed broker apply/readback
+operation, preserves prior running/stopped state, and never changes fixture
+metadata. A restore-specific durable operation uses the existing per-instance
+and global-heavy leases, and destructive uncertainty is reconciliation
+required rather than automatically retried.
+
+Authenticated Web adds destructive confirmation, a strict confirmation-only
+202 POST, and bounded status. No safety snapshot is automatic. Snapshot bytes
+remain immutable and unavailable for browser access; deletion, persistence,
+cross-instance/cross-version behavior, and generic archive authority remain
+absent.
+
+After live restore repeatability is proven, the smallest next milestone should
+be snapshot deletion. It can define one narrow destructive storage lifecycle
+without first broadening instance semantics to persistent profiles or coupling
+Snapshot retention to ManagedInstance deletion.

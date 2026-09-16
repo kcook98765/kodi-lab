@@ -253,6 +253,7 @@ def test_capabilities_contains_exact_bounded_operation_set() -> None:
     registry = build_foundation_registry(provider)
     assert registry.names == (
         "apply_assigned_fixture",
+        "apply_managed_instance_snapshot",
         "broker_info",
         "capabilities",
         "capture_managed_instance_snapshot",

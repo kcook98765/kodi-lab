@@ -36,6 +36,8 @@ from kodi_lab.domain import (
     RuntimeValidationResult,
     SnapshotCreateOperationPhase,
     SnapshotCreateOperationState,
+    SnapshotRestoreOperationPhase,
+    SnapshotRestoreOperationState,
     SnapshotState,
     SnapshotValidationResult,
     TargetAvailability,
@@ -456,6 +458,108 @@ class SnapshotCreateOperationRow(Base):
             create_constraint=True,
             name="snapshot_create_operation_phase",
             length=30,
+        ),
+        nullable=False,
+    )
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class SnapshotRestoreOperationRow(Base):
+    """Durable destructive snapshot-restore execution and recovery state."""
+
+    __tablename__ = "snapshot_restore_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="snapshot_restore_failure_reason_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="snapshot_restore_lease_digest_sha256",
+        ),
+        CheckConstraint(
+            "old_container_id IS NULL OR (length(old_container_id) = 64 "
+            "AND old_container_id NOT GLOB '*[^0-9a-f]*')",
+            name="snapshot_restore_old_container_id",
+        ),
+        CheckConstraint(
+            "fresh_container_id IS NULL OR (length(fresh_container_id) = 64 "
+            "AND fresh_container_id NOT GLOB '*[^0-9a-f]*')",
+            name="snapshot_restore_fresh_container_id",
+        ),
+        CheckConstraint(
+            "(state = 'queued' AND started_at IS NULL AND completed_at IS NULL "
+            "AND lease_token_digest IS NULL AND lease_expires_at IS NULL) OR "
+            "(state = 'running' AND started_at IS NOT NULL "
+            "AND completed_at IS NULL AND heartbeat_at IS NOT NULL "
+            "AND lease_token_digest IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(state IN ('succeeded', 'failed', 'reconciliation_required') "
+            "AND completed_at IS NOT NULL AND lease_token_digest IS NULL "
+            "AND lease_expires_at IS NULL)",
+            name="snapshot_restore_state_fields_consistent",
+        ),
+        Index(
+            "uq_snapshot_restore_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued', 'running')"),
+        ),
+        Index(
+            "ix_snapshot_restore_instance_requested",
+            "managed_instance_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    snapshot_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("snapshots.id", ondelete="RESTRICT"), nullable=False
+    )
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    prior_source_runtime_state: Mapped[InstanceRuntimeState | None] = mapped_column(
+        Enum(
+            InstanceRuntimeState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_restore_prior_runtime_state",
+        ),
+        nullable=True,
+    )
+    old_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fresh_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    state: Mapped[SnapshotRestoreOperationState] = mapped_column(
+        Enum(
+            SnapshotRestoreOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_restore_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[SnapshotRestoreOperationPhase] = mapped_column(
+        Enum(
+            SnapshotRestoreOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_restore_operation_phase",
+            length=32,
         ),
         nullable=False,
     )
