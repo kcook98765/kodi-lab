@@ -515,6 +515,109 @@ def test_tv_fixture_refuses_lossy_0010_downgrade(
     engine.dispose()
 
 
+def test_0010_upgrades_to_medium_taxonomy_and_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0010_fixture_tv_taxonomy")
+    engine = create_database_engine(database_url)
+    before = next(
+        column
+        for column in inspect(engine).get_columns("fixture_definitions")
+        if column["name"] == "size_category"
+    )
+    assert isinstance(before["type"], String)
+    assert before["type"].length == 5
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    after = next(
+        column
+        for column in inspect(engine).get_columns("fixture_definitions")
+        if column["name"] == "size_category"
+    )
+    assert isinstance(after["type"], String)
+    assert after["type"].length == 16
+    engine.dispose()
+    command.check(config)
+    command.downgrade(config, "0010_fixture_tv_taxonomy")
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_medium_size_constraint_accepts_only_small_and_medium(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    statement = text(
+        "INSERT INTO fixture_definitions "
+        "(id, slug, fixture_version, size_category, content_category, "
+        "content_digest, compatible_kodi_version, description) VALUES "
+        "(:id, :slug, 1, :size, 'mixed', :digest, '21.3', 'size taxonomy')"
+    )
+    with engine.begin() as connection:
+        for ordinal, size in enumerate(("small", "medium"), start=1):
+            connection.execute(
+                statement,
+                {
+                    "id": f"87000000-0000-4000-8000-{ordinal:012d}",
+                    "slug": f"supported-{size}",
+                    "size": size,
+                    "digest": "sha256:" + f"{ordinal:064x}",
+                },
+            )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            statement,
+            {
+                "id": "87000000-0000-4000-8000-000000000003",
+                "slug": "unsupported-large",
+                "size": "large",
+                "digest": "sha256:" + "3" * 64,
+            },
+        )
+    engine.dispose()
+
+
+def test_medium_fixture_refuses_lossy_0011_downgrade_and_remains_intact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO fixture_definitions "
+                "(id, slug, fixture_version, size_category, content_category, "
+                "content_digest, compatible_kodi_version, description) VALUES "
+                "('88000000-0000-4000-8000-000000000001', 'medium-retained', "
+                "1, 'medium', 'mixed', :digest, '21.3', 'Medium retained')"
+            ),
+            {"digest": "sha256:" + "8" * 64},
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated Medium definitions"):
+        command.downgrade(config, "0010_fixture_tv_taxonomy")
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT slug, size_category FROM fixture_definitions "
+                "WHERE id = '88000000-0000-4000-8000-000000000001'"
+            )
+        ).one() == ("medium-retained", "medium")
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0011_fixture_medium_taxonomy"
+        )
+    engine.dispose()
+
+
 def test_prior_head_upgrades_to_execution_profile_head(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

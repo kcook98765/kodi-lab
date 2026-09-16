@@ -15,6 +15,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.fixtures.package import load_packaged_fixture
 from kodi_lab.kodi.fixtures import (
+    FixtureInitializationEvent,
     FixtureInitializationTimeoutError,
     SmallMixedFixtureKodiAdapter,
 )
@@ -282,14 +283,208 @@ def test_public_adapter_surface_accepts_no_method_path_or_entity_identity() -> N
         "wait_for_fixture_state",
         "remove_fixture_movie_for_reset_test",
         "remove_fixture_episode_for_reset_test",
+        "apply_fixture_drift_plan_for_reset_test",
     }
     for name in {
         "scan_assigned_fixture_library",
         "get_fixture_library_state",
         "remove_fixture_movie_for_reset_test",
         "remove_fixture_episode_for_reset_test",
+        "apply_fixture_drift_plan_for_reset_test",
     }:
         assert list(inspect.signature(public[name]).parameters) == ["self"]
+
+
+def _medium_result(method: str) -> dict[str, object]:
+    semantics = load_packaged_fixture("medium-mixed-v1").semantics
+    if method == "VideoLibrary.GetMovies":
+        return {
+            "movies": [
+                {
+                    "movieid": index,
+                    "title": movie.title,
+                    "year": movie.year,
+                    "uniqueid": {"kodi-lab": movie.unique_id},
+                    "file": movie.file,
+                }
+                for index, movie in enumerate(semantics.movies, 101)
+            ]
+        }
+    if method == "VideoLibrary.GetTVShows":
+        return {
+            "tvshows": [
+                {
+                    "tvshowid": index,
+                    "title": show.title,
+                    "year": show.year,
+                    "uniqueid": {"kodi-lab": show.unique_id},
+                    "file": show.directory,
+                }
+                for index, show in enumerate(semantics.series, 201)
+            ]
+        }
+    if method == "VideoLibrary.GetEpisodes":
+        return {
+            "episodes": [
+                {
+                    "episodeid": index,
+                    "title": episode.title,
+                    "showtitle": episode.show_title,
+                    "season": episode.season,
+                    "episode": episode.episode,
+                    "uniqueid": {"kodi-lab": episode.unique_id},
+                    "file": episode.file,
+                }
+                for index, episode in enumerate(semantics.episodes, 301)
+            ]
+        }
+    raise AssertionError(method)
+
+
+def test_medium_semantics_verify_exact_25_5_50_with_bounded_calls() -> None:
+    events: list[FixtureInitializationEvent] = []
+    transport = FakeTransport(
+        lambda method, _request: (
+            "OK" if method == "VideoLibrary.Scan" else _medium_result(method)
+        )
+    )
+    adapter = SmallMixedFixtureKodiAdapter(
+        observation(),
+        profile(),
+        load_packaged_fixture("medium-mixed-v1").semantics,
+        transport=transport,
+        event_observer=events.append,
+    )
+
+    adapter.scan_assigned_fixture_library()
+    state = adapter.wait_for_fixture_state()
+
+    assert state.is_baseline
+    assert (state.movie_count, state.series_count, state.episode_count) == (25, 5, 50)
+    methods = [request["method"] for request in transport.requests]
+    assert methods.count("VideoLibrary.Scan") == 2
+    assert methods.count("VideoLibrary.GetMovies") == 2
+    assert methods.count("VideoLibrary.GetTVShows") == 2
+    assert methods.count("VideoLibrary.GetEpisodes") == 2
+    assert events.count(FixtureInitializationEvent.MOVIES_SCAN_STARTED) == 1
+    assert events.count(FixtureInitializationEvent.MOVIES_SCAN_COMPLETED) == 1
+    assert events.count(FixtureInitializationEvent.TV_SCAN_STARTED) == 1
+    assert events.count(FixtureInitializationEvent.TV_SCAN_COMPLETED) == 1
+    assert events.count(FixtureInitializationEvent.SEMANTIC_VERIFICATION_STARTED) == 2
+    assert events.count(FixtureInitializationEvent.SEMANTIC_VERIFICATION_COMPLETED) == 2
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "missing_movie",
+        "unexpected_movie",
+        "duplicate_movie",
+        "missing_show",
+        "extra_show",
+        "missing_episode",
+        "extra_episode",
+        "duplicate_episode",
+        "wrong_show",
+        "wrong_season",
+        "wrong_episode",
+    ],
+)
+def test_medium_semantics_fail_closed_on_identity_or_relationship_drift(
+    failure: str,
+) -> None:
+    def wrong(method: str, _request: dict[str, object]) -> object:
+        result = _medium_result(method)
+        if method == "VideoLibrary.GetMovies":
+            movies = result["movies"]
+            assert isinstance(movies, list)
+            if failure == "missing_movie":
+                movies.pop()
+            if failure == "unexpected_movie":
+                movies.append({"title": "Unexpected"})
+            if failure == "duplicate_movie":
+                movies[1] = dict(movies[0])
+        if method == "VideoLibrary.GetTVShows":
+            shows = result["tvshows"]
+            assert isinstance(shows, list)
+            if failure == "missing_show":
+                shows.pop()
+            if failure == "extra_show":
+                shows.append({"title": "Unexpected"})
+        if method == "VideoLibrary.GetEpisodes":
+            episodes = result["episodes"]
+            assert isinstance(episodes, list)
+            if failure == "missing_episode":
+                episodes.pop()
+            if failure == "extra_episode":
+                episodes.append({"title": "Unexpected"})
+            if failure == "duplicate_episode":
+                episodes[1] = dict(episodes[0])
+            if failure == "wrong_show":
+                episodes[0]["showtitle"] = "Unexpected"
+            if failure == "wrong_season":
+                episodes[0]["season"] = 9
+            if failure == "wrong_episode":
+                episodes[0]["episode"] = 9
+        return result
+
+    adapter = SmallMixedFixtureKodiAdapter(
+        observation(),
+        profile(),
+        load_packaged_fixture("medium-mixed-v1").semantics,
+        transport=FakeTransport(wrong),
+    )
+    assert not adapter.get_fixture_library_state().is_baseline
+
+
+def test_medium_combined_drift_removes_only_package_defined_targets() -> None:
+    class MediumDriftTransport(FakeTransport):
+        def __init__(self) -> None:
+            super().__init__()
+            self.episode_removed = False
+
+        def post(self, **kwargs: object) -> bytes:
+            body = kwargs["body"]
+            assert isinstance(body, bytes)
+            request = json.loads(body)
+            self.requests.append(request)
+            method = request["method"]
+            if method == "VideoLibrary.RemoveMovie":
+                self.movie_removed = True
+                result: object = "OK"
+            elif method == "VideoLibrary.RemoveEpisode":
+                self.episode_removed = True
+                result = "OK"
+            else:
+                result = _medium_result(method)
+                if method == "VideoLibrary.GetMovies" and self.movie_removed:
+                    result["movies"] = result["movies"][1:]  # type: ignore[index]
+                if method == "VideoLibrary.GetEpisodes" and self.episode_removed:
+                    result["episodes"] = result["episodes"][1:]  # type: ignore[index]
+            return json.dumps(
+                {"jsonrpc": "2.0", "id": request["id"], "result": result}
+            ).encode()
+
+    transport = MediumDriftTransport()
+    adapter = SmallMixedFixtureKodiAdapter(
+        observation(),
+        profile(),
+        load_packaged_fixture("medium-mixed-v1").semantics,
+        transport=transport,
+    )
+    state = adapter.apply_fixture_drift_plan_for_reset_test()
+
+    assert (state.movie_count, state.series_count, state.episode_count) == (24, 5, 49)
+    removals = [
+        request
+        for request in transport.requests
+        if request["method"]
+        in {"VideoLibrary.RemoveMovie", "VideoLibrary.RemoveEpisode"}
+    ]
+    assert [request["params"] for request in removals] == [
+        {"movieid": 101},
+        {"episodeid": 301},
+    ]
 
 
 def _movies_only_result(method: str) -> dict[str, object]:

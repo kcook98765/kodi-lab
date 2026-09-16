@@ -496,3 +496,50 @@ all three validated stable releases. Every new Movies fixture restored exact
 2/0/0 drift to 3/0/0, and every new TV fixture restored exact 0/1/2 drift to
 0/1/3, with distinct containers, unchanged instance/revision/fixture identity,
 stopped completion, and normal deprovision cleanup.
+
+## Step 9 Medium/Mixed scale fixture
+
+Migration `0011_fixture_medium_taxonomy` extends the persisted size category
+from only Small to exactly Small and Medium. The column is widened from five to
+16 characters while retaining a closed check constraint. Existing fixture,
+assignment, runtime-pin, and reset-operation rows are preserved. Downgrade to
+`0010` refuses if any Medium definition exists; Large is not admitted.
+
+Canonical V1 names Medium but does not define item counts. Medium/Mixed v1 is
+therefore the following bounded executable dataset:
+
+- 25 movies, `Kodi Lab Medium Movie 001` through `025`;
+- five shows, `Kodi Lab Medium Series 01` through `05`;
+- two seasons per show and five episodes per season;
+- 50 episodes and 80 primary movie/show/episode entities in total.
+
+`medium-mixed-v1` is UUID `13cfd4d5-236a-480c-ae7d-eb54398ab184`, fixture
+version 1, Medium/Mixed, and compatible only with exact Kodi 21.3 stable. Its
+aggregate digest is
+`sha256:94e321dcb31363f9675292acbdbc5f032833d39d309fed451c183110a4c74a9c`.
+The package has 267 immutable files with 1,428,455 uncompressed bytes and a
+1,638,400-byte deterministic tar. Seventy-five distinct media paths reuse two
+tiny repository-owned video payloads rather than duplicating unique media
+content unnecessarily.
+
+The database asset is the exact Kodi-21.3-generated `MyVideos131.db` schema 131
+configuration seed already proven for the same fixed Movies and TV paths. Its
+SHA-256 is
+`f81fcaa98a192e6a93b9f36a659d9ce56546fdc96f4edfe74d3f1eb5094c3fd9`.
+It contains only two `metadata.local` path assignments, Kodi's schema-owned
+version/video-version rows, and zero library or user-state rows. Kodi still
+creates all 80 library entities through normal local-NFO scanning.
+
+The trusted semantic manifest explicitly lists every movie, show, episode,
+path, season, episode number, and relationship. The adapter normalizes Kodi
+results into stable-identity dictionaries for bounded linear verification;
+returned ordering is irrelevant and duplicate, missing, unexpected, or
+misrelated entities fail closed. It still performs exactly one Movies scan,
+then one TV scan, with three fixed semantic read calls per poll. No caller can
+select an expectation, identity, path, scan, or drift target.
+
+The fixed Medium validation drift removes only Movie 001 and Series 01 S01E01,
+giving exact 24/5/49. It adds no generic bulk-delete or arbitrary JSON-RPC
+surface. Reset remains fixture-definition driven, exact-pin preserving, and
+release/category agnostic. The broker operation, Web mutation contract, and
+durable reset coordination are unchanged.

@@ -308,6 +308,33 @@ def test_family_variants_enforce_exact_stable_release_compatibility(
                     )
 
 
+def test_medium_fixture_assignment_is_exactly_kodi_21_3_compatible(
+    session_factory: sessionmaker[Session],
+) -> None:
+    service = FixtureAdministrationService(session_factory)
+    fixture = service.register_packaged_fixture("medium-mixed-v1")
+    instances = (
+        seed_instance(session_factory, kodi_version="19.5"),
+        seed_instance(session_factory, kodi_version="20.5"),
+        seed_instance(session_factory, kodi_version="21.3"),
+    )
+
+    for instance, definition, revision in instances:
+        if definition.kodi_release.canonical == "21.3":
+            assigned = service.assign(
+                managed_instance_id=instance.id,
+                fixture_definition_id=fixture.id,
+            )
+            assert assigned.runtime_revision_id == revision.id
+            assert assigned.fixture_definition_id == fixture.id
+        else:
+            with pytest.raises(FixtureIncompatibleError):
+                service.assign(
+                    managed_instance_id=instance.id,
+                    fixture_definition_id=fixture.id,
+                )
+
+
 def test_assignment_rejects_persistent_and_incompatible_instances(
     session_factory: sessionmaker[Session],
 ) -> None:

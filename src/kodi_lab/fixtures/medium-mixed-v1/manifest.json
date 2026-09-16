@@ -1,0 +1,1956 @@
+{
+  "compatible_kodi_releases": [
+    "21.3"
+  ],
+  "container_destination": "/home/kodi/.kodi",
+  "content_category": "mixed",
+  "content_digest": "sha256:94e321dcb31363f9675292acbdbc5f032833d39d309fed451c183110a4c74a9c",
+  "description": "Twenty-five synthetic movies and five two-season synthetic TV series with an exact Kodi 21.3 configuration-only seed.",
+  "files": [
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-001/Kodi Lab Medium Movie 001 (2001).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-001/Kodi Lab Medium Movie 001 (2001).nfo",
+      "sha256": "fedab07a57034f67f1f908140d434b7198324057135a7c5c8e5ea04ab255a692",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-001/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-001/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-002/Kodi Lab Medium Movie 002 (2002).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-002/Kodi Lab Medium Movie 002 (2002).nfo",
+      "sha256": "3ea98a4955ae1109608e30d8323120f247ac069b885b3666fd19eac2cf7d706c",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-002/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-002/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-003/Kodi Lab Medium Movie 003 (2003).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-003/Kodi Lab Medium Movie 003 (2003).nfo",
+      "sha256": "ba03f2f2b8ca08b52e3e8cc616579b1bd25f26730e1a521bed8eabc8416062ff",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-003/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-003/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-004/Kodi Lab Medium Movie 004 (2004).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-004/Kodi Lab Medium Movie 004 (2004).nfo",
+      "sha256": "19187222062122fecc7b826bd8b114eba30e1e956b662214a7fd59c7f2187f05",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-004/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-004/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-005/Kodi Lab Medium Movie 005 (2005).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-005/Kodi Lab Medium Movie 005 (2005).nfo",
+      "sha256": "4a806d4042c0122c016dc6dc942879deb0a44ad5321d56cd526eaa06679b67bb",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-005/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-005/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-006/Kodi Lab Medium Movie 006 (2006).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-006/Kodi Lab Medium Movie 006 (2006).nfo",
+      "sha256": "8896e9807860eca371aafcce748686d60bbe36bd6cb7a4a553336732ec690e3f",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-006/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-006/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-007/Kodi Lab Medium Movie 007 (2007).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-007/Kodi Lab Medium Movie 007 (2007).nfo",
+      "sha256": "d77ec8cb6f2da094fdcdceed5303b8eaa3bae652022f90308f73db2d81d4d75d",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-007/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-007/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-008/Kodi Lab Medium Movie 008 (2008).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-008/Kodi Lab Medium Movie 008 (2008).nfo",
+      "sha256": "f4366983a36fd139318aca6a55c7183f9bc399103d4ef5681fda9ed45839df1d",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-008/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-008/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-009/Kodi Lab Medium Movie 009 (2009).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-009/Kodi Lab Medium Movie 009 (2009).nfo",
+      "sha256": "5a999d81a3152bb42a0bc97ebb1c567089a1998fe52723c37c61764cf32d22dd",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-009/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-009/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-010/Kodi Lab Medium Movie 010 (2010).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-010/Kodi Lab Medium Movie 010 (2010).nfo",
+      "sha256": "fe08abac5f76a97faf1c1a2c702ae098bc3e18590f7978ea2812bd33ef5d0c0c",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-010/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-010/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-011/Kodi Lab Medium Movie 011 (2011).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-011/Kodi Lab Medium Movie 011 (2011).nfo",
+      "sha256": "cdca9dfab35a4d5341fb8d9154c440c5ecb1271688e417c51ea6cbd1804c8b47",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-011/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-011/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-012/Kodi Lab Medium Movie 012 (2012).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-012/Kodi Lab Medium Movie 012 (2012).nfo",
+      "sha256": "547b118e5ee5d3dcbbec4a0f98ed2833c9ce7aa7d93d6860587d704e574d8a0e",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-012/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-012/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-013/Kodi Lab Medium Movie 013 (2013).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-013/Kodi Lab Medium Movie 013 (2013).nfo",
+      "sha256": "35e4c941f3a557955f45aafed130f31154ad75138d1eb248e6d13802f47ae69a",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-013/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-013/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-014/Kodi Lab Medium Movie 014 (2014).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-014/Kodi Lab Medium Movie 014 (2014).nfo",
+      "sha256": "580941741a706fafd56e28c4dcaa3f08766177116b36ca5e02806d0fda807c12",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-014/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-014/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-015/Kodi Lab Medium Movie 015 (2015).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-015/Kodi Lab Medium Movie 015 (2015).nfo",
+      "sha256": "924b0bef816a42ecd2f9ed6fbfa0afda910d19aa5b43be5e69c063d9db224a06",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-015/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-015/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-016/Kodi Lab Medium Movie 016 (2016).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-016/Kodi Lab Medium Movie 016 (2016).nfo",
+      "sha256": "b2888724f510c6cc1175d33fb9c773d17348fb4a38b0397dc9b6376d8c5032c5",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-016/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-016/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-017/Kodi Lab Medium Movie 017 (2017).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-017/Kodi Lab Medium Movie 017 (2017).nfo",
+      "sha256": "8e8b426e51b0f5e6c9ee9ca90042bc6a4afb205e874fbf75323dfda878a38097",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-017/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-017/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-018/Kodi Lab Medium Movie 018 (2018).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-018/Kodi Lab Medium Movie 018 (2018).nfo",
+      "sha256": "eaad4012124b40cc222c39ae3a8bc26f48275753f1aa6f51139fe5cdab49c223",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-018/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-018/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-019/Kodi Lab Medium Movie 019 (2019).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-019/Kodi Lab Medium Movie 019 (2019).nfo",
+      "sha256": "2228251cb0518b8913565d2dd23a8a1e49bcb48d1b5dcc0d8f38225ee0b29e19",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-019/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-019/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-020/Kodi Lab Medium Movie 020 (2020).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-020/Kodi Lab Medium Movie 020 (2020).nfo",
+      "sha256": "f4976f51968d50e2c628548e5bc1bfee92741c41954642f74be532e4c21fcad9",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-020/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-020/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-021/Kodi Lab Medium Movie 021 (2021).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-021/Kodi Lab Medium Movie 021 (2021).nfo",
+      "sha256": "e95be6fc4cb4c598a780d5cc95fab1c15dfb7f4928096d034a3683ee8ba636b2",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-021/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-021/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-022/Kodi Lab Medium Movie 022 (2022).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-022/Kodi Lab Medium Movie 022 (2022).nfo",
+      "sha256": "a2aeb0a0a925b5c65e40443707468f792321202ede21d6b67b852d382eb008be",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-022/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-022/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-023/Kodi Lab Medium Movie 023 (2023).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-023/Kodi Lab Medium Movie 023 (2023).nfo",
+      "sha256": "8459e77b4949fc1b177f2b6545755357be72a15606816261e432cb482d11fda1",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-023/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-023/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-024/Kodi Lab Medium Movie 024 (2024).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-024/Kodi Lab Medium Movie 024 (2024).nfo",
+      "sha256": "7d7d53d8fbbf250769ef694239a3ce98c48dbe67c2f71eac83536edd5aba2a48",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-024/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-024/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-025/Kodi Lab Medium Movie 025 (2025).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-025/Kodi Lab Medium Movie 025 (2025).nfo",
+      "sha256": "5abf4dec7d807f6d421ac6c6499e423e04bacf55269e4de59710327f41412d58",
+      "size": 611
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-025/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-medium-movie-025/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E01.nfo",
+      "sha256": "2875a5815ed5a65749b14717b5b2895bb8eb6b8efc3944aed7fd095b5b94465b",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E02.nfo",
+      "sha256": "f02762b79f8473bfa7a68bae155beab76e487e79a5b22c3319f3b86a11da2761",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E03.nfo",
+      "sha256": "6dff782b8d45f7b819705398b687636b8fef2b061d3ef986019aa80ca7583cb2",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E04.nfo",
+      "sha256": "5499ae7e403a0eaf150422bebdda7773588c3a0c4641de264777fa73ae527827",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E05.nfo",
+      "sha256": "6ece025d617873be05d464c9833eff6414ca6aacd38005ed977e99e78b46f968",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E01.nfo",
+      "sha256": "a9b5665f2f3cc7e30502837036ef56c31cdb8a15351162905437b1355f779e47",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E02.nfo",
+      "sha256": "a7ec64a90aba63d6f239de64d18a67aebc753506d2be20315447d17544451144",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E03.nfo",
+      "sha256": "983597d31bac047f51263d1ff5c01aacf10c7450772543a5333171f3c03d6126",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E04.nfo",
+      "sha256": "02eaec05b6d00f71f9c32d08b69a39c68fc2450bf20b0fa2daa6ad34366374b4",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E05.nfo",
+      "sha256": "fc70fb9d825b0e194b30ab7d6f5e0247f6f33c7dfea53646c4df8ee08fb66253",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/fanart.png",
+      "sha256": "198ce051a675951997926ebe1a6bdd8f38b9714c13201361ee26dfd08b5b1953",
+      "size": 629
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/poster.png",
+      "sha256": "a71e4b3b4cd89c87e13d63ba63ec426581d8b4f0c28b61176a3bc857b4b8ee23",
+      "size": 436
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-01/tvshow.nfo",
+      "sha256": "4ff361091c2dd6311b1130c03d32b876a17862dafebc27b54f98db0a9729612a",
+      "size": 590
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E01.nfo",
+      "sha256": "21209e732cb741e1a5df8b6a6bc7ab3bb1046c8071e9c46ea843d7e3799dc89d",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E02.nfo",
+      "sha256": "5a2fb8bff86e5e17a3e77042af469b7569fbd495b49fbf799e4c568814d83254",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E03.nfo",
+      "sha256": "ed31f1948af28775544ced4a368a48982e579b3188e0aaeb92013b083c73045d",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E04.nfo",
+      "sha256": "06681f1d6b67ff739de66e858a949bd02ebdfa2594a656cec2982c46b484fbc5",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E05.nfo",
+      "sha256": "81e8543cf7404f103ff515070a4e8e7c5a506bc79742825f090dfb65703fe7c5",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E01.nfo",
+      "sha256": "c3ec2c8fdf5350969b6c7f9e3ad654af4ed43256124d6fede381ebf3ddebcac6",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E02.nfo",
+      "sha256": "73fd1d60aeef06be5dd161aaf568be89b7bfadd970a01d3db156f272e63949d6",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E03.nfo",
+      "sha256": "748765e32ecd37331745d313638df2a9606ad1d80978dd0652fe4f9f32034384",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E04.nfo",
+      "sha256": "879f4c3665d74e429f29663fce7f0e9f213c4dffea27df239efb1d22991588bc",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E05.nfo",
+      "sha256": "840e4086974305b0c1e236f8f623909a8f70902ce788bcd0a77c2eac032289a5",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/fanart.png",
+      "sha256": "198ce051a675951997926ebe1a6bdd8f38b9714c13201361ee26dfd08b5b1953",
+      "size": 629
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/poster.png",
+      "sha256": "a71e4b3b4cd89c87e13d63ba63ec426581d8b4f0c28b61176a3bc857b4b8ee23",
+      "size": 436
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-02/tvshow.nfo",
+      "sha256": "078c807b245d5fdae088694ec930203776cfa818fa0fd83203725ef81d11126b",
+      "size": 590
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E01.nfo",
+      "sha256": "82988f36cf429e9e9b3d567491148bde5b8b01283fbe443443773d6aea2b13ec",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E02.nfo",
+      "sha256": "146d1473c8e37dd9893f9c2d164b936ffb81c5611e8c8be078216436c5332319",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E03.nfo",
+      "sha256": "45147445c90a59df8409c8dd02bcfc61aa95cecc9e1100f6b8e4981302f214fa",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E04.nfo",
+      "sha256": "9e6f98745e92d9d097c66f0145e5069b0de267c8b7c5ecce3f95a63d0baf54dd",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E05.nfo",
+      "sha256": "6a65dc941d695adb7d09752ca7cb05fdf19827044bdc45f279dd2bc0b59f9884",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E01.nfo",
+      "sha256": "fddcd4f75a20ce3f873d60dad503385c088e6ab9ebd0fbd0d84640f57ace48a9",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E02.nfo",
+      "sha256": "224aae5571afb049a4d1bbc83757c2598e08854e23ec70aadf064ae944062904",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E03.nfo",
+      "sha256": "8a54cc1453ddcfaaa413a6c223a33a36ed53fc191c2fb3e2a46859c06f329d15",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E04.nfo",
+      "sha256": "7e34962480de657084eac9b895f0b7e123cc5c6e6ff9ed8307d6f77d43e1721f",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E05.nfo",
+      "sha256": "ad1022ad147e8b503378fbbc15d173730bb2c835d063c178637fe6edecdba386",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/fanart.png",
+      "sha256": "198ce051a675951997926ebe1a6bdd8f38b9714c13201361ee26dfd08b5b1953",
+      "size": 629
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/poster.png",
+      "sha256": "a71e4b3b4cd89c87e13d63ba63ec426581d8b4f0c28b61176a3bc857b4b8ee23",
+      "size": 436
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-03/tvshow.nfo",
+      "sha256": "ef11df08adbdd18ade22dee937d030b55c613906889b50b3d6893e6a1fc6d40b",
+      "size": 590
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E01.nfo",
+      "sha256": "bd85d9fed2edb2ddf9c4b190d51540847982d44a4bf000cbf680d89889e5048f",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E02.nfo",
+      "sha256": "dd55e13817972e257adf339a840b29cb127670312434b2b00f488badcd83ae42",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E03.nfo",
+      "sha256": "8ce3d649f5fb53d0d911230f2225f8d32f70437f19b05c6b1a3247a7a340652a",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E04.nfo",
+      "sha256": "9aa37abff182e1678d0901cdce5c0618cc8c8139dd657832da327e77f7dd599b",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E05.nfo",
+      "sha256": "5b803bb7a3ca808ecfb89fc461aeb516af07ecebf65c39b3c04f40cf3bc59222",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E01.nfo",
+      "sha256": "003afb1b9c2d6c4c1b562d276d9eef45d6835a92c41f31b97a4292c67039425f",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E02.nfo",
+      "sha256": "93606d3bb5f6e1a060dda9c8b64bbec65446cc3d6817dc1c56a12f51b9db9ab3",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E03.nfo",
+      "sha256": "da6783b486a48a3bc982348ae5f31806207289ebf729ab270251b65bdb86d54f",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E04.nfo",
+      "sha256": "3378c79f20ec8899cbd68f99d0a27f2b49e2535db9e644a164e2954a13c4f509",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E05.nfo",
+      "sha256": "d833be1e2cb14d1e30af2881816010c7128eb67bf65f137bcabf1f1d0ca7fd5c",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/fanart.png",
+      "sha256": "198ce051a675951997926ebe1a6bdd8f38b9714c13201361ee26dfd08b5b1953",
+      "size": 629
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/poster.png",
+      "sha256": "a71e4b3b4cd89c87e13d63ba63ec426581d8b4f0c28b61176a3bc857b4b8ee23",
+      "size": 436
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-04/tvshow.nfo",
+      "sha256": "ab4c2423b29448e7533af159820cba8d6b5352bbc297b827fb1f77134b9e5760",
+      "size": 590
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E01.nfo",
+      "sha256": "986eafff1983e099b6de866bf977222769283332c962cff256eb1c03c4dcefdc",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E02.nfo",
+      "sha256": "fbcccd19b9bc99116e72cdec454796abeddc531944f54acbb8c7d9445df6fbce",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E03.nfo",
+      "sha256": "ed43b050d13fd4d4d3d5154013511d09f03bf49caaa7c98b0dc128cb217bbc45",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E04.nfo",
+      "sha256": "2deaed496c24d2299ee126af0a31ecae9035273541cc706799f331eb6f831ec1",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E05.nfo",
+      "sha256": "8acf2755ec57ee3c96731b9b7282809f291f68a2abba1548ca2e9d83ea7379cb",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E01.nfo",
+      "sha256": "6821751503e89cb7a3fcb8481bf98149e9a82d54ad3164aebea827b6126d56c0",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E02-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E02.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E02.nfo",
+      "sha256": "d1871dcf41998aeeb1c5505a016884da23698a73ea20ddaaa23366e6b4c2b574",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E03-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E03.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E03.nfo",
+      "sha256": "429f6a613130c53c5509af30cc6e514b9320dce25b3da4a86fd6d96460724e38",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E04-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E04.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E04.nfo",
+      "sha256": "6a0e796a43a69a90552c76200b5ae103fba7f5373e634cf15fd331408e7ca2e0",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E05-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E05.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E05.nfo",
+      "sha256": "b1810c5dbcd28ae54bbefe1bb9f0dbb7828c8285b979a4659cc8cc7d809ad736",
+      "size": 503
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/fanart.png",
+      "sha256": "198ce051a675951997926ebe1a6bdd8f38b9714c13201361ee26dfd08b5b1953",
+      "size": 629
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/poster.png",
+      "sha256": "a71e4b3b4cd89c87e13d63ba63ec426581d8b4f0c28b61176a3bc857b4b8ee23",
+      "size": 436
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-medium-series-05/tvshow.nfo",
+      "sha256": "7e1c977e0dd36a9cd4a94372193288e7100c49a88ad05a6e737d8ba11cba1858",
+      "size": 590
+    },
+    {
+      "path": "payload/userdata/Database/MyVideos131.db",
+      "sha256": "f81fcaa98a192e6a93b9f36a659d9ce56546fdc96f4edfe74d3f1eb5094c3fd9",
+      "size": 401408
+    },
+    {
+      "path": "payload/userdata/sources.xml",
+      "sha256": "e474a735aa27f7c6b03ccb154ea21dd6e334e631e54def2be114091c81f49f05",
+      "size": 597
+    }
+  ],
+  "fixture_version": 1,
+  "id": "13cfd4d5-236a-480c-ae7d-eb54398ab184",
+  "schema_version": 11,
+  "semantic_expectations": {
+    "drift_episode_unique_id": "medium-mixed-v1-series-01-s01e01",
+    "drift_movie_unique_id": "medium-mixed-v1-movie-001",
+    "episodes": [
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E01.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S01E01",
+        "unique_id": "medium-mixed-v1-series-01-s01e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E02.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S01E02",
+        "unique_id": "medium-mixed-v1-series-01-s01e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E03.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S01E03",
+        "unique_id": "medium-mixed-v1-series-01-s01e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E04.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S01E04",
+        "unique_id": "medium-mixed-v1-series-01-s01e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 01/Kodi Lab Medium Series 01 S01E05.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S01E05",
+        "unique_id": "medium-mixed-v1-series-01-s01e05"
+      },
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E01.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S02E01",
+        "unique_id": "medium-mixed-v1-series-01-s02e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E02.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S02E02",
+        "unique_id": "medium-mixed-v1-series-01-s02e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E03.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S02E03",
+        "unique_id": "medium-mixed-v1-series-01-s02e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E04.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S02E04",
+        "unique_id": "medium-mixed-v1-series-01-s02e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/Season 02/Kodi Lab Medium Series 01 S02E05.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 01",
+        "title": "Kodi Lab Medium Series 01 S02E05",
+        "unique_id": "medium-mixed-v1-series-01-s02e05"
+      },
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E01.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S01E01",
+        "unique_id": "medium-mixed-v1-series-02-s01e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E02.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S01E02",
+        "unique_id": "medium-mixed-v1-series-02-s01e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E03.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S01E03",
+        "unique_id": "medium-mixed-v1-series-02-s01e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E04.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S01E04",
+        "unique_id": "medium-mixed-v1-series-02-s01e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 01/Kodi Lab Medium Series 02 S01E05.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S01E05",
+        "unique_id": "medium-mixed-v1-series-02-s01e05"
+      },
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E01.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S02E01",
+        "unique_id": "medium-mixed-v1-series-02-s02e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E02.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S02E02",
+        "unique_id": "medium-mixed-v1-series-02-s02e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E03.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S02E03",
+        "unique_id": "medium-mixed-v1-series-02-s02e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E04.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S02E04",
+        "unique_id": "medium-mixed-v1-series-02-s02e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/Season 02/Kodi Lab Medium Series 02 S02E05.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 02",
+        "title": "Kodi Lab Medium Series 02 S02E05",
+        "unique_id": "medium-mixed-v1-series-02-s02e05"
+      },
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E01.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S01E01",
+        "unique_id": "medium-mixed-v1-series-03-s01e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E02.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S01E02",
+        "unique_id": "medium-mixed-v1-series-03-s01e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E03.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S01E03",
+        "unique_id": "medium-mixed-v1-series-03-s01e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E04.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S01E04",
+        "unique_id": "medium-mixed-v1-series-03-s01e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 01/Kodi Lab Medium Series 03 S01E05.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S01E05",
+        "unique_id": "medium-mixed-v1-series-03-s01e05"
+      },
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E01.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S02E01",
+        "unique_id": "medium-mixed-v1-series-03-s02e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E02.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S02E02",
+        "unique_id": "medium-mixed-v1-series-03-s02e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E03.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S02E03",
+        "unique_id": "medium-mixed-v1-series-03-s02e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E04.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S02E04",
+        "unique_id": "medium-mixed-v1-series-03-s02e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/Season 02/Kodi Lab Medium Series 03 S02E05.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 03",
+        "title": "Kodi Lab Medium Series 03 S02E05",
+        "unique_id": "medium-mixed-v1-series-03-s02e05"
+      },
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E01.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S01E01",
+        "unique_id": "medium-mixed-v1-series-04-s01e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E02.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S01E02",
+        "unique_id": "medium-mixed-v1-series-04-s01e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E03.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S01E03",
+        "unique_id": "medium-mixed-v1-series-04-s01e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E04.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S01E04",
+        "unique_id": "medium-mixed-v1-series-04-s01e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 01/Kodi Lab Medium Series 04 S01E05.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S01E05",
+        "unique_id": "medium-mixed-v1-series-04-s01e05"
+      },
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E01.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S02E01",
+        "unique_id": "medium-mixed-v1-series-04-s02e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E02.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S02E02",
+        "unique_id": "medium-mixed-v1-series-04-s02e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E03.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S02E03",
+        "unique_id": "medium-mixed-v1-series-04-s02e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E04.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S02E04",
+        "unique_id": "medium-mixed-v1-series-04-s02e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/Season 02/Kodi Lab Medium Series 04 S02E05.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 04",
+        "title": "Kodi Lab Medium Series 04 S02E05",
+        "unique_id": "medium-mixed-v1-series-04-s02e05"
+      },
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E01.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S01E01",
+        "unique_id": "medium-mixed-v1-series-05-s01e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E02.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S01E02",
+        "unique_id": "medium-mixed-v1-series-05-s01e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E03.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S01E03",
+        "unique_id": "medium-mixed-v1-series-05-s01e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E04.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S01E04",
+        "unique_id": "medium-mixed-v1-series-05-s01e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 01/Kodi Lab Medium Series 05 S01E05.mp4",
+        "season": 1,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S01E05",
+        "unique_id": "medium-mixed-v1-series-05-s01e05"
+      },
+      {
+        "episode": 1,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E01.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S02E01",
+        "unique_id": "medium-mixed-v1-series-05-s02e01"
+      },
+      {
+        "episode": 2,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E02.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S02E02",
+        "unique_id": "medium-mixed-v1-series-05-s02e02"
+      },
+      {
+        "episode": 3,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E03.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S02E03",
+        "unique_id": "medium-mixed-v1-series-05-s02e03"
+      },
+      {
+        "episode": 4,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E04.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S02E04",
+        "unique_id": "medium-mixed-v1-series-05-s02e04"
+      },
+      {
+        "episode": 5,
+        "file": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/Season 02/Kodi Lab Medium Series 05 S02E05.mp4",
+        "season": 2,
+        "show_title": "Kodi Lab Medium Series 05",
+        "title": "Kodi Lab Medium Series 05 S02E05",
+        "unique_id": "medium-mixed-v1-series-05-s02e05"
+      }
+    ],
+    "movies": [
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-001/Kodi Lab Medium Movie 001 (2001).mp4",
+        "title": "Kodi Lab Medium Movie 001",
+        "unique_id": "medium-mixed-v1-movie-001",
+        "year": 2001
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-002/Kodi Lab Medium Movie 002 (2002).mp4",
+        "title": "Kodi Lab Medium Movie 002",
+        "unique_id": "medium-mixed-v1-movie-002",
+        "year": 2002
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-003/Kodi Lab Medium Movie 003 (2003).mp4",
+        "title": "Kodi Lab Medium Movie 003",
+        "unique_id": "medium-mixed-v1-movie-003",
+        "year": 2003
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-004/Kodi Lab Medium Movie 004 (2004).mp4",
+        "title": "Kodi Lab Medium Movie 004",
+        "unique_id": "medium-mixed-v1-movie-004",
+        "year": 2004
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-005/Kodi Lab Medium Movie 005 (2005).mp4",
+        "title": "Kodi Lab Medium Movie 005",
+        "unique_id": "medium-mixed-v1-movie-005",
+        "year": 2005
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-006/Kodi Lab Medium Movie 006 (2006).mp4",
+        "title": "Kodi Lab Medium Movie 006",
+        "unique_id": "medium-mixed-v1-movie-006",
+        "year": 2006
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-007/Kodi Lab Medium Movie 007 (2007).mp4",
+        "title": "Kodi Lab Medium Movie 007",
+        "unique_id": "medium-mixed-v1-movie-007",
+        "year": 2007
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-008/Kodi Lab Medium Movie 008 (2008).mp4",
+        "title": "Kodi Lab Medium Movie 008",
+        "unique_id": "medium-mixed-v1-movie-008",
+        "year": 2008
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-009/Kodi Lab Medium Movie 009 (2009).mp4",
+        "title": "Kodi Lab Medium Movie 009",
+        "unique_id": "medium-mixed-v1-movie-009",
+        "year": 2009
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-010/Kodi Lab Medium Movie 010 (2010).mp4",
+        "title": "Kodi Lab Medium Movie 010",
+        "unique_id": "medium-mixed-v1-movie-010",
+        "year": 2010
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-011/Kodi Lab Medium Movie 011 (2011).mp4",
+        "title": "Kodi Lab Medium Movie 011",
+        "unique_id": "medium-mixed-v1-movie-011",
+        "year": 2011
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-012/Kodi Lab Medium Movie 012 (2012).mp4",
+        "title": "Kodi Lab Medium Movie 012",
+        "unique_id": "medium-mixed-v1-movie-012",
+        "year": 2012
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-013/Kodi Lab Medium Movie 013 (2013).mp4",
+        "title": "Kodi Lab Medium Movie 013",
+        "unique_id": "medium-mixed-v1-movie-013",
+        "year": 2013
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-014/Kodi Lab Medium Movie 014 (2014).mp4",
+        "title": "Kodi Lab Medium Movie 014",
+        "unique_id": "medium-mixed-v1-movie-014",
+        "year": 2014
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-015/Kodi Lab Medium Movie 015 (2015).mp4",
+        "title": "Kodi Lab Medium Movie 015",
+        "unique_id": "medium-mixed-v1-movie-015",
+        "year": 2015
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-016/Kodi Lab Medium Movie 016 (2016).mp4",
+        "title": "Kodi Lab Medium Movie 016",
+        "unique_id": "medium-mixed-v1-movie-016",
+        "year": 2016
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-017/Kodi Lab Medium Movie 017 (2017).mp4",
+        "title": "Kodi Lab Medium Movie 017",
+        "unique_id": "medium-mixed-v1-movie-017",
+        "year": 2017
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-018/Kodi Lab Medium Movie 018 (2018).mp4",
+        "title": "Kodi Lab Medium Movie 018",
+        "unique_id": "medium-mixed-v1-movie-018",
+        "year": 2018
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-019/Kodi Lab Medium Movie 019 (2019).mp4",
+        "title": "Kodi Lab Medium Movie 019",
+        "unique_id": "medium-mixed-v1-movie-019",
+        "year": 2019
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-020/Kodi Lab Medium Movie 020 (2020).mp4",
+        "title": "Kodi Lab Medium Movie 020",
+        "unique_id": "medium-mixed-v1-movie-020",
+        "year": 2020
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-021/Kodi Lab Medium Movie 021 (2021).mp4",
+        "title": "Kodi Lab Medium Movie 021",
+        "unique_id": "medium-mixed-v1-movie-021",
+        "year": 2021
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-022/Kodi Lab Medium Movie 022 (2022).mp4",
+        "title": "Kodi Lab Medium Movie 022",
+        "unique_id": "medium-mixed-v1-movie-022",
+        "year": 2022
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-023/Kodi Lab Medium Movie 023 (2023).mp4",
+        "title": "Kodi Lab Medium Movie 023",
+        "unique_id": "medium-mixed-v1-movie-023",
+        "year": 2023
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-024/Kodi Lab Medium Movie 024 (2024).mp4",
+        "title": "Kodi Lab Medium Movie 024",
+        "unique_id": "medium-mixed-v1-movie-024",
+        "year": 2024
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-medium-movie-025/Kodi Lab Medium Movie 025 (2025).mp4",
+        "title": "Kodi Lab Medium Movie 025",
+        "unique_id": "medium-mixed-v1-movie-025",
+        "year": 2025
+      }
+    ],
+    "scan_plan": [
+      "movies",
+      "tv"
+    ],
+    "tvshows": [
+      {
+        "directory": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-01/",
+        "title": "Kodi Lab Medium Series 01",
+        "unique_id": "medium-mixed-v1-series-01",
+        "year": 2021
+      },
+      {
+        "directory": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-02/",
+        "title": "Kodi Lab Medium Series 02",
+        "unique_id": "medium-mixed-v1-series-02",
+        "year": 2022
+      },
+      {
+        "directory": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-03/",
+        "title": "Kodi Lab Medium Series 03",
+        "unique_id": "medium-mixed-v1-series-03",
+        "year": 2023
+      },
+      {
+        "directory": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-04/",
+        "title": "Kodi Lab Medium Series 04",
+        "unique_id": "medium-mixed-v1-series-04",
+        "year": 2024
+      },
+      {
+        "directory": "/home/kodi/.kodi/fixture-media/tvshows/kodi-lab-medium-series-05/",
+        "title": "Kodi Lab Medium Series 05",
+        "unique_id": "medium-mixed-v1-series-05",
+        "year": 2025
+      }
+    ]
+  },
+  "size_category": "medium",
+  "slug": "medium-mixed-v1",
+  "video_database_seed": {
+    "container_relative_path": "userdata/Database/MyVideos131.db",
+    "database_filename": "MyVideos131.db",
+    "movie_content": "movies",
+    "movie_path": "/home/kodi/.kodi/fixture-media/movies/",
+    "schema_version": 131,
+    "scraper": "metadata.local",
+    "sha256": "f81fcaa98a192e6a93b9f36a659d9ce56546fdc96f4edfe74d3f1eb5094c3fd9",
+    "tv_content": "tvshows",
+    "tv_path": "/home/kodi/.kodi/fixture-media/tvshows/"
+  }
+}

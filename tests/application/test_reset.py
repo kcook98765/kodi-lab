@@ -345,6 +345,7 @@ class FakeBroker:
                     "small-tv-v1",
                     "small-tv-v2",
                     "small-tv-v3",
+                    "medium-mixed-v1",
                 ],
                 fixture.slug,
             ),
@@ -637,6 +638,11 @@ def test_small_tv_reset_uses_generic_flow_and_retains_exact_assignment(
             "small-tv-v3",
             "19.5",
             FixtureLibraryState(False, True, True, 0, 1, 3, 0, 1, 3),
+        ),
+        (
+            "medium-mixed-v1",
+            "21.3",
+            FixtureLibraryState(True, True, True, 25, 5, 50, 25, 5, 50),
         ),
     ],
 )

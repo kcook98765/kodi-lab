@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<tvshow>
+  <title>Kodi Lab Medium Series 02</title>
+  <originaltitle>Kodi Lab Medium Series 02</originaltitle>
+  <sorttitle>Kodi Lab Medium Series 02</sorttitle>
+  <year>2022</year>
+  <premiered>2022-01-01</premiered>
+  <plot>Fictional Medium fixture series 02 generated solely for deterministic Kodi Lab testing.</plot>
+  <genre>Synthetic</genre>
+  <studio>Kodi Lab</studio>
+  <uniqueid type="kodi-lab" default="true">medium-mixed-v1-series-02</uniqueid>
+  <art><poster>poster.png</poster><fanart>fanart.png</fanart></art>
+</tvshow>

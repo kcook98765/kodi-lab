@@ -6,6 +6,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Literal, cast
 
 from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
@@ -50,6 +51,17 @@ class FixtureInitializationTimeoutError(RuntimeError):
     """Kodi did not construct the expected fixture library within the deadline."""
 
 
+class FixtureInitializationEvent(StrEnum):
+    """Bounded ephemeral timing points for fixture validation instrumentation."""
+
+    MOVIES_SCAN_STARTED = "movies_scan_started"
+    MOVIES_SCAN_COMPLETED = "movies_scan_completed"
+    TV_SCAN_STARTED = "tv_scan_started"
+    TV_SCAN_COMPLETED = "tv_scan_completed"
+    SEMANTIC_VERIFICATION_STARTED = "semantic_verification_started"
+    SEMANTIC_VERIFICATION_COMPLETED = "semantic_verification_completed"
+
+
 @dataclass(frozen=True, slots=True)
 class FixtureLibraryState:
     movie_present: bool
@@ -85,6 +97,7 @@ class SmallMixedFixtureKodiAdapter:
         *,
         timeout: float | None = None,
         transport: _HttpTransport | None = None,
+        event_observer: Callable[[FixtureInitializationEvent], None] | None = None,
     ) -> None:
         if observation.runtime_revision_id != str(profile.runtime_revision_id):
             raise ValueError("observation and execution profile revisions differ")
@@ -102,11 +115,15 @@ class SmallMixedFixtureKodiAdapter:
             raise ValueError("HTTP timeout exceeds trusted execution profile")
         self._transport = transport or _BoundedHttpTransport()
         self._semantics = semantics
+        self._event_observer = event_observer
         self._movie_scan_requested = False
         self._tv_scan_requested = False
+        self._movie_scan_completed = False
+        self._tv_scan_completed = False
 
     def scan_assigned_fixture_library(self) -> None:
         if self._semantics.scan_movies:
+            self._emit(FixtureInitializationEvent.MOVIES_SCAN_STARTED)
             document = self._request(
                 "kodi-lab-fixture-scan-movies",
                 "VideoLibrary.Scan",
@@ -123,6 +140,7 @@ class SmallMixedFixtureKodiAdapter:
             raise ValueError("trusted fixture scan plan is empty")
 
     def _scan_tv_fixture_library(self) -> None:
+        self._emit(FixtureInitializationEvent.TV_SCAN_STARTED)
         document = self._request(
             "kodi-lab-fixture-scan-tv",
             "VideoLibrary.Scan",
@@ -133,62 +151,57 @@ class SmallMixedFixtureKodiAdapter:
         self._tv_scan_requested = True
 
     def get_fixture_library_state(self) -> FixtureLibraryState:
-        movies = self._items(
-            self._request(
-                "kodi-lab-fixture-movies",
-                "VideoLibrary.GetMovies",
-                {"properties": ["title", "year", "uniqueid", "file"]},
-            ),
-            "movies",
-        )
-        shows = self._items(
-            self._request(
-                "kodi-lab-fixture-shows",
-                "VideoLibrary.GetTVShows",
-                {"properties": ["title", "year", "uniqueid", "file"]},
-            ),
-            "tvshows",
-        )
-        episodes = self._items(
-            self._request(
-                "kodi-lab-fixture-episodes",
-                "VideoLibrary.GetEpisodes",
-                {
-                    "properties": [
-                        "title",
-                        "showtitle",
-                        "season",
-                        "episode",
-                        "uniqueid",
-                        "file",
-                    ]
-                },
-            ),
-            "episodes",
-        )
-        return FixtureLibraryState(
-            movie_present=bool(self._semantics.movies)
-            and all(
-                any(self._is_movie(item, expected) for item in movies)
-                for expected in self._semantics.movies
-            ),
-            series_present=bool(self._semantics.series)
-            and all(
-                any(self._is_series(item, expected) for item in shows)
-                for expected in self._semantics.series
-            ),
-            episode_present=bool(self._semantics.episodes)
-            and all(
-                any(self._is_episode(item, expected) for item in episodes)
-                for expected in self._semantics.episodes
-            ),
-            movie_count=len(movies),
-            series_count=len(shows),
-            episode_count=len(episodes),
-            expected_movie_count=len(self._semantics.movies),
-            expected_series_count=len(self._semantics.series),
-            expected_episode_count=len(self._semantics.episodes),
-        )
+        self._emit(FixtureInitializationEvent.SEMANTIC_VERIFICATION_STARTED)
+        try:
+            movies = self._items(
+                self._request(
+                    "kodi-lab-fixture-movies",
+                    "VideoLibrary.GetMovies",
+                    {"properties": ["title", "year", "uniqueid", "file"]},
+                ),
+                "movies",
+            )
+            shows = self._items(
+                self._request(
+                    "kodi-lab-fixture-shows",
+                    "VideoLibrary.GetTVShows",
+                    {"properties": ["title", "year", "uniqueid", "file"]},
+                ),
+                "tvshows",
+            )
+            episodes = self._items(
+                self._request(
+                    "kodi-lab-fixture-episodes",
+                    "VideoLibrary.GetEpisodes",
+                    {
+                        "properties": [
+                            "title",
+                            "showtitle",
+                            "season",
+                            "episode",
+                            "uniqueid",
+                            "file",
+                        ]
+                    },
+                ),
+                "episodes",
+            )
+            return FixtureLibraryState(
+                movie_present=bool(self._semantics.movies)
+                and self._movies_match(movies, self._semantics.movies),
+                series_present=bool(self._semantics.series)
+                and self._series_match(shows, self._semantics.series),
+                episode_present=bool(self._semantics.episodes)
+                and self._episodes_match(episodes, self._semantics.episodes),
+                movie_count=len(movies),
+                series_count=len(shows),
+                episode_count=len(episodes),
+                expected_movie_count=len(self._semantics.movies),
+                expected_series_count=len(self._semantics.series),
+                expected_episode_count=len(self._semantics.episodes),
+            )
+        finally:
+            self._emit(FixtureInitializationEvent.SEMANTIC_VERIFICATION_COMPLETED)
 
     def wait_for_fixture_state(
         self,
@@ -215,6 +228,14 @@ class SmallMixedFixtureKodiAdapter:
             last = self.get_fixture_library_state()
             if (
                 self._movie_scan_requested
+                and not self._movie_scan_completed
+                and last.movie_present
+                and last.movie_count == len(self._semantics.movies)
+            ):
+                self._movie_scan_completed = True
+                self._emit(FixtureInitializationEvent.MOVIES_SCAN_COMPLETED)
+            if (
+                self._movie_scan_requested
                 and last.movie_present
                 and self._semantics.scan_tv
                 and not self._tv_scan_requested
@@ -222,6 +243,9 @@ class SmallMixedFixtureKodiAdapter:
                 self._scan_tv_fixture_library()
                 continue
             elif last.is_baseline:
+                if self._tv_scan_requested and not self._tv_scan_completed:
+                    self._tv_scan_completed = True
+                    self._emit(FixtureInitializationEvent.TV_SCAN_COMPLETED)
                 return last
             remaining = deadline - clock()
             if remaining > 0:
@@ -345,10 +369,7 @@ class SmallMixedFixtureKodiAdapter:
             for episode in self._semantics.episodes
             if episode.unique_id != target_id
         )
-        if len(remaining_items) != len(remaining_expected) or not all(
-            any(self._is_episode(item, expected) for item in remaining_items)
-            for expected in remaining_expected
-        ):
+        if not self._episodes_match(remaining_items, remaining_expected):
             raise JsonRpcInvalidResponseError(
                 "fixture episode drift identities are invalid"
             )
@@ -363,6 +384,101 @@ class SmallMixedFixtureKodiAdapter:
         ):
             raise JsonRpcInvalidResponseError(
                 "fixture episode drift mutation postcondition failed"
+            )
+        return state
+
+    def apply_fixture_drift_plan_for_reset_test(self) -> FixtureLibraryState:
+        """Apply the package-defined two-item Medium drift with no target input."""
+
+        movie_target_id = self._semantics.drift_movie_unique_id
+        episode_target_id = self._semantics.drift_episode_unique_id
+        if movie_target_id is None or episode_target_id is None:
+            raise ValueError("trusted fixture has no bounded combined drift plan")
+        movie_target = next(
+            movie
+            for movie in self._semantics.movies
+            if movie.unique_id == movie_target_id
+        )
+        movie_document = self._request(
+            "kodi-lab-fixture-drift-find-movie",
+            "VideoLibrary.GetMovies",
+            {"properties": ["title", "year", "uniqueid", "file"]},
+        )
+        movie_matches = [
+            item
+            for item in self._items(movie_document, "movies")
+            if self._is_movie(item, movie_target)
+        ]
+        if len(movie_matches) != 1:
+            raise JsonRpcInvalidResponseError(
+                "fixture movie identity is missing or ambiguous"
+            )
+        movie_id = movie_matches[0].get("movieid")
+        if not isinstance(movie_id, int) or isinstance(movie_id, bool) or movie_id < 0:
+            raise JsonRpcInvalidResponseError("fixture movie ID is invalid")
+        movie_removed = self._request(
+            "kodi-lab-fixture-drift-remove-movie",
+            "VideoLibrary.RemoveMovie",
+            {"movieid": movie_id},
+        )
+        if movie_removed.get("result") != "OK":
+            raise JsonRpcInvalidResponseError("fixture movie removal result is invalid")
+
+        episode_target = next(
+            episode
+            for episode in self._semantics.episodes
+            if episode.unique_id == episode_target_id
+        )
+        episode_document = self._request(
+            "kodi-lab-fixture-drift-find-episode",
+            "VideoLibrary.GetEpisodes",
+            {
+                "properties": [
+                    "title",
+                    "showtitle",
+                    "season",
+                    "episode",
+                    "uniqueid",
+                    "file",
+                ]
+            },
+        )
+        episode_matches = [
+            item
+            for item in self._items(episode_document, "episodes")
+            if self._is_episode(item, episode_target)
+        ]
+        if len(episode_matches) != 1:
+            raise JsonRpcInvalidResponseError(
+                "fixture episode identity is missing or ambiguous"
+            )
+        episode_id = episode_matches[0].get("episodeid")
+        if (
+            not isinstance(episode_id, int)
+            or isinstance(episode_id, bool)
+            or episode_id < 1
+        ):
+            raise JsonRpcInvalidResponseError("fixture episode ID is invalid")
+        episode_removed = self._request(
+            "kodi-lab-fixture-drift-remove-episode",
+            "VideoLibrary.RemoveEpisode",
+            {"episodeid": episode_id},
+        )
+        if episode_removed.get("result") != "OK":
+            raise JsonRpcInvalidResponseError(
+                "fixture episode removal result is invalid"
+            )
+        state = self.get_fixture_library_state()
+        if (
+            state.movie_count != len(self._semantics.movies) - 1
+            or state.series_count != len(self._semantics.series)
+            or state.episode_count != len(self._semantics.episodes) - 1
+            or state.movie_present
+            or not state.series_present
+            or state.episode_present
+        ):
+            raise JsonRpcInvalidResponseError(
+                "fixture combined drift mutation postcondition failed"
             )
         return state
 
@@ -463,3 +579,79 @@ class SmallMixedFixtureKodiAdapter:
             and item.get("file") == expected.file
             and cls._has_unique_id(item, expected.unique_id)
         )
+
+    @classmethod
+    def _movies_match(
+        cls,
+        items: list[dict[str, object]],
+        expected: tuple[FixtureMovieExpectation, ...],
+    ) -> bool:
+        expected_by_id = {value.unique_id: value for value in expected}
+        if len(items) != len(expected_by_id):
+            return False
+        seen: set[str] = set()
+        for item in items:
+            unique_id = cls._kodi_lab_unique_id(item)
+            expectation = expected_by_id.get(unique_id)
+            if (
+                expectation is None
+                or unique_id in seen
+                or not cls._is_movie(item, expectation)
+            ):
+                return False
+            seen.add(unique_id)
+        return seen == expected_by_id.keys()
+
+    @classmethod
+    def _series_match(
+        cls,
+        items: list[dict[str, object]],
+        expected: tuple[FixtureSeriesExpectation, ...],
+    ) -> bool:
+        expected_by_id = {value.unique_id: value for value in expected}
+        if len(items) != len(expected_by_id):
+            return False
+        seen: set[str] = set()
+        for item in items:
+            unique_id = cls._kodi_lab_unique_id(item)
+            expectation = expected_by_id.get(unique_id)
+            if (
+                expectation is None
+                or unique_id in seen
+                or not cls._is_series(item, expectation)
+            ):
+                return False
+            seen.add(unique_id)
+        return seen == expected_by_id.keys()
+
+    @classmethod
+    def _episodes_match(
+        cls,
+        items: list[dict[str, object]],
+        expected: tuple[FixtureEpisodeExpectation, ...],
+    ) -> bool:
+        expected_by_id = {value.unique_id: value for value in expected}
+        if len(items) != len(expected_by_id):
+            return False
+        seen: set[str] = set()
+        for item in items:
+            unique_id = cls._kodi_lab_unique_id(item)
+            expectation = expected_by_id.get(unique_id)
+            if (
+                expectation is None
+                or unique_id in seen
+                or not cls._is_episode(item, expectation)
+            ):
+                return False
+            seen.add(unique_id)
+        return seen == expected_by_id.keys()
+
+    @staticmethod
+    def _kodi_lab_unique_id(item: dict[str, object]) -> str:
+        unique = item.get("uniqueid")
+        value = unique.get("kodi-lab") if isinstance(unique, dict) else None
+        return value if isinstance(value, str) else ""
+
+    def _emit(self, event: FixtureInitializationEvent) -> None:
+        if self._event_observer is not None:
+            self._event_observer(event)

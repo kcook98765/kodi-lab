@@ -987,3 +987,22 @@ details that it did not specify.
   expectations and invokes fixed `VideoLibrary.RemoveEpisode`; it accepts no
   ID, title, path, method, or parameters. Reset orchestration and broker
   authority remain unchanged.
+
+## D-0080: Medium size taxonomy and bounded Medium/Mixed definition
+
+- Status: approved for Phase 6 Step 9
+- Decision: migration `0011_fixture_medium_taxonomy` extends the closed
+  persisted size taxonomy to exactly `small` and `medium`, using bounded
+  `VARCHAR(16)`. Existing definitions, assignments, pins, and ResetOperations
+  are preserved. Downgrade refuses while a Medium FixtureDefinition exists and
+  never converts or deletes taxonomy data. Large remains unsupported.
+- Medium/Mixed contract: canonical V1 names Medium but defines no counts. The
+  executable v1 dataset is exactly 25 movies and five shows, each with two
+  seasons of five episodes: 25 movies, 5 shows, 50 episodes, and 80 primary
+  library entities. The package lists every stable identity and relationship.
+- Scale boundary: verification indexes returned entities by package-owned
+  stable identity rather than using nested searches. The scan plan remains the
+  fixed Movies-then-TV sequence and retains the 60-second fixture deadline.
+  The package-defined validation drift removes only Movie 001 and Series 01
+  S01E01. Reset orchestration, exact-pin selection, broker authority, Web reset,
+  and the ten-minute durable lease are unchanged.

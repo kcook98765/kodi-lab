@@ -313,3 +313,12 @@ The next coherent Phase 6 milestone should begin Medium taxonomy on Kodi 21.3.
 The stable release-specific seed model is now exercised across every Small
 content category; dataset scale and deterministic performance are the highest
 remaining product risk before spending immutable fixture effort on Preview.
+
+Phase 6 Step 9 introduces the closed Medium size category and immutable
+`medium-mixed-v1` for exact Kodi 21.3. Its package declares 25 movies and five
+two-season, five-episodes-per-season shows: 25/5/50 and 80 primary entities.
+The exact schema-131 configuration seed still contains only the fixed Movies
+and TV paths. Verification uses package-owned keyed identity maps, the scan plan
+remains Movies then TV, and fixed validation drift removes only Movie 001 plus
+Series 01 S01E01. Reset, broker, Web, lease, exact pin, and the 60-second fixture
+deadline remain unchanged pending measured live scale validation.

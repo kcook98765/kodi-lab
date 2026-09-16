@@ -30,6 +30,7 @@ from kodi_lab.fixtures.seed_audit import (
     KODI_VIDEO_DATABASE_SCHEMA_VERSION,
     FixtureSeedAudit,
     FixtureSeedAuditError,
+    audit_medium_mixed_v1_seed,
     audit_small_mixed_v2_seed,
     audit_small_mixed_v3_seed,
     audit_small_mixed_v4_seed,
@@ -58,6 +59,7 @@ SMALL_MOVIES_V3_FIXTURE_SLUG = "small-movies-v3"
 SMALL_TV_V1_FIXTURE_SLUG = "small-tv-v1"
 SMALL_TV_V2_FIXTURE_SLUG = "small-tv-v2"
 SMALL_TV_V3_FIXTURE_SLUG = "small-tv-v3"
+MEDIUM_MIXED_V1_FIXTURE_SLUG = "medium-mixed-v1"
 SMALL_MOVIES_FIXTURE_SLUGS = frozenset(
     {
         SMALL_MOVIES_V1_FIXTURE_SLUG,
@@ -67,6 +69,10 @@ SMALL_MOVIES_FIXTURE_SLUGS = frozenset(
 )
 SMALL_TV_FIXTURE_SLUGS = frozenset(
     {SMALL_TV_V1_FIXTURE_SLUG, SMALL_TV_V2_FIXTURE_SLUG, SMALL_TV_V3_FIXTURE_SLUG}
+)
+MEDIUM_MIXED_FIXTURE_SLUGS = frozenset({MEDIUM_MIXED_V1_FIXTURE_SLUG})
+SEMANTIC_FIXTURE_SLUGS = (
+    SMALL_MOVIES_FIXTURE_SLUGS | SMALL_TV_FIXTURE_SLUGS | MEDIUM_MIXED_FIXTURE_SLUGS
 )
 # Kept as the original public name so existing v1 callers remain unchanged.
 SMALL_MIXED_FIXTURE_SLUG = SMALL_MIXED_V1_FIXTURE_SLUG
@@ -82,6 +88,7 @@ TRUSTED_FIXTURE_SLUGS = frozenset(
         SMALL_TV_V1_FIXTURE_SLUG,
         SMALL_TV_V2_FIXTURE_SLUG,
         SMALL_TV_V3_FIXTURE_SLUG,
+        MEDIUM_MIXED_V1_FIXTURE_SLUG,
     }
 )
 FIXTURE_CONTAINER_DESTINATION = "/home/kodi/.kodi"
@@ -113,6 +120,7 @@ FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS = MappingProxyType(
         SMALL_TV_V3_FIXTURE_SLUG: (
             f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
         ),
+        MEDIUM_MIXED_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
     }
 )
 KODI_UID = 1000
@@ -155,6 +163,16 @@ _SEMANTIC_EXPECTATION_KEYS = frozenset(
 )
 _TV_SEMANTIC_EXPECTATION_KEYS = frozenset(
     {"movies", "tvshows", "episodes", "scan_plan", "drift_episode_unique_id"}
+)
+_MIXED_SEMANTIC_EXPECTATION_KEYS = frozenset(
+    {
+        "movies",
+        "tvshows",
+        "episodes",
+        "scan_plan",
+        "drift_movie_unique_id",
+        "drift_episode_unique_id",
+    }
 )
 
 
@@ -234,7 +252,7 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
         raise PackagedFixtureError(
             "fixture manifest is unavailable or invalid"
         ) from error
-    if slug in SMALL_MOVIES_FIXTURE_SLUGS | SMALL_TV_FIXTURE_SLUGS:
+    if slug in SEMANTIC_FIXTURE_SLUGS:
         expected_keys = _SEMANTIC_SEEDED_MANIFEST_KEYS
     elif slug in FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS:
         expected_keys = _SEEDED_MANIFEST_KEYS
@@ -283,7 +301,7 @@ def load_packaged_fixture(slug: str) -> PackagedFixture:
     )
     semantics = (
         _parse_semantics(document, slug=slug)
-        if slug in SMALL_MOVIES_FIXTURE_SLUGS | SMALL_TV_FIXTURE_SLUGS
+        if slug in SEMANTIC_FIXTURE_SLUGS
         else MIXED_FIXTURE_SEMANTICS
     )
     return PackagedFixture(
@@ -310,6 +328,7 @@ def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> N
         SMALL_TV_V2_FIXTURE_SLUG: (8, 2),
         SMALL_MOVIES_V3_FIXTURE_SLUG: (9, 3),
         SMALL_TV_V3_FIXTURE_SLUG: (10, 3),
+        MEDIUM_MIXED_V1_FIXTURE_SLUG: (11, 1),
     }.get(slug)
     if expected is None:
         raise PackagedFixtureError("fixture manifest identity is invalid")
@@ -427,6 +446,11 @@ def _audit_seed(
             KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
             audit_small_tv_v3_seed,
         ),
+        MEDIUM_MIXED_V1_FIXTURE_SLUG: (
+            KODI_VIDEO_DATABASE_FILENAME,
+            KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_medium_mixed_v1_seed,
+        ),
     }.get(slug)
     if seed_contract is None:
         raise PackagedFixtureError("fixture database seed metadata is invalid")
@@ -479,6 +503,8 @@ def _parse_semantics(
         _SEMANTIC_EXPECTATION_KEYS
         if slug in SMALL_MOVIES_FIXTURE_SLUGS
         else _TV_SEMANTIC_EXPECTATION_KEYS
+        if slug in SMALL_TV_FIXTURE_SLUGS
+        else _MIXED_SEMANTIC_EXPECTATION_KEYS
     )
     if not isinstance(raw, dict) or frozenset(raw) != expected_keys:
         raise PackagedFixtureError("fixture semantic expectations are invalid")
@@ -489,14 +515,18 @@ def _parse_semantics(
     drift_movie_id = raw.get("drift_movie_unique_id")
     drift_episode_id = raw.get("drift_episode_unique_id")
     is_movies = slug in SMALL_MOVIES_FIXTURE_SLUGS
-    expected_scan_plan = ["movies"] if is_movies else ["tv"]
+    is_tv = slug in SMALL_TV_FIXTURE_SLUGS
+    is_medium_mixed = slug in MEDIUM_MIXED_FIXTURE_SLUGS
+    expected_scan_plan = (
+        ["movies"] if is_movies else ["tv"] if is_tv else ["movies", "tv"]
+    )
     if (
         not isinstance(movies, list)
         or not isinstance(shows, list)
         or not isinstance(episodes, list)
         or scan_plan != expected_scan_plan
-        or (is_movies and not isinstance(drift_movie_id, str))
-        or (not is_movies and not isinstance(drift_episode_id, str))
+        or ((is_movies or is_medium_mixed) and not isinstance(drift_movie_id, str))
+        or ((is_tv or is_medium_mixed) and not isinstance(drift_episode_id, str))
     ):
         raise PackagedFixtureError("fixture semantic expectations are invalid")
     try:
@@ -572,20 +602,85 @@ def _parse_semantics(
             for index, episode in enumerate(episode_specs, 1)
         )
     )
-    if not (movies_contract if is_movies else tv_contract):
+    medium_contract = (
+        is_medium_mixed
+        and len(movie_specs) == 25
+        and len(show_specs) == 5
+        and len(episode_specs) == 50
+        and drift_movie_id in movie_ids
+        and drift_episode_id in episode_ids
+        and len(movie_ids) == len(movie_specs)
+        and len({show.unique_id for show in show_specs}) == len(show_specs)
+        and len(episode_ids) == len(episode_specs)
+        and tuple(movie_specs) == _expected_medium_movies()
+        and tuple(show_specs) == _expected_medium_series()
+        and tuple(episode_specs) == _expected_medium_episodes()
+    )
+    if not (
+        movies_contract if is_movies else tv_contract if is_tv else medium_contract
+    ):
         raise PackagedFixtureError("fixture semantic expectations are invalid")
     return FixtureSemanticSpecification(
         movies=movie_specs,
         series=show_specs,
         episodes=episode_specs,
-        scan_movies=is_movies,
-        scan_tv=not is_movies,
+        scan_movies=is_movies or is_medium_mixed,
+        scan_tv=is_tv or is_medium_mixed,
         drift_movie_unique_id=(
             drift_movie_id if isinstance(drift_movie_id, str) else None
         ),
         drift_episode_unique_id=(
             drift_episode_id if isinstance(drift_episode_id, str) else None
         ),
+    )
+
+
+def _expected_medium_movies() -> tuple[FixtureMovieExpectation, ...]:
+    return tuple(
+        FixtureMovieExpectation(
+            title=f"Kodi Lab Medium Movie {index:03d}",
+            year=2000 + index,
+            unique_id=f"medium-mixed-v1-movie-{index:03d}",
+            file=(
+                f"{FIXTURE_MOVIE_DIRECTORY}kodi-lab-medium-movie-{index:03d}/"
+                f"Kodi Lab Medium Movie {index:03d} ({2000 + index}).mp4"
+            ),
+        )
+        for index in range(1, 26)
+    )
+
+
+def _expected_medium_series() -> tuple[FixtureSeriesExpectation, ...]:
+    return tuple(
+        FixtureSeriesExpectation(
+            title=f"Kodi Lab Medium Series {show:02d}",
+            year=2020 + show,
+            unique_id=f"medium-mixed-v1-series-{show:02d}",
+            directory=(f"{FIXTURE_TV_DIRECTORY}kodi-lab-medium-series-{show:02d}/"),
+        )
+        for show in range(1, 6)
+    )
+
+
+def _expected_medium_episodes() -> tuple[FixtureEpisodeExpectation, ...]:
+    return tuple(
+        FixtureEpisodeExpectation(
+            title=(f"Kodi Lab Medium Series {show:02d} S{season:02d}E{episode:02d}"),
+            show_title=f"Kodi Lab Medium Series {show:02d}",
+            season=season,
+            episode=episode,
+            unique_id=(
+                f"medium-mixed-v1-series-{show:02d}-s{season:02d}e{episode:02d}"
+            ),
+            file=(
+                f"{FIXTURE_TV_DIRECTORY}kodi-lab-medium-series-{show:02d}/"
+                f"Season {season:02d}/Kodi Lab Medium Series {show:02d} "
+                f"S{season:02d}E{episode:02d}.mp4"
+            ),
+        )
+        for show in range(1, 6)
+        for season in (1, 2)
+        for episode in range(1, 6)
     )
 
 

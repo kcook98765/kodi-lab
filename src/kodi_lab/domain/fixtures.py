@@ -13,6 +13,7 @@ _SLUG_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 
 class FixtureSizeCategory(StrEnum):
     SMALL = "small"
+    MEDIUM = "medium"
 
 
 class FixtureContentCategory(StrEnum):

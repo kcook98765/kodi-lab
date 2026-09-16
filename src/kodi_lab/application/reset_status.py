@@ -320,6 +320,7 @@ class ResetStatusService:
             "small-tv-v1": ("Small/TV fixture for exact Kodi 21.3."),
             "small-tv-v2": ("Small/TV fixture for exact Kodi 20.5."),
             "small-tv-v3": ("Small/TV fixture for exact Kodi 19.5."),
+            "medium-mixed-v1": ("Medium/Mixed fixture for exact Kodi 21.3."),
         }.get(fixture.slug)
         return FixtureResetStatus(
             assignment=FixtureAssignmentState.ASSIGNED,
@@ -332,6 +333,8 @@ class ResetStatusService:
             display_name=(
                 "Small Mixed"
                 if fixture.slug.startswith("small-mixed-")
+                else "Medium Mixed"
+                if fixture.slug.startswith("medium-mixed-")
                 else "Small Movies"
                 if fixture.slug.startswith("small-movies-")
                 else "Small TV"

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<episodedetails>
+  <title>Kodi Lab Medium Series 03 S01E01</title>
+  <showtitle>Kodi Lab Medium Series 03</showtitle>
+  <season>1</season><episode>1</episode>
+  <aired>2023-01-01</aired>
+  <plot>Fictional Medium fixture series 03, season 1, episode 1.</plot>
+  <runtime>1</runtime>
+  <uniqueid type="kodi-lab" default="true">medium-mixed-v1-series-03-s01e01</uniqueid>
+  <thumb>Kodi Lab Medium Series 03 S01E01-thumb.png</thumb>
+</episodedetails>

@@ -116,6 +116,18 @@ def audit_small_mixed_v2_seed(database: bytes) -> FixtureSeedAudit:
     )
 
 
+def audit_medium_mixed_v1_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the fixed Kodi 21.3 Medium/Mixed configuration-only seed."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=_EXPECTED_NONZERO_TABLE_COUNTS,
+        expected_paths=_EXPECTED_PATH_ROWS,
+    )
+
+
 def audit_small_movies_v1_seed(database: bytes) -> FixtureSeedAudit:
     """Audit the fixed Kodi 21.3 Movies-only configuration seed."""
 
