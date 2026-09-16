@@ -453,3 +453,28 @@ bounded to 4,096 Unicode code points and copied once only at successful metadata
 deletion. Global authenticated preserved browsing is metadata-only; its Delete
 action reuses artifact-first Snapshot deletion and offers no restore, content,
 path, export, import, or clone capability.
+
+Phase 7 coordination recovery is cross-kind rather than coordinator-local.
+One closed application dispatcher examines only current reservation rows and
+their typed owners at startup and before reservations. It releases an expired
+mutation/global-heavy lease only after matching kind, operation UUID, instance,
+expiry, and token digest are all proven; dual-lease operations require both
+halves to agree in the same SQLite transaction. Corrupt or orphaned ownership
+is retained and fails closed. No stale path invokes destructive infrastructure
+or resumes a job.
+
+Released coordination does not imply safe mutation. Typed unresolved operation
+records feed a central `ManagedInstanceReconciliationStatus` gate. Reset,
+restore, and instance-delete uncertainty blocks all instance mutations. Create
+reconciliation is phase/source-state aware: publication-only quarantine with a
+proven recovered source does not over-block unrelated lifecycle, while unknown
+source recovery does. Snapshot delete and create quarantine additionally use a
+Snapshot-scoped status. Multiple records fail closed.
+
+The Web uses these DTOs as read-only projections. Warnings expose bounded
+semantic state and blocked actions, never raw database models, Docker identity,
+lease material, paths, broker responses, or Snapshot contents. There is no
+resolution mutation in this slice. Ordinary terminal operation history is
+bounded to 20 per original instance and type; active and
+reconciliation-required records are never pruned, and instance-delete history
+remains unbounded.

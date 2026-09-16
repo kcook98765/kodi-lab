@@ -1311,3 +1311,49 @@ details that it did not specify.
   metadata, releases authority, copies bounded notes, and terminalizes history.
   Delete success retains artifact-first ordering for every UUID before the same
   final metadata transaction.
+
+## D-0107: Expired destructive reservations use one closed stale dispatcher
+
+- Status: approved for Phase 7 Step 8
+- Decision: application startup and every global-heavy or conflicting
+  per-instance reservation invoke one application-owned dispatcher over the
+  closed persisted operation-kind enums. It supports reset, Snapshot create,
+  restore and delete, and ManagedInstance delete. Before changing anything it
+  proves operation kind/UUID, instance identity, expiry, and token-digest
+  ownership, including paired leases. Unknown, orphaned, terminal-owner,
+  mismatched, or impossible reservations fail closed as coordination
+  corruption and are not deleted. The dispatcher never resumes broker, Docker,
+  or filesystem work.
+
+## D-0108: Lease expiry is separate from semantic reconciliation
+
+- Status: approved for Phase 7 Step 8
+- Decision: an exactly proven expired coordination reservation is released so
+  it cannot block unrelated work forever, while its running durable operation
+  becomes `reconciliation_required` and retains its last semantic phase.
+  Snapshot create keeps its quarantine rule. A central typed reconciliation
+  gate, not an expired lease, blocks mutations whose trusted state is
+  uncertain. Snapshot-delete reconciliation is Snapshot-scoped; safe
+  quarantined create state does not block unrelated instance lifecycle, but
+  ambiguous source-state recovery does.
+
+## D-0109: Reconciliation presentation is bounded and read-only
+
+- Status: approved for Phase 7 Step 8
+- Decision: authenticated instance and Snapshot reconciliation projections
+  expose only typed operation kind/UUID/state, last semantic phase, safe
+  reason, semantic observed state, timestamps, and blocked actions. Multiple
+  unresolved records are explicit and fail closed. Container IDs, lease
+  digests, broker payloads, paths, Snapshot members, manifests, and raw errors
+  are excluded. Views offer no retry, acknowledge, finalize, clear, or repair
+  action.
+
+## D-0110: Unresolved operation safety records are never pruned
+
+- Status: approved for Phase 7 Step 8
+- Decision: reset and Snapshot create/restore/delete pruning retains the newest
+  20 ordinary `succeeded`/`failed` rows per immutable original instance and
+  operation type. `queued`, `running`, and `reconciliation_required` rows are
+  never pruning candidates. `ManagedInstanceDeleteOperation` remains
+  unbounded. This is operation-history retention only and never prunes Snapshot
+  artifacts.

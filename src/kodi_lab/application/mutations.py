@@ -13,6 +13,11 @@ from uuid import UUID, uuid4
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+    StaleOperationReconciliationDispatcher,
+)
 from kodi_lab.domain import ManagedInstanceMutationKind
 from kodi_lab.storage.repositories import ManagedInstanceMutationLeaseRepository
 
@@ -47,13 +52,33 @@ class ManagedInstanceMutationCoordinator:
         session_factory: sessionmaker[Session],
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        stale_dispatcher: StaleOperationReconciliationDispatcher | None = None,
+        reconciliation: ManagedInstanceReconciliationService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
+        self._stale = stale_dispatcher or StaleOperationReconciliationDispatcher(
+            session_factory, clock=clock
+        )
+        self._reconciliation = reconciliation or ManagedInstanceReconciliationService(
+            session_factory
+        )
 
     def acquire(
         self, instance_id: UUID, kind: ManagedInstanceMutationKind
     ) -> ManagedInstanceMutationLease:
+        self._stale.sweep_instance(instance_id)
+        action = {
+            ManagedInstanceMutationKind.LIFECYCLE: ReconciliationAction.PROVISION,
+            ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT: (
+                ReconciliationAction.FIXTURE_ASSIGNMENT
+            ),
+            ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT: (
+                ReconciliationAction.RUNTIME_REASSIGNMENT
+            ),
+        }.get(kind)
+        if action is not None:
+            self._reconciliation.require_allowed(instance_id, action)
         lease = ManagedInstanceMutationLease(
             managed_instance_id=instance_id,
             operation_kind=kind,

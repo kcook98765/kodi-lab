@@ -15,6 +15,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+    SnapshotReconciliationService,
+    StaleOperationReconciliationDispatcher,
+)
 from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     InstanceType,
@@ -120,14 +126,30 @@ class ManagedInstanceDeleteOperationCoordinator:
         session_factory: sessionmaker[Session],
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        stale_dispatcher: StaleOperationReconciliationDispatcher | None = None,
+        reconciliation: ManagedInstanceReconciliationService | None = None,
+        snapshot_reconciliation: SnapshotReconciliationService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
+        self._stale = stale_dispatcher or StaleOperationReconciliationDispatcher(
+            session_factory, clock=clock
+        )
+        self._reconciliation = reconciliation or ManagedInstanceReconciliationService(
+            session_factory
+        )
+        self._snapshot_reconciliation = (
+            snapshot_reconciliation or SnapshotReconciliationService(session_factory)
+        )
 
     def queue(
         self, instance_id: UUID, *, preserve_snapshots: bool
     ) -> ManagedInstanceDeleteStatus:
-        self._terminalize_expired()
+        self._stale.sweep_global()
+        self._stale.sweep_instance(instance_id)
+        self._reconciliation.require_allowed(
+            instance_id, ReconciliationAction.INSTANCE_DELETE
+        )
         now = self._clock()
         try:
             with self._session_factory.begin() as session:
@@ -149,11 +171,15 @@ class ManagedInstanceDeleteOperationCoordinator:
                     raise ManagedInstanceDeleteUnsupportedError(
                         "Managed instance display name is not safely bounded."
                     )
-                if operations.reconciliation_for_instance(instance_id) is not None:
+                if operations.reconciliation_for_instance(instance_id):
                     raise ManagedInstanceDeleteConflictError(
                         "Prior instance deletion requires operator reconciliation."
                     )
                 current = snapshots.list_for_instance(instance_id)
+                for snapshot in current:
+                    self._snapshot_reconciliation.require_allowed(
+                        snapshot.id, ReconciliationAction.INSTANCE_DELETE
+                    )
                 if any(item.state not in ELIGIBLE_SNAPSHOT_STATES for item in current):
                     raise ManagedInstanceDeleteConflictError(
                         "Active or transitional Snapshot state blocks "
@@ -487,19 +513,7 @@ class ManagedInstanceDeleteOperationCoordinator:
                 )
 
     def _terminalize_expired(self) -> None:
-        now = self._clock()
-        with self._session_factory.begin() as session:
-            operations = ManagedInstanceDeleteOperationRepository(session)
-            for operation in operations.list_expired_running(now=now):
-                if operations.mark_stale_reconciliation(operation.id, now=now):
-                    ManagedInstanceMutationLeaseRepository(
-                        session
-                    ).release_for_operation(
-                        operation.original_managed_instance_id, operation.id
-                    )
-                    GlobalHeavyOperationLeaseRepository(session).release_for_operation(
-                        operation.id
-                    )
+        self._stale.sweep_startup()
 
     def get(self, operation_id: UUID) -> ManagedInstanceDeleteOperation | None:
         self._terminalize_expired()

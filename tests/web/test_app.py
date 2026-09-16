@@ -35,6 +35,7 @@ from kodi_lab.kodi.readiness import (
 from kodi_lab.storage.models import (
     ManagedInstanceDeleteOperationRow,
     ManagedInstanceRow,
+    ResetOperationRow,
     SnapshotDeleteOperationRow,
     SnapshotRow,
     WebSessionRow,
@@ -65,6 +66,8 @@ def test_protected_routes_require_authentication(client: TestClient) -> None:
     assert client.get("/api/instances").status_code == 401
     assert client.get(f"/api/instances/{INSTANCE_ID}/reset-status").status_code == 401
     assert client.get(f"/api/instances/{INSTANCE_ID}/snapshots").status_code == 401
+    assert client.get(f"/api/instances/{INSTANCE_ID}/reconciliation").status_code == 401
+    assert client.get(f"/api/snapshots/{uuid4()}/reconciliation").status_code == 401
     assert client.get("/snapshots/preserved", follow_redirects=False).status_code == 303
     assert client.get("/api/snapshots/preserved").status_code == 401
     assert (
@@ -106,6 +109,69 @@ def test_protected_routes_require_authentication(client: TestClient) -> None:
             json={"confirmed": True},
         ).status_code
         == 401
+    )
+
+
+def test_read_only_reconciliation_warning_is_bounded_and_blocks_mutation(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+) -> None:
+    csrf = login(client)
+    with database.begin() as session:
+        session.add(
+            ResetOperationRow(
+                id=str(uuid4()),
+                managed_instance_id=str(INSTANCE_ID),
+                requested_at="2026-09-16T00:00:00.000000Z",
+                started_at="2026-09-16T00:00:00.000000Z",
+                heartbeat_at="2026-09-16T00:00:01.000000Z",
+                completed_at="2026-09-16T00:00:01.000000Z",
+                state="reconciliation_required",
+                phase="deprovisioning",
+                failure_reason=(
+                    "raw broker failure container deadbeef path /srv/private"
+                ),
+                reconciliation_required=True,
+            )
+        )
+
+    response = client.get(f"/api/instances/{INSTANCE_ID}/reconciliation")
+    assert response.status_code == 200
+    document = response.json()
+    assert document["operation_kind"] == "reset"
+    assert document["last_phase"] == "deprovisioning"
+    assert document["observed_state"] == "unprovisioned"
+    assert "provision" in document["blocked_actions"]
+    serialized = response.text
+    assert "deadbeef" not in serialized
+    assert "/srv/private" not in serialized
+    assert "lease" not in serialized
+
+    page = client.get("/")
+    assert page.status_code == 200
+    assert "Operator reconciliation required" in page.text
+    assert "Automatic destructive work will not resume" in page.text
+    assert 'aria-disabled="true">Delete blocked' in page.text
+    assert f'href="/instances/{INSTANCE_ID}/reset"' not in page.text
+    assert "raw broker failure" not in page.text
+    assert "Finalize" not in page.text
+    assert "Acknowledge" not in page.text
+
+    blocked = client.post(
+        f"/api/instances/{INSTANCE_ID}/provision",
+        json={},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == (
+        "managed_instance_reconciliation_required"
+    )
+    assert "lease" not in blocked.text
+    assert not any(call[0] == "provision" for call in broker.calls)
+    assert (
+        client.post(f"/api/instances/{INSTANCE_ID}/reconciliation", json={}).status_code
+        == 405
     )
 
 

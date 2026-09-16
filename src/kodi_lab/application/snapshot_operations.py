@@ -13,6 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+    StaleOperationReconciliationDispatcher,
+)
 from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     InstanceType,
@@ -91,12 +96,24 @@ class SnapshotCreateOperationCoordinator:
         session_factory: sessionmaker[Session],
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        stale_dispatcher: StaleOperationReconciliationDispatcher | None = None,
+        reconciliation: ManagedInstanceReconciliationService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
+        self._stale = stale_dispatcher or StaleOperationReconciliationDispatcher(
+            session_factory, clock=clock
+        )
+        self._reconciliation = reconciliation or ManagedInstanceReconciliationService(
+            session_factory
+        )
 
     def queue(self, instance_id: UUID, *, label: str | None) -> QueuedSnapshotCreate:
-        self._terminalize_stale_heavy_operation()
+        self._stale.sweep_global()
+        self._stale.sweep_instance(instance_id)
+        self._reconciliation.require_allowed(
+            instance_id, ReconciliationAction.SNAPSHOT_CREATE
+        )
         try:
             normalized_label = normalize_snapshot_label(label)
         except ValueError as error:
@@ -156,22 +173,7 @@ class SnapshotCreateOperationCoordinator:
         return QueuedSnapshotCreate(self.to_status(operation), snapshot)
 
     def _terminalize_stale_heavy_operation(self) -> None:
-        with self._session_factory() as session:
-            heavy = GlobalHeavyOperationLeaseRepository(session).current()
-            if (
-                heavy is None
-                or heavy.operation_kind is not GlobalHeavyOperationKind.SNAPSHOT_CREATE
-                or heavy.lease_token_digest is None
-                or heavy.lease_expires_at is None
-                or datetime.fromisoformat(heavy.lease_expires_at.replace("Z", "+00:00"))
-                > self._clock()
-            ):
-                return
-            operation = SnapshotCreateOperationRepository(session).get(
-                UUID(heavy.operation_id)
-            )
-        if operation is not None:
-            self.terminalize_expired(operation)
+        self._stale.sweep_global()
 
     def acquire(self, operation_id: UUID) -> SnapshotCreateLease | None:
         token = secrets.token_urlsafe(32)
@@ -361,22 +363,7 @@ class SnapshotCreateOperationCoordinator:
         now = self._clock()
         if operation.lease_expires_at is not None and operation.lease_expires_at > now:
             return operation
-        with self._session_factory.begin() as session:
-            operations = SnapshotCreateOperationRepository(session)
-            if operations.mark_stale_reconciliation(operation.id, now=now):
-                SnapshotRepository(session).mark_invalid(
-                    operation.snapshot_id, quarantined=True, validated_at=now
-                )
-                ManagedInstanceMutationLeaseRepository(session).release_for_operation(
-                    operation.managed_instance_id, operation.id
-                )
-                GlobalHeavyOperationLeaseRepository(session).release_for_operation(
-                    operation.id
-                )
-                operations.prune_terminal(
-                    operation.managed_instance_id,
-                    retain=TERMINAL_RETENTION_PER_INSTANCE,
-                )
+        self._stale.sweep_instance(operation.managed_instance_id)
         with self._session_factory() as session:
             refreshed = SnapshotCreateOperationRepository(session).get(operation.id)
         assert refreshed is not None

@@ -10,6 +10,7 @@
     <main>
       <h1>Preserved snapshots</h1>
       {% for snapshot in snapshots %}
+      {% set reconciliation = reconciliation_statuses.get(snapshot.snapshot_id) %}
       <article>
         <h2>{{ snapshot.label or snapshot.snapshot_id }}</h2>
         <dl>
@@ -22,7 +23,13 @@
           <dt>Validity</dt><dd>{{ snapshot.state }}</dd>
           <dt>Source binding</dt><dd>{{ snapshot.source_binding }}</dd>
         </dl>
-        {% if snapshot.state in ['available', 'failed', 'quarantined'] %}
+        {% if reconciliation and reconciliation.required %}
+        <section class="reconciliation-warning" role="alert">
+          <strong>Snapshot reconciliation required.</strong>
+          {{ reconciliation.operation_kind }} at {{ reconciliation.last_phase or 'unknown phase' }}; observed state: {{ reconciliation.observed_state or 'unknown' }}. Automatic destructive work will not resume. Blocked actions: {{ reconciliation.blocked_actions|join(', ') }}.
+        </section>
+        {% endif %}
+        {% if snapshot.state in ['available', 'failed', 'quarantined'] and not (reconciliation and reconciliation.blocking) %}
         <a class="button-link destructive" href="/snapshots/preserved/{{ snapshot.snapshot_id }}/delete">Delete</a>
         {% endif %}
       </article>

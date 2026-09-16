@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
@@ -551,6 +551,22 @@ class ResetOperationRepository:
         )
         return None if row is None else _reset_operation_from_row(row)
 
+    def reconciliation_for_instance(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[ResetOperation]:
+        rows = self._session.scalars(
+            select(ResetOperationRow)
+            .where(
+                ResetOperationRow.managed_instance_id == str(instance_id),
+                ResetOperationRow.reconciliation_required.is_(True),
+            )
+            .order_by(
+                ResetOperationRow.requested_at.desc(), ResetOperationRow.id.desc()
+            )
+            .limit(limit)
+        )
+        return [_reset_operation_from_row(row) for row in rows]
+
     def list_queued(self) -> list[ResetOperation]:
         rows = self._session.scalars(
             select(ResetOperationRow)
@@ -641,19 +657,23 @@ class ResetOperationRepository:
         )
         return int(getattr(result, "rowcount", 0)) == 1
 
-    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+    def mark_stale_reconciliation(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
         result = self._session.execute(
             update(ResetOperationRow)
             .where(
                 ResetOperationRow.id == str(operation_id),
                 ResetOperationRow.state == ResetOperationState.RUNNING,
+                ResetOperationRow.lease_token_digest == token_digest,
                 ResetOperationRow.lease_expires_at <= _timestamp_to_text(now),
             )
             .values(
                 state=ResetOperationState.RECONCILIATION_REQUIRED,
                 completed_at=_timestamp_to_text(now),
-                failure_reason=(
-                    "Reset worker lease expired; reconciliation is required."
+                failure_reason=func.coalesce(
+                    ResetOperationRow.failure_reason,
+                    "Reset worker lease expired; reconciliation is required.",
                 ),
                 reconciliation_required=True,
                 lease_token_digest=None,
@@ -668,8 +688,8 @@ class ResetOperationRepository:
                 select(ResetOperationRow.id)
                 .where(
                     ResetOperationRow.managed_instance_id == str(instance_id),
-                    ResetOperationRow.state.not_in(
-                        [ResetOperationState.QUEUED, ResetOperationState.RUNNING]
+                    ResetOperationRow.state.in_(
+                        [ResetOperationState.SUCCEEDED, ResetOperationState.FAILED]
                     ),
                 )
                 .order_by(
@@ -1225,6 +1245,40 @@ class SnapshotCreateOperationRepository:
         )
         return None if row is None else _snapshot_operation_from_row(row)
 
+    def reconciliation_for_instance(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[SnapshotCreateOperation]:
+        rows = self._session.scalars(
+            select(SnapshotCreateOperationRow)
+            .where(
+                SnapshotCreateOperationRow.managed_instance_id == str(instance_id),
+                SnapshotCreateOperationRow.reconciliation_required.is_(True),
+            )
+            .order_by(
+                SnapshotCreateOperationRow.requested_at.desc(),
+                SnapshotCreateOperationRow.id.desc(),
+            )
+            .limit(limit)
+        )
+        return [_snapshot_operation_from_row(row) for row in rows]
+
+    def reconciliation_for_snapshot(
+        self, snapshot_id: UUID, *, limit: int = 2
+    ) -> list[SnapshotCreateOperation]:
+        rows = self._session.scalars(
+            select(SnapshotCreateOperationRow)
+            .where(
+                SnapshotCreateOperationRow.snapshot_id == str(snapshot_id),
+                SnapshotCreateOperationRow.reconciliation_required.is_(True),
+            )
+            .order_by(
+                SnapshotCreateOperationRow.requested_at.desc(),
+                SnapshotCreateOperationRow.id.desc(),
+            )
+            .limit(limit)
+        )
+        return [_snapshot_operation_from_row(row) for row in rows]
+
     def list_queued(self) -> list[SnapshotCreateOperation]:
         rows = self._session.scalars(
             select(SnapshotCreateOperationRow)
@@ -1318,21 +1372,26 @@ class SnapshotCreateOperationRepository:
         )
         return int(getattr(result, "rowcount", 0)) == 1
 
-    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+    def mark_stale_reconciliation(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
         result = self._session.execute(
             update(SnapshotCreateOperationRow)
             .where(
                 SnapshotCreateOperationRow.id == str(operation_id),
                 SnapshotCreateOperationRow.state
                 == SnapshotCreateOperationState.RUNNING,
+                SnapshotCreateOperationRow.lease_token_digest == token_digest,
                 SnapshotCreateOperationRow.lease_expires_at <= _timestamp_to_text(now),
             )
             .values(
                 state=SnapshotCreateOperationState.RECONCILIATION_REQUIRED,
-                phase=SnapshotCreateOperationPhase.RECONCILIATION_REQUIRED,
                 heartbeat_at=_timestamp_to_text(now),
                 completed_at=_timestamp_to_text(now),
-                failure_reason="Snapshot capture requires operator reconciliation.",
+                failure_reason=func.coalesce(
+                    SnapshotCreateOperationRow.failure_reason,
+                    "Snapshot capture requires operator reconciliation.",
+                ),
                 reconciliation_required=True,
                 lease_token_digest=None,
                 lease_expires_at=None,
@@ -1346,10 +1405,10 @@ class SnapshotCreateOperationRepository:
                 select(SnapshotCreateOperationRow.id)
                 .where(
                     SnapshotCreateOperationRow.managed_instance_id == str(instance_id),
-                    SnapshotCreateOperationRow.state.not_in(
+                    SnapshotCreateOperationRow.state.in_(
                         (
-                            SnapshotCreateOperationState.QUEUED,
-                            SnapshotCreateOperationState.RUNNING,
+                            SnapshotCreateOperationState.SUCCEEDED,
+                            SnapshotCreateOperationState.FAILED,
                         )
                     ),
                 )
@@ -1391,6 +1450,23 @@ class SnapshotRestoreOperationRepository:
     def get(self, operation_id: UUID) -> SnapshotRestoreOperation | None:
         row = self._session.get(SnapshotRestoreOperationRow, str(operation_id))
         return None if row is None else _snapshot_restore_operation_from_row(row)
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[SnapshotRestoreOperation]:
+        rows = self._session.scalars(
+            select(SnapshotRestoreOperationRow)
+            .where(
+                SnapshotRestoreOperationRow.managed_instance_id == str(instance_id),
+                SnapshotRestoreOperationRow.reconciliation_required.is_(True),
+            )
+            .order_by(
+                SnapshotRestoreOperationRow.requested_at.desc(),
+                SnapshotRestoreOperationRow.id.desc(),
+            )
+            .limit(limit)
+        )
+        return [_snapshot_restore_operation_from_row(row) for row in rows]
 
     def active_for_instance(self, instance_id: UUID) -> SnapshotRestoreOperation | None:
         row = self._session.scalar(
@@ -1563,20 +1639,26 @@ class SnapshotRestoreOperationRepository:
         )
         return int(getattr(result, "rowcount", 0)) == 1
 
-    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+    def mark_stale_reconciliation(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
         result = self._session.execute(
             update(SnapshotRestoreOperationRow)
             .where(
                 SnapshotRestoreOperationRow.id == str(operation_id),
                 SnapshotRestoreOperationRow.state
                 == SnapshotRestoreOperationState.RUNNING,
+                SnapshotRestoreOperationRow.lease_token_digest == token_digest,
                 SnapshotRestoreOperationRow.lease_expires_at <= _timestamp_to_text(now),
             )
             .values(
                 state=SnapshotRestoreOperationState.RECONCILIATION_REQUIRED,
                 heartbeat_at=_timestamp_to_text(now),
                 completed_at=_timestamp_to_text(now),
-                failure_reason="Snapshot restore requires operator reconciliation.",
+                failure_reason=func.coalesce(
+                    SnapshotRestoreOperationRow.failure_reason,
+                    "Snapshot restore requires operator reconciliation.",
+                ),
                 reconciliation_required=True,
                 lease_token_digest=None,
                 lease_expires_at=None,
@@ -1590,10 +1672,10 @@ class SnapshotRestoreOperationRepository:
                 select(SnapshotRestoreOperationRow.id)
                 .where(
                     SnapshotRestoreOperationRow.managed_instance_id == str(instance_id),
-                    SnapshotRestoreOperationRow.state.not_in(
+                    SnapshotRestoreOperationRow.state.in_(
                         (
-                            SnapshotRestoreOperationState.QUEUED,
-                            SnapshotRestoreOperationState.RUNNING,
+                            SnapshotRestoreOperationState.SUCCEEDED,
+                            SnapshotRestoreOperationState.FAILED,
                         )
                     ),
                 )
@@ -1636,6 +1718,23 @@ class SnapshotDeleteOperationRepository:
     def get(self, operation_id: UUID) -> SnapshotDeleteOperation | None:
         row = self._session.get(SnapshotDeleteOperationRow, str(operation_id))
         return None if row is None else _snapshot_delete_operation_from_row(row)
+
+    def reconciliation_for_snapshot(
+        self, snapshot_id: UUID, *, limit: int = 2
+    ) -> list[SnapshotDeleteOperation]:
+        rows = self._session.scalars(
+            select(SnapshotDeleteOperationRow)
+            .where(
+                SnapshotDeleteOperationRow.snapshot_id == str(snapshot_id),
+                SnapshotDeleteOperationRow.reconciliation_required.is_(True),
+            )
+            .order_by(
+                SnapshotDeleteOperationRow.requested_at.desc(),
+                SnapshotDeleteOperationRow.id.desc(),
+            )
+            .limit(limit)
+        )
+        return [_snapshot_delete_operation_from_row(row) for row in rows]
 
     def active_for_snapshot(self, snapshot_id: UUID) -> SnapshotDeleteOperation | None:
         row = self._session.scalar(
@@ -1747,20 +1846,26 @@ class SnapshotDeleteOperationRepository:
         )
         return int(getattr(result, "rowcount", 0)) == 1
 
-    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+    def mark_stale_reconciliation(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
         result = self._session.execute(
             update(SnapshotDeleteOperationRow)
             .where(
                 SnapshotDeleteOperationRow.id == str(operation_id),
                 SnapshotDeleteOperationRow.state
                 == SnapshotDeleteOperationState.RUNNING,
+                SnapshotDeleteOperationRow.lease_token_digest == token_digest,
                 SnapshotDeleteOperationRow.lease_expires_at <= _timestamp_to_text(now),
             )
             .values(
                 state=SnapshotDeleteOperationState.RECONCILIATION_REQUIRED,
                 heartbeat_at=_timestamp_to_text(now),
                 completed_at=_timestamp_to_text(now),
-                failure_reason="Snapshot deletion requires operator reconciliation.",
+                failure_reason=func.coalesce(
+                    SnapshotDeleteOperationRow.failure_reason,
+                    "Snapshot deletion requires operator reconciliation.",
+                ),
                 reconciliation_required=True,
                 lease_token_digest=None,
                 lease_expires_at=None,
@@ -1774,10 +1879,10 @@ class SnapshotDeleteOperationRepository:
                 select(SnapshotDeleteOperationRow.id)
                 .where(
                     SnapshotDeleteOperationRow.managed_instance_id == str(instance_id),
-                    SnapshotDeleteOperationRow.state.not_in(
+                    SnapshotDeleteOperationRow.state.in_(
                         (
-                            SnapshotDeleteOperationState.QUEUED,
-                            SnapshotDeleteOperationState.RUNNING,
+                            SnapshotDeleteOperationState.SUCCEEDED,
+                            SnapshotDeleteOperationState.FAILED,
                         )
                     ),
                 )
@@ -1903,9 +2008,9 @@ class ManagedInstanceDeleteOperationRepository:
         return [_managed_instance_delete_operation_from_row(row) for row in rows]
 
     def reconciliation_for_instance(
-        self, instance_id: UUID
-    ) -> ManagedInstanceDeleteOperation | None:
-        row = self._session.scalar(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[ManagedInstanceDeleteOperation]:
+        rows = self._session.scalars(
             select(ManagedInstanceDeleteOperationRow)
             .where(
                 ManagedInstanceDeleteOperationRow.original_managed_instance_id
@@ -1913,9 +2018,9 @@ class ManagedInstanceDeleteOperationRepository:
                 ManagedInstanceDeleteOperationRow.reconciliation_required.is_(True),
             )
             .order_by(ManagedInstanceDeleteOperationRow.requested_at.desc())
-            .limit(1)
+            .limit(limit)
         )
-        return None if row is None else _managed_instance_delete_operation_from_row(row)
+        return [_managed_instance_delete_operation_from_row(row) for row in rows]
 
     def acquire(
         self,
@@ -2054,22 +2159,27 @@ class ManagedInstanceDeleteOperationRepository:
         )
         return int(getattr(result, "rowcount", 0)) == 1
 
-    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+    def mark_stale_reconciliation(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
         result = self._session.execute(
             update(ManagedInstanceDeleteOperationRow)
             .where(
                 ManagedInstanceDeleteOperationRow.id == str(operation_id),
                 ManagedInstanceDeleteOperationRow.state
                 == ManagedInstanceDeleteOperationState.RUNNING,
+                ManagedInstanceDeleteOperationRow.lease_token_digest == token_digest,
                 ManagedInstanceDeleteOperationRow.lease_expires_at
                 <= _timestamp_to_text(now),
             )
             .values(
                 state=ManagedInstanceDeleteOperationState.RECONCILIATION_REQUIRED,
-                phase=ManagedInstanceDeleteOperationPhase.RECONCILIATION_REQUIRED,
                 heartbeat_at=_timestamp_to_text(now),
                 completed_at=_timestamp_to_text(now),
-                failure_reason="Instance deletion requires operator reconciliation.",
+                failure_reason=func.coalesce(
+                    ManagedInstanceDeleteOperationRow.failure_reason,
+                    "Instance deletion requires operator reconciliation.",
+                ),
                 reconciliation_required=True,
                 lease_token_digest=None,
                 lease_expires_at=None,
@@ -2192,6 +2302,30 @@ class ManagedInstanceMutationLeaseRepository:
     def current(self, instance_id: UUID) -> ManagedInstanceMutationLeaseRow | None:
         return self._session.get(ManagedInstanceMutationLeaseRow, str(instance_id))
 
+    def list_current(self) -> list[ManagedInstanceMutationLeaseRow]:
+        return list(self._session.scalars(select(ManagedInstanceMutationLeaseRow)))
+
+    def release_expired_exact(
+        self,
+        instance_id: UUID,
+        *,
+        kind: ManagedInstanceMutationKind,
+        operation_id: UUID,
+        token_digest: str,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            delete(ManagedInstanceMutationLeaseRow).where(
+                ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
+                ManagedInstanceMutationLeaseRow.operation_kind == kind,
+                ManagedInstanceMutationLeaseRow.operation_id == str(operation_id),
+                ManagedInstanceMutationLeaseRow.lease_token_digest == token_digest,
+                ManagedInstanceMutationLeaseRow.lease_expires_at
+                <= _timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
 
 class GlobalHeavyOperationLeaseRepository:
     def __init__(self, session: Session) -> None:
@@ -2273,3 +2407,23 @@ class GlobalHeavyOperationLeaseRepository:
 
     def current(self) -> GlobalHeavyOperationLeaseRow | None:
         return self._session.get(GlobalHeavyOperationLeaseRow, 1)
+
+    def release_expired_exact(
+        self,
+        *,
+        kind: GlobalHeavyOperationKind,
+        operation_id: UUID,
+        token_digest: str,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            delete(GlobalHeavyOperationLeaseRow).where(
+                GlobalHeavyOperationLeaseRow.singleton_id == 1,
+                GlobalHeavyOperationLeaseRow.operation_kind == kind,
+                GlobalHeavyOperationLeaseRow.operation_id == str(operation_id),
+                GlobalHeavyOperationLeaseRow.lease_token_digest == token_digest,
+                GlobalHeavyOperationLeaseRow.lease_expires_at
+                <= _timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1

@@ -40,6 +40,15 @@ from kodi_lab.application.instance_deletions import (
 )
 from kodi_lab.application.mutations import ManagedInstanceMutationConflictError
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.reconciliation import (
+    CoordinationCorruptionError,
+    ManagedInstanceReconciliationRequiredError,
+    ManagedInstanceReconciliationService,
+    ManagedInstanceReconciliationStatus,
+    SnapshotReconciliationService,
+    SnapshotReconciliationStatus,
+    StaleOperationReconciliationDispatcher,
+)
 from kodi_lab.application.reset import DisposableInstanceResetService
 from kodi_lab.application.reset_activity import ResetActivityRegistry
 from kodi_lab.application.reset_operations import (
@@ -215,6 +224,9 @@ class WebApplicationContext:
     snapshot_delete_executor: SnapshotDeleteExecutor
     instance_delete_operations: ManagedInstanceDeleteOperationCoordinator
     instance_delete_executor: ManagedInstanceDeleteExecutor
+    reconciliation: ManagedInstanceReconciliationService
+    snapshot_reconciliation: SnapshotReconciliationService
+    stale_dispatcher: StaleOperationReconciliationDispatcher
 
 
 def create_app(
@@ -237,8 +249,24 @@ def create_app(
 
     task_registry = readiness or ReadinessTaskRegistry()
     reset_registry = reset_activity or ResetActivityRegistry()
-    reset_operations = ResetOperationCoordinator(session_factory)
-    status_service = ManagedRuntimeStatusService(session_factory, broker, task_registry)
+    stale_dispatcher = StaleOperationReconciliationDispatcher(session_factory)
+    reconciliation = ManagedInstanceReconciliationService(
+        session_factory,
+        broker=broker,
+        data_root=settings.data_root,
+        readiness=task_registry,
+    )
+    snapshot_reconciliation = SnapshotReconciliationService(
+        session_factory, data_root=settings.data_root
+    )
+    reset_operations = ResetOperationCoordinator(
+        session_factory,
+        stale_dispatcher=stale_dispatcher,
+        reconciliation=reconciliation,
+    )
+    status_service = ManagedRuntimeStatusService(
+        session_factory, broker, task_registry, reconciliation
+    )
     reset_status_service = ResetStatusService(
         session_factory, broker, reset_registry, reset_operations
     )
@@ -248,7 +276,11 @@ def create_app(
         )
     )
     reset_executor = ResetExecutor(reset_operations, reset_registry, service_factory)
-    snapshot_operations = SnapshotCreateOperationCoordinator(session_factory)
+    snapshot_operations = SnapshotCreateOperationCoordinator(
+        session_factory,
+        stale_dispatcher=stale_dispatcher,
+        reconciliation=reconciliation,
+    )
     snapshot_factory = snapshot_service_factory or (
         lambda lease: DisposableSnapshotCreationService(
             session_factory,
@@ -259,7 +291,12 @@ def create_app(
         )
     )
     snapshot_executor = SnapshotCreateExecutor(snapshot_operations, snapshot_factory)
-    snapshot_restore_operations = SnapshotRestoreOperationCoordinator(session_factory)
+    snapshot_restore_operations = SnapshotRestoreOperationCoordinator(
+        session_factory,
+        stale_dispatcher=stale_dispatcher,
+        reconciliation=reconciliation,
+        snapshot_reconciliation=snapshot_reconciliation,
+    )
     snapshot_restore_factory = snapshot_restore_service_factory or (
         lambda lease: DisposableSnapshotRestoreService(
             session_factory,
@@ -272,7 +309,11 @@ def create_app(
     snapshot_restore_executor = SnapshotRestoreExecutor(
         snapshot_restore_operations, snapshot_restore_factory
     )
-    snapshot_delete_operations = SnapshotDeleteOperationCoordinator(session_factory)
+    snapshot_delete_operations = SnapshotDeleteOperationCoordinator(
+        session_factory,
+        stale_dispatcher=stale_dispatcher,
+        snapshot_reconciliation=snapshot_reconciliation,
+    )
     snapshot_delete_factory = snapshot_delete_service_factory or (
         lambda lease: DisposableSnapshotDeletionService(
             session_factory,
@@ -286,7 +327,10 @@ def create_app(
         snapshot_delete_operations, snapshot_delete_factory
     )
     instance_delete_operations = ManagedInstanceDeleteOperationCoordinator(
-        session_factory
+        session_factory,
+        stale_dispatcher=stale_dispatcher,
+        reconciliation=reconciliation,
+        snapshot_reconciliation=snapshot_reconciliation,
     )
     instance_delete_factory = instance_delete_service_factory or (
         lambda lease: DisposableManagedInstanceDeletionService(
@@ -332,10 +376,14 @@ def create_app(
         snapshot_delete_executor=snapshot_delete_executor,
         instance_delete_operations=instance_delete_operations,
         instance_delete_executor=instance_delete_executor,
+        reconciliation=reconciliation,
+        snapshot_reconciliation=snapshot_reconciliation,
+        stale_dispatcher=stale_dispatcher,
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        context.stale_dispatcher.sweep_startup()
         context.reset_executor.start()
         context.snapshot_executor.start()
         context.snapshot_restore_executor.start()
@@ -428,6 +476,27 @@ def create_app(
         _request: Request, error: ManagedInstanceMutationConflictError
     ) -> JSONResponse:
         return _json_error(409, "managed_instance_mutation_conflict", str(error)[:256])
+
+    @app.exception_handler(ManagedInstanceReconciliationRequiredError)
+    async def reconciliation_required(
+        _request: Request, error: ManagedInstanceReconciliationRequiredError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": error.code,
+                    "message": error.status.safe_reason,
+                    "reconciliation": error.status.model_dump(mode="json"),
+                }
+            },
+        )
+
+    @app.exception_handler(CoordinationCorruptionError)
+    async def coordination_corruption(
+        _request: Request, error: CoordinationCorruptionError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
 
     @app.exception_handler(SnapshotCreateConflictError)
     async def snapshot_create_conflict(
@@ -596,12 +665,20 @@ def create_app(
             item.managed_instance_id: item
             for item in context.reset_status.list_statuses()
         }
+        instances = context.status.list_statuses()
+        reconciliation_statuses = {
+            item.managed_instance_id: context.reconciliation.status(
+                item.managed_instance_id
+            )
+            for item in instances
+        }
         return templates.TemplateResponse(
             request,
             "index.html",
             {
-                "instances": context.status.list_statuses(),
+                "instances": instances,
                 "reset_statuses": reset_statuses,
+                "reconciliation_statuses": reconciliation_statuses,
                 "csrf_token": authenticated.csrf_token,
                 "poll_interval_ms": 2000,
             },
@@ -687,6 +764,12 @@ def create_app(
             "preserved-snapshots.html",
             {
                 "snapshots": context.snapshot_status.list_preserved(),
+                "reconciliation_statuses": {
+                    item.snapshot_id: context.snapshot_reconciliation.status(
+                        item.snapshot_id
+                    )
+                    for item in context.snapshot_status.list_preserved()
+                },
                 "csrf_token": authenticated.csrf_token,
             },
         )
@@ -737,6 +820,12 @@ def create_app(
             {
                 "instance": instance,
                 "snapshots": context.snapshot_status.list_for_instance(instance_id),
+                "reconciliation_statuses": {
+                    item.snapshot_id: context.snapshot_reconciliation.status(
+                        item.snapshot_id
+                    )
+                    for item in context.snapshot_status.list_for_instance(instance_id)
+                },
             },
         )
 
@@ -886,6 +975,26 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> ManagedInstanceResetStatus:
         return context.reset_status.get(instance_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/reconciliation",
+        response_model=ManagedInstanceReconciliationStatus,
+    )
+    def get_instance_reconciliation(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ManagedInstanceReconciliationStatus:
+        return context.reconciliation.status(instance_id)
+
+    @app.get(
+        "/api/snapshots/{snapshot_id}/reconciliation",
+        response_model=SnapshotReconciliationStatus,
+    )
+    def get_snapshot_reconciliation(
+        snapshot_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SnapshotReconciliationStatus:
+        return context.snapshot_reconciliation.status(snapshot_id)
 
     @app.get(
         "/api/instances/{instance_id}/snapshots",

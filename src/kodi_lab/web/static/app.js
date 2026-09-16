@@ -45,7 +45,7 @@ function updateResetStatus(card, status) {
     completed: status.operation?.completed_at || "None",
     "pin-statement": status.exact_pin_statement,
     "fixture-note": status.fixture.baseline_note || "",
-    "reset-failure": status.failure_reason || "",
+    "reset-failure": status.reconciliation_required ? "" : (status.failure_reason || ""),
     reconciliation: "Reconciliation is required before another reset is considered safe."
   };
   for (const [field, value] of Object.entries(values)) {
@@ -55,7 +55,7 @@ function updateResetStatus(card, status) {
   const note = card.querySelector('[data-reset-field="fixture-note"]');
   if (note) note.hidden = !status.fixture.baseline_note;
   const failure = card.querySelector('[data-reset-field="reset-failure"]');
-  if (failure) failure.hidden = !status.failure_reason;
+  if (failure) failure.hidden = !status.failure_reason || status.reconciliation_required;
   const reconciliation = card.querySelector('[data-reset-field="reconciliation"]');
   if (reconciliation) reconciliation.hidden = !status.reconciliation_required;
   const active = status.operation && ["queued", "running"].includes(status.operation.state);

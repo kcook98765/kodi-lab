@@ -316,3 +316,39 @@ reconciliation-required and is never resumed. Read-only inspection reports
 live instance and container presence, policy, attached/detached/deleting row
 counts, artifact presence/absence, phase, and durable progress. It does not
 delete, repair, clone, restore, or infer completion.
+
+## Cross-kind stale coordination and read-only reconciliation
+
+At startup, before every global-heavy reservation, and before conflicting
+per-instance reservation, one closed dispatcher examines current lease rows
+and the operation UUID/kind they name. Reset, Snapshot create/restore/delete,
+and ManagedInstance delete are the only durable dispatch targets. Exact kind,
+UUID, instance, expiry and token digest must match; dual-lease operations also
+require their paired lease to match. Unknown, missing, already-terminal, or
+mismatched ownership is coordination corruption and is retained fail closed.
+
+For proven abandoned work the operation becomes reconciliation-required while
+retaining its last semantic phase; a creating Snapshot is quarantined. Only its
+exact expired reservation is released. This removes permanent coordination
+blockage but never means semantic safety and never restarts Docker, broker, or
+filesystem destruction.
+
+The central instance gate reads typed unresolved records. Reset, restore and
+instance-deletion uncertainty blocks reset, Snapshot create/restore, instance
+delete, lifecycle, fixture assignment, and revision reassignment.
+Snapshot-create reconciliation blocks broadly only when source recovery is
+uncertain. Snapshot-delete reconciliation blocks restore/delete of that
+Snapshot and attached-instance deletion, but not unrelated lifecycle. Multiple
+unresolved records are explicit and fail closed.
+
+Authenticated instance and Snapshot endpoints/views expose only bounded typed
+kind/UUID/state, last phase, safe reason, semantic observed state, timestamps,
+and blocked actions. They expose no container IDs, lease material, paths,
+broker payloads, members, manifests, or raw errors, and contain no retry,
+acknowledge, finalization, clear, or repair controls.
+
+Reset and Snapshot create/restore/delete pruning retains the newest 20 ordinary
+succeeded/failed rows per original instance and operation type. Queued, running
+and reconciliation-required records are never automatically pruned.
+Instance-delete history remains unbounded. Operation-history retention is
+independent of Snapshot artifact retention.

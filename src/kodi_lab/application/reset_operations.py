@@ -17,6 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+    StaleOperationReconciliationDispatcher,
+)
 from kodi_lab.application.reset import ResetError, ResetReconciliationRequiredError
 from kodi_lab.application.reset_activity import (
     ResetActivityRegistry,
@@ -86,11 +91,21 @@ class ResetOperationCoordinator:
         session_factory: sessionmaker[Session],
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        stale_dispatcher: StaleOperationReconciliationDispatcher | None = None,
+        reconciliation: ManagedInstanceReconciliationService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
+        self._stale = stale_dispatcher or StaleOperationReconciliationDispatcher(
+            session_factory, clock=clock
+        )
+        self._reconciliation = reconciliation or ManagedInstanceReconciliationService(
+            session_factory
+        )
 
     def queue(self, instance_id: UUID) -> QueuedResetOperation:
+        self._stale.sweep_instance(instance_id)
+        self._reconciliation.require_allowed(instance_id, ReconciliationAction.RESET)
         self.active_for_instance(instance_id)
         operation = ResetOperation(
             id=uuid4(), managed_instance_id=instance_id, requested_at=self._clock()
@@ -265,16 +280,7 @@ class ResetOperationCoordinator:
         now = self._clock()
         if operation.lease_expires_at is not None and operation.lease_expires_at > now:
             return operation
-        with self._session_factory.begin() as session:
-            repository = ResetOperationRepository(session)
-            if repository.mark_stale_reconciliation(operation.id, now=now):
-                ManagedInstanceMutationLeaseRepository(session).release_for_operation(
-                    operation.managed_instance_id, operation.id
-                )
-                repository.prune_terminal(
-                    operation.managed_instance_id,
-                    retain=TERMINAL_RETENTION_PER_INSTANCE,
-                )
+        self._stale.sweep_instance(operation.managed_instance_id)
         refreshed = self.latest_for_instance(operation.managed_instance_id)
         assert refreshed is not None
         return refreshed

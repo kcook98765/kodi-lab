@@ -14,6 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.reconciliation import (
+    ReconciliationAction,
+    SnapshotReconciliationService,
+    StaleOperationReconciliationDispatcher,
+)
 from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     ManagedInstanceMutationKind,
@@ -91,12 +96,23 @@ class SnapshotDeleteOperationCoordinator:
         session_factory: sessionmaker[Session],
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        stale_dispatcher: StaleOperationReconciliationDispatcher | None = None,
+        snapshot_reconciliation: SnapshotReconciliationService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
+        self._stale = stale_dispatcher or StaleOperationReconciliationDispatcher(
+            session_factory, clock=clock
+        )
+        self._snapshot_reconciliation = (
+            snapshot_reconciliation or SnapshotReconciliationService(session_factory)
+        )
 
     def queue(self, instance_id: UUID, snapshot_id: UUID) -> SnapshotDeleteStatus:
-        self._terminalize_stale_heavy_operation()
+        self._stale.sweep_global()
+        self._snapshot_reconciliation.require_allowed(
+            snapshot_id, ReconciliationAction.SNAPSHOT_DELETE
+        )
         now = self._clock()
         try:
             with self._session_factory.begin() as session:
@@ -158,7 +174,10 @@ class SnapshotDeleteOperationCoordinator:
         return self.to_status(operation)
 
     def queue_preserved(self, snapshot_id: UUID) -> SnapshotDeleteStatus:
-        self._terminalize_stale_heavy_operation()
+        self._stale.sweep_global()
+        self._snapshot_reconciliation.require_allowed(
+            snapshot_id, ReconciliationAction.SNAPSHOT_DELETE
+        )
         now = self._clock()
         try:
             with self._session_factory.begin() as session:
@@ -210,22 +229,7 @@ class SnapshotDeleteOperationCoordinator:
         return self.to_status(operation)
 
     def _terminalize_stale_heavy_operation(self) -> None:
-        with self._session_factory() as session:
-            heavy = GlobalHeavyOperationLeaseRepository(session).current()
-            if (
-                heavy is None
-                or heavy.operation_kind is not GlobalHeavyOperationKind.SNAPSHOT_DELETE
-                or heavy.lease_token_digest is None
-                or heavy.lease_expires_at is None
-                or datetime.fromisoformat(heavy.lease_expires_at.replace("Z", "+00:00"))
-                > self._clock()
-            ):
-                return
-            operation = SnapshotDeleteOperationRepository(session).get(
-                UUID(heavy.operation_id)
-            )
-        if operation is not None:
-            self.terminalize_expired(operation)
+        self._stale.sweep_global()
 
     def acquire(self, operation_id: UUID) -> SnapshotDeleteLease | None:
         token = secrets.token_urlsafe(32)
@@ -358,13 +362,7 @@ class SnapshotDeleteOperationCoordinator:
             )
 
     def terminalize_expired(self, operation: SnapshotDeleteOperation) -> None:
-        now = self._clock()
-        with self._session_factory.begin() as session:
-            operations = SnapshotDeleteOperationRepository(session)
-            operations.mark_stale_reconciliation(operation.id, now=now)
-            GlobalHeavyOperationLeaseRepository(session).release_for_operation(
-                operation.id
-            )
+        self._stale.sweep_global()
 
     def inspect_reconciliation(
         self, operation: SnapshotDeleteOperation, *, data_root: Path

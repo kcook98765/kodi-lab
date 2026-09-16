@@ -23,6 +23,7 @@
       <section id="instances" aria-live="polite">
         {% for instance in instances %}
         {% set reset = reset_statuses.get(instance.managed_instance_id) %}
+        {% set reconciliation = reconciliation_statuses.get(instance.managed_instance_id) %}
         {% set reset_active = reset and reset.operation and reset.operation.state in ['queued', 'running'] %}
         <article class="instance" data-instance-id="{{ instance.managed_instance_id }}">
           <h2 data-field="name">{{ instance.name }}</h2>
@@ -35,6 +36,14 @@
             <dt>Usability</dt><dd data-field="usability_state">{{ instance.usability_state }}</dd>
           </dl>
           <p class="error" data-field="failure_detail" {% if not instance.failure_detail %}hidden{% endif %}>{{ instance.failure_detail or '' }}</p>
+          {% if reconciliation and reconciliation.required %}
+          <section class="reconciliation-warning" role="alert" data-reconciliation-warning>
+            <h3>Operator reconciliation required</h3>
+            <p>{{ reconciliation.operation_kind }} at {{ reconciliation.last_phase or 'unknown phase' }}; observed state: {{ reconciliation.observed_state or 'unknown' }}.</p>
+            <p>{{ reconciliation.safe_reason }} Automatic destructive work will not resume.</p>
+            {% if reconciliation.blocking %}<p>Blocked actions: {{ reconciliation.blocked_actions|join(', ') }}.</p>{% endif %}
+          </section>
+          {% endif %}
           {% if reset %}
           <section class="reset-status" aria-label="Fixture and reset status">
             <h3>Fixture and reset</h3>
@@ -52,7 +61,7 @@
             </dl>
             <p class="secondary" data-reset-field="pin-statement">{{ reset.exact_pin_statement }}</p>
             <p class="secondary" data-reset-field="fixture-note" {% if not reset.fixture.baseline_note %}hidden{% endif %}>{{ reset.fixture.baseline_note or '' }}</p>
-            <p class="error" data-reset-field="reset-failure" {% if not reset.failure_reason %}hidden{% endif %}>{{ reset.failure_reason or '' }}</p>
+            <p class="error" data-reset-field="reset-failure" {% if not reset.failure_reason or reconciliation.required %}hidden{% endif %}>{{ '' if reconciliation.required else (reset.failure_reason or '') }}</p>
             <p class="reconciliation-warning" data-reset-field="reconciliation" {% if not reset.reconciliation_required %}hidden{% endif %}>Reconciliation is required before another reset is considered safe.</p>
           </section>
           {% endif %}
@@ -60,11 +69,15 @@
             {% for action in ['provision', 'start', 'stop', 'deprovision'] %}
             <button type="button" data-action="{{ action }}" {% if action not in instance.allowed_actions %}hidden{% endif %} {% if reset_active %}disabled{% endif %}>{{ action|capitalize }}</button>
             {% endfor %}
-            {% if reset and reset.eligibility == 'supported' %}
+            {% if reset and reset.eligibility == 'supported' and not (reconciliation and reconciliation.blocking) %}
             <a class="button-link" data-reset-action href="/instances/{{ instance.managed_instance_id }}/reset">Reset</a>
+            {% elif reset and reset.eligibility == 'supported' %}
+            <span class="button-link" aria-disabled="true">Reset blocked</span>
             {% endif %}
             <a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots">Snapshots</a>
+            {% if not (reconciliation and reconciliation.blocking) %}
             <a class="button-link destructive" href="/instances/{{ instance.managed_instance_id }}/delete">Delete instance</a>
+            {% else %}<span class="button-link destructive" aria-disabled="true">Delete blocked</span>{% endif %}
           </div>
         </article>
         {% else %}

@@ -14,6 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+    SnapshotReconciliationService,
+    StaleOperationReconciliationDispatcher,
+)
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.operations import ManagedContainerInventoryResult
 from kodi_lab.domain import (
@@ -97,12 +103,31 @@ class SnapshotRestoreOperationCoordinator:
         session_factory: sessionmaker[Session],
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        stale_dispatcher: StaleOperationReconciliationDispatcher | None = None,
+        reconciliation: ManagedInstanceReconciliationService | None = None,
+        snapshot_reconciliation: SnapshotReconciliationService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
+        self._stale = stale_dispatcher or StaleOperationReconciliationDispatcher(
+            session_factory, clock=clock
+        )
+        self._reconciliation = reconciliation or ManagedInstanceReconciliationService(
+            session_factory
+        )
+        self._snapshot_reconciliation = (
+            snapshot_reconciliation or SnapshotReconciliationService(session_factory)
+        )
 
     def queue(self, instance_id: UUID, snapshot_id: UUID) -> SnapshotRestoreStatus:
-        self._terminalize_stale_heavy_operation()
+        self._stale.sweep_global()
+        self._stale.sweep_instance(instance_id)
+        self._reconciliation.require_allowed(
+            instance_id, ReconciliationAction.SNAPSHOT_RESTORE
+        )
+        self._snapshot_reconciliation.require_allowed(
+            snapshot_id, ReconciliationAction.SNAPSHOT_RESTORE
+        )
         now = self._clock()
         operation = SnapshotRestoreOperation(
             id=uuid4(),
@@ -172,22 +197,7 @@ class SnapshotRestoreOperationCoordinator:
         return self.to_status(operation)
 
     def _terminalize_stale_heavy_operation(self) -> None:
-        with self._session_factory() as session:
-            heavy = GlobalHeavyOperationLeaseRepository(session).current()
-            if (
-                heavy is None
-                or heavy.operation_kind is not GlobalHeavyOperationKind.SNAPSHOT_RESTORE
-                or heavy.lease_token_digest is None
-                or heavy.lease_expires_at is None
-                or datetime.fromisoformat(heavy.lease_expires_at.replace("Z", "+00:00"))
-                > self._clock()
-            ):
-                return
-            operation = SnapshotRestoreOperationRepository(session).get(
-                UUID(heavy.operation_id)
-            )
-        if operation is not None:
-            self.terminalize_expired(operation)
+        self._stale.sweep_global()
 
     def acquire(self, operation_id: UUID) -> SnapshotRestoreLease | None:
         token = secrets.token_urlsafe(32)
@@ -374,15 +384,7 @@ class SnapshotRestoreOperationCoordinator:
         now = self._clock()
         if operation.lease_expires_at is not None and operation.lease_expires_at > now:
             return operation
-        with self._session_factory.begin() as session:
-            repository = SnapshotRestoreOperationRepository(session)
-            if repository.mark_stale_reconciliation(operation.id, now=now):
-                ManagedInstanceMutationLeaseRepository(session).release_for_operation(
-                    operation.managed_instance_id, operation.id
-                )
-                GlobalHeavyOperationLeaseRepository(session).release_for_operation(
-                    operation.id
-                )
+        self._stale.sweep_instance(operation.managed_instance_id)
         with self._session_factory() as session:
             refreshed = SnapshotRestoreOperationRepository(session).get(operation.id)
         assert refreshed is not None

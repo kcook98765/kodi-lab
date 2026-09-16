@@ -14,6 +14,7 @@ from kodi_lab.application.readiness_tasks import (
     ReadinessTaskRegistry,
     ReadinessTaskState,
 )
+from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
 from kodi_lab.broker.errors import ClientError, RemoteBrokerError
 from kodi_lab.broker.operations import (
@@ -82,10 +83,12 @@ class ManagedRuntimeStatusService:
         session_factory: sessionmaker[Session],
         broker: _StatusBroker,
         readiness: ReadinessTaskRegistry,
+        reconciliation: ManagedInstanceReconciliationService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._broker = broker
         self._readiness = readiness
+        self._reconciliation = reconciliation
 
     def list_statuses(self) -> list[ManagedRuntimeStatus]:
         contexts = self._load_contexts()
@@ -98,16 +101,34 @@ class ManagedRuntimeStatusService:
         inventory_by_id = {
             UUID(item.managed_instance_id): item for item in inventory.containers
         }
-        return [
+        statuses = [
             self._aggregate(context, inventory_by_id.get(context[0]))
             for context in contexts
         ]
+        if self._reconciliation is None:
+            return statuses
+        return [self._apply_reconciliation(status) for status in statuses]
 
     def get(self, instance_id: UUID) -> ManagedRuntimeStatus:
         for status in self.list_statuses():
             if status.managed_instance_id == instance_id:
                 return status
         raise ManagedInstanceNotFoundError(instance_id)
+
+    def _apply_reconciliation(
+        self, status: ManagedRuntimeStatus
+    ) -> ManagedRuntimeStatus:
+        service = self._reconciliation
+        assert service is not None
+        reconciliation = service.status(status.managed_instance_id)
+        blocked = {item.value for item in reconciliation.blocked_actions}
+        return status.model_copy(
+            update={
+                "allowed_actions": [
+                    action for action in status.allowed_actions if action not in blocked
+                ]
+            }
+        )
 
     def _load_contexts(self) -> list[tuple[UUID, str, str, UUID, int]]:
         with self._session_factory() as session:

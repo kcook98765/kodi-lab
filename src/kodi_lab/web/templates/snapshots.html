@@ -13,6 +13,7 @@
       <p><a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots/new">Create snapshot</a></p>
       <p class="secondary">Snapshots are sensitive local state. Contents and archive paths are never exposed here.</p>
       {% for snapshot in snapshots %}
+      {% set reconciliation = reconciliation_statuses.get(snapshot.snapshot_id) %}
       <article class="instance">
         <h3>{{ snapshot.label or ('Snapshot captured ' ~ snapshot.captured_at) }}</h3>
         <dl>
@@ -23,10 +24,16 @@
           <dt>Exact runtime</dt><dd>Kodi {{ snapshot.kodi_release }} · revision {{ snapshot.runtime_revision_number }}</dd>
           <dt>Fixture</dt><dd>{{ snapshot.fixture_slug or 'None' }}</dd>
         </dl>
-        {% if snapshot.state.value == 'available' %}
+        {% if reconciliation and reconciliation.required %}
+        <section class="reconciliation-warning" role="alert">
+          <strong>Snapshot reconciliation required.</strong>
+          {{ reconciliation.operation_kind }} at {{ reconciliation.last_phase or 'unknown phase' }}; observed state: {{ reconciliation.observed_state or 'unknown' }}. Automatic destructive work will not resume. Blocked actions: {{ reconciliation.blocked_actions|join(', ') }}.
+        </section>
+        {% endif %}
+        {% if snapshot.state.value == 'available' and not (reconciliation and reconciliation.blocking) %}
         <p><a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots/{{ snapshot.snapshot_id }}/restore">Restore snapshot</a></p>
         {% endif %}
-        {% if snapshot.state.value in ['available', 'failed', 'quarantined'] %}
+        {% if snapshot.state.value in ['available', 'failed', 'quarantined'] and not (reconciliation and reconciliation.blocking) %}
         <p><a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots/{{ snapshot.snapshot_id }}/delete">Delete snapshot</a></p>
         {% elif snapshot.state.value == 'deleting' %}
         <p class="secondary">Deletion is pending. Restore and duplicate deletion are unavailable.</p>

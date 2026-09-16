@@ -401,3 +401,26 @@ instance UUIDs without a live-parent FK. Reconciliation remains read-only and
 never automatically resumes stale destructive work. Persistent-instance
 deletion/snapshots, clone/import, undelete, archive transfer, cross-instance
 restore, and general bulk deletion remain outside Step 6.
+
+Phase 7 Step 8 corrects coordination safety before lifecycle-history work. A
+closed cross-kind stale dispatcher now runs at application startup and before
+global-heavy or conflicting instance reservations. It validates exact typed
+ownership, terminalizes abandoned running reset/create/restore/delete/instance
+delete records as reconciliation-required without replacing their last phase,
+preserves create quarantine, and releases only proven expired reservations.
+Corrupt or orphaned reservations remain and fail closed; no destructive work is
+resumed.
+
+A central typed reconciliation gate keeps semantic blocking after lease
+release. Reset, restore, and instance-delete uncertainty blocks all instance
+mutations; create is source-recovery aware; delete is Snapshot-scoped. Bounded
+instance and Snapshot DTOs drive authenticated read-only warnings and status
+endpoints with no retry, acknowledgment, finalization, or repair route.
+Pruning targets only the newest-20 policy for ordinary succeeded/failed reset
+and Snapshot operations; active and unresolved rows are protected and
+instance-delete history remains unbounded.
+
+After Step 8 proof, the smallest next Phase 7 product slice is typed
+lifecycle-operation history plus a unified read projection and narrow instance
+detail/history presentation. Proof-gated reconciliation resolution remains a
+separate later architecture decision because it introduces mutation authority.
