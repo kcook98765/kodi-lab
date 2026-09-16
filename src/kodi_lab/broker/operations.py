@@ -22,6 +22,7 @@ from kodi_lab.broker.docker_inventory import (
     ManagedContainerDeprovisioningProvider,
     ManagedContainerOperationsProvider,
     ManagedContainerProvisioningProvider,
+    ManagedInstanceSnapshotCaptureProvider,
     ManagedKodiRuntimeObservationProvider,
 )
 from kodi_lab.broker.errors import (
@@ -37,6 +38,7 @@ from kodi_lab.broker.errors import (
     DockerFixtureArchiveError,
     DockerInventoryReadError,
     DockerRemoveError,
+    DockerSnapshotCaptureError,
     DockerStartError,
     DockerStopError,
     FixtureBaselineConflictError,
@@ -52,6 +54,7 @@ from kodi_lab.broker.errors import (
     PackagedFixtureUnavailableError,
     PartialProvisioningError,
     PersistentProvisioningUnsupportedError,
+    PersistentSnapshotUnsupportedError,
     PostCreateVerificationError,
     PostDeprovisionVerificationError,
     PostStartVerificationError,
@@ -64,6 +67,7 @@ from kodi_lab.broker.errors import (
     RuntimeImageUnavailableError,
     RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionError,
+    SnapshotStateError,
 )
 from kodi_lab.broker.fixtures import (
     AssignedFixtureResolver,
@@ -83,6 +87,10 @@ from kodi_lab.broker.provisioning import (
     SqliteManagedInstanceRevisionResolver,
     SqliteProvisioningResolver,
     SqliteRuntimeObservationResolver,
+)
+from kodi_lab.broker.snapshots import (
+    SnapshotCaptureResolver,
+    SqliteSnapshotCaptureResolver,
 )
 
 
@@ -482,6 +490,47 @@ class ApplyAssignedFixtureResult(StrictModel):
         return self
 
 
+class CaptureManagedInstanceSnapshotParams(StrictModel):
+    """Only the snapshot, source, and observed immutable container identities."""
+
+    snapshot_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("snapshot_id", "managed_instance_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class CaptureManagedInstanceSnapshotResult(StrictModel):
+    """Bounded artifact identity without paths or member inventory."""
+
+    snapshot_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    archive_digest: str = Field(
+        min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
+    manifest_digest: str = Field(
+        min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
+    archive_size: int = Field(gt=0, le=16 * 1024**3)
+    member_count: int = Field(gt=0, le=250_000)
+
+    @field_validator("snapshot_id", "managed_instance_id", "runtime_revision_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
 type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
@@ -616,6 +665,8 @@ def build_foundation_registry(
     runtime_observation_provider: ManagedKodiRuntimeObservationProvider | None = None,
     assigned_fixture_resolver: AssignedFixtureResolver | None = None,
     assigned_fixture_provider: AssignedFixtureApplicationProvider | None = None,
+    snapshot_capture_resolver: SnapshotCaptureResolver | None = None,
+    snapshot_capture_provider: ManagedInstanceSnapshotCaptureProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -642,6 +693,12 @@ def build_foundation_registry(
     )
     fixture_provider = assigned_fixture_provider or cast(
         AssignedFixtureApplicationProvider, provider
+    )
+    snapshot_resolver = (
+        snapshot_capture_resolver or SqliteSnapshotCaptureResolver.production()
+    )
+    snapshot_provider = snapshot_capture_provider or cast(
+        ManagedInstanceSnapshotCaptureProvider, provider
     )
     registry.register(
         name="ping",
@@ -1417,6 +1474,126 @@ def build_foundation_registry(
             "broker_fixture_slug": result.fixture_slug,
             "broker_fixture_version": result.fixture_version,
             "broker_resulting_runtime_state": result.runtime_state.value,
+        },
+    )
+
+    def capture_managed_instance_snapshot(
+        params: CaptureManagedInstanceSnapshotParams,
+    ) -> CaptureManagedInstanceSnapshotResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_snapshot_id": params.snapshot_id,
+        }
+        try:
+            spec = snapshot_resolver.resolve(
+                params.snapshot_id, params.managed_instance_id
+            )
+            outcome = snapshot_provider.capture_managed_instance_snapshot(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except PersistentSnapshotUnsupportedError as error:
+            raise OperationError(
+                "persistent_snapshot_unsupported",
+                "Persistent snapshot capture is not supported.",
+                audit_fields=audit_fields,
+            ) from error
+        except SnapshotStateError as error:
+            raise OperationError(
+                "snapshot_state_unavailable",
+                "Canonical snapshot capture state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except ManagedContainerNotFoundError as error:
+            raise OperationError(
+                "managed_container_not_found",
+                "No Kodi Lab-owned container exists for the managed instance.",
+                audit_fields=audit_fields,
+            ) from error
+        except AmbiguousManagedContainerError as error:
+            raise OperationError(
+                "ambiguous_managed_container",
+                "Multiple containers claim the managed instance identity.",
+                audit_fields=audit_fields,
+            ) from error
+        except InvalidManagedContainerMetadataError as error:
+            raise OperationError(
+                "invalid_managed_container_metadata",
+                "Kodi Lab managed-container metadata is invalid.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerIdentityPreconditionError as error:
+            raise OperationError(
+                "container_identity_precondition_failed",
+                "The managed container identity changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeRevisionPreconditionError as error:
+            raise OperationError(
+                "runtime_revision_precondition_failed",
+                "The managed runtime revision differs from trusted state.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerMustBeStoppedError as error:
+            raise OperationError(
+                "container_must_be_stopped",
+                "Snapshot capture requires a stopped managed container.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerSnapshotCaptureError as error:
+            raise OperationError(
+                (
+                    "insufficient_snapshot_storage"
+                    if error.code == "insufficient_snapshot_storage"
+                    else "snapshot_capture_failed"
+                ),
+                (
+                    "Snapshot storage does not have the required free-space reserve."
+                    if error.code == "insufficient_snapshot_storage"
+                    else "The broker could not safely capture the snapshot."
+                ),
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDaemonUnavailableError as error:
+            raise OperationError(
+                "docker_daemon_unavailable",
+                "The Docker daemon is unavailable to the broker.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerInventoryReadError as error:
+            raise OperationError(
+                "docker_inventory_failed",
+                "The broker could not safely inspect snapshot container state.",
+                audit_fields=audit_fields,
+            ) from error
+        artifact = outcome.artifact
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.container_id != params.expected_container_id
+            or outcome.runtime_revision_id != str(spec.context.runtime_revision_id)
+            or artifact.snapshot_id != spec.context.snapshot_id
+        ):
+            raise RuntimeError("Snapshot adapter returned inconsistent identity")
+        return CaptureManagedInstanceSnapshotResult(
+            snapshot_id=str(artifact.snapshot_id),
+            managed_instance_id=outcome.managed_instance_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            archive_digest=artifact.archive_digest,
+            manifest_digest=artifact.manifest_digest,
+            archive_size=artifact.archive_size,
+            member_count=artifact.member_count,
+        )
+
+    registry.register(
+        name="capture_managed_instance_snapshot",
+        params_model=CaptureManagedInstanceSnapshotParams,
+        result_model=CaptureManagedInstanceSnapshotResult,
+        handler=capture_managed_instance_snapshot,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_snapshot_id": result.snapshot_id,
+            "broker_snapshot_archive_size": result.archive_size,
+            "broker_snapshot_member_count": result.member_count,
         },
     )
     return registry

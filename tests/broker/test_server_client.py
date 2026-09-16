@@ -74,6 +74,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "apply_assigned_fixture",
                 "broker_info",
                 "capabilities",
+                "capture_managed_instance_snapshot",
                 "deprovision_managed_container",
                 "managed_container_inventory",
                 "observe_managed_kodi_runtime",

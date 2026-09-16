@@ -172,6 +172,7 @@ def test_adapter_exposes_only_inventory_and_semantic_stop_public_methods() -> No
     }
     assert public_callables == {
         "apply_assigned_fixture",
+        "capture_managed_instance_snapshot",
         "deprovision_managed_container",
         "list_managed_containers",
         "observe_managed_kodi_runtime",

@@ -255,6 +255,7 @@ def test_capabilities_contains_exact_bounded_operation_set() -> None:
         "apply_assigned_fixture",
         "broker_info",
         "capabilities",
+        "capture_managed_instance_snapshot",
         "deprovision_managed_container",
         "managed_container_inventory",
         "observe_managed_kodi_runtime",

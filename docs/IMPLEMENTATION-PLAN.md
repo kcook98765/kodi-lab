@@ -336,3 +336,19 @@ Medium/Movies, Medium/TV, stable portability, and Preview portability reuse
 already-proven patterns. Snapshots are a first-class v1 feature and introduce
 the higher-risk unproven storage, stop/restore, validation, prior-state restore,
 and global-heavy-operation coordination contract.
+
+Phase 7 Step 2 implements only disposable snapshot creation. It adds immutable
+central root-owned artifacts, deterministic uncompressed tar and canonical
+manifest v1, independent application validation including recognized Kodi
+video-database integrity checks, durable Snapshot and typed create-operation
+records, shared per-instance mutation exclusion, and one global-heavy lease.
+Authenticated Web can create, list, and poll safe metadata only. Runtime pins,
+fixture assignments, reset baselines, broker narrowness, and protected legacy
+resources remain unchanged.
+
+The next coherent milestone should implement the snapshot restore vertical
+slice for disposable instances. Restore is the first consumer of the captured
+artifact and reserved operation kinds; it must define and prove destructive
+fresh-container replacement, prior-state preservation, validation, and
+reconciliation without adding import/export, cross-revision behavior, delete,
+or persistent snapshots.

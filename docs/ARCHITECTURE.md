@@ -351,3 +351,40 @@ that creates a queue record and returns 202. Only the lease winner invokes the
 existing reset service. Active reset blocks Web lifecycle and trusted
 fixture/revision changes. Browser input cannot select revision, fixture,
 container, image, phase, or operation authority; Web retains no Docker socket.
+
+## Phase 7 disposable snapshot creation
+
+Snapshot creation is a distinct typed workflow over mutable Kodi profile
+state. It does not alter RuntimeRevision identity, FixtureDefinition assignment,
+or reset semantics. Phase 7 Step 2 supports provisioned disposable instances
+only and deliberately supplies no restore, delete, import/export, download, or
+persistent-instance behavior.
+
+The broker is the only snapshot byte writer. From a request containing only
+snapshot UUID, ManagedInstance UUID, and expected immutable container ID, it
+resolves canonical database identity and captures the fixed allowlist below
+`/home/kodi/.kodi`. It performs two bounded streaming passes, rejects unknown or
+unsafe state, writes deterministic uncompressed tar plus canonical manifest to
+UUID-derived staging, and atomically publishes root-owned group-readable files
+under `KODI_LAB_DATA_ROOT/snapshots`. The application then independently
+validates storage identity, manifest form, all digests/member metadata, bounds,
+and recognized Kodi video databases before marking the Snapshot available.
+
+`SnapshotCreateOperation` remains operation-specific. Its ten-minute lease is
+coupled transactionally to a per-instance typed mutation lease and a singleton
+global-heavy lease. Reset uses the same per-instance exclusion while retaining
+`ResetOperation`; lifecycle, fixture assignment, and revision reassignment use
+short typed mutation leases. This adds mutual exclusion, not a generic job
+system or general filesystem/Docker authority.
+
+Capture starts only from one exact stopped or running owned container. Running
+sources are normally stopped and proven stopped. After valid publication, the
+application restores the prior running state and requires normal readiness;
+stopped sources remain stopped. A valid available artifact survives a later
+restart failure, while the operation records the source-state recovery failure
+or reconciliation requirement.
+
+Snapshot metadata is safe for authenticated list/status presentation, but
+snapshot files and manifests are secret-bearing. Web has no archive, manifest,
+member-list, path, preview, download, restore, or deletion route. See
+`PHASE7-SNAPSHOTS.md` for the executable create-only contract.

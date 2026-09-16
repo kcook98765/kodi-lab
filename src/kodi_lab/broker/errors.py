@@ -228,6 +228,23 @@ class DockerFixtureArchiveError(DockerInventoryError):
     """Docker could not apply or verify the fixed trusted fixture archive."""
 
 
+class SnapshotStateError(BrokerError):
+    """Trusted persistence cannot produce a safe snapshot capture specification."""
+
+
+class PersistentSnapshotUnsupportedError(SnapshotStateError):
+    """The create-only slice does not support persistent instances."""
+
+
+class DockerSnapshotCaptureError(DockerInventoryError):
+    """Docker profile capture or fixed snapshot storage failed safely."""
+
+    def __init__(self, code: str, safe_message: str) -> None:
+        self.code = code
+        self.safe_message = safe_message
+        super().__init__(safe_message)
+
+
 class ManagedRuntimeObservationError(DockerInventoryError):
     """A fixed managed-runtime observation could not be safely produced."""
 
@@ -372,3 +389,11 @@ class FixturePrerequisiteClientError(RemoteBrokerError):
 
 class FixtureApplicationClientError(RemoteBrokerError):
     """The fixed trusted fixture archive could not be safely applied."""
+
+
+class SnapshotPrerequisiteClientError(RemoteBrokerError):
+    """Trusted snapshot state does not permit capture."""
+
+
+class SnapshotCaptureClientError(RemoteBrokerError):
+    """The broker could not capture the fixed snapshot profile scope."""

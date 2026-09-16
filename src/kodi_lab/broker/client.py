@@ -48,6 +48,8 @@ from kodi_lab.broker.errors import (
     RequestError,
     RuntimeRevisionPreconditionClientError,
     RuntimeStatePreconditionClientError,
+    SnapshotCaptureClientError,
+    SnapshotPrerequisiteClientError,
     TrailingFrameDataError,
     TruncatedFrameError,
 )
@@ -56,6 +58,8 @@ from kodi_lab.broker.operations import (
     ApplyAssignedFixtureResult,
     BrokerInfoResult,
     CapabilitiesResult,
+    CaptureManagedInstanceSnapshotParams,
+    CaptureManagedInstanceSnapshotResult,
     DeprovisionManagedContainerParams,
     DeprovisionManagedContainerResult,
     EmptyParams,
@@ -321,6 +325,41 @@ class BrokerClient:
             )
         return result
 
+    def capture_managed_instance_snapshot(
+        self,
+        *,
+        snapshot_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> CaptureManagedInstanceSnapshotResult:
+        """Capture only broker-resolved state into fixed central storage."""
+
+        try:
+            params = CaptureManagedInstanceSnapshotParams(
+                snapshot_id=snapshot_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "snapshot capture request failed local validation"
+            ) from error
+        result = self._call(
+            "capture_managed_instance_snapshot",
+            params,
+            CaptureManagedInstanceSnapshotResult,
+            response_timeout=600.0,
+        )
+        if (
+            result.snapshot_id != snapshot_id
+            or result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "snapshot capture result identity does not match the request"
+            )
+        return result
+
     def _call(
         self,
         operation: str,
@@ -515,6 +554,10 @@ class BrokerClient:
                 "assigned_fixture_state_unavailable": FixturePrerequisiteClientError,
                 "fixture_baseline_conflict": FixtureApplicationClientError,
                 "fixture_archive_failed": FixtureApplicationClientError,
+                "persistent_snapshot_unsupported": SnapshotPrerequisiteClientError,
+                "snapshot_state_unavailable": SnapshotPrerequisiteClientError,
+                "snapshot_capture_failed": SnapshotCaptureClientError,
+                "insufficient_snapshot_storage": SnapshotCaptureClientError,
             }
             error_type = error_types.get(error_response.error.code, RemoteBrokerError)
             raise error_type(

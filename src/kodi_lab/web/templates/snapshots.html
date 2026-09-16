@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Snapshots · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>Snapshots</h1>
+      <h2>{{ instance.name }}</h2>
+      <p><a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots/new">Create snapshot</a></p>
+      <p class="secondary">Snapshots are sensitive local state. Contents and archive paths are never exposed here.</p>
+      {% for snapshot in snapshots %}
+      <article class="instance">
+        <h3>{{ snapshot.label or ('Snapshot captured ' ~ snapshot.captured_at) }}</h3>
+        <dl>
+          <dt>Snapshot ID</dt><dd>{{ snapshot.snapshot_id }}</dd>
+          <dt>Captured</dt><dd>{{ snapshot.captured_at }}</dd>
+          <dt>State</dt><dd>{{ snapshot.state }}</dd>
+          <dt>Size</dt><dd>{{ snapshot.archive_size if snapshot.archive_size is not none else 'Pending' }}</dd>
+          <dt>Exact runtime</dt><dd>Kodi {{ snapshot.kodi_release }} · revision {{ snapshot.runtime_revision_number }}</dd>
+          <dt>Fixture</dt><dd>{{ snapshot.fixture_slug or 'None' }}</dd>
+        </dl>
+      </article>
+      {% else %}
+      <p>No snapshots have been captured for this instance.</p>
+      {% endfor %}
+      <p><a href="/">Back to instances</a></p>
+    </main>
+  </body>
+</html>

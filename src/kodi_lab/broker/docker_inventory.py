@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
@@ -28,6 +28,7 @@ from kodi_lab.broker.errors import (
     DockerFixtureArchiveError,
     DockerInventoryReadError,
     DockerRemoveError,
+    DockerSnapshotCaptureError,
     DockerStartError,
     DockerStopError,
     FixtureBaselineConflictError,
@@ -58,11 +59,18 @@ from kodi_lab.broker.provisioning import (
     ManagedContainerProvisioningSpec,
     ManagedRuntimeObservationSpec,
 )
+from kodi_lab.broker.snapshots import SnapshotCaptureSpec
 from kodi_lab.fixtures.package import (
     FIXTURE_CONTAINER_DESTINATION,
     FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS,
     PackagedFixtureError,
     load_packaged_fixture,
+)
+from kodi_lab.snapshot.storage import (
+    SnapshotArtifactIdentity,
+    SnapshotStorageError,
+    enumerate_snapshot_source,
+    publish_snapshot_from_source,
 )
 
 MANAGED_LABEL_KEY = "io.kodi-lab.managed"
@@ -192,6 +200,16 @@ class AppliedAssignedFixtureRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class CapturedManagedInstanceSnapshotRecord:
+    """Bounded artifact identity from one fixed stopped profile capture."""
+
+    managed_instance_id: str
+    runtime_revision_id: str
+    container_id: str
+    artifact: SnapshotArtifactIdentity
+
+
+@dataclass(frozen=True, slots=True)
 class _ReconciliationRecord:
     managed_instance_id: str
     container_id: str
@@ -269,6 +287,13 @@ class AssignedFixtureApplicationProvider(Protocol):
         """Apply one broker-resolved fixture to one exact fresh stopped container."""
 
 
+class ManagedInstanceSnapshotCaptureProvider(Protocol):
+    def capture_managed_instance_snapshot(
+        self, *, spec: SnapshotCaptureSpec, expected_container_id: str
+    ) -> CapturedManagedInstanceSnapshotRecord:
+        """Capture the fixed safe profile scope of one exact stopped container."""
+
+
 class _DockerClient(Protocol):
     def containers(
         self, *, all: bool, filters: Mapping[str, list[str]]
@@ -321,6 +346,10 @@ class _FixtureDockerClient(_DockerClient, Protocol):
     def get_archive(self, container: str, path: str) -> tuple[object, object]: ...
 
     def put_archive(self, container: str, path: str, data: bytes) -> bool: ...
+
+
+class _SnapshotDockerClient(_DockerClient, Protocol):
+    def get_archive(self, container: str, path: str) -> tuple[object, object]: ...
 
 
 type DockerClientFactory = Callable[[], _DockerClient]
@@ -1081,6 +1110,108 @@ class DockerManagedContainerAdapter:
         except (DockerException, OSError) as error:
             raise DockerDaemonUnavailableError(
                 "Docker daemon is unavailable"
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
+    def capture_managed_instance_snapshot(
+        self, *, spec: SnapshotCaptureSpec, expected_container_id: str
+    ) -> CapturedManagedInstanceSnapshotRecord:
+        """Capture only the fixed Kodi profile scope from one stopped container."""
+
+        context = spec.context
+        managed_instance_id = str(context.source_managed_instance_id)
+        runtime_revision_id = str(context.runtime_revision_id)
+        if _CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None:
+            raise ContainerIdentityPreconditionError(
+                "Expected container identity is not canonical"
+            )
+        client: _SnapshotDockerClient | None = None
+        try:
+            client = cast(_SnapshotDockerClient, self._client_factory())
+            summaries = client.containers(
+                all=True,
+                filters={
+                    "label": [
+                        f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                        f"{INSTANCE_ID_LABEL_KEY}={managed_instance_id}",
+                    ]
+                },
+            )
+            if not isinstance(summaries, list):
+                raise DockerInventoryReadError(
+                    "Docker returned malformed container selection data"
+                )
+            if not summaries:
+                raise ManagedContainerNotFoundError(
+                    "No owned container exists for the managed instance"
+                )
+            if len(summaries) != 1:
+                raise AmbiguousManagedContainerError(
+                    "Multiple containers have the managed instance identity"
+                )
+            summary = _require_mapping(summaries[0])
+            selected_id = _require_container_id(summary.get("Id"))
+            inspected = _require_mapping(client.inspect_container(selected_id))
+            self._validate_deprovision_candidate(
+                inspected,
+                selected_container_id=selected_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=runtime_revision_id,
+            )
+            first_stream, _first_stat = client.get_archive(
+                selected_id, "/home/kodi/.kodi"
+            )
+            expected_members = enumerate_snapshot_source(
+                cast(Iterable[bytes], first_stream)
+            )
+            second_stream, _second_stat = client.get_archive(
+                selected_id, "/home/kodi/.kodi"
+            )
+            artifact = publish_snapshot_from_source(
+                data_root=spec.data_root,
+                context=context,
+                expected_members=expected_members,
+                source_chunks=cast(Iterable[bytes], second_stream),
+                owner_uid=spec.owner_uid,
+                owner_gid=spec.owner_gid,
+            )
+            final = _require_mapping(client.inspect_container(selected_id))
+            self._validate_deprovision_candidate(
+                final,
+                selected_container_id=selected_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=runtime_revision_id,
+            )
+            return CapturedManagedInstanceSnapshotRecord(
+                managed_instance_id=managed_instance_id,
+                runtime_revision_id=runtime_revision_id,
+                container_id=selected_id,
+                artifact=artifact,
+            )
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ):
+            raise
+        except SnapshotStorageError as error:
+            raise DockerSnapshotCaptureError(error.code, error.safe_message) from error
+        except APIError as error:
+            raise DockerSnapshotCaptureError(
+                "snapshot_capture_failed", "Docker snapshot capture failed"
+            ) from error
+        except (DockerException, OSError) as error:
+            raise DockerSnapshotCaptureError(
+                "snapshot_capture_failed", "Docker snapshot capture failed"
             ) from error
         finally:
             if client is not None:

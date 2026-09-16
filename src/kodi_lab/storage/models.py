@@ -3,6 +3,7 @@
 from enum import StrEnum
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Enum,
@@ -20,9 +21,11 @@ from kodi_lab.domain import (
     ConnectionState,
     FixtureContentCategory,
     FixtureSizeCategory,
+    GlobalHeavyOperationKind,
     HealthStatus,
     InstanceRuntimeState,
     InstanceType,
+    ManagedInstanceMutationKind,
     ProcessObservationKind,
     ReadinessProbeKind,
     ResetOperationPhase,
@@ -31,6 +34,10 @@ from kodi_lab.domain import (
     RuntimeKind,
     RuntimeSupportTier,
     RuntimeValidationResult,
+    SnapshotCreateOperationPhase,
+    SnapshotCreateOperationState,
+    SnapshotState,
+    SnapshotValidationResult,
     TargetAvailability,
     TargetType,
 )
@@ -271,6 +278,257 @@ class ResetOperationRow(Base):
         Boolean, nullable=False, default=False, server_default=text("0")
     )
     lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class SnapshotRow(Base):
+    """Immutable metadata for one centrally stored managed-instance snapshot."""
+
+    __tablename__ = "snapshots"
+    __table_args__ = (
+        CheckConstraint("manifest_version = 1", name="snapshot_manifest_version_v1"),
+        CheckConstraint(
+            "label IS NULL OR length(label) BETWEEN 1 AND 480",
+            name="snapshot_label_bounded",
+        ),
+        CheckConstraint(
+            "archive_digest IS NULL OR (length(archive_digest) = 71 "
+            "AND substr(archive_digest, 1, 7) = 'sha256:' "
+            "AND substr(archive_digest, 8) NOT GLOB '*[^0-9a-f]*')",
+            name="snapshot_archive_digest_sha256",
+        ),
+        CheckConstraint(
+            "manifest_digest IS NULL OR (length(manifest_digest) = 71 "
+            "AND substr(manifest_digest, 1, 7) = 'sha256:' "
+            "AND substr(manifest_digest, 8) NOT GLOB '*[^0-9a-f]*')",
+            name="snapshot_manifest_digest_sha256",
+        ),
+        CheckConstraint(
+            "archive_size IS NULL OR archive_size >= 0",
+            name="snapshot_archive_size_nonnegative",
+        ),
+        CheckConstraint(
+            "member_count IS NULL OR member_count > 0",
+            name="snapshot_member_count_positive",
+        ),
+        CheckConstraint(
+            "(state = 'creating' AND validation_result = 'pending' "
+            "AND validation_at IS NULL AND archive_digest IS NULL "
+            "AND manifest_digest IS NULL AND archive_size IS NULL "
+            "AND member_count IS NULL) OR "
+            "(state = 'available' AND validation_result = 'passed' "
+            "AND validation_at IS NOT NULL AND archive_digest IS NOT NULL "
+            "AND manifest_digest IS NOT NULL AND archive_size IS NOT NULL "
+            "AND member_count IS NOT NULL AND prior_runtime_state IS NOT NULL) OR "
+            "(state IN ('failed', 'quarantined') "
+            "AND validation_result = 'failed' AND validation_at IS NOT NULL)",
+            name="snapshot_state_fields_consistent",
+        ),
+        Index(
+            "ix_snapshots_instance_captured",
+            "source_managed_instance_id",
+            "captured_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    source_managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    captured_fixture_definition_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("fixture_definitions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    captured_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    prior_runtime_state: Mapped[InstanceRuntimeState | None] = mapped_column(
+        Enum(
+            InstanceRuntimeState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_prior_runtime_state",
+        ),
+        nullable=True,
+    )
+    label: Mapped[str | None] = mapped_column(String(480), nullable=True)
+    manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    archive_digest: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    manifest_digest: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    archive_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    member_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    state: Mapped[SnapshotState] = mapped_column(
+        Enum(
+            SnapshotState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_state",
+        ),
+        nullable=False,
+    )
+    validation_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    validation_result: Mapped[SnapshotValidationResult] = mapped_column(
+        Enum(
+            SnapshotValidationResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_validation_result",
+        ),
+        nullable=False,
+    )
+
+
+class SnapshotCreateOperationRow(Base):
+    """Durable create-only snapshot execution and recovery state."""
+
+    __tablename__ = "snapshot_create_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="snapshot_create_failure_reason_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="snapshot_create_lease_digest_sha256",
+        ),
+        CheckConstraint(
+            "(state = 'queued' AND started_at IS NULL AND completed_at IS NULL "
+            "AND lease_token_digest IS NULL AND lease_expires_at IS NULL) OR "
+            "(state = 'running' AND started_at IS NOT NULL "
+            "AND completed_at IS NULL AND heartbeat_at IS NOT NULL "
+            "AND lease_token_digest IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(state IN ('succeeded', 'failed', 'reconciliation_required') "
+            "AND completed_at IS NOT NULL AND lease_token_digest IS NULL "
+            "AND lease_expires_at IS NULL)",
+            name="snapshot_create_state_fields_consistent",
+        ),
+        Index(
+            "uq_snapshot_create_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued', 'running')"),
+        ),
+        Index(
+            "ix_snapshot_create_instance_requested",
+            "managed_instance_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    snapshot_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("snapshots.id", ondelete="RESTRICT"), nullable=False
+    )
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    state: Mapped[SnapshotCreateOperationState] = mapped_column(
+        Enum(
+            SnapshotCreateOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_create_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[SnapshotCreateOperationPhase] = mapped_column(
+        Enum(
+            SnapshotCreateOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="snapshot_create_operation_phase",
+            length=30,
+        ),
+        nullable=False,
+    )
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class ManagedInstanceMutationLeaseRow(Base):
+    """One closed-kind mutation reservation or active lease per instance."""
+
+    __tablename__ = "managed_instance_mutation_leases"
+    __table_args__ = (
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="managed_mutation_lease_digest_sha256",
+        ),
+    )
+
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    operation_kind: Mapped[ManagedInstanceMutationKind] = mapped_column(
+        Enum(
+            ManagedInstanceMutationKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="managed_instance_mutation_kind",
+        ),
+        nullable=False,
+    )
+    operation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    acquired_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class GlobalHeavyOperationLeaseRow(Base):
+    """Singleton reservation/lease for canonical one-heavy-operation execution."""
+
+    __tablename__ = "global_heavy_operation_lease"
+    __table_args__ = (
+        CheckConstraint("singleton_id = 1", name="global_heavy_singleton"),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="global_heavy_lease_digest_sha256",
+        ),
+    )
+
+    singleton_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    operation_kind: Mapped[GlobalHeavyOperationKind] = mapped_column(
+        Enum(
+            GlobalHeavyOperationKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="global_heavy_operation_kind",
+        ),
+        nullable=False,
+    )
+    operation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    acquired_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 

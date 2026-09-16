@@ -476,6 +476,7 @@ def test_adapter_public_surface_has_no_generic_docker_mutation() -> None:
     }
     assert public == {
         "apply_assigned_fixture",
+        "capture_managed_instance_snapshot",
         "deprovision_managed_container",
         "list_managed_containers",
         "observe_managed_kodi_runtime",

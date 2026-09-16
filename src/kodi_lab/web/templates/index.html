@@ -63,6 +63,7 @@
             {% if reset and reset.eligibility == 'supported' %}
             <a class="button-link" data-reset-action href="/instances/{{ instance.managed_instance_id }}/reset">Reset</a>
             {% endif %}
+            <a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots">Snapshots</a>
           </div>
         </article>
         {% else %}

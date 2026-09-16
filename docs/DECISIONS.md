@@ -1006,3 +1006,104 @@ details that it did not specify.
   The package-defined validation drift removes only Movie 001 and Series 01
   S01E01. Reset orchestration, exact-pin selection, broker authority, Web reset,
   and the ten-minute durable lease are unchanged.
+
+## D-0081: Disposable-only immutable snapshot creation
+
+- Status: approved for Phase 7 Step 2
+- Decision: v1 snapshot creation supports only disposable ManagedInstances.
+  Each capture receives a new server-generated UUID and records the exact source
+  instance, RuntimeRevision, Kodi release, fixture assignment, capture time, and
+  prior running/stopped state. Persistent capture, restore, and delete remain
+  unsupported.
+
+## D-0082: Closed Kodi profile capture scope
+
+- Status: approved for Phase 7 Step 2
+- Decision: capture is rooted at `/home/kodi/.kodi` and includes only
+  `userdata`, `addons`, `fixture-media`, and `.smb`. It excludes runtime temp,
+  add-on packages/temp, thumbnails, texture databases, logs, crash/core files,
+  and PID/lock artifacts. Unknown top-level entries and every link, socket,
+  FIFO, device, or other non-regular/non-directory object fail capture.
+
+## D-0083: Deterministic bounded archive and canonical manifest
+
+- Status: approved for Phase 7 Step 2
+- Decision: v1 uses an uncompressed deterministic tar with sorted relative
+  members, normalized Kodi uid/gid, zero mtime, and safe mode bits. Manifest v1
+  is canonical UTF-8 JSON with archive identity and a path/type/size/mode/digest
+  record for every member. SHA-256 independently identifies archive and
+  manifest bytes.
+- Bounds: archive 16 GiB, individual file 8 GiB, 250,000 members, 512 UTF-8
+  path bytes, and 64 MiB manifest. Capture requires free space of at least
+  `max(2 GiB, estimated archive bytes + 1 GiB)` and fails closed when free space
+  cannot be established.
+
+## D-0084: Root-owned central atomic snapshot storage
+
+- Status: approved for Phase 7 Step 2
+- Decision: the broker publishes only to
+  `KODI_LAB_DATA_ROOT/snapshots/<snapshot-uuid>/`, containing exactly
+  `manifest.json` and `state.tar`. The final directory is root:`kodi-lab` 0750
+  and both files are 0440. UUID-derived staging and rename provide atomic
+  publication. Labels never affect a path; successful bytes are immutable.
+
+## D-0085: Broker capture is one semantic authority
+
+- Status: approved for Phase 7 Step 2
+- Decision: `capture_managed_instance_snapshot` accepts exactly the snapshot
+  UUID, ManagedInstance UUID, and expected immutable container ID. Broker-side
+  trusted state resolves revision, fixture, fixed source, storage root,
+  ownership, exclusions, and bounds. One exact owned stopped disposable
+  container with matching revision is required. No generic copy, tar, exec,
+  destination, path, Docker field, archive, or member-list authority is added.
+
+## D-0086: Snapshot and create-operation persistence
+
+- Status: approved for Phase 7 Step 2
+- Decision: `Snapshot` is retained without automatic pruning and moves through
+  creating, available, failed, or quarantined. `SnapshotCreateOperation` remains
+  a separate bounded durable record with queued/running/succeeded/failed/
+  reconciliation-required states, real capture phases, ten-minute ownership,
+  safe failure text, and bounded terminal operation history. It is not a
+  generic job model.
+
+## D-0087: Narrow mutation and global-heavy leases
+
+- Status: approved for Phase 7 Step 2
+- Decision: one durable per-instance `ManagedInstanceMutationLease` excludes
+  the closed kinds reset, snapshot create/restore, lifecycle, fixture
+  assignment, and runtime reassignment. Reset retains its typed operation while
+  using this lease. A separate singleton lease permits one snapshot create or
+  future restore globally. Ordinary lifecycle work on other instances is not
+  globally serialized.
+
+## D-0088: Capture preserves prior runtime state
+
+- Status: approved for Phase 7 Step 2
+- Decision: a stopped instance remains stopped. A running instance is normally
+  stopped and proven stopped before capture, then restarted through existing
+  broker lifecycle and normal Kodi readiness. Capture succeeds only after
+  independent archive/manifest validation, recognized Kodi video-database
+  `PRAGMA integrity_check`, unchanged revision/fixture pins, and required
+  prior-state restoration.
+- Split outcome: valid bytes remain available if restart/readiness later fails,
+  while the create operation reports failure or reconciliation required. Valid
+  artifacts are never deleted to disguise source-state recovery failure.
+
+## D-0089: Snapshots are secret-bearing and Web metadata-only
+
+- Status: approved for Phase 7 Step 2
+- Decision: authenticated same-origin CSRF-protected Web routes create, list,
+  and poll status only. An optional immutable label is trimmed, limited to 120
+  Unicode scalar values, and excludes controls and path separators. Browser
+  responses expose safe identity/status metadata but no paths, member names,
+  raw manifest, bytes, preview, download, import, restore, or delete authority.
+
+## D-0090: Runtime and fixture semantics remain independent
+
+- Status: approved for Phase 7 Step 2
+- Decision: snapshot capture records but never changes the exact
+  RuntimeRevision or current FixtureDefinition assignment. Snapshot creation is
+  not an upgrade mechanism. Reset continues to restore the assigned fixture
+  baseline and does not consume snapshots. There is no automatic snapshot
+  retention or deletion.

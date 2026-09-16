@@ -24,11 +24,15 @@ from kodi_lab.application.reset_activity import (
     ResetActivityState,
 )
 from kodi_lab.domain import (
+    ManagedInstanceMutationKind,
     ResetOperation,
     ResetOperationPhase,
     ResetOperationState,
 )
-from kodi_lab.storage.repositories import ResetOperationRepository
+from kodi_lab.storage.repositories import (
+    ManagedInstanceMutationLeaseRepository,
+    ResetOperationRepository,
+)
 
 LEASE_DURATION = timedelta(minutes=10)
 TERMINAL_RETENTION_PER_INSTANCE = 20
@@ -103,6 +107,11 @@ class ResetOperationCoordinator:
                         "Reset reconciliation is required before another request."
                     )
                 repository.create(operation)
+                ManagedInstanceMutationLeaseRepository(session).reserve(
+                    instance_id,
+                    kind=ManagedInstanceMutationKind.RESET,
+                    operation_id=operation.id,
+                )
                 return QueuedResetOperation(self.to_status(operation), True)
         except IntegrityError:
             with self._session_factory() as session:
@@ -124,6 +133,14 @@ class ResetOperationCoordinator:
             if operation is None:
                 return None
             lease = ResetLease(operation.id, operation.managed_instance_id, token)
+            if not ManagedInstanceMutationLeaseRepository(session).claim(
+                operation.managed_instance_id,
+                operation_id=operation.id,
+                token_digest=lease.token_digest,
+                now=now,
+                expires_at=now + LEASE_DURATION,
+            ):
+                return None
             acquired = repository.acquire(
                 operation_id,
                 token_digest=lease.token_digest,
@@ -142,7 +159,14 @@ class ResetOperationCoordinator:
                 now=now,
                 lease_expires_at=now + LEASE_DURATION,
             )
-            if not updated:
+            renewed = ManagedInstanceMutationLeaseRepository(session).renew(
+                lease.managed_instance_id,
+                operation_id=lease.operation_id,
+                token_digest=lease.token_digest,
+                now=now,
+                expires_at=now + LEASE_DURATION,
+            )
+            if not updated or not renewed:
                 raise ResetLeaseLostError("reset operation lease is no longer owned")
 
     def finish_success(self, lease: ResetLease) -> None:
@@ -202,6 +226,12 @@ class ResetOperationCoordinator:
             )
             if not updated:
                 raise ResetLeaseLostError("reset operation lease is no longer owned")
+            if not ManagedInstanceMutationLeaseRepository(session).release(
+                lease.managed_instance_id,
+                operation_id=lease.operation_id,
+                token_digest=lease.token_digest,
+            ):
+                raise ResetLeaseLostError("reset mutation lease is no longer owned")
             repository.prune_terminal(
                 lease.managed_instance_id,
                 retain=TERMINAL_RETENTION_PER_INSTANCE,
@@ -238,6 +268,9 @@ class ResetOperationCoordinator:
         with self._session_factory.begin() as session:
             repository = ResetOperationRepository(session)
             if repository.mark_stale_reconciliation(operation.id, now=now):
+                ManagedInstanceMutationLeaseRepository(session).release_for_operation(
+                    operation.managed_instance_id, operation.id
+                )
                 repository.prune_terminal(
                     operation.managed_instance_id,
                     retain=TERMINAL_RETENTION_PER_INSTANCE,

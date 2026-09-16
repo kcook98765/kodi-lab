@@ -35,13 +35,17 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     assert set(inspector.get_table_names()) == {
         "alembic_version",
         "fixture_definitions",
+        "global_heavy_operation_lease",
         "managed_instances",
+        "managed_instance_mutation_leases",
         "reset_operations",
         "runtime_definitions",
         "runtime_container_artifacts",
         "runtime_execution_profiles",
         "runtime_revisions",
         "runtime_validation_evidence",
+        "snapshot_create_operations",
+        "snapshots",
         "targets",
         "web_admin_credentials",
         "web_sessions",
@@ -614,6 +618,148 @@ def test_medium_fixture_refuses_lossy_0011_downgrade_and_remains_intact(
         ).one() == ("medium-retained", "medium")
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             "0011_fixture_medium_taxonomy"
+        )
+    engine.dispose()
+
+
+def test_0011_active_reset_is_seeded_into_phase7_mutation_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0011_fixture_medium_taxonomy")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-15T00:00:00.000000Z"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id, slug, kodi_version, support_tier) VALUES "
+                "('89000000-0000-4000-8000-000000000001', 'phase7-test', "
+                "'21.3', 'current')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
+                "revision_number, source_kind, source_reference, content_digest, "
+                "manifest_reference, manifest_digest, built_at, approval_state, "
+                "requires_trusted_build_confirmation) VALUES "
+                "('89000000-0000-4000-8000-000000000002', "
+                "'89000000-0000-4000-8000-000000000001', 1, 'test', 'test', "
+                ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
+            ),
+            {"digest": "sha256:" + "9" * 64, "timestamp": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO targets (id, name, target_type, kodi_version, "
+                "availability, health, connection_state) VALUES "
+                "('89000000-0000-4000-8000-000000000003', 'phase7', 'managed', "
+                "'21.3', 'unavailable', 'warning', 'disconnected')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances (target_id, instance_type, "
+                "runtime_revision_id, runtime_state, start_on_host_boot) VALUES "
+                "('89000000-0000-4000-8000-000000000003', 'disposable', "
+                "'89000000-0000-4000-8000-000000000002', 'stopped', 0)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO reset_operations (id, managed_instance_id, "
+                "requested_at, state, phase, reconciliation_required) VALUES "
+                "('89000000-0000-4000-8000-000000000004', "
+                "'89000000-0000-4000-8000-000000000003', :timestamp, "
+                "'queued', 'queued', 0)"
+            ),
+            {"timestamp": timestamp},
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT operation_kind, operation_id, lease_token_digest "
+                "FROM managed_instance_mutation_leases"
+            )
+        ).one() == (
+            "reset",
+            "89000000-0000-4000-8000-000000000004",
+            None,
+        )
+    engine.dispose()
+
+
+def test_populated_phase7_snapshot_state_refuses_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-15T00:00:00.000000Z"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id, slug, kodi_version, support_tier) VALUES "
+                "('89500000-0000-4000-8000-000000000001', 'snapshot-test', "
+                "'21.3', 'current')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_revisions (id, runtime_definition_id, "
+                "revision_number, source_kind, source_reference, content_digest, "
+                "manifest_reference, manifest_digest, built_at, approval_state, "
+                "requires_trusted_build_confirmation) VALUES "
+                "('89500000-0000-4000-8000-000000000002', "
+                "'89500000-0000-4000-8000-000000000001', 1, 'test', 'test', "
+                ":digest, 'test', :digest, :timestamp, 'not_approved', 0)"
+            ),
+            {"digest": "sha256:" + "5" * 64, "timestamp": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO targets (id, name, target_type, kodi_version, "
+                "availability, health, connection_state) VALUES "
+                "('89500000-0000-4000-8000-000000000003', 'snapshot', 'managed', "
+                "'21.3', 'unavailable', 'warning', 'disconnected')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances (target_id, instance_type, "
+                "runtime_revision_id, runtime_state, start_on_host_boot) VALUES "
+                "('89500000-0000-4000-8000-000000000003', 'disposable', "
+                "'89500000-0000-4000-8000-000000000002', 'stopped', 0)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO snapshots (id, source_managed_instance_id, "
+                "runtime_revision_id, captured_at, manifest_version, state, "
+                "validation_result) VALUES "
+                "('89500000-0000-4000-8000-000000000004', "
+                "'89500000-0000-4000-8000-000000000003', "
+                "'89500000-0000-4000-8000-000000000002', :timestamp, 1, "
+                "'creating', 'pending')"
+            ),
+            {"timestamp": timestamp},
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated Phase 7 snapshot state"):
+        command.downgrade(config, "0011_fixture_medium_taxonomy")
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT COUNT(*) FROM snapshots")) == 1
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0012_disposable_snapshot_creation"
         )
     engine.dispose()
 

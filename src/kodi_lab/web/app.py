@@ -26,6 +26,7 @@ from kodi_lab.application.errors import (
     ManagedInstanceNotFoundError,
     TargetNotFoundError,
 )
+from kodi_lab.application.mutations import ManagedInstanceMutationConflictError
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.reset import DisposableInstanceResetService
 from kodi_lab.application.reset_activity import ResetActivityRegistry
@@ -54,6 +55,21 @@ from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
 )
+from kodi_lab.application.snapshot_operations import (
+    SnapshotCreateConflictError,
+    SnapshotCreateOperationCoordinator,
+    SnapshotCreateStatus,
+    SnapshotCreateUnsupportedError,
+)
+from kodi_lab.application.snapshot_status import (
+    SnapshotHistoryItem,
+    SnapshotStatusService,
+)
+from kodi_lab.application.snapshots import (
+    DisposableSnapshotCreationService,
+    SnapshotCreateExecutor,
+    SnapshotServiceFactory,
+)
 from kodi_lab.auth import (
     AuthenticatedWebSession,
     LoginThrottler,
@@ -66,6 +82,7 @@ from kodi_lab.broker.errors import (
     RemoteBrokerError,
 )
 from kodi_lab.config import Settings
+from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 
 _WEB_ROOT = Path(__file__).parent
 
@@ -83,6 +100,20 @@ class ResetConfirmationRequest(BaseModel):
     confirmed: Literal[True]
 
 
+class SnapshotCreateRequest(BaseModel):
+    """Optional display metadata with no storage or runtime authority."""
+
+    model_config = ConfigDict(extra="forbid")
+    label: str | None = None
+
+
+class SnapshotCreateAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: UUID
+    operation: SnapshotCreateStatus
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
@@ -96,6 +127,9 @@ class WebApplicationContext:
     reset_status: ResetStatusService
     reset_operations: ResetOperationCoordinator
     reset_executor: ResetExecutor
+    snapshot_status: SnapshotStatusService
+    snapshot_operations: SnapshotCreateOperationCoordinator
+    snapshot_executor: SnapshotCreateExecutor
 
 
 def create_app(
@@ -109,6 +143,7 @@ def create_app(
     throttler: LoginThrottler | None = None,
     coordinator_factory: ReadinessCoordinatorFactory | None = None,
     reset_service_factory: ResetServiceFactory | None = None,
+    snapshot_service_factory: SnapshotServiceFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -125,6 +160,17 @@ def create_app(
         )
     )
     reset_executor = ResetExecutor(reset_operations, reset_registry, service_factory)
+    snapshot_operations = SnapshotCreateOperationCoordinator(session_factory)
+    snapshot_factory = snapshot_service_factory or (
+        lambda lease: DisposableSnapshotCreationService(
+            session_factory,
+            broker,
+            snapshot_operations,
+            lease,
+            data_root=settings.data_root,
+        )
+    )
+    snapshot_executor = SnapshotCreateExecutor(snapshot_operations, snapshot_factory)
     context = WebApplicationContext(
         settings=settings,
         auth=auth or WebAuthenticationService(session_factory),
@@ -135,11 +181,7 @@ def create_app(
             broker,
             task_registry,
             status_service,
-            **(
-                {}
-                if coordinator_factory is None
-                else {"coordinator_factory": coordinator_factory}
-            ),
+            coordinator_factory=coordinator_factory or KodiReadinessCoordinator,
             reset_operations=reset_operations,
         ),
         matrix=RuntimeMatrixService(
@@ -151,15 +193,20 @@ def create_app(
         reset_status=reset_status_service,
         reset_operations=reset_operations,
         reset_executor=reset_executor,
+        snapshot_status=SnapshotStatusService(session_factory),
+        snapshot_operations=snapshot_operations,
+        snapshot_executor=snapshot_executor,
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         context.reset_executor.start()
+        context.snapshot_executor.start()
         try:
             yield
         finally:
             context.reset_executor.close()
+            context.snapshot_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -233,6 +280,24 @@ def create_app(
         _request: Request, error: ResetOperationConflictError
     ) -> JSONResponse:
         return _json_error(409, "reset_operation_conflict", str(error)[:256])
+
+    @app.exception_handler(ManagedInstanceMutationConflictError)
+    async def mutation_conflict(
+        _request: Request, error: ManagedInstanceMutationConflictError
+    ) -> JSONResponse:
+        return _json_error(409, "managed_instance_mutation_conflict", str(error)[:256])
+
+    @app.exception_handler(SnapshotCreateConflictError)
+    async def snapshot_create_conflict(
+        _request: Request, error: SnapshotCreateConflictError
+    ) -> JSONResponse:
+        return _json_error(409, "snapshot_create_conflict", str(error)[:256])
+
+    @app.exception_handler(SnapshotCreateUnsupportedError)
+    async def snapshot_create_unsupported(
+        _request: Request, error: SnapshotCreateUnsupportedError
+    ) -> JSONResponse:
+        return _json_error(409, "snapshot_create_unsupported", str(error)[:256])
 
     @app.exception_handler(ClientError)
     async def broker_failure(_request: Request, error: ClientError) -> JSONResponse:
@@ -378,6 +443,37 @@ def create_app(
             },
         )
 
+    @app.get("/instances/{instance_id}/snapshots", response_class=HTMLResponse)
+    async def snapshot_history_page(request: Request, instance_id: UUID) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        instance = context.status.get(instance_id)
+        return templates.TemplateResponse(
+            request,
+            "snapshots.html",
+            {
+                "instance": instance,
+                "snapshots": context.snapshot_status.list_for_instance(instance_id),
+            },
+        )
+
+    @app.get("/instances/{instance_id}/snapshots/new", response_class=HTMLResponse)
+    async def snapshot_create_page(request: Request, instance_id: UUID) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "snapshot-create.html",
+            {
+                "instance": context.status.get(instance_id),
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
     @app.get("/api/runtime-matrix", response_model=RuntimeMatrixResponse)
     def runtime_matrix(
         include_legacy: Literal["false", "true"] = "false",
@@ -427,6 +523,48 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> ManagedInstanceResetStatus:
         return context.reset_status.get(instance_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/snapshots",
+        response_model=list[SnapshotHistoryItem],
+    )
+    def list_snapshots(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[SnapshotHistoryItem]:
+        return context.snapshot_status.list_for_instance(instance_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/snapshot-create-operations/{operation_id}",
+        response_model=SnapshotCreateStatus,
+    )
+    def snapshot_create_operation(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> SnapshotCreateStatus:
+        operation = context.snapshot_operations.get(operation_id)
+        if operation is None or operation.managed_instance_id != instance_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        return context.snapshot_operations.to_status(operation)
+
+    @app.post(
+        "/api/instances/{instance_id}/snapshots",
+        response_model=SnapshotCreateAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def queue_snapshot_create(
+        instance_id: UUID,
+        body: SnapshotCreateRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> SnapshotCreateAccepted:
+        context.status.get(instance_id)
+        queued = context.snapshot_operations.queue(instance_id, label=body.label)
+        context.snapshot_executor.submit(queued.operation.operation_id)
+        return SnapshotCreateAccepted(
+            snapshot_id=queued.snapshot.id,
+            operation=queued.operation,
+        )
 
     @app.post(
         "/api/instances/{instance_id}/reset",

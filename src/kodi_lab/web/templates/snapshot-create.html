@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <title>Create snapshot · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main class="confirmation-panel">
+      <h1>Create disposable snapshot</h1>
+      <h2>{{ instance.name }}</h2>
+      <p>Kodi may be stopped briefly. Its previous running or stopped state will be restored before the operation succeeds.</p>
+      <p class="notice">The snapshot can contain sensitive Kodi and add-on state. It is stored locally under Kodi Lab control and is not automatically deleted.</p>
+      <label for="snapshot-label">Optional label</label>
+      <input id="snapshot-label" type="text" maxlength="120" autocomplete="off">
+      <p id="snapshot-error" class="error" role="alert" hidden></p>
+      <div class="actions">
+        <button id="confirm-snapshot" type="button" data-instance-id="{{ instance.managed_instance_id }}">Create snapshot</button>
+        <a href="/instances/{{ instance.managed_instance_id }}/snapshots">Cancel</a>
+      </div>
+    </main>
+    <script src="{{ url_for('static', path='/snapshot-create.js') }}" defer></script>
+  </body>
+</html>

@@ -13,8 +13,14 @@ from kodi_lab.application.errors import (
     ManagedInstanceNotFoundError,
     PersistentFixtureUnsupportedError,
 )
+from kodi_lab.application.mutations import ManagedInstanceMutationCoordinator
 from kodi_lab.application.reset_operations import ResetOperationCoordinator
-from kodi_lab.domain import FixtureDefinition, InstanceType, ManagedInstance
+from kodi_lab.domain import (
+    FixtureDefinition,
+    InstanceType,
+    ManagedInstance,
+    ManagedInstanceMutationKind,
+)
 from kodi_lab.fixtures.package import load_packaged_fixture
 from kodi_lab.storage.repositories import (
     FixtureDefinitionRepository,
@@ -32,9 +38,13 @@ class FixtureAdministrationService:
         session_factory: sessionmaker[Session],
         *,
         reset_operations: ResetOperationCoordinator | None = None,
+        mutation_coordinator: ManagedInstanceMutationCoordinator | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._reset_operations = reset_operations
+        self._mutations = mutation_coordinator or ManagedInstanceMutationCoordinator(
+            session_factory
+        )
 
     def register_packaged_fixture(self, slug: str) -> FixtureDefinition:
         fixture = load_packaged_fixture(slug).definition
@@ -62,7 +72,12 @@ class FixtureAdministrationService:
         self, *, managed_instance_id: UUID, fixture_definition_id: UUID
     ) -> ManagedInstance:
         self._require_no_reset(managed_instance_id)
-        with self._session_factory.begin() as session:
+        with (
+            self._mutations.hold(
+                managed_instance_id, ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT
+            ),
+            self._session_factory.begin() as session,
+        ):
             instances = ManagedInstanceRepository(session)
             instance = instances.get(managed_instance_id)
             if instance is None:
@@ -77,7 +92,12 @@ class FixtureAdministrationService:
 
     def unassign(self, *, managed_instance_id: UUID) -> ManagedInstance:
         self._require_no_reset(managed_instance_id)
-        with self._session_factory.begin() as session:
+        with (
+            self._mutations.hold(
+                managed_instance_id, ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT
+            ),
+            self._session_factory.begin() as session,
+        ):
             instances = ManagedInstanceRepository(session)
             instance = instances.get(managed_instance_id)
             if instance is None:

@@ -22,6 +22,7 @@ from kodi_lab.application.errors import (
     TrustedCustomBuildConfirmationRequiredError,
     TrustedCustomBuildDisabledError,
 )
+from kodi_lab.application.mutations import ManagedInstanceMutationCoordinator
 from kodi_lab.application.reset_operations import ResetOperationCoordinator
 from kodi_lab.application.runtime_eligibility import (
     RuntimeIneligibilityReason,
@@ -32,6 +33,7 @@ from kodi_lab.domain import (
     InstanceRuntimeState,
     InstanceType,
     ManagedInstance,
+    ManagedInstanceMutationKind,
     RuntimeDefinition,
     RuntimeRevision,
     Target,
@@ -76,6 +78,7 @@ class ManagedInstanceService:
         include_legacy: bool = False,
         include_prerelease: bool = False,
         reset_operations: ResetOperationCoordinator | None = None,
+        mutation_coordinator: ManagedInstanceMutationCoordinator | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._selection_policy = RuntimeSelectionPolicy(
@@ -85,6 +88,9 @@ class ManagedInstanceService:
         )
         self._eligibility = RuntimeRevisionEligibilityPolicy()
         self._reset_operations = reset_operations
+        self._mutations = mutation_coordinator or ManagedInstanceMutationCoordinator(
+            session_factory
+        )
 
     def create(
         self,
@@ -125,40 +131,45 @@ class ManagedInstanceService:
     ) -> ManagedInstance:
         """Atomically change only an existing instance's exact revision."""
 
+        with self._session_factory() as session:
+            if ManagedInstanceRepository(session).get(target_id) is None:
+                raise ManagedInstanceNotFoundError(target_id)
         if self._reset_operations is not None:
             self._reset_operations.require_no_active(target_id)
-
-        try:
-            with self._session_factory.begin() as session:
-                target = self._require_target(session, target_id)
-                instances = ManagedInstanceRepository(session)
-                current = instances.get(target_id)
-                if current is None:
-                    raise ManagedInstanceNotFoundError(target_id)
-                revision = self._resolve_revision(session, target, selection)
-                if current.fixture_definition_id is not None:
-                    fixture = FixtureDefinitionRepository(session).get(
-                        current.fixture_definition_id
-                    )
-                    if fixture is None:
-                        raise FixtureDefinitionNotFoundError(
+        with self._mutations.hold(
+            target_id, ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT
+        ):
+            try:
+                with self._session_factory.begin() as session:
+                    target = self._require_target(session, target_id)
+                    instances = ManagedInstanceRepository(session)
+                    current = instances.get(target_id)
+                    if current is None:
+                        raise ManagedInstanceNotFoundError(target_id)
+                    revision = self._resolve_revision(session, target, selection)
+                    if current.fixture_definition_id is not None:
+                        fixture = FixtureDefinitionRepository(session).get(
                             current.fixture_definition_id
                         )
-                    definition = RuntimeDefinitionRepository(session).get(
-                        revision.runtime_definition_id
-                    )
-                    assert definition is not None
-                    if fixture.compatible_kodi_release != definition.kodi_release:
-                        raise FixtureIncompatibleError(
-                            fixture_definition_id=fixture.id,
-                            fixture_kodi_version=fixture.compatible_kodi_version,
-                            runtime_kodi_version=definition.kodi_version,
+                        if fixture is None:
+                            raise FixtureDefinitionNotFoundError(
+                                current.fixture_definition_id
+                            )
+                        definition = RuntimeDefinitionRepository(session).get(
+                            revision.runtime_definition_id
                         )
-                updated = replace(current, runtime_revision_id=revision.id)
-                instances.update(updated)
-                return updated
-        except IntegrityError as error:
-            raise ManagedInstanceConflictError(target_id) from error
+                        assert definition is not None
+                        if fixture.compatible_kodi_release != definition.kodi_release:
+                            raise FixtureIncompatibleError(
+                                fixture_definition_id=fixture.id,
+                                fixture_kodi_version=fixture.compatible_kodi_version,
+                                runtime_kodi_version=definition.kodi_version,
+                            )
+                    updated = replace(current, runtime_revision_id=revision.id)
+                    instances.update(updated)
+                    return updated
+            except IntegrityError as error:
+                raise ManagedInstanceConflictError(target_id) from error
 
     @staticmethod
     def _require_target(session: Session, target_id: UUID) -> Target:

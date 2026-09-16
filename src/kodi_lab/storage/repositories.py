@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
     FixtureDefinition,
+    GlobalHeavyOperationKind,
+    InstanceRuntimeState,
     ManagedInstance,
+    ManagedInstanceMutationKind,
     ResetOperation,
     ResetOperationPhase,
     ResetOperationState,
@@ -18,10 +21,18 @@ from kodi_lab.domain import (
     RuntimeRevision,
     RuntimeSupportTier,
     RuntimeValidationEvidence,
+    Snapshot,
+    SnapshotCreateOperation,
+    SnapshotCreateOperationPhase,
+    SnapshotCreateOperationState,
+    SnapshotState,
+    SnapshotValidationResult,
     Target,
 )
 from kodi_lab.storage.models import (
     FixtureDefinitionRow,
+    GlobalHeavyOperationLeaseRow,
+    ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ResetOperationRow,
     RuntimeContainerArtifactRow,
@@ -29,12 +40,72 @@ from kodi_lab.storage.models import (
     RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
     RuntimeValidationEvidenceRow,
+    SnapshotCreateOperationRow,
+    SnapshotRow,
     TargetRow,
 )
 
 
 class EntityNotFoundError(LookupError):
     """Raised when an update target no longer exists."""
+
+
+def _snapshot_from_row(row: SnapshotRow) -> Snapshot:
+    return Snapshot(
+        id=UUID(row.id),
+        source_managed_instance_id=UUID(row.source_managed_instance_id),
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        captured_fixture_definition_id=(
+            None
+            if row.captured_fixture_definition_id is None
+            else UUID(row.captured_fixture_definition_id)
+        ),
+        captured_at=_timestamp_from_text(row.captured_at),
+        prior_runtime_state=row.prior_runtime_state,
+        label=row.label,
+        manifest_version=row.manifest_version,
+        archive_digest=row.archive_digest,
+        manifest_digest=row.manifest_digest,
+        archive_size=row.archive_size,
+        member_count=row.member_count,
+        state=row.state,
+        validation_at=(
+            None
+            if row.validation_at is None
+            else _timestamp_from_text(row.validation_at)
+        ),
+        validation_result=row.validation_result,
+    )
+
+
+def _snapshot_operation_from_row(
+    row: SnapshotCreateOperationRow,
+) -> SnapshotCreateOperation:
+    return SnapshotCreateOperation(
+        id=UUID(row.id),
+        snapshot_id=UUID(row.snapshot_id),
+        managed_instance_id=UUID(row.managed_instance_id),
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
+        started_at=(
+            None if row.started_at is None else _timestamp_from_text(row.started_at)
+        ),
+        heartbeat_at=(
+            None if row.heartbeat_at is None else _timestamp_from_text(row.heartbeat_at)
+        ),
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=(
+            None
+            if row.lease_expires_at is None
+            else _timestamp_from_text(row.lease_expires_at)
+        ),
+    )
 
 
 def _target_from_row(row: TargetRow) -> Target:
@@ -772,3 +843,512 @@ class RuntimeValidationEvidenceRepository:
             summary=row.summary,
             recorded_at=_timestamp_from_text(row.recorded_at),
         )
+
+
+class SnapshotRepository:
+    """Create-only artifact identity with explicit terminal validation updates."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, snapshot: Snapshot) -> None:
+        self._session.add(
+            SnapshotRow(
+                id=str(snapshot.id),
+                source_managed_instance_id=str(snapshot.source_managed_instance_id),
+                runtime_revision_id=str(snapshot.runtime_revision_id),
+                captured_fixture_definition_id=(
+                    None
+                    if snapshot.captured_fixture_definition_id is None
+                    else str(snapshot.captured_fixture_definition_id)
+                ),
+                captured_at=_timestamp_to_text(snapshot.captured_at),
+                prior_runtime_state=snapshot.prior_runtime_state,
+                label=snapshot.label,
+                manifest_version=snapshot.manifest_version,
+                archive_digest=snapshot.archive_digest,
+                manifest_digest=snapshot.manifest_digest,
+                archive_size=snapshot.archive_size,
+                member_count=snapshot.member_count,
+                state=snapshot.state,
+                validation_at=(
+                    None
+                    if snapshot.validation_at is None
+                    else _timestamp_to_text(snapshot.validation_at)
+                ),
+                validation_result=snapshot.validation_result,
+            )
+        )
+        self._session.flush()
+
+    def get(self, snapshot_id: UUID) -> Snapshot | None:
+        row = self._session.get(SnapshotRow, str(snapshot_id))
+        return None if row is None else _snapshot_from_row(row)
+
+    def list_for_instance(self, instance_id: UUID) -> list[Snapshot]:
+        rows = self._session.scalars(
+            select(SnapshotRow)
+            .where(SnapshotRow.source_managed_instance_id == str(instance_id))
+            .order_by(SnapshotRow.captured_at.desc(), SnapshotRow.id.desc())
+        )
+        return [_snapshot_from_row(row) for row in rows]
+
+    def set_prior_runtime_state(
+        self,
+        snapshot_id: UUID,
+        prior_runtime_state: InstanceRuntimeState,
+    ) -> bool:
+        result = self._session.execute(
+            update(SnapshotRow)
+            .where(
+                SnapshotRow.id == str(snapshot_id),
+                SnapshotRow.state == SnapshotState.CREATING,
+                SnapshotRow.prior_runtime_state.is_(None),
+            )
+            .values(prior_runtime_state=prior_runtime_state)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_available(
+        self,
+        snapshot_id: UUID,
+        *,
+        archive_digest: str,
+        manifest_digest: str,
+        archive_size: int,
+        member_count: int,
+        validated_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(SnapshotRow)
+            .where(
+                SnapshotRow.id == str(snapshot_id),
+                SnapshotRow.state == SnapshotState.CREATING,
+            )
+            .values(
+                archive_digest=archive_digest,
+                manifest_digest=manifest_digest,
+                archive_size=archive_size,
+                member_count=member_count,
+                state=SnapshotState.AVAILABLE,
+                validation_at=_timestamp_to_text(validated_at),
+                validation_result=SnapshotValidationResult.PASSED,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_invalid(
+        self,
+        snapshot_id: UUID,
+        *,
+        quarantined: bool,
+        validated_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(SnapshotRow)
+            .where(
+                SnapshotRow.id == str(snapshot_id),
+                SnapshotRow.state == SnapshotState.CREATING,
+            )
+            .values(
+                state=(
+                    SnapshotState.QUARANTINED if quarantined else SnapshotState.FAILED
+                ),
+                validation_at=_timestamp_to_text(validated_at),
+                validation_result=SnapshotValidationResult.FAILED,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+
+class SnapshotCreateOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: SnapshotCreateOperation) -> None:
+        self._session.add(
+            SnapshotCreateOperationRow(
+                id=str(operation.id),
+                snapshot_id=str(operation.snapshot_id),
+                managed_instance_id=str(operation.managed_instance_id),
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+                reconciliation_required=False,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> SnapshotCreateOperation | None:
+        row = self._session.get(SnapshotCreateOperationRow, str(operation_id))
+        return None if row is None else _snapshot_operation_from_row(row)
+
+    def active_for_instance(self, instance_id: UUID) -> SnapshotCreateOperation | None:
+        row = self._session.scalar(
+            select(SnapshotCreateOperationRow)
+            .where(
+                SnapshotCreateOperationRow.managed_instance_id == str(instance_id),
+                SnapshotCreateOperationRow.state.in_(
+                    (
+                        SnapshotCreateOperationState.QUEUED,
+                        SnapshotCreateOperationState.RUNNING,
+                    )
+                ),
+            )
+            .order_by(SnapshotCreateOperationRow.requested_at.desc())
+            .limit(1)
+        )
+        return None if row is None else _snapshot_operation_from_row(row)
+
+    def latest_for_instance(self, instance_id: UUID) -> SnapshotCreateOperation | None:
+        row = self._session.scalar(
+            select(SnapshotCreateOperationRow)
+            .where(SnapshotCreateOperationRow.managed_instance_id == str(instance_id))
+            .order_by(
+                SnapshotCreateOperationRow.requested_at.desc(),
+                SnapshotCreateOperationRow.id.desc(),
+            )
+            .limit(1)
+        )
+        return None if row is None else _snapshot_operation_from_row(row)
+
+    def list_queued(self) -> list[SnapshotCreateOperation]:
+        rows = self._session.scalars(
+            select(SnapshotCreateOperationRow)
+            .where(
+                SnapshotCreateOperationRow.state == SnapshotCreateOperationState.QUEUED
+            )
+            .order_by(SnapshotCreateOperationRow.requested_at)
+        )
+        return [_snapshot_operation_from_row(row) for row in rows]
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(SnapshotCreateOperationRow)
+            .where(
+                SnapshotCreateOperationRow.id == str(operation_id),
+                SnapshotCreateOperationRow.state == SnapshotCreateOperationState.QUEUED,
+            )
+            .values(
+                state=SnapshotCreateOperationState.RUNNING,
+                phase=SnapshotCreateOperationPhase.ACQUIRING_LEASES,
+                started_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: SnapshotCreateOperationPhase,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(SnapshotCreateOperationRow)
+            .where(
+                SnapshotCreateOperationRow.id == str(operation_id),
+                SnapshotCreateOperationRow.state
+                == SnapshotCreateOperationState.RUNNING,
+                SnapshotCreateOperationRow.lease_token_digest == token_digest,
+                SnapshotCreateOperationRow.lease_expires_at > _timestamp_to_text(now),
+            )
+            .values(
+                phase=phase,
+                heartbeat_at=_timestamp_to_text(now),
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: SnapshotCreateOperationState,
+        phase: SnapshotCreateOperationPhase,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(SnapshotCreateOperationRow)
+            .where(
+                SnapshotCreateOperationRow.id == str(operation_id),
+                SnapshotCreateOperationRow.state
+                == SnapshotCreateOperationState.RUNNING,
+                SnapshotCreateOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                state=state,
+                phase=phase,
+                heartbeat_at=_timestamp_to_text(now),
+                completed_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+        result = self._session.execute(
+            update(SnapshotCreateOperationRow)
+            .where(
+                SnapshotCreateOperationRow.id == str(operation_id),
+                SnapshotCreateOperationRow.state
+                == SnapshotCreateOperationState.RUNNING,
+                SnapshotCreateOperationRow.lease_expires_at <= _timestamp_to_text(now),
+            )
+            .values(
+                state=SnapshotCreateOperationState.RECONCILIATION_REQUIRED,
+                phase=SnapshotCreateOperationPhase.RECONCILIATION_REQUIRED,
+                heartbeat_at=_timestamp_to_text(now),
+                completed_at=_timestamp_to_text(now),
+                failure_reason="Snapshot capture requires operator reconciliation.",
+                reconciliation_required=True,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        rows = list(
+            self._session.scalars(
+                select(SnapshotCreateOperationRow.id)
+                .where(
+                    SnapshotCreateOperationRow.managed_instance_id == str(instance_id),
+                    SnapshotCreateOperationRow.state.not_in(
+                        (
+                            SnapshotCreateOperationState.QUEUED,
+                            SnapshotCreateOperationState.RUNNING,
+                        )
+                    ),
+                )
+                .order_by(
+                    SnapshotCreateOperationRow.requested_at.desc(),
+                    SnapshotCreateOperationRow.id.desc(),
+                )
+                .offset(retain)
+            )
+        )
+        if not rows:
+            return 0
+        result = self._session.execute(
+            delete(SnapshotCreateOperationRow).where(
+                SnapshotCreateOperationRow.id.in_(rows)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
+class ManagedInstanceMutationLeaseRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def reserve(
+        self,
+        instance_id: UUID,
+        *,
+        kind: ManagedInstanceMutationKind,
+        operation_id: UUID,
+    ) -> None:
+        self._session.add(
+            ManagedInstanceMutationLeaseRow(
+                managed_instance_id=str(instance_id),
+                operation_kind=kind,
+                operation_id=str(operation_id),
+            )
+        )
+        self._session.flush()
+
+    def release_expired_short_mutation(
+        self, instance_id: UUID, *, now: datetime
+    ) -> bool:
+        result = self._session.execute(
+            delete(ManagedInstanceMutationLeaseRow).where(
+                ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
+                ManagedInstanceMutationLeaseRow.operation_kind.in_(
+                    (
+                        ManagedInstanceMutationKind.LIFECYCLE,
+                        ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT,
+                        ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT,
+                    )
+                ),
+                ManagedInstanceMutationLeaseRow.lease_token_digest.is_not(None),
+                ManagedInstanceMutationLeaseRow.lease_expires_at
+                <= _timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def claim(
+        self,
+        instance_id: UUID,
+        *,
+        operation_id: UUID,
+        token_digest: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceMutationLeaseRow)
+            .where(
+                ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
+                ManagedInstanceMutationLeaseRow.operation_id == str(operation_id),
+                ManagedInstanceMutationLeaseRow.lease_token_digest.is_(None),
+            )
+            .values(
+                lease_token_digest=token_digest,
+                acquired_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                lease_expires_at=_timestamp_to_text(expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def renew(
+        self,
+        instance_id: UUID,
+        *,
+        operation_id: UUID,
+        token_digest: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(ManagedInstanceMutationLeaseRow)
+            .where(
+                ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
+                ManagedInstanceMutationLeaseRow.operation_id == str(operation_id),
+                ManagedInstanceMutationLeaseRow.lease_token_digest == token_digest,
+                ManagedInstanceMutationLeaseRow.lease_expires_at
+                > _timestamp_to_text(now),
+            )
+            .values(
+                heartbeat_at=_timestamp_to_text(now),
+                lease_expires_at=_timestamp_to_text(expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def release(
+        self, instance_id: UUID, *, operation_id: UUID, token_digest: str
+    ) -> bool:
+        result = self._session.execute(
+            delete(ManagedInstanceMutationLeaseRow).where(
+                ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
+                ManagedInstanceMutationLeaseRow.operation_id == str(operation_id),
+                ManagedInstanceMutationLeaseRow.lease_token_digest == token_digest,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def release_for_operation(self, instance_id: UUID, operation_id: UUID) -> bool:
+        result = self._session.execute(
+            delete(ManagedInstanceMutationLeaseRow).where(
+                ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
+                ManagedInstanceMutationLeaseRow.operation_id == str(operation_id),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def current(self, instance_id: UUID) -> ManagedInstanceMutationLeaseRow | None:
+        return self._session.get(ManagedInstanceMutationLeaseRow, str(instance_id))
+
+
+class GlobalHeavyOperationLeaseRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def reserve(self, *, kind: GlobalHeavyOperationKind, operation_id: UUID) -> None:
+        self._session.add(
+            GlobalHeavyOperationLeaseRow(
+                singleton_id=1, operation_kind=kind, operation_id=str(operation_id)
+            )
+        )
+        self._session.flush()
+
+    def claim(
+        self,
+        *,
+        operation_id: UUID,
+        token_digest: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(GlobalHeavyOperationLeaseRow)
+            .where(
+                GlobalHeavyOperationLeaseRow.singleton_id == 1,
+                GlobalHeavyOperationLeaseRow.operation_id == str(operation_id),
+                GlobalHeavyOperationLeaseRow.lease_token_digest.is_(None),
+            )
+            .values(
+                lease_token_digest=token_digest,
+                acquired_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                lease_expires_at=_timestamp_to_text(expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def renew(
+        self,
+        *,
+        operation_id: UUID,
+        token_digest: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(GlobalHeavyOperationLeaseRow)
+            .where(
+                GlobalHeavyOperationLeaseRow.singleton_id == 1,
+                GlobalHeavyOperationLeaseRow.operation_id == str(operation_id),
+                GlobalHeavyOperationLeaseRow.lease_token_digest == token_digest,
+                GlobalHeavyOperationLeaseRow.lease_expires_at > _timestamp_to_text(now),
+            )
+            .values(
+                heartbeat_at=_timestamp_to_text(now),
+                lease_expires_at=_timestamp_to_text(expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def release(self, *, operation_id: UUID, token_digest: str) -> bool:
+        result = self._session.execute(
+            delete(GlobalHeavyOperationLeaseRow).where(
+                GlobalHeavyOperationLeaseRow.singleton_id == 1,
+                GlobalHeavyOperationLeaseRow.operation_id == str(operation_id),
+                GlobalHeavyOperationLeaseRow.lease_token_digest == token_digest,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def release_for_operation(self, operation_id: UUID) -> bool:
+        result = self._session.execute(
+            delete(GlobalHeavyOperationLeaseRow).where(
+                GlobalHeavyOperationLeaseRow.singleton_id == 1,
+                GlobalHeavyOperationLeaseRow.operation_id == str(operation_id),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def current(self) -> GlobalHeavyOperationLeaseRow | None:
+        return self._session.get(GlobalHeavyOperationLeaseRow, 1)

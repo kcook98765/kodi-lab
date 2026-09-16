@@ -46,6 +46,11 @@ def test_protected_routes_require_authentication(client: TestClient) -> None:
     assert response.headers["location"] == "/login"
     assert client.get("/api/instances").status_code == 401
     assert client.get(f"/api/instances/{INSTANCE_ID}/reset-status").status_code == 401
+    assert client.get(f"/api/instances/{INSTANCE_ID}/snapshots").status_code == 401
+    assert (
+        client.post(f"/api/instances/{INSTANCE_ID}/snapshots", json={}).status_code
+        == 401
+    )
 
 
 def _assign_v2(database: sessionmaker[Session]) -> None:
@@ -625,3 +630,100 @@ def test_unconfigured_credentials_have_no_browser_bootstrap_route(
         )
         assert response.status_code == 401
         assert test_client.post("/signup", headers=ORIGIN).status_code == 404
+
+
+def test_snapshot_create_requires_csrf_origin_and_identity_only_body(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    csrf = login(client)
+    route = f"/api/instances/{INSTANCE_ID}/snapshots"
+    assert client.post(route, json={}).status_code == 403
+    assert (
+        client.post(
+            route,
+            json={},
+            headers={
+                "Origin": "http://attacker.invalid",
+                "X-Kodi-Lab-CSRF": csrf,
+            },
+        ).status_code
+        == 403
+    )
+    injected = client.post(
+        route,
+        json={
+            "label": "safe",
+            "container_id": CONTAINER_ID,
+            "runtime_revision_id": str(REVISION_ID),
+            "fixture": "attacker",
+            "path": "/tmp/attacker",
+            "archive": "bytes",
+            "snapshot_id": str(uuid4()),
+            "tar_flags": ["--absolute-names"],
+        },
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert injected.status_code == 422
+    assert broker.calls == []
+
+
+def test_snapshot_create_returns_202_and_exposes_only_safe_status(
+    client: TestClient,
+) -> None:
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    response = client.post(
+        f"/api/instances/{INSTANCE_ID}/snapshots",
+        json={"label": "  safe label  "},
+        headers=headers,
+    )
+    assert response.status_code == 202
+    document = response.json()
+    assert set(document) == {"snapshot_id", "operation"}
+    assert document["operation"]["state"] in {"queued", "running", "failed"}
+    forbidden = {"path", "members", "archive", "manifest", "container_id"}
+    serialized = str(document).lower()
+    assert all(value not in serialized for value in forbidden)
+    operation_id = document["operation"]["operation_id"]
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        status_response = client.get(
+            f"/api/instances/{INSTANCE_ID}/snapshot-create-operations/{operation_id}"
+        )
+        assert status_response.status_code == 200
+        if status_response.json()["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+    listing = client.get(f"/api/instances/{INSTANCE_ID}/snapshots")
+    assert listing.status_code == 200
+    item = listing.json()[0]
+    assert item["label"] == "safe label"
+    assert item["runtime_revision_id"] == str(REVISION_ID)
+    assert not forbidden.intersection(item)
+
+
+def test_snapshot_html_escapes_labels_and_no_content_routes_exist(
+    client: TestClient,
+) -> None:
+    csrf = login(client)
+    response = client.post(
+        f"/api/instances/{INSTANCE_ID}/snapshots",
+        json={"label": "<script>alert(1)<script>"},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 202
+    snapshot_id = response.json()["snapshot_id"]
+    page = client.get(f"/instances/{INSTANCE_ID}/snapshots")
+    assert page.status_code == 200
+    assert "&lt;script&gt;alert(1)&lt;script&gt;" in page.text
+    assert "<script>alert(1)<script>" not in page.text
+    for suffix in ("download", "restore", "delete", "manifest"):
+        assert client.get(f"/api/snapshots/{snapshot_id}/{suffix}").status_code == 404
+        assert (
+            client.post(
+                f"/api/snapshots/{snapshot_id}/{suffix}",
+                json={},
+                headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+            ).status_code
+            == 404
+        )
