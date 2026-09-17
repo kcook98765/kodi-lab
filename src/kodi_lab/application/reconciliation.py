@@ -28,6 +28,9 @@ from kodi_lab.broker.operations import (
     ObserveManagedKodiRuntimeResult,
 )
 from kodi_lab.domain import (
+    DevelopmentSourceDeploymentConfidence,
+    DevelopmentSourceDeploymentOperation,
+    DevelopmentSourceDeploymentOperationState,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
     ManagedInstanceDeleteOperation,
@@ -54,6 +57,8 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
 )
 from kodi_lab.storage.repositories import (
+    DevelopmentSourceDeploymentOperationRepository,
+    DevelopmentSourceDeploymentRepository,
     GlobalHeavyOperationLeaseRepository,
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceLifecycleOperationRepository,
@@ -86,6 +91,7 @@ class ManagedInstanceReconciliationRequiredError(RuntimeError):
 
 
 class ReconciliationOperationKind(StrEnum):
+    DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -109,6 +115,7 @@ class ReconciliationAction(StrEnum):
     FIXTURE_ASSIGNMENT = "fixture_assignment"
     RUNTIME_REASSIGNMENT = "runtime_reassignment"
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
+    DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
 
 
 INSTANCE_MUTATIONS = [
@@ -123,6 +130,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.FIXTURE_ASSIGNMENT,
     ReconciliationAction.RUNTIME_REASSIGNMENT,
     ReconciliationAction.DEVELOPMENT_SOURCE_ATTACHMENT,
+    ReconciliationAction.DEVELOPMENT_SOURCE_DEPLOYMENT,
 ]
 
 
@@ -137,7 +145,7 @@ class ManagedInstanceReconciliationStatus(BaseModel):
     last_phase: str | None = Field(default=None, max_length=64)
     safe_reason: str | None = Field(default=None, max_length=256)
     observed_state: str | None = Field(default=None, max_length=64)
-    blocked_actions: list[ReconciliationAction] = Field(max_length=11)
+    blocked_actions: list[ReconciliationAction] = Field(max_length=12)
     requested_at: datetime | None = None
     started_at: datetime | None = None
     stale_since: datetime | None = None
@@ -306,6 +314,7 @@ class StaleOperationReconciliationDispatcher:
             | SnapshotRestoreOperation
             | ManagedInstanceDeleteOperation
             | ManagedInstanceLifecycleOperation
+            | DevelopmentSourceDeploymentOperation
             | None
         )
         if kind is ManagedInstanceMutationKind.LIFECYCLE:
@@ -426,6 +435,38 @@ class StaleOperationReconciliationDispatcher:
                 now,
             )
             released += 1
+        elif kind is ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_DEPLOYMENT:
+            operation = DevelopmentSourceDeploymentOperationRepository(session).get(
+                operation_id
+            )
+            self._validate_operation(operation, instance_id, digest, now)
+            self._require_matching_global(
+                session,
+                GlobalHeavyOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT,
+                operation_id,
+                digest,
+                now,
+            )
+            if not DevelopmentSourceDeploymentOperationRepository(
+                session
+            ).mark_stale_reconciliation(operation_id, token_digest=digest, now=now):
+                raise CoordinationCorruptionError(
+                    "Expired development-source deployment ownership changed."
+                )
+            assert isinstance(operation, DevelopmentSourceDeploymentOperation)
+            DevelopmentSourceDeploymentRepository(session).mark_confidence(
+                instance_id,
+                operation.development_source_id,
+                DevelopmentSourceDeploymentConfidence.UNKNOWN,
+            )
+            self._release_global(
+                session,
+                GlobalHeavyOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT,
+                operation_id,
+                digest,
+                now,
+            )
+            released += 1
         elif kind is ManagedInstanceMutationKind.INSTANCE_DELETE:
             operation = ManagedInstanceDeleteOperationRepository(session).get(
                 operation_id
@@ -484,6 +525,7 @@ class StaleOperationReconciliationDispatcher:
             | SnapshotCreateOperation
             | SnapshotRestoreOperation
             | ManagedInstanceDeleteOperation
+            | DevelopmentSourceDeploymentOperation
             | None
         )
         if kind is GlobalHeavyOperationKind.SNAPSHOT_DELETE:
@@ -510,6 +552,10 @@ class StaleOperationReconciliationDispatcher:
             operation = ManagedInstanceDeleteOperationRepository(session).get(
                 operation_id
             )
+        elif kind is GlobalHeavyOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT:
+            operation = DevelopmentSourceDeploymentOperationRepository(session).get(
+                operation_id
+            )
         else:
             raise CoordinationCorruptionError("Unsupported global reservation kind.")
         if operation is None:
@@ -519,6 +565,10 @@ class StaleOperationReconciliationDispatcher:
             if isinstance(operation, ManagedInstanceDeleteOperation)
             else operation.managed_instance_id
         )
+        if instance_id is None:
+            raise CoordinationCorruptionError(
+                "Paired mutation reservation has no live instance identity."
+            )
         mutation = ManagedInstanceMutationLeaseRepository(session).current(instance_id)
         if mutation is None:
             raise CoordinationCorruptionError("Paired mutation reservation is missing.")
@@ -532,6 +582,7 @@ class StaleOperationReconciliationDispatcher:
         | SnapshotRestoreOperation
         | SnapshotDeleteOperation
         | ManagedInstanceDeleteOperation
+        | DevelopmentSourceDeploymentOperation
         | None,
         instance_id: UUID | None,
         digest: str,
@@ -554,6 +605,7 @@ class StaleOperationReconciliationDispatcher:
             SnapshotRestoreOperationState.RUNNING,
             SnapshotDeleteOperationState.RUNNING,
             ManagedInstanceDeleteOperationState.RUNNING,
+            DevelopmentSourceDeploymentOperationState.RUNNING,
         }
         if operation.state not in running_states:
             raise CoordinationCorruptionError("Reservation owner is not running.")
@@ -650,6 +702,12 @@ class ManagedInstanceReconciliationService:
                     session
                 ).reconciliation_for_instance(instance_id)
             )
+            records.extend(
+                (ReconciliationOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT, item)
+                for item in DevelopmentSourceDeploymentOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
             snapshots = SnapshotRepository(session)
             if (
                 len(records) == 1
@@ -700,6 +758,8 @@ class ManagedInstanceReconciliationService:
             )
             observed = semantic.value
             blocking = not semantic_state_is_unambiguous(semantic)
+        elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT:
+            observed = "deployment_destination_requires_read_only_inspection"
         reason = {
             ReconciliationOperationKind.LIFECYCLE: (
                 "Lifecycle state requires operator reconciliation."
@@ -716,6 +776,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.INSTANCE_DELETE: (
                 "Instance deletion requires operator reconciliation."
             ),
+            ReconciliationOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT: (
+                "Development-source deployment requires operator reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -725,6 +788,7 @@ class ManagedInstanceReconciliationService:
                 SnapshotRestoreOperation,
                 ManagedInstanceDeleteOperation,
                 ManagedInstanceLifecycleOperation,
+                DevelopmentSourceDeploymentOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(

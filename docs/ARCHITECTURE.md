@@ -575,11 +575,6 @@ global-heavy authority. Their succeeded/failed terminal history is
 operation-specific, survives instance deletion through immutable original UUID
 plus nullable live FK, and joins the metadata-only activity projection.
 
-Phase 8 still has no deployment or inventory state, broker source operation,
-Docker source access, Web source mutation, ZIP/repository handling, Git
-interpretation, source watcher, or deployment reconciliation behavior. See
-`PHASE8-ADDON-DEVELOPMENT.md`.
-
 Step 3 adds an authenticated read-only Web projection over the catalog and
 current attachment metadata. Global list/detail HTML and JSON expose only the
 path-free application DTO, registration-time observations, validation time,
@@ -594,3 +589,37 @@ attachment is not deployment. The Web receives neither configured development
 root nor relative locator, has no source content/download surface, and gains no
 registration, attach/detach, deployment, filesystem, Docker, or broker
 authority.
+
+Step 4 adds one stopped-only copy/sync path. A strict empty-body authenticated
+POST queues a typed durable operation only for an attached local directory and
+an exactly stopped, provisioned disposable instance. It reserves both the
+per-instance mutation and global-heavy leases. The semantic broker request
+carries only instance, source, expected container, and operation UUIDs; the
+broker independently resolves all filesystem, runtime, ownership, destination,
+policy, and Docker authority.
+
+The broker captures the tree twice descriptor-relatively and no-follow into a
+root-private immutable stage. Only directories and single-link regular files
+are admitted under fixed entry, byte, path, depth, component, and manifest
+bounds. Exact VCS administration directories are excluded. Canonical source
+manifests normalize modes and never preserve source ownership, ACLs, xattrs, or
+mtimes. Destination ownership derives from the pinned RuntimeExecutionProfile.
+
+An existing destination is eligible only when a fresh full readback exactly
+matches retained successful full-destination evidence for the same trusted
+instance/source/add-on/runtime/container context. New and changed files alone
+enter the delta; unchanged paths do not, and nothing is deleted. A previously
+verified destination entry later absent from source is preserved as
+destination-only and remains in the next full destination evidence. Any entry
+added or altered outside a verified deployment is unexplained drift and blocks
+sync as a replacement conflict. Thus source and destination digests are
+deliberately distinct and may differ after no-delete synchronization.
+
+Deployment evidence is separate from attachment and carries explicit verified,
+stale, or unknown confidence. Reset, restore, and runtime/container replacement
+invalidate before destruction; Snapshot create does not. Typed deployment
+history joins activity and survives instance deletion, while current evidence
+does not. Partial application and expired work become reconciliation-required;
+no operation resumes, repairs, recopies, or rolls back by deletion. Kodi is
+never started and JSON-RPC, enablement, recognition, bind mounts, ZIPs,
+repositories, watchers, and MCP authority remain outside Step 4.

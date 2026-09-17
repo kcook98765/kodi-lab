@@ -24,6 +24,7 @@ from kodi_lab.broker.errors import (
     ContainerMustBeStoppedClientError,
     ContainerStateNotReconcilableClientError,
     ContainerStateNotStoppableClientError,
+    DevelopmentSourceDeploymentClientError,
     DockerCreateClientError,
     DockerDaemonUnavailableClientError,
     DockerInventoryClientError,
@@ -64,6 +65,8 @@ from kodi_lab.broker.operations import (
     CapabilitiesResult,
     CaptureManagedInstanceSnapshotParams,
     CaptureManagedInstanceSnapshotResult,
+    CopySyncAttachedDevelopmentSourceParams,
+    CopySyncAttachedDevelopmentSourceResult,
     DeleteManagedSnapshotArtifactParams,
     DeleteManagedSnapshotArtifactResult,
     DeprovisionManagedContainerParams,
@@ -424,6 +427,44 @@ class BrokerClient:
             )
         return result
 
+    def copy_sync_attached_development_source(
+        self,
+        *,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+        deployment_operation_id: str,
+    ) -> CopySyncAttachedDevelopmentSourceResult:
+        """Copy/sync only one broker-resolved attached local source."""
+
+        try:
+            params = CopySyncAttachedDevelopmentSourceParams(
+                managed_instance_id=managed_instance_id,
+                development_source_id=development_source_id,
+                expected_container_id=expected_container_id,
+                deployment_operation_id=deployment_operation_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "development-source deployment failed local validation"
+            ) from error
+        result = self._call(
+            "copy_sync_attached_development_source",
+            params,
+            CopySyncAttachedDevelopmentSourceResult,
+            response_timeout=900.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.development_source_id != development_source_id
+            or result.deployment_operation_id != deployment_operation_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "development-source deployment result identity differs"
+            )
+        return result
+
     def _call(
         self,
         operation: str,
@@ -631,6 +672,60 @@ class BrokerClient:
                 "snapshot_delete_race": SnapshotDeleteClientError,
                 "snapshot_delete_failed": SnapshotDeleteClientError,
                 "snapshot_delete_absence_unproven": SnapshotDeleteClientError,
+                "development_source_deployment_state_invalid": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_identity_invalid": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_identity_changed": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_changed_during_capture": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_tree_bounds": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_unsafe_name": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_unsafe_entry": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_unreadable": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_unavailable": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_replacement_conflict": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_type_conflict": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_destination_unsafe": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_destination_bounds": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_destination_verification_failed": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_apply_unverified": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_reconciliation_required": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_deployment_failed": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "development_source_staging_unavailable": (
+                    DevelopmentSourceDeploymentClientError
+                ),
             }
             error_type = error_types.get(error_response.error.code, RemoteBrokerError)
             raise error_type(

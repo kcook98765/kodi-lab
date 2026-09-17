@@ -11,10 +11,12 @@ from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.domain import (
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
+    DevelopmentSourceDeploymentOperationState,
     ManagedInstanceLifecycleKind,
 )
 from kodi_lab.storage.repositories import (
     DevelopmentSourceAttachmentOperationRepository,
+    DevelopmentSourceDeploymentOperationRepository,
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceRepository,
@@ -27,6 +29,7 @@ from kodi_lab.storage.repositories import (
 
 class ManagedInstanceActivityKind(StrEnum):
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
+    DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -56,6 +59,7 @@ class ManagedInstanceActivityItem(BaseModel):
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_DEPLOYMENT: 8,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT: 7,
     ManagedInstanceActivityKind.LIFECYCLE: 6,
     ManagedInstanceActivityKind.RESET: 5,
@@ -133,6 +137,35 @@ class ManagedInstanceActivityService:
                     summary=summary,
                     reconciliation_required=False,
                     development_source_attachment_kind=operation.kind,
+                )
+            )
+        for deployment in DevelopmentSourceDeploymentOperationRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            if (
+                deployment.state is DevelopmentSourceDeploymentOperationState.SUCCEEDED
+                and deployment.result_classification is not None
+            ):
+                summary = (
+                    "Development source copy "
+                    f"{deployment.result_classification.value.replace('_', ' ')}"
+                )
+            else:
+                summary = (
+                    "Development source copy "
+                    f"{deployment.state.value.replace('_', ' ')}"
+                )
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_DEPLOYMENT,
+                    operation_uuid=deployment.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=deployment.requested_at,
+                    started_at=deployment.started_at,
+                    completed_at=deployment.completed_at,
+                    state=deployment.state.value,
+                    summary=summary,
+                    reconciliation_required=deployment.reconciliation_required,
                 )
             )
         for lifecycle in ManagedInstanceLifecycleOperationRepository(

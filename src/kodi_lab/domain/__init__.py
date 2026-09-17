@@ -7,6 +7,16 @@ from kodi_lab.domain.development_source_attachments import (
     DevelopmentSourceAttachmentOperationState,
     ManagedInstanceDevelopmentSource,
 )
+from kodi_lab.domain.development_source_deployments import (
+    DevelopmentSourceDeployment,
+    DevelopmentSourceDeploymentConfidence,
+    DevelopmentSourceDeploymentMode,
+    DevelopmentSourceDeploymentOperation,
+    DevelopmentSourceDeploymentOperationPhase,
+    DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceDeploymentRequestKind,
+    DevelopmentSourceDeploymentResult,
+)
 from kodi_lab.domain.development_sources import (
     MAX_ADDON_ID,
     MAX_ADDON_NAME,
@@ -116,6 +126,14 @@ __all__ = [
     "DevelopmentSourceAttachmentOperation",
     "DevelopmentSourceAttachmentOperationKind",
     "DevelopmentSourceAttachmentOperationState",
+    "DevelopmentSourceDeployment",
+    "DevelopmentSourceDeploymentConfidence",
+    "DevelopmentSourceDeploymentMode",
+    "DevelopmentSourceDeploymentOperation",
+    "DevelopmentSourceDeploymentOperationPhase",
+    "DevelopmentSourceDeploymentOperationState",
+    "DevelopmentSourceDeploymentRequestKind",
+    "DevelopmentSourceDeploymentResult",
     "DevelopmentSourceKind",
     "EffectiveValidationState",
     "FixtureContentCategory",

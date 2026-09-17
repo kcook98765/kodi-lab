@@ -20,6 +20,7 @@ from kodi_lab.broker.docker_inventory import (
     KodiProcessState,
 )
 from kodi_lab.broker.operations import (
+    CopySyncAttachedDevelopmentSourceResult,
     DeleteManagedSnapshotArtifactResult,
     DeprovisionManagedContainerResult,
     ManagedContainerInventoryEntry,
@@ -196,6 +197,43 @@ class FakeBroker:
             snapshot_id=snapshot_id,
             artifact_absent=True,
             artifact_was_present=True,
+        )
+
+    def copy_sync_attached_development_source(
+        self,
+        *,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+        deployment_operation_id: str,
+    ) -> CopySyncAttachedDevelopmentSourceResult:
+        self.calls.append(
+            (
+                "copy_sync_development_source",
+                {
+                    "managed_instance_id": managed_instance_id,
+                    "development_source_id": development_source_id,
+                    "expected_container_id": expected_container_id,
+                    "deployment_operation_id": deployment_operation_id,
+                },
+            )
+        )
+        return CopySyncAttachedDevelopmentSourceResult(
+            managed_instance_id=managed_instance_id,
+            development_source_id=development_source_id,
+            deployment_operation_id=deployment_operation_id,
+            runtime_revision_id=str(REVISION_ID),
+            container_id=expected_container_id,
+            result_classification="initial_deployment",
+            source_manifest_digest="sha256:" + "1" * 64,
+            verified_destination_digest="sha256:" + "2" * 64,
+            observed_source_name="Alpha Video",
+            observed_source_version="1.2.3",
+            new_count=1,
+            changed_count=0,
+            unchanged_count=0,
+            destination_only_count=0,
+            transferred_bytes=10,
         )
 
 

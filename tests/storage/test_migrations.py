@@ -35,6 +35,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     assert set(inspector.get_table_names()) == {
         "alembic_version",
         "development_source_attachment_operations",
+        "development_source_deployment_operations",
+        "development_source_deployments",
         "development_sources",
         "fixture_definitions",
         "global_heavy_operation_lease",
@@ -2175,3 +2177,114 @@ def test_0019_empty_downgrade_and_reupgrade(
     engine.dispose()
     command.upgrade(config, "head")
     command.check(config)
+
+
+def test_0020_deployment_schema_empty_lifecycle_and_metadata_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0019_runtime_execution_ownership")
+    engine = create_database_engine(database_url)
+    assert "development_source_deployments" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        "development_source_deployments",
+        "development_source_deployment_operations",
+    } <= set(inspector.get_table_names())
+    evidence_foreign_keys = {
+        item["constrained_columns"][0]: item
+        for item in inspector.get_foreign_keys("development_source_deployments")
+    }
+    assert (
+        evidence_foreign_keys["last_successful_operation_id"]["referred_table"]
+        == "development_source_deployment_operations"
+    )
+    assert evidence_foreign_keys["last_successful_operation_id"]["options"] == {
+        "ondelete": "RESTRICT"
+    }
+    with engine.connect() as connection:
+        mutation_sql = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'managed_instance_mutation_leases'"
+            )
+        )
+        heavy_sql = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'global_heavy_operation_lease'"
+            )
+        )
+    assert "development_source_deployment" in mutation_sql
+    assert "development_source_deployment" in heavy_sql
+    engine.dispose()
+    command.check(config)
+
+    command.downgrade(config, "0019_runtime_execution_ownership")
+    engine = create_database_engine(database_url)
+    assert {
+        "development_source_deployments",
+        "development_source_deployment_operations",
+    }.isdisjoint(inspect(engine).get_table_names())
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_0020_populated_downgrade_refuses_without_data_loss(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    source_id = "aa200000-0000-4000-8000-000000000001"
+    operation_id = "aa200000-0000-4000-8000-000000000002"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id, logical_name, source_kind, relative_locator, addon_id, "
+                "observed_name, observed_version, extension_types_json, "
+                "registered_at, validated_at) VALUES "
+                "(:id, 'Source', 'local_directory', 'source', "
+                "'plugin.video.example', 'Example', '1.0.0', "
+                "'[\"xbmc.python.pluginsource\"]', :at, :at)"
+            ),
+            {"id": source_id, "at": "2026-09-16T22:00:00.000000Z"},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO development_source_deployment_operations "
+                "(id, original_managed_instance_id, managed_instance_id, "
+                "development_source_id, source_logical_name, addon_id, "
+                "runtime_revision_id, request_kind, requested_at, state, phase, "
+                "failure_reason, reconciliation_required) VALUES "
+                "(:id, :instance, NULL, :source, 'Source', "
+                "'plugin.video.example', :revision, 'copy_sync', :at, "
+                "'failed', 'finalize', 'typed failure', 0)"
+            ),
+            {
+                "id": operation_id,
+                "instance": "aa200000-0000-4000-8000-000000000003",
+                "source": source_id,
+                "revision": "aa200000-0000-4000-8000-000000000004",
+                "at": "2026-09-16T22:00:00.000000Z",
+            },
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated development-source"):
+        command.downgrade(config, "0019_runtime_execution_ownership")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT COUNT(*) FROM development_source_deployment_operations")
+            )
+            == 1
+        )
+    engine.dispose()

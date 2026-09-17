@@ -49,6 +49,14 @@ from kodi_lab.domain import (
     KODI_RUNTIME_VALIDATION_CONTRACT,
     ConnectionState,
     DevelopmentSource,
+    DevelopmentSourceDeployment,
+    DevelopmentSourceDeploymentConfidence,
+    DevelopmentSourceDeploymentMode,
+    DevelopmentSourceDeploymentOperation,
+    DevelopmentSourceDeploymentOperationPhase,
+    DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceDeploymentRequestKind,
+    DevelopmentSourceDeploymentResult,
     DevelopmentSourceKind,
     HealthStatus,
     InstanceRuntimeState,
@@ -79,6 +87,8 @@ from kodi_lab.kodi.readiness import (
 from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
+    DevelopmentSourceDeploymentOperationRepository,
+    DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
     FixtureDefinitionRepository,
     ManagedInstanceDevelopmentSourceRepository,
@@ -463,6 +473,7 @@ def test_reset_preserves_development_source_attachment_exactly(
 ) -> None:
     instance_id, revision_id, _fixture = seed_reset_context(session_factory)
     source_id = UUID("98400000-0000-4000-8000-000000000001")
+    operation_id = UUID("98400000-0000-4000-8000-000000000002")
     attached_at = datetime(2026, 9, 16, 22, 0, tzinfo=UTC)
     with session_factory.begin() as session:
         DevelopmentSourceRepository(session).create(
@@ -482,7 +493,56 @@ def test_reset_preserves_development_source_attachment_exactly(
         ManagedInstanceDevelopmentSourceRepository(session).create(
             ManagedInstanceDevelopmentSource(instance_id, source_id, attached_at)
         )
+        DevelopmentSourceDeploymentOperationRepository(session).create(
+            DevelopmentSourceDeploymentOperation(
+                id=operation_id,
+                original_managed_instance_id=instance_id,
+                managed_instance_id=instance_id,
+                development_source_id=source_id,
+                source_logical_name="Reset attachment",
+                addon_id="plugin.video.reset-attachment",
+                runtime_revision_id=revision_id,
+                request_kind=DevelopmentSourceDeploymentRequestKind.COPY_SYNC,
+                requested_at=attached_at,
+                state=DevelopmentSourceDeploymentOperationState.SUCCEEDED,
+                phase=DevelopmentSourceDeploymentOperationPhase.FINALIZE,
+                result_classification=DevelopmentSourceDeploymentResult.INITIAL_DEPLOYMENT,
+                expected_container_id="1" * 64,
+                completed_at=attached_at,
+            )
+        )
+        DevelopmentSourceDeploymentRepository(session).upsert_verified(
+            DevelopmentSourceDeployment(
+                managed_instance_id=instance_id,
+                development_source_id=source_id,
+                addon_id="plugin.video.reset-attachment",
+                mode=DevelopmentSourceDeploymentMode.COPY,
+                last_successful_operation_id=operation_id,
+                source_manifest_digest="sha256:" + "1" * 64,
+                verified_destination_digest="sha256:" + "2" * 64,
+                runtime_revision_id=revision_id,
+                trusted_container_id="1" * 64,
+                observed_source_name="Reset attachment",
+                observed_source_version="1.0.0",
+                verified_at=attached_at,
+                confidence=DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION,
+            )
+        )
     broker = FakeBroker(instance_id, revision_id, state=ContainerRuntimeState.STOPPED)
+    original_deprovision = broker.deprovision_managed_container
+
+    def deprovision_after_invalidation(
+        **kwargs: object,
+    ) -> DeprovisionManagedContainerResult:
+        with session_factory() as session:
+            evidence = DevelopmentSourceDeploymentRepository(session).get(
+                instance_id, source_id
+            )
+        assert evidence is not None
+        assert evidence.confidence is DevelopmentSourceDeploymentConfidence.STALE
+        return original_deprovision(**kwargs)
+
+    broker.deprovision_managed_container = deprovision_after_invalidation  # type: ignore[method-assign]
 
     service(session_factory, broker).reset(instance_id)
 
@@ -490,9 +550,14 @@ def test_reset_preserves_development_source_attachment_exactly(
         retained = ManagedInstanceDevelopmentSourceRepository(session).get(
             instance_id, source_id
         )
+        evidence = DevelopmentSourceDeploymentRepository(session).get(
+            instance_id, source_id
+        )
     assert retained == ManagedInstanceDevelopmentSource(
         instance_id, source_id, attached_at
     )
+    assert evidence is not None
+    assert evidence.confidence is DevelopmentSourceDeploymentConfidence.STALE
     assert "apply_fixture" not in broker.calls
 
 

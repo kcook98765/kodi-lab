@@ -241,3 +241,11 @@ class DevelopmentSourceValidator:
             observed_version=observed_version,
             extension_types=extension_types,
         )
+
+
+def parse_captured_addon_xml(
+    relative_locator: str, document: bytes
+) -> DevelopmentSourceValidationResult:
+    """Parse broker-captured root addon.xml bytes under the catalog contract."""
+
+    return DevelopmentSourceValidator._parse_addon_xml(relative_locator, document)

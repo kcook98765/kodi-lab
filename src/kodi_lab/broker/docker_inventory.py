@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import stat
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import IPv4Address, IPv4Network
-from typing import Protocol, cast
+from pathlib import Path
+from typing import Literal, Protocol, cast
+from uuid import UUID
 
 import docker  # type: ignore[import-untyped]
 from docker.errors import (  # type: ignore[import-untyped]
@@ -17,6 +22,7 @@ from docker.errors import (  # type: ignore[import-untyped]
     NotFound,
 )
 
+from kodi_lab.broker.development_sources import DevelopmentSourceDeploymentSpec
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
     ContainerIdentityPreconditionError,
@@ -25,6 +31,7 @@ from kodi_lab.broker.errors import (
     ContainerStateNotStoppableError,
     DockerCreateError,
     DockerDaemonUnavailableError,
+    DockerDevelopmentSourceDeploymentError,
     DockerFixtureArchiveError,
     DockerInventoryReadError,
     DockerRemoveError,
@@ -61,6 +68,19 @@ from kodi_lab.broker.provisioning import (
     ManagedRuntimeObservationSpec,
 )
 from kodi_lab.broker.snapshots import SnapshotCaptureSpec, SnapshotRestoreSpec
+from kodi_lab.development import (
+    DevelopmentSourceValidationError,
+    parse_captured_addon_xml,
+)
+from kodi_lab.development.deployment import (
+    DevelopmentTreeError,
+    build_delta_archive,
+    capture_destination_archive,
+    capture_development_tree,
+    classify_delta,
+    compare_captures,
+    verify_destination,
+)
 from kodi_lab.fixtures.package import (
     FIXTURE_CONTAINER_DESTINATION,
     FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS,
@@ -93,6 +113,7 @@ NETWORK_ID_LABEL_VALUE = "managed-v1"
 
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_PRIVATE_DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
 _FIXED_LIST_FILTERS: Mapping[str, list[str]] = {
     "label": [f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}"]
 }
@@ -227,6 +248,27 @@ class AppliedManagedInstanceSnapshotRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class AppliedDevelopmentSourceDeploymentRecord:
+    """Safe aggregate proof from one stopped-only copy/sync operation."""
+
+    managed_instance_id: str
+    development_source_id: str
+    deployment_operation_id: str
+    runtime_revision_id: str
+    container_id: str
+    result_classification: Literal["initial_deployment", "synchronized", "unchanged"]
+    source_manifest_digest: str
+    verified_destination_digest: str
+    observed_source_name: str
+    observed_source_version: str
+    new_count: int
+    changed_count: int
+    unchanged_count: int
+    destination_only_count: int
+    transferred_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class _ReconciliationRecord:
     managed_instance_id: str
     container_id: str
@@ -316,6 +358,16 @@ class ManagedInstanceSnapshotApplyProvider(Protocol):
         self, *, spec: SnapshotRestoreSpec, expected_container_id: str
     ) -> AppliedManagedInstanceSnapshotRecord:
         """Apply one trusted central snapshot to one exact fresh stopped container."""
+
+
+class DevelopmentSourceDeploymentProvider(Protocol):
+    def copy_sync_attached_development_source(
+        self,
+        *,
+        spec: DevelopmentSourceDeploymentSpec,
+        expected_container_id: str,
+    ) -> AppliedDevelopmentSourceDeploymentRecord:
+        """Copy only one attached source to one exact stopped container."""
 
 
 class _DockerClient(Protocol):
@@ -654,6 +706,298 @@ class DockerManagedContainerAdapter:
             if client is not None:
                 with suppress(DockerException, OSError):
                     client.close()
+
+    def copy_sync_attached_development_source(
+        self,
+        *,
+        spec: DevelopmentSourceDeploymentSpec,
+        expected_container_id: str,
+    ) -> AppliedDevelopmentSourceDeploymentRecord:
+        """Capture twice, apply only a delta, and verify one fixed destination."""
+
+        if _CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None:
+            raise ContainerIdentityPreconditionError(
+                "Expected container identity is not canonical"
+            )
+        operation_stage = self._create_deployment_stage(spec)
+        source_stage = operation_stage / "source"
+        archive_path = operation_stage / "delta.tar"
+        client: _SnapshotDockerClient | None = None
+        apply_started = False
+        try:
+            source_stage.mkdir(mode=0o700)
+            first = capture_development_tree(
+                spec.development_root,
+                spec.relative_locator,
+                stage_root=source_stage,
+            )
+            addon_xml = source_stage / "addon.xml"
+            try:
+                observed = parse_captured_addon_xml(
+                    spec.relative_locator, addon_xml.read_bytes()
+                )
+            except (OSError, DevelopmentSourceValidationError) as error:
+                raise DockerDevelopmentSourceDeploymentError(
+                    "development_source_identity_invalid",
+                    "Captured add-on identity is invalid.",
+                ) from error
+            if observed.addon_id != spec.addon_id:
+                raise DockerDevelopmentSourceDeploymentError(
+                    "development_source_identity_changed",
+                    "Development source add-on identity changed.",
+                )
+            second = capture_development_tree(
+                spec.development_root, spec.relative_locator
+            )
+            compare_captures(first, second)
+
+            client = cast(_SnapshotDockerClient, self._client_factory())
+            summaries = client.containers(
+                all=True,
+                filters={
+                    "label": [
+                        f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                        f"{INSTANCE_ID_LABEL_KEY}={spec.managed_instance_id}",
+                    ]
+                },
+            )
+            if not isinstance(summaries, list):
+                raise DockerInventoryReadError("Docker returned malformed selection")
+            if not summaries:
+                raise ManagedContainerNotFoundError(
+                    "No owned container exists for development-source deployment"
+                )
+            if len(summaries) != 1:
+                raise AmbiguousManagedContainerError(
+                    "Multiple containers have the managed instance identity"
+                )
+            selected_id = _require_container_id(
+                _require_mapping(summaries[0]).get("Id")
+            )
+            inspected = _require_mapping(client.inspect_container(selected_id))
+            self._validate_deprovision_candidate(
+                inspected,
+                selected_container_id=selected_id,
+                managed_instance_id=spec.managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=spec.runtime_revision_id,
+            )
+
+            destination = f"/home/kodi/.kodi/addons/{spec.addon_id}"
+            try:
+                before_stream, _ = client.get_archive(selected_id, destination)
+                before = capture_destination_archive(
+                    cast(Iterable[bytes], before_stream), root_name=spec.addon_id
+                )
+            except NotFound:
+                before = None
+            if before is not None:
+                evidence = spec.prior_evidence
+                if (
+                    evidence is None
+                    or evidence.confidence.value != "verified_at_last_operation"
+                    or evidence.runtime_revision_id != spec.runtime_revision_id
+                    or evidence.trusted_container_id != selected_id
+                    or evidence.verified_destination_digest != before.digest
+                ):
+                    raise DockerDevelopmentSourceDeploymentError(
+                        "development_source_replacement_conflict",
+                        "Existing destination provenance could not be freshly proven.",
+                    )
+
+            delta = classify_delta(first, before)
+            if delta.applied_paths:
+                build_delta_archive(
+                    source_stage,
+                    archive_path,
+                    first,
+                    delta,
+                    runtime_uid=spec.runtime_uid,
+                    runtime_gid=spec.runtime_gid,
+                    root_name=(
+                        f".kodi/addons/{spec.addon_id}" if before is None else None
+                    ),
+                )
+                apply_destination = "/home/kodi" if before is None else destination
+                apply_started = True
+                with archive_path.open("rb") as archive_file:
+                    applied = client.put_archive(
+                        selected_id, apply_destination, archive_file
+                    )
+                if applied is not True:
+                    raise DockerDevelopmentSourceDeploymentError(
+                        "development_source_apply_unverified",
+                        "Docker did not confirm development-source application.",
+                        reconciliation_required=True,
+                    )
+
+            after_stream, _ = client.get_archive(selected_id, destination)
+            after = capture_destination_archive(
+                cast(Iterable[bytes], after_stream), root_name=spec.addon_id
+            )
+            verify_destination(
+                first,
+                before,
+                after,
+                runtime_uid=spec.runtime_uid,
+                runtime_gid=spec.runtime_gid,
+            )
+            final = _require_mapping(client.inspect_container(selected_id))
+            self._validate_deprovision_candidate(
+                final,
+                selected_container_id=selected_id,
+                managed_instance_id=spec.managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=spec.runtime_revision_id,
+            )
+            classification: Literal[
+                "initial_deployment", "synchronized", "unchanged"
+            ] = (
+                "initial_deployment"
+                if before is None
+                else "synchronized"
+                if delta.applied_paths
+                else "unchanged"
+            )
+            return AppliedDevelopmentSourceDeploymentRecord(
+                managed_instance_id=spec.managed_instance_id,
+                development_source_id=spec.development_source_id,
+                deployment_operation_id=spec.deployment_operation_id,
+                runtime_revision_id=spec.runtime_revision_id,
+                container_id=selected_id,
+                result_classification=classification,
+                source_manifest_digest=first.digest,
+                verified_destination_digest=after.digest,
+                observed_source_name=observed.observed_name,
+                observed_source_version=observed.observed_version,
+                new_count=len(delta.new_paths),
+                changed_count=len(delta.changed_paths),
+                unchanged_count=delta.unchanged_count,
+                destination_only_count=delta.destination_only_count,
+                transferred_bytes=delta.transferred_bytes,
+            )
+        except DockerDevelopmentSourceDeploymentError:
+            raise
+        except DevelopmentTreeError as error:
+            raise DockerDevelopmentSourceDeploymentError(
+                (
+                    "development_source_reconciliation_required"
+                    if apply_started
+                    else error.code
+                ),
+                error.safe_message,
+                reconciliation_required=apply_started,
+            ) from error
+        except (
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            RuntimeRevisionPreconditionError,
+        ) as error:
+            if apply_started:
+                raise DockerDevelopmentSourceDeploymentError(
+                    "development_source_reconciliation_required",
+                    "Post-application container identity could not be proven.",
+                    reconciliation_required=True,
+                ) from error
+            raise
+        except (APIError, DockerException, OSError) as error:
+            raise DockerDevelopmentSourceDeploymentError(
+                (
+                    "development_source_reconciliation_required"
+                    if apply_started
+                    else "development_source_deployment_failed"
+                ),
+                "Development-source deployment could not be completed safely.",
+                reconciliation_required=apply_started,
+            ) from error
+        except Exception as error:
+            if apply_started:
+                raise DockerDevelopmentSourceDeploymentError(
+                    "development_source_reconciliation_required",
+                    "Post-application state could not be proven.",
+                    reconciliation_required=True,
+                ) from error
+            raise
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+            self._remove_deployment_stage(spec, operation_stage)
+
+    @staticmethod
+    def _create_deployment_stage(spec: DevelopmentSourceDeploymentSpec) -> Path:
+        root = spec.staging_root
+        current_fd = -1
+        operation_created = False
+        try:
+            operation_id = UUID(spec.deployment_operation_id)
+            if (
+                not root.is_absolute()
+                or root == Path("/")
+                or str(operation_id) != spec.deployment_operation_id
+            ):
+                raise OSError("unsafe staging identity")
+            current_fd = os.open("/", _PRIVATE_DIRECTORY_FLAGS)
+            for component in root.parts[1:]:
+                try:
+                    next_fd = os.open(
+                        component, _PRIVATE_DIRECTORY_FLAGS, dir_fd=current_fd
+                    )
+                except FileNotFoundError:
+                    os.mkdir(component, 0o700, dir_fd=current_fd)
+                    next_fd = os.open(
+                        component, _PRIVATE_DIRECTORY_FLAGS, dir_fd=current_fd
+                    )
+                os.close(current_fd)
+                current_fd = next_fd
+            metadata = os.fstat(current_fd)
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or stat.S_IMODE(metadata.st_mode) != 0o700
+                or metadata.st_uid != os.geteuid()
+            ):
+                raise OSError("unsafe staging root")
+            os.mkdir(spec.deployment_operation_id, 0o700, dir_fd=current_fd)
+            operation_created = True
+            operation_fd = os.open(
+                spec.deployment_operation_id,
+                _PRIVATE_DIRECTORY_FLAGS,
+                dir_fd=current_fd,
+            )
+            try:
+                operation_metadata = os.fstat(operation_fd)
+                if (
+                    stat.S_IMODE(operation_metadata.st_mode) != 0o700
+                    or operation_metadata.st_uid != os.geteuid()
+                ):
+                    raise OSError("unsafe operation staging directory")
+            finally:
+                os.close(operation_fd)
+            return root / spec.deployment_operation_id
+        except (OSError, ValueError) as error:
+            if operation_created and current_fd >= 0:
+                with suppress(OSError):
+                    os.rmdir(spec.deployment_operation_id, dir_fd=current_fd)
+            raise DockerDevelopmentSourceDeploymentError(
+                "development_source_staging_unavailable",
+                "Private deployment staging is unavailable.",
+            ) from error
+        finally:
+            if current_fd >= 0:
+                os.close(current_fd)
+
+    @staticmethod
+    def _remove_deployment_stage(
+        spec: DevelopmentSourceDeploymentSpec, operation_stage: Path
+    ) -> None:
+        if (
+            operation_stage.parent == spec.staging_root
+            and operation_stage.name == spec.deployment_operation_id
+        ):
+            with suppress(OSError):
+                shutil.rmtree(operation_stage)
 
     @staticmethod
     def _validate_managed_network(client: _ProvisioningDockerClient) -> None:

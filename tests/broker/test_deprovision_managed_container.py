@@ -362,6 +362,7 @@ def test_adapter_has_only_the_bounded_semantic_public_methods() -> None:
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",
         "capture_managed_instance_snapshot",
+        "copy_sync_attached_development_source",
         "deprovision_managed_container",
         "list_managed_containers",
         "observe_managed_kodi_runtime",

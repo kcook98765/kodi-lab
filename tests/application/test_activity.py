@@ -14,6 +14,10 @@ from kodi_lab.application.activity import (
 from kodi_lab.domain import (
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
+    DevelopmentSourceDeploymentOperationPhase,
+    DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceDeploymentRequestKind,
+    DevelopmentSourceDeploymentResult,
     ManagedInstanceDeleteOperationPhase,
     ManagedInstanceDeleteOperationState,
     ManagedInstanceDeletePriorState,
@@ -34,6 +38,7 @@ from kodi_lab.storage.engine import create_database_engine, create_session_facto
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     DevelopmentSourceAttachmentOperationRow,
+    DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceRow,
     ManagedInstanceDeleteOperationRow,
     ManagedInstanceLifecycleOperationRow,
@@ -127,6 +132,33 @@ def _seed_equal_timestamp_mixed_history(factory: sessionmaker[Session]) -> None:
         session.flush()
         session.add_all(
             [
+                DevelopmentSourceDeploymentOperationRow(
+                    id=str(OPERATION_ID),
+                    original_managed_instance_id=str(INSTANCE_ID),
+                    managed_instance_id=str(INSTANCE_ID),
+                    development_source_id=("97000000-0000-4000-8000-000000000020"),
+                    source_logical_name="Activity source",
+                    addon_id="plugin.video.activity",
+                    runtime_revision_id=str(REVISION_ID),
+                    request_kind=DevelopmentSourceDeploymentRequestKind.COPY_SYNC,
+                    requested_at=AT,
+                    state=DevelopmentSourceDeploymentOperationState.SUCCEEDED,
+                    phase=DevelopmentSourceDeploymentOperationPhase.FINALIZE,
+                    result_classification=DevelopmentSourceDeploymentResult.UNCHANGED,
+                    new_count=0,
+                    changed_count=0,
+                    unchanged_count=3,
+                    destination_only_count=1,
+                    transferred_bytes=0,
+                    expected_container_id="e" * 64,
+                    started_at=AT,
+                    heartbeat_at=AT,
+                    completed_at=AT,
+                    failure_reason=None,
+                    reconciliation_required=False,
+                    lease_token_digest=None,
+                    lease_expires_at=None,
+                ),
                 DevelopmentSourceAttachmentOperationRow(
                     id=str(OPERATION_ID),
                     original_managed_instance_id=str(INSTANCE_ID),
@@ -238,6 +270,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         INSTANCE_ID
     )
     assert [item.kind for item in items] == [
+        ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_DEPLOYMENT,
         ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT,
         ManagedInstanceActivityKind.LIFECYCLE,
         ManagedInstanceActivityKind.RESET,
@@ -247,6 +280,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         ManagedInstanceActivityKind.INSTANCE_DELETE,
     ]
     assert [item.summary for item in items] == [
+        "Development source copy unchanged",
         "Development source attached",
         "Start succeeded",
         "Reset reconciliation required",
@@ -255,11 +289,11 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         "Snapshot deletion failed",
         "Instance deletion preserved Snapshots",
     ]
-    assert items[0].development_source_attachment_kind is (
+    assert items[1].development_source_attachment_kind is (
         DevelopmentSourceAttachmentOperationKind.ATTACH
     )
-    assert items[1].lifecycle_kind is ManagedInstanceLifecycleKind.START
-    assert items[3].snapshot_uuid == SNAPSHOT_ID
+    assert items[2].lifecycle_kind is ManagedInstanceLifecycleKind.START
+    assert items[4].snapshot_uuid == SNAPSHOT_ID
     assert items[-1].preserve_snapshots is True
     serialized = " ".join(item.model_dump_json() for item in items)
     for forbidden in (
@@ -273,6 +307,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         "a" * 64,
         "b" * 64,
         "c" * 64,
+        "e" * 64,
     ):
         assert forbidden not in serialized
 

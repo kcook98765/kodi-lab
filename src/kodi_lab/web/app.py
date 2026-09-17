@@ -26,6 +26,16 @@ from kodi_lab.application.activity import (
     ManagedInstanceActivityItem,
     ManagedInstanceActivityService,
 )
+from kodi_lab.application.development_source_deployments import (
+    DevelopmentSourceDeploymentConflictError,
+    DevelopmentSourceDeploymentError,
+    DevelopmentSourceDeploymentExecutor,
+    DevelopmentSourceDeploymentOperationCoordinator,
+    DevelopmentSourceDeploymentService,
+    DevelopmentSourceDeploymentServiceFactory,
+    DevelopmentSourceDeploymentStatus,
+    DevelopmentSourceDeploymentUnsupportedError,
+)
 from kodi_lab.application.development_source_presentation import (
     DevelopmentSourceDetail,
     DevelopmentSourcePresentationService,
@@ -147,6 +157,7 @@ from kodi_lab.broker.errors import (
     RemoteBrokerError,
 )
 from kodi_lab.config import Settings
+from kodi_lab.development import DevelopmentSourceValidator
 from kodi_lab.domain import (
     ManagedInstanceDeleteOperationState,
     SnapshotSourceBinding,
@@ -169,6 +180,13 @@ class ResetConfirmationRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     confirmed: Literal[True]
+
+
+class DevelopmentSourceDeploymentAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: DevelopmentSourceDeploymentStatus
+    status_url: str
 
 
 class SnapshotCreateRequest(BaseModel):
@@ -251,6 +269,10 @@ class WebApplicationContext:
     instance_detail: ManagedInstanceDetailService
     deleted_history: DeletedManagedInstanceHistoryService
     development_sources: DevelopmentSourcePresentationService
+    development_source_deployment_operations: (
+        DevelopmentSourceDeploymentOperationCoordinator
+    )
+    development_source_deployment_executor: DevelopmentSourceDeploymentExecutor
 
 
 def create_app(
@@ -268,6 +290,9 @@ def create_app(
     snapshot_restore_service_factory: SnapshotRestoreServiceFactory | None = None,
     snapshot_delete_service_factory: SnapshotDeleteServiceFactory | None = None,
     instance_delete_service_factory: ManagedInstanceDeleteServiceFactory | None = None,
+    development_source_deployment_service_factory: (
+        DevelopmentSourceDeploymentServiceFactory | None
+    ) = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -379,6 +404,27 @@ def create_app(
     activity = ManagedInstanceActivityService(session_factory)
     snapshot_status = SnapshotStatusService(session_factory)
     development_sources = DevelopmentSourcePresentationService(session_factory)
+    development_source_deployment_operations = (
+        DevelopmentSourceDeploymentOperationCoordinator(
+            session_factory,
+            broker,
+            DevelopmentSourceValidator(settings.development_root),
+            stale_dispatcher=stale_dispatcher,
+            reconciliation=reconciliation,
+        )
+    )
+    development_source_deployment_factory = (
+        development_source_deployment_service_factory
+        or (
+            lambda lease: DevelopmentSourceDeploymentService(
+                broker, development_source_deployment_operations, lease
+            )
+        )
+    )
+    development_source_deployment_executor = DevelopmentSourceDeploymentExecutor(
+        development_source_deployment_operations,
+        development_source_deployment_factory,
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -430,6 +476,10 @@ def create_app(
         instance_detail=instance_detail,
         deleted_history=deleted_history,
         development_sources=development_sources,
+        development_source_deployment_operations=(
+            development_source_deployment_operations
+        ),
+        development_source_deployment_executor=(development_source_deployment_executor),
     )
 
     @asynccontextmanager
@@ -440,6 +490,7 @@ def create_app(
         context.snapshot_restore_executor.start()
         context.snapshot_delete_executor.start()
         context.instance_delete_executor.start()
+        context.development_source_deployment_executor.start()
         try:
             yield
         finally:
@@ -448,6 +499,7 @@ def create_app(
             context.snapshot_restore_executor.close()
             context.snapshot_delete_executor.close()
             context.instance_delete_executor.close()
+            context.development_source_deployment_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -517,6 +569,24 @@ def create_app(
         return _json_error(
             404, "development_source_not_found", "Development source not found."
         )
+
+    @app.exception_handler(DevelopmentSourceDeploymentConflictError)
+    async def development_source_deployment_conflict(
+        _request: Request, error: DevelopmentSourceDeploymentConflictError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(DevelopmentSourceDeploymentUnsupportedError)
+    async def development_source_deployment_unsupported(
+        _request: Request, error: DevelopmentSourceDeploymentUnsupportedError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(DevelopmentSourceDeploymentError)
+    async def development_source_deployment_failed(
+        _request: Request, error: DevelopmentSourceDeploymentError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
 
     @app.exception_handler(LifecycleConflictError)
     async def lifecycle_conflict(
@@ -808,13 +878,16 @@ def create_app(
     @app.get("/instances/{instance_id}", response_class=HTMLResponse)
     async def instance_detail_page(request: Request, instance_id: UUID) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         return templates.TemplateResponse(
             request,
             "instance-detail.html",
-            {"detail": context.instance_detail.get(instance_id)},
+            {
+                "detail": context.instance_detail.get(instance_id),
+                "csrf_token": authenticated.csrf_token,
+            },
         )
 
     @app.get("/instances/{instance_id}/history", response_class=HTMLResponse)
@@ -1147,6 +1220,45 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[ManagedInstanceActivityItem]:
         return context.activity.list_for_live_instance(instance_id, limit=limit)
+
+    @app.get(
+        "/api/instances/{instance_id}/development-source-deployment-operations/"
+        "{operation_id}",
+        response_model=DevelopmentSourceDeploymentStatus,
+    )
+    def development_source_deployment_operation(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> DevelopmentSourceDeploymentStatus:
+        operation = context.development_source_deployment_operations.get(operation_id)
+        if operation is None or operation.original_managed_instance_id != instance_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        return context.development_source_deployment_operations.to_status(operation)
+
+    @app.post(
+        "/api/instances/{instance_id}/development-sources/{source_id}/copy-sync",
+        response_model=DevelopmentSourceDeploymentAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def copy_sync_development_source(
+        instance_id: UUID,
+        source_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentSourceDeploymentAccepted:
+        operation = context.development_source_deployment_operations.queue(
+            instance_id, source_id
+        )
+        context.development_source_deployment_executor.submit(operation.operation_id)
+        status_url = (
+            f"/api/instances/{instance_id}/"
+            "development-source-deployment-operations/"
+            f"{operation.operation_id}"
+        )
+        return DevelopmentSourceDeploymentAccepted(
+            operation=operation, status_url=status_url
+        )
 
     @app.get(
         "/api/instances/{instance_id}/reset-status",

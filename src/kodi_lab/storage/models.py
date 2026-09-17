@@ -21,6 +21,12 @@ from kodi_lab.domain import (
     ConnectionState,
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
+    DevelopmentSourceDeploymentConfidence,
+    DevelopmentSourceDeploymentMode,
+    DevelopmentSourceDeploymentOperationPhase,
+    DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceDeploymentRequestKind,
+    DevelopmentSourceDeploymentResult,
     DevelopmentSourceKind,
     FixtureContentCategory,
     FixtureSizeCategory,
@@ -360,6 +366,223 @@ class DevelopmentSourceAttachmentOperationRow(Base):
         nullable=False,
     )
     failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
+class DevelopmentSourceDeploymentRow(Base):
+    """Last verified copy deployment evidence for one instance/source pair."""
+
+    __tablename__ = "development_source_deployments"
+    __table_args__ = (
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128",
+            name="development_source_deployment_addon_id_bounded",
+        ),
+        CheckConstraint(
+            "length(source_manifest_digest) = 71 AND "
+            "substr(source_manifest_digest, 1, 7) = 'sha256:' AND "
+            "substr(source_manifest_digest, 8) NOT GLOB '*[^0-9a-f]*'",
+            name="development_source_deployment_source_digest",
+        ),
+        CheckConstraint(
+            "length(verified_destination_digest) = 71 AND "
+            "substr(verified_destination_digest, 1, 7) = 'sha256:' AND "
+            "substr(verified_destination_digest, 8) NOT GLOB '*[^0-9a-f]*'",
+            name="development_source_deployment_destination_digest",
+        ),
+        CheckConstraint(
+            "length(trusted_container_id) = 64 AND "
+            "trusted_container_id NOT GLOB '*[^0-9a-f]*'",
+            name="development_source_deployment_container_id",
+        ),
+        CheckConstraint(
+            "length(observed_source_name) BETWEEN 1 AND 256 AND "
+            "length(observed_source_version) BETWEEN 1 AND 128",
+            name="development_source_deployment_observation_bounded",
+        ),
+        CheckConstraint(
+            "length(verified_at) BETWEEN 20 AND 32",
+            name="development_source_deployment_verified_at_bounded",
+        ),
+        Index(
+            "ix_development_source_deployment_source",
+            "development_source_id",
+        ),
+    )
+
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    mode: Mapped[DevelopmentSourceDeploymentMode] = mapped_column(
+        Enum(
+            DevelopmentSourceDeploymentMode,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_deployment_mode",
+        ),
+        nullable=False,
+    )
+    last_successful_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_source_deployment_operations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_manifest_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    verified_destination_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    trusted_container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    observed_source_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    observed_source_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    verified_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[DevelopmentSourceDeploymentConfidence] = mapped_column(
+        Enum(
+            DevelopmentSourceDeploymentConfidence,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_deployment_confidence",
+        ),
+        nullable=False,
+    )
+
+
+class DevelopmentSourceDeploymentOperationRow(Base):
+    """Durable copy/sync operation history and exact coordination ownership."""
+
+    __tablename__ = "development_source_deployment_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(source_logical_name) BETWEEN 1 AND 120 AND "
+            "length(addon_id) BETWEEN 1 AND 128",
+            name="development_source_deployment_history_identity_bounded",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="development_source_deployment_failure_reason_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="development_source_deployment_lease_digest",
+        ),
+        CheckConstraint(
+            "expected_container_id IS NULL OR (length(expected_container_id) = 64 "
+            "AND expected_container_id NOT GLOB '*[^0-9a-f]*')",
+            name="development_source_deployment_expected_container",
+        ),
+        CheckConstraint(
+            "(new_count IS NULL OR new_count >= 0) AND "
+            "(changed_count IS NULL OR changed_count >= 0) AND "
+            "(unchanged_count IS NULL OR unchanged_count >= 0) AND "
+            "(destination_only_count IS NULL OR destination_only_count >= 0) AND "
+            "(transferred_bytes IS NULL OR transferred_bytes >= 0)",
+            name="development_source_deployment_aggregates_nonnegative",
+        ),
+        Index(
+            "uq_development_source_deployment_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued', 'running')"),
+        ),
+        Index(
+            "ix_development_source_deployment_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+        Index(
+            "ix_development_source_deployment_operation_source",
+            "development_source_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_logical_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_kind: Mapped[DevelopmentSourceDeploymentRequestKind] = mapped_column(
+        Enum(
+            DevelopmentSourceDeploymentRequestKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_deployment_request_kind",
+        ),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[DevelopmentSourceDeploymentOperationState] = mapped_column(
+        Enum(
+            DevelopmentSourceDeploymentOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_deployment_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[DevelopmentSourceDeploymentOperationPhase] = mapped_column(
+        Enum(
+            DevelopmentSourceDeploymentOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_deployment_operation_phase",
+            length=24,
+        ),
+        nullable=False,
+    )
+    result_classification: Mapped[DevelopmentSourceDeploymentResult | None] = (
+        mapped_column(
+            Enum(
+                DevelopmentSourceDeploymentResult,
+                values_callable=_enum_values,
+                native_enum=False,
+                create_constraint=True,
+                name="development_source_deployment_result",
+            ),
+            nullable=True,
+        )
+    )
+    new_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    changed_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    unchanged_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    destination_only_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    transferred_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    expected_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class FixtureDefinitionRow(Base):
@@ -1173,6 +1396,7 @@ class GlobalHeavyOperationLeaseRow(Base):
             native_enum=False,
             create_constraint=True,
             name="global_heavy_operation_kind",
+            length=32,
         ),
         nullable=False,
     )

@@ -76,6 +76,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "broker_info",
                 "capabilities",
                 "capture_managed_instance_snapshot",
+                "copy_sync_attached_development_source",
                 "delete_managed_snapshot_artifact",
                 "deprovision_managed_container",
                 "managed_container_inventory",

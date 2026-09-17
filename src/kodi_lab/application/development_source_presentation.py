@@ -19,6 +19,7 @@ from kodi_lab.application.errors import (
     ManagedInstanceNotFoundError,
 )
 from kodi_lab.storage.repositories import (
+    DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
     ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceRepository,
@@ -126,6 +127,7 @@ class DevelopmentSourcePresentationService:
                 session
             ).list_for_instance(instance_id)
             sources = DevelopmentSourceRepository(session)
+            deployments = DevelopmentSourceDeploymentRepository(session)
             result: list[AttachedDevelopmentSourceRead] = []
             for attachment in attachments:
                 source = sources.get(attachment.development_source_id)
@@ -133,5 +135,20 @@ class DevelopmentSourcePresentationService:
                     raise DevelopmentSourceNotFoundError(
                         attachment.development_source_id
                     )
-                result.append(attached_development_source_read(attachment, source))
+                item = attached_development_source_read(attachment, source)
+                evidence = deployments.get(instance_id, source.id)
+                if evidence is not None:
+                    wording = {
+                        "verified_at_last_operation": "Last copy verified at",
+                        "stale": "Verification stale",
+                        "unknown": "Verification unknown",
+                    }[evidence.confidence.value]
+                    item = item.model_copy(
+                        update={
+                            "deployment_confidence": evidence.confidence,
+                            "deployment_verified_at": evidence.verified_at,
+                            "deployment_wording": wording,
+                        }
+                    )
+                result.append(item)
             return result

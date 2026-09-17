@@ -14,6 +14,9 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.development_source_deployments import (
+    invalidate_development_source_deployments,
+)
 from kodi_lab.application.snapshot_restore_operations import (
     SnapshotRestoreLease,
     SnapshotRestoreLeaseLostError,
@@ -202,6 +205,10 @@ class DisposableSnapshotRestoreService:
             self._coordinator.update_phase(
                 self._lease, SnapshotRestoreOperationPhase.DEPROVISIONING
             )
+            with self._session_factory.begin() as session:
+                invalidate_development_source_deployments(
+                    session, self._lease.managed_instance_id
+                )
             self._broker.deprovision_managed_container(
                 managed_instance_id=str(self._lease.managed_instance_id),
                 expected_container_id=old.container_id,

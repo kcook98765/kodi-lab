@@ -267,6 +267,7 @@ def test_stale_lifecycle_with_transitional_observation_blocks_all_mutations(
         "fixture_assignment",
         "runtime_reassignment",
         "development_source_attachment",
+        "development_source_deployment",
     }
 
 

@@ -507,3 +507,26 @@ provides ManagedInstance to RuntimeRevision to RuntimeExecutionProfile ownership
 without any caller ownership parameter. Existing Snapshot and fixture archive
 normalization remains unchanged. No DevelopmentSource deployment authority is
 added by this prerequisite.
+
+Phase 8 Step 4 implements the manual stopped-only `local_directory` copy/sync
+slice. Migration `0020_development_source_copy_sync` adds separate last-verified
+deployment evidence and durable typed operation history, plus closed mutation
+and global-heavy coordination kinds. Every request reserves both leases and
+uses the central stale/reconciliation dispatcher; unresolved work is never
+resumed or recopied.
+
+Application revalidation and broker-owned two-pass no-follow capture close the
+source TOCTOU boundary. Fixed recursive bounds, exact VCS administration
+directory exclusions, normalized modes, immutable private staging, and
+RuntimeExecutionProfile UID/GID produce a deterministic source manifest and
+changed/new-only delta. The destination is server derived. Initial deployment
+requires absence; sync requires fresh complete destination readback to match
+the retained complete destination digest exactly. Previously verified paths
+removed from source are preserved without deletion and remain in new full
+destination evidence; external destination drift conflicts before apply.
+
+The strict authenticated empty-body POST returns 202 and no caller path,
+ownership, destination, archive, policy, restart, or override authority. Success
+proves filesystem materialization only. Kodi recognition/inventory, bind-mounted
+sources, ZIP installation, repositories, enablement, JSON-RPC, watchers, and
+MCP development authority remain future architecture milestones.

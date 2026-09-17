@@ -34,6 +34,7 @@ from kodi_lab.domain import (
     DevelopmentSourceAttachmentOperation,
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
+    DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceKind,
     InstanceType,
     ManagedInstanceDevelopmentSource,
@@ -59,6 +60,10 @@ class AttachedDevelopmentSourceRead(BaseModel):
     observed_version: str = Field(max_length=MAX_ADDON_VERSION)
     source_kind: DevelopmentSourceKind
     attached_at: datetime
+    deployment_confidence: DevelopmentSourceDeploymentConfidence | None = None
+    deployment_verified_at: datetime | None = None
+    deployment_wording: str = Field(default="Never deployed", max_length=64)
+    copy_sync_eligible: bool = False
 
 
 def attached_development_source_read(

@@ -123,6 +123,7 @@ class ManagedInstanceMutationKind(StrEnum):
     RUNTIME_REASSIGNMENT = "runtime_reassignment"
     INSTANCE_DELETE = "instance_delete"
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
+    DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
 
 
 class GlobalHeavyOperationKind(StrEnum):
@@ -130,6 +131,7 @@ class GlobalHeavyOperationKind(StrEnum):
     SNAPSHOT_RESTORE = "snapshot_restore"
     SNAPSHOT_DELETE = "snapshot_delete"
     INSTANCE_DELETE = "instance_delete"
+    DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
 
 
 def normalize_snapshot_label(value: str | None) -> str | None:

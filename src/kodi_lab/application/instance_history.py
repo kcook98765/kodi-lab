@@ -29,10 +29,12 @@ from kodi_lab.application.snapshot_status import (
     SnapshotHistoryItem,
     SnapshotStatusService,
 )
+from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.domain import InstanceType, ManagedInstanceDeleteOperation
 from kodi_lab.storage.repositories import (
     FixtureDefinitionRepository,
     ManagedInstanceDeleteOperationRepository,
+    ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
     RuntimeDefinitionRepository,
     RuntimeRevisionRepository,
@@ -120,8 +122,23 @@ class ManagedInstanceDetailService:
                     instance.fixture_definition_id
                 )
             )
+        runtime = self._status.get(instance_id)
+        reconciliation = self._reconciliation.status(instance_id)
+        sources = self._development_sources.list_attached_sources(instance_id)
+        with self._session_factory() as session:
+            active_mutation = (
+                ManagedInstanceMutationLeaseRepository(session).current(instance_id)
+                is not None
+            )
+        eligible = (
+            instance.instance_type is InstanceType.DISPOSABLE
+            and runtime.provision_state.value == "provisioned"
+            and runtime.container_state is ContainerRuntimeState.STOPPED
+            and not reconciliation.blocking
+            and not active_mutation
+        )
         return ManagedInstanceDetail(
-            runtime=self._status.get(instance_id),
+            runtime=runtime,
             instance_type=instance.instance_type,
             notes=instance.notes,
             fixture=(
@@ -136,13 +153,14 @@ class ManagedInstanceDetailService:
                 )
             ),
             snapshots=self._snapshots.list_for_instance(instance_id),
-            development_sources=self._development_sources.list_attached_sources(
-                instance_id
-            ),
+            development_sources=[
+                source.model_copy(update={"copy_sync_eligible": eligible})
+                for source in sources
+            ],
             recent_activity=self._activity.list_for_live_instance(
                 instance_id, limit=10
             ),
-            reconciliation=self._reconciliation.status(instance_id),
+            reconciliation=reconciliation,
         )
 
 

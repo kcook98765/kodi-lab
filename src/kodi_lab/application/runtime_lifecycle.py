@@ -9,6 +9,9 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.development_source_deployments import (
+    invalidate_development_source_deployments,
+)
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.lifecycle_operations import (
     ManagedInstanceLifecycleOperationCoordinator,
@@ -181,6 +184,8 @@ class ManagedRuntimeLifecycleService:
         if container.runtime_state is not ContainerRuntimeState.STOPPED:
             raise LifecycleConflictError("managed runtime must be stopped")
         self._readiness.clear(instance_id)
+        with self._session_factory.begin() as session:
+            invalidate_development_source_deployments(session, instance_id)
         self._broker.deprovision_managed_container(
             managed_instance_id=str(instance_id),
             expected_container_id=container.container_id,

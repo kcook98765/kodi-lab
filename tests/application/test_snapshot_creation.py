@@ -30,13 +30,23 @@ from kodi_lab.broker.operations import (
     StartManagedContainerResult,
     StopManagedContainerResult,
 )
-from kodi_lab.domain import SnapshotState, SnapshotValidationResult
+from kodi_lab.domain import (
+    DevelopmentSourceDeploymentConfidence,
+    DevelopmentSourceDeploymentOperationPhase,
+    DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceDeploymentRequestKind,
+    DevelopmentSourceDeploymentResult,
+    SnapshotState,
+    SnapshotValidationResult,
+)
 from kodi_lab.kodi.readiness import JsonRpcState, ReadinessResult, UsabilityState
 from kodi_lab.snapshot.storage import SnapshotArtifactIdentity, SnapshotStorageError
 from kodi_lab.snapshot.validation import SnapshotValidation
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    DevelopmentSourceDeploymentOperationRow,
+    DevelopmentSourceDeploymentRow,
     DevelopmentSourceRow,
     ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceRow,
@@ -143,6 +153,52 @@ def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
                 managed_instance_id=str(INSTANCE_ID),
                 development_source_id="93000000-0000-4000-8000-000000000020",
                 attached_at="2026-09-15T00:00:00.000000Z",
+            )
+        )
+        session.add(
+            DevelopmentSourceDeploymentOperationRow(
+                id="93000000-0000-4000-8000-000000000021",
+                original_managed_instance_id=str(INSTANCE_ID),
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id="93000000-0000-4000-8000-000000000020",
+                source_logical_name="Snapshot source attachment",
+                addon_id="plugin.video.snapshot-attachment",
+                runtime_revision_id=str(REVISION_ID),
+                request_kind=DevelopmentSourceDeploymentRequestKind.COPY_SYNC,
+                requested_at="2026-09-15T00:00:00.000000Z",
+                state=DevelopmentSourceDeploymentOperationState.SUCCEEDED,
+                phase=DevelopmentSourceDeploymentOperationPhase.FINALIZE,
+                result_classification=DevelopmentSourceDeploymentResult.INITIAL_DEPLOYMENT,
+                new_count=1,
+                changed_count=0,
+                unchanged_count=0,
+                destination_only_count=0,
+                transferred_bytes=1,
+                expected_container_id=CONTAINER_ID,
+                started_at="2026-09-15T00:00:00.000000Z",
+                heartbeat_at="2026-09-15T00:00:00.000000Z",
+                completed_at="2026-09-15T00:00:01.000000Z",
+                failure_reason=None,
+                reconciliation_required=False,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        session.add(
+            DevelopmentSourceDeploymentRow(
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id="93000000-0000-4000-8000-000000000020",
+                addon_id="plugin.video.snapshot-attachment",
+                mode="copy",
+                last_successful_operation_id=("93000000-0000-4000-8000-000000000021"),
+                source_manifest_digest="sha256:" + "4" * 64,
+                verified_destination_digest="sha256:" + "5" * 64,
+                runtime_revision_id=str(REVISION_ID),
+                trusted_container_id=CONTAINER_ID,
+                observed_source_name="Snapshot attachment",
+                observed_source_version="1.0.0",
+                verified_at="2026-09-15T00:00:01.000000Z",
+                confidence=DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION,
             )
         )
     yield result
@@ -308,6 +364,16 @@ def test_initially_stopped_capture_validates_and_remains_stopped(
     coordinator.finish_success(capture._lease)
     assert broker.calls == ["capture"]
     assert result.final_runtime_state is ContainerRuntimeState.STOPPED
+    with factory() as session:
+        evidence = session.get(
+            DevelopmentSourceDeploymentRow,
+            (str(INSTANCE_ID), "93000000-0000-4000-8000-000000000020"),
+        )
+    assert evidence is not None
+    assert (
+        evidence.confidence
+        is DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+    )
     assert result.recognized_databases_checked == 1
     with factory() as session:
         snapshot = SnapshotRepository(session).get(result.snapshot_id)

@@ -3,8 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
     <title>{{ detail.runtime.name }} · Kodi Lab</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
   </head>
   <body>
     <main>
@@ -48,7 +50,12 @@
             <dt>Observed add-on</dt><dd>{{ source.observed_name }} · version {{ source.observed_version }}</dd>
             <dt>Source kind</dt><dd>{{ source.source_kind }}</dd>
             <dt>Attached at</dt><dd>{{ source.attached_at }}</dd>
+            <dt>Copy deployment</dt><dd>{{ source.deployment_wording }}{% if source.deployment_verified_at and source.deployment_wording == 'Last copy verified at' %} {{ source.deployment_verified_at }}{% endif %}</dd>
           </dl>
+          {% if source.copy_sync_eligible %}
+          <button class="development-source-copy" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">Copy/Sync</button>
+          <p class="development-source-copy-status secondary" role="status" hidden></p>
+          {% endif %}
         </article>
         {% else %}<p>No development sources are attached.</p>{% endfor %}
       </section>

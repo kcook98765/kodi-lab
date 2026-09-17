@@ -10,6 +10,11 @@ from typing import Literal, TypeVar, cast
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from kodi_lab import __version__
+from kodi_lab.broker.development_sources import (
+    DevelopmentSourceDeploymentResolver,
+    DevelopmentSourceDeploymentStateError,
+    SqliteDevelopmentSourceDeploymentResolver,
+)
 from kodi_lab.broker.docker_inventory import (
     MAX_MANAGED_CONTAINERS,
     AppliedAssignedFixtureRecord,
@@ -17,6 +22,7 @@ from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
     ContainerRuntimeState,
     DeprovisionedManagedContainerRecord,
+    DevelopmentSourceDeploymentProvider,
     DockerManagedContainerAdapter,
     KodiProcessState,
     ManagedContainerDeprovisioningProvider,
@@ -36,6 +42,7 @@ from kodi_lab.broker.errors import (
     ContainerStateNotStoppableError,
     DockerCreateError,
     DockerDaemonUnavailableError,
+    DockerDevelopmentSourceDeploymentError,
     DockerFixtureArchiveError,
     DockerInventoryReadError,
     DockerRemoveError,
@@ -610,6 +617,62 @@ class DeleteManagedSnapshotArtifactResult(StrictModel):
         return value
 
 
+class CopySyncAttachedDevelopmentSourceParams(StrictModel):
+    """Only persisted identities and immutable container precondition."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    development_source_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+    deployment_operation_id: str = Field(min_length=36, max_length=36)
+
+    @field_validator(
+        "managed_instance_id", "development_source_id", "deployment_operation_id"
+    )
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class CopySyncAttachedDevelopmentSourceResult(StrictModel):
+    """Aggregate copy/sync proof with no path, member, or ownership fields."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    development_source_id: str = Field(min_length=36, max_length=36)
+    deployment_operation_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    result_classification: Literal["initial_deployment", "synchronized", "unchanged"]
+    source_manifest_digest: str = Field(
+        min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
+    verified_destination_digest: str = Field(
+        min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
+    )
+    observed_source_name: str = Field(min_length=1, max_length=256)
+    observed_source_version: str = Field(min_length=1, max_length=128)
+    new_count: int = Field(ge=0, le=50_000)
+    changed_count: int = Field(ge=0, le=25_000)
+    unchanged_count: int = Field(ge=0, le=50_000)
+    destination_only_count: int = Field(ge=0, le=50_000)
+    transferred_bytes: int = Field(ge=0, le=1024**3)
+
+    @field_validator(
+        "managed_instance_id",
+        "development_source_id",
+        "deployment_operation_id",
+        "runtime_revision_id",
+    )
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
 type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
@@ -750,6 +813,12 @@ def build_foundation_registry(
     snapshot_restore_provider: ManagedInstanceSnapshotApplyProvider | None = None,
     snapshot_delete_resolver: SnapshotDeleteResolver | None = None,
     snapshot_delete_provider: SnapshotArtifactDeletionProvider | None = None,
+    development_source_deployment_resolver: (
+        DevelopmentSourceDeploymentResolver | None
+    ) = None,
+    development_source_deployment_provider: (
+        DevelopmentSourceDeploymentProvider | None
+    ) = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -794,6 +863,13 @@ def build_foundation_registry(
     )
     delete_provider = (
         snapshot_delete_provider or LocalSnapshotArtifactDeletionProvider()
+    )
+    deployment_resolver = (
+        development_source_deployment_resolver
+        or SqliteDevelopmentSourceDeploymentResolver.production()
+    )
+    deployment_provider = development_source_deployment_provider or cast(
+        DevelopmentSourceDeploymentProvider, provider
     )
     registry.register(
         name="ping",
@@ -1843,6 +1919,123 @@ def build_foundation_registry(
         audit_builder=lambda result: {
             "broker_snapshot_id": result.snapshot_id,
             "broker_snapshot_artifact_was_present": result.artifact_was_present,
+        },
+    )
+
+    def copy_sync_attached_development_source(
+        params: CopySyncAttachedDevelopmentSourceParams,
+    ) -> CopySyncAttachedDevelopmentSourceResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_development_source_id": params.development_source_id,
+            "broker_deployment_operation_id": params.deployment_operation_id,
+        }
+        try:
+            spec = deployment_resolver.resolve(
+                params.managed_instance_id,
+                params.development_source_id,
+                params.deployment_operation_id,
+                params.expected_container_id,
+            )
+            outcome = deployment_provider.copy_sync_attached_development_source(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except DevelopmentSourceDeploymentStateError as error:
+            raise OperationError(
+                error.code,
+                "Canonical attached development-source state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDevelopmentSourceDeploymentError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        except ManagedContainerNotFoundError as error:
+            raise OperationError(
+                "managed_container_not_found",
+                "No Kodi Lab-owned container exists for the managed instance.",
+                audit_fields=audit_fields,
+            ) from error
+        except AmbiguousManagedContainerError as error:
+            raise OperationError(
+                "ambiguous_managed_container",
+                "Multiple containers claim the managed instance identity.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerIdentityPreconditionError as error:
+            raise OperationError(
+                "container_identity_precondition_failed",
+                "The managed container identity changed after observation.",
+                audit_fields=audit_fields,
+            ) from error
+        except ContainerMustBeStoppedError as error:
+            raise OperationError(
+                "container_must_be_stopped",
+                "Development-source deployment requires a stopped container.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeRevisionPreconditionError as error:
+            raise OperationError(
+                "runtime_revision_precondition_failed",
+                "The managed runtime revision differs from trusted state.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDaemonUnavailableError as error:
+            raise OperationError(
+                "docker_daemon_unavailable",
+                "The Docker daemon is unavailable to the broker.",
+                audit_fields=audit_fields,
+            ) from error
+        except (
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+        ) as error:
+            raise OperationError(
+                "docker_inventory_failed",
+                "The broker could not safely inspect deployment container state.",
+                audit_fields=audit_fields,
+            ) from error
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.development_source_id != params.development_source_id
+            or outcome.deployment_operation_id != params.deployment_operation_id
+            or outcome.container_id != params.expected_container_id
+            or outcome.runtime_revision_id != spec.runtime_revision_id
+        ):
+            raise RuntimeError("Deployment adapter returned inconsistent identity")
+        return CopySyncAttachedDevelopmentSourceResult(
+            managed_instance_id=outcome.managed_instance_id,
+            development_source_id=outcome.development_source_id,
+            deployment_operation_id=outcome.deployment_operation_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            result_classification=outcome.result_classification,
+            source_manifest_digest=outcome.source_manifest_digest,
+            verified_destination_digest=outcome.verified_destination_digest,
+            observed_source_name=outcome.observed_source_name,
+            observed_source_version=outcome.observed_source_version,
+            new_count=outcome.new_count,
+            changed_count=outcome.changed_count,
+            unchanged_count=outcome.unchanged_count,
+            destination_only_count=outcome.destination_only_count,
+            transferred_bytes=outcome.transferred_bytes,
+        )
+
+    registry.register(
+        name="copy_sync_attached_development_source",
+        params_model=CopySyncAttachedDevelopmentSourceParams,
+        result_model=CopySyncAttachedDevelopmentSourceResult,
+        handler=copy_sync_attached_development_source,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_development_source_id": result.development_source_id,
+            "broker_deployment_operation_id": result.deployment_operation_id,
+            "broker_deployment_result": result.result_classification,
+            "broker_deployment_new_count": result.new_count,
+            "broker_deployment_changed_count": result.changed_count,
+            "broker_deployment_unchanged_count": result.unchanged_count,
+            "broker_deployment_destination_only_count": (result.destination_only_count),
+            "broker_deployment_transferred_bytes": result.transferred_bytes,
         },
     )
     return registry

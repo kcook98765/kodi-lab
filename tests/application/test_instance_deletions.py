@@ -41,6 +41,11 @@ from kodi_lab.broker.operations import (
     StopManagedContainerResult,
 )
 from kodi_lab.domain import (
+    DevelopmentSourceDeploymentConfidence,
+    DevelopmentSourceDeploymentOperationPhase,
+    DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceDeploymentRequestKind,
+    DevelopmentSourceDeploymentResult,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
     ManagedInstanceDeleteOperationState,
@@ -55,6 +60,8 @@ from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     DevelopmentSourceAttachmentOperationRow,
+    DevelopmentSourceDeploymentOperationRow,
+    DevelopmentSourceDeploymentRow,
     DevelopmentSourceRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceDeleteOperationRow,
@@ -174,6 +181,52 @@ def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
                 requested_at="2026-09-16T00:00:00.000000Z",
                 completed_at="2026-09-16T00:00:00.000000Z",
                 state="succeeded",
+            )
+        )
+        session.add(
+            DevelopmentSourceDeploymentOperationRow(
+                id="95000000-0000-4000-8000-000000000032",
+                original_managed_instance_id=str(INSTANCE_ID),
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                source_logical_name="Deletion attachment",
+                addon_id="plugin.video.deletion-attachment",
+                runtime_revision_id=str(REVISION_ID),
+                request_kind=DevelopmentSourceDeploymentRequestKind.COPY_SYNC,
+                requested_at="2026-09-16T00:00:00.000000Z",
+                state=DevelopmentSourceDeploymentOperationState.SUCCEEDED,
+                phase=DevelopmentSourceDeploymentOperationPhase.FINALIZE,
+                result_classification=DevelopmentSourceDeploymentResult.INITIAL_DEPLOYMENT,
+                new_count=1,
+                changed_count=0,
+                unchanged_count=0,
+                destination_only_count=0,
+                transferred_bytes=10,
+                expected_container_id=CONTAINER_ID,
+                started_at="2026-09-16T00:00:00.000000Z",
+                heartbeat_at="2026-09-16T00:00:00.000000Z",
+                completed_at="2026-09-16T00:00:01.000000Z",
+                failure_reason=None,
+                reconciliation_required=False,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        session.add(
+            DevelopmentSourceDeploymentRow(
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                addon_id="plugin.video.deletion-attachment",
+                mode="copy",
+                last_successful_operation_id=("95000000-0000-4000-8000-000000000032"),
+                source_manifest_digest="sha256:" + "1" * 64,
+                verified_destination_digest="sha256:" + "2" * 64,
+                runtime_revision_id=str(REVISION_ID),
+                trusted_container_id=CONTAINER_ID,
+                observed_source_name="Deletion attachment",
+                observed_source_version="1.0.0",
+                verified_at="2026-09-16T00:00:01.000000Z",
+                confidence=DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION,
             )
         )
         for identity, owner, label in (
@@ -363,6 +416,14 @@ def test_preserve_detaches_atomically_and_keeps_bytes_and_exact_notes(
             DevelopmentSourceAttachmentOperationRow,
             "95000000-0000-4000-8000-000000000031",
         )
+        deployment_evidence = session.get(
+            DevelopmentSourceDeploymentRow,
+            (str(INSTANCE_ID), "95000000-0000-4000-8000-000000000030"),
+        )
+        deployment_history = session.get(
+            DevelopmentSourceDeploymentOperationRow,
+            "95000000-0000-4000-8000-000000000032",
+        )
     assert len(snapshots) == 2
     assert all(item.source_managed_instance_id is None for item in snapshots)
     assert all(
@@ -374,6 +435,10 @@ def test_preserve_detaches_atomically_and_keeps_bytes_and_exact_notes(
     assert operation is not None
     assert attachment_history is not None
     assert attachment_history.managed_instance_id is None
+    assert deployment_evidence is None
+    assert deployment_history is not None
+    assert deployment_history.managed_instance_id is None
+    assert deployment_history.original_managed_instance_id == str(INSTANCE_ID)
     assert operation.state is ManagedInstanceDeleteOperationState.SUCCEEDED
     assert operation.notes_at_deletion == "  exact notes 🐍  "
     assert reset_history is not None

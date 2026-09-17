@@ -6,6 +6,9 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.development_source_deployments import (
+    invalidate_development_source_deployments,
+)
 from kodi_lab.application.errors import (
     FixtureDefinitionNotFoundError,
     FixtureIncompatibleError,
@@ -170,6 +173,7 @@ class ManagedInstanceService:
                                 runtime_kodi_version=definition.kodi_version,
                             )
                     updated = replace(current, runtime_revision_id=revision.id)
+                    invalidate_development_source_deployments(session, target_id)
                     instances.update(updated)
                     return updated
             except IntegrityError as error:

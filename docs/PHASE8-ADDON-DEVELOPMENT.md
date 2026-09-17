@@ -166,12 +166,58 @@ build provenance and are not silently rewritten. Existing fixed Snapshot and
 fixture archive owners remain their established archive-format semantics; any
 future conversion of those versioned formats is separately gated.
 
-This prerequisite adds no source traversal, materialization, deployment broker
-operation, destination access, Kodi lifecycle change, or Web/API mutation.
+## Step 4 stopped-only copy/sync
+
+Step 4 accepts only an attached local-directory source and an exactly
+provisioned, stopped, disposable instance. Its strict authenticated POST body is
+empty. Every operation reserves the per-instance development-source deployment
+lease and the global-heavy lease, then invokes one broker semantic operation
+whose only inputs are instance, source, expected container, and operation UUIDs.
+
+The application revalidates registered root `addon.xml`; the broker then
+independently resolves persistence, runtime ownership, and the configured root.
+It walks the source twice descriptor-relatively without following links and
+requires identical captures. Only directories and single-link regular files
+are allowed. Exact `.git`, `.hg`, and `.svn` directories are skipped after their
+type is proven safe. Fixed limits are 25,000 files, 50,000 entries, 1 GiB total,
+256 MiB per file, 512 UTF-8 bytes per path, 255 per component, 32 components,
+and 16 MiB canonical manifest.
+
+The immutable root-private stage normalizes directories to 0755 and files to
+0644 plus source execute bits. It preserves no source ownership, ACL, xattr,
+special bit, or mtime. Numeric ownership comes only through ManagedInstance to
+RuntimeRevision to RuntimeExecutionProfile. Canonical manifests contain policy
+versions and ordered path/type/mode/size/file-hash records, but ordinary
+surfaces expose only aggregate counts.
+
+The fixed destination is derived from validated add-on ID. Absence permits
+initial materialization. An existing destination requires retained successful
+same-context evidence and a fresh full bounded readback whose digest exactly
+matches that retained full destination digest. A deployment-state row alone is
+insufficient. External additions or alteration are replacement conflicts.
+
+Sync transfers only new or byte/mode-changed files. Unchanged files are absent
+from the delta. Nothing is deleted, so type replacement conflicts. A path from
+the prior verified destination that has since been removed from source is
+legitimate destination-only state: it remains unchanged and is included in the
+new full destination evidence. This does not admit arbitrary extras. The source
+and destination digests may differ, and the complete post-sync destination
+digest becomes the next replacement baseline.
+
+Final verification proves every current source path, preserved prior
+destination-only path, normalized mode, revision-derived ownership, exact
+container/revision/stopped identity, and absence of unexpected entries. Partial
+or unverifiable application becomes reconciliation-required without deletion.
+Reset, restore, and container/revision replacement mark evidence stale before
+destruction; interruption makes it unknown. Snapshot create does not
+invalidate. Instance deletion removes current evidence while history and the
+global source survive.
+
+Success means filesystem materialization only. Step 4 never starts, stops, or
+restarts Kodi, calls JSON-RPC, enables or recognizes an add-on, binds a mount,
+installs a ZIP or repository, watches files, or grants MCP authority.
 
 ## Deferred Phase 8 work
 
-Stopped-only copy/sync deployment and its tree-copy/link/VCS rules,
-materialization state, bind mounts, broker source authority, ZIP installation,
-repository URL testing, watchers, inventory, and deployment reconciliation
-remain separately gated.
+Bind-mounted sources, ZIP installation, repository URL testing, watchers,
+add-on inventory/recognition, and broader provenance remain separately gated.

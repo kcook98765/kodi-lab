@@ -174,6 +174,7 @@ def test_adapter_exposes_only_inventory_and_semantic_stop_public_methods() -> No
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",
         "capture_managed_instance_snapshot",
+        "copy_sync_attached_development_source",
         "deprovision_managed_container",
         "list_managed_containers",
         "observe_managed_kodi_runtime",

@@ -1559,3 +1559,121 @@ details that it did not specify.
   archive conversion, broker mutation, Web field, or DevelopmentSource route.
   Phase 8 copy/sync must resolve ownership through ManagedInstance, its pinned
   RuntimeRevision, and this trusted profile.
+
+## D-0123: Step 4 is stopped-only filesystem materialization
+
+- Status: approved for Phase 8 Step 4
+- Decision: copy/sync accepts only an already attached `local_directory`
+  DevelopmentSource and an exactly provisioned, stopped, disposable
+  ManagedInstance. It is manually requested and changes only filesystem bytes.
+  It never stops, starts, or restarts Kodi, invokes JSON-RPC, enables an add-on,
+  installs a ZIP/repository, creates a bind mount, watches files, or replaces an
+  untrusted destination. Success proves materialization, not Kodi recognition.
+
+## D-0124: Recursive source capture is closed, bounded, and no-follow
+
+- Status: approved for Phase 8 Step 4
+- Decision: descriptor-relative traversal admits only directories and readable
+  single-link regular files. Symlinks, hardlinks, special files, unsafe or
+  invalid UTF-8/control/backslash names, traversal, and inconsistent objects
+  fail closed. Exact `.git`, `.hg`, and `.svn` directories are excluded at any
+  depth only after proving that the excluded object is a safe directory.
+- Bounds: 25,000 regular files, 50,000 total entries, 1 GiB included bytes,
+  256 MiB per file, 512 UTF-8 bytes per relative path, 255 per component, depth
+  32, and 16 MiB canonical manifest. These are not caller configurable.
+
+## D-0125: Deployment identity is a deterministic immutable capture
+
+- Status: approved for Phase 8 Step 4
+- Decision: the broker constructs a root-private normalized stage and hashes a
+  canonical ordered manifest containing versioned policy, path, type, mode,
+  size, and regular-file SHA-256. Directories become 0755; files become 0644
+  plus source execute bits. Ownership comes only from D-0122A; source ownership,
+  ACLs, xattrs, special bits, and mtimes are not preserved.
+- TOCTOU: after application metadata revalidation, the broker independently
+  resolves and captures the registered tree, validates add-on identity, then
+  performs a second complete walk/hash. Any difference fails before destination
+  mutation. Ordinary API, UI, history, and logs expose no member paths/hashes.
+
+## D-0126: Existing destinations require exact retained provenance
+
+- Status: approved for Phase 8 Step 4, clarified 2026-09-16
+- Decision: an absent server-derived destination permits complete initial
+  materialization. The broker may materialize its fixed `.kodi/addons` ancestor
+  hierarchy beneath fixed `/home/kodi` when the curated stopped image has not
+  created it; this adds no caller path or generic filesystem authority. An
+  existing destination permits synchronization only when
+  retained successful same-instance/source/add-on evidence has a trusted exact
+  runtime/container context and a fresh complete bounded readback exactly
+  matches its retained full destination digest. A state row alone is not proof;
+  mismatch or unknown provenance is a typed replacement conflict with no
+  override.
+- Sync: only new files and changed bytes or normalized execute modes enter the
+  delta. Unchanged paths do not. No path is deleted; file/directory replacement
+  therefore conflicts. Destination-only preservation means an entry present in
+  the previously verified full destination but absent from the current source
+  manifest, normally because a formerly deployed source file was removed from
+  source. It remains byte/mode/ownership identical and is included in the new
+  full destination evidence. An independently introduced or altered destination
+  entry is unexplained drift, invalidates provenance, and remains a replacement
+  conflict; synchronization never adopts it.
+- Verification: every current source entry must match bytes, normalized mode,
+  and revision-derived ownership; retained destination-only entries must remain
+  unchanged; no other entry may appear; container/revision/stopped identity must
+  remain exact. Source and full destination digests may differ after a no-delete
+  sync. Partial or unverifiable application becomes `reconciliation_required`
+  without rollback deletion.
+
+## D-0127: Deployment evidence is separate from attachment
+
+- Status: approved for Phase 8 Step 4
+- Decision: `DevelopmentSourceDeployment` is last-successful copy evidence for
+  one instance/source pair. It stores source and complete verified destination
+  digests separately, immutable operation/runtime/container context, add-on and
+  observed metadata snapshots, verification time, and confidence
+  `verified_at_last_operation`, `stale`, or `unknown`. Absence means never
+  deployed; old evidence is never described as current.
+- Invalidation: reset, Snapshot restore, and every runtime/container replacement
+  mark evidence stale before destruction while preserving attachment. Ambiguous
+  interrupted deployment marks it unknown. Snapshot create alone does not
+  invalidate. Instance deletion removes current evidence, retains the global
+  source, and preserves detached typed deployment history.
+
+## D-0128: Copy/sync is a durable dual-coordinated operation
+
+- Status: approved for Phase 8 Step 4
+- Decision: `DevelopmentSourceDeploymentOperation` has fixed `copy_sync`
+  request kind; queued, running, succeeded, failed, and
+  reconciliation-required states; closed acquire through finalize phases; and
+  initial, synchronized, or unchanged success classification. Only safe
+  aggregate counts and transferred bytes are retained. The newest 20 ordinary
+  terminal rows are retained; active and reconciliation rows are never pruned.
+- Coordination: every copy/sync reserves both the per-instance
+  `development_source_deployment` mutation and global-heavy lease. Expired work
+  is never resumed or recopied: the Step 8 dispatcher releases only exactly
+  proven leases, marks the operation reconciliation-required and confidence
+  unknown, and exposes a bounded read-only observation. Central reconciliation
+  blocking is not bypassed.
+
+## D-0129: The broker owns one narrow semantic copy/sync capability
+
+- Status: approved for Phase 8 Step 4
+- Decision: `copy_sync_attached_development_source` accepts only ManagedInstance,
+  DevelopmentSource, expected immutable container, and deployment-operation
+  UUIDs. The broker independently resolves root/locator/attachment/add-on,
+  runtime revision/profile UID/GID, exact stopped container, fixed destination,
+  policies, manifests, delta, and staging. It accepts no path, archive, member
+  list, destination, ownership, mode, Docker option, shell command, or arbitrary
+  payload. Corrupt persistence fails closed. No generic filesystem API is added.
+
+## D-0130: Copy/sync is a strict manual Web mutation
+
+- Status: approved for Phase 8 Step 4
+- Decision: authenticated same-origin CSRF-protected
+  `POST /api/instances/{instance_id}/development-sources/{source_id}/copy-sync`
+  accepts only an empty strict body and returns 202 with operation identity and
+  status link. UI eligibility is advisory and limited to attached, disposable,
+  exactly stopped/provisioned, non-conflicting instances; POST revalidates all
+  authority server-side. Presentation says never deployed, last copy verified,
+  verification stale, or verification unknown, never installed/enabled/loaded/
+  working/current.

@@ -6,6 +6,7 @@ from kodi_lab.development.sources import (
     DevelopmentSourceValidationError,
     DevelopmentSourceValidationResult,
     DevelopmentSourceValidator,
+    parse_captured_addon_xml,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "DevelopmentSourceValidationError",
     "DevelopmentSourceValidationResult",
     "DevelopmentSourceValidator",
+    "parse_captured_addon_xml",
 ]

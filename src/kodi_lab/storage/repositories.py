@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session
 from kodi_lab.domain import (
     DevelopmentSource,
     DevelopmentSourceAttachmentOperation,
+    DevelopmentSourceDeployment,
+    DevelopmentSourceDeploymentConfidence,
+    DevelopmentSourceDeploymentOperation,
+    DevelopmentSourceDeploymentOperationPhase,
+    DevelopmentSourceDeploymentOperationState,
     FixtureDefinition,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
@@ -49,6 +54,8 @@ from kodi_lab.domain import (
 )
 from kodi_lab.storage.models import (
     DevelopmentSourceAttachmentOperationRow,
+    DevelopmentSourceDeploymentOperationRow,
+    DevelopmentSourceDeploymentRow,
     DevelopmentSourceRow,
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
@@ -335,6 +342,70 @@ def _development_source_attachment_operation_from_row(
         completed_at=_timestamp_from_text(row.completed_at),
         state=row.state,
         failure_reason=row.failure_reason,
+    )
+
+
+def _development_source_deployment_from_row(
+    row: DevelopmentSourceDeploymentRow,
+) -> DevelopmentSourceDeployment:
+    return DevelopmentSourceDeployment(
+        managed_instance_id=UUID(row.managed_instance_id),
+        development_source_id=UUID(row.development_source_id),
+        addon_id=row.addon_id,
+        mode=row.mode,
+        last_successful_operation_id=UUID(row.last_successful_operation_id),
+        source_manifest_digest=row.source_manifest_digest,
+        verified_destination_digest=row.verified_destination_digest,
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        trusted_container_id=row.trusted_container_id,
+        observed_source_name=row.observed_source_name,
+        observed_source_version=row.observed_source_version,
+        verified_at=_timestamp_from_text(row.verified_at),
+        confidence=row.confidence,
+    )
+
+
+def _development_source_deployment_operation_from_row(
+    row: DevelopmentSourceDeploymentOperationRow,
+) -> DevelopmentSourceDeploymentOperation:
+    return DevelopmentSourceDeploymentOperation(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=(
+            None if row.managed_instance_id is None else UUID(row.managed_instance_id)
+        ),
+        development_source_id=UUID(row.development_source_id),
+        source_logical_name=row.source_logical_name,
+        addon_id=row.addon_id,
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        request_kind=row.request_kind,
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
+        result_classification=row.result_classification,
+        new_count=row.new_count,
+        changed_count=row.changed_count,
+        unchanged_count=row.unchanged_count,
+        destination_only_count=row.destination_only_count,
+        transferred_bytes=row.transferred_bytes,
+        expected_container_id=row.expected_container_id,
+        started_at=(
+            None if row.started_at is None else _timestamp_from_text(row.started_at)
+        ),
+        heartbeat_at=(
+            None if row.heartbeat_at is None else _timestamp_from_text(row.heartbeat_at)
+        ),
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=(
+            None
+            if row.lease_expires_at is None
+            else _timestamp_from_text(row.lease_expires_at)
+        ),
     )
 
 
@@ -3008,3 +3079,384 @@ class GlobalHeavyOperationLeaseRepository:
             )
         )
         return int(getattr(result, "rowcount", 0)) == 1
+
+
+class DevelopmentSourceDeploymentRepository:
+    """Current last-verified deployment evidence, separate from attachment."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get(
+        self, instance_id: UUID, source_id: UUID
+    ) -> DevelopmentSourceDeployment | None:
+        row = self._session.get(
+            DevelopmentSourceDeploymentRow, (str(instance_id), str(source_id))
+        )
+        return None if row is None else _development_source_deployment_from_row(row)
+
+    def list_for_instance(self, instance_id: UUID) -> list[DevelopmentSourceDeployment]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceDeploymentRow)
+            .where(
+                DevelopmentSourceDeploymentRow.managed_instance_id == str(instance_id)
+            )
+            .order_by(DevelopmentSourceDeploymentRow.development_source_id)
+        )
+        return [_development_source_deployment_from_row(row) for row in rows]
+
+    def upsert_verified(self, evidence: DevelopmentSourceDeployment) -> None:
+        row = self._session.get(
+            DevelopmentSourceDeploymentRow,
+            (str(evidence.managed_instance_id), str(evidence.development_source_id)),
+        )
+        values = {
+            "addon_id": evidence.addon_id,
+            "mode": evidence.mode,
+            "last_successful_operation_id": str(evidence.last_successful_operation_id),
+            "source_manifest_digest": evidence.source_manifest_digest,
+            "verified_destination_digest": evidence.verified_destination_digest,
+            "runtime_revision_id": str(evidence.runtime_revision_id),
+            "trusted_container_id": evidence.trusted_container_id,
+            "observed_source_name": evidence.observed_source_name,
+            "observed_source_version": evidence.observed_source_version,
+            "verified_at": _timestamp_to_text(evidence.verified_at),
+            "confidence": evidence.confidence,
+        }
+        if row is None:
+            self._session.add(
+                DevelopmentSourceDeploymentRow(
+                    managed_instance_id=str(evidence.managed_instance_id),
+                    development_source_id=str(evidence.development_source_id),
+                    **values,
+                )
+            )
+        else:
+            for name, value in values.items():
+                setattr(row, name, value)
+        self._session.flush()
+
+    def mark_instance_confidence(
+        self,
+        instance_id: UUID,
+        confidence: DevelopmentSourceDeploymentConfidence,
+    ) -> int:
+        result = self._session.execute(
+            update(DevelopmentSourceDeploymentRow)
+            .where(
+                DevelopmentSourceDeploymentRow.managed_instance_id == str(instance_id)
+            )
+            .values(confidence=confidence)
+        )
+        return int(getattr(result, "rowcount", 0))
+
+    def mark_confidence(
+        self,
+        instance_id: UUID,
+        source_id: UUID,
+        confidence: DevelopmentSourceDeploymentConfidence,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceDeploymentRow)
+            .where(
+                DevelopmentSourceDeploymentRow.managed_instance_id == str(instance_id),
+                DevelopmentSourceDeploymentRow.development_source_id == str(source_id),
+            )
+            .values(confidence=confidence)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def delete_for_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            delete(DevelopmentSourceDeploymentRow).where(
+                DevelopmentSourceDeploymentRow.managed_instance_id == str(instance_id)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
+class DevelopmentSourceDeploymentOperationRepository:
+    """Durable typed copy/sync operation persistence."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: DevelopmentSourceDeploymentOperation) -> None:
+        self._session.add(
+            DevelopmentSourceDeploymentOperationRow(
+                id=str(operation.id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                managed_instance_id=(
+                    None
+                    if operation.managed_instance_id is None
+                    else str(operation.managed_instance_id)
+                ),
+                development_source_id=str(operation.development_source_id),
+                source_logical_name=operation.source_logical_name,
+                addon_id=operation.addon_id,
+                runtime_revision_id=str(operation.runtime_revision_id),
+                request_kind=operation.request_kind,
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+                reconciliation_required=operation.reconciliation_required,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> DevelopmentSourceDeploymentOperation | None:
+        row = self._session.get(
+            DevelopmentSourceDeploymentOperationRow, str(operation_id)
+        )
+        return (
+            None
+            if row is None
+            else _development_source_deployment_operation_from_row(row)
+        )
+
+    def active_for_instance(
+        self, instance_id: UUID
+    ) -> DevelopmentSourceDeploymentOperation | None:
+        row = self._session.scalar(
+            select(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.managed_instance_id
+                == str(instance_id),
+                DevelopmentSourceDeploymentOperationRow.state.in_(
+                    (
+                        DevelopmentSourceDeploymentOperationState.QUEUED,
+                        DevelopmentSourceDeploymentOperationState.RUNNING,
+                    )
+                ),
+            )
+            .order_by(DevelopmentSourceDeploymentOperationRow.requested_at.desc())
+            .limit(1)
+        )
+        return (
+            None
+            if row is None
+            else _development_source_deployment_operation_from_row(row)
+        )
+
+    def list_queued(self) -> list[DevelopmentSourceDeploymentOperation]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.state
+                == DevelopmentSourceDeploymentOperationState.QUEUED
+            )
+            .order_by(DevelopmentSourceDeploymentOperationRow.requested_at)
+        )
+        return [_development_source_deployment_operation_from_row(row) for row in rows]
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[DevelopmentSourceDeploymentOperation]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                DevelopmentSourceDeploymentOperationRow.requested_at.desc(),
+                DevelopmentSourceDeploymentOperationRow.id.desc(),
+            )
+        )
+        return [_development_source_deployment_operation_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.managed_instance_id
+                == str(instance_id)
+            )
+            .values(managed_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[DevelopmentSourceDeploymentOperation]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.original_managed_instance_id
+                == str(instance_id),
+                DevelopmentSourceDeploymentOperationRow.reconciliation_required.is_(
+                    True
+                ),
+            )
+            .order_by(DevelopmentSourceDeploymentOperationRow.requested_at.desc())
+            .limit(limit)
+        )
+        return [_development_source_deployment_operation_from_row(row) for row in rows]
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        expected_container_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.id == str(operation_id),
+                DevelopmentSourceDeploymentOperationRow.state
+                == DevelopmentSourceDeploymentOperationState.QUEUED,
+            )
+            .values(
+                state=DevelopmentSourceDeploymentOperationState.RUNNING,
+                phase=DevelopmentSourceDeploymentOperationPhase.ACQUIRE,
+                expected_container_id=expected_container_id,
+                started_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: DevelopmentSourceDeploymentOperationPhase,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.id == str(operation_id),
+                DevelopmentSourceDeploymentOperationRow.state
+                == DevelopmentSourceDeploymentOperationState.RUNNING,
+                DevelopmentSourceDeploymentOperationRow.lease_token_digest
+                == token_digest,
+                DevelopmentSourceDeploymentOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+            )
+            .values(
+                phase=phase,
+                heartbeat_at=_timestamp_to_text(now),
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: DevelopmentSourceDeploymentOperationState,
+        result_classification: object | None,
+        new_count: int | None,
+        changed_count: int | None,
+        unchanged_count: int | None,
+        destination_only_count: int | None,
+        transferred_bytes: int | None,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.id == str(operation_id),
+                DevelopmentSourceDeploymentOperationRow.state
+                == DevelopmentSourceDeploymentOperationState.RUNNING,
+                DevelopmentSourceDeploymentOperationRow.lease_token_digest
+                == token_digest,
+            )
+            .values(
+                state=state,
+                phase=DevelopmentSourceDeploymentOperationPhase.FINALIZE,
+                result_classification=result_classification,
+                new_count=new_count,
+                changed_count=changed_count,
+                unchanged_count=unchanged_count,
+                destination_only_count=destination_only_count,
+                transferred_bytes=transferred_bytes,
+                completed_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale_reconciliation(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.id == str(operation_id),
+                DevelopmentSourceDeploymentOperationRow.state
+                == DevelopmentSourceDeploymentOperationState.RUNNING,
+                DevelopmentSourceDeploymentOperationRow.lease_token_digest
+                == token_digest,
+                DevelopmentSourceDeploymentOperationRow.lease_expires_at
+                <= _timestamp_to_text(now),
+            )
+            .values(
+                state=(
+                    DevelopmentSourceDeploymentOperationState.RECONCILIATION_REQUIRED
+                ),
+                completed_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                failure_reason=func.coalesce(
+                    DevelopmentSourceDeploymentOperationRow.failure_reason,
+                    "Development-source deployment requires reconciliation.",
+                ),
+                reconciliation_required=True,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        rows = list(
+            self._session.scalars(
+                select(DevelopmentSourceDeploymentOperationRow.id)
+                .where(
+                    DevelopmentSourceDeploymentOperationRow.original_managed_instance_id
+                    == str(instance_id),
+                    DevelopmentSourceDeploymentOperationRow.state.in_(
+                        (
+                            DevelopmentSourceDeploymentOperationState.SUCCEEDED,
+                            DevelopmentSourceDeploymentOperationState.FAILED,
+                        )
+                    ),
+                    DevelopmentSourceDeploymentOperationRow.id.not_in(
+                        select(
+                            DevelopmentSourceDeploymentRow.last_successful_operation_id
+                        )
+                    ),
+                )
+                .order_by(
+                    DevelopmentSourceDeploymentOperationRow.requested_at.desc(),
+                    DevelopmentSourceDeploymentOperationRow.id.desc(),
+                )
+                .offset(retain)
+            )
+        )
+        if not rows:
+            return 0
+        result = self._session.execute(
+            delete(DevelopmentSourceDeploymentOperationRow).where(
+                DevelopmentSourceDeploymentOperationRow.id.in_(rows)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
