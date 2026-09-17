@@ -32,6 +32,7 @@ from kodi_lab.broker.operations import (
 )
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeExecutionProfile
+from kodi_lab.kodi.addons import KodiAddonInventoryResult
 from kodi_lab.kodi.readiness import (
     JsonRpcState,
     KodiApplicationIdentity,
@@ -66,6 +67,12 @@ class FakeBroker:
     calls: list[tuple[str, dict[str, object]]] = field(default_factory=list)
     inventory_error: BaseException | None = None
     snapshot_data_root: Path | None = None
+    addon_inventory_result: KodiAddonInventoryResult = field(
+        default_factory=lambda: KodiAddonInventoryResult(
+            identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"), items=()
+        )
+    )
+    addon_inventory_error: BaseException | None = None
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         if self.inventory_error is not None:
@@ -275,6 +282,16 @@ def coordinator_factory(
     return ImmediateCoordinator()
 
 
+class FakeAddonInventoryAdapter:
+    def __init__(self, broker: FakeBroker) -> None:
+        self._broker = broker
+
+    def get_inventory(self) -> KodiAddonInventoryResult:
+        if self._broker.addon_inventory_error is not None:
+            raise self._broker.addon_inventory_error
+        return self._broker.addon_inventory_result
+
+
 @pytest.fixture
 def database(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
     engine = create_engine(f"sqlite:///{tmp_path / 'web.db'}")
@@ -376,6 +393,9 @@ def client(
         readiness=ReadinessTaskRegistry(max_workers=1),
         auth=auth,
         coordinator_factory=coordinator_factory,
+        addon_inventory_adapter_factory=(
+            lambda _observation, _profile: FakeAddonInventoryAdapter(broker)
+        ),
     )
     with TestClient(app, base_url="http://127.0.0.1") as test_client:
         yield test_client

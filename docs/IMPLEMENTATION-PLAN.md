@@ -530,3 +530,27 @@ ownership, destination, archive, policy, restart, or override authority. Success
 proves filesystem materialization only. Kodi recognition/inventory, bind-mounted
 sources, ZIP installation, repositories, enablement, JSON-RPC, watchers, and
 MCP development authority remain future architecture milestones.
+
+Phase 8 Step 5 implements live Kodi-recognized add-on inventory. Authenticated
+`GET /api/instances/{instance_id}/addons` and the instance-detail Add-ons section
+use a fixed unprivileged `Addons.GetAddons` adapter only after existing trusted
+container/runtime/network observation proves Kodi is already running and
+process-healthy. The adapter performs a fresh identity check, fixed installed/all
+enumeration, strict complete-result normalization, deterministic sorting, and
+bounded timeout, response, page, item, and string handling across Kodi 19.5,
+20.5, 21.3, and 22.0 Beta 2.
+
+The observation is live, no-store, GET-only, not persisted, and not activity
+history; Alembic remains at `0020_dev_source_copy_sync`. Instance detail remains
+available when inventory is not. No request can start/wait/restart Kodi or
+supply networking, credentials, JSON-RPC method, filters, properties, container,
+or path information, and no broker/MCP authority is added.
+
+Provenance is either unknown or precise historical DevelopmentSource evidence:
+Kodi recognizes the same ID/version last successfully verified copied for the
+same source, instance, revision, and exact current container. This is presented
+only as a prior verified copy and never proves current bytes, installation,
+enablement, or function. Stale/unknown deployment confidence and every mismatch
+remain unknown. Fresh destination readback, Snapshot/repository provenance,
+durable observations, enable/disable, dependency installation, bind mounts, and
+ZIP installation remain separately gated.

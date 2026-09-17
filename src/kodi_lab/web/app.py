@@ -26,6 +26,11 @@ from kodi_lab.application.activity import (
     ManagedInstanceActivityItem,
     ManagedInstanceActivityService,
 )
+from kodi_lab.application.addon_inventory import (
+    InventoryAdapterFactory,
+    ManagedInstanceAddonInventory,
+    ManagedInstanceAddonInventoryService,
+)
 from kodi_lab.application.development_source_deployments import (
     DevelopmentSourceDeploymentConflictError,
     DevelopmentSourceDeploymentError,
@@ -266,6 +271,7 @@ class WebApplicationContext:
     stale_dispatcher: StaleOperationReconciliationDispatcher
     lifecycle_operations: ManagedInstanceLifecycleOperationCoordinator
     activity: ManagedInstanceActivityService
+    addon_inventory: ManagedInstanceAddonInventoryService
     instance_detail: ManagedInstanceDetailService
     deleted_history: DeletedManagedInstanceHistoryService
     development_sources: DevelopmentSourcePresentationService
@@ -293,6 +299,7 @@ def create_app(
     development_source_deployment_service_factory: (
         DevelopmentSourceDeploymentServiceFactory | None
     ) = None,
+    addon_inventory_adapter_factory: InventoryAdapterFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -404,6 +411,11 @@ def create_app(
     activity = ManagedInstanceActivityService(session_factory)
     snapshot_status = SnapshotStatusService(session_factory)
     development_sources = DevelopmentSourcePresentationService(session_factory)
+    addon_inventory = ManagedInstanceAddonInventoryService(
+        session_factory,
+        broker,
+        adapter_factory=addon_inventory_adapter_factory,
+    )
     development_source_deployment_operations = (
         DevelopmentSourceDeploymentOperationCoordinator(
             session_factory,
@@ -432,6 +444,7 @@ def create_app(
         activity,
         reconciliation,
         development_sources,
+        addon_inventory,
     )
     deleted_history = DeletedManagedInstanceHistoryService(
         session_factory, activity, snapshot_status
@@ -473,6 +486,7 @@ def create_app(
         stale_dispatcher=stale_dispatcher,
         lifecycle_operations=lifecycle_operations,
         activity=activity,
+        addon_inventory=addon_inventory,
         instance_detail=instance_detail,
         deleted_history=deleted_history,
         development_sources=development_sources,
@@ -1209,6 +1223,16 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> ManagedRuntimeStatus:
         return context.status.get(instance_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/addons",
+        response_model=ManagedInstanceAddonInventory,
+    )
+    def get_instance_addons(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ManagedInstanceAddonInventory:
+        return context.addon_inventory.get(instance_id)
 
     @app.get(
         "/api/instances/{instance_id}/activity",

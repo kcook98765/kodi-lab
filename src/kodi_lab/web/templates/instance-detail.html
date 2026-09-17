@@ -39,6 +39,30 @@
         <h2>Snapshots</h2>
         <p>{{ detail.snapshots|length }} retained Snapshot{{ '' if detail.snapshots|length == 1 else 's' }}. <a href="/instances/{{ detail.runtime.managed_instance_id }}/snapshots">View Snapshots</a></p>
       </section>
+      <section id="addons">
+        <h2>Add-ons</h2>
+        <p class="secondary">Live Kodi-recognized installed add-ons. Recognition and enabled state do not imply that an add-on works.</p>
+        {% if detail.addons.query_status == 'available' %}
+        <p>Complete live observation at {{ detail.addons.observed_at }} · {{ detail.addons.items|length }} add-on{{ '' if detail.addons.items|length == 1 else 's' }}.</p>
+        <table>
+          <thead><tr><th>ID</th><th>Name</th><th>Version</th><th>Enabled</th><th>Kodi type</th><th>Provenance</th></tr></thead>
+          <tbody>
+          {% for addon in detail.addons.items %}
+            <tr>
+              <td>{{ addon.addon_id }}</td>
+              <td>{{ addon.name }}</td>
+              <td>{{ addon.version }}</td>
+              <td>{{ 'Enabled' if addon.enabled else 'Disabled' }}</td>
+              <td>{{ addon.kodi_type }}</td>
+              <td>{% if addon.provenance.classification == 'development_source_at_last_verified_copy' %}Prior verified copy: {{ addon.provenance.development_source_logical_name }}{% elif addon.provenance.evidence_status == 'stale' %}Prior verified copy evidence stale{% if addon.provenance.development_source_logical_name %}: {{ addon.provenance.development_source_logical_name }}{% endif %}{% else %}Provenance unknown{% endif %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p>Add-on inventory unavailable: {{ detail.addons.unavailable_reason|replace('_', ' ') }}. Kodi Lab did not start or change this instance.</p>
+        {% endif %}
+      </section>
       <section id="development-sources">
         <h2>Development Sources</h2>
         <p class="secondary">Attachments are product metadata only; they do not indicate deployment, installation, or current source validity.</p>

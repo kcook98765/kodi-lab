@@ -217,7 +217,55 @@ Success means filesystem materialization only. Step 4 never starts, stops, or
 restarts Kodi, calls JSON-RPC, enables or recognizes an add-on, binds a mount,
 installs a ZIP or repository, watches files, or grants MCP authority.
 
+## Step 5 live Kodi add-on inventory and recognition
+
+Inventory means only the complete live installed-add-on result Kodi returns for
+the exact managed instance. It is not the filesystem, Kodi database, attachment
+catalog, or copy/sync evidence. Copied, recognized, enabled, and working are
+separate facts; neither recognition nor enabled state proves function.
+
+The application issues one fixed `Addons.GetAddons` request with type unknown,
+installed true, enabled all, and properties name, version, and enabled. Kodi's
+addonid and type base fields are required. Responses from Kodi 19.5, 20.5, 21.3,
+and 22.0 Beta 2 share one adapter: strict complete-result parsing, 64-item pages,
+2,048 total items, 64 KiB per exchange, three seconds per exchange, six seconds
+overall, conservative string bounds, strict Boolean enablement, duplicate
+rejection, deterministic ID sorting, and no redirects. No partial list is
+returned when any record or page is untrusted.
+
+The exact ManagedInstance and pinned RuntimeExecutionProfile supply authority.
+Existing broker-owned container/runtime observation proves current owned
+container identity, runtime revision, managed-network membership, running state,
+healthy Kodi process, and the internal endpoint. The browser supplies only the
+instance UUID. Unprivileged application HTTP performs JSON-RPC; no broker or MCP
+inventory operation exists. A query never provisions, starts, waits through
+readiness, restarts, stops, enables, installs, or changes Kodi.
+
+`ManagedInstanceAddonInventory` contains instance, observation timestamp, Kodi
+release, query status, bounded unavailable reason, completeness, and normalized
+items. Each item contains ID, name, exact Kodi version string, strict enabled
+Boolean, Kodi's single reported type, and conservative provenance. The API is
+authenticated `GET /api/instances/{instance_id}/addons`; instance detail renders
+all items or a bounded unavailable state. Both are no-store. Observations are
+not persisted and create no activity history or migration.
+
+The only non-unknown classification is
+`development_source_at_last_verified_copy`. It requires a retained successful
+copy/sync operation and verified evidence matching source, instance, add-on ID,
+reported version, RuntimeRevision, and exact current trusted container. Its
+wording is `Prior verified copy`, meaning only that Kodi recognizes the same
+identity/version Kodi Lab last verified copying. It is not a current byte claim.
+Stale or unknown confidence and every mismatch yield unknown provenance;
+attachment, Snapshot, fixture, repository guess, and filesystem location do not
+substitute for proof. Fresh destination readback remains deferred.
+
+Normal Kodi 21.3 startup/recognition did not mutate the synthetic add-on tree,
+so Step 4 replacement semantics require no amendment in this slice. Executing a
+Python add-on may later create bytecode or other files beneath its directory;
+that execution-time mutation question remains deferred and unproven.
+
 ## Deferred Phase 8 work
 
 Bind-mounted sources, ZIP installation, repository URL testing, watchers,
-add-on inventory/recognition, and broader provenance remain separately gated.
+fresh byte-level provenance, execution-time tree mutation, enable/disable,
+dependency installation, and broader provenance remain separately gated.

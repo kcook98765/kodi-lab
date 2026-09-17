@@ -623,3 +623,41 @@ does not. Partial application and expired work become reconciliation-required;
 no operation resumes, repairs, recopies, or rolls back by deletion. Kodi is
 never started and JSON-RPC, enablement, recognition, bind mounts, ZIPs,
 repositories, watchers, and MCP authority remain outside Step 4.
+
+Step 5 adds live read-only Kodi recognition inventory without changing Step 4.
+The source of truth is the complete installed set returned by a fixed
+`Addons.GetAddons` request: type unknown, installed true, enabled all, and only
+name/version/enabled properties plus Kodi's addonid/type base fields. One
+version-neutral adapter covers Kodi 19.5, 20.5, 21.3, and 22.0 Beta 2, strictly
+validates the envelope, pagination, every field and Boolean, rejects duplicates
+and partial results, and sorts by add-on ID. It uses 64-item pages, a 2,048-item
+total bound, 64 KiB per response, three seconds per exchange, six seconds total,
+and no redirects.
+
+Inventory first resolves ManagedInstance to its pinned RuntimeExecutionProfile,
+then uses existing managed-container inventory and runtime observation to prove
+the exact owned container, runtime revision, managed-network endpoint, running
+state, healthy process, and internal JSON-RPC port. Browser and DTOs contain no
+endpoint, address, port, container/image identity, credentials, path, digest,
+or raw Kodi payload/error. The unprivileged application performs the fixed HTTP
+exchange; the broker gains no JSON-RPC operation. Current curated runtimes are
+unauthenticated internally, while endpoint configuration remains trusted
+runtime state rather than caller input.
+
+The normalized live DTO records instance, observation time, Kodi release,
+availability/completeness, safe unavailable reason, and bounded ID, name,
+version, strict enabled Boolean, Kodi type, and conservative provenance for
+each item. Unavailable inventory never prevents independent instance detail
+from rendering and never triggers lifecycle or the 90-second readiness wait.
+Observations are GET-only, no-store, non-durable, and absent from activity
+history; no migration is needed.
+
+Historical DevelopmentSource attribution is deliberately narrower than current
+provenance. It requires exact recognized ID/version plus retained successful
+same-instance/source/runtime/container evidence whose confidence remains
+`verified_at_last_operation`. The UI says `Prior verified copy`; it does not
+claim current byte equality or installation. Stale/unknown confidence or any
+identity mismatch yields unknown provenance, with optional separate stale
+historical wording. Attachment, Snapshot, fixture, repository guess, database,
+and filesystem presence do not establish recognition or provenance. Copied,
+recognized, enabled, and working remain separate states.

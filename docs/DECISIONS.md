@@ -1677,3 +1677,64 @@ details that it did not specify.
   authority server-side. Presentation says never deployed, last copy verified,
   verification stale, or verification unknown, never installed/enabled/loaded/
   working/current.
+
+## D-0131: Live Kodi is the add-on inventory source of truth
+
+- Status: approved for Phase 8 Step 5
+- Decision: inventory is the complete installed-add-on set returned by live
+  Kodi `Addons.GetAddons` for the exact ManagedInstance. Filesystem contents,
+  Kodi databases, DevelopmentSource attachments, and copy/sync evidence are not
+  inventory sources.
+- Semantics: attachment, filesystem materialization, Kodi recognition,
+  Kodi-reported enabled state, and functional/working state remain distinct.
+  Recognition and enablement do not imply that an add-on works.
+
+## D-0132: Inventory uses one fixed bounded query and strict normalization
+
+- Status: approved for Phase 8 Step 5
+- Decision: the application alone issues `Addons.GetAddons` with type
+  `unknown`, installed `true`, enabled `all`, and properties name, version, and
+  enabled. Required base fields are addonid and type. Callers select neither
+  JSON-RPC method, endpoint, filter, nor property.
+- Integrity: application identity and every page are live and bounded to three
+  seconds per exchange and six seconds total. Pages contain at most 64 items,
+  the complete inventory at most 2,048, and each response at most 64 KiB;
+  redirects are rejected. Any malformed field, non-Boolean enabled state,
+  duplicate ID, inconsistent pagination, unsupported envelope, oversized
+  string, or exceeded bound fails the whole observation.
+
+## D-0133: DevelopmentSource attribution is historical copy evidence only
+
+- Status: approved for Phase 8 Step 5
+- Decision: `development_source_at_last_verified_copy` is permitted only when
+  the recognized add-on ID and exact version match retained successful copy/sync
+  evidence for the same source, instance, RuntimeRevision, and current trusted
+  container, with confidence `verified_at_last_operation`.
+- Wording: this means Kodi recognizes the identity/version Kodi Lab last
+  verified copying from that source. It does not prove current destination byte
+  equality and is presented as `Prior verified copy`, never installed from,
+  current source, or currently verified.
+
+## D-0134: Stale or mismatched evidence cannot attribute current provenance
+
+- Status: approved for Phase 8 Step 5
+- Decision: stale/unknown confidence or a source, runtime, container, identity,
+  or version mismatch yields provenance `unknown`, even when Kodi recognizes
+  the add-on. Safe stale historical wording may be shown separately.
+- Exclusions: attachment, matching ID alone, Snapshot restore, fixture
+  membership, filesystem location, and repository guesses never establish
+  provenance. Existing reset and Snapshot invalidation behavior is unchanged;
+  no Snapshot provenance is introduced.
+
+## D-0135: Inventory is a live read-only non-durable surface
+
+- Status: approved for Phase 8 Step 5
+- Decision: authenticated inventory is GET-only, `no-store`, queried only when
+  the exact provisioned managed container is already running and process-healthy,
+  and requires a fresh successful JSON-RPC identity/inventory exchange. It
+  never provisions, starts, waits for readiness, restarts, stops, or otherwise
+  changes Kodi.
+- Persistence and authority: observations are not persisted and do not enter
+  activity history, so no migration is added. Unprivileged application code
+  uses the existing broker-validated managed endpoint; no inventory broker or
+  MCP authority exists. The browser supplies only ManagedInstance UUID.

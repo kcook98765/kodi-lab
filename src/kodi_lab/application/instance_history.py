@@ -10,6 +10,10 @@ from kodi_lab.application.activity import (
     ManagedInstanceActivityItem,
     ManagedInstanceActivityService,
 )
+from kodi_lab.application.addon_inventory import (
+    ManagedInstanceAddonInventory,
+    ManagedInstanceAddonInventoryService,
+)
 from kodi_lab.application.development_source_attachments import (
     AttachedDevelopmentSourceRead,
 )
@@ -60,6 +64,7 @@ class ManagedInstanceDetail(BaseModel):
     fixture: InstanceFixtureDetail | None
     snapshots: list[SnapshotHistoryItem]
     development_sources: list[AttachedDevelopmentSourceRead]
+    addons: ManagedInstanceAddonInventory
     recent_activity: list[ManagedInstanceActivityItem] = Field(max_length=10)
     reconciliation: ManagedInstanceReconciliationStatus
 
@@ -102,6 +107,7 @@ class ManagedInstanceDetailService:
         activity: ManagedInstanceActivityService,
         reconciliation: ManagedInstanceReconciliationService,
         development_sources: DevelopmentSourcePresentationService,
+        addons: ManagedInstanceAddonInventoryService,
     ) -> None:
         self._session_factory = session_factory
         self._status = status
@@ -109,6 +115,7 @@ class ManagedInstanceDetailService:
         self._activity = activity
         self._reconciliation = reconciliation
         self._development_sources = development_sources
+        self._addons = addons
 
     def get(self, instance_id: UUID) -> ManagedInstanceDetail:
         with self._session_factory() as session:
@@ -157,6 +164,7 @@ class ManagedInstanceDetailService:
                 source.model_copy(update={"copy_sync_eligible": eligible})
                 for source in sources
             ],
+            addons=self._addons.get(instance_id),
             recent_activity=self._activity.list_for_live_instance(
                 instance_id, limit=10
             ),
