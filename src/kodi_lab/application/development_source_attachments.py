@@ -61,7 +61,7 @@ class AttachedDevelopmentSourceRead(BaseModel):
     attached_at: datetime
 
 
-def _read(
+def attached_development_source_read(
     attachment: ManagedInstanceDevelopmentSource, source: DevelopmentSource
 ) -> AttachedDevelopmentSourceRead:
     return AttachedDevelopmentSourceRead(
@@ -145,7 +145,7 @@ class DevelopmentSourceAttachmentService:
                             DevelopmentSourceAttachmentOperationState.SUCCEEDED,
                         )
                     )
-                    return _read(attachment, current_source)
+                    return attached_development_source_read(attachment, current_source)
             except DevelopmentSourceValidationError as error:
                 wrapped = DevelopmentSourceAttachmentValidationError(error.code.value)
                 self._record_failure(
@@ -205,7 +205,7 @@ class DevelopmentSourceAttachmentService:
                             DevelopmentSourceAttachmentOperationState.SUCCEEDED,
                         )
                     )
-                    return _read(attachment, current_source)
+                    return attached_development_source_read(attachment, current_source)
             except DevelopmentSourceAttachmentError as error:
                 self._record_failure(
                     operation_id,
@@ -239,7 +239,7 @@ class DevelopmentSourceAttachmentService:
                     raise DevelopmentSourceNotFoundError(
                         attachment.development_source_id
                     )
-                result.append(_read(attachment, source))
+                result.append(attached_development_source_read(attachment, source))
             return result
 
     def _preflight(self, instance_id: UUID, source_id: UUID) -> DevelopmentSource:

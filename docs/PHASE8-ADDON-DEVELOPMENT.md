@@ -120,9 +120,31 @@ Application DTOs expose source UUID, logical name, add-on ID, observed
 name/version, source kind, and attachment time. They expose neither absolute nor
 relative source path. No attach/detach Web POST exists in this step.
 
+## Step 3 read-only Web presentation
+
+Authenticated global list and detail pages, plus matching metadata-only JSON
+routes, present registered sources through path-free application DTOs. The list
+shows stored logical/add-on identity, observed name/version/extensions,
+validation time, and current live attachment count. Detail adds current live
+instance identity, exact runtime revision, attachment time, and safe links.
+Live instance detail lists its attached sources in deterministic order.
+
+These surfaces explicitly describe catalog metadata as registration-time
+observations and attachment as product metadata rather than deployment. An
+ordinary GET never invokes `DevelopmentSourceValidator`, reads source files, or
+updates catalog observations. Deleted instances disappear from current source
+detail while typed attachment activity remains available in existing deleted
+instance history.
+
+Neither HTML nor JSON includes the configured development root, relative
+locator, derived absolute path, source-tree filenames/content, or raw XML. No
+source registration, attach/detach, deployment, download, browse, edit, or
+unregister action exists. The existing authentication, no-store, same-origin,
+escaping, and no-CORS security policy applies unchanged.
+
 ## Deferred Phase 8 work
 
-Deployment and its tree-copy/link/VCS rules, materialization state, copy/sync,
-bind mounts, broker source authority, ZIP installation, repository URL testing,
-watchers, inventory, and deployment reconciliation remain separately gated.
-Read-only Web source and attachment presentation is also deferred.
+Stopped-only copy/sync deployment and its tree-copy/link/VCS rules,
+materialization state, bind mounts, broker source authority, ZIP installation,
+repository URL testing, watchers, inventory, and deployment reconciliation
+remain separately gated.

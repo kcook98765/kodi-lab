@@ -10,6 +10,12 @@ from kodi_lab.application.activity import (
     ManagedInstanceActivityItem,
     ManagedInstanceActivityService,
 )
+from kodi_lab.application.development_source_attachments import (
+    AttachedDevelopmentSourceRead,
+)
+from kodi_lab.application.development_source_presentation import (
+    DevelopmentSourcePresentationService,
+)
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationService,
@@ -51,6 +57,7 @@ class ManagedInstanceDetail(BaseModel):
     notes: str | None = Field(default=None, max_length=4096)
     fixture: InstanceFixtureDetail | None
     snapshots: list[SnapshotHistoryItem]
+    development_sources: list[AttachedDevelopmentSourceRead]
     recent_activity: list[ManagedInstanceActivityItem] = Field(max_length=10)
     reconciliation: ManagedInstanceReconciliationStatus
 
@@ -92,12 +99,14 @@ class ManagedInstanceDetailService:
         snapshots: SnapshotStatusService,
         activity: ManagedInstanceActivityService,
         reconciliation: ManagedInstanceReconciliationService,
+        development_sources: DevelopmentSourcePresentationService,
     ) -> None:
         self._session_factory = session_factory
         self._status = status
         self._snapshots = snapshots
         self._activity = activity
         self._reconciliation = reconciliation
+        self._development_sources = development_sources
 
     def get(self, instance_id: UUID) -> ManagedInstanceDetail:
         with self._session_factory() as session:
@@ -127,6 +136,9 @@ class ManagedInstanceDetailService:
                 )
             ),
             snapshots=self._snapshots.list_for_instance(instance_id),
+            development_sources=self._development_sources.list_attached_sources(
+                instance_id
+            ),
             recent_activity=self._activity.list_for_live_instance(
                 instance_id, limit=10
             ),

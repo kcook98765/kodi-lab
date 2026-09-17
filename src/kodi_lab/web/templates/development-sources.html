@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Development Sources · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>Development Sources</h1>
+      <p class="secondary">Registered source metadata observed at its validation time. Registration and attachment do not indicate deployment or current filesystem validity.</p>
+      {% for item in sources %}
+      <article data-development-source-id="{{ item.source.id }}">
+        <h2><a href="/development-sources/{{ item.source.id }}">{{ item.source.logical_name }}</a></h2>
+        <p class="secondary">{{ item.source.id }}</p>
+        <dl>
+          <dt>Source kind</dt><dd>{{ item.source.source_kind }}</dd>
+          <dt>Add-on ID</dt><dd>{{ item.source.addon_id }}</dd>
+          <dt>Observed name</dt><dd>{{ item.source.observed_name }}</dd>
+          <dt>Observed version</dt><dd>{{ item.source.observed_version }}</dd>
+          <dt>Extensions</dt><dd>{% if item.source.extension_types %}{{ item.source.extension_types|join(', ') }}{% else %}None observed{% endif %}</dd>
+          <dt>Validated at</dt><dd>{{ item.source.validated_at }}</dd>
+          <dt>Attached live instances</dt><dd>{{ item.attached_instance_count }}</dd>
+        </dl>
+      </article>
+      {% else %}<p>No development sources are registered.</p>{% endfor %}
+      <p><a href="/">Back to dashboard</a></p>
+    </main>
+  </body>
+</html>

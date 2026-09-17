@@ -26,7 +26,13 @@ from kodi_lab.application.activity import (
     ManagedInstanceActivityItem,
     ManagedInstanceActivityService,
 )
+from kodi_lab.application.development_source_presentation import (
+    DevelopmentSourceDetail,
+    DevelopmentSourcePresentationService,
+    DevelopmentSourceSummary,
+)
 from kodi_lab.application.errors import (
+    DevelopmentSourceNotFoundError,
     ManagedInstanceNotFoundError,
     TargetNotFoundError,
 )
@@ -244,6 +250,7 @@ class WebApplicationContext:
     activity: ManagedInstanceActivityService
     instance_detail: ManagedInstanceDetailService
     deleted_history: DeletedManagedInstanceHistoryService
+    development_sources: DevelopmentSourcePresentationService
 
 
 def create_app(
@@ -371,12 +378,14 @@ def create_app(
     )
     activity = ManagedInstanceActivityService(session_factory)
     snapshot_status = SnapshotStatusService(session_factory)
+    development_sources = DevelopmentSourcePresentationService(session_factory)
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
         snapshot_status,
         activity,
         reconciliation,
+        development_sources,
     )
     deleted_history = DeletedManagedInstanceHistoryService(
         session_factory, activity, snapshot_status
@@ -420,6 +429,7 @@ def create_app(
         activity=activity,
         instance_detail=instance_detail,
         deleted_history=deleted_history,
+        development_sources=development_sources,
     )
 
     @asynccontextmanager
@@ -499,6 +509,14 @@ def create_app(
         _request: Request, _error: TargetNotFoundError
     ) -> JSONResponse:
         return _json_error(404, "target_not_found", "Target not found.")
+
+    @app.exception_handler(DevelopmentSourceNotFoundError)
+    async def development_source_not_found(
+        _request: Request, _error: DevelopmentSourceNotFoundError
+    ) -> JSONResponse:
+        return _json_error(
+            404, "development_source_not_found", "Development source not found."
+        )
 
     @app.exception_handler(LifecycleConflictError)
     async def lifecycle_conflict(
@@ -759,6 +777,32 @@ def create_app(
             request,
             "runtimes.html",
             {"matrix": matrix},
+        )
+
+    @app.get("/development-sources", response_class=HTMLResponse)
+    async def development_source_list_page(request: Request) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "development-sources.html",
+            {"sources": context.development_sources.list_sources()},
+        )
+
+    @app.get("/development-sources/{source_id}", response_class=HTMLResponse)
+    async def development_source_detail_page(
+        request: Request, source_id: UUID
+    ) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "development-source-detail.html",
+            {"detail": context.development_sources.get_source(source_id)},
         )
 
     @app.get("/instances/{instance_id}", response_class=HTMLResponse)
@@ -1069,6 +1113,22 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[ManagedRuntimeStatus]:
         return context.status.list_statuses()
+
+    @app.get("/api/development-sources", response_model=list[DevelopmentSourceSummary])
+    def list_development_sources(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[DevelopmentSourceSummary]:
+        return context.development_sources.list_sources()
+
+    @app.get(
+        "/api/development-sources/{source_id}",
+        response_model=DevelopmentSourceDetail,
+    )
+    def get_development_source(
+        source_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> DevelopmentSourceDetail:
+        return context.development_sources.get_source(source_id)
 
     @app.get("/api/instances/{instance_id}", response_model=ManagedRuntimeStatus)
     def get_instance(

@@ -567,3 +567,18 @@ Phase 8 still has no deployment or inventory state, broker source operation,
 Docker source access, Web source mutation, ZIP/repository handling, Git
 interpretation, source watcher, or deployment reconciliation behavior. See
 `PHASE8-ADDON-DEVELOPMENT.md`.
+
+Step 3 adds an authenticated read-only Web projection over the catalog and
+current attachment metadata. Global list/detail HTML and JSON expose only the
+path-free application DTO, registration-time observations, validation time,
+and live attachment counts or instance links. Live instance detail lists its
+attached sources and existing typed activity remains the only history source.
+Deleted instances are absent from current source attachments while retained
+instance history continues to show attachment operations.
+
+Ordinary GET requests never open or revalidate a source tree. The UI labels
+stored name, version, and extension metadata as observations and states that an
+attachment is not deployment. The Web receives neither configured development
+root nor relative locator, has no source content/download surface, and gains no
+registration, attach/detach, deployment, filesystem, Docker, or broker
+authority.

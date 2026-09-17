@@ -482,3 +482,17 @@ history survives instance deletion and joins unified activity. No global-heavy
 lease, deployment state, broker/Docker source operation, Web mutation, copy,
 sync, bind mount, ZIP, repository URL, watcher, or persistent-instance workflow
 is introduced.
+
+Phase 8 Step 3 adds only authenticated read-only source presentation. Global
+HTML and JSON list/detail routes use a path-free application projection with
+stored registration observations, validation time, and current live attachment
+counts/details. Instance detail lists attached sources and links back to source
+detail; source detail links current live instances and their retained history.
+Deleted instance attachment operations remain visible only through existing
+typed deleted-instance history.
+
+GET requests perform no source-filesystem validation or catalog refresh. No
+schema, source mutation form, attach/detach route, deployment state, source
+browser/content access, broker method, Docker access, or reconciliation behavior
+is added. Stopped-only copy/sync deployment requires a separate architecture
+gate.

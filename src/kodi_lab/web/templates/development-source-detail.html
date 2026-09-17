@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ detail.source.logical_name }} · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>{{ detail.source.logical_name }}</h1>
+      <p class="secondary">Registered source {{ detail.source.id }}</p>
+      <dl>
+        <dt>Source kind</dt><dd>{{ detail.source.source_kind }}</dd>
+        <dt>Add-on ID</dt><dd>{{ detail.source.addon_id }}</dd>
+        <dt>Observed name</dt><dd>{{ detail.source.observed_name }}</dd>
+        <dt>Observed version</dt><dd>{{ detail.source.observed_version }}</dd>
+        <dt>Observed extensions</dt><dd>{% if detail.source.extension_types %}{{ detail.source.extension_types|join(', ') }}{% else %}None observed{% endif %}</dd>
+        <dt>Validated at</dt><dd>{{ detail.source.validated_at }}</dd>
+      </dl>
+      <p class="secondary">These are stored registration-time observations. This page does not revalidate source files, and attachment does not imply deployment.</p>
+      <section id="attached-instances">
+        <h2>Attached live instances</h2>
+        {% for instance in detail.attached_instances %}
+        <article data-instance-id="{{ instance.managed_instance_id }}">
+          <h3><a href="/instances/{{ instance.managed_instance_id }}">{{ instance.instance_name }}</a></h3>
+          <p class="secondary">{{ instance.managed_instance_id }}</p>
+          <dl>
+            <dt>Exact runtime</dt><dd>Kodi {{ instance.kodi_version }} · revision {{ instance.runtime_revision_number }} ({{ instance.runtime_revision_id }})</dd>
+            <dt>Attached at</dt><dd>{{ instance.attached_at }}</dd>
+          </dl>
+          <p><a href="/instances/{{ instance.managed_instance_id }}/history">View retained instance history</a></p>
+        </article>
+        {% else %}<p>This source has no current live instance attachments.</p>{% endfor %}
+      </section>
+      <p><a href="/development-sources">Back to Development Sources</a> · <a href="/">Dashboard</a></p>
+    </main>
+  </body>
+</html>

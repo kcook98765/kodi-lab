@@ -4,6 +4,12 @@ from kodi_lab.application.development_source_attachments import (
     AttachedDevelopmentSourceRead,
     DevelopmentSourceAttachmentService,
 )
+from kodi_lab.application.development_source_presentation import (
+    DevelopmentSourceAttachedInstanceRead,
+    DevelopmentSourceDetail,
+    DevelopmentSourcePresentationService,
+    DevelopmentSourceSummary,
+)
 from kodi_lab.application.development_sources import (
     DevelopmentSourceAdministrationService,
     DevelopmentSourceRead,
@@ -135,15 +141,19 @@ __all__ = [
     "DevelopmentSourceAddonConflictError",
     "DevelopmentSourceAdministrationService",
     "DevelopmentSourceAlreadyAttachedError",
+    "DevelopmentSourceAttachedInstanceRead",
     "DevelopmentSourceAttachmentError",
     "DevelopmentSourceAttachmentService",
     "DevelopmentSourceAttachmentValidationError",
     "DevelopmentSourceConflictError",
     "DevelopmentSourceDataValidationError",
+    "DevelopmentSourceDetail",
     "DevelopmentSourceIdentityChangedError",
     "DevelopmentSourceNotAttachedError",
     "DevelopmentSourceNotFoundError",
+    "DevelopmentSourcePresentationService",
     "DevelopmentSourceRead",
+    "DevelopmentSourceSummary",
     "DisposableInstanceResetService",
     "DisposableResetResult",
     "EntityNotFoundError",

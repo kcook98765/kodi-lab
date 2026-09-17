@@ -556,6 +556,19 @@ class ManagedInstanceDevelopmentSourceRepository:
         )
         return [UUID(value) for value in values]
 
+    def counts_by_source(self) -> dict[UUID, int]:
+        """Count current live attachments for every represented source."""
+
+        rows = self._session.execute(
+            select(
+                ManagedInstanceDevelopmentSourceRow.development_source_id,
+                func.count(),
+            )
+            .group_by(ManagedInstanceDevelopmentSourceRow.development_source_id)
+            .order_by(ManagedInstanceDevelopmentSourceRow.development_source_id)
+        )
+        return {UUID(source_id): int(count) for source_id, count in rows}
+
     def delete(self, instance_id: UUID, source_id: UUID) -> bool:
         result = self._session.execute(
             delete(ManagedInstanceDevelopmentSourceRow).where(

@@ -37,6 +37,21 @@
         <h2>Snapshots</h2>
         <p>{{ detail.snapshots|length }} retained Snapshot{{ '' if detail.snapshots|length == 1 else 's' }}. <a href="/instances/{{ detail.runtime.managed_instance_id }}/snapshots">View Snapshots</a></p>
       </section>
+      <section id="development-sources">
+        <h2>Development Sources</h2>
+        <p class="secondary">Attachments are product metadata only; they do not indicate deployment, installation, or current source validity.</p>
+        {% for source in detail.development_sources %}
+        <article data-development-source-id="{{ source.development_source_id }}">
+          <h3><a href="/development-sources/{{ source.development_source_id }}">{{ source.logical_name }}</a></h3>
+          <dl>
+            <dt>Add-on ID</dt><dd>{{ source.addon_id }}</dd>
+            <dt>Observed add-on</dt><dd>{{ source.observed_name }} · version {{ source.observed_version }}</dd>
+            <dt>Source kind</dt><dd>{{ source.source_kind }}</dd>
+            <dt>Attached at</dt><dd>{{ source.attached_at }}</dd>
+          </dl>
+        </article>
+        {% else %}<p>No development sources are attached.</p>{% endfor %}
+      </section>
       <section>
         <h2>Recent activity</h2>
         {% for item in detail.recent_activity %}
