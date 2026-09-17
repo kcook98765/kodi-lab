@@ -1,5 +1,9 @@
 """Application services and their stable error contract."""
 
+from kodi_lab.application.development_source_attachments import (
+    AttachedDevelopmentSourceRead,
+    DevelopmentSourceAttachmentService,
+)
 from kodi_lab.application.development_sources import (
     DevelopmentSourceAdministrationService,
     DevelopmentSourceRead,
@@ -8,8 +12,14 @@ from kodi_lab.application.development_sources import (
 from kodi_lab.application.errors import (
     ApplicationServiceError,
     CatalogDataValidationError,
+    DevelopmentSourceAddonConflictError,
+    DevelopmentSourceAlreadyAttachedError,
+    DevelopmentSourceAttachmentError,
+    DevelopmentSourceAttachmentValidationError,
     DevelopmentSourceConflictError,
     DevelopmentSourceDataValidationError,
+    DevelopmentSourceIdentityChangedError,
+    DevelopmentSourceNotAttachedError,
     DevelopmentSourceNotFoundError,
     EntityNotFoundError,
     FixtureAssignmentError,
@@ -25,6 +35,7 @@ from kodi_lab.application.errors import (
     NoApprovedRevisionError,
     NoEligibleRevisionError,
     PersistenceConflictError,
+    PersistentDevelopmentSourceAttachmentUnsupportedError,
     PersistentFixtureUnsupportedError,
     RevisionNotApprovedError,
     RuntimeContainerArtifactConflictError,
@@ -118,11 +129,19 @@ from kodi_lab.application.runtime_matrix import (
 
 __all__ = [
     "ApplicationServiceError",
+    "AttachedDevelopmentSourceRead",
     "CatalogDataValidationError",
     "CoordinationCorruptionError",
+    "DevelopmentSourceAddonConflictError",
     "DevelopmentSourceAdministrationService",
+    "DevelopmentSourceAlreadyAttachedError",
+    "DevelopmentSourceAttachmentError",
+    "DevelopmentSourceAttachmentService",
+    "DevelopmentSourceAttachmentValidationError",
     "DevelopmentSourceConflictError",
     "DevelopmentSourceDataValidationError",
+    "DevelopmentSourceIdentityChangedError",
+    "DevelopmentSourceNotAttachedError",
     "DevelopmentSourceNotFoundError",
     "DevelopmentSourceRead",
     "DisposableInstanceResetService",
@@ -159,6 +178,7 @@ __all__ = [
     "NoEligibleRevisionError",
     "PerInstanceResetLocks",
     "PersistenceConflictError",
+    "PersistentDevelopmentSourceAttachmentUnsupportedError",
     "PersistentFixtureUnsupportedError",
     "PersistentResetUnsupportedError",
     "QueuedResetOperation",

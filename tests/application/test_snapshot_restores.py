@@ -45,6 +45,8 @@ from kodi_lab.snapshot.validation import SnapshotValidation
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    DevelopmentSourceRow,
+    ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceRow,
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
@@ -128,6 +130,27 @@ def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
                 runtime_state="stopped",
                 start_on_host_boot=False,
                 notes=None,
+            )
+        )
+        session.add(
+            DevelopmentSourceRow(
+                id="93300000-0000-4000-8000-000000000020",
+                logical_name="Restore source attachment",
+                source_kind="local_directory",
+                relative_locator="sources/restore",
+                addon_id="plugin.video.restore-attachment",
+                observed_name="Restore attachment",
+                observed_version="1.0.0",
+                extension_types_json='["xbmc.python.pluginsource"]',
+                registered_at="2026-09-16T00:00:00.000000Z",
+                validated_at="2026-09-16T00:00:00.000000Z",
+            )
+        )
+        session.add(
+            ManagedInstanceDevelopmentSourceRow(
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id="93300000-0000-4000-8000-000000000020",
+                attached_at="2026-09-16T00:00:00.000000Z",
             )
         )
         SnapshotRepository(session).create(
@@ -335,8 +358,13 @@ def test_stopped_restore_uses_fresh_container_and_remains_stopped(
     with factory() as session:
         instance = ManagedInstanceRepository(session).get(INSTANCE_ID)
         snapshot = SnapshotRepository(session).get(SNAPSHOT_ID)
+        attachment = session.get(
+            ManagedInstanceDevelopmentSourceRow,
+            (str(INSTANCE_ID), "93300000-0000-4000-8000-000000000020"),
+        )
     assert instance is not None and instance.runtime_revision_id == REVISION_ID
     assert snapshot is not None and snapshot.state is SnapshotState.AVAILABLE
+    assert attachment is not None
 
 
 def test_running_restore_stops_replaces_starts_and_waits_readiness(

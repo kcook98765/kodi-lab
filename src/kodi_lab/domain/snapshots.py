@@ -122,6 +122,7 @@ class ManagedInstanceMutationKind(StrEnum):
     FIXTURE_ASSIGNMENT = "fixture_assignment"
     RUNTIME_REASSIGNMENT = "runtime_reassignment"
     INSTANCE_DELETE = "instance_delete"
+    DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
 
 
 class GlobalHeavyOperationKind(StrEnum):

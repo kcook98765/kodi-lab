@@ -165,6 +165,59 @@ class DevelopmentSourceConflictError(PersistenceConflictError):
         super().__init__(f"development source {field} {value!r} already exists")
 
 
+class DevelopmentSourceAttachmentError(ApplicationServiceError):
+    """A per-instance development-source association request was rejected."""
+
+
+class DevelopmentSourceAlreadyAttachedError(DevelopmentSourceAttachmentError):
+    def __init__(self, instance_id: UUID, source_id: UUID) -> None:
+        self.instance_id = instance_id
+        self.source_id = source_id
+        super().__init__("development source is already attached to this instance")
+
+
+class DevelopmentSourceNotAttachedError(DevelopmentSourceAttachmentError):
+    def __init__(self, instance_id: UUID, source_id: UUID) -> None:
+        self.instance_id = instance_id
+        self.source_id = source_id
+        super().__init__("development source is not attached to this instance")
+
+
+class DevelopmentSourceAddonConflictError(DevelopmentSourceAttachmentError):
+    def __init__(self, instance_id: UUID, addon_id: str) -> None:
+        self.instance_id = instance_id
+        self.addon_id = addon_id
+        super().__init__(
+            f"managed instance already has a source for add-on ID {addon_id!r}"
+        )
+
+
+class DevelopmentSourceAttachmentValidationError(DevelopmentSourceAttachmentError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(f"development source revalidation failed: {code}")
+
+
+class DevelopmentSourceIdentityChangedError(DevelopmentSourceAttachmentError):
+    code = "development_source_identity_changed"
+
+    def __init__(self, source_id: UUID) -> None:
+        self.source_id = source_id
+        super().__init__(
+            "development source add-on identity changed after registration"
+        )
+
+
+class PersistentDevelopmentSourceAttachmentUnsupportedError(
+    DevelopmentSourceAttachmentError
+):
+    def __init__(self, instance_id: UUID) -> None:
+        self.instance_id = instance_id
+        super().__init__(
+            "development-source attachment is supported only for disposable instances"
+        )
+
+
 class FixtureDefinitionConflictError(PersistenceConflictError):
     def __init__(self, *, fixture_definition_id: UUID, slug: str) -> None:
         self.fixture_definition_id = fixture_definition_id

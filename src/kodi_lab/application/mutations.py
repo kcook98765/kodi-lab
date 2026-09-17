@@ -76,6 +76,9 @@ class ManagedInstanceMutationCoordinator:
             ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT: (
                 ReconciliationAction.RUNTIME_REASSIGNMENT
             ),
+            ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ATTACHMENT: (
+                ReconciliationAction.DEVELOPMENT_SOURCE_ATTACHMENT
+            ),
         }.get(kind)
         if action is not None:
             self._reconciliation.require_allowed(instance_id, action)

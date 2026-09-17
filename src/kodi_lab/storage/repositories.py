@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
     DevelopmentSource,
+    DevelopmentSourceAttachmentOperation,
     FixtureDefinition,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
@@ -17,6 +18,7 @@ from kodi_lab.domain import (
     ManagedInstanceDeleteOperationPhase,
     ManagedInstanceDeleteOperationState,
     ManagedInstanceDeletePriorState,
+    ManagedInstanceDevelopmentSource,
     ManagedInstanceLifecycleOperation,
     ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
@@ -46,10 +48,12 @@ from kodi_lab.domain import (
     Target,
 )
 from kodi_lab.storage.models import (
+    DevelopmentSourceAttachmentOperationRow,
     DevelopmentSourceRow,
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceDeleteOperationRow,
+    ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
@@ -314,6 +318,26 @@ def _development_source_from_row(row: DevelopmentSourceRow) -> DevelopmentSource
     )
 
 
+def _development_source_attachment_operation_from_row(
+    row: DevelopmentSourceAttachmentOperationRow,
+) -> DevelopmentSourceAttachmentOperation:
+    return DevelopmentSourceAttachmentOperation(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=(
+            None if row.managed_instance_id is None else UUID(row.managed_instance_id)
+        ),
+        development_source_id=UUID(row.development_source_id),
+        source_logical_name=row.source_logical_name,
+        addon_id=row.addon_id,
+        kind=row.kind,
+        requested_at=_timestamp_from_text(row.requested_at),
+        completed_at=_timestamp_from_text(row.completed_at),
+        state=row.state,
+        failure_reason=row.failure_reason,
+    )
+
+
 def _instance_from_row(row: ManagedInstanceRow) -> ManagedInstance:
     return ManagedInstance(
         target_id=UUID(row.target_id),
@@ -435,6 +459,190 @@ class DevelopmentSourceRepository:
             )
         )
         return [_development_source_from_row(row) for row in rows]
+
+
+class ManagedInstanceDevelopmentSourceRepository:
+    """Persistence for mode-neutral per-instance source associations."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, attachment: ManagedInstanceDevelopmentSource) -> None:
+        self._session.add(
+            ManagedInstanceDevelopmentSourceRow(
+                managed_instance_id=str(attachment.managed_instance_id),
+                development_source_id=str(attachment.development_source_id),
+                attached_at=_timestamp_to_text(attachment.attached_at),
+            )
+        )
+        self._session.flush()
+
+    def get(
+        self, instance_id: UUID, source_id: UUID
+    ) -> ManagedInstanceDevelopmentSource | None:
+        row = self._session.get(
+            ManagedInstanceDevelopmentSourceRow,
+            (str(instance_id), str(source_id)),
+        )
+        return (
+            None
+            if row is None
+            else ManagedInstanceDevelopmentSource(
+                managed_instance_id=UUID(row.managed_instance_id),
+                development_source_id=UUID(row.development_source_id),
+                attached_at=_timestamp_from_text(row.attached_at),
+            )
+        )
+
+    def get_by_addon_id(
+        self, instance_id: UUID, addon_id: str
+    ) -> ManagedInstanceDevelopmentSource | None:
+        row = self._session.scalar(
+            select(ManagedInstanceDevelopmentSourceRow)
+            .join(
+                DevelopmentSourceRow,
+                DevelopmentSourceRow.id
+                == ManagedInstanceDevelopmentSourceRow.development_source_id,
+            )
+            .where(
+                ManagedInstanceDevelopmentSourceRow.managed_instance_id
+                == str(instance_id),
+                DevelopmentSourceRow.addon_id == addon_id,
+            )
+        )
+        return (
+            None
+            if row is None
+            else ManagedInstanceDevelopmentSource(
+                managed_instance_id=UUID(row.managed_instance_id),
+                development_source_id=UUID(row.development_source_id),
+                attached_at=_timestamp_from_text(row.attached_at),
+            )
+        )
+
+    def list_for_instance(
+        self, instance_id: UUID
+    ) -> list[ManagedInstanceDevelopmentSource]:
+        rows = self._session.scalars(
+            select(ManagedInstanceDevelopmentSourceRow)
+            .join(
+                DevelopmentSourceRow,
+                DevelopmentSourceRow.id
+                == ManagedInstanceDevelopmentSourceRow.development_source_id,
+            )
+            .where(
+                ManagedInstanceDevelopmentSourceRow.managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(DevelopmentSourceRow.logical_name, DevelopmentSourceRow.id)
+        )
+        return [
+            ManagedInstanceDevelopmentSource(
+                managed_instance_id=UUID(row.managed_instance_id),
+                development_source_id=UUID(row.development_source_id),
+                attached_at=_timestamp_from_text(row.attached_at),
+            )
+            for row in rows
+        ]
+
+    def list_instance_ids_for_source(self, source_id: UUID) -> list[UUID]:
+        values = self._session.scalars(
+            select(ManagedInstanceDevelopmentSourceRow.managed_instance_id)
+            .where(
+                ManagedInstanceDevelopmentSourceRow.development_source_id
+                == str(source_id)
+            )
+            .order_by(ManagedInstanceDevelopmentSourceRow.managed_instance_id)
+        )
+        return [UUID(value) for value in values]
+
+    def delete(self, instance_id: UUID, source_id: UUID) -> bool:
+        result = self._session.execute(
+            delete(ManagedInstanceDevelopmentSourceRow).where(
+                ManagedInstanceDevelopmentSourceRow.managed_instance_id
+                == str(instance_id),
+                ManagedInstanceDevelopmentSourceRow.development_source_id
+                == str(source_id),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def delete_for_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            delete(ManagedInstanceDevelopmentSourceRow).where(
+                ManagedInstanceDevelopmentSourceRow.managed_instance_id
+                == str(instance_id)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
+class DevelopmentSourceAttachmentOperationRepository:
+    """Typed terminal history for development-source attachment changes."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: DevelopmentSourceAttachmentOperation) -> None:
+        self._session.add(
+            DevelopmentSourceAttachmentOperationRow(
+                id=str(operation.id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                managed_instance_id=(
+                    None
+                    if operation.managed_instance_id is None
+                    else str(operation.managed_instance_id)
+                ),
+                development_source_id=str(operation.development_source_id),
+                source_logical_name=operation.source_logical_name,
+                addon_id=operation.addon_id,
+                kind=operation.kind,
+                requested_at=_timestamp_to_text(operation.requested_at),
+                completed_at=_timestamp_to_text(operation.completed_at),
+                state=operation.state,
+                failure_reason=operation.failure_reason,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> DevelopmentSourceAttachmentOperation | None:
+        row = self._session.get(
+            DevelopmentSourceAttachmentOperationRow, str(operation_id)
+        )
+        return (
+            None
+            if row is None
+            else _development_source_attachment_operation_from_row(row)
+        )
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[DevelopmentSourceAttachmentOperation]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceAttachmentOperationRow)
+            .where(
+                DevelopmentSourceAttachmentOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                DevelopmentSourceAttachmentOperationRow.requested_at.desc(),
+                DevelopmentSourceAttachmentOperationRow.id.desc(),
+            )
+        )
+        return [_development_source_attachment_operation_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(DevelopmentSourceAttachmentOperationRow)
+            .where(
+                DevelopmentSourceAttachmentOperationRow.managed_instance_id
+                == str(instance_id)
+            )
+            .values(managed_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
 
 
 class TargetRepository:
@@ -2574,6 +2782,7 @@ class ManagedInstanceMutationLeaseRepository:
                     (
                         ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT,
                         ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT,
+                        ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ATTACHMENT,
                     )
                 ),
                 ManagedInstanceMutationLeaseRow.lease_token_digest.is_not(None),

@@ -8,8 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
-from kodi_lab.domain import ManagedInstanceLifecycleKind
+from kodi_lab.domain import (
+    DevelopmentSourceAttachmentOperationKind,
+    DevelopmentSourceAttachmentOperationState,
+    ManagedInstanceLifecycleKind,
+)
 from kodi_lab.storage.repositories import (
+    DevelopmentSourceAttachmentOperationRepository,
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceRepository,
@@ -21,6 +26,7 @@ from kodi_lab.storage.repositories import (
 
 
 class ManagedInstanceActivityKind(StrEnum):
+    DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -44,9 +50,13 @@ class ManagedInstanceActivityItem(BaseModel):
     snapshot_uuid: UUID | None = None
     lifecycle_kind: ManagedInstanceLifecycleKind | None = None
     preserve_snapshots: bool | None = None
+    development_source_attachment_kind: (
+        DevelopmentSourceAttachmentOperationKind | None
+    ) = None
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT: 7,
     ManagedInstanceActivityKind.LIFECYCLE: 6,
     ManagedInstanceActivityKind.RESET: 5,
     ManagedInstanceActivityKind.SNAPSHOT_CREATE: 4,
@@ -96,6 +106,35 @@ class ManagedInstanceActivityService:
         session: Session, instance_id: UUID
     ) -> list[ManagedInstanceActivityItem]:
         result: list[ManagedInstanceActivityItem] = []
+        for operation in DevelopmentSourceAttachmentOperationRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            if operation.state is DevelopmentSourceAttachmentOperationState.SUCCEEDED:
+                summary = (
+                    "Development source attached"
+                    if operation.kind is DevelopmentSourceAttachmentOperationKind.ATTACH
+                    else "Development source detached"
+                )
+            else:
+                summary = (
+                    "Development source attachment failed"
+                    if operation.kind is DevelopmentSourceAttachmentOperationKind.ATTACH
+                    else "Development source detachment failed"
+                )
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT,
+                    operation_uuid=operation.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=operation.requested_at,
+                    started_at=None,
+                    completed_at=operation.completed_at,
+                    state=operation.state.value,
+                    summary=summary,
+                    reconciliation_required=False,
+                    development_source_attachment_kind=operation.kind,
+                )
+            )
         for lifecycle in ManagedInstanceLifecycleOperationRepository(
             session
         ).list_for_original_instance(instance_id):

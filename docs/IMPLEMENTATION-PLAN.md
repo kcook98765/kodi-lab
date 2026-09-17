@@ -467,3 +467,18 @@ ManagedInstance attachment, deployment, copy/sync, bind mounts, ZIP installation
 repository URL testing, Git semantics, add-on inventory, source watchers,
 history, reconciliation, broker/Docker capability, and Web mutation remain
 separately authorized future Phase 8 milestones.
+
+Phase 8 Step 2 adds only durable per-disposable-instance DevelopmentSource
+attachment. The many-to-many association is mode-neutral, preserves unique
+add-on identity per instance, survives reset and Snapshot operations unchanged,
+and is removed on successful instance deletion without deleting the global
+source. Attach performs confined read-only metadata revalidation and rejects a
+changed add-on ID while accepting changed observed name/version without catalog
+mutation.
+
+Attach/detach are synchronous database-oriented configuration mutations under
+the existing per-instance lease and central reconciliation gate. Typed terminal
+history survives instance deletion and joins unified activity. No global-heavy
+lease, deployment state, broker/Docker source operation, Web mutation, copy,
+sync, bind mount, ZIP, repository URL, watcher, or persistent-instance workflow
+is introduced.

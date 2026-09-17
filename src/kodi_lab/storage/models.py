@@ -19,6 +19,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from kodi_lab.domain import (
     ConnectionState,
+    DevelopmentSourceAttachmentOperationKind,
+    DevelopmentSourceAttachmentOperationState,
     DevelopmentSourceKind,
     FixtureContentCategory,
     FixtureSizeCategory,
@@ -246,6 +248,118 @@ class ManagedInstanceRow(Base):
         ForeignKey("fixture_definitions.id", ondelete="RESTRICT"),
         nullable=True,
     )
+
+
+class ManagedInstanceDevelopmentSourceRow(Base):
+    """Mode-neutral durable association between an instance and source."""
+
+    __tablename__ = "managed_instance_development_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "managed_instance_id",
+            "development_source_id",
+            name="uq_managed_instance_development_source",
+        ),
+        CheckConstraint(
+            "length(attached_at) BETWEEN 20 AND 32",
+            name="development_source_attachment_timestamp_bounded",
+        ),
+        Index(
+            "ix_managed_instance_development_source_source",
+            "development_source_id",
+        ),
+    )
+
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    attached_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class DevelopmentSourceAttachmentOperationRow(Base):
+    """Typed terminal configuration history for source attachment changes."""
+
+    __tablename__ = "development_source_attachment_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(source_logical_name) BETWEEN 1 AND 120",
+            name="source_attachment_history_name_bounded",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128",
+            name="source_attachment_history_addon_id_bounded",
+        ),
+        CheckConstraint(
+            "length(requested_at) BETWEEN 20 AND 32 "
+            "AND length(completed_at) BETWEEN 20 AND 32",
+            name="source_attachment_history_timestamps_bounded",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="source_attachment_history_reason_bounded",
+        ),
+        CheckConstraint(
+            "(state = 'succeeded' AND failure_reason IS NULL) OR "
+            "(state = 'failed' AND failure_reason IS NOT NULL)",
+            name="source_attachment_history_state_consistent",
+        ),
+        Index(
+            "ix_source_attachment_history_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+        Index(
+            "ix_source_attachment_history_source",
+            "development_source_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_logical_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[DevelopmentSourceAttachmentOperationKind] = mapped_column(
+        Enum(
+            DevelopmentSourceAttachmentOperationKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_attachment_operation_kind",
+        ),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    completed_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[DevelopmentSourceAttachmentOperationState] = mapped_column(
+        Enum(
+            DevelopmentSourceAttachmentOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_attachment_operation_state",
+        ),
+        nullable=False,
+    )
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
 
 class FixtureDefinitionRow(Base):
@@ -1027,6 +1141,7 @@ class ManagedInstanceMutationLeaseRow(Base):
             native_enum=False,
             create_constraint=True,
             name="managed_instance_mutation_kind",
+            length=32,
         ),
         nullable=False,
     )

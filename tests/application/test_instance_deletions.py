@@ -54,8 +54,11 @@ from kodi_lab.snapshot.storage import delete_snapshot_artifact, snapshot_directo
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    DevelopmentSourceAttachmentOperationRow,
+    DevelopmentSourceRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceDeleteOperationRow,
+    ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ResetOperationRow,
@@ -138,6 +141,41 @@ def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
                     notes=notes,
                 )
             )
+        session.add(
+            DevelopmentSourceRow(
+                id="95000000-0000-4000-8000-000000000030",
+                logical_name="Deletion attachment",
+                source_kind="local_directory",
+                relative_locator="sources/deletion",
+                addon_id="plugin.video.deletion-attachment",
+                observed_name="Deletion attachment",
+                observed_version="1.0.0",
+                extension_types_json='["xbmc.python.pluginsource"]',
+                registered_at="2026-09-16T00:00:00.000000Z",
+                validated_at="2026-09-16T00:00:00.000000Z",
+            )
+        )
+        session.add(
+            ManagedInstanceDevelopmentSourceRow(
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                attached_at="2026-09-16T00:00:00.000000Z",
+            )
+        )
+        session.add(
+            DevelopmentSourceAttachmentOperationRow(
+                id="95000000-0000-4000-8000-000000000031",
+                original_managed_instance_id=str(INSTANCE_ID),
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                source_logical_name="Deletion attachment",
+                addon_id="plugin.video.deletion-attachment",
+                kind="attach",
+                requested_at="2026-09-16T00:00:00.000000Z",
+                completed_at="2026-09-16T00:00:00.000000Z",
+                state="succeeded",
+            )
+        )
         for identity, owner, label in (
             (SNAPSHOT_A, INSTANCE_ID, "A"),
             (SNAPSHOT_B, INSTANCE_ID, "B"),
@@ -307,6 +345,24 @@ def test_preserve_detaches_atomically_and_keeps_bytes_and_exact_notes(
             ResetOperationRow, "95000000-0000-4000-8000-000000000020"
         )
         assert session.get(GlobalHeavyOperationLeaseRow, 1) is None
+        assert (
+            session.get(
+                ManagedInstanceDevelopmentSourceRow,
+                (str(INSTANCE_ID), "95000000-0000-4000-8000-000000000030"),
+            )
+            is None
+        )
+        assert (
+            session.get(
+                DevelopmentSourceRow,
+                "95000000-0000-4000-8000-000000000030",
+            )
+            is not None
+        )
+        attachment_history = session.get(
+            DevelopmentSourceAttachmentOperationRow,
+            "95000000-0000-4000-8000-000000000031",
+        )
     assert len(snapshots) == 2
     assert all(item.source_managed_instance_id is None for item in snapshots)
     assert all(
@@ -316,6 +372,8 @@ def test_preserve_detaches_atomically_and_keeps_bytes_and_exact_notes(
     assert all(item.source_instance_name == "deletion source" for item in snapshots)
     assert all(item.source_deleted_at is not None for item in snapshots)
     assert operation is not None
+    assert attachment_history is not None
+    assert attachment_history.managed_instance_id is None
     assert operation.state is ManagedInstanceDeleteOperationState.SUCCEEDED
     assert operation.notes_at_deletion == "  exact notes 🐍  "
     assert reset_history is not None
@@ -350,7 +408,27 @@ def test_delete_is_container_first_artifact_first_deterministic_and_isolated(
             select(func.count()).select_from(SnapshotDeleteOperationRow)
         )
         assert session.get(GlobalHeavyOperationLeaseRow, 1) is None
+        assert (
+            session.get(
+                ManagedInstanceDevelopmentSourceRow,
+                (str(INSTANCE_ID), "95000000-0000-4000-8000-000000000030"),
+            )
+            is None
+        )
+        assert (
+            session.get(
+                DevelopmentSourceRow,
+                "95000000-0000-4000-8000-000000000030",
+            )
+            is not None
+        )
+        attachment_history = session.get(
+            DevelopmentSourceAttachmentOperationRow,
+            "95000000-0000-4000-8000-000000000031",
+        )
     assert operation is not None
+    assert attachment_history is not None
+    assert attachment_history.managed_instance_id is None
     assert operation.completed_snapshot_count == 2
     assert nested == 0
     assert not snapshot_directory(tmp_path, SNAPSHOT_A).exists()

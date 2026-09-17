@@ -12,6 +12,8 @@ from kodi_lab.application.activity import (
     ManagedInstanceActivityService,
 )
 from kodi_lab.domain import (
+    DevelopmentSourceAttachmentOperationKind,
+    DevelopmentSourceAttachmentOperationState,
     ManagedInstanceDeleteOperationPhase,
     ManagedInstanceDeleteOperationState,
     ManagedInstanceDeletePriorState,
@@ -31,6 +33,8 @@ from kodi_lab.domain import (
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    DevelopmentSourceAttachmentOperationRow,
+    DevelopmentSourceRow,
     ManagedInstanceDeleteOperationRow,
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceRow,
@@ -106,8 +110,35 @@ def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
 
 def _seed_equal_timestamp_mixed_history(factory: sessionmaker[Session]) -> None:
     with factory.begin() as session:
+        session.add(
+            DevelopmentSourceRow(
+                id="97000000-0000-4000-8000-000000000020",
+                logical_name="Activity source",
+                source_kind="local_directory",
+                relative_locator="private/activity-source",
+                addon_id="plugin.video.activity",
+                observed_name="Activity source",
+                observed_version="1.0.0",
+                extension_types_json='["xbmc.python.pluginsource"]',
+                registered_at=AT,
+                validated_at=AT,
+            )
+        )
+        session.flush()
         session.add_all(
             [
+                DevelopmentSourceAttachmentOperationRow(
+                    id=str(OPERATION_ID),
+                    original_managed_instance_id=str(INSTANCE_ID),
+                    managed_instance_id=str(INSTANCE_ID),
+                    development_source_id="97000000-0000-4000-8000-000000000020",
+                    source_logical_name="Activity source",
+                    addon_id="plugin.video.activity",
+                    kind=DevelopmentSourceAttachmentOperationKind.ATTACH,
+                    requested_at=AT,
+                    completed_at=AT,
+                    state=DevelopmentSourceAttachmentOperationState.SUCCEEDED,
+                ),
                 ManagedInstanceLifecycleOperationRow(
                     id=str(OPERATION_ID),
                     original_managed_instance_id=str(INSTANCE_ID),
@@ -207,6 +238,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         INSTANCE_ID
     )
     assert [item.kind for item in items] == [
+        ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT,
         ManagedInstanceActivityKind.LIFECYCLE,
         ManagedInstanceActivityKind.RESET,
         ManagedInstanceActivityKind.SNAPSHOT_CREATE,
@@ -215,6 +247,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         ManagedInstanceActivityKind.INSTANCE_DELETE,
     ]
     assert [item.summary for item in items] == [
+        "Development source attached",
         "Start succeeded",
         "Reset reconciliation required",
         "Snapshot creation succeeded",
@@ -222,8 +255,11 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         "Snapshot deletion failed",
         "Instance deletion preserved Snapshots",
     ]
-    assert items[0].lifecycle_kind is ManagedInstanceLifecycleKind.START
-    assert items[2].snapshot_uuid == SNAPSHOT_ID
+    assert items[0].development_source_attachment_kind is (
+        DevelopmentSourceAttachmentOperationKind.ATTACH
+    )
+    assert items[1].lifecycle_kind is ManagedInstanceLifecycleKind.START
+    assert items[3].snapshot_uuid == SNAPSHOT_ID
     assert items[-1].preserve_snapshots is True
     serialized = " ".join(item.model_dump_json() for item in items)
     for forbidden in (
@@ -233,6 +269,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         "lease",
         "manifest",
         "source_reference",
+        "private/activity-source",
         "a" * 64,
         "b" * 64,
         "c" * 64,

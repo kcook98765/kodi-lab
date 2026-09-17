@@ -468,7 +468,7 @@ def test_multiple_unresolved_records_fail_closed_with_bounded_projection(
     status = ManagedInstanceReconciliationService(factory).status(INSTANCE_ID)
     assert status.operation_kind is ReconciliationOperationKind.MULTIPLE
     assert status.blocking
-    assert len(status.blocked_actions) == 10
+    assert len(status.blocked_actions) == 11
     assert "secret" not in status.model_dump_json()
 
 
@@ -500,6 +500,26 @@ def test_snapshot_delete_reconciliation_is_snapshot_scoped(
     assert snapshot_status.blocking
     assert ReconciliationAction.SNAPSHOT_RESTORE in snapshot_status.blocked_actions
     assert ReconciliationAction.PROVISION not in snapshot_status.blocked_actions
+
+
+def test_expired_source_attachment_lease_is_released_as_short_metadata_work(
+    factory: sessionmaker[Session],
+) -> None:
+    clock = Clock()
+    coordinator = ManagedInstanceMutationCoordinator(factory, clock=clock)
+    coordinator.acquire(
+        INSTANCE_ID, ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ATTACHMENT
+    )
+    clock.value += timedelta(minutes=10, seconds=1)
+
+    result = StaleOperationReconciliationDispatcher(
+        factory, clock=clock
+    ).sweep_instance(INSTANCE_ID)
+
+    assert result.released_reservations == 1
+    assert result.terminalized_operations == []
+    with factory() as session:
+        assert session.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is None
 
 
 def test_running_create_recovery_requires_process_and_readiness_proof(

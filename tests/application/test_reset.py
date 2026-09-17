@@ -48,10 +48,13 @@ from kodi_lab.broker.operations import (
 from kodi_lab.domain import (
     KODI_RUNTIME_VALIDATION_CONTRACT,
     ConnectionState,
+    DevelopmentSource,
+    DevelopmentSourceKind,
     HealthStatus,
     InstanceRuntimeState,
     InstanceType,
     ManagedInstance,
+    ManagedInstanceDevelopmentSource,
     ProcessObservationKind,
     ReadinessProbeKind,
     RevisionApprovalState,
@@ -76,7 +79,9 @@ from kodi_lab.kodi.readiness import (
 from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
+    DevelopmentSourceRepository,
     FixtureDefinitionRepository,
+    ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceRepository,
     RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
@@ -447,6 +452,44 @@ def test_no_fixture_reset_recreates_exact_pin_and_ends_stopped(
     assert broker.container_id != old_container
     assert "apply_fixture" not in broker.calls
     assert "start" not in broker.calls
+
+
+def test_reset_preserves_development_source_attachment_exactly(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, _fixture = seed_reset_context(session_factory)
+    source_id = UUID("98400000-0000-4000-8000-000000000001")
+    attached_at = datetime(2026, 9, 16, 22, 0, tzinfo=UTC)
+    with session_factory.begin() as session:
+        DevelopmentSourceRepository(session).create(
+            DevelopmentSource(
+                id=source_id,
+                logical_name="Reset attachment",
+                source_kind=DevelopmentSourceKind.LOCAL_DIRECTORY,
+                relative_locator="sources/reset",
+                addon_id="plugin.video.reset-attachment",
+                observed_name="Reset attachment",
+                observed_version="1.0.0",
+                extension_types=("xbmc.python.pluginsource",),
+                registered_at=attached_at,
+                validated_at=attached_at,
+            )
+        )
+        ManagedInstanceDevelopmentSourceRepository(session).create(
+            ManagedInstanceDevelopmentSource(instance_id, source_id, attached_at)
+        )
+    broker = FakeBroker(instance_id, revision_id, state=ContainerRuntimeState.STOPPED)
+
+    service(session_factory, broker).reset(instance_id)
+
+    with session_factory() as session:
+        retained = ManagedInstanceDevelopmentSourceRepository(session).get(
+            instance_id, source_id
+        )
+    assert retained == ManagedInstanceDevelopmentSource(
+        instance_id, source_id, attached_at
+    )
+    assert "apply_fixture" not in broker.calls
 
 
 @pytest.mark.parametrize(

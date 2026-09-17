@@ -34,8 +34,10 @@ from kodi_lab.domain import (
 )
 from kodi_lab.snapshot.storage import snapshot_artifact_presence
 from kodi_lab.storage.repositories import (
+    DevelopmentSourceAttachmentOperationRepository,
     GlobalHeavyOperationLeaseRepository,
     ManagedInstanceDeleteOperationRepository,
+    ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
     ResetOperationRepository,
@@ -465,6 +467,12 @@ class ManagedInstanceDeleteOperationCoordinator:
                     "Instance deletion heavy lease was not owned."
                 )
             notes = instance.notes
+            ManagedInstanceDevelopmentSourceRepository(session).delete_for_instance(
+                lease.managed_instance_id
+            )
+            DevelopmentSourceAttachmentOperationRepository(session).clear_live_instance(
+                lease.managed_instance_id
+            )
             if not instances.delete(lease.managed_instance_id):
                 raise ManagedInstanceDeleteLeaseLostError(
                     "Managed instance metadata could not be deleted."

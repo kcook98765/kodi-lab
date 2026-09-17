@@ -524,7 +524,7 @@ Deleted detail projects all retained typed operations and links any detached
 archive-only Snapshots back to their original history. These views add no edit,
 restore, undelete, repair, retry, acknowledge, or finalization authority.
 
-## Phase 8 local-directory development-source catalog foundation
+## Phase 8 local-directory development-source workflows
 
 Phase 8 as a whole owns ZIP installation, bind-mounted and copied/synced local
 development sources, repository URL testing, protected replacement behavior,
@@ -547,7 +547,23 @@ and observations without executing code, and performs no recursive tree walk.
 Read-only revalidation reports current metadata but never changes the stored
 observation.
 
-This foundation adds no attachment table, deployment or inventory state,
-history, broker operation, Docker access, Web route, ZIP/repository handling,
-Git interpretation, source watcher, or reconciliation behavior. Those remain
-separately gated Phase 8 slices. See `PHASE8-ADDON-DEVELOPMENT.md`.
+Step 2 adds mode-neutral `ManagedInstanceDevelopmentSource` metadata for
+disposable instances. One instance may attach multiple distinct add-on IDs and
+one global source may be reused by multiple instances. The association proves
+no deployed bytes or current Kodi state. Reset and Snapshot create/restore do
+not read or rewrite it. Successful instance deletion explicitly removes its
+association rows in the same metadata transaction while retaining the source
+catalog and typed history.
+
+Attach revalidates only the confined root and root `addon.xml`, then requires
+the current parsed add-on ID to match registration identity. Mutable name and
+version changes are accepted without rewriting the catalog. Attach/detach use
+the existing per-instance mutation lease and central reconciliation gate but no
+global-heavy authority. Their succeeded/failed terminal history is
+operation-specific, survives instance deletion through immutable original UUID
+plus nullable live FK, and joins the metadata-only activity projection.
+
+Phase 8 still has no deployment or inventory state, broker source operation,
+Docker source access, Web source mutation, ZIP/repository handling, Git
+interpretation, source watcher, or deployment reconciliation behavior. See
+`PHASE8-ADDON-DEVELOPMENT.md`.

@@ -1,5 +1,12 @@
 """Core Kodi Lab domain models."""
 
+from kodi_lab.domain.development_source_attachments import (
+    MAX_DEVELOPMENT_SOURCE_ATTACHMENT_REASON,
+    DevelopmentSourceAttachmentOperation,
+    DevelopmentSourceAttachmentOperationKind,
+    DevelopmentSourceAttachmentOperationState,
+    ManagedInstanceDevelopmentSource,
+)
 from kodi_lab.domain.development_sources import (
     MAX_ADDON_ID,
     MAX_ADDON_NAME,
@@ -97,6 +104,7 @@ __all__ = [
     "MAX_ADDON_ID",
     "MAX_ADDON_NAME",
     "MAX_ADDON_VERSION",
+    "MAX_DEVELOPMENT_SOURCE_ATTACHMENT_REASON",
     "MAX_DEVELOPMENT_SOURCE_LOCATOR",
     "MAX_DEVELOPMENT_SOURCE_LOGICAL_NAME",
     "MAX_EXTENSION_TYPE",
@@ -105,6 +113,9 @@ __all__ = [
     "RECOGNIZED_VALIDATION_CONTRACTS",
     "ConnectionState",
     "DevelopmentSource",
+    "DevelopmentSourceAttachmentOperation",
+    "DevelopmentSourceAttachmentOperationKind",
+    "DevelopmentSourceAttachmentOperationState",
     "DevelopmentSourceKind",
     "EffectiveValidationState",
     "FixtureContentCategory",
@@ -121,6 +132,7 @@ __all__ = [
     "ManagedInstanceDeleteOperationPhase",
     "ManagedInstanceDeleteOperationState",
     "ManagedInstanceDeletePriorState",
+    "ManagedInstanceDevelopmentSource",
     "ManagedInstanceLifecycleKind",
     "ManagedInstanceLifecycleOperation",
     "ManagedInstanceLifecycleOperationState",

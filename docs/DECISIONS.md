@@ -1490,3 +1490,46 @@ details that it did not specify.
   Registration does not recursively inspect the source, so VCS directories and
   full tree safety remain deployment decisions. A reusable read-only validator
   may observe current metadata but never updates the persisted registration.
+
+## D-0120: Attachment is durable mode-neutral product metadata
+
+- Status: approved for Phase 8 Step 2
+- Decision: `ManagedInstanceDevelopmentSource` is a separate many-to-many
+  association between one disposable ManagedInstance and one global
+  DevelopmentSource. The pair is unique, and the application independently
+  enforces one attached source per registered add-on ID on each instance.
+- Meaning: attachment records association only. It proves no deployment,
+  freshness, installation, enablement, Kodi loading, or materialization mode.
+  Reset and Snapshot create/restore leave rows unchanged and never deploy.
+  Successful instance deletion removes only its associations; global source
+  registrations survive.
+
+## D-0121: Attachment changes have typed synchronous durable history
+
+- Status: approved for Phase 8 Step 2
+- Decision: attach and detach create terminal succeeded/failed
+  `DevelopmentSourceAttachmentOperation` records rather than generic events or
+  queued work. Successful association change and terminal history are one
+  transaction. Each row retains immutable original ManagedInstance UUID,
+  nullable live FK, source UUID, bounded logical-name/add-on-ID snapshots,
+  timestamps, and an optional bounded safe failure reason.
+- Retention and exposure: history survives ManagedInstance deletion and joins
+  the deterministic activity projection with fixed metadata-only summaries.
+  It contains no source locator, host path, source content, deployment state,
+  broker response, or lease material.
+
+## D-0122: Attachment administration revalidates identity under instance authority
+
+- Status: approved for Phase 8 Step 2
+- Decision: one application service owns `attach_source`, `detach_source`, and
+  `list_attached_sources`. Attach reuses the descriptor-relative Step 1
+  validator and requires the current parsed add-on ID to equal the immutable
+  registered ID. Changed name/version is allowed and does not rewrite catalog
+  observations; missing, invalid, or identity-changed sources fail with typed
+  errors. Detach performs no filesystem or runtime cleanup.
+- Coordination: attach/detach acquire the closed
+  `development_source_attachment` per-instance mutation lease, use no global
+  heavy lease, and consult the central reconciliation gate. They are allowed
+  regardless of provisioned/running state for disposable instances. Persistent
+  attachment, deployment, broker source operations, and Web mutation remain
+  deferred.

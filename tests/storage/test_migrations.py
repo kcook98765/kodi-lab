@@ -34,11 +34,13 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
         "alembic_version",
+        "development_source_attachment_operations",
         "development_sources",
         "fixture_definitions",
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_instance_delete_operations",
+        "managed_instance_development_sources",
         "managed_instance_lifecycle_operations",
         "managed_instance_mutation_leases",
         "reset_operations",
@@ -1851,3 +1853,89 @@ def test_0017_development_sources_schema_constraints_and_guarded_round_trip(
 
     with pytest.raises(RuntimeError, match="populated development-source catalog"):
         command.downgrade(config, "0016_lifecycle_history")
+
+
+def test_0018_source_attachments_schema_constraints_and_guarded_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0017_development_sources")
+    engine = create_database_engine(database_url)
+    assert (
+        "managed_instance_development_sources" not in inspect(engine).get_table_names()
+    )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    association_fks = {
+        item["referred_table"]: item["options"]
+        for item in inspector.get_foreign_keys("managed_instance_development_sources")
+    }
+    assert association_fks == {
+        "development_sources": {"ondelete": "RESTRICT"},
+        "managed_instances": {"ondelete": "CASCADE"},
+    }
+    history_fks = {
+        item["referred_table"]: item["options"]
+        for item in inspector.get_foreign_keys(
+            "development_source_attachment_operations"
+        )
+    }
+    assert history_fks == {
+        "development_sources": {"ondelete": "RESTRICT"},
+        "managed_instances": {"ondelete": "SET NULL"},
+    }
+    unique = {
+        item["name"]: item["column_names"]
+        for item in inspector.get_unique_constraints(
+            "managed_instance_development_sources"
+        )
+    }
+    assert unique["uq_managed_instance_development_source"] == [
+        "managed_instance_id",
+        "development_source_id",
+    ]
+    mutation_kind = next(
+        item
+        for item in inspector.get_columns("managed_instance_mutation_leases")
+        if item["name"] == "operation_kind"
+    )
+    assert isinstance(mutation_kind["type"], String)
+    assert mutation_kind["type"].length == 32
+    engine.dispose()
+    command.check(config)
+    command.downgrade(config, "0017_development_sources")
+    command.upgrade(config, "head")
+    command.check(config)
+
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-16T21:00:00.000000Z"
+    with engine.begin() as connection:
+        _seed_0014_instance_with_notes(connection, notes="attachment migration")
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id, logical_name, source_kind, relative_locator, addon_id, "
+                "observed_name, observed_version, extension_types_json, "
+                "registered_at, validated_at) VALUES "
+                "('98300000-0000-4000-8000-000000000001', 'Attached', "
+                "'local_directory', 'sources/attached', 'plugin.video.attached', "
+                "'Attached', '1.0.0', '[\"xbmc.python.pluginsource\"]', "
+                ":timestamp, :timestamp)"
+            ),
+            {"timestamp": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instance_development_sources "
+                "(managed_instance_id, development_source_id, attached_at) VALUES "
+                "('89800000-0000-4000-8000-000000000003', "
+                "'98300000-0000-4000-8000-000000000001', :timestamp)"
+            ),
+            {"timestamp": timestamp},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated development-source attachment"):
+        command.downgrade(config, "0017_development_sources")

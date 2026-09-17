@@ -92,10 +92,37 @@ service validates, generates UUID and timestamps, rejects duplicates, and
 returns bounded path-free DTOs. No history record is added in this foundation;
 typed Phase 8 activity remains part of later attachment/deployment slices.
 
+## Step 2 durable attachment
+
+`ManagedInstanceDevelopmentSource` records only that one registered source is
+associated with one disposable ManagedInstance. It is a many-to-many global
+catalog relationship with a unique instance/source pair. The service also
+enforces one attached registered add-on ID per instance, independently of the
+Step 1 global uniqueness rule.
+
+Attach holds the closed per-instance `development_source_attachment` mutation
+lease and consults central reconciliation before change. It does not require a
+container or any particular runtime state. Before insertion, the service runs
+the same descriptor-relative root/addon.xml validation and rejects missing,
+invalid, or changed add-on identity. Changed observed name/version is accepted;
+the immutable registration-time observation is not updated. Detach removes only
+the relationship and performs no filesystem, Kodi, Snapshot, or source-catalog
+cleanup.
+
+Reset and Snapshot create/restore preserve associations exactly and do not
+materialize them. Successful instance deletion explicitly deletes association
+rows while retaining DevelopmentSource records. `DevelopmentSourceAttachmentOperation`
+stores typed synchronous attach/detach results with immutable safe source and
+original-instance identity; its nullable live instance FK clears on deletion.
+Unified activity uses fixed path-free summaries.
+
+Application DTOs expose source UUID, logical name, add-on ID, observed
+name/version, source kind, and attachment time. They expose neither absolute nor
+relative source path. No attach/detach Web POST exists in this step.
+
 ## Deferred Phase 8 work
 
-The next architecture gate must choose one narrow milestone. Durable per-instance
-attachment is the domain prerequisite for deployment and reset preservation.
-Read-only Web catalog presentation is independently safe but does not establish
-the association required by the primary development workflow. Neither is
-authorized by Step 1.
+Deployment and its tree-copy/link/VCS rules, materialization state, copy/sync,
+bind mounts, broker source authority, ZIP installation, repository URL testing,
+watchers, inventory, and deployment reconciliation remain separately gated.
+Read-only Web source and attachment presentation is also deferred.

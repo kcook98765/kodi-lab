@@ -108,6 +108,7 @@ class ReconciliationAction(StrEnum):
     DEPROVISION = "deprovision"
     FIXTURE_ASSIGNMENT = "fixture_assignment"
     RUNTIME_REASSIGNMENT = "runtime_reassignment"
+    DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
 
 
 INSTANCE_MUTATIONS = [
@@ -121,6 +122,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.DEPROVISION,
     ReconciliationAction.FIXTURE_ASSIGNMENT,
     ReconciliationAction.RUNTIME_REASSIGNMENT,
+    ReconciliationAction.DEVELOPMENT_SOURCE_ATTACHMENT,
 ]
 
 
@@ -135,7 +137,7 @@ class ManagedInstanceReconciliationStatus(BaseModel):
     last_phase: str | None = Field(default=None, max_length=64)
     safe_reason: str | None = Field(default=None, max_length=256)
     observed_state: str | None = Field(default=None, max_length=64)
-    blocked_actions: list[ReconciliationAction] = Field(max_length=10)
+    blocked_actions: list[ReconciliationAction] = Field(max_length=11)
     requested_at: datetime | None = None
     started_at: datetime | None = None
     stale_since: datetime | None = None
@@ -349,6 +351,7 @@ class StaleOperationReconciliationDispatcher:
         if kind in {
             ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT,
             ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT,
+            ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ATTACHMENT,
         }:
             if not ManagedInstanceMutationLeaseRepository(
                 session
