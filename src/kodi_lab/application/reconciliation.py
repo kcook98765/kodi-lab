@@ -32,6 +32,7 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentOperation,
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceEnablementOperation,
+    DevelopmentSourceSmokeTestOperation,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
     ManagedInstanceDeleteOperation,
@@ -61,6 +62,7 @@ from kodi_lab.storage.repositories import (
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceEnablementOperationRepository,
+    DevelopmentSourceSmokeTestOperationRepository,
     GlobalHeavyOperationLeaseRepository,
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceLifecycleOperationRepository,
@@ -95,6 +97,7 @@ class ManagedInstanceReconciliationRequiredError(RuntimeError):
 class ReconciliationOperationKind(StrEnum):
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
+    DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -120,6 +123,7 @@ class ReconciliationAction(StrEnum):
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
+    DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
 
 
 INSTANCE_MUTATIONS = [
@@ -136,6 +140,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.DEVELOPMENT_SOURCE_ATTACHMENT,
     ReconciliationAction.DEVELOPMENT_SOURCE_DEPLOYMENT,
     ReconciliationAction.DEVELOPMENT_SOURCE_ENABLEMENT,
+    ReconciliationAction.DEVELOPMENT_SOURCE_SMOKE_TEST,
 ]
 
 
@@ -150,7 +155,7 @@ class ManagedInstanceReconciliationStatus(BaseModel):
     last_phase: str | None = Field(default=None, max_length=64)
     safe_reason: str | None = Field(default=None, max_length=256)
     observed_state: str | None = Field(default=None, max_length=64)
-    blocked_actions: list[ReconciliationAction] = Field(max_length=13)
+    blocked_actions: list[ReconciliationAction] = Field(max_length=14)
     requested_at: datetime | None = None
     started_at: datetime | None = None
     stale_since: datetime | None = None
@@ -320,6 +325,7 @@ class StaleOperationReconciliationDispatcher:
             | ManagedInstanceDeleteOperation
             | ManagedInstanceLifecycleOperation
             | DevelopmentSourceDeploymentOperation
+            | DevelopmentSourceSmokeTestOperation
             | None
         )
         if kind is ManagedInstanceMutationKind.LIFECYCLE:
@@ -488,6 +494,29 @@ class StaleOperationReconciliationDispatcher:
                 session
             ).mark_stale_reconciliation(operation_id, now=now):
                 raise CoordinationCorruptionError("Expired enablement history changed.")
+        elif kind is ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
+            operation = DevelopmentSourceSmokeTestOperationRepository(session).get(
+                operation_id
+            )
+            if (
+                operation is None
+                or operation.managed_instance_id != instance_id
+                or operation.state.value != "running"
+                or operation.lease_token_digest != digest
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired smoke-test ownership is inconsistent."
+                )
+            if not DevelopmentSourceSmokeTestOperationRepository(session).mark_stale(
+                operation_id, token_digest=digest, now=now
+            ):
+                raise CoordinationCorruptionError("Expired smoke-test history changed.")
+            if operation.invocation_dispatched:
+                DevelopmentSourceDeploymentRepository(session).mark_confidence(
+                    instance_id,
+                    operation.development_source_id,
+                    DevelopmentSourceDeploymentConfidence.UNKNOWN,
+                )
         elif kind is ManagedInstanceMutationKind.INSTANCE_DELETE:
             operation = ManagedInstanceDeleteOperationRepository(session).get(
                 operation_id
@@ -735,6 +764,12 @@ class ManagedInstanceReconciliationService:
                     session
                 ).reconciliation_for_instance(instance_id)
             )
+            records.extend(
+                (ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST, item)
+                for item in DevelopmentSourceSmokeTestOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
             snapshots = SnapshotRepository(session)
             if (
                 len(records) == 1
@@ -789,6 +824,9 @@ class ManagedInstanceReconciliationService:
             observed = "deployment_destination_requires_read_only_inspection"
         elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_ENABLEMENT:
             observed = "live_enabled_state_does_not_resolve_history"
+        elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
+            assert isinstance(operation, DevelopmentSourceSmokeTestOperation)
+            blocking, observed = self._classify_smoke(instance_id, operation)
         reason = {
             ReconciliationOperationKind.LIFECYCLE: (
                 "Lifecycle state requires operator reconciliation."
@@ -811,6 +849,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.DEVELOPMENT_SOURCE_ENABLEMENT: (
                 "Development-source enablement requires operator reconciliation."
             ),
+            ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST: (
+                "Development-source smoke execution requires reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -822,6 +863,7 @@ class ManagedInstanceReconciliationService:
                 ManagedInstanceLifecycleOperation,
                 DevelopmentSourceDeploymentOperation,
                 DevelopmentSourceEnablementOperation,
+                DevelopmentSourceSmokeTestOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(
@@ -837,10 +879,49 @@ class ManagedInstanceReconciliationService:
             ),
             safe_reason=reason,
             observed_state=observed,
-            blocked_actions=INSTANCE_MUTATIONS if blocking else [],
+            blocked_actions=(
+                [
+                    action
+                    for action in INSTANCE_MUTATIONS
+                    if action is not ReconciliationAction.STOP
+                ]
+                if blocking
+                and kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST
+                else INSTANCE_MUTATIONS
+                if blocking
+                else []
+            ),
             requested_at=operation.requested_at,
             started_at=operation.started_at,
         )
+
+    def _classify_smoke(
+        self, instance_id: UUID, operation: DevelopmentSourceSmokeTestOperation
+    ) -> tuple[bool, str]:
+        if self._broker is None or operation.expected_container_id is None:
+            return True, "original_container_state_unknown"
+        try:
+            matches = [
+                item
+                for item in self._broker.managed_container_inventory().containers
+                if item.managed_instance_id == str(instance_id)
+                and item.container_id == operation.expected_container_id
+            ]
+        except ClientError:
+            return True, "original_container_state_unknown"
+        if not matches:
+            return False, "original_container_absent"
+        if (
+            len(matches) == 1
+            and matches[0].runtime_state is ContainerRuntimeState.STOPPED
+        ):
+            return False, "original_container_stopped"
+        if (
+            len(matches) == 1
+            and matches[0].runtime_state is ContainerRuntimeState.RUNNING
+        ):
+            return True, "original_container_running"
+        return True, "original_container_state_unknown"
 
     def require_allowed(
         self, instance_id: UUID, action: ReconciliationAction

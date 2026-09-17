@@ -21,6 +21,11 @@ from kodi_lab.domain import (
     DevelopmentSourceEnablementOperationPhase,
     DevelopmentSourceEnablementOperationState,
     DevelopmentSourceEnablementResult,
+    DevelopmentSourceSmokeTestExecutionResult,
+    DevelopmentSourceSmokeTestOperationPhase,
+    DevelopmentSourceSmokeTestOperationState,
+    DevelopmentSourceSmokeTestOverallResult,
+    DevelopmentSourceSmokeTestPostProvenance,
     ManagedInstanceDeleteOperationPhase,
     ManagedInstanceDeleteOperationState,
     ManagedInstanceDeletePriorState,
@@ -44,6 +49,7 @@ from kodi_lab.storage.models import (
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceEnablementOperationRow,
     DevelopmentSourceRow,
+    DevelopmentSourceSmokeTestOperationRow,
     ManagedInstanceDeleteOperationRow,
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceRow,
@@ -136,6 +142,28 @@ def _seed_equal_timestamp_mixed_history(factory: sessionmaker[Session]) -> None:
         session.flush()
         session.add_all(
             [
+                DevelopmentSourceSmokeTestOperationRow(
+                    id=str(OPERATION_ID),
+                    original_managed_instance_id=str(INSTANCE_ID),
+                    managed_instance_id=str(INSTANCE_ID),
+                    development_source_id="97000000-0000-4000-8000-000000000020",
+                    source_logical_name="Activity source",
+                    addon_id="plugin.video.activity",
+                    addon_version="1.0.0",
+                    runtime_revision_id=str(REVISION_ID),
+                    requested_at=AT,
+                    started_at=AT,
+                    completed_at=AT,
+                    state=DevelopmentSourceSmokeTestOperationState.SUCCEEDED,
+                    phase=DevelopmentSourceSmokeTestOperationPhase.FINALIZE,
+                    overall_result=DevelopmentSourceSmokeTestOverallResult.PASSED,
+                    execution_result=DevelopmentSourceSmokeTestExecutionResult.DIRECTORY_RESULT,
+                    post_execution_provenance=DevelopmentSourceSmokeTestPostProvenance.MATCHED,
+                    invocation_dispatched=True,
+                    invocation_duration_ms=5,
+                    returned_item_count=1,
+                    reconciliation_required=False,
+                ),
                 DevelopmentSourceEnablementOperationRow(
                     id=str(OPERATION_ID),
                     original_managed_instance_id=str(INSTANCE_ID),
@@ -294,6 +322,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         INSTANCE_ID
     )
     assert [item.kind for item in items] == [
+        ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_SMOKE_TEST,
         ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ENABLEMENT,
         ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_DEPLOYMENT,
         ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT,
@@ -305,6 +334,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         ManagedInstanceActivityKind.INSTANCE_DELETE,
     ]
     assert [item.summary for item in items] == [
+        "Smoke test passed",
         "Development source add-on enabled",
         "Development source copy unchanged",
         "Development source attached",
@@ -315,11 +345,11 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         "Snapshot deletion failed",
         "Instance deletion preserved Snapshots",
     ]
-    assert items[2].development_source_attachment_kind is (
+    assert items[3].development_source_attachment_kind is (
         DevelopmentSourceAttachmentOperationKind.ATTACH
     )
-    assert items[3].lifecycle_kind is ManagedInstanceLifecycleKind.START
-    assert items[5].snapshot_uuid == SNAPSHOT_ID
+    assert items[4].lifecycle_kind is ManagedInstanceLifecycleKind.START
+    assert items[6].snapshot_uuid == SNAPSHOT_ID
     assert items[-1].preserve_snapshots is True
     serialized = " ".join(item.model_dump_json() for item in items)
     for forbidden in (
@@ -367,3 +397,90 @@ def test_projection_limit_is_explicit_and_full_history_is_not_silently_limited(
     assert full[0].operation_uuid == UUID(int=12)
     with pytest.raises(ValueError, match="between 1 and 1000"):
         service.list_for_live_instance(INSTANCE_ID, limit=0)
+
+
+def test_smoke_activity_uses_only_bounded_historical_summaries(
+    factory: sessionmaker[Session],
+) -> None:
+    _seed_equal_timestamp_mixed_history(factory)
+    outcomes = [
+        (
+            DevelopmentSourceSmokeTestOverallResult.EXECUTION_FAILED,
+            DevelopmentSourceSmokeTestOperationState.FAILED,
+            DevelopmentSourceSmokeTestExecutionResult.JSONRPC_ERROR,
+            DevelopmentSourceSmokeTestPostProvenance.MATCHED,
+            False,
+        ),
+        (
+            DevelopmentSourceSmokeTestOverallResult.DEPENDENCY_BLOCKED,
+            DevelopmentSourceSmokeTestOperationState.FAILED,
+            DevelopmentSourceSmokeTestExecutionResult.NOT_ATTEMPTED,
+            DevelopmentSourceSmokeTestPostProvenance.NOT_CHECKED,
+            False,
+        ),
+        (
+            DevelopmentSourceSmokeTestOverallResult.SOURCE_TREE_CHANGED,
+            DevelopmentSourceSmokeTestOperationState.FAILED,
+            DevelopmentSourceSmokeTestExecutionResult.DIRECTORY_RESULT,
+            DevelopmentSourceSmokeTestPostProvenance.CHANGED,
+            False,
+        ),
+        (
+            DevelopmentSourceSmokeTestOverallResult.TIMEOUT,
+            DevelopmentSourceSmokeTestOperationState.RECONCILIATION_REQUIRED,
+            DevelopmentSourceSmokeTestExecutionResult.TIMEOUT,
+            DevelopmentSourceSmokeTestPostProvenance.UNKNOWN,
+            True,
+        ),
+        (
+            DevelopmentSourceSmokeTestOverallResult.RECONCILIATION_REQUIRED,
+            DevelopmentSourceSmokeTestOperationState.RECONCILIATION_REQUIRED,
+            DevelopmentSourceSmokeTestExecutionResult.AMBIGUOUS,
+            DevelopmentSourceSmokeTestPostProvenance.UNKNOWN,
+            True,
+        ),
+    ]
+    with factory.begin() as session:
+        for index, (overall, state, execution, provenance, reconciliation) in enumerate(
+            outcomes, start=1
+        ):
+            session.add(
+                DevelopmentSourceSmokeTestOperationRow(
+                    id=str(UUID(int=100 + index)),
+                    original_managed_instance_id=str(INSTANCE_ID),
+                    managed_instance_id=str(INSTANCE_ID),
+                    development_source_id="97000000-0000-4000-8000-000000000020",
+                    source_logical_name="Activity source",
+                    addon_id="plugin.video.activity",
+                    addon_version="1.0.0",
+                    runtime_revision_id=str(REVISION_ID),
+                    requested_at=AT,
+                    started_at=AT,
+                    completed_at=AT,
+                    state=state,
+                    phase=DevelopmentSourceSmokeTestOperationPhase.FINALIZE,
+                    overall_result=overall,
+                    execution_result=execution,
+                    post_execution_provenance=provenance,
+                    invocation_dispatched=(
+                        execution
+                        is not DevelopmentSourceSmokeTestExecutionResult.NOT_ATTEMPTED
+                    ),
+                    reconciliation_required=reconciliation,
+                )
+            )
+    summaries = {
+        item.summary
+        for item in ManagedInstanceActivityService(factory).list_for_original_instance(
+            INSTANCE_ID
+        )
+        if item.kind is ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_SMOKE_TEST
+    }
+    assert summaries == {
+        "Smoke test passed",
+        "Smoke execution failed",
+        "Smoke blocked by dependency",
+        "Smoke changed deployed source tree",
+        "Smoke test timed out",
+        "Smoke requires reconciliation",
+    }

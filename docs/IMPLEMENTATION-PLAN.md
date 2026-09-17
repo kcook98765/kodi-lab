@@ -604,5 +604,32 @@ The authenticated strict-empty-body endpoint returns the completed synchronous
 operation with HTTP 200. Instance UI integrates bounded advisory enablement and
 dependency states. The implemented ladder stops at enabled: attached,
 materialized, recognized, enabled, dependencies generally unproven, working
-unproven, tested unproven. Execution/smoke testing, bind mounts, and ZIP
-installation remain architecture-gated future milestones.
+unproven, tested unproven. At that checkpoint execution/smoke testing, bind
+mounts, and ZIP installation remained architecture-gated future milestones.
+
+Phase 8 copied-add-on smoke testing implements the next approved first slice.
+Migration `0023_dev_source_smoke_test` adds typed durable history and the
+per-instance `development_source_smoke_test` mutation kind, with no current
+smoke-state field and no global-heavy lease. Retention keeps newest 20 ordinary
+terminal rows per original instance plus all active and unresolved history.
+
+Eligibility is limited to copied suppression-runtime Python video plugins with
+one executable descriptor, exact `video` provides, a safe present library, and
+only passive metadata companions. The asynchronous worker repeats deployment,
+runtime, recognition, enabled-state, dependency, and exact destination
+preconditions, then invokes only fixed bounded `Files.GetDirectory`. Correlated
+responses receive mandatory post-readback; returned content is discarded.
+
+Timeout or crash after dispatch is reconciliation-required and makes confidence
+unknown. It is never retried or resolved from an immediate match. Explicit
+ordinary stop remains separate and permitted; once the exact original container
+is stopped or absent the warning may become nonblocking without rewriting
+history. The Web mutation is strict-empty-body HTTP 202 with a bounded status
+URL and a non-egress-isolation warning.
+
+**Smoke passed is bounded historical evidence that one fixed plugin-directory
+invocation completed and preserved deployed-source provenance. It is not a
+general working/health guarantee.**
+
+Bind-mounted DevelopmentSource deployment, ZIP installation, and repository
+testing workflows remain separate architecture gates.

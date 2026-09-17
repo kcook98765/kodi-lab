@@ -1880,3 +1880,102 @@ details that it did not specify.
   Enable is advisory and appears only for an apparently eligible disabled
   source. No install, disable, toggle, dependency, network, repository, plugin
   execution, path, digest, or raw Kodi control is exposed.
+
+## D-0145: Copied-add-on smoke authority is a closed first slice
+
+- Status: approved for Phase 8 copied-add-on smoke testing
+- Decision: authority exists only for one copied add-on whose trusted descriptor
+  has exactly one executable `xbmc.python.pluginsource` extension, exactly
+  `video` in `provides`, and a safe relative declared library present in the
+  freshly verified destination. Only passive `xbmc.addon.metadata` companions
+  are allowed, and Kodi must report the same type for the exact ID/version.
+- Exclusions: service, script, binary, PVR, weather, lyrics, visualization,
+  screensaver, module-only, auto-start, and mixed executable sets are
+  `unsupported_addon_type`. ID prefixes grant no authority. The current exact
+  RuntimeRevision/Profile must suppress Python bytecode.
+
+## D-0146: Smoke invocation has exact fail-closed preconditions
+
+- Status: approved for Phase 8 copied-add-on smoke testing
+- Decision: every attempt re-proves the disposable instance, attached source,
+  retained successful Step 4 copy, `verified_at_last_operation`, exact current
+  revision/container, suppression policy, already-running healthy/process-ready
+  Kodi, exact recognized and enabled ID/version/type, no blocking
+  reconciliation, eligible descriptor, dependency preflight, and a fresh full
+  destination match.
+- Dependencies: D-0141/D-0142 are rerun from current trusted declarations,
+  fixed Kodi details, and complete inventory. Required missing, disabled,
+  mismatched/unknown, or version-unverified dependencies block before dispatch;
+  optional missing is allowed. Nothing is installed or enabled.
+- Lifecycle: the operation never starts, enables, stops, restarts, resets,
+  deprovisions, kills, or retries Kodi. Disabled is a typed precondition failure.
+  Destination verification accepts only semantic instance/source/container
+  identity; callers supply no path or digest.
+
+## D-0147: Smoke execution is one fixed durable directory invocation
+
+- Status: approved for Phase 8 copied-add-on smoke testing
+- Decision: the sole adapter constructs `Files.GetDirectory` with the
+  server-derived plugin root, media `video`, an empty property list, and limits
+  `0..1`. Callers provide no URI, route, query, path, arguments, method, builtin,
+  timeout, media, or properties. No generic JSON-RPC execution exists.
+- Bounds: the invocation deadline is 10 seconds, preflight retains existing
+  bounded timing, and durable ownership has a 90-second hard bound. Work is
+  queued with HTTP 202 outside the normal Web request.
+- Result: `passed` requires dispatch, a correlated non-error result within the
+  deadline, a valid bounded zero-or-one-item directory response, and matching
+  post-readback. Zero items is valid. This proves neither playback, network or
+  repository success, nor general function, and is never called `Working`.
+
+## D-0148: Post-dispatch provenance controls confidence and ambiguity
+
+- Status: approved for Phase 8 copied-add-on smoke testing
+- Decision: every correlated result or Kodi error is followed by exact complete
+  destination readback. Match is `matched`; exact mismatch is `changed`;
+  unavailable or incomplete verification is `unknown`. Returned plugin items
+  are validated in memory and discarded.
+- Confidence: match preserves `verified_at_last_operation`; mismatch yields
+  `source_tree_changed` and `stale`; unavailable verification yields `unknown`.
+  A correlated Kodi error with a matching tree is `execution_failed` while
+  provenance remains verified. Add-on-data writes outside the installation
+  tree do not themselves fail the operation.
+- Ambiguity: timeout or Kodi/container/process loss after dispatch does not
+  prove execution ended. History becomes `reconciliation_required`, execution
+  is timeout/ambiguous, and confidence becomes unknown regardless of an
+  immediate match. No retry or lifecycle automation is allowed. The warning
+  blocks conflicting work while the exact original container runs. Explicit
+  ordinary stop is allowed; once it is stopped or absent the warning may be
+  nonblocking, but history is never rewritten and no mark-resolved action exists.
+
+## D-0149: Smoke history is typed, durable, and per-instance coordinated
+
+- Status: approved for Phase 8 copied-add-on smoke testing
+- Decision: `DevelopmentSourceSmokeTestOperation` separately records operation
+  state, closed phase, overall result, execution result, and post provenance,
+  plus bounded identity, duration, count, dependency classification, timestamps,
+  and immutable original preconditions. It stores no items, labels, URLs, paths,
+  plugin URI, raw JSON, logs, digests, or raw Kodi error text.
+- Coordination: `development_source_smoke_test` conflicts with lifecycle, reset,
+  Snapshot create/restore, fixture/runtime reassignment, copy/sync,
+  attach/detach, enablement, deletion, and another smoke. Snapshot deletion is
+  unrelated and there is no global-heavy lease. Abandoned post-dispatch work is
+  retained reconciliation and is never resumed or converted to success.
+- Retention/activity: retain the latest 20 ordinary terminal operations per
+  original instance plus all active and reconciliation-required rows. Activity
+  exposes bounded historical summaries, never current working state.
+
+## D-0150: Smoke Web authority and presentation remain narrow
+
+- Status: approved for Phase 8 copied-add-on smoke testing
+- Decision: authenticated same-origin CSRF-protected
+  `POST /api/instances/{instance_id}/development-sources/{source_id}/smoke-test`
+  accepts a strict empty body and returns HTTP 202 with bounded operation/status
+  URLs. Authenticated status exposes no plugin-returned content or Kodi controls.
+- Presentation: the advisory action appears only when eligibility seems met;
+  POST revalidates all authority. Results are Smoke passed, Execution failed,
+  Timed out, Dependency blocked, Source tree changed, Unsupported add-on type,
+  or Reconciliation required—never Working, Healthy, or Fully tested.
+- Network: the action warns that the managed network is not egress-isolated,
+  execution inherits existing access, and plugin code may contact external
+  services. This slice adds no network toggle, namespace, firewall, repository
+  control, or isolation claim.

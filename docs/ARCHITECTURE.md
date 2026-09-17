@@ -730,3 +730,41 @@ is: attached; materialized; recognized; enabled; dependencies generally
 unproven; working unproven; tested unproven. Disable/toggle, dependency install,
 generic enablement, repository work, ZIP installation, bind mounts, and plugin
 execution remain absent.
+
+Copied-add-on smoke testing adds one bounded historical observation, not a
+durable working-state field. Eligibility is one copied suppression-runtime
+Python video plugin with exactly one executable extension, exact `video`
+provides, a safe present library, and only passive metadata companions. Prefixes,
+mixed executable types, services, scripts, binaries, and modules grant no
+authority.
+
+The asynchronous operation holds only the exact instance mutation lease. It
+revalidates attachment, retained successful copy evidence, verified confidence,
+revision/container, healthy already-running Kodi, recognition and enabled
+state, dependencies, and a fresh full destination match. It records dispatch
+before the one internally constructed `Files.GetDirectory` request for the
+server-derived plugin root, video media, no properties, and one-item limit. No
+caller execution parameter or generic JSON-RPC surface exists.
+
+Operation state, overall result, execution result, and post provenance remain
+separate. Correlated success or Kodi error always receives post-run exact
+readback. Match preserves verified confidence; mismatch makes the source tree
+stale; unavailable verification makes confidence unknown. Returned items are
+validated in memory and discarded. A correlated Kodi error may therefore be an
+execution failure while provenance remains matched.
+
+Timeout or post-dispatch crash is ambiguous because execution may continue
+after the 10-second client deadline. History remains reconciliation-required,
+confidence becomes unknown, and no match, retry, restart, reset, or lifecycle
+automation clears it. While the exact original container runs, conflicting
+mutations are blocked except explicit ordinary stop. Once stopped or absent the
+warning may be nonblocking, but history is never rewritten.
+
+The strict authenticated mutation returns HTTP 202; bounded status exposes no
+content, URI, path, endpoint, digest, raw response, log, or error text. The UI
+warns that the managed network is not egress-isolated and plugin code inherits
+existing network access. No network or repository control is added.
+
+**Smoke passed is bounded historical evidence that one fixed plugin-directory
+invocation completed and preserved deployed-source provenance. It is not a
+general working/health guarantee.**

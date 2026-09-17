@@ -356,6 +356,53 @@ working unproven, tested unproven.
 ## Deferred Phase 8 work
 
 Bind-mounted sources, ZIP installation, repository URL testing, watchers,
-non-bytecode execution-time tree mutation, disable/toggle, generic add-on
-enablement, dependency installation, plugin execution/smoke automation, and
-broader provenance remain separately gated.
+broader execution authority, disable/toggle, generic add-on enablement,
+dependency installation, and broader provenance remain separately gated.
+
+## Copied-add-on execution and smoke testing
+
+The first execution slice is limited to an exact copied Python video plugin:
+one `xbmc.python.pluginsource` executable extension, exactly `video` provides,
+a safe relative declared library present in the verified tree, and only passive
+metadata companions. Kodi must report the same type for the exact recognized,
+enabled ID/version, and the current revision must suppress bytecode. Unsupported
+or mixed descriptors fail without dispatch; add-on ID prefixes are irrelevant.
+
+The durable HTTP-202 operation takes only a per-instance mutation lease and
+repeats attachment, retained successful copy, verified confidence, exact
+revision/container, already-running healthy Kodi, recognition, enabled state,
+no blocking reconciliation, trusted descriptor, D-0141/D-0142 dependency
+preflight, and exact fresh destination verification. It never starts, enables,
+installs, stops, retries, resets, or restarts anything.
+
+The adapter constructs only `Files.GetDirectory` for the server-derived plugin
+root, `video`, no properties, and at most one returned item. Callers cannot
+supply execution parameters. The client deadline is 10 seconds, with existing
+preflight/readback bounds and a 90-second durable ownership bound. Directory
+items are checked in memory and discarded.
+
+Operation state, overall result, execution result, and post provenance are
+separate. Correlated success and correlated Kodi error both require exact
+post-readback. A match preserves verified confidence; mismatch is
+`source_tree_changed` and stale; verifier failure is unknown and not passed.
+Profile add-on-data writes outside the deployment tree do not count as source
+mutation.
+
+Timeout or post-dispatch crash is ambiguous because execution may continue.
+The operation remains reconciliation-required, confidence becomes unknown, no
+immediate match restores it, and conflicting work is blocked while the exact
+original container runs. Explicit ordinary stop is the recovery action. Once
+that container is stopped or absent, the warning may become nonblocking, but
+history remains unresolved and there is no mark-resolved mutation.
+
+The strict Web action/status is authenticated, same-origin, CSRF-protected, and
+content-free. The UI warns that the managed network is not egress-isolated and
+plugin code may contact external services; no network or repository control is
+introduced.
+
+**Smoke passed is bounded historical evidence that one fixed plugin-directory
+invocation completed and preserved deployed-source provenance. It is not a
+general working/health guarantee.**
+
+The remaining gated alternatives are bind-mounted DevelopmentSource deployment,
+ZIP installation, and repository testing workflow architecture.

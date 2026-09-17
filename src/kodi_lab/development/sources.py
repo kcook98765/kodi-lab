@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from enum import StrEnum
@@ -70,6 +71,7 @@ class DevelopmentSourceValidationResult:
     observed_version: str
     extension_types: tuple[str, ...]
     dependencies: tuple[DevelopmentSourceDependency, ...]
+    extensions: tuple[DevelopmentSourceExtension, ...]
 
     @property
     def is_python_addon(self) -> bool:
@@ -94,6 +96,57 @@ class DevelopmentSourceDependency:
     version: str | None
     minversion: str | None
     optional: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DevelopmentSourceExtension:
+    """One current descriptor extension used only for bounded policy checks."""
+
+    point: str
+    library: str | None
+    provides: tuple[str, ...]
+
+
+def copied_video_plugin_library(
+    observation: DevelopmentSourceValidationResult,
+) -> str | None:
+    """Return the sole safe Python video-plugin library, else no authority."""
+
+    executable = [
+        extension
+        for extension in observation.extensions
+        if extension.point != "xbmc.addon.metadata"
+    ]
+    if (
+        len(executable) != 1
+        or executable[0].point != "xbmc.python.pluginsource"
+        or executable[0].provides != ("video",)
+        or executable[0].library is None
+    ):
+        return None
+    library = executable[0].library
+    try:
+        encoded = library.encode("utf-8", "strict")
+    except UnicodeEncodeError:
+        return None
+    components = library.split("/")
+    if (
+        not library
+        or library.startswith("/")
+        or library.endswith("/")
+        or "\\" in library
+        or len(encoded) > 512
+        or len(components) > 32
+        or any(
+            not component
+            or component in {".", ".."}
+            or len(component.encode("utf-8")) > 255
+            or any(unicodedata.category(character) == "Cc" for character in component)
+            for component in components
+        )
+    ):
+        return None
+    return library
 
 
 class DevelopmentSourceValidator:
@@ -268,6 +321,20 @@ class DevelopmentSourceValidator:
                     if child.tag == "extension"
                 )
             )
+            extensions = tuple(
+                DevelopmentSourceExtension(
+                    point=child.attrib.get("point", ""),
+                    library=child.attrib.get("library"),
+                    provides=tuple(
+                        token
+                        for grandchild in child
+                        if grandchild.tag == "provides"
+                        for token in (grandchild.text or "").strip().split()
+                    ),
+                )
+                for child in root
+                if child.tag == "extension"
+            )
             dependencies = DevelopmentSourceValidator._parse_dependencies(root)
         except ValueError as error:
             raise DevelopmentSourceValidationError(
@@ -281,6 +348,7 @@ class DevelopmentSourceValidator:
             observed_version=observed_version,
             extension_types=extension_types,
             dependencies=dependencies,
+            extensions=extensions,
         )
 
     @staticmethod

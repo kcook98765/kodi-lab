@@ -18,10 +18,12 @@ smoke_tests=(
     tests/domain
     tests/application/test_activity.py
     tests/application/test_development_source_service.py
+    tests/application/test_development_source_smoke_tests.py
     tests/application/test_runtime_execution_profile.py
     tests/application/test_runtime_eligibility.py
     tests/application/test_runtime_matrix.py
     tests/development
+    tests/kodi/test_kodi_addon_smoke_adapter.py
     tests/runtime/test_curated_catalog.py
     tests/runtime/test_manifest.py
     tests/snapshot/test_deletion.py
@@ -32,6 +34,7 @@ smoke_tests=(
     tests/storage/test_runtime_catalog_repositories.py
     tests/auth/test_web_auth.py
     tests/web/test_runtime_matrix.py
+    tests/web/test_development_source_smoke_tests.py
     tests/web/test_security_boundary.py
 )
 

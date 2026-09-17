@@ -73,6 +73,7 @@ from kodi_lab.broker.provisioning import (
 from kodi_lab.broker.snapshots import SnapshotCaptureSpec, SnapshotRestoreSpec
 from kodi_lab.development import (
     DevelopmentSourceValidationError,
+    copied_video_plugin_library,
     parse_captured_addon_xml,
 )
 from kodi_lab.development.deployment import (
@@ -285,6 +286,7 @@ class VerifiedDevelopmentSourceDestinationRecord:
     addon_id: str
     addon_version: str
     matched: bool
+    video_plugin_descriptor_eligible: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1080,13 +1082,32 @@ class DockerManagedContainerAdapter:
                 selected_id, f"/home/kodi/.kodi/addons/{spec.addon_id}"
             )
             manifest = capture_destination_archive(
-                cast(Iterable[bytes], stream), root_name=spec.addon_id
+                cast(Iterable[bytes], stream),
+                root_name=spec.addon_id,
+                capture_paths=frozenset({"addon.xml"}),
             )
             if manifest.digest != spec.verified_destination_digest:
                 raise DockerDevelopmentSourceDeploymentError(
-                    "development_destination_verification_failed",
+                    "development_destination_mismatch",
                     "Current destination bytes do not match retained evidence.",
                 )
+            descriptor_eligible = False
+            descriptor_bytes = manifest.captured_file("addon.xml")
+            if descriptor_bytes is not None:
+                try:
+                    descriptor = parse_captured_addon_xml(
+                        "destination", descriptor_bytes
+                    )
+                    library = copied_video_plugin_library(descriptor)
+                    entry = None if library is None else manifest.by_path().get(library)
+                    descriptor_eligible = (
+                        descriptor.addon_id == spec.addon_id
+                        and descriptor.observed_version == spec.addon_version
+                        and entry is not None
+                        and entry.entry_type == "file"
+                    )
+                except DevelopmentSourceValidationError:
+                    descriptor_eligible = False
             final = _require_mapping(client.inspect_container(selected_id))
             self._validate_running_destination_candidate(
                 final,
@@ -1103,6 +1124,7 @@ class DockerManagedContainerAdapter:
                 addon_id=spec.addon_id,
                 addon_version=spec.addon_version,
                 matched=True,
+                video_plugin_descriptor_eligible=descriptor_eligible,
             )
         except DockerDevelopmentSourceDeploymentError:
             raise

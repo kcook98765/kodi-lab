@@ -125,6 +125,7 @@ class ManagedInstanceMutationKind(StrEnum):
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
+    DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
 
 
 class GlobalHeavyOperationKind(StrEnum):

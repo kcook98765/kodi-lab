@@ -22,6 +22,7 @@ MAX_RELATIVE_PATH_BYTES = 512
 MAX_COMPONENT_BYTES = 255
 MAX_DEPTH = 32
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+MAX_CAPTURED_DESCRIPTOR_BYTES = 1024 * 1024
 MANIFEST_VERSION = 1
 EXCLUSION_POLICY_VERSION = 1
 VCS_ADMIN_DIRECTORIES = frozenset({".git", ".hg", ".svn"})
@@ -70,9 +71,13 @@ class DevelopmentTreeManifest:
     digest: str
     canonical_json: bytes
     included_bytes: int
+    captured_files: tuple[tuple[str, bytes], ...] = ()
 
     def by_path(self) -> dict[str, DevelopmentTreeEntry]:
         return {entry.path: entry for entry in self.entries}
+
+    def captured_file(self, path: str) -> bytes | None:
+        return dict(self.captured_files).get(path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -485,7 +490,10 @@ def build_delta_archive(
 
 
 def capture_destination_archive(
-    chunks: Iterable[bytes], *, root_name: str
+    chunks: Iterable[bytes],
+    *,
+    root_name: str,
+    capture_paths: frozenset[str] = frozenset(),
 ) -> DevelopmentTreeManifest:
     """Build a bounded semantic manifest from Docker's fixed-path tar readback."""
 
@@ -494,7 +502,10 @@ def capture_destination_archive(
     total_bytes = 0
     regular_files = 0
     seen: set[str] = set()
+    captured: dict[str, bytes] = {}
     root_seen = False
+    for requested_path in capture_paths:
+        _safe_relative_path(requested_path)
     try:
         with tarfile.open(fileobj=reader, mode="r|*") as archive:
             for member in archive:
@@ -550,12 +561,20 @@ def capture_destination_archive(
                         )
                     digest = hashlib.sha256()
                     observed = 0
+                    retained = bytearray()
                     while True:
                         chunk = stream.read(1024 * 1024)
                         if not chunk:
                             break
                         observed += len(chunk)
                         digest.update(chunk)
+                        if relative in capture_paths:
+                            retained.extend(chunk)
+                            if len(retained) > MAX_CAPTURED_DESCRIPTOR_BYTES:
+                                raise DevelopmentTreeError(
+                                    "development_destination_bounds",
+                                    "Captured destination descriptor is too large.",
+                                )
                     if observed != member.size:
                         raise DevelopmentTreeError(
                             "development_destination_unsafe",
@@ -563,6 +582,8 @@ def capture_destination_archive(
                         )
                     regular_files += 1
                     total_bytes += observed
+                    if relative in capture_paths:
+                        captured[relative] = bytes(retained)
                     entry = DevelopmentTreeEntry(
                         relative,
                         "file",
@@ -603,6 +624,7 @@ def capture_destination_archive(
         f"sha256:{hashlib.sha256(canonical).hexdigest()}",
         canonical,
         total_bytes,
+        tuple(sorted(captured.items())),
     )
 
 

@@ -52,6 +52,16 @@ from kodi_lab.application.development_source_presentation import (
     DevelopmentSourcePresentationService,
     DevelopmentSourceSummary,
 )
+from kodi_lab.application.development_source_smoke_tests import (
+    DevelopmentSourceSmokeTestConflictError,
+    DevelopmentSourceSmokeTestError,
+    DevelopmentSourceSmokeTestExecutor,
+    DevelopmentSourceSmokeTestNotFoundError,
+    DevelopmentSourceSmokeTestOperationCoordinator,
+    DevelopmentSourceSmokeTestService,
+    DevelopmentSourceSmokeTestServiceFactory,
+    DevelopmentSourceSmokeTestStatus,
+)
 from kodi_lab.application.errors import (
     DevelopmentSourceNotFoundError,
     ManagedInstanceNotFoundError,
@@ -200,6 +210,13 @@ class DevelopmentSourceDeploymentAccepted(BaseModel):
     status_url: str
 
 
+class DevelopmentSourceSmokeTestAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: DevelopmentSourceSmokeTestStatus
+    status_url: str
+
+
 class SnapshotCreateRequest(BaseModel):
     """Optional display metadata with no storage or runtime authority."""
 
@@ -286,6 +303,10 @@ class WebApplicationContext:
     )
     development_source_deployment_executor: DevelopmentSourceDeploymentExecutor
     development_source_enablement: DevelopmentSourceEnablementService
+    development_source_smoke_test_operations: (
+        DevelopmentSourceSmokeTestOperationCoordinator
+    )
+    development_source_smoke_test_executor: DevelopmentSourceSmokeTestExecutor
 
 
 def create_app(
@@ -309,6 +330,9 @@ def create_app(
     addon_inventory_adapter_factory: InventoryAdapterFactory | None = None,
     development_source_enablement_service: DevelopmentSourceEnablementService
     | None = None,
+    development_source_smoke_test_service_factory: (
+        DevelopmentSourceSmokeTestServiceFactory | None
+    ) = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -459,6 +483,29 @@ def create_app(
             ),
         )
     )
+    development_source_smoke_test_operations = (
+        DevelopmentSourceSmokeTestOperationCoordinator(
+            session_factory,
+            stale_dispatcher=stale_dispatcher,
+            reconciliation=reconciliation,
+        )
+    )
+    development_source_smoke_test_factory = (
+        development_source_smoke_test_service_factory
+        or (
+            lambda lease: DevelopmentSourceSmokeTestService(
+                session_factory,
+                broker,
+                DevelopmentSourceValidator(settings.development_root),
+                development_source_smoke_test_operations,
+                lease,
+            )
+        )
+    )
+    development_source_smoke_test_executor = DevelopmentSourceSmokeTestExecutor(
+        development_source_smoke_test_operations,
+        development_source_smoke_test_factory,
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -517,6 +564,10 @@ def create_app(
         ),
         development_source_deployment_executor=(development_source_deployment_executor),
         development_source_enablement=development_source_enablement,
+        development_source_smoke_test_operations=(
+            development_source_smoke_test_operations
+        ),
+        development_source_smoke_test_executor=(development_source_smoke_test_executor),
     )
 
     @asynccontextmanager
@@ -528,6 +579,7 @@ def create_app(
         context.snapshot_delete_executor.start()
         context.instance_delete_executor.start()
         context.development_source_deployment_executor.start()
+        context.development_source_smoke_test_executor.start()
         try:
             yield
         finally:
@@ -537,6 +589,7 @@ def create_app(
             context.snapshot_delete_executor.close()
             context.instance_delete_executor.close()
             context.development_source_deployment_executor.close()
+            context.development_source_smoke_test_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -628,6 +681,24 @@ def create_app(
     @app.exception_handler(DevelopmentSourceEnablementError)
     async def development_source_enablement_failed(
         _request: Request, error: DevelopmentSourceEnablementError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(DevelopmentSourceSmokeTestNotFoundError)
+    async def development_source_smoke_test_not_found(
+        _request: Request, error: DevelopmentSourceSmokeTestNotFoundError
+    ) -> JSONResponse:
+        return _json_error(404, error.code, str(error)[:256])
+
+    @app.exception_handler(DevelopmentSourceSmokeTestConflictError)
+    async def development_source_smoke_test_conflict(
+        _request: Request, error: DevelopmentSourceSmokeTestConflictError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(DevelopmentSourceSmokeTestError)
+    async def development_source_smoke_test_failed(
+        _request: Request, error: DevelopmentSourceSmokeTestError
     ) -> JSONResponse:
         return _json_error(409, error.code, str(error)[:256])
 
@@ -1325,6 +1396,45 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> DevelopmentSourceEnablementStatus:
         return context.development_source_enablement.enable(instance_id, source_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/development-source-smoke-test-operations/"
+        "{operation_id}",
+        response_model=DevelopmentSourceSmokeTestStatus,
+    )
+    def development_source_smoke_test_operation(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> DevelopmentSourceSmokeTestStatus:
+        operation = context.development_source_smoke_test_operations.get(operation_id)
+        if operation is None or operation.original_managed_instance_id != instance_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        return context.development_source_smoke_test_operations.to_status(operation)
+
+    @app.post(
+        "/api/instances/{instance_id}/development-sources/{source_id}/smoke-test",
+        response_model=DevelopmentSourceSmokeTestAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def smoke_test_development_source(
+        instance_id: UUID,
+        source_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentSourceSmokeTestAccepted:
+        operation = context.development_source_smoke_test_operations.queue(
+            instance_id, source_id
+        )
+        context.development_source_smoke_test_executor.submit(operation.operation_id)
+        status_url = (
+            f"/api/instances/{instance_id}/"
+            "development-source-smoke-test-operations/"
+            f"{operation.operation_id}"
+        )
+        return DevelopmentSourceSmokeTestAccepted(
+            operation=operation, status_url=status_url
+        )
 
     @app.get(
         "/api/instances/{instance_id}/reset-status",

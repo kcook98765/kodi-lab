@@ -700,6 +700,7 @@ class VerifyAttachedDevelopmentSourceDestinationResult(StrictModel):
     addon_id: str = Field(min_length=1, max_length=128)
     addon_version: str = Field(min_length=1, max_length=128)
     matched: Literal[True]
+    video_plugin_descriptor_eligible: bool = False
 
     @field_validator(
         "managed_instance_id", "development_source_id", "runtime_revision_id"
@@ -2140,6 +2141,7 @@ def build_foundation_registry(
             addon_id=outcome.addon_id,
             addon_version=outcome.addon_version,
             matched=True,
+            video_plugin_descriptor_eligible=(outcome.video_plugin_descriptor_eligible),
         )
 
     registry.register(

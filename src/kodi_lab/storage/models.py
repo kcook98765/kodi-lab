@@ -31,6 +31,11 @@ from kodi_lab.domain import (
     DevelopmentSourceEnablementOperationState,
     DevelopmentSourceEnablementResult,
     DevelopmentSourceKind,
+    DevelopmentSourceSmokeTestExecutionResult,
+    DevelopmentSourceSmokeTestOperationPhase,
+    DevelopmentSourceSmokeTestOperationState,
+    DevelopmentSourceSmokeTestOverallResult,
+    DevelopmentSourceSmokeTestPostProvenance,
     FixtureContentCategory,
     FixtureSizeCategory,
     GlobalHeavyOperationKind,
@@ -699,6 +704,166 @@ class DevelopmentSourceEnablementOperationRow(Base):
     reconciliation_required: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("0")
     )
+
+
+class DevelopmentSourceSmokeTestOperationRow(Base):
+    """Durable bounded copied-source smoke-test history and coordination."""
+
+    __tablename__ = "development_source_smoke_test_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(source_logical_name) BETWEEN 1 AND 120 AND "
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128",
+            name="development_source_smoke_test_identity_bounded",
+        ),
+        CheckConstraint(
+            "invocation_duration_ms IS NULL OR "
+            "invocation_duration_ms BETWEEN 0 AND 90000",
+            name="development_source_smoke_test_duration_bounded",
+        ),
+        CheckConstraint(
+            "returned_item_count IS NULL OR returned_item_count BETWEEN 0 AND 1",
+            name="development_source_smoke_test_item_count_bounded",
+        ),
+        CheckConstraint(
+            "blocked_dependency_id IS NULL OR "
+            "length(blocked_dependency_id) BETWEEN 1 AND 128",
+            name="development_source_smoke_test_blocked_id_bounded",
+        ),
+        CheckConstraint(
+            "blocked_dependency_reason IS NULL OR "
+            "length(blocked_dependency_reason) BETWEEN 1 AND 64",
+            name="development_source_smoke_test_blocked_reason_bounded",
+        ),
+        CheckConstraint(
+            "expected_container_id IS NULL OR (length(expected_container_id) = 64 "
+            "AND expected_container_id NOT GLOB '*[^0-9a-f]*')",
+            name="development_source_smoke_test_expected_container",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="development_source_smoke_test_lease_digest",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="development_source_smoke_test_failure_bounded",
+        ),
+        Index(
+            "uq_development_source_smoke_test_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+        Index(
+            "ix_development_source_smoke_test_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+        Index(
+            "ix_development_source_smoke_test_source",
+            "development_source_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("development_sources.id", ondelete="RESTRICT")
+    )
+    source_logical_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runtime_revisions.id", ondelete="RESTRICT")
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[DevelopmentSourceSmokeTestOperationState] = mapped_column(
+        Enum(
+            DevelopmentSourceSmokeTestOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_smoke_test_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[DevelopmentSourceSmokeTestOperationPhase] = mapped_column(
+        Enum(
+            DevelopmentSourceSmokeTestOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_smoke_test_operation_phase",
+        ),
+        nullable=False,
+    )
+    overall_result: Mapped[DevelopmentSourceSmokeTestOverallResult | None] = (
+        mapped_column(
+            Enum(
+                DevelopmentSourceSmokeTestOverallResult,
+                values_callable=_enum_values,
+                native_enum=False,
+                create_constraint=True,
+                name="development_source_smoke_test_overall_result",
+            ),
+            nullable=True,
+        )
+    )
+    execution_result: Mapped[DevelopmentSourceSmokeTestExecutionResult] = mapped_column(
+        Enum(
+            DevelopmentSourceSmokeTestExecutionResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_smoke_test_execution_result",
+        ),
+        nullable=False,
+        default=DevelopmentSourceSmokeTestExecutionResult.NOT_ATTEMPTED,
+        server_default=text("'not_attempted'"),
+    )
+    post_execution_provenance: Mapped[DevelopmentSourceSmokeTestPostProvenance] = (
+        mapped_column(
+            Enum(
+                DevelopmentSourceSmokeTestPostProvenance,
+                values_callable=_enum_values,
+                native_enum=False,
+                create_constraint=True,
+                name="development_source_smoke_test_post_provenance",
+            ),
+            nullable=False,
+            default=DevelopmentSourceSmokeTestPostProvenance.NOT_CHECKED,
+            server_default=text("'not_checked'"),
+        )
+    )
+    invocation_dispatched: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    invocation_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    returned_item_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    blocked_dependency_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    blocked_dependency_reason: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    expected_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class FixtureDefinitionRow(Base):

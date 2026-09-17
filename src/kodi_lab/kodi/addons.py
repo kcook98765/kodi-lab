@@ -27,6 +27,7 @@ MAX_ADDON_ID_LENGTH = 128
 MAX_ADDON_NAME_LENGTH = 256
 MAX_ADDON_VERSION_LENGTH = 128
 MAX_ADDON_TYPE_LENGTH = 128
+SMOKE_INVOCATION_TIMEOUT_SECONDS = 10.0
 
 
 class KodiAddonInventoryUnsupportedResponseError(RuntimeError):
@@ -55,6 +56,32 @@ class KodiAddonEnableRejectedError(RuntimeError):
 
 class KodiAddonEnablementAmbiguousError(RuntimeError):
     """The fixed enable request may have been accepted without trusted proof."""
+
+
+class KodiAddonSmokeJsonRpcError(RuntimeError):
+    """Kodi returned one correlated error envelope for the fixed invocation."""
+
+    def __init__(self, duration_ms: int) -> None:
+        super().__init__("Kodi returned a correlated plugin execution error")
+        self.duration_ms = duration_ms
+
+
+class KodiAddonSmokeTimeoutError(RuntimeError):
+    """The client deadline expired after the fixed invocation was dispatched."""
+
+    def __init__(self, duration_ms: int) -> None:
+        super().__init__("Kodi plugin invocation reached its fixed deadline")
+        self.duration_ms = duration_ms
+
+
+class KodiAddonSmokeAmbiguousError(RuntimeError):
+    """Post-dispatch completion cannot be established safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class KodiAddonSmokeResult:
+    item_count: int
+    duration_ms: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -588,3 +615,156 @@ class KodiAddonEnablementAdapter:
             body=json.dumps(request, separators=(",", ":")).encode(),
             timeout=min(self._profile.http_timeout_seconds, 3.0),
         )
+
+
+class KodiAddonSmokeAdapter:
+    """Construct exactly one bounded Files.GetDirectory video-plugin request."""
+
+    def __init__(
+        self,
+        observation: ObserveManagedKodiRuntimeResult,
+        profile: RuntimeExecutionProfile,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        transport: _HttpTransport | None = None,
+    ) -> None:
+        if observation.runtime_revision_id != str(profile.runtime_revision_id):
+            raise ValueError("observation and execution profile revisions differ")
+        if observation.jsonrpc_port != profile.jsonrpc_port:
+            raise ValueError("observation and execution profile ports differ")
+        self._observation = observation
+        self._profile = profile
+        self._clock = clock
+        self._transport = transport or _BoundedHttpTransport()
+
+    def invoke(self, addon_id: str) -> KodiAddonSmokeResult:
+        request_id = "kodi-lab-addon-smoke"
+        request: dict[str, object] = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "Files.GetDirectory",
+            "params": {
+                "directory": f"plugin://{addon_id}/",
+                "media": "video",
+                "properties": [],
+                "limits": {"start": 0, "end": 1},
+            },
+        }
+        started = self._clock()
+        try:
+            payload = self._transport.post(
+                host=self._observation.ipv4_address,
+                port=self._profile.jsonrpc_port,
+                path=self._profile.jsonrpc_path,
+                body=json.dumps(request, separators=(",", ":")).encode(),
+                timeout=SMOKE_INVOCATION_TIMEOUT_SECONDS,
+            )
+            document = json.loads(payload)
+        except JsonRpcUnavailableError as error:
+            duration = self._duration_ms(started)
+            if self._timed_out(error, duration):
+                raise KodiAddonSmokeTimeoutError(duration) from error
+            raise KodiAddonSmokeAmbiguousError(
+                "Kodi plugin invocation completion is ambiguous"
+            ) from error
+        except (
+            JsonRpcInvalidResponseError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as error:
+            raise KodiAddonSmokeAmbiguousError(
+                "Kodi plugin invocation response is unsupported"
+            ) from error
+        duration = self._duration_ms(started)
+        if (
+            isinstance(document, dict)
+            and document.get("jsonrpc") == "2.0"
+            and document.get("id") == request_id
+            and set(document) == {"jsonrpc", "id", "error"}
+            and self._valid_error(document.get("error"))
+        ):
+            raise KodiAddonSmokeJsonRpcError(duration)
+        if (
+            not isinstance(document, dict)
+            or document.get("jsonrpc") != "2.0"
+            or document.get("id") != request_id
+            or set(document) != {"jsonrpc", "id", "result"}
+            or not isinstance(document.get("result"), dict)
+        ):
+            raise KodiAddonSmokeAmbiguousError(
+                "Kodi plugin invocation envelope is unsupported"
+            )
+        item_count = self._validate_directory_result(
+            cast(dict[str, object], document["result"])
+        )
+        return KodiAddonSmokeResult(item_count=item_count, duration_ms=duration)
+
+    def _duration_ms(self, started: float) -> int:
+        return max(0, min(90_000, round((self._clock() - started) * 1000)))
+
+    @staticmethod
+    def _timed_out(error: BaseException, duration_ms: int) -> bool:
+        current: BaseException | None = error
+        while current is not None:
+            if isinstance(current, TimeoutError) or "timed out" in str(current).lower():
+                return True
+            current = current.__cause__
+        return duration_ms >= 9_500
+
+    @staticmethod
+    def _valid_error(value: object) -> bool:
+        if not isinstance(value, dict) or not {"code", "message"} <= set(value):
+            return False
+        return type(value.get("code")) is int and isinstance(value.get("message"), str)
+
+    @staticmethod
+    def _validate_directory_result(result: dict[str, object]) -> int:
+        if not set(result) <= {"files", "limits"} or "limits" not in result:
+            raise KodiAddonSmokeAmbiguousError(
+                "Kodi plugin directory result is unsupported"
+            )
+        files = result.get("files", [])
+        limits = result.get("limits")
+        if (
+            not isinstance(files, list)
+            or len(files) > 1
+            or not isinstance(limits, dict)
+        ):
+            raise KodiAddonSmokeAmbiguousError(
+                "Kodi plugin directory result exceeds its fixed bound"
+            )
+        if set(limits) != {"start", "end", "total"} or any(
+            type(limits.get(key)) is not int for key in ("start", "end", "total")
+        ):
+            raise KodiAddonSmokeAmbiguousError(
+                "Kodi plugin directory limits are unsupported"
+            )
+        if (
+            limits["start"] != 0
+            or limits["end"] != len(files)
+            or limits["total"] < limits["end"]
+            or limits["total"] < 0
+        ):
+            raise KodiAddonSmokeAmbiguousError(
+                "Kodi plugin directory limits are inconsistent"
+            )
+        for item in files:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"file", "filetype", "label", "type"}
+                or not isinstance(item.get("file"), str)
+                or not 1 <= len(cast(str, item["file"])) <= 4096
+                or item.get("filetype") not in {"file", "directory"}
+                or not isinstance(item.get("label"), str)
+                or len(cast(str, item["label"])) > 1024
+                or not isinstance(item.get("type"), str)
+                or not 1 <= len(cast(str, item["type"])) <= 128
+                or any(
+                    unicodedata.category(character) == "Cc"
+                    for character in cast(str, item["type"])
+                )
+            ):
+                raise KodiAddonSmokeAmbiguousError(
+                    "Kodi plugin directory item is unsupported"
+                )
+        return len(files)

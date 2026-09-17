@@ -23,6 +23,14 @@ from kodi_lab.domain.development_source_enablements import (
     DevelopmentSourceEnablementOperationState,
     DevelopmentSourceEnablementResult,
 )
+from kodi_lab.domain.development_source_smoke_tests import (
+    DevelopmentSourceSmokeTestExecutionResult,
+    DevelopmentSourceSmokeTestOperation,
+    DevelopmentSourceSmokeTestOperationPhase,
+    DevelopmentSourceSmokeTestOperationState,
+    DevelopmentSourceSmokeTestOverallResult,
+    DevelopmentSourceSmokeTestPostProvenance,
+)
 from kodi_lab.domain.development_sources import (
     MAX_ADDON_ID,
     MAX_ADDON_NAME,
@@ -146,6 +154,12 @@ __all__ = [
     "DevelopmentSourceEnablementOperationState",
     "DevelopmentSourceEnablementResult",
     "DevelopmentSourceKind",
+    "DevelopmentSourceSmokeTestExecutionResult",
+    "DevelopmentSourceSmokeTestOperation",
+    "DevelopmentSourceSmokeTestOperationPhase",
+    "DevelopmentSourceSmokeTestOperationState",
+    "DevelopmentSourceSmokeTestOverallResult",
+    "DevelopmentSourceSmokeTestPostProvenance",
     "EffectiveValidationState",
     "FixtureContentCategory",
     "FixtureDefinition",

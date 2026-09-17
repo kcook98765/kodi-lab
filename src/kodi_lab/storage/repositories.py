@@ -19,6 +19,12 @@ from kodi_lab.domain import (
     DevelopmentSourceEnablementOperationPhase,
     DevelopmentSourceEnablementOperationState,
     DevelopmentSourceEnablementResult,
+    DevelopmentSourceSmokeTestExecutionResult,
+    DevelopmentSourceSmokeTestOperation,
+    DevelopmentSourceSmokeTestOperationPhase,
+    DevelopmentSourceSmokeTestOperationState,
+    DevelopmentSourceSmokeTestOverallResult,
+    DevelopmentSourceSmokeTestPostProvenance,
     FixtureDefinition,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
@@ -62,6 +68,7 @@ from kodi_lab.storage.models import (
     DevelopmentSourceDeploymentRow,
     DevelopmentSourceEnablementOperationRow,
     DevelopmentSourceRow,
+    DevelopmentSourceSmokeTestOperationRow,
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceDeleteOperationRow,
@@ -443,6 +450,49 @@ def _development_source_enablement_operation_from_row(
         ),
         failure_reason=row.failure_reason,
         reconciliation_required=row.reconciliation_required,
+    )
+
+
+def _development_source_smoke_test_operation_from_row(
+    row: DevelopmentSourceSmokeTestOperationRow,
+) -> DevelopmentSourceSmokeTestOperation:
+    return DevelopmentSourceSmokeTestOperation(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=(
+            None if row.managed_instance_id is None else UUID(row.managed_instance_id)
+        ),
+        development_source_id=UUID(row.development_source_id),
+        source_logical_name=row.source_logical_name,
+        addon_id=row.addon_id,
+        addon_version=row.addon_version,
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
+        overall_result=row.overall_result,
+        execution_result=row.execution_result,
+        post_execution_provenance=row.post_execution_provenance,
+        invocation_dispatched=row.invocation_dispatched,
+        invocation_duration_ms=row.invocation_duration_ms,
+        returned_item_count=row.returned_item_count,
+        blocked_dependency_id=row.blocked_dependency_id,
+        blocked_dependency_reason=row.blocked_dependency_reason,
+        expected_container_id=row.expected_container_id,
+        started_at=(
+            None if row.started_at is None else _timestamp_from_text(row.started_at)
+        ),
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=(
+            None
+            if row.lease_expires_at is None
+            else _timestamp_from_text(row.lease_expires_at)
+        ),
     )
 
 
@@ -3563,6 +3613,368 @@ class DevelopmentSourceEnablementOperationRepository:
         result = self._session.execute(
             delete(DevelopmentSourceEnablementOperationRow).where(
                 DevelopmentSourceEnablementOperationRow.id.in_(rows)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
+class DevelopmentSourceSmokeTestOperationRepository:
+    """Durable smoke-test history with a fixed 90-second running lease."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: DevelopmentSourceSmokeTestOperation) -> None:
+        self._session.add(
+            DevelopmentSourceSmokeTestOperationRow(
+                id=str(operation.id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                managed_instance_id=(
+                    None
+                    if operation.managed_instance_id is None
+                    else str(operation.managed_instance_id)
+                ),
+                development_source_id=str(operation.development_source_id),
+                source_logical_name=operation.source_logical_name,
+                addon_id=operation.addon_id,
+                addon_version=operation.addon_version,
+                runtime_revision_id=str(operation.runtime_revision_id),
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+                overall_result=operation.overall_result,
+                execution_result=operation.execution_result,
+                post_execution_provenance=operation.post_execution_provenance,
+                invocation_dispatched=operation.invocation_dispatched,
+                reconciliation_required=operation.reconciliation_required,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> DevelopmentSourceSmokeTestOperation | None:
+        row = self._session.get(
+            DevelopmentSourceSmokeTestOperationRow, str(operation_id)
+        )
+        return (
+            None
+            if row is None
+            else _development_source_smoke_test_operation_from_row(row)
+        )
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[DevelopmentSourceSmokeTestOperation]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                DevelopmentSourceSmokeTestOperationRow.requested_at.desc(),
+                DevelopmentSourceSmokeTestOperationRow.id.desc(),
+            )
+        )
+        return [_development_source_smoke_test_operation_from_row(row) for row in rows]
+
+    def list_queued(self) -> list[DevelopmentSourceSmokeTestOperation]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.state
+                == DevelopmentSourceSmokeTestOperationState.QUEUED
+            )
+            .order_by(
+                DevelopmentSourceSmokeTestOperationRow.requested_at,
+                DevelopmentSourceSmokeTestOperationRow.id,
+            )
+        )
+        return [_development_source_smoke_test_operation_from_row(row) for row in rows]
+
+    def active_for_instance(
+        self, instance_id: UUID
+    ) -> DevelopmentSourceSmokeTestOperation | None:
+        row = self._session.scalar(
+            select(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.managed_instance_id
+                == str(instance_id),
+                DevelopmentSourceSmokeTestOperationRow.state.in_(
+                    (
+                        DevelopmentSourceSmokeTestOperationState.QUEUED,
+                        DevelopmentSourceSmokeTestOperationState.RUNNING,
+                    )
+                ),
+            )
+            .limit(1)
+        )
+        return (
+            None
+            if row is None
+            else _development_source_smoke_test_operation_from_row(row)
+        )
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        expected_container_id: str | None,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.id == str(operation_id),
+                DevelopmentSourceSmokeTestOperationRow.state
+                == DevelopmentSourceSmokeTestOperationState.QUEUED,
+            )
+            .values(
+                state=DevelopmentSourceSmokeTestOperationState.RUNNING,
+                phase=DevelopmentSourceSmokeTestOperationPhase.ACQUIRE,
+                expected_container_id=expected_container_id,
+                started_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def set_expected_container(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        expected_container_id: str,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.id == str(operation_id),
+                DevelopmentSourceSmokeTestOperationRow.state
+                == DevelopmentSourceSmokeTestOperationState.RUNNING,
+                DevelopmentSourceSmokeTestOperationRow.lease_token_digest
+                == token_digest,
+                DevelopmentSourceSmokeTestOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+                DevelopmentSourceSmokeTestOperationRow.expected_container_id.is_(None),
+            )
+            .values(expected_container_id=expected_container_id)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: DevelopmentSourceSmokeTestOperationPhase,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.id == str(operation_id),
+                DevelopmentSourceSmokeTestOperationRow.state
+                == DevelopmentSourceSmokeTestOperationState.RUNNING,
+                DevelopmentSourceSmokeTestOperationRow.lease_token_digest
+                == token_digest,
+                DevelopmentSourceSmokeTestOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+            )
+            .values(phase=phase)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_invocation_dispatched(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.id == str(operation_id),
+                DevelopmentSourceSmokeTestOperationRow.state
+                == DevelopmentSourceSmokeTestOperationState.RUNNING,
+                DevelopmentSourceSmokeTestOperationRow.lease_token_digest
+                == token_digest,
+                DevelopmentSourceSmokeTestOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+                DevelopmentSourceSmokeTestOperationRow.invocation_dispatched.is_(False),
+            )
+            .values(
+                phase=DevelopmentSourceSmokeTestOperationPhase.INVOKE,
+                invocation_dispatched=True,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: DevelopmentSourceSmokeTestOperationState,
+        overall_result: DevelopmentSourceSmokeTestOverallResult | None,
+        execution_result: DevelopmentSourceSmokeTestExecutionResult,
+        post_execution_provenance: DevelopmentSourceSmokeTestPostProvenance,
+        invocation_duration_ms: int | None,
+        returned_item_count: int | None,
+        blocked_dependency_id: str | None,
+        blocked_dependency_reason: str | None,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.id == str(operation_id),
+                DevelopmentSourceSmokeTestOperationRow.state
+                == DevelopmentSourceSmokeTestOperationState.RUNNING,
+                DevelopmentSourceSmokeTestOperationRow.lease_token_digest
+                == token_digest,
+                DevelopmentSourceSmokeTestOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+            )
+            .values(
+                state=state,
+                phase=DevelopmentSourceSmokeTestOperationPhase.FINALIZE,
+                overall_result=overall_result,
+                execution_result=execution_result,
+                post_execution_provenance=post_execution_provenance,
+                invocation_duration_ms=invocation_duration_ms,
+                returned_item_count=returned_item_count,
+                blocked_dependency_id=blocked_dependency_id,
+                blocked_dependency_reason=blocked_dependency_reason,
+                completed_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
+        row = self._session.get(
+            DevelopmentSourceSmokeTestOperationRow, str(operation_id)
+        )
+        if (
+            row is None
+            or row.state is not DevelopmentSourceSmokeTestOperationState.RUNNING
+            or row.lease_token_digest != token_digest
+            or row.lease_expires_at is None
+            or row.lease_expires_at > _timestamp_to_text(now)
+        ):
+            return False
+        if row.invocation_dispatched:
+            values = {
+                "state": (
+                    DevelopmentSourceSmokeTestOperationState.RECONCILIATION_REQUIRED
+                ),
+                "overall_result": (
+                    DevelopmentSourceSmokeTestOverallResult.RECONCILIATION_REQUIRED
+                ),
+                "execution_result": (
+                    DevelopmentSourceSmokeTestExecutionResult.AMBIGUOUS
+                ),
+                "post_execution_provenance": (
+                    DevelopmentSourceSmokeTestPostProvenance.UNKNOWN
+                ),
+                "failure_reason": "smoke_execution_abandoned",
+                "reconciliation_required": True,
+            }
+        else:
+            values = {
+                "state": DevelopmentSourceSmokeTestOperationState.FAILED,
+                "overall_result": None,
+                "execution_result": (
+                    DevelopmentSourceSmokeTestExecutionResult.NOT_ATTEMPTED
+                ),
+                "post_execution_provenance": (
+                    DevelopmentSourceSmokeTestPostProvenance.NOT_CHECKED
+                ),
+                "failure_reason": "smoke_failed_before_invocation",
+                "reconciliation_required": False,
+            }
+        result = self._session.execute(
+            update(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.id == str(operation_id),
+                DevelopmentSourceSmokeTestOperationRow.state
+                == DevelopmentSourceSmokeTestOperationState.RUNNING,
+                DevelopmentSourceSmokeTestOperationRow.lease_token_digest
+                == token_digest,
+            )
+            .values(
+                **values,
+                phase=DevelopmentSourceSmokeTestOperationPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[DevelopmentSourceSmokeTestOperation]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.original_managed_instance_id
+                == str(instance_id),
+                DevelopmentSourceSmokeTestOperationRow.reconciliation_required.is_(
+                    True
+                ),
+            )
+            .order_by(
+                DevelopmentSourceSmokeTestOperationRow.requested_at.desc(),
+                DevelopmentSourceSmokeTestOperationRow.id.desc(),
+            )
+            .limit(limit)
+        )
+        return [_development_source_smoke_test_operation_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(DevelopmentSourceSmokeTestOperationRow)
+            .where(
+                DevelopmentSourceSmokeTestOperationRow.managed_instance_id
+                == str(instance_id)
+            )
+            .values(managed_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
+
+    def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        rows = list(
+            self._session.scalars(
+                select(DevelopmentSourceSmokeTestOperationRow.id)
+                .where(
+                    DevelopmentSourceSmokeTestOperationRow.original_managed_instance_id
+                    == str(instance_id),
+                    DevelopmentSourceSmokeTestOperationRow.state.in_(
+                        (
+                            DevelopmentSourceSmokeTestOperationState.SUCCEEDED,
+                            DevelopmentSourceSmokeTestOperationState.FAILED,
+                        )
+                    ),
+                )
+                .order_by(
+                    DevelopmentSourceSmokeTestOperationRow.requested_at.desc(),
+                    DevelopmentSourceSmokeTestOperationRow.id.desc(),
+                )
+                .offset(retain)
+            )
+        )
+        if not rows:
+            return 0
+        result = self._session.execute(
+            delete(DevelopmentSourceSmokeTestOperationRow).where(
+                DevelopmentSourceSmokeTestOperationRow.id.in_(rows)
             )
         )
         return int(getattr(result, "rowcount", 0))

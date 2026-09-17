@@ -42,7 +42,9 @@ def _source(tmp_path: Path) -> Path:
     files = {
         addon / "addon.xml": (
             f'<addon id="{ADDON_ID}" name="Example" version="1.0.0">'
-            '<extension point="xbmc.python.pluginsource"/></addon>'
+            '<extension point="xbmc.python.pluginsource" library="unchanged.py">'
+            "<provides>video</provides></extension>"
+            '<extension point="xbmc.addon.metadata"/></addon>'
         ),
         addon / "unchanged.py": "unchanged",
         addon / "later_destination_only.py": "preserved from deployment",
@@ -244,6 +246,29 @@ def test_running_destination_verification_reuses_complete_capture(
     assert result.matched is True
     assert result.addon_id == ADDON_ID
     assert result.addon_version == "1.0.0"
+    assert result.video_plugin_descriptor_eligible is True
+
+
+def test_running_destination_verification_reports_missing_declared_library(
+    tmp_path: Path,
+) -> None:
+    source = _source(tmp_path) / "addon"
+    (source / "addon.xml").write_text(
+        f'<addon id="{ADDON_ID}" name="Example" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="missing.py">'
+        "<provides>video</provides></extension></addon>"
+    )
+    client = FakeDeploymentDockerClient()
+    deployed = _apply(client, _spec(tmp_path))
+    client.inspection = _inspection(state="running")
+    result = DockerManagedContainerAdapter(
+        lambda: client
+    ).verify_attached_development_source_destination(
+        spec=_verification_spec(deployed.verified_destination_digest),
+        expected_container_id=CONTAINER_ID,
+    )
+    assert result.matched is True
+    assert result.video_plugin_descriptor_eligible is False
 
 
 def test_running_destination_verification_rejects_external_drift(

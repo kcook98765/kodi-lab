@@ -14,12 +14,15 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceEnablementOperationState,
     DevelopmentSourceEnablementResult,
+    DevelopmentSourceSmokeTestOperationState,
+    DevelopmentSourceSmokeTestOverallResult,
     ManagedInstanceLifecycleKind,
 )
 from kodi_lab.storage.repositories import (
     DevelopmentSourceAttachmentOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceEnablementOperationRepository,
+    DevelopmentSourceSmokeTestOperationRepository,
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceRepository,
@@ -34,6 +37,7 @@ class ManagedInstanceActivityKind(StrEnum):
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
+    DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -63,6 +67,7 @@ class ManagedInstanceActivityItem(BaseModel):
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_SMOKE_TEST: 10,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ENABLEMENT: 9,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_DEPLOYMENT: 8,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT: 7,
@@ -209,6 +214,48 @@ class ManagedInstanceActivityService:
                     state=enablement.state.value,
                     summary=summary,
                     reconciliation_required=enablement.reconciliation_required,
+                )
+            )
+        for smoke in DevelopmentSourceSmokeTestOperationRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            summary = {
+                DevelopmentSourceSmokeTestOverallResult.PASSED: "Smoke test passed",
+                DevelopmentSourceSmokeTestOverallResult.EXECUTION_FAILED: (
+                    "Smoke execution failed"
+                ),
+                DevelopmentSourceSmokeTestOverallResult.TIMEOUT: (
+                    "Smoke test timed out"
+                ),
+                DevelopmentSourceSmokeTestOverallResult.DEPENDENCY_BLOCKED: (
+                    "Smoke blocked by dependency"
+                ),
+                DevelopmentSourceSmokeTestOverallResult.SOURCE_TREE_CHANGED: (
+                    "Smoke changed deployed source tree"
+                ),
+                DevelopmentSourceSmokeTestOverallResult.UNSUPPORTED_ADDON_TYPE: (
+                    "Smoke test unsupported add-on type"
+                ),
+                DevelopmentSourceSmokeTestOverallResult.RECONCILIATION_REQUIRED: (
+                    "Smoke requires reconciliation"
+                ),
+                None: (
+                    "Smoke test queued"
+                    if smoke.state is DevelopmentSourceSmokeTestOperationState.QUEUED
+                    else "Smoke test precondition failed"
+                ),
+            }[smoke.overall_result]
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_SMOKE_TEST,
+                    operation_uuid=smoke.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=smoke.requested_at,
+                    started_at=smoke.started_at,
+                    completed_at=smoke.completed_at,
+                    state=smoke.state.value,
+                    summary=summary,
+                    reconciliation_required=smoke.reconciliation_required,
                 )
             )
         for lifecycle in ManagedInstanceLifecycleOperationRepository(

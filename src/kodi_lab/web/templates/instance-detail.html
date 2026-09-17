@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
     <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-enable.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/development-source-smoke.js') }}" defer></script>
   </head>
   <body>
     <main>
@@ -66,7 +67,7 @@
       </section>
       <section id="development-sources">
         <h2>Development Sources</h2>
-        <p class="secondary">Attachments are product metadata only; they do not indicate deployment, installation, or current source validity.</p>
+        <p class="secondary">Attachments are product metadata only; they do not indicate deployment, installation, or current source validity. Smoke passed is bounded historical evidence that one fixed plugin-directory invocation completed and preserved deployed-source provenance. It is not a general working/health guarantee.</p>
         {% for source in detail.development_sources %}
         <article data-development-source-id="{{ source.development_source_id }}">
           <h3><a href="/development-sources/{{ source.development_source_id }}">{{ source.logical_name }}</a></h3>
@@ -77,6 +78,7 @@
             <dt>Attached at</dt><dd>{{ source.attached_at }}</dd>
             <dt>Copy deployment</dt><dd>{{ source.deployment_wording }}{% if source.deployment_verified_at and source.deployment_wording == 'Last copy verified at' %} {{ source.deployment_verified_at }}{% endif %}</dd>
             <dt>Enablement</dt><dd>{{ source.enablement_state }}</dd>
+            <dt>Smoke test</dt><dd>{{ source.smoke_test_state }}</dd>
           </dl>
           {% if source.enablement_blocked_dependency_id %}
           <p class="secondary">{% if source.enablement_blocked_reason == 'dependency_missing' %}Required dependency missing{% elif source.enablement_blocked_reason == 'dependency_disabled' %}Required dependency disabled{% elif source.enablement_blocked_reason == 'dependency_version_unverified' %}Dependency version cannot be verified{% else %}Dependency state cannot be verified{% endif %}: <code>{{ source.enablement_blocked_dependency_id }}</code></p>
@@ -88,6 +90,11 @@
           {% if source.enable_eligible %}
           <button class="development-source-enable" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">Enable</button>
           <p class="development-source-enable-status secondary" role="status" hidden></p>
+          {% endif %}
+          {% if source.smoke_test_eligible %}
+          <button class="development-source-smoke" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">Run smoke test</button>
+          <p class="development-source-smoke-status secondary" role="status" hidden></p>
+          <p class="secondary">Network warning: the managed network is not egress-isolated. This plug-in inherits the instance's existing network access and may contact external services.</p>
           {% endif %}
         </article>
         {% else %}<p>No development sources are attached.</p>{% endfor %}

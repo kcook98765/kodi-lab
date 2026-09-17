@@ -8,6 +8,7 @@ from kodi_lab.development import (
     DevelopmentSourceValidationCode,
     DevelopmentSourceValidationError,
     DevelopmentSourceValidator,
+    copied_video_plugin_library,
 )
 
 
@@ -42,6 +43,84 @@ def assert_code(
     with pytest.raises(DevelopmentSourceValidationError) as captured:
         validator.validate(locator)
     assert captured.value.code is code
+
+
+def smoke_descriptor(
+    extension_xml: str, *, addon_id: str = "plugin.video.example"
+) -> str:
+    return (
+        f'<addon id="{addon_id}" name="Example" version="1.0.0">{extension_xml}</addon>'
+    )
+
+
+def test_copied_smoke_accepts_only_one_safe_python_video_plugin(tmp_path: Path) -> None:
+    source = make_source(tmp_path, "smoke")
+    (source / "addon.xml").write_text(
+        smoke_descriptor(
+            '<extension point="xbmc.python.pluginsource" library="resources/main.py">'
+            "<provides>video</provides></extension>"
+            '<extension point="xbmc.addon.metadata"/>'
+        ),
+        encoding="utf-8",
+    )
+    observation = DevelopmentSourceValidator(tmp_path).validate("smoke")
+    assert copied_video_plugin_library(observation) == "resources/main.py"
+
+
+@pytest.mark.parametrize(
+    "extension_xml",
+    [
+        (
+            '<extension point="xbmc.python.pluginsource">'
+            "<provides>video</provides></extension>"
+        ),
+        (
+            '<extension point="xbmc.python.pluginsource" library="../main.py">'
+            "<provides>video</provides></extension>"
+        ),
+        (
+            '<extension point="xbmc.python.pluginsource" library="main.py">'
+            "<provides>audio</provides></extension>"
+        ),
+        (
+            '<extension point="xbmc.python.pluginsource" library="main.py">'
+            "<provides>video audio</provides></extension>"
+        ),
+        (
+            '<extension point="xbmc.python.pluginsource" library="main.py">'
+            "<provides>video</provides></extension>"
+            '<extension point="xbmc.python.pluginsource" library="other.py">'
+            "<provides>video</provides></extension>"
+        ),
+        '<extension point="xbmc.service" library="service.py"/>',
+        '<extension point="xbmc.python.script" library="script.py"/>',
+        '<extension point="kodi.binary.global.main" library="addon.so"/>',
+        '<extension point="xbmc.python.module" library="lib"/>',
+        (
+            '<extension point="xbmc.python.pluginsource" library="main.py">'
+            "<provides>video</provides></extension>"
+            '<extension point="xbmc.service" library="service.py"/>'
+        ),
+    ],
+)
+def test_copied_smoke_rejects_unsupported_or_mixed_descriptors(
+    tmp_path: Path, extension_xml: str
+) -> None:
+    source = make_source(tmp_path, "smoke")
+    (source / "addon.xml").write_text(smoke_descriptor(extension_xml), encoding="utf-8")
+    observation = DevelopmentSourceValidator(tmp_path).validate("smoke")
+    assert copied_video_plugin_library(observation) is None
+
+
+def test_copied_smoke_never_infers_authority_from_addon_id(tmp_path: Path) -> None:
+    source = make_source(tmp_path, "smoke")
+    (source / "addon.xml").write_text(
+        smoke_descriptor('<extension point="xbmc.python.module" library="lib"/>'),
+        encoding="utf-8",
+    )
+    observation = DevelopmentSourceValidator(tmp_path).validate("smoke")
+    assert observation.addon_id.startswith("plugin.video.")
+    assert copied_video_plugin_library(observation) is None
 
 
 def test_valid_nested_source_parses_deterministic_metadata(tmp_path: Path) -> None:

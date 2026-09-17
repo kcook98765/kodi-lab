@@ -40,6 +40,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "development_source_deployment_operations",
         "development_source_deployments",
         "development_source_enablement_operations",
+        "development_source_smoke_test_operations",
         "development_sources",
         "fixture_definitions",
         "global_heavy_operation_lease",
@@ -2488,6 +2489,127 @@ def test_0020_populated_downgrade_refuses_without_data_loss(
         assert (
             connection.scalar(
                 text("SELECT COUNT(*) FROM development_source_deployment_operations")
+            )
+            == 1
+        )
+    engine.dispose()
+
+
+def test_0023_smoke_schema_empty_round_trip_and_mutation_kind(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    table = "development_source_smoke_test_operations"
+    assert table in inspector.get_table_names()
+    columns = {item["name"] for item in inspector.get_columns(table)}
+    assert {
+        "original_managed_instance_id",
+        "managed_instance_id",
+        "state",
+        "phase",
+        "overall_result",
+        "execution_result",
+        "post_execution_provenance",
+        "returned_item_count",
+    } <= columns
+    foreign_keys = {
+        item["constrained_columns"][0]: item
+        for item in inspector.get_foreign_keys(table)
+    }
+    assert foreign_keys["managed_instance_id"]["options"] == {"ondelete": "SET NULL"}
+    assert "original_managed_instance_id" not in foreign_keys
+    with engine.connect() as connection:
+        mutation_sql = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'managed_instance_mutation_leases'"
+            )
+        )
+    assert "development_source_smoke_test" in mutation_sql
+    engine.dispose()
+    command.downgrade(config, "0022_dev_source_enablement")
+    engine = create_database_engine(database_url)
+    assert table not in inspect(engine).get_table_names()
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_0023_populated_smoke_history_refuses_lossy_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    source_id = "aa230000-0000-4000-8000-000000000001"
+    operation_id = "aa230000-0000-4000-8000-000000000002"
+    timestamp = "2026-09-17T18:00:00.000000Z"
+    revision_id = CURATED_OWNERSHIP_ROWS[0][0]
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id, slug, kodi_version, support_tier) VALUES "
+                "('aa230000-0000-4000-8000-000000000004', "
+                "'smoke-migration', '21.3', 'current')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_revisions "
+                "(id, runtime_definition_id, revision_number, source_kind, "
+                "source_reference, content_digest, manifest_reference, "
+                "manifest_digest, built_at, approval_state, "
+                "requires_trusted_build_confirmation) VALUES "
+                "(:revision, 'aa230000-0000-4000-8000-000000000004', 1, "
+                "'test', 'test', :digest, 'test', :digest, :at, "
+                "'not_approved', 0)"
+            ),
+            {"revision": revision_id, "digest": "sha256:" + "a" * 64, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id, logical_name, source_kind, relative_locator, addon_id, "
+                "observed_name, observed_version, extension_types_json, "
+                "registered_at, validated_at) VALUES "
+                "(:id, 'Source', 'local_directory', 'source', "
+                "'plugin.video.example', 'Example', '1.0.0', "
+                "'[\"xbmc.python.pluginsource\"]', :at, :at)"
+            ),
+            {"id": source_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO development_source_smoke_test_operations "
+                "(id, original_managed_instance_id, managed_instance_id, "
+                "development_source_id, source_logical_name, addon_id, "
+                "addon_version, runtime_revision_id, requested_at, state, phase, "
+                "overall_result, execution_result, post_execution_provenance, "
+                "invocation_dispatched, reconciliation_required, completed_at) "
+                "VALUES (:operation, :instance, NULL, :source, 'Source', "
+                "'plugin.video.example', '1.0.0', :revision, :at, 'succeeded', "
+                "'finalize', 'passed', 'directory_result', 'matched', 1, 0, :at)"
+            ),
+            {
+                "operation": operation_id,
+                "instance": "aa230000-0000-4000-8000-000000000003",
+                "source": source_id,
+                "revision": revision_id,
+                "at": timestamp,
+            },
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated DevelopmentSource smoke-test"):
+        command.downgrade(config, "0022_dev_source_enablement")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT COUNT(*) FROM development_source_smoke_test_operations")
             )
             == 1
         )

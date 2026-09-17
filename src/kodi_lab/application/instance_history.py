@@ -38,12 +38,15 @@ from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.domain import (
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceEnablementResult,
+    DevelopmentSourceSmokeTestOperationState,
+    DevelopmentSourceSmokeTestOverallResult,
     InstanceType,
     ManagedInstanceDeleteOperation,
     PythonBytecodePolicy,
 )
 from kodi_lab.storage.repositories import (
     DevelopmentSourceEnablementOperationRepository,
+    DevelopmentSourceSmokeTestOperationRepository,
     FixtureDefinitionRepository,
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceMutationLeaseRepository,
@@ -148,6 +151,9 @@ class ManagedInstanceDetailService:
             enablement_history = DevelopmentSourceEnablementOperationRepository(
                 session
             ).list_for_original_instance(instance_id)
+            smoke_history = DevelopmentSourceSmokeTestOperationRepository(
+                session
+            ).list_for_original_instance(instance_id)
         runtime = self._status.get(instance_id)
         reconciliation = self._reconciliation.status(instance_id)
         sources = self._development_sources.list_attached_sources(instance_id)
@@ -228,6 +234,67 @@ class ManagedInstanceDetailService:
                 enable_eligible = False
                 blocked_dependency_id = latest.blocked_dependency_id
                 blocked_reason = latest.blocked_dependency_reason
+            latest_smoke = next(
+                (
+                    item
+                    for item in smoke_history
+                    if item.development_source_id == source.development_source_id
+                ),
+                None,
+            )
+            smoke_state = "Not run"
+            if latest_smoke is not None:
+                if (
+                    latest_smoke.state
+                    is DevelopmentSourceSmokeTestOperationState.QUEUED
+                ):
+                    smoke_state = "Queued"
+                elif (
+                    latest_smoke.state
+                    is DevelopmentSourceSmokeTestOperationState.RUNNING
+                ):
+                    smoke_state = "Running"
+                else:
+                    smoke_state = {
+                        DevelopmentSourceSmokeTestOverallResult.PASSED: "Smoke passed",
+                        DevelopmentSourceSmokeTestOverallResult.EXECUTION_FAILED: (
+                            "Execution failed"
+                        ),
+                        DevelopmentSourceSmokeTestOverallResult.TIMEOUT: "Timed out",
+                        DevelopmentSourceSmokeTestOverallResult.DEPENDENCY_BLOCKED: (
+                            "Dependency blocked"
+                        ),
+                        DevelopmentSourceSmokeTestOverallResult.SOURCE_TREE_CHANGED: (
+                            "Source tree changed"
+                        ),
+                        (
+                            DevelopmentSourceSmokeTestOverallResult.UNSUPPORTED_ADDON_TYPE
+                        ): ("Unsupported add-on type"),
+                        (
+                            DevelopmentSourceSmokeTestOverallResult.RECONCILIATION_REQUIRED
+                        ): ("Reconciliation required"),
+                        None: "Precondition failed",
+                    }[latest_smoke.overall_result]
+            advisory_descriptor = frozenset(source.extension_types) in {
+                frozenset({"xbmc.python.pluginsource"}),
+                frozenset({"xbmc.python.pluginsource", "xbmc.addon.metadata"}),
+            }
+            addon = addon_by_id.get(source.addon_id)
+            smoke_eligible = (
+                advisory_descriptor
+                and source.deployment_confidence
+                is DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+                and profile is not None
+                and profile.python_bytecode_policy is PythonBytecodePolicy.SUPPRESS
+                and runtime.container_state is ContainerRuntimeState.RUNNING
+                and addons.query_status.value == "available"
+                and addon is not None
+                and addon.enabled
+                and addon.kodi_type == "xbmc.python.pluginsource"
+                and addon.provenance.classification is _COPIED_SOURCE_PROVENANCE
+                and not reconciliation.blocking
+                and not active_mutation
+            )
             presented_sources.append(
                 source.model_copy(
                     update={
@@ -240,6 +307,8 @@ class ManagedInstanceDetailService:
                         ),
                         "enablement_blocked_dependency_id": blocked_dependency_id,
                         "enablement_blocked_reason": blocked_reason,
+                        "smoke_test_state": smoke_state,
+                        "smoke_test_eligible": smoke_eligible,
                     }
                 )
             )
