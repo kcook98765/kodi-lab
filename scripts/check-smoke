@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd -- "$repo_root"
+
+run_check() {
+    local name="$1"
+    shift
+    printf '\n==> %s\n' "$name"
+    "$@"
+}
+
+# Keep this list explicit and deliberately representative. The broader fast and
+# full gates remain responsible for integration, lifecycle, and migration depth.
+smoke_tests=(
+    tests/domain
+    tests/application/test_activity.py
+    tests/application/test_development_source_service.py
+    tests/application/test_runtime_execution_profile.py
+    tests/application/test_runtime_eligibility.py
+    tests/application/test_runtime_matrix.py
+    tests/development
+    tests/runtime/test_curated_catalog.py
+    tests/runtime/test_manifest.py
+    tests/snapshot/test_deletion.py
+    tests/snapshot/test_restore_validation.py
+    tests/storage/test_development_source_attachment_repository.py
+    tests/storage/test_development_source_repository.py
+    tests/storage/test_repositories.py
+    tests/storage/test_runtime_catalog_repositories.py
+    tests/auth/test_web_auth.py
+    tests/web/test_runtime_matrix.py
+    tests/web/test_security_boundary.py
+)
+
+run_check "Ruff format" uv run --locked ruff format --check .
+run_check "Ruff lint" uv run --locked ruff check .
+run_check "mypy" uv run --locked mypy src tests migrations
+run_check "pytest (smoke core)" uv run --locked pytest "${smoke_tests[@]}"
+
+printf '\nSmoke checks passed. Run ./scripts/check-fast for the sub-slice gate.\n'

@@ -24,13 +24,16 @@ The supported development host baseline is Python 3.12 on Ubuntu 24.04.
 
 ```console
 uv sync --dev
+./scripts/check-smoke
 ./scripts/check-fast
 ./scripts/check
 ```
 
-`./scripts/check-fast` is the iterative development convenience lane and skips
-only tests marked `slow`. Run `./scripts/check` for the complete authoritative
-milestone and pre-commit gate; the fast lane is not equivalent to it.
+`./scripts/check-smoke` is the inner-loop lane: static checks plus a deliberately
+selected representative pytest core. `./scripts/check-fast` is the broader
+sub-slice gate and skips only tests marked `slow`. `./scripts/check` remains the
+complete authoritative milestone, pre-commit, and final gate. Passing smoke or
+fast does not substitute for the full gate when a milestone requires it.
 
 For optional local path overrides, copy `.env.example` to `.env` and edit the
 two existing bootstrap paths. A `.env` file is ignored by Git and is not

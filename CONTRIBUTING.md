@@ -14,11 +14,23 @@ uv sync --dev
 The check is provider-neutral, uses the locked uv environment, stops at the
 first failure, and writes build artifacts only to a temporary directory.
 
-For normal iteration, `./scripts/check-fast` runs pytest without the narrowly
-marked expensive tests, plus formatting, lint, strict typing, and the cheap
-Alembic-head check. It is a convenience lane only. `./scripts/check` remains the
-complete authoritative milestone and pre-commit gate and does not skip slow
-tests.
+The test workflow has three tiers:
+
+- `./scripts/check-smoke` is the inner development loop. It runs formatting,
+  lint, strict typing, and an explicit representative pytest core without the
+  migration lifecycle matrix, Docker/container suites, or long integration
+  scenarios.
+- `./scripts/check-fast` is the broader sub-slice gate. It runs pytest excluding
+  only tests marked `slow`, the same static checks, and the cheap Alembic-head
+  check.
+- `./scripts/check` is the complete authoritative milestone, pre-commit, and
+  final gate. It runs every test plus package and migration validation.
+
+During a feature task, run directly affected focused tests while editing,
+`./scripts/check-smoke` after meaningful changes, `./scripts/check-fast` before
+live validation or after a coherent implementation slice, and the full
+`./scripts/check` once before the final commit and report. Passing smoke or fast
+does not substitute for the full gate when a milestone requires it.
 
 Keep changes within the currently authorized implementation phase. Record new
 architectural choices in `docs/DECISIONS.md`; do not silently amend the v1
