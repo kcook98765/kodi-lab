@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd -- "$repo_root"
+
+run_check() {
+    local name="$1"
+    shift
+    printf '\n==> %s\n' "$name"
+    "$@"
+}
+
+run_check "pytest (excluding slow)" uv run --locked pytest -m "not slow"
+run_check "Ruff format" uv run --locked ruff format --check .
+run_check "Ruff lint" uv run --locked ruff check .
+run_check "mypy" uv run --locked mypy src tests migrations
+run_check "Alembic heads" uv run --locked alembic heads
+
+printf '\nFast development checks passed. Run ./scripts/check for the full gate.\n'

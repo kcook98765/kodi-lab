@@ -56,6 +56,9 @@ artifacts = [
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
 testpaths = ["tests"]
+markers = [
+  "slow: materially expensive lifecycle or end-to-end validation retained by the full gate",
+]
 
 [tool.ruff]
 line-length = 88

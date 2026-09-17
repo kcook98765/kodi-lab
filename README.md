@@ -24,8 +24,13 @@ The supported development host baseline is Python 3.12 on Ubuntu 24.04.
 
 ```console
 uv sync --dev
+./scripts/check-fast
 ./scripts/check
 ```
+
+`./scripts/check-fast` is the iterative development convenience lane and skips
+only tests marked `slow`. Run `./scripts/check` for the complete authoritative
+milestone and pre-commit gate; the fast lane is not equivalent to it.
 
 For optional local path overrides, copy `.env.example` to `.env` and edit the
 two existing bootstrap paths. A `.env` file is ignored by Git and is not

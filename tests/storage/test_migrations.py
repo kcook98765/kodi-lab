@@ -8,6 +8,8 @@ from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.storage.engine import create_database_engine
 
+pytestmark = pytest.mark.slow
+
 
 def migration_setup(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
