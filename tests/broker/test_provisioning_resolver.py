@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -27,6 +28,7 @@ from kodi_lab.domain import (
     InstanceType,
     ManagedInstance,
     ProcessObservationKind,
+    PythonBytecodePolicy,
     ReadinessProbeKind,
     RuntimeContainerArtifact,
     RuntimeDefinition,
@@ -117,6 +119,7 @@ def resolver_with_state(
                     runtime_kind=RuntimeKind.KODI,
                     runtime_uid=1234,
                     runtime_gid=2345,
+                    python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
                     expected_application_name="Kodi",
                     expected_kodi_version="21.3",
                     expected_version_tag="stable",
@@ -149,6 +152,7 @@ def test_resolver_uses_exact_pinned_artifact_and_fixed_policy(tmp_path: Path) ->
     assert spec.runtime_revision_id == str(REVISION_ID)
     assert spec.image_id == IMAGE_ID
     assert spec.container_name == f"kodi-lab-managed-{INSTANCE_ID.hex}"
+    assert spec.python_bytecode_policy is PythonBytecodePolicy.INTERPRETER_DEFAULT
     assert spec.network_name == MANAGED_NETWORK_NAME
     assert "PRIVATE" not in repr(spec)
 
@@ -188,11 +192,12 @@ def test_missing_or_noncanonical_instance_cannot_resolve(tmp_path: Path) -> None
 def test_trusted_spec_rejects_noncanonical_policy_substitutions(
     overrides: dict[str, str],
 ) -> None:
-    values = {
+    values: dict[str, Any] = {
         "managed_instance_id": str(INSTANCE_ID),
         "runtime_revision_id": str(REVISION_ID),
         "image_id": IMAGE_ID,
         "container_name": f"kodi-lab-managed-{INSTANCE_ID.hex}",
+        "python_bytecode_policy": PythonBytecodePolicy.INTERPRETER_DEFAULT,
         "network_name": MANAGED_NETWORK_NAME,
     }
     values.update(overrides)
@@ -253,5 +258,9 @@ def test_ownership_resolver_has_no_caller_ownership_parameters(tmp_path: Path) -
 
 def test_ownership_resolver_fails_closed_without_profile(tmp_path: Path) -> None:
     resolver_with_state(tmp_path, include_profile=False)
+    with pytest.raises(RuntimeExecutionProfileUnavailableError):
+        resolver_with_state(tmp_path / "provisioning", include_profile=False).resolve(
+            str(INSTANCE_ID)
+        )
     with pytest.raises(RuntimeExecutionProfileUnavailableError):
         ownership_resolver_for(tmp_path).resolve(str(INSTANCE_ID))

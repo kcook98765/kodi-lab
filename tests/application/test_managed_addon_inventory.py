@@ -113,6 +113,7 @@ def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
                 runtime_kind="kodi",
                 runtime_uid=1000,
                 runtime_gid=1000,
+                python_bytecode_policy="interpreter_default",
                 expected_application_name="Kodi",
                 expected_kodi_version="21.3",
                 expected_version_tag="stable",

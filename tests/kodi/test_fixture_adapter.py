@@ -9,6 +9,7 @@ from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessS
 from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
 from kodi_lab.domain import (
     ProcessObservationKind,
+    PythonBytecodePolicy,
     ReadinessProbeKind,
     RuntimeExecutionProfile,
     RuntimeKind,
@@ -30,6 +31,7 @@ def profile(kodi_version: str = "21.3") -> RuntimeExecutionProfile:
         runtime_kind=RuntimeKind.KODI,
         runtime_uid=1000,
         runtime_gid=1000,
+        python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
         expected_application_name="Kodi",
         expected_kodi_version=kodi_version,
         expected_version_tag="stable",

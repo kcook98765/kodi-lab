@@ -55,6 +55,18 @@ Execution profiles are not folded into the separately recorded build-manifest
 digest; their complete typed values, now including ownership, are the catalog
 identity compared and persisted by the profile repository.
 
+The profile also owns one required closed Python bytecode policy. Historical
+profiles use Interpreter default; suppression profiles require Kodi Lab to add
+exact `PYTHONDONTWRITEBYTECODE=1` to the managed container before Kodi starts.
+This reserved environment key is not a generic environment surface. Provisioning
+loads it only from the pinned profile, composes it after image-owned values, and
+rejects duplicate/conflicting keys. Profile policy has final precedence for the
+reserved key: suppression yields exactly one value of `1`, while Interpreter
+default requires absence. Fresh provisioning and runtime observation both prove
+the profile-derived state, so an equivalent caller-created environment is not
+accepted. Changing this execution behavior requires a new profile and monotonic
+RuntimeRevision even when the immutable image is reused.
+
 ## Managed-instance application service
 
 `kodi_lab.application` is the transaction and policy boundary above the explicit
@@ -131,9 +143,10 @@ RuntimeContainerArtifact mapping. The resolved Docker specification never comes
 from the client. The adapter may then create only a disposable, stopped container
 with deterministic name, fixed ownership/revision labels, exact image ID, and the
 validated `kodi-lab-managed-v1` prerequisite network. It publishes no ports and
-adds no mounts, environment, command, entrypoint, privilege, devices,
+adds no mounts, caller environment, command, entrypoint, privilege, devices,
 capabilities, host namespaces, or resource limits. Creation, start, and stop
-remain separate explicit operations.
+remain separate explicit operations. The sole trusted environment translation
+is the pinned profile's closed Python bytecode policy.
 
 Provisioning retries adopt nothing by name. Existing owned state is idempotent
 only after full invariant validation. Post-create failures remove only the exact
@@ -661,3 +674,15 @@ identity mismatch yields unknown provenance, with optional separate stale
 historical wording. Attachment, Snapshot, fixture, repository guess, database,
 and filesystem presence do not establish recognition or provenance. Copied,
 recognized, enabled, and working remain separate states.
+
+The Phase 8 runtime compatibility correction adds suppression revisions for all
+four curated releases while retaining every Interpreter-default revision. They
+reuse their predecessor images but carry distinct immutable execution profiles,
+revision identities, approval, and validation evidence. Once eligible, ordinary
+new-pin selection prefers the higher suppression revision; existing instances
+and Snapshots retain their exact old pins. Normal embedded-Python imports on a
+suppression revision do not create `.pyc` or `__pycache__` beneath copied source,
+allowing a fresh unchanged Step 4 sync to retain exact provenance. Step 4 itself
+has no runtime-artifact exemption or destination-adoption rule. Bind-mounted
+DevelopmentSource workflows may benefit from the same policy, but that
+architecture remains unvalidated.

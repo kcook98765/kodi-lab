@@ -16,6 +16,7 @@ from kodi_lab.application import (
 )
 from kodi_lab.domain import (
     ProcessObservationKind,
+    PythonBytecodePolicy,
     ReadinessProbeKind,
     RuntimeDefinition,
     RuntimeKind,
@@ -65,6 +66,7 @@ def values() -> dict[str, Any]:
         "runtime_kind": RuntimeKind.KODI,
         "runtime_uid": 1000,
         "runtime_gid": 1000,
+        "python_bytecode_policy": PythonBytecodePolicy.INTERPRETER_DEFAULT,
         "expected_application_name": "Kodi",
         "expected_kodi_version": "21.3",
         "expected_version_tag": "stable",
@@ -90,8 +92,10 @@ def test_registers_exact_immutable_execution_profile(tmp_path: Path) -> None:
         service.register_execution_profile(**changed)
 
 
-@pytest.mark.parametrize("field", ["runtime_uid", "runtime_gid"])
-def test_profile_creation_requires_runtime_ownership(
+@pytest.mark.parametrize(
+    "field", ["runtime_uid", "runtime_gid", "python_bytecode_policy"]
+)
+def test_profile_creation_requires_runtime_semantics(
     tmp_path: Path, field: str
 ) -> None:
     service, _factory = service_with_revision(tmp_path)
@@ -109,6 +113,7 @@ def test_profile_creation_requires_runtime_ownership(
         ("runtime_uid", 2**31),
         ("runtime_gid", -1),
         ("runtime_gid", 2**31),
+        ("python_bytecode_policy", "suppress"),
         ("expected_kodi_version", "21.2"),
         ("expected_version_tag", "beta"),
         ("jsonrpc_port", 0),
@@ -175,6 +180,24 @@ def test_profile_accepts_root_runtime_ownership(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    "policy",
+    [PythonBytecodePolicy.INTERPRETER_DEFAULT, PythonBytecodePolicy.SUPPRESS],
+)
+def test_profile_persists_closed_python_bytecode_policy(
+    tmp_path: Path, policy: PythonBytecodePolicy
+) -> None:
+    service, factory = service_with_revision(tmp_path)
+    candidate = values()
+    candidate["python_bytecode_policy"] = policy
+    profile = service.register_execution_profile(**candidate)
+    with factory() as session:
+        stored = RuntimeExecutionProfileRepository(session).get(REVISION_ID)
+    assert stored == profile
+    assert stored is not None
+    assert stored.python_bytecode_policy is policy
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("runtime_uid", None),
@@ -195,4 +218,18 @@ def test_database_enforces_runtime_ownership_bounds(
             update(RuntimeExecutionProfileRow)
             .where(RuntimeExecutionProfileRow.runtime_revision_id == str(REVISION_ID))
             .values(**{field: value})
+        )
+
+
+@pytest.mark.parametrize("value", [None, "unknown", "SUPPRESS", "1"])
+def test_database_enforces_closed_python_bytecode_policy(
+    tmp_path: Path, value: object
+) -> None:
+    service, factory = service_with_revision(tmp_path)
+    service.register_execution_profile(**values())
+    with factory.begin() as session, pytest.raises(IntegrityError):
+        session.execute(
+            update(RuntimeExecutionProfileRow)
+            .where(RuntimeExecutionProfileRow.runtime_revision_id == str(REVISION_ID))
+            .values(python_bytecode_policy=value)
         )

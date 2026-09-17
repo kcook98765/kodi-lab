@@ -81,6 +81,7 @@ from kodi_lab.development.deployment import (
     compare_captures,
     verify_destination,
 )
+from kodi_lab.domain import PythonBytecodePolicy
 from kodi_lab.fixtures.package import (
     FIXTURE_CONTAINER_DESTINATION,
     FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS,
@@ -110,6 +111,8 @@ NETWORK_RESOURCE_LABEL_KEY = "io.kodi-lab.resource"
 NETWORK_RESOURCE_LABEL_VALUE = "network"
 NETWORK_ID_LABEL_KEY = "io.kodi-lab.network-id"
 NETWORK_ID_LABEL_VALUE = "managed-v1"
+PYTHON_BYTECODE_ENV_KEY = "PYTHONDONTWRITEBYTECODE"
+PYTHON_BYTECODE_SUPPRESS_ENV = f"{PYTHON_BYTECODE_ENV_KEY}=1"
 
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -415,6 +418,7 @@ class _ProvisioningDockerClient(_DeprovisionDockerClient, Protocol):
         labels: Mapping[str, str],
         host_config: object,
         networking_config: object,
+        environment: list[str] | None = None,
     ) -> object: ...
 
 
@@ -460,6 +464,74 @@ def _require_image_id(value: object) -> str:
     if not isinstance(value, str) or _IMAGE_ID_PATTERN.fullmatch(value) is None:
         raise DockerInventoryReadError("Docker returned an invalid image identity")
     return value
+
+
+def _parse_environment(value: object) -> tuple[tuple[str, str], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError("environment must be a list")
+    parsed: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str) or "\x00" in item:
+            raise ValueError("environment entry is invalid")
+        key, separator, _entry_value = item.partition("=")
+        if not key or not separator or key in seen:
+            raise ValueError("environment keys must be unique assignments")
+        seen.add(key)
+        parsed.append((key, item))
+    return tuple(parsed)
+
+
+def _expected_provisioned_environment(
+    image_environment: object, policy: PythonBytecodePolicy
+) -> object:
+    try:
+        parsed = _parse_environment(image_environment)
+    except ValueError as error:
+        raise ProvisioningConflictError(
+            "Runtime image environment configuration is invalid"
+        ) from error
+    if policy is PythonBytecodePolicy.INTERPRETER_DEFAULT:
+        if any(key == PYTHON_BYTECODE_ENV_KEY for key, _item in parsed):
+            raise ProvisioningConflictError(
+                "Runtime image conflicts with Interpreter-default bytecode policy"
+            )
+        return image_environment
+    if policy is not PythonBytecodePolicy.SUPPRESS:
+        raise ProvisioningConflictError("Runtime bytecode policy is invalid")
+    return [
+        *(item for key, item in parsed if key != PYTHON_BYTECODE_ENV_KEY),
+        PYTHON_BYTECODE_SUPPRESS_ENV,
+    ]
+
+
+def _validate_profile_bytecode_environment(
+    environment: object, policy: PythonBytecodePolicy
+) -> None:
+    try:
+        parsed = _parse_environment(environment)
+    except ValueError as error:
+        raise InvalidManagedContainerMetadataError(
+            "Managed runtime environment is invalid"
+        ) from error
+    entries = {key: item for key, item in parsed}
+    if policy is PythonBytecodePolicy.SUPPRESS:
+        if entries.get(PYTHON_BYTECODE_ENV_KEY) != PYTHON_BYTECODE_SUPPRESS_ENV:
+            raise InvalidManagedContainerMetadataError(
+                "Managed runtime bytecode suppression policy has drifted"
+            )
+        return
+    if policy is PythonBytecodePolicy.INTERPRETER_DEFAULT:
+        if PYTHON_BYTECODE_ENV_KEY in entries:
+            raise InvalidManagedContainerMetadataError(
+                "Managed runtime Interpreter-default bytecode policy has drifted"
+            )
+        return
+    raise InvalidManagedContainerMetadataError(
+        "Managed runtime bytecode policy is invalid"
+    )
 
 
 def normalize_runtime_state(value: object) -> ContainerRuntimeState:
@@ -566,6 +638,9 @@ class DockerManagedContainerAdapter:
             self._validate_managed_network(client)
             image = self._inspect_required_image(client, spec.image_id)
             image_config = _require_mapping(image.get("Config"))
+            expected_environment = _expected_provisioned_environment(
+                image_config.get("Env"), spec.python_bytecode_policy
+            )
             if image_config.get("Volumes") not in (None, {}):
                 raise ProvisioningConflictError(
                     "Runtime image declares volumes outside disposable policy"
@@ -637,13 +712,24 @@ class DockerManagedContainerAdapter:
             endpoint = client.create_endpoint_config()
             networking = client.create_networking_config({spec.network_name: endpoint})
             try:
-                created_value = client.create_container(
-                    image=spec.image_id,
-                    name=spec.container_name,
-                    labels=labels,
-                    host_config=host_config,
-                    networking_config=networking,
-                )
+                if spec.python_bytecode_policy is PythonBytecodePolicy.SUPPRESS:
+                    assert isinstance(expected_environment, list)
+                    created_value = client.create_container(
+                        image=spec.image_id,
+                        name=spec.container_name,
+                        labels=labels,
+                        host_config=host_config,
+                        networking_config=networking,
+                        environment=expected_environment,
+                    )
+                else:
+                    created_value = client.create_container(
+                        image=spec.image_id,
+                        name=spec.container_name,
+                        labels=labels,
+                        host_config=host_config,
+                        networking_config=networking,
+                    )
                 created = _require_mapping(created_value)
                 created_id = _require_container_id(created.get("Id"))
             except (DockerException, OSError) as error:
@@ -1076,7 +1162,14 @@ class DockerManagedContainerAdapter:
             raise InvalidManagedContainerMetadataError(
                 "Managed container ownership metadata is invalid"
             )
-        for field in ("Env", "Cmd", "Entrypoint", "Healthcheck"):
+        expected_environment = _expected_provisioned_environment(
+            image_config.get("Env"), spec.python_bytecode_policy
+        )
+        if config.get("Env") != expected_environment:
+            raise ProvisioningConflictError(
+                "Managed container profile-derived environment has drifted"
+            )
+        for field in ("Cmd", "Entrypoint", "Healthcheck"):
             if config.get(field) != image_config.get(field):
                 raise ProvisioningConflictError(
                     "Managed container image-default configuration has drifted"
@@ -1833,6 +1926,9 @@ class DockerManagedContainerAdapter:
                 "Managed container identity differs from the precondition"
             )
         config = _require_mapping(inspected.get("Config"))
+        _validate_profile_bytecode_environment(
+            config.get("Env"), spec.profile.python_bytecode_policy
+        )
         labels = _require_mapping(config.get("Labels"))
         if (
             labels.get(MANAGED_LABEL_KEY) != MANAGED_LABEL_VALUE

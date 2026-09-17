@@ -2088,7 +2088,7 @@ def test_0019_explicitly_backfills_all_curated_execution_profiles(
             )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0020_dev_source_copy_sync")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     ownership_columns = {
@@ -2125,7 +2125,6 @@ def test_0019_explicitly_backfills_all_curated_execution_profiles(
                 {"value": value, "id": CURATED_OWNERSHIP_ROWS[0][0]},
             )
     engine.dispose()
-    command.check(config)
 
     with pytest.raises(RuntimeError, match="populated runtime execution ownership"):
         command.downgrade(config, "0018_development_source_attach")
@@ -2176,6 +2175,88 @@ def test_0019_empty_downgrade_and_reupgrade(
     }
     assert "runtime_uid" not in columns
     assert "runtime_gid" not in columns
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_0021_backfills_closed_python_bytecode_policy_without_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0018_development_source_attach")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        for row in CURATED_OWNERSHIP_ROWS:
+            _insert_0018_execution_profile(
+                connection,
+                revision_id=row[0],
+                revision_number=row[1],
+                version=row[2],
+                channel=row[3],
+                prerelease=row[4],
+                image_id=row[5],
+            )
+    engine.dispose()
+    command.upgrade(config, "0020_dev_source_copy_sync")
+
+    engine = create_database_engine(database_url)
+    assert "python_bytecode_policy" not in {
+        item["name"]
+        for item in inspect(engine).get_columns("runtime_execution_profiles")
+    }
+    engine.dispose()
+    command.upgrade(config, "head")
+
+    engine = create_database_engine(database_url)
+    column = next(
+        item
+        for item in inspect(engine).get_columns("runtime_execution_profiles")
+        if item["name"] == "python_bytecode_policy"
+    )
+    assert column["nullable"] is False
+    assert column["default"] is None
+    with engine.connect() as connection:
+        policies = [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "SELECT runtime_revision_id, python_bytecode_policy "
+                    "FROM runtime_execution_profiles ORDER BY runtime_revision_id"
+                )
+            )
+        ]
+    assert policies == sorted(
+        (row[0], "interpreter_default") for row in CURATED_OWNERSHIP_ROWS
+    )
+    for value in (None, "unknown", "SUPPRESS", "1"):
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE runtime_execution_profiles "
+                    "SET python_bytecode_policy = :value "
+                    "WHERE runtime_revision_id = :id"
+                ),
+                {"value": value, "id": CURATED_OWNERSHIP_ROWS[0][0]},
+            )
+    engine.dispose()
+    command.check(config)
+
+    with pytest.raises(RuntimeError, match="populated runtime Python bytecode"):
+        command.downgrade(config, "0020_dev_source_copy_sync")
+
+
+def test_0021_empty_downgrade_and_reupgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    command.downgrade(config, "0020_dev_source_copy_sync")
+    engine = create_database_engine(database_url)
+    assert "python_bytecode_policy" not in {
+        item["name"]
+        for item in inspect(engine).get_columns("runtime_execution_profiles")
+    }
     engine.dispose()
     command.upgrade(config, "head")
     command.check(config)

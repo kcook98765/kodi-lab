@@ -260,12 +260,49 @@ attachment, Snapshot, fixture, repository guess, and filesystem location do not
 substitute for proof. Fresh destination readback remains deferred.
 
 Normal Kodi 21.3 startup/recognition did not mutate the synthetic add-on tree,
-so Step 4 replacement semantics require no amendment in this slice. Executing a
-Python add-on may later create bytecode or other files beneath its directory;
-that execution-time mutation question remains deferred and unproven.
+so Step 4 replacement semantics required no amendment in that slice. Later
+execution proof showed that Interpreter-default embedded Python creates `.pyc`
+and `__pycache__` entries beneath an imported local package. The correction
+below prevents that normal bytecode drift without amending Step 4.
+
+## Runtime compatibility correction: Python bytecode policy
+
+Every RuntimeExecutionProfile now records one required closed semantic policy:
+`interpreter_default` or `suppress`. Interpreter default imposes no Kodi Lab
+bytecode-write suppression. Suppress causes trusted provisioning to configure
+exact `PYTHONDONTWRITEBYTECODE=1` before Kodi and embedded Python start. There is
+no environment map, request field, Python option, bytecode flag, or caller
+override.
+
+The bytecode policy is immutable revision behavior. Retained Kodi 19.5 revision
+1, Kodi 20.5 revision 1, Kodi 21.3 revisions 1 and 2, and Kodi 22.0 Beta 2
+revision 1 remain Interpreter default. New suppression profiles belong to Kodi
+19.5 revision 2, Kodi 20.5 revision 2, Kodi 21.3 revision 3, and Kodi 22.0 Beta 2
+revision 2. Each new revision may reuse its predecessor's exact image while
+remaining a distinct revision for selection, Snapshot compatibility, approval,
+trust, and validation evidence. Existing instance and Snapshot pins never move
+implicitly; validated suppression revisions become preferred for new pins only
+through the existing highest-eligible-revision rule.
+
+Image-owned fixed environment values are preserved in deterministic order. The
+profile exclusively owns the reserved `PYTHONDONTWRITEBYTECODE` key and has
+final precedence: Suppress produces exactly one value of `1`, while Interpreter
+default requires absence. Duplicate environment keys or missing, wrong, or
+injected policy state fail trusted container drift validation. Broker and Web
+callers still provide only existing semantic identities.
+
+This runtime change does not amend Step 4. `.pyc` files and `__pycache__`
+directories receive no exclusion or exemption; exact complete destination
+readback, no-delete synchronization, and replacement-conflict behavior are
+unchanged. Suppression prevents normal CPython imports from generating those
+new entries beneath a DevelopmentSource deployment. Pre-existing packaged or
+system bytecode elsewhere is unaffected, and an add-on that intentionally writes
+inside its installation directory remains incompatible with strict provenance.
+Bind-mounted sources may benefit from suppression, but bind-mount architecture
+has not yet been validated.
 
 ## Deferred Phase 8 work
 
 Bind-mounted sources, ZIP installation, repository URL testing, watchers,
-fresh byte-level provenance, execution-time tree mutation, enable/disable,
+fresh byte-level provenance, non-bytecode execution-time tree mutation, enable/disable,
 dependency installation, and broader provenance remain separately gated.

@@ -35,6 +35,13 @@ class RuntimeKind(StrEnum):
     KODI = "kodi"
 
 
+class PythonBytecodePolicy(StrEnum):
+    """Closed managed-runtime policy for embedded Python bytecode writes."""
+
+    INTERPRETER_DEFAULT = "interpreter_default"
+    SUPPRESS = "suppress"
+
+
 class ProcessObservationKind(StrEnum):
     """Bounded process observation mechanisms."""
 
@@ -231,6 +238,7 @@ class RuntimeExecutionProfile:
     runtime_kind: RuntimeKind
     runtime_uid: int
     runtime_gid: int
+    python_bytecode_policy: PythonBytecodePolicy
     expected_application_name: str
     expected_kodi_version: str
     expected_version_tag: str
@@ -250,6 +258,8 @@ class RuntimeExecutionProfile:
             value = getattr(self, field_name)
             if type(value) is not int or not 0 <= value <= 2**31 - 1:
                 raise ValueError(f"{field_name} must be a POSIX ID from 0 to 2^31 - 1")
+        if not isinstance(self.python_bytecode_policy, PythonBytecodePolicy):
+            raise ValueError("python_bytecode_policy is not supported")
         if self.expected_application_name != "Kodi":
             raise ValueError("expected_application_name must be Kodi")
         if (

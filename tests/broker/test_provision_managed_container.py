@@ -39,6 +39,7 @@ from kodi_lab.broker.provisioning import (
     RUNTIME_REVISION_LABEL_KEY,
     ManagedContainerProvisioningSpec,
 )
+from kodi_lab.domain import PythonBytecodePolicy
 
 INSTANCE_ID = str(UUID(int=1))
 REVISION_ID = str(UUID(int=2))
@@ -47,12 +48,15 @@ IMAGE_ID = "sha256:" + ("a" * 64)
 NAME = "kodi-lab-managed-" + UUID(int=1).hex
 
 
-def spec() -> ManagedContainerProvisioningSpec:
+def spec(
+    policy: PythonBytecodePolicy = PythonBytecodePolicy.INTERPRETER_DEFAULT,
+) -> ManagedContainerProvisioningSpec:
     return ManagedContainerProvisioningSpec(
         managed_instance_id=INSTANCE_ID,
         runtime_revision_id=REVISION_ID,
         image_id=IMAGE_ID,
         container_name=NAME,
+        python_bytecode_policy=policy,
     )
 
 
@@ -208,9 +212,10 @@ class FakeProvisioningDockerClient:
 
 def provision(
     client: FakeProvisioningDockerClient,
+    policy: PythonBytecodePolicy = PythonBytecodePolicy.INTERPRETER_DEFAULT,
 ) -> ProvisionedManagedContainerRecord:
     return DockerManagedContainerAdapter(lambda: client).provision_managed_container(
-        spec()
+        spec(policy)
     )
 
 
@@ -251,6 +256,92 @@ def test_create_configuration_is_fully_broker_derived_and_minimal() -> None:
         "mem_limit",
     }
     assert forbidden.isdisjoint(client.create_calls[0])
+
+
+def test_suppression_environment_is_exact_and_profile_derived() -> None:
+    created = container_data()
+    config = created["Config"]
+    assert isinstance(config, dict)
+    config["Env"] = ["IMAGE_DEFAULT=1", "PYTHONDONTWRITEBYTECODE=1"]
+    client = FakeProvisioningDockerClient(inspections=[created])
+    result = provision(client, PythonBytecodePolicy.SUPPRESS)
+    assert result.created is True
+    assert client.create_calls[0]["environment"] == [
+        "IMAGE_DEFAULT=1",
+        "PYTHONDONTWRITEBYTECODE=1",
+    ]
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        ["IMAGE_DEFAULT=1"],
+        ["IMAGE_DEFAULT=1", "PYTHONDONTWRITEBYTECODE=0"],
+        ["IMAGE_DEFAULT=1", "PYTHONDONTWRITEBYTECODE=true"],
+        ["IMAGE_DEFAULT=1", "PYTHONDONTWRITEBYTECODE=1", "UNTRUSTED=1"],
+    ],
+)
+def test_suppression_environment_drift_fails(
+    environment: list[str],
+) -> None:
+    drifted = container_data()
+    config = drifted["Config"]
+    assert isinstance(config, dict)
+    config["Env"] = environment
+    client = FakeProvisioningDockerClient(
+        owned=[{"Id": CONTAINER_ID}], inspections=[drifted]
+    )
+    with pytest.raises(ProvisioningConflictError):
+        provision(client, PythonBytecodePolicy.SUPPRESS)
+
+
+def test_interpreter_default_rejects_injected_suppression() -> None:
+    drifted = container_data()
+    config = drifted["Config"]
+    assert isinstance(config, dict)
+    config["Env"] = ["IMAGE_DEFAULT=1", "PYTHONDONTWRITEBYTECODE=1"]
+    client = FakeProvisioningDockerClient(
+        owned=[{"Id": CONTAINER_ID}], inspections=[drifted]
+    )
+    with pytest.raises(ProvisioningConflictError):
+        provision(client)
+
+
+def test_suppression_overrides_one_image_default_without_duplicates() -> None:
+    image = image_data()
+    image_config = image["Config"]
+    assert isinstance(image_config, dict)
+    image_config["Env"] = ["FIRST=1", "PYTHONDONTWRITEBYTECODE=0", "LAST=2"]
+    created = container_data()
+    created_config = created["Config"]
+    assert isinstance(created_config, dict)
+    created_config["Env"] = ["FIRST=1", "LAST=2", "PYTHONDONTWRITEBYTECODE=1"]
+    client = FakeProvisioningDockerClient(image=image, inspections=[created])
+    provision(client, PythonBytecodePolicy.SUPPRESS)
+    assert client.create_calls[0]["environment"] == [
+        "FIRST=1",
+        "LAST=2",
+        "PYTHONDONTWRITEBYTECODE=1",
+    ]
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        ["DUPLICATE=1", "DUPLICATE=2"],
+        ["PYTHONDONTWRITEBYTECODE=0", "PYTHONDONTWRITEBYTECODE=1"],
+        ["MALFORMED"],
+    ],
+)
+def test_duplicate_or_malformed_image_environment_fails_closed(
+    environment: list[str],
+) -> None:
+    image = image_data()
+    image_config = image["Config"]
+    assert isinstance(image_config, dict)
+    image_config["Env"] = environment
+    with pytest.raises(ProvisioningConflictError):
+        provision(FakeProvisioningDockerClient(image=image))
 
 
 def test_fully_matching_existing_container_is_idempotent_even_running() -> None:

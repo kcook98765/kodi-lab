@@ -14,6 +14,7 @@ from kodi_lab.application import (
 from kodi_lab.domain import (
     KODI_RUNTIME_VALIDATION_CONTRACT,
     ProcessObservationKind,
+    PythonBytecodePolicy,
     ReadinessProbeKind,
     RuntimeKind,
     RuntimeSupportTier,
@@ -191,6 +192,7 @@ def test_prerelease_execution_profile_records_exact_beta_ordinal(
         runtime_kind=RuntimeKind.KODI,
         runtime_uid=1000,
         runtime_gid=1000,
+        python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
         expected_application_name="Kodi",
         expected_kodi_version="22.0",
         expected_version_tag="beta",

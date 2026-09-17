@@ -1738,3 +1738,59 @@ details that it did not specify.
   activity history, so no migration is added. Unprivileged application code
   uses the existing broker-validated managed endpoint; no inventory broker or
   MCP authority exists. The browser supplies only ManagedInstance UUID.
+
+## D-0136: Python bytecode policy is closed runtime execution semantics
+
+- Status: approved Phase 8 runtime compatibility correction
+- Decision: every immutable `RuntimeExecutionProfile` has exactly one required
+  `python_bytecode_policy`: `interpreter_default` or `suppress`.
+  `interpreter_default` means Kodi Lab does not impose Python bytecode-write
+  suppression. `suppress` means Kodi Lab configures the managed Kodi process
+  environment with exact `PYTHONDONTWRITEBYTECODE=1` before embedded Python
+  initialization.
+- Authority: the policy is semantic catalog state, not a generic environment
+  map. No browser, application request, broker request, or other caller can
+  submit an environment key/value, Python option, bytecode flag, or override.
+
+## D-0137: Bytecode policy changes require new runtime revisions
+
+- Status: approved Phase 8 runtime compatibility correction
+- Identity: Python bytecode policy is immutable execution behavior. Changing it
+  requires both a new `RuntimeExecutionProfile` and a new monotonically numbered
+  `RuntimeRevision`; an existing revision/profile is never edited in place.
+  Existing profiles are backfilled as `interpreter_default`. A suppression
+  revision may reuse the exact immutable image and build provenance of its
+  predecessor because the trusted container configuration supplies the changed
+  execution semantics.
+- Curated revisions: Kodi 19.5 revision 2
+  (`51950000-0000-4000-8000-000000000005`), Kodi 20.5 revision 2
+  (`52000000-0000-4000-8000-000000000005`), Kodi 21.3 revision 3
+  (`3a000000-0000-4000-8000-000000000006`), and Kodi 22.0 Beta 2 revision 2
+  (`52200000-0000-4000-8000-000000000005`) use `suppress`. Their retained
+  predecessors continue to mean `interpreter_default`.
+- Environment invariant: trusted provisioning composes image-owned environment
+  values with the profile-derived bytecode policy deterministically. The
+  profile owns the reserved `PYTHONDONTWRITEBYTECODE` key. `suppress` requires
+  exactly one `PYTHONDONTWRITEBYTECODE=1`; `interpreter_default` requires the key
+  to be absent. Duplicate/conflicting definitions and missing, wrong, injected,
+  or otherwise non-profile-derived policy state fail container drift validation.
+  Caller-created equivalent environment state is never adopted as authority.
+- Historical behavior: normal newest-eligible selection chooses a validated,
+  approved suppression revision because its revision number is greater. Existing
+  ManagedInstance and Snapshot pins remain on their exact historical revision;
+  identical image identity does not create cross-revision restore compatibility.
+
+## D-0138: Step 4 destination provenance remains exact
+
+- Status: approved Phase 8 runtime compatibility correction
+- Decision: bytecode compatibility is corrected at managed runtime execution,
+  not by changing stopped-only copy/sync. Step 4 gains no `.pyc` exclusion,
+  `__pycache__` exemption, runtime-artifact allowlist, automatic adoption of
+  post-execution destination additions, or weakened destination readback.
+  Arbitrary additions and intentional add-on writes beneath the deployment tree
+  remain unexplained destination mutation and replacement conflicts.
+- Invariant: suppression prevents normal CPython bytecode generation in a
+  DevelopmentSource deployment tree. Pre-existing packaged or system `.pyc`
+  outside that tree are neither deleted nor rejected by this policy. Future
+  bind-mounted-source benefit is plausible but remains unvalidated and outside
+  this correction.

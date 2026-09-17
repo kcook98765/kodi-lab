@@ -16,7 +16,11 @@ from kodi_lab.broker.errors import (
     RuntimeExecutionProfileUnavailableError,
 )
 from kodi_lab.config import Settings
-from kodi_lab.domain import InstanceType, RuntimeExecutionProfile
+from kodi_lab.domain import (
+    InstanceType,
+    PythonBytecodePolicy,
+    RuntimeExecutionProfile,
+)
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
@@ -41,6 +45,7 @@ class ManagedContainerProvisioningSpec:
     runtime_revision_id: str
     image_id: str
     container_name: str
+    python_bytecode_policy: PythonBytecodePolicy
     network_name: str = MANAGED_NETWORK_NAME
 
     def __post_init__(self) -> None:
@@ -62,6 +67,8 @@ class ManagedContainerProvisioningSpec:
             raise ValueError("image identity must be immutable SHA-256")
         if self.container_name != f"kodi-lab-managed-{instance_id.hex}":
             raise ValueError("container name must be derived from instance identity")
+        if not isinstance(self.python_bytecode_policy, PythonBytecodePolicy):
+            raise ValueError("Python bytecode policy must be trusted closed semantics")
         if self.network_name != MANAGED_NETWORK_NAME:
             raise ValueError("network name must use fixed managed policy")
 
@@ -159,11 +166,17 @@ class SqliteProvisioningResolver:
                     raise RuntimeContainerArtifactUnavailableError(
                         "Pinned runtime container artifact does not exist"
                     )
+                profile = RuntimeExecutionProfileRepository(session).get(revision.id)
+                if profile is None:
+                    raise RuntimeExecutionProfileUnavailableError(
+                        "Pinned runtime execution profile does not exist"
+                    )
                 return ManagedContainerProvisioningSpec(
                     managed_instance_id=managed_instance_id,
                     runtime_revision_id=str(revision.id),
                     image_id=artifact.image_id,
                     container_name=f"kodi-lab-managed-{identity.hex}",
+                    python_bytecode_policy=profile.python_bytecode_policy,
                 )
         except ProvisioningStateError:
             raise

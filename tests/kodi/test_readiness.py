@@ -17,6 +17,7 @@ from kodi_lab.broker.operations import (
 )
 from kodi_lab.domain import (
     ProcessObservationKind,
+    PythonBytecodePolicy,
     ReadinessProbeKind,
     RuntimeExecutionProfile,
     RuntimeKind,
@@ -44,6 +45,7 @@ def profile() -> RuntimeExecutionProfile:
         runtime_kind=RuntimeKind.KODI,
         runtime_uid=1000,
         runtime_gid=1000,
+        python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
         expected_application_name="Kodi",
         expected_kodi_version="21.3",
         expected_version_tag="stable",
@@ -64,6 +66,7 @@ def preview_profile() -> RuntimeExecutionProfile:
         runtime_kind=values.runtime_kind,
         runtime_uid=values.runtime_uid,
         runtime_gid=values.runtime_gid,
+        python_bytecode_policy=values.python_bytecode_policy,
         expected_application_name=values.expected_application_name,
         expected_kodi_version="22.0",
         expected_version_tag="beta",

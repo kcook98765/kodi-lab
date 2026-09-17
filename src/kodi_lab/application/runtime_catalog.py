@@ -21,6 +21,7 @@ from kodi_lab.application.errors import (
 from kodi_lab.domain import (
     RECOGNIZED_VALIDATION_CONTRACTS,
     ProcessObservationKind,
+    PythonBytecodePolicy,
     ReadinessProbeKind,
     RevisionApprovalState,
     RuntimeContainerArtifact,
@@ -106,6 +107,7 @@ class RuntimeCatalogAdministrationService:
         runtime_kind: RuntimeKind,
         runtime_uid: int,
         runtime_gid: int,
+        python_bytecode_policy: PythonBytecodePolicy,
         expected_application_name: str,
         expected_kodi_version: str,
         expected_version_tag: str,
@@ -126,6 +128,7 @@ class RuntimeCatalogAdministrationService:
                 runtime_kind=runtime_kind,
                 runtime_uid=runtime_uid,
                 runtime_gid=runtime_gid,
+                python_bytecode_policy=python_bytecode_policy,
                 expected_application_name=expected_application_name,
                 expected_kodi_version=expected_kodi_version,
                 expected_version_tag=expected_version_tag,

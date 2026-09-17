@@ -42,6 +42,7 @@ from kodi_lab.domain import (
     ManagedInstanceMutationKind,
     ManagedInstanceSemanticState,
     ProcessObservationKind,
+    PythonBytecodePolicy,
     ReadinessProbeKind,
     ResetOperationPhase,
     ResetOperationState,
@@ -1598,6 +1599,10 @@ class RuntimeExecutionProfileRow(Base):
             "runtime_gid BETWEEN 0 AND 2147483647",
             name="runtime_profile_gid_range",
         ),
+        CheckConstraint(
+            "python_bytecode_policy IN ('interpreter_default', 'suppress')",
+            name="runtime_profile_python_bytecode_policy",
+        ),
     )
 
     runtime_revision_id: Mapped[str] = mapped_column(
@@ -1611,6 +1616,15 @@ class RuntimeExecutionProfileRow(Base):
     )
     runtime_uid: Mapped[int] = mapped_column(Integer, nullable=False)
     runtime_gid: Mapped[int] = mapped_column(Integer, nullable=False)
+    python_bytecode_policy: Mapped[PythonBytecodePolicy] = mapped_column(
+        Enum(
+            PythonBytecodePolicy,
+            values_callable=_enum_values,
+            native_enum=False,
+            length=32,
+        ),
+        nullable=False,
+    )
     expected_application_name: Mapped[str] = mapped_column(String(32), nullable=False)
     expected_kodi_version: Mapped[str] = mapped_column(String(32), nullable=False)
     expected_version_tag: Mapped[str] = mapped_column(String(16), nullable=False)

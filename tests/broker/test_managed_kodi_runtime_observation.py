@@ -9,6 +9,7 @@ from kodi_lab.broker.docker_inventory import (
     MANAGED_LABEL_VALUE,
     DockerManagedContainerAdapter,
     KodiProcessState,
+    ManagedKodiRuntimeObservationRecord,
 )
 from kodi_lab.broker.errors import (
     ContainerIdentityPreconditionError,
@@ -24,6 +25,7 @@ from kodi_lab.broker.provisioning import (
 )
 from kodi_lab.domain import (
     ProcessObservationKind,
+    PythonBytecodePolicy,
     ReadinessProbeKind,
     RuntimeExecutionProfile,
     RuntimeKind,
@@ -34,12 +36,15 @@ REVISION_ID = UUID(int=2)
 CONTAINER_ID = f"{3:064x}"
 
 
-def profile() -> RuntimeExecutionProfile:
+def profile(
+    policy: PythonBytecodePolicy = PythonBytecodePolicy.INTERPRETER_DEFAULT,
+) -> RuntimeExecutionProfile:
     return RuntimeExecutionProfile(
         runtime_revision_id=REVISION_ID,
         runtime_kind=RuntimeKind.KODI,
         runtime_uid=1000,
         runtime_gid=1000,
+        python_bytecode_policy=policy,
         expected_application_name="Kodi",
         expected_kodi_version="21.3",
         expected_version_tag="stable",
@@ -59,6 +64,7 @@ def inspect_data(
     health: object = "healthy",
     networks: object | None = None,
     labels: object | None = None,
+    environment: object = None,
 ) -> dict[str, object]:
     state_data: dict[str, object] = {"Status": state}
     if health is not None:
@@ -67,13 +73,14 @@ def inspect_data(
         "Id": CONTAINER_ID,
         "Image": "sha256:" + ("a" * 64),
         "Config": {
+            "Env": environment,
             "Labels": labels
             if labels is not None
             else {
                 MANAGED_LABEL_KEY: MANAGED_LABEL_VALUE,
                 INSTANCE_ID_LABEL_KEY: INSTANCE_ID,
                 RUNTIME_REVISION_LABEL_KEY: str(REVISION_ID),
-            }
+            },
         },
         "State": state_data,
         "NetworkSettings": {
@@ -111,13 +118,18 @@ class FakeDockerClient:
         self.closed = True
 
 
-def observe(inspection: object, *, expected_id: str = CONTAINER_ID):  # type: ignore[no-untyped-def]
+def observe(
+    inspection: object,
+    *,
+    expected_id: str = CONTAINER_ID,
+    policy: PythonBytecodePolicy = PythonBytecodePolicy.INTERPRETER_DEFAULT,
+) -> tuple[ManagedKodiRuntimeObservationRecord, FakeDockerClient]:
     client = FakeDockerClient(inspection)
     result = DockerManagedContainerAdapter(lambda: client).observe_managed_kodi_runtime(
         spec=ManagedRuntimeObservationSpec(
             managed_instance_id=INSTANCE_ID,
             runtime_revision_id=str(REVISION_ID),
-            profile=profile(),
+            profile=profile(policy),
         ),
         expected_container_id=expected_id,
     )
@@ -206,3 +218,36 @@ def test_unowned_and_wrong_revision_containers_are_rejected() -> None:
     }
     with pytest.raises(RuntimeRevisionPreconditionError):
         observe(inspect_data(labels=wrong_revision))
+
+
+def test_suppression_environment_passes_runtime_identity_validation() -> None:
+    result, _client = observe(
+        inspect_data(environment=["IMAGE_DEFAULT=1", "PYTHONDONTWRITEBYTECODE=1"]),
+        policy=PythonBytecodePolicy.SUPPRESS,
+    )
+    assert result.runtime_revision_id == str(REVISION_ID)
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        None,
+        ["IMAGE_DEFAULT=1"],
+        ["PYTHONDONTWRITEBYTECODE=0"],
+        ["PYTHONDONTWRITEBYTECODE=true"],
+        ["PYTHONDONTWRITEBYTECODE=1", "PYTHONDONTWRITEBYTECODE=1"],
+    ],
+)
+def test_missing_wrong_or_duplicate_suppression_environment_is_drift(
+    environment: object,
+) -> None:
+    with pytest.raises(InvalidManagedContainerMetadataError):
+        observe(
+            inspect_data(environment=environment),
+            policy=PythonBytecodePolicy.SUPPRESS,
+        )
+
+
+def test_interpreter_default_rejects_suppression_environment() -> None:
+    with pytest.raises(InvalidManagedContainerMetadataError):
+        observe(inspect_data(environment=["PYTHONDONTWRITEBYTECODE=1"]))

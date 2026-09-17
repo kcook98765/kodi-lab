@@ -554,3 +554,23 @@ enablement, or function. Stale/unknown deployment confidence and every mismatch
 remain unknown. Fresh destination readback, Snapshot/repository provenance,
 durable observations, enable/disable, dependency installation, bind mounts, and
 ZIP installation remain separately gated.
+
+The approved Phase 8 runtime compatibility correction versions Python bytecode
+behavior as immutable execution-profile policy. Migration
+`0021_runtime_python_bytecode_policy` backfills all retained profiles as
+`interpreter_default` without a future-row default. New suppression revisions
+are Kodi 19.5 revision 2, Kodi 20.5 revision 2, Kodi 21.3 revision 3, and Kodi
+22.0 Beta 2 revision 2. Each reuses its exact predecessor image while adding a
+new required profile with `suppress`, then follows ordinary approval, trust, and
+`kodi-runtime-v1` evidence gates before becoming newest eligible.
+
+Provisioning alone translates `suppress` into exact
+`PYTHONDONTWRITEBYTECODE=1`; callers receive no environment field or Python
+switch. Deterministic composition reserves that key to profile policy and both
+provisioning drift checks and running-runtime observation verify its exact
+presence/value or required absence. Historical instance and Snapshot pins do
+not move. The correction changes no DevelopmentSource manifest, destination
+readback, exclusion, replacement, or provenance rule. Normal Python imports on
+the new revisions can therefore coexist with strict Step 4 unchanged sync;
+intentional add-on writes remain conflicts. Bind-mounted-source benefit remains
+an unvalidated later architecture gate.

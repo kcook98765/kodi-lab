@@ -286,12 +286,35 @@ def test_unchanged_sync_transfers_zero_files_and_bytes(tmp_path: Path) -> None:
     assert len(client.put_members) == puts
 
 
-def test_external_destination_drift_fails_exact_proof_before_apply(
-    tmp_path: Path,
+def test_packaged_pyc_source_is_copied_without_exclusion(tmp_path: Path) -> None:
+    client = FakeDeploymentDockerClient()
+    first = _apply(client, _spec(tmp_path))
+    packaged = _source(tmp_path) / "addon" / "resources" / "packaged.pyc"
+    packaged.write_bytes(b"pre-existing packaged bytecode")
+    second = _apply(
+        client,
+        _spec(tmp_path, prior=_prior(first), operation_id=str(UUID(int=16))),
+    )
+    assert second.result_classification == "synchronized"
+    assert second.new_count == 1
+    assert client.entries["resources/packaged.pyc"][0] == packaged.read_bytes()
+    assert client.put_members[-1] == ("resources/packaged.pyc",)
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [
+        ("externally-added", b"untrusted"),
+        ("__pycache__", None),
+        ("helper.cpython-314.pyc", b"bytecode"),
+    ],
+)
+def test_external_destination_drift_has_no_runtime_artifact_exemptions(
+    tmp_path: Path, name: str, content: bytes | None
 ) -> None:
     client = FakeDeploymentDockerClient()
     first = _apply(client, _spec(tmp_path))
-    client.entries["externally-added"] = (b"untrusted", 0o644, 42, 43)
+    client.entries[name] = (content, 0o755 if content is None else 0o644, 42, 43)
     client.applied = False
     with pytest.raises(DockerDevelopmentSourceDeploymentError) as captured:
         _apply(

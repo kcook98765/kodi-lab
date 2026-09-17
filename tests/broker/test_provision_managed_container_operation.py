@@ -31,6 +31,7 @@ from kodi_lab.broker.protocol import decode_json_object
 from kodi_lab.broker.provisioning import ManagedContainerProvisioningSpec
 from kodi_lab.broker.socket_path import SocketPathConfig
 from kodi_lab.broker.transport import receive_frame, send_frame
+from kodi_lab.domain import PythonBytecodePolicy
 
 INSTANCE_ID = str(UUID(int=1))
 REVISION_ID = str(UUID(int=2))
@@ -52,6 +53,7 @@ class FakeResolver:
             runtime_revision_id=REVISION_ID,
             image_id=IMAGE_ID,
             container_name="kodi-lab-managed-" + UUID(managed_instance_id).hex,
+            python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
         )
 
 
