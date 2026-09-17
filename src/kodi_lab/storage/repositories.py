@@ -15,6 +15,10 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentOperation,
     DevelopmentSourceDeploymentOperationPhase,
     DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceEnablementOperation,
+    DevelopmentSourceEnablementOperationPhase,
+    DevelopmentSourceEnablementOperationState,
+    DevelopmentSourceEnablementResult,
     FixtureDefinition,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
@@ -56,6 +60,7 @@ from kodi_lab.storage.models import (
     DevelopmentSourceAttachmentOperationRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
+    DevelopmentSourceEnablementOperationRow,
     DevelopmentSourceRow,
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
@@ -406,6 +411,38 @@ def _development_source_deployment_operation_from_row(
             if row.lease_expires_at is None
             else _timestamp_from_text(row.lease_expires_at)
         ),
+    )
+
+
+def _development_source_enablement_operation_from_row(
+    row: DevelopmentSourceEnablementOperationRow,
+) -> DevelopmentSourceEnablementOperation:
+    return DevelopmentSourceEnablementOperation(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=(
+            None if row.managed_instance_id is None else UUID(row.managed_instance_id)
+        ),
+        development_source_id=UUID(row.development_source_id),
+        source_logical_name=row.source_logical_name,
+        addon_id=row.addon_id,
+        addon_version=row.addon_version,
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        requested_at=_timestamp_from_text(row.requested_at),
+        started_at=_timestamp_from_text(row.started_at),
+        state=row.state,
+        phase=row.phase,
+        result_classification=row.result_classification,
+        prior_enabled=row.prior_enabled,
+        result_enabled=row.result_enabled,
+        enable_performed=row.enable_performed,
+        blocked_dependency_id=row.blocked_dependency_id,
+        blocked_dependency_reason=row.blocked_dependency_reason,
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
     )
 
 
@@ -3177,7 +3214,7 @@ class DevelopmentSourceDeploymentRepository:
         return int(getattr(result, "rowcount", 0))
 
 
-class DevelopmentSourceDeploymentOperationRepository:
+class _DevelopmentSourceDeploymentOperationRepositoryBase:
     """Durable typed copy/sync operation persistence."""
 
     def __init__(self, session: Session) -> None:
@@ -3280,6 +3317,260 @@ class DevelopmentSourceDeploymentOperationRepository:
         )
         return int(getattr(result, "rowcount", 0))
 
+
+class DevelopmentSourceEnablementOperationRepository:
+    """Durable typed synchronous enablement persistence."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: DevelopmentSourceEnablementOperation) -> None:
+        self._session.add(
+            DevelopmentSourceEnablementOperationRow(
+                id=str(operation.id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                managed_instance_id=(
+                    None
+                    if operation.managed_instance_id is None
+                    else str(operation.managed_instance_id)
+                ),
+                development_source_id=str(operation.development_source_id),
+                source_logical_name=operation.source_logical_name,
+                addon_id=operation.addon_id,
+                addon_version=operation.addon_version,
+                runtime_revision_id=str(operation.runtime_revision_id),
+                requested_at=_timestamp_to_text(operation.requested_at),
+                started_at=_timestamp_to_text(operation.started_at),
+                state=operation.state,
+                phase=operation.phase,
+                prior_enabled=operation.prior_enabled,
+                result_enabled=operation.result_enabled,
+                enable_performed=operation.enable_performed,
+                reconciliation_required=operation.reconciliation_required,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> DevelopmentSourceEnablementOperation | None:
+        row = self._session.get(
+            DevelopmentSourceEnablementOperationRow, str(operation_id)
+        )
+        return (
+            None
+            if row is None
+            else _development_source_enablement_operation_from_row(row)
+        )
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[DevelopmentSourceEnablementOperation]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceEnablementOperationRow)
+            .where(
+                DevelopmentSourceEnablementOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                DevelopmentSourceEnablementOperationRow.requested_at.desc(),
+                DevelopmentSourceEnablementOperationRow.id.desc(),
+            )
+        )
+        return [_development_source_enablement_operation_from_row(row) for row in rows]
+
+    def active_for_instance(
+        self, instance_id: UUID
+    ) -> DevelopmentSourceEnablementOperation | None:
+        row = self._session.scalar(
+            select(DevelopmentSourceEnablementOperationRow)
+            .where(
+                DevelopmentSourceEnablementOperationRow.managed_instance_id
+                == str(instance_id),
+                DevelopmentSourceEnablementOperationRow.state
+                == DevelopmentSourceEnablementOperationState.RUNNING,
+            )
+            .limit(1)
+        )
+        return (
+            None
+            if row is None
+            else _development_source_enablement_operation_from_row(row)
+        )
+
+    def update_phase(
+        self,
+        operation_id: UUID,
+        phase: DevelopmentSourceEnablementOperationPhase,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceEnablementOperationRow)
+            .where(
+                DevelopmentSourceEnablementOperationRow.id == str(operation_id),
+                DevelopmentSourceEnablementOperationRow.state
+                == DevelopmentSourceEnablementOperationState.RUNNING,
+            )
+            .values(phase=phase)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def set_preflight_state(self, operation_id: UUID, *, prior_enabled: bool) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceEnablementOperationRow)
+            .where(
+                DevelopmentSourceEnablementOperationRow.id == str(operation_id),
+                DevelopmentSourceEnablementOperationRow.state
+                == DevelopmentSourceEnablementOperationState.RUNNING,
+            )
+            .values(prior_enabled=prior_enabled)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_mutation_started(self, operation_id: UUID) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceEnablementOperationRow)
+            .where(
+                DevelopmentSourceEnablementOperationRow.id == str(operation_id),
+                DevelopmentSourceEnablementOperationRow.state
+                == DevelopmentSourceEnablementOperationState.RUNNING,
+                DevelopmentSourceEnablementOperationRow.enable_performed.is_(False),
+            )
+            .values(
+                phase=DevelopmentSourceEnablementOperationPhase.MUTATION,
+                enable_performed=True,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def terminalize(
+        self,
+        operation_id: UUID,
+        *,
+        state: DevelopmentSourceEnablementOperationState,
+        result_classification: DevelopmentSourceEnablementResult,
+        result_enabled: bool | None,
+        blocked_dependency_id: str | None,
+        blocked_dependency_reason: str | None,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceEnablementOperationRow)
+            .where(
+                DevelopmentSourceEnablementOperationRow.id == str(operation_id),
+                DevelopmentSourceEnablementOperationRow.state
+                == DevelopmentSourceEnablementOperationState.RUNNING,
+            )
+            .values(
+                state=state,
+                phase=DevelopmentSourceEnablementOperationPhase.FINALIZE,
+                result_classification=result_classification,
+                result_enabled=result_enabled,
+                blocked_dependency_id=blocked_dependency_id,
+                blocked_dependency_reason=blocked_dependency_reason,
+                completed_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+        row = self._session.get(
+            DevelopmentSourceEnablementOperationRow, str(operation_id)
+        )
+        if (
+            row is None
+            or row.state is not DevelopmentSourceEnablementOperationState.RUNNING
+        ):
+            return False
+        if not row.enable_performed:
+            return self.terminalize(
+                operation_id,
+                state=DevelopmentSourceEnablementOperationState.FAILED,
+                result_classification=DevelopmentSourceEnablementResult.FAILED,
+                result_enabled=None,
+                blocked_dependency_id=None,
+                blocked_dependency_reason=None,
+                failure_reason="enablement_failed_before_mutation",
+                reconciliation_required=False,
+                now=now,
+            )
+        return self.terminalize(
+            operation_id,
+            state=DevelopmentSourceEnablementOperationState.RECONCILIATION_REQUIRED,
+            result_classification=DevelopmentSourceEnablementResult.RECONCILIATION_REQUIRED,
+            result_enabled=None,
+            blocked_dependency_id=None,
+            blocked_dependency_reason=None,
+            failure_reason="enablement_reconciliation_required",
+            reconciliation_required=True,
+            now=now,
+        )
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[DevelopmentSourceEnablementOperation]:
+        rows = self._session.scalars(
+            select(DevelopmentSourceEnablementOperationRow)
+            .where(
+                DevelopmentSourceEnablementOperationRow.original_managed_instance_id
+                == str(instance_id),
+                DevelopmentSourceEnablementOperationRow.reconciliation_required.is_(
+                    True
+                ),
+            )
+            .order_by(DevelopmentSourceEnablementOperationRow.requested_at.desc())
+            .limit(limit)
+        )
+        return [_development_source_enablement_operation_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(DevelopmentSourceEnablementOperationRow)
+            .where(
+                DevelopmentSourceEnablementOperationRow.managed_instance_id
+                == str(instance_id)
+            )
+            .values(managed_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
+
+    def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        rows = list(
+            self._session.scalars(
+                select(DevelopmentSourceEnablementOperationRow.id)
+                .where(
+                    DevelopmentSourceEnablementOperationRow.original_managed_instance_id
+                    == str(instance_id),
+                    DevelopmentSourceEnablementOperationRow.state.in_(
+                        (
+                            DevelopmentSourceEnablementOperationState.SUCCEEDED,
+                            DevelopmentSourceEnablementOperationState.FAILED,
+                        )
+                    ),
+                )
+                .order_by(
+                    DevelopmentSourceEnablementOperationRow.requested_at.desc(),
+                    DevelopmentSourceEnablementOperationRow.id.desc(),
+                )
+                .offset(retain)
+            )
+        )
+        if not rows:
+            return 0
+        result = self._session.execute(
+            delete(DevelopmentSourceEnablementOperationRow).where(
+                DevelopmentSourceEnablementOperationRow.id.in_(rows)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
+class DevelopmentSourceDeploymentOperationRepository(
+    _DevelopmentSourceDeploymentOperationRepositoryBase
+):
     def reconciliation_for_instance(
         self, instance_id: UUID, *, limit: int = 2
     ) -> list[DevelopmentSourceDeploymentOperation]:

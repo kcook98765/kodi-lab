@@ -301,8 +301,61 @@ inside its installation directory remains incompatible with strict provenance.
 Bind-mounted sources may benefit from suppression, but bind-mount architecture
 has not yet been validated.
 
+## Copied-add-on enablement
+
+Enablement authority is the exact ManagedInstance, its exact attached
+DevelopmentSource, and exact ID/version retained from successful Step 4 copy
+evidence. The current instance must still use that exact RuntimeRevision and
+container, evidence confidence must be `verified_at_last_operation`, and the
+broker must freshly recapture the complete fixed destination and match retained
+full destination evidence. The broker accepts only instance, source, and
+expected-container identities; it derives the destination and returns no path
+or digest.
+
+Trusted source `addon.xml` parsing supplies extension behavior and normalized
+`requires/import` declarations: dependency ID, exact version/minversion strings,
+and strict optional Boolean. Duplicate IDs, malformed optional values, and
+malformed descriptor relationships fail closed. Known service/auto-start
+behavior is unsupported. Python execution-capable sources require the exact
+current suppression revision; safe non-Python sources do not.
+
+Live Kodi must recognize the copied ID and exact version. Source dependencies
+must agree with fixed `Addons.GetAddonDetails` declarations. Current complete
+inventory then classifies each dependency as present-enabled, missing,
+disabled, optional-missing, version-unverified, or unknown. Required missing or
+disabled dependencies block; optional missing is allowed. A required version
+constraint blocks as `dependency_version_unverified`: the fixed API provides
+no authoritative compatibility Boolean, and exact string equality does not
+prove range compatibility. Kodi's exact `0.0.0` unset-bound sentinel is treated
+as no declaration constraint during cross-checking while its reported string
+remains preserved. Kodi Lab never orders version strings, installs a
+dependency, or automatically enables one.
+
+If all preconditions pass and the target is already enabled, the result is
+successful `already_enabled` with `enable_performed=false`. Otherwise the fixed
+adapter sends exactly one internally constructed `Addons.SetAddonEnabled`
+request with server-derived ID and literal Boolean `true`, then immediately
+queries the exact add-on and requires matching ID/version plus `enabled=true`.
+It does not execute the plugin.
+
+`DevelopmentSourceEnablementOperation` provides synchronous durable history.
+Per-instance enablement conflicts with every relevant instance mutation and
+uses no global-heavy lease. An interruption known to precede Kodi mutation is
+failed; uncertainty after mutation becomes reconciliation-required, is never
+automatically re-enabled, and is not rewritten to success based on a later
+query. Only bounded identity/outcome/dependency fields persist. Current enabled
+state and dependency inventory do not.
+
+The authenticated same-origin CSRF-protected endpoint is
+`POST /api/instances/{instance_id}/development-sources/{source_id}/enable` with
+a strict empty body and synchronous HTTP 200 result. UI controls are advisory;
+the POST revalidates all authority. The state ladder remains explicit:
+attached, materialized, recognized, enabled, dependencies generally unproven,
+working unproven, tested unproven.
+
 ## Deferred Phase 8 work
 
 Bind-mounted sources, ZIP installation, repository URL testing, watchers,
-fresh byte-level provenance, non-bytecode execution-time tree mutation, enable/disable,
-dependency installation, and broader provenance remain separately gated.
+non-bytecode execution-time tree mutation, disable/toggle, generic add-on
+enablement, dependency installation, plugin execution/smoke automation, and
+broader provenance remain separately gated.

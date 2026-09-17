@@ -576,4 +576,5 @@ def test_adapter_public_surface_has_no_generic_docker_mutation() -> None:
         "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",
+        "verify_attached_development_source_destination",
     }

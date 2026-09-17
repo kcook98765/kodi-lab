@@ -22,7 +22,10 @@ from docker.errors import (  # type: ignore[import-untyped]
     NotFound,
 )
 
-from kodi_lab.broker.development_sources import DevelopmentSourceDeploymentSpec
+from kodi_lab.broker.development_sources import (
+    DevelopmentSourceDeploymentSpec,
+    DevelopmentSourceDestinationVerificationSpec,
+)
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
     ContainerIdentityPreconditionError,
@@ -272,6 +275,19 @@ class AppliedDevelopmentSourceDeploymentRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class VerifiedDevelopmentSourceDestinationRecord:
+    """Bounded current-byte proof without path or digest exposure."""
+
+    managed_instance_id: str
+    development_source_id: str
+    runtime_revision_id: str
+    container_id: str
+    addon_id: str
+    addon_version: str
+    matched: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _ReconciliationRecord:
     managed_instance_id: str
     container_id: str
@@ -371,6 +387,14 @@ class DevelopmentSourceDeploymentProvider(Protocol):
         expected_container_id: str,
     ) -> AppliedDevelopmentSourceDeploymentRecord:
         """Copy only one attached source to one exact stopped container."""
+
+    def verify_attached_development_source_destination(
+        self,
+        *,
+        spec: DevelopmentSourceDestinationVerificationSpec,
+        expected_container_id: str,
+    ) -> VerifiedDevelopmentSourceDestinationRecord:
+        """Verify one server-derived destination against retained evidence."""
 
 
 class _DockerClient(Protocol):
@@ -1011,6 +1035,130 @@ class DockerManagedContainerAdapter:
                 with suppress(DockerException, OSError):
                     client.close()
             self._remove_deployment_stage(spec, operation_stage)
+
+    def verify_attached_development_source_destination(
+        self,
+        *,
+        spec: DevelopmentSourceDestinationVerificationSpec,
+        expected_container_id: str,
+    ) -> VerifiedDevelopmentSourceDestinationRecord:
+        """Freshly read one fixed destination and compare its complete manifest."""
+
+        if expected_container_id != spec.trusted_container_id:
+            raise ContainerIdentityPreconditionError(
+                "Expected container differs from retained deployment evidence"
+            )
+        client: _SnapshotDockerClient | None = None
+        try:
+            client = cast(_SnapshotDockerClient, self._client_factory())
+            summaries = client.containers(
+                all=True,
+                filters={
+                    "label": [
+                        f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                        f"{INSTANCE_ID_LABEL_KEY}={spec.managed_instance_id}",
+                    ]
+                },
+            )
+            if not isinstance(summaries, list) or len(summaries) != 1:
+                raise ManagedContainerNotFoundError(
+                    "Exactly one owned container is required for "
+                    "destination verification"
+                )
+            selected_id = _require_container_id(
+                _require_mapping(summaries[0]).get("Id")
+            )
+            inspected = _require_mapping(client.inspect_container(selected_id))
+            self._validate_running_destination_candidate(
+                inspected,
+                selected_container_id=selected_id,
+                managed_instance_id=spec.managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=spec.runtime_revision_id,
+            )
+            stream, _ = client.get_archive(
+                selected_id, f"/home/kodi/.kodi/addons/{spec.addon_id}"
+            )
+            manifest = capture_destination_archive(
+                cast(Iterable[bytes], stream), root_name=spec.addon_id
+            )
+            if manifest.digest != spec.verified_destination_digest:
+                raise DockerDevelopmentSourceDeploymentError(
+                    "development_destination_verification_failed",
+                    "Current destination bytes do not match retained evidence.",
+                )
+            final = _require_mapping(client.inspect_container(selected_id))
+            self._validate_running_destination_candidate(
+                final,
+                selected_container_id=selected_id,
+                managed_instance_id=spec.managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=spec.runtime_revision_id,
+            )
+            return VerifiedDevelopmentSourceDestinationRecord(
+                managed_instance_id=spec.managed_instance_id,
+                development_source_id=spec.development_source_id,
+                runtime_revision_id=spec.runtime_revision_id,
+                container_id=selected_id,
+                addon_id=spec.addon_id,
+                addon_version=spec.addon_version,
+                matched=True,
+            )
+        except DockerDevelopmentSourceDeploymentError:
+            raise
+        except NotFound as error:
+            raise DockerDevelopmentSourceDeploymentError(
+                "development_destination_verification_failed",
+                "The copied destination is unavailable.",
+            ) from error
+        except DevelopmentTreeError as error:
+            raise DockerDevelopmentSourceDeploymentError(
+                "development_destination_verification_failed",
+                "The copied destination could not be safely verified.",
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
+    @staticmethod
+    def _validate_running_destination_candidate(
+        inspected: Mapping[str, object],
+        *,
+        selected_container_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_revision_id: str,
+    ) -> None:
+        container_id = _require_container_id(inspected.get("Id"))
+        if (
+            container_id != selected_container_id
+            or container_id != expected_container_id
+        ):
+            raise ContainerIdentityPreconditionError(
+                "Managed container identity differs from the precondition"
+            )
+        config = _require_mapping(inspected.get("Config"))
+        labels = _require_mapping(config.get("Labels"))
+        if (
+            labels.get(MANAGED_LABEL_KEY) != MANAGED_LABEL_VALUE
+            or labels.get(INSTANCE_ID_LABEL_KEY) != managed_instance_id
+        ):
+            raise InvalidManagedContainerMetadataError(
+                "Selected container ownership is invalid"
+            )
+        if labels.get(RUNTIME_REVISION_LABEL_KEY) != expected_runtime_revision_id:
+            raise RuntimeRevisionPreconditionError(
+                "Managed container runtime revision differs from trusted state"
+            )
+        state = _require_mapping(inspected.get("State"))
+        if (
+            normalize_runtime_state(state.get("Status"))
+            is not ContainerRuntimeState.RUNNING
+        ):
+            raise ManagedRuntimeNotRunningError(
+                "Destination verification requires the exact running runtime"
+            )
 
     @staticmethod
     def _create_deployment_stage(spec: DevelopmentSourceDeploymentSpec) -> Path:

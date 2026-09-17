@@ -59,11 +59,16 @@ class AttachedDevelopmentSourceRead(BaseModel):
     observed_name: str = Field(max_length=MAX_ADDON_NAME)
     observed_version: str = Field(max_length=MAX_ADDON_VERSION)
     source_kind: DevelopmentSourceKind
+    extension_types: tuple[str, ...] = ()
     attached_at: datetime
     deployment_confidence: DevelopmentSourceDeploymentConfidence | None = None
     deployment_verified_at: datetime | None = None
     deployment_wording: str = Field(default="Never deployed", max_length=64)
     copy_sync_eligible: bool = False
+    enablement_state: str = Field(default="Not copied", max_length=128)
+    enable_eligible: bool = False
+    enablement_blocked_dependency_id: str | None = Field(default=None, max_length=128)
+    enablement_blocked_reason: str | None = Field(default=None, max_length=64)
 
 
 def attached_development_source_read(
@@ -76,6 +81,7 @@ def attached_development_source_read(
         observed_name=source.observed_name,
         observed_version=source.observed_version,
         source_kind=source.source_kind,
+        extension_types=source.extension_types,
         attached_at=attachment.attached_at,
     )
 

@@ -124,6 +124,7 @@ class ManagedInstanceMutationKind(StrEnum):
     INSTANCE_DELETE = "instance_delete"
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
+    DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
 
 
 class GlobalHeavyOperationKind(StrEnum):

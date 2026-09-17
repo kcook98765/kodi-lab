@@ -2,6 +2,8 @@
 
 from kodi_lab.development.sources import (
     MAX_ADDON_XML_BYTES,
+    MAX_DEPENDENCIES,
+    DevelopmentSourceDependency,
     DevelopmentSourceValidationCode,
     DevelopmentSourceValidationError,
     DevelopmentSourceValidationResult,
@@ -11,6 +13,8 @@ from kodi_lab.development.sources import (
 
 __all__ = [
     "MAX_ADDON_XML_BYTES",
+    "MAX_DEPENDENCIES",
+    "DevelopmentSourceDependency",
     "DevelopmentSourceValidationCode",
     "DevelopmentSourceValidationError",
     "DevelopmentSourceValidationResult",

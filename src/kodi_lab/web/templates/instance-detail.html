@@ -7,6 +7,7 @@
     <title>{{ detail.runtime.name }} · Kodi Lab</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
     <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/development-source-enable.js') }}" defer></script>
   </head>
   <body>
     <main>
@@ -75,10 +76,18 @@
             <dt>Source kind</dt><dd>{{ source.source_kind }}</dd>
             <dt>Attached at</dt><dd>{{ source.attached_at }}</dd>
             <dt>Copy deployment</dt><dd>{{ source.deployment_wording }}{% if source.deployment_verified_at and source.deployment_wording == 'Last copy verified at' %} {{ source.deployment_verified_at }}{% endif %}</dd>
+            <dt>Enablement</dt><dd>{{ source.enablement_state }}</dd>
           </dl>
+          {% if source.enablement_blocked_dependency_id %}
+          <p class="secondary">{% if source.enablement_blocked_reason == 'dependency_missing' %}Required dependency missing{% elif source.enablement_blocked_reason == 'dependency_disabled' %}Required dependency disabled{% elif source.enablement_blocked_reason == 'dependency_version_unverified' %}Dependency version cannot be verified{% else %}Dependency state cannot be verified{% endif %}: <code>{{ source.enablement_blocked_dependency_id }}</code></p>
+          {% endif %}
           {% if source.copy_sync_eligible %}
           <button class="development-source-copy" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">Copy/Sync</button>
           <p class="development-source-copy-status secondary" role="status" hidden></p>
+          {% endif %}
+          {% if source.enable_eligible %}
+          <button class="development-source-enable" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">Enable</button>
+          <p class="development-source-enable-status secondary" role="status" hidden></p>
           {% endif %}
         </article>
         {% else %}<p>No development sources are attached.</p>{% endfor %}

@@ -1794,3 +1794,89 @@ details that it did not specify.
   outside that tree are neither deleted nor rejected by this policy. Future
   bind-mounted-source benefit is plausible but remains unvalidated and outside
   this correction.
+
+## D-0139: Enablement authority is exact and enable-only
+
+- Status: approved for Phase 8 copied-add-on enablement
+- Decision: authority is the exact ManagedInstance, exact attached
+  DevelopmentSource, and exact identity/version retained from its successful
+  copy. There is no generic add-on-ID authority. The server derives the ID and
+  the fixed Kodi mutation always sends literal Boolean `true`.
+- Exclusions: disable, toggle, arbitrary `addonid`, and generic
+  `Addons.SetAddonEnabled` passthrough are not present.
+
+## D-0140: Enablement requires current bytes and excludes auto-start behavior
+
+- Status: approved for Phase 8 copied-add-on enablement
+- Decision: before Kodi mutation, retained Step 4 evidence must be successful,
+  `verified_at_last_operation`, and exact for the current revision/container.
+  A narrow broker observation derives the fixed destination and repeats Step
+  4's complete destination capture; only an exact retained-digest match and
+  descriptor identity/version may pass.
+- Safety: trusted root `addon.xml` extension metadata rejects `xbmc.service`
+  and other explicitly classified immediate-execution points before mutation.
+  Ordinary video plugins remain eligible. The broker accepts no path, walk,
+  file, digest, archive, or generic filesystem authority, and browser results
+  expose no paths or digests.
+
+## D-0141: Dependency declarations and live state are fail-closed
+
+- Status: approved for Phase 8 copied-add-on enablement
+- Decision: trusted source `<requires><import>` declarations are normalized to
+  ID, exact optional `version`/`minversion` strings, and a strict Boolean
+  optional flag, then cross-checked against Kodi's fixed add-on detail result.
+  Disagreement is `dependency_state_unknown`. Kodi's fixed dependency detail
+  representation serializes an unset range bound as the exact neutral
+  `0.0.0` sentinel; the reported string is retained, but only that sentinel is
+  treated as an absent declaration bound during cross-checking.
+- Preflight: required external dependencies must be recognized and enabled.
+  Required missing or disabled dependencies block; optional missing is allowed.
+  Kodi Lab never installs or automatically enables dependencies. Closed Kodi
+  API/runtime dependency IDs use Kodi's own representation and existing
+  inventory where possible; unclassifiable cases remain unknown.
+
+## D-0142: Dependency versions are exact strings, not ordered versions
+
+- Status: approved for Phase 8 copied-add-on enablement
+- Decision: Kodi Lab implements neither SemVer nor generic string ordering and
+  preserves declared/reported strings exactly. The available fixed Kodi APIs
+  expose declarations and installed versions but no authoritative
+  compatibility Boolean. Every required version constraint therefore blocks
+  this first slice with `dependency_version_unverified`, including exact string
+  equality; equality is not promoted into a compatibility claim.
+- States: bounded internal status is present-enabled, missing, disabled,
+  optional-missing, version-unverified, or unknown. Kodi Lab does not claim
+  generic dependency satisfaction.
+
+## D-0143: Enablement is a synchronous typed coordinated operation
+
+- Status: approved for Phase 8 copied-add-on enablement
+- Decision: `DevelopmentSourceEnablementOperation` records running, succeeded,
+  failed, or reconciliation-required state and enabled, already-enabled,
+  dependency-blocked, rejected, failed, or reconciliation-required result.
+  It retains bounded identity/outcome fields only and follows newest-20
+  ordinary terminal retention while protecting active/unresolved rows.
+- Coordination: per-instance `development_source_enablement` conflicts with
+  lifecycle, reset, Snapshot create/restore, copy/sync, attach/detach, instance
+  deletion, runtime reassignment, and another enablement. It takes no
+  global-heavy lease. Pre-mutation interruption is failure; once mutation may
+  have reached Kodi, untrusted completion is reconciliation-required and is
+  never retried, toggled, or rewritten to success automatically.
+- Eligibility: Python execution-capable sources require the exact current
+  suppression profile. Interpreter-default is rejected without changing the
+  revision. Safe non-Python sources do not acquire an unnecessary Python rule.
+
+## D-0144: Enablement has one strict authenticated Web action
+
+- Status: approved for Phase 8 copied-add-on enablement
+- Decision: authenticated, same-origin, CSRF-protected
+  `POST /api/instances/{instance_id}/development-sources/{source_id}/enable`
+  accepts a strict empty body and returns the synchronous typed operation with
+  HTTP 200. The POST repeats every authority, byte, recognition, runtime, and
+  dependency check.
+- Presentation: instance DevelopmentSource state distinguishes not copied,
+  copied/stopped, not recognized, recognized disabled/enabled, dependency
+  blocked, stale/unknown provenance, and unsupported auto-start behavior.
+  Enable is advisory and appears only for an apparently eligible disabled
+  source. No install, disable, toggle, dependency, network, repository, plugin
+  execution, path, digest, or raw Kodi control is exposed.

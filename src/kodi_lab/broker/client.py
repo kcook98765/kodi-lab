@@ -82,6 +82,8 @@ from kodi_lab.broker.operations import (
     StartManagedContainerResult,
     StopManagedContainerParams,
     StopManagedContainerResult,
+    VerifyAttachedDevelopmentSourceDestinationParams,
+    VerifyAttachedDevelopmentSourceDestinationResult,
 )
 from kodi_lab.broker.protocol import (
     PROTOCOL_VERSION,
@@ -462,6 +464,42 @@ class BrokerClient:
         ):
             raise ClientProtocolError(
                 "development-source deployment result identity differs"
+            )
+        return result
+
+    def verify_attached_development_source_destination(
+        self,
+        *,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+    ) -> VerifyAttachedDevelopmentSourceDestinationResult:
+        """Verify only one broker-derived copied source destination."""
+
+        try:
+            params = VerifyAttachedDevelopmentSourceDestinationParams(
+                managed_instance_id=managed_instance_id,
+                development_source_id=development_source_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "development-source destination verification failed local validation"
+            ) from error
+        result = self._call(
+            "verify_attached_development_source_destination",
+            params,
+            VerifyAttachedDevelopmentSourceDestinationResult,
+            response_timeout=30.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.development_source_id != development_source_id
+            or result.container_id != expected_container_id
+            or not result.matched
+        ):
+            raise ClientProtocolError(
+                "development-source destination verification identity differs"
             )
         return result
 

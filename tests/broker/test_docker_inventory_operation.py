@@ -197,6 +197,7 @@ def test_capabilities_reports_exact_semantic_operations() -> None:
         "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",
+        "verify_attached_development_source_destination",
     ]
     assert provider.calls == 0
 
@@ -299,6 +300,7 @@ def test_registry_has_no_generic_docker_or_execution_operation() -> None:
         "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",
+        "verify_attached_development_source_destination",
     )
     assert not {"docker", "execute", "shell", "command", "raw"}.intersection(names)
 

@@ -17,6 +17,10 @@ from kodi_lab.domain import (
 from kodi_lab.kodi.addons import (
     MAX_ADDON_ID_LENGTH,
     MAX_ADDON_NAME_LENGTH,
+    KodiAddonDetailsUnsupportedResponseError,
+    KodiAddonEnablementAdapter,
+    KodiAddonEnablementAmbiguousError,
+    KodiAddonEnableRejectedError,
     KodiAddonInventoryAdapter,
     KodiAddonInventoryLimitExceededError,
     KodiAddonInventoryMalformedDataError,
@@ -366,3 +370,188 @@ def test_enumerates_multiple_pages_as_one_complete_result() -> None:
         ),
     )
     assert len(adapter.get_inventory().items) == 65
+
+
+def details_response(
+    *, enabled: bool = False, dependency_version: str = "3.0.0"
+) -> bytes:
+    return rpc_response(
+        "kodi-lab-addon-enablement-details",
+        {
+            "addon": {
+                **addon(enabled=enabled),
+                "dependencies": [
+                    {
+                        "addonid": "xbmc.python",
+                        "version": dependency_version,
+                        "optional": False,
+                    }
+                ],
+            },
+            "limits": {"start": 0, "end": 1, "total": 1},
+        },
+    )
+
+
+def test_enablement_adapter_normalizes_fixed_details() -> None:
+    adapter = KodiAddonEnablementAdapter(
+        observation(), profile(), transport=FakeTransport([details_response()])
+    )
+
+    details = adapter.get_addon_details("plugin.video.example")
+
+    assert details.addon_id == "plugin.video.example"
+    assert details.enabled is False
+    assert details.dependencies[0].dependency_id == "xbmc.python"
+    assert details.dependencies[0].version == "3.0.0"
+
+
+def test_enablement_adapter_preserves_reported_minversion() -> None:
+    document = json.loads(details_response())
+    dependency = document["result"]["addon"]["dependencies"][0]
+    dependency["minversion"] = "3.0.0"
+    adapter = KodiAddonEnablementAdapter(
+        observation(),
+        profile(),
+        transport=FakeTransport([json.dumps(document).encode()]),
+    )
+
+    details = adapter.get_addon_details("plugin.video.example")
+
+    assert details.dependencies[0].version == "3.0.0"
+    assert details.dependencies[0].minversion == "3.0.0"
+
+
+def test_detail_adapter_accepts_version_neutral_absent_limits() -> None:
+    document = json.loads(details_response())
+    del document["result"]["limits"]
+    adapter = KodiAddonEnablementAdapter(
+        observation(),
+        profile(),
+        transport=FakeTransport([json.dumps(document).encode()]),
+    )
+
+    assert adapter.get_addon_details("plugin.video.example").addon_id == (
+        "plugin.video.example"
+    )
+
+
+def test_detail_adapter_uses_fixed_inventory_for_broken_addon_lookup() -> None:
+    singular_error = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": "kodi-lab-addon-enablement-details",
+            "error": {"code": -32100, "message": "raw unavailable detail"},
+        }
+    ).encode()
+    fallback = rpc_response(
+        "kodi-lab-addon-enablement-dependencies",
+        {
+            "addons": [
+                {
+                    **addon(enabled=False),
+                    "dependencies": [
+                        {
+                            "addonid": "script.module.missing",
+                            "version": "0.0.0",
+                            "optional": False,
+                        }
+                    ],
+                }
+            ],
+            "limits": {"start": 0, "end": 1, "total": 1},
+        },
+    )
+    transport = FakeTransport([singular_error, fallback])
+    adapter = KodiAddonEnablementAdapter(observation(), profile(), transport=transport)
+
+    details = adapter.get_addon_details("plugin.video.example")
+
+    assert details.dependencies[0].dependency_id == "script.module.missing"
+    assert transport.requests[1]["method"] == "Addons.GetAddons"
+
+
+def test_enable_adapter_sends_server_id_and_literal_boolean_true_only() -> None:
+    transport = FakeTransport([rpc_response("kodi-lab-addon-enable", "OK")])
+    adapter = KodiAddonEnablementAdapter(observation(), profile(), transport=transport)
+
+    adapter.enable("plugin.video.example")
+
+    assert transport.requests == [
+        {
+            "jsonrpc": "2.0",
+            "id": "kodi-lab-addon-enable",
+            "method": "Addons.SetAddonEnabled",
+            "params": {"addonid": "plugin.video.example", "enabled": True},
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"not-json",
+        rpc_response("wrong-id", "OK"),
+        rpc_response("kodi-lab-addon-enable", "unexpected"),
+    ),
+)
+def test_enable_adapter_treats_malformed_or_wrong_correlation_as_ambiguous(
+    payload: bytes,
+) -> None:
+    adapter = KodiAddonEnablementAdapter(
+        observation(), profile(), transport=FakeTransport([payload])
+    )
+
+    with pytest.raises(KodiAddonEnablementAmbiguousError):
+        adapter.enable("plugin.video.example")
+
+
+def test_enable_adapter_types_timeout_and_redacts_raw_rejection() -> None:
+    timeout_adapter = KodiAddonEnablementAdapter(
+        observation(),
+        profile(),
+        transport=FakeTransport([JsonRpcUnavailableError("secret endpoint")]),
+    )
+    with pytest.raises(KodiAddonEnablementAmbiguousError) as timeout:
+        timeout_adapter.enable("plugin.video.example")
+    assert "secret endpoint" not in str(timeout.value)
+
+    rejection = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": "kodi-lab-addon-enable",
+            "error": {"code": -1, "message": "raw secret message"},
+        }
+    ).encode()
+    rejected_adapter = KodiAddonEnablementAdapter(
+        observation(), profile(), transport=FakeTransport([rejection])
+    )
+    with pytest.raises(KodiAddonEnableRejectedError) as rejected:
+        rejected_adapter.enable("plugin.video.example")
+    assert "raw secret message" not in str(rejected.value)
+
+
+def test_detail_adapter_rejects_malformed_dependency_shape() -> None:
+    malformed = json.loads(details_response())
+    malformed["result"]["addon"]["dependencies"][0]["optional"] = "false"
+    adapter = KodiAddonEnablementAdapter(
+        observation(),
+        profile(),
+        transport=FakeTransport([json.dumps(malformed).encode()]),
+    )
+
+    with pytest.raises(KodiAddonDetailsUnsupportedResponseError):
+        adapter.get_addon_details("plugin.video.example")
+
+
+def test_detail_adapter_requires_exact_single_item_limits() -> None:
+    malformed = json.loads(details_response())
+    malformed["result"]["limits"]["total"] = 2
+    adapter = KodiAddonEnablementAdapter(
+        observation(),
+        profile(),
+        transport=FakeTransport([json.dumps(malformed).encode()]),
+    )
+
+    with pytest.raises(KodiAddonDetailsUnsupportedResponseError):
+        adapter.get_addon_details("plugin.video.example")

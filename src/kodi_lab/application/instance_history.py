@@ -11,6 +11,7 @@ from kodi_lab.application.activity import (
     ManagedInstanceActivityService,
 )
 from kodi_lab.application.addon_inventory import (
+    KodiAddonProvenanceClassification,
     ManagedInstanceAddonInventory,
     ManagedInstanceAddonInventoryService,
 )
@@ -34,14 +35,26 @@ from kodi_lab.application.snapshot_status import (
     SnapshotStatusService,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
-from kodi_lab.domain import InstanceType, ManagedInstanceDeleteOperation
+from kodi_lab.domain import (
+    DevelopmentSourceDeploymentConfidence,
+    DevelopmentSourceEnablementResult,
+    InstanceType,
+    ManagedInstanceDeleteOperation,
+    PythonBytecodePolicy,
+)
 from kodi_lab.storage.repositories import (
+    DevelopmentSourceEnablementOperationRepository,
     FixtureDefinitionRepository,
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
     RuntimeDefinitionRepository,
+    RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
+)
+
+_COPIED_SOURCE_PROVENANCE = (
+    KodiAddonProvenanceClassification.DEVELOPMENT_SOURCE_AT_LAST_VERIFIED_COPY
 )
 
 
@@ -129,6 +142,12 @@ class ManagedInstanceDetailService:
                     instance.fixture_definition_id
                 )
             )
+            profile = RuntimeExecutionProfileRepository(session).get(
+                instance.runtime_revision_id
+            )
+            enablement_history = DevelopmentSourceEnablementOperationRepository(
+                session
+            ).list_for_original_instance(instance_id)
         runtime = self._status.get(instance_id)
         reconciliation = self._reconciliation.status(instance_id)
         sources = self._development_sources.list_attached_sources(instance_id)
@@ -144,6 +163,86 @@ class ManagedInstanceDetailService:
             and not reconciliation.blocking
             and not active_mutation
         )
+        addons = self._addons.get(instance_id)
+        addon_by_id = {item.addon_id: item for item in addons.items}
+        presented_sources: list[AttachedDevelopmentSourceRead] = []
+        for source in sources:
+            state = "Not copied"
+            enable_eligible = False
+            blocked_dependency_id = None
+            blocked_reason = None
+            if (
+                source.deployment_confidence
+                is DevelopmentSourceDeploymentConfidence.STALE
+            ):
+                state = "Provenance stale"
+            elif (
+                source.deployment_confidence
+                is DevelopmentSourceDeploymentConfidence.UNKNOWN
+            ):
+                state = "Provenance unknown"
+            elif (
+                source.deployment_confidence
+                is DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+            ):
+                if runtime.container_state is not ContainerRuntimeState.RUNNING:
+                    state = "Copied, Kodi stopped"
+                elif addons.query_status.value != "available":
+                    state = "Copied, Kodi not ready"
+                else:
+                    addon = addon_by_id.get(source.addon_id)
+                    if addon is None:
+                        state = "Copied, not recognized"
+                    elif addon.enabled:
+                        state = "Recognized, enabled"
+                    elif addon.provenance.classification is _COPIED_SOURCE_PROVENANCE:
+                        state = "Recognized, disabled"
+                        enable_eligible = True
+                    else:
+                        state = "Provenance unknown"
+            if "xbmc.service" in source.extension_types:
+                state = "Unsupported auto-start/service add-on"
+                enable_eligible = False
+            elif any(
+                point.startswith("xbmc.python.") for point in source.extension_types
+            ) and (
+                profile is None
+                or profile.python_bytecode_policy is not PythonBytecodePolicy.SUPPRESS
+            ):
+                state = "Runtime bytecode policy incompatible"
+                enable_eligible = False
+            latest = next(
+                (
+                    item
+                    for item in enablement_history
+                    if item.development_source_id == source.development_source_id
+                ),
+                None,
+            )
+            if (
+                latest is not None
+                and latest.result_classification
+                is DevelopmentSourceEnablementResult.DEPENDENCY_BLOCKED
+            ):
+                state = "Dependency blocked"
+                enable_eligible = False
+                blocked_dependency_id = latest.blocked_dependency_id
+                blocked_reason = latest.blocked_dependency_reason
+            presented_sources.append(
+                source.model_copy(
+                    update={
+                        "copy_sync_eligible": eligible,
+                        "enablement_state": state,
+                        "enable_eligible": (
+                            enable_eligible
+                            and not reconciliation.blocking
+                            and not active_mutation
+                        ),
+                        "enablement_blocked_dependency_id": blocked_dependency_id,
+                        "enablement_blocked_reason": blocked_reason,
+                    }
+                )
+            )
         return ManagedInstanceDetail(
             runtime=runtime,
             instance_type=instance.instance_type,
@@ -160,11 +259,8 @@ class ManagedInstanceDetailService:
                 )
             ),
             snapshots=self._snapshots.list_for_instance(instance_id),
-            development_sources=[
-                source.model_copy(update={"copy_sync_eligible": eligible})
-                for source in sources
-            ],
-            addons=self._addons.get(instance_id),
+            development_sources=presented_sources,
+            addons=addons,
             recent_activity=self._activity.list_for_live_instance(
                 instance_id, limit=10
             ),

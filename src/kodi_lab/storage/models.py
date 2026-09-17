@@ -27,6 +27,9 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceDeploymentRequestKind,
     DevelopmentSourceDeploymentResult,
+    DevelopmentSourceEnablementOperationPhase,
+    DevelopmentSourceEnablementOperationState,
+    DevelopmentSourceEnablementResult,
     DevelopmentSourceKind,
     FixtureContentCategory,
     FixtureSizeCategory,
@@ -584,6 +587,118 @@ class DevelopmentSourceDeploymentOperationRow(Base):
     )
     lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class DevelopmentSourceEnablementOperationRow(Base):
+    """Typed synchronous copied-source enablement history."""
+
+    __tablename__ = "development_source_enablement_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(source_logical_name) BETWEEN 1 AND 120 AND "
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128",
+            name="development_source_enablement_identity_bounded",
+        ),
+        CheckConstraint(
+            "blocked_dependency_id IS NULL OR "
+            "length(blocked_dependency_id) BETWEEN 1 AND 128",
+            name="development_source_enablement_blocked_id_bounded",
+        ),
+        CheckConstraint(
+            "blocked_dependency_reason IS NULL OR "
+            "length(blocked_dependency_reason) BETWEEN 1 AND 64",
+            name="development_source_enablement_blocked_reason_bounded",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="development_source_enablement_failure_bounded",
+        ),
+        Index(
+            "uq_development_source_enablement_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state = 'running'"),
+        ),
+        Index(
+            "ix_development_source_enablement_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+        Index(
+            "ix_development_source_enablement_source",
+            "development_source_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("development_sources.id", ondelete="RESTRICT")
+    )
+    source_logical_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runtime_revisions.id", ondelete="RESTRICT")
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[DevelopmentSourceEnablementOperationState] = mapped_column(
+        Enum(
+            DevelopmentSourceEnablementOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_enablement_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[DevelopmentSourceEnablementOperationPhase] = mapped_column(
+        Enum(
+            DevelopmentSourceEnablementOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="development_source_enablement_operation_phase",
+        ),
+        nullable=False,
+    )
+    result_classification: Mapped[DevelopmentSourceEnablementResult | None] = (
+        mapped_column(
+            Enum(
+                DevelopmentSourceEnablementResult,
+                values_callable=_enum_values,
+                native_enum=False,
+                create_constraint=True,
+                name="development_source_enablement_result",
+            ),
+            nullable=True,
+        )
+    )
+    prior_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    result_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    enable_performed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    blocked_dependency_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    blocked_dependency_reason: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
 
 
 class FixtureDefinitionRow(Base):

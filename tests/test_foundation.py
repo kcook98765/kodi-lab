@@ -126,6 +126,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "development_source_attachment_operations",
         "development_source_deployment_operations",
         "development_source_deployments",
+        "development_source_enablement_operations",
         "development_sources",
         "fixture_definitions",
         "global_heavy_operation_lease",

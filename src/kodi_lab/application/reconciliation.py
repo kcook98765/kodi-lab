@@ -31,6 +31,7 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperation,
     DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceEnablementOperation,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
     ManagedInstanceDeleteOperation,
@@ -59,6 +60,7 @@ from kodi_lab.storage.models import (
 from kodi_lab.storage.repositories import (
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
+    DevelopmentSourceEnablementOperationRepository,
     GlobalHeavyOperationLeaseRepository,
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceLifecycleOperationRepository,
@@ -92,6 +94,7 @@ class ManagedInstanceReconciliationRequiredError(RuntimeError):
 
 class ReconciliationOperationKind(StrEnum):
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
+    DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -116,6 +119,7 @@ class ReconciliationAction(StrEnum):
     RUNTIME_REASSIGNMENT = "runtime_reassignment"
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
+    DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
 
 
 INSTANCE_MUTATIONS = [
@@ -131,6 +135,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.RUNTIME_REASSIGNMENT,
     ReconciliationAction.DEVELOPMENT_SOURCE_ATTACHMENT,
     ReconciliationAction.DEVELOPMENT_SOURCE_DEPLOYMENT,
+    ReconciliationAction.DEVELOPMENT_SOURCE_ENABLEMENT,
 ]
 
 
@@ -145,7 +150,7 @@ class ManagedInstanceReconciliationStatus(BaseModel):
     last_phase: str | None = Field(default=None, max_length=64)
     safe_reason: str | None = Field(default=None, max_length=256)
     observed_state: str | None = Field(default=None, max_length=64)
-    blocked_actions: list[ReconciliationAction] = Field(max_length=12)
+    blocked_actions: list[ReconciliationAction] = Field(max_length=13)
     requested_at: datetime | None = None
     started_at: datetime | None = None
     stale_since: datetime | None = None
@@ -467,6 +472,22 @@ class StaleOperationReconciliationDispatcher:
                 now,
             )
             released += 1
+        elif kind is ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ENABLEMENT:
+            enablement_operation = DevelopmentSourceEnablementOperationRepository(
+                session
+            ).get(operation_id)
+            if (
+                enablement_operation is None
+                or enablement_operation.managed_instance_id != instance_id
+                or not enablement_operation.active
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired enablement ownership is inconsistent."
+                )
+            if not DevelopmentSourceEnablementOperationRepository(
+                session
+            ).mark_stale_reconciliation(operation_id, now=now):
+                raise CoordinationCorruptionError("Expired enablement history changed.")
         elif kind is ManagedInstanceMutationKind.INSTANCE_DELETE:
             operation = ManagedInstanceDeleteOperationRepository(session).get(
                 operation_id
@@ -708,6 +729,12 @@ class ManagedInstanceReconciliationService:
                     session
                 ).reconciliation_for_instance(instance_id)
             )
+            records.extend(
+                (ReconciliationOperationKind.DEVELOPMENT_SOURCE_ENABLEMENT, item)
+                for item in DevelopmentSourceEnablementOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
             snapshots = SnapshotRepository(session)
             if (
                 len(records) == 1
@@ -760,6 +787,8 @@ class ManagedInstanceReconciliationService:
             blocking = not semantic_state_is_unambiguous(semantic)
         elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT:
             observed = "deployment_destination_requires_read_only_inspection"
+        elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_ENABLEMENT:
+            observed = "live_enabled_state_does_not_resolve_history"
         reason = {
             ReconciliationOperationKind.LIFECYCLE: (
                 "Lifecycle state requires operator reconciliation."
@@ -779,6 +808,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT: (
                 "Development-source deployment requires operator reconciliation."
             ),
+            ReconciliationOperationKind.DEVELOPMENT_SOURCE_ENABLEMENT: (
+                "Development-source enablement requires operator reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -789,6 +821,7 @@ class ManagedInstanceReconciliationService:
                 ManagedInstanceDeleteOperation,
                 ManagedInstanceLifecycleOperation,
                 DevelopmentSourceDeploymentOperation,
+                DevelopmentSourceEnablementOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(

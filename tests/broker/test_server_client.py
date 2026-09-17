@@ -85,6 +85,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "provision_managed_container",
                 "start_managed_container",
                 "stop_managed_container",
+                "verify_attached_development_source_destination",
             ],
             protocol_version=1,
         )

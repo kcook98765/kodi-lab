@@ -12,11 +12,14 @@ from kodi_lab.domain import (
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
     DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceEnablementOperationState,
+    DevelopmentSourceEnablementResult,
     ManagedInstanceLifecycleKind,
 )
 from kodi_lab.storage.repositories import (
     DevelopmentSourceAttachmentOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
+    DevelopmentSourceEnablementOperationRepository,
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceRepository,
@@ -30,6 +33,7 @@ from kodi_lab.storage.repositories import (
 class ManagedInstanceActivityKind(StrEnum):
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
+    DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -59,6 +63,7 @@ class ManagedInstanceActivityItem(BaseModel):
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ENABLEMENT: 9,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_DEPLOYMENT: 8,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT: 7,
     ManagedInstanceActivityKind.LIFECYCLE: 6,
@@ -166,6 +171,44 @@ class ManagedInstanceActivityService:
                     state=deployment.state.value,
                     summary=summary,
                     reconciliation_required=deployment.reconciliation_required,
+                )
+            )
+        for enablement in DevelopmentSourceEnablementOperationRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            if (
+                enablement.result_classification
+                is DevelopmentSourceEnablementResult.ENABLED
+            ):
+                summary = "Development source add-on enabled"
+            elif (
+                enablement.result_classification
+                is DevelopmentSourceEnablementResult.ALREADY_ENABLED
+            ):
+                summary = "Add-on already enabled"
+            elif (
+                enablement.result_classification
+                is DevelopmentSourceEnablementResult.DEPENDENCY_BLOCKED
+            ):
+                summary = "Enablement blocked by dependency"
+            elif (
+                enablement.state
+                is DevelopmentSourceEnablementOperationState.RECONCILIATION_REQUIRED
+            ):
+                summary = "Enablement requires reconciliation"
+            else:
+                summary = "Development source enablement failed"
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ENABLEMENT,
+                    operation_uuid=enablement.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=enablement.requested_at,
+                    started_at=enablement.started_at,
+                    completed_at=enablement.completed_at,
+                    state=enablement.state.value,
+                    summary=summary,
+                    reconciliation_required=enablement.reconciliation_required,
                 )
             )
         for lifecycle in ManagedInstanceLifecycleOperationRepository(

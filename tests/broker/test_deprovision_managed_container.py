@@ -369,4 +369,5 @@ def test_adapter_has_only_the_bounded_semantic_public_methods() -> None:
         "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",
+        "verify_attached_development_source_destination",
     }

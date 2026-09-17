@@ -574,3 +574,35 @@ readback, exclusion, replacement, or provenance rule. Normal Python imports on
 the new revisions can therefore coexist with strict Step 4 unchanged sync;
 intentional add-on writes remain conflicts. Bind-mounted-source benefit remains
 an unvalidated later architecture gate.
+
+Phase 8 copied-add-on enablement adds migration
+`0022_dev_source_enablement`, the typed synchronous
+`DevelopmentSourceEnablementOperation`, and per-instance
+`development_source_enablement` coordination without a global-heavy lease.
+The operation validates exact attachment, current runtime/container, retained
+Step 4 success and confidence, and a fresh broker-derived complete destination
+capture before querying Kodi.
+
+The source descriptor parser now normalizes bounded strict dependency imports
+and classifies Python and service extension behavior. Service/auto-start add-ons
+and interpreter-default Python execution-capable sources are rejected. Fixed
+Kodi inventory/details are cross-checked with source declarations; missing,
+disabled, unknown, mismatched, and version-unverified required dependencies
+block without calling enable. Optional missing dependencies are allowed. No
+dependency installation or implicit dependency enablement is authorized. The
+fixed API has no authoritative version-compatibility Boolean, so every actual
+required version constraint is fail-closed even on exact string equality;
+Kodi's exact neutral `0.0.0` unset-bound sentinel alone maps to no constraint.
+
+The sole mutation sends server-derived ID plus Boolean `true`, then requires a
+fresh exact enabled postcondition. Already enabled is idempotent and does not
+send the mutation. Post-mutation ambiguity enters durable reconciliation and is
+never retried; interruption known to precede mutation is ordinary failure.
+Typed activity and newest-20 ordinary retention follow existing conventions.
+
+The authenticated strict-empty-body endpoint returns the completed synchronous
+operation with HTTP 200. Instance UI integrates bounded advisory enablement and
+dependency states. The implemented ladder stops at enabled: attached,
+materialized, recognized, enabled, dependencies generally unproven, working
+unproven, tested unproven. Execution/smoke testing, bind mounts, and ZIP
+installation remain architecture-gated future milestones.

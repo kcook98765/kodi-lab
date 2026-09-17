@@ -41,6 +41,12 @@ from kodi_lab.application.development_source_deployments import (
     DevelopmentSourceDeploymentStatus,
     DevelopmentSourceDeploymentUnsupportedError,
 )
+from kodi_lab.application.development_source_enablements import (
+    DevelopmentSourceEnablementError,
+    DevelopmentSourceEnablementOperationCoordinator,
+    DevelopmentSourceEnablementService,
+    DevelopmentSourceEnablementStatus,
+)
 from kodi_lab.application.development_source_presentation import (
     DevelopmentSourceDetail,
     DevelopmentSourcePresentationService,
@@ -279,6 +285,7 @@ class WebApplicationContext:
         DevelopmentSourceDeploymentOperationCoordinator
     )
     development_source_deployment_executor: DevelopmentSourceDeploymentExecutor
+    development_source_enablement: DevelopmentSourceEnablementService
 
 
 def create_app(
@@ -300,6 +307,8 @@ def create_app(
         DevelopmentSourceDeploymentServiceFactory | None
     ) = None,
     addon_inventory_adapter_factory: InventoryAdapterFactory | None = None,
+    development_source_enablement_service: DevelopmentSourceEnablementService
+    | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -437,6 +446,19 @@ def create_app(
         development_source_deployment_operations,
         development_source_deployment_factory,
     )
+    development_source_enablement = (
+        development_source_enablement_service
+        or DevelopmentSourceEnablementService(
+            session_factory,
+            broker,
+            DevelopmentSourceValidator(settings.development_root),
+            coordinator=DevelopmentSourceEnablementOperationCoordinator(
+                session_factory,
+                stale_dispatcher=stale_dispatcher,
+                reconciliation=reconciliation,
+            ),
+        )
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -494,6 +516,7 @@ def create_app(
             development_source_deployment_operations
         ),
         development_source_deployment_executor=(development_source_deployment_executor),
+        development_source_enablement=development_source_enablement,
     )
 
     @asynccontextmanager
@@ -599,6 +622,12 @@ def create_app(
     @app.exception_handler(DevelopmentSourceDeploymentError)
     async def development_source_deployment_failed(
         _request: Request, error: DevelopmentSourceDeploymentError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(DevelopmentSourceEnablementError)
+    async def development_source_enablement_failed(
+        _request: Request, error: DevelopmentSourceEnablementError
     ) -> JSONResponse:
         return _json_error(409, error.code, str(error)[:256])
 
@@ -1283,6 +1312,19 @@ def create_app(
         return DevelopmentSourceDeploymentAccepted(
             operation=operation, status_url=status_url
         )
+
+    @app.post(
+        "/api/instances/{instance_id}/development-sources/{source_id}/enable",
+        response_model=DevelopmentSourceEnablementStatus,
+        status_code=status.HTTP_200_OK,
+    )
+    def enable_development_source(
+        instance_id: UUID,
+        source_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentSourceEnablementStatus:
+        return context.development_source_enablement.enable(instance_id, source_id)
 
     @app.get(
         "/api/instances/{instance_id}/reset-status",

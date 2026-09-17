@@ -260,6 +260,93 @@ def test_malformed_unsafe_and_invalid_metadata_are_rejected(
     assert_code(DevelopmentSourceValidator(tmp_path), "source", code)
 
 
+@pytest.mark.parametrize(
+    ("requires", "expected"),
+    (
+        ("", ()),
+        (
+            '<requires><import addon="script.module.required" /></requires>',
+            (("script.module.required", None, None, False),),
+        ),
+        (
+            '<requires><import addon="script.module.optional" '
+            'optional="true" /></requires>',
+            (("script.module.optional", None, None, True),),
+        ),
+        (
+            '<requires><import addon="script.module.versioned" '
+            'version="1.2.3" /></requires>',
+            (("script.module.versioned", "1.2.3", None, False),),
+        ),
+        (
+            '<requires><import addon="xbmc.python" minversion="3.0.0" /></requires>',
+            (("xbmc.python", None, "3.0.0", False),),
+        ),
+    ),
+)
+def test_dependency_declarations_are_normalized(
+    tmp_path: Path,
+    requires: str,
+    expected: tuple[tuple[str, str | None, str | None, bool], ...],
+) -> None:
+    source = make_source(tmp_path, "source")
+    document = addon_xml().replace(">", f">{requires}", 1)
+    (source / "addon.xml").write_text(document, encoding="utf-8")
+
+    result = DevelopmentSourceValidator(tmp_path).validate("source")
+
+    assert (
+        tuple(
+            (item.dependency_id, item.version, item.minversion, item.optional)
+            for item in result.dependencies
+        )
+        == expected
+    )
+    assert result.is_python_addon is True
+    assert result.has_auto_start_behavior is False
+
+
+@pytest.mark.parametrize(
+    "requires",
+    (
+        '<requires><import addon="script.module.bad" optional="1" /></requires>',
+        (
+            '<requires><import addon="script.module.dup" />'
+            '<import addon="script.module.dup" /></requires>'
+        ),
+        '<import addon="script.module.outside" />',
+        '<requires><import addon="script.module.nested"><child /></import></requires>',
+        '<requires><other addon="script.module.wrong" /></requires>',
+    ),
+)
+def test_malformed_dependency_relationships_are_rejected(
+    tmp_path: Path, requires: str
+) -> None:
+    source = make_source(tmp_path, "source")
+    document = addon_xml().replace(">", f">{requires}", 1)
+    (source / "addon.xml").write_text(document, encoding="utf-8")
+
+    assert_code(
+        DevelopmentSourceValidator(tmp_path),
+        "source",
+        DevelopmentSourceValidationCode.ADDON_METADATA_INVALID,
+    )
+
+
+def test_service_extension_is_auto_start_without_blanket_python_rule(
+    tmp_path: Path,
+) -> None:
+    source = make_source(tmp_path, "source")
+    (source / "addon.xml").write_text(
+        addon_xml(extensions=("xbmc.service",)), encoding="utf-8"
+    )
+
+    result = DevelopmentSourceValidator(tmp_path).validate("source")
+
+    assert result.has_auto_start_behavior is True
+    assert result.is_python_addon is False
+
+
 def test_oversized_addon_xml_is_rejected(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

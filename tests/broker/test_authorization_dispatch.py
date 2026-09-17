@@ -70,6 +70,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
         "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",
+        "verify_attached_development_source_destination",
     )
     assert registry.dispatch(request("ping")) == PingResult(
         status="healthy", protocol_version=1
@@ -91,6 +92,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
             "provision_managed_container",
             "start_managed_container",
             "stop_managed_container",
+            "verify_attached_development_source_destination",
         ],
         protocol_version=1,
     )

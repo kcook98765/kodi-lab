@@ -17,6 +17,12 @@ from kodi_lab.domain.development_source_deployments import (
     DevelopmentSourceDeploymentRequestKind,
     DevelopmentSourceDeploymentResult,
 )
+from kodi_lab.domain.development_source_enablements import (
+    DevelopmentSourceEnablementOperation,
+    DevelopmentSourceEnablementOperationPhase,
+    DevelopmentSourceEnablementOperationState,
+    DevelopmentSourceEnablementResult,
+)
 from kodi_lab.domain.development_sources import (
     MAX_ADDON_ID,
     MAX_ADDON_NAME,
@@ -135,6 +141,10 @@ __all__ = [
     "DevelopmentSourceDeploymentOperationState",
     "DevelopmentSourceDeploymentRequestKind",
     "DevelopmentSourceDeploymentResult",
+    "DevelopmentSourceEnablementOperation",
+    "DevelopmentSourceEnablementOperationPhase",
+    "DevelopmentSourceEnablementOperationState",
+    "DevelopmentSourceEnablementResult",
     "DevelopmentSourceKind",
     "EffectiveValidationState",
     "FixtureContentCategory",

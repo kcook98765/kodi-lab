@@ -46,6 +46,9 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceDeploymentRequestKind,
     DevelopmentSourceDeploymentResult,
+    DevelopmentSourceEnablementOperationPhase,
+    DevelopmentSourceEnablementOperationState,
+    DevelopmentSourceEnablementResult,
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
     ManagedInstanceDeleteOperationState,
@@ -62,6 +65,7 @@ from kodi_lab.storage.models import (
     DevelopmentSourceAttachmentOperationRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
+    DevelopmentSourceEnablementOperationRow,
     DevelopmentSourceRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceDeleteOperationRow,
@@ -227,6 +231,28 @@ def factory(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
                 observed_source_version="1.0.0",
                 verified_at="2026-09-16T00:00:01.000000Z",
                 confidence=DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION,
+            )
+        )
+        session.add(
+            DevelopmentSourceEnablementOperationRow(
+                id="95000000-0000-4000-8000-000000000033",
+                original_managed_instance_id=str(INSTANCE_ID),
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                source_logical_name="Deletion attachment",
+                addon_id="plugin.video.deletion-attachment",
+                addon_version="1.0.0",
+                runtime_revision_id=str(REVISION_ID),
+                requested_at="2026-09-16T00:00:02.000000Z",
+                started_at="2026-09-16T00:00:02.000000Z",
+                completed_at="2026-09-16T00:00:02.000000Z",
+                state=DevelopmentSourceEnablementOperationState.SUCCEEDED,
+                phase=DevelopmentSourceEnablementOperationPhase.FINALIZE,
+                result_classification=DevelopmentSourceEnablementResult.ENABLED,
+                prior_enabled=False,
+                result_enabled=True,
+                enable_performed=True,
+                reconciliation_required=False,
             )
         )
         for identity, owner, label in (
@@ -424,6 +450,10 @@ def test_preserve_detaches_atomically_and_keeps_bytes_and_exact_notes(
             DevelopmentSourceDeploymentOperationRow,
             "95000000-0000-4000-8000-000000000032",
         )
+        enablement_history = session.get(
+            DevelopmentSourceEnablementOperationRow,
+            "95000000-0000-4000-8000-000000000033",
+        )
     assert len(snapshots) == 2
     assert all(item.source_managed_instance_id is None for item in snapshots)
     assert all(
@@ -439,6 +469,9 @@ def test_preserve_detaches_atomically_and_keeps_bytes_and_exact_notes(
     assert deployment_history is not None
     assert deployment_history.managed_instance_id is None
     assert deployment_history.original_managed_instance_id == str(INSTANCE_ID)
+    assert enablement_history is not None
+    assert enablement_history.managed_instance_id is None
+    assert enablement_history.original_managed_instance_id == str(INSTANCE_ID)
     assert operation.state is ManagedInstanceDeleteOperationState.SUCCEEDED
     assert operation.notes_at_deletion == "  exact notes 🐍  "
     assert reset_history is not None
@@ -531,6 +564,9 @@ def test_active_snapshot_delete_blocks_instance_delete(
         ManagedInstanceMutationKind.LIFECYCLE,
         ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT,
         ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT,
+        ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ATTACHMENT,
+        ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_DEPLOYMENT,
+        ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ENABLEMENT,
     ],
 )
 def test_existing_instance_mutation_blocks_delete(

@@ -686,3 +686,47 @@ allowing a fresh unchanged Step 4 sync to retain exact provenance. Step 4 itself
 has no runtime-artifact exemption or destination-adoption rule. Bind-mounted
 DevelopmentSource workflows may benefit from the same policy, but that
 architecture remains unvalidated.
+
+Copied-add-on enablement is the next narrow Phase 8 slice. It binds one
+synchronous mutation to the exact ManagedInstance, attached DevelopmentSource,
+retained successful copy identity/version, current RuntimeRevision/container,
+and a new fresh complete destination readback. The broker exposes only semantic
+instance/source/container identity and derives the fixed destination; it returns
+bounded match and descriptor identity data without paths or digests.
+
+Trusted source `addon.xml` supplies extension and dependency declarations.
+Service/auto-start extension behavior is rejected. Python execution-capable
+sources require the exact current suppression profile, while safe non-Python
+sources do not. Source dependencies are cross-checked with fixed
+`Addons.GetAddonDetails` data and current complete inventory. Required missing,
+disabled, unknown, mismatched, or version-unverified dependencies block before
+Kodi mutation; optional missing dependencies are allowed. No dependency is
+installed or enabled, and no version ordering is inferred. Kodi's exact
+`0.0.0` unset-bound sentinel is treated as no declaration constraint during
+cross-checking while the reported value remains preserved. Because the fixed
+API exposes no authoritative compatibility Boolean, any actual required
+version constraint is version-unverified even when strings happen to match.
+
+The only Kodi mutation adapter builds `Addons.SetAddonEnabled` internally with
+the server-derived add-on ID and literal Boolean `true`. Exact live recognition
+and version are mandatory. Already-enabled is an idempotent success after all
+preconditions and sends no mutation. Otherwise exactly one enable request is
+followed immediately by a fixed detail query requiring exact ID/version and
+`enabled=true`. Success does not execute the plugin or prove function.
+
+Migration `0022_dev_source_enablement` adds only typed enablement-operation
+history plus the per-instance coordination kind. No enabled-state model or
+dependency inventory is persisted. Pre-mutation interruption is ordinary
+failure; post-mutation uncertainty is reconciliation-required, remains
+historically ambiguous, and is never automatically retried or finalized.
+Ordinary terminal retention is newest 20 per original instance; active and
+unresolved rows survive.
+
+The authenticated same-origin CSRF-protected empty-body enable POST is
+synchronous HTTP 200. Instance presentation provides advisory copied,
+recognized, enabled, dependency-blocked, provenance, runtime-policy, and
+auto-start states, while POST remains authoritative. The explicit state ladder
+is: attached; materialized; recognized; enabled; dependencies generally
+unproven; working unproven; tested unproven. Disable/toggle, dependency install,
+generic enablement, repository work, ZIP installation, bind mounts, and plugin
+execution remain absent.

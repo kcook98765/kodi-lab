@@ -39,6 +39,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "development_source_attachment_operations",
         "development_source_deployment_operations",
         "development_source_deployments",
+        "development_source_enablement_operations",
         "development_sources",
         "fixture_definitions",
         "global_heavy_operation_lease",
@@ -2260,6 +2261,126 @@ def test_0021_empty_downgrade_and_reupgrade(
     engine.dispose()
     command.upgrade(config, "head")
     command.check(config)
+
+
+def test_0022_enablement_schema_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "development_source_enablement_operations" in inspector.get_table_names()
+    with engine.connect() as connection:
+        mutation_sql = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'managed_instance_mutation_leases'"
+            )
+        )
+    assert "development_source_enablement" in mutation_sql
+    engine.dispose()
+    command.downgrade(config, "0021_runtime_python_bytecode_policy")
+    engine = create_database_engine(database_url)
+    assert (
+        "development_source_enablement_operations"
+        not in inspect(engine).get_table_names()
+    )
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_0022_populated_enablement_history_refuses_lossy_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0018_development_source_attach")
+    engine = create_database_engine(database_url)
+    revision_id = CURATED_OWNERSHIP_ROWS[0][0]
+    with engine.begin() as connection:
+        row = CURATED_OWNERSHIP_ROWS[0]
+        _insert_0018_execution_profile(
+            connection,
+            revision_id=row[0],
+            revision_number=row[1],
+            version=row[2],
+            channel=row[3],
+            prerelease=row[4],
+            image_id=row[5],
+        )
+    engine.dispose()
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-17T16:00:00.000000Z"
+    instance_id = "aa220000-0000-4000-8000-000000000001"
+    source_id = "aa220000-0000-4000-8000-000000000002"
+    operation_id = "aa220000-0000-4000-8000-000000000003"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets "
+                "(id, name, target_type, kodi_version, availability, health, "
+                "connection_state) VALUES "
+                "(:id, 'Instance', 'managed', '21.3', 'available', 'healthy', "
+                "'connected')"
+            ),
+            {"id": instance_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances "
+                "(target_id, instance_type, runtime_revision_id, runtime_state, "
+                "start_on_host_boot) VALUES "
+                "(:id, 'disposable', :revision, 'running', 0)"
+            ),
+            {"id": instance_id, "revision": revision_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id, logical_name, source_kind, relative_locator, addon_id, "
+                "observed_name, observed_version, extension_types_json, "
+                "registered_at, validated_at) VALUES "
+                "(:id, 'Source', 'local_directory', 'source', "
+                "'plugin.video.example', 'Example', '1.0.0', "
+                "'[\"xbmc.python.pluginsource\"]', :at, :at)"
+            ),
+            {"id": source_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO development_source_enablement_operations "
+                "(id, original_managed_instance_id, managed_instance_id, "
+                "development_source_id, source_logical_name, addon_id, "
+                "addon_version, runtime_revision_id, requested_at, started_at, "
+                "state, phase, result_classification, prior_enabled, "
+                "result_enabled, enable_performed, completed_at, "
+                "reconciliation_required) VALUES "
+                "(:operation, :instance, :instance, :source, 'Source', "
+                "'plugin.video.example', '1.0.0', :revision, :at, :at, "
+                "'succeeded', 'finalize', 'enabled', 0, 1, 1, :at, 0)"
+            ),
+            {
+                "operation": operation_id,
+                "instance": instance_id,
+                "source": source_id,
+                "revision": revision_id,
+                "at": timestamp,
+            },
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated DevelopmentSource enablement"):
+        command.downgrade(config, "0021_runtime_python_bytecode_policy")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT COUNT(*) FROM development_source_enablement_operations")
+            )
+            == 1
+        )
+    engine.dispose()
 
 
 def test_0020_deployment_schema_empty_lifecycle_and_metadata_check(

@@ -60,6 +60,19 @@ class DevelopmentSourceDeploymentSpec:
     prior_evidence: PriorDevelopmentSourceDeploymentEvidence | None
 
 
+@dataclass(frozen=True, slots=True)
+class DevelopmentSourceDestinationVerificationSpec:
+    managed_instance_id: str
+    development_source_id: str
+    runtime_revision_id: str
+    runtime_uid: int
+    runtime_gid: int
+    addon_id: str
+    addon_version: str
+    verified_destination_digest: str
+    trusted_container_id: str
+
+
 class DevelopmentSourceDeploymentResolver(Protocol):
     def resolve(
         self,
@@ -68,6 +81,13 @@ class DevelopmentSourceDeploymentResolver(Protocol):
         deployment_operation_id: str,
         expected_container_id: str,
     ) -> DevelopmentSourceDeploymentSpec: ...
+
+    def resolve_destination_verification(
+        self,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDestinationVerificationSpec: ...
 
 
 class SqliteDevelopmentSourceDeploymentResolver:
@@ -229,4 +249,92 @@ class SqliteDevelopmentSourceDeploymentResolver:
         except (SQLAlchemyError, ValueError) as error:
             raise DevelopmentSourceDeploymentStateError(
                 "Canonical deployment state could not be read."
+            ) from error
+
+    def resolve_destination_verification(
+        self,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDestinationVerificationSpec:
+        try:
+            instance_id = UUID(managed_instance_id)
+            source_id = UUID(development_source_id)
+            if (
+                str(instance_id) != managed_instance_id
+                or str(source_id) != development_source_id
+                or len(expected_container_id) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in expected_container_id
+                )
+            ):
+                raise ValueError
+        except ValueError as error:
+            raise DevelopmentSourceDeploymentStateError(
+                "Destination-verification identities are not canonical."
+            ) from error
+        try:
+            with self._session_factory() as session:
+                instance = ManagedInstanceRepository(session).get(instance_id)
+                source = DevelopmentSourceRepository(session).get(source_id)
+                attachment = ManagedInstanceDevelopmentSourceRepository(session).get(
+                    instance_id, source_id
+                )
+                evidence = DevelopmentSourceDeploymentRepository(session).get(
+                    instance_id, source_id
+                )
+                if instance is None or source is None or attachment is None:
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Attached development-source state does not exist."
+                    )
+                profile = RuntimeExecutionProfileRepository(session).get(
+                    instance.runtime_revision_id
+                )
+                if profile is None or evidence is None:
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Verified deployment evidence is unavailable."
+                    )
+                operation = DevelopmentSourceDeploymentOperationRepository(session).get(
+                    evidence.last_successful_operation_id
+                )
+                if (
+                    evidence.confidence
+                    is not (
+                        DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+                    )
+                    or evidence.mode is not DevelopmentSourceDeploymentMode.COPY
+                    or evidence.managed_instance_id != instance_id
+                    or evidence.development_source_id != source_id
+                    or evidence.addon_id != source.addon_id
+                    or evidence.runtime_revision_id != instance.runtime_revision_id
+                    or evidence.trusted_container_id != expected_container_id
+                    or operation is None
+                    or operation.state
+                    is not DevelopmentSourceDeploymentOperationState.SUCCEEDED
+                    or operation.managed_instance_id != instance_id
+                    or operation.development_source_id != source_id
+                    or operation.addon_id != source.addon_id
+                    or operation.runtime_revision_id != instance.runtime_revision_id
+                    or operation.expected_container_id != expected_container_id
+                ):
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Verified deployment evidence is stale or inconsistent."
+                    )
+                return DevelopmentSourceDestinationVerificationSpec(
+                    managed_instance_id=managed_instance_id,
+                    development_source_id=development_source_id,
+                    runtime_revision_id=str(instance.runtime_revision_id),
+                    runtime_uid=profile.runtime_uid,
+                    runtime_gid=profile.runtime_gid,
+                    addon_id=source.addon_id,
+                    addon_version=evidence.observed_source_version,
+                    verified_destination_digest=evidence.verified_destination_digest,
+                    trusted_container_id=evidence.trusted_container_id,
+                )
+        except DevelopmentSourceDeploymentStateError:
+            raise
+        except (SQLAlchemyError, ValueError) as error:
+            raise DevelopmentSourceDeploymentStateError(
+                "Canonical destination-verification state could not be read."
             ) from error

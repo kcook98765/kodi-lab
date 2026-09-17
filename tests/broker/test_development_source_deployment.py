@@ -14,6 +14,7 @@ from docker.errors import NotFound  # type: ignore[import-untyped]
 import kodi_lab.broker.docker_inventory as inventory
 from kodi_lab.broker.development_sources import (
     DevelopmentSourceDeploymentSpec,
+    DevelopmentSourceDestinationVerificationSpec,
     PriorDevelopmentSourceDeploymentEvidence,
 )
 from kodi_lab.broker.docker_inventory import DockerManagedContainerAdapter
@@ -210,6 +211,58 @@ def _prior(
         trusted_container_id=CONTAINER_ID,
         confidence=DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION,
     )
+
+
+def _verification_spec(
+    destination_digest: str,
+) -> DevelopmentSourceDestinationVerificationSpec:
+    return DevelopmentSourceDestinationVerificationSpec(
+        managed_instance_id=INSTANCE_ID,
+        development_source_id=SOURCE_ID,
+        runtime_revision_id=REVISION_ID,
+        runtime_uid=42,
+        runtime_gid=43,
+        addon_id=ADDON_ID,
+        addon_version="1.0.0",
+        verified_destination_digest=destination_digest,
+        trusted_container_id=CONTAINER_ID,
+    )
+
+
+def test_running_destination_verification_reuses_complete_capture(
+    tmp_path: Path,
+) -> None:
+    client = FakeDeploymentDockerClient()
+    deployed = _apply(client, _spec(tmp_path))
+    client.inspection = _inspection(state="running")
+    result = DockerManagedContainerAdapter(
+        lambda: client
+    ).verify_attached_development_source_destination(
+        spec=_verification_spec(deployed.verified_destination_digest),
+        expected_container_id=CONTAINER_ID,
+    )
+    assert result.matched is True
+    assert result.addon_id == ADDON_ID
+    assert result.addon_version == "1.0.0"
+
+
+def test_running_destination_verification_rejects_external_drift(
+    tmp_path: Path,
+) -> None:
+    client = FakeDeploymentDockerClient()
+    deployed = _apply(client, _spec(tmp_path))
+    client.entries["drift.txt"] = (b"external", 0o644, 42, 43)
+    client.inspection = _inspection(state="running")
+    with pytest.raises(
+        DockerDevelopmentSourceDeploymentError,
+        match="Current destination bytes do not match",
+    ):
+        DockerManagedContainerAdapter(
+            lambda: client
+        ).verify_attached_development_source_destination(
+            spec=_verification_spec(deployed.verified_destination_digest),
+            expected_container_id=CONTAINER_ID,
+        )
 
 
 def test_initial_deployment_uses_runtime_ownership_and_stays_stopped(

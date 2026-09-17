@@ -19,8 +19,22 @@ from kodi_lab.domain import (
 )
 
 MAX_ADDON_XML_BYTES = 1024 * 1024
+MAX_DEPENDENCIES = 256
+MAX_DEPENDENCY_VERSION = 128
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
 _FILE_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+
+_PYTHON_EXTENSION_POINTS = frozenset(
+    {
+        "xbmc.python.library",
+        "xbmc.python.lyrics",
+        "xbmc.python.module",
+        "xbmc.python.pluginsource",
+        "xbmc.python.script",
+        "xbmc.python.weather",
+    }
+)
+_AUTO_START_EXTENSION_POINTS = frozenset({"xbmc.service"})
 
 
 class DevelopmentSourceValidationCode(StrEnum):
@@ -55,6 +69,31 @@ class DevelopmentSourceValidationResult:
     observed_name: str
     observed_version: str
     extension_types: tuple[str, ...]
+    dependencies: tuple[DevelopmentSourceDependency, ...]
+
+    @property
+    def is_python_addon(self) -> bool:
+        """Use declared extension semantics, never source filenames."""
+
+        return any(point in _PYTHON_EXTENSION_POINTS for point in self.extension_types)
+
+    @property
+    def has_auto_start_behavior(self) -> bool:
+        """Identify the first-slice extension points that can run on enable."""
+
+        return any(
+            point in _AUTO_START_EXTENSION_POINTS for point in self.extension_types
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DevelopmentSourceDependency:
+    """Normalized declaration truth from one trusted source descriptor."""
+
+    dependency_id: str
+    version: str | None
+    minversion: str | None
+    optional: bool
 
 
 class DevelopmentSourceValidator:
@@ -229,6 +268,7 @@ class DevelopmentSourceValidator:
                     if child.tag == "extension"
                 )
             )
+            dependencies = DevelopmentSourceValidator._parse_dependencies(root)
         except ValueError as error:
             raise DevelopmentSourceValidationError(
                 DevelopmentSourceValidationCode.ADDON_METADATA_INVALID,
@@ -240,6 +280,68 @@ class DevelopmentSourceValidator:
             observed_name=observed_name,
             observed_version=observed_version,
             extension_types=extension_types,
+            dependencies=dependencies,
+        )
+
+    @staticmethod
+    def _parse_dependencies(
+        root: ET.Element,
+    ) -> tuple[DevelopmentSourceDependency, ...]:
+        requires_nodes = [child for child in root if child.tag == "requires"]
+        if len(requires_nodes) > 1:
+            raise ValueError("addon.xml must contain at most one requires element")
+        for child in root.iter("import"):
+            if not requires_nodes or child not in list(requires_nodes[0]):
+                raise ValueError("dependency imports must be direct requires children")
+        if not requires_nodes:
+            return ()
+        requires = requires_nodes[0]
+        dependencies: list[DevelopmentSourceDependency] = []
+        seen: set[str] = set()
+        for child in requires:
+            if child.tag != "import" or list(child) or (child.text or "").strip():
+                raise ValueError("requires may contain only empty import elements")
+            if not set(child.attrib) <= {"addon", "version", "minversion", "optional"}:
+                raise ValueError(
+                    "dependency declaration contains unsupported attributes"
+                )
+            dependency_id = validate_addon_id(child.attrib.get("addon", ""))
+            if dependency_id in seen:
+                raise ValueError("dependency IDs must be unique")
+            seen.add(dependency_id)
+            version = DevelopmentSourceValidator._dependency_version(
+                child.attrib.get("version"), "version"
+            )
+            minversion = DevelopmentSourceValidator._dependency_version(
+                child.attrib.get("minversion"), "minversion"
+            )
+            raw_optional = child.attrib.get("optional")
+            if raw_optional is None or raw_optional == "false":
+                optional = False
+            elif raw_optional == "true":
+                optional = True
+            else:
+                raise ValueError("dependency optional must be literal true or false")
+            dependencies.append(
+                DevelopmentSourceDependency(
+                    dependency_id=dependency_id,
+                    version=version,
+                    minversion=minversion,
+                    optional=optional,
+                )
+            )
+            if len(dependencies) > MAX_DEPENDENCIES:
+                raise ValueError("addon.xml dependency count exceeds the fixed limit")
+        return tuple(sorted(dependencies, key=lambda item: item.dependency_id))
+
+    @staticmethod
+    def _dependency_version(value: str | None, field: str) -> str | None:
+        if value is None:
+            return None
+        return validate_observed_metadata(
+            value,
+            field=f"dependency {field}",
+            maximum=MAX_DEPENDENCY_VERSION,
         )
 
 

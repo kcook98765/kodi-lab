@@ -330,6 +330,26 @@ def test_broker_resolver_derives_synthetic_runtime_ownership_and_rejects_corrupt
         )
 
 
+def test_destination_verification_resolver_derives_all_sensitive_authority(
+    factory: sessionmaker[Session], tmp_path: Path
+) -> None:
+    _successful_deployment(factory, tmp_path, FakeBroker(), Clock())
+    resolver = SqliteDevelopmentSourceDeploymentResolver(
+        factory, development_root=tmp_path, data_root=tmp_path / "data"
+    )
+    resolved = resolver.resolve_destination_verification(
+        str(INSTANCE_ID), str(SOURCE_ID), CONTAINER_ID
+    )
+    assert resolved.addon_id == "plugin.video.example"
+    assert resolved.addon_version == "1.0.0"
+    assert resolved.verified_destination_digest == "sha256:" + "2" * 64
+    assert (resolved.runtime_uid, resolved.runtime_gid) == (2468, 1357)
+    with pytest.raises(DevelopmentSourceDeploymentStateError):
+        resolver.resolve_destination_verification(
+            str(INSTANCE_ID), str(SOURCE_ID), "0" * 64
+        )
+
+
 def test_queue_always_reserves_instance_and_global_heavy_authority(
     factory: sessionmaker[Session], tmp_path: Path
 ) -> None:

@@ -181,6 +181,7 @@ def test_adapter_exposes_only_inventory_and_semantic_stop_public_methods() -> No
         "provision_managed_container",
         "start_managed_container",
         "stop_managed_container",
+        "verify_attached_development_source_destination",
     }
 
 

@@ -673,6 +673,44 @@ class CopySyncAttachedDevelopmentSourceResult(StrictModel):
         return value
 
 
+class VerifyAttachedDevelopmentSourceDestinationParams(StrictModel):
+    """Only semantic identities for one fixed destination readback."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    development_source_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("managed_instance_id", "development_source_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class VerifyAttachedDevelopmentSourceDestinationResult(StrictModel):
+    """Safe aggregate current-byte verification result."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    development_source_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    addon_id: str = Field(min_length=1, max_length=128)
+    addon_version: str = Field(min_length=1, max_length=128)
+    matched: Literal[True]
+
+    @field_validator(
+        "managed_instance_id", "development_source_id", "runtime_revision_id"
+    )
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
 type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
@@ -2036,6 +2074,83 @@ def build_foundation_registry(
             "broker_deployment_unchanged_count": result.unchanged_count,
             "broker_deployment_destination_only_count": (result.destination_only_count),
             "broker_deployment_transferred_bytes": result.transferred_bytes,
+        },
+    )
+
+    def verify_attached_development_source_destination(
+        params: VerifyAttachedDevelopmentSourceDestinationParams,
+    ) -> VerifyAttachedDevelopmentSourceDestinationResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_development_source_id": params.development_source_id,
+        }
+        try:
+            spec = deployment_resolver.resolve_destination_verification(
+                params.managed_instance_id,
+                params.development_source_id,
+                params.expected_container_id,
+            )
+            outcome = (
+                deployment_provider.verify_attached_development_source_destination(
+                    spec=spec, expected_container_id=params.expected_container_id
+                )
+            )
+        except DevelopmentSourceDeploymentStateError as error:
+            raise OperationError(
+                error.code,
+                "Canonical destination-verification state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDevelopmentSourceDeploymentError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        except ManagedRuntimeNotRunningError as error:
+            raise OperationError(
+                "managed_runtime_not_running",
+                "Destination verification requires the exact running runtime.",
+                audit_fields=audit_fields,
+            ) from error
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            DockerDaemonUnavailableError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ) as error:
+            raise OperationError(
+                "development_destination_verification_failed",
+                "The copied destination could not be safely verified.",
+                audit_fields=audit_fields,
+            ) from error
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.development_source_id != params.development_source_id
+            or outcome.container_id != params.expected_container_id
+            or not outcome.matched
+        ):
+            raise RuntimeError("Destination verifier returned inconsistent identity")
+        return VerifyAttachedDevelopmentSourceDestinationResult(
+            managed_instance_id=outcome.managed_instance_id,
+            development_source_id=outcome.development_source_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            addon_id=outcome.addon_id,
+            addon_version=outcome.addon_version,
+            matched=True,
+        )
+
+    registry.register(
+        name="verify_attached_development_source_destination",
+        params_model=VerifyAttachedDevelopmentSourceDestinationParams,
+        result_model=VerifyAttachedDevelopmentSourceDestinationResult,
+        handler=verify_attached_development_source_destination,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_development_source_id": result.development_source_id,
+            "broker_destination_matched": result.matched,
         },
     )
     return registry

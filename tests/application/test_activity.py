@@ -18,6 +18,9 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceDeploymentRequestKind,
     DevelopmentSourceDeploymentResult,
+    DevelopmentSourceEnablementOperationPhase,
+    DevelopmentSourceEnablementOperationState,
+    DevelopmentSourceEnablementResult,
     ManagedInstanceDeleteOperationPhase,
     ManagedInstanceDeleteOperationState,
     ManagedInstanceDeletePriorState,
@@ -39,6 +42,7 @@ from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     DevelopmentSourceAttachmentOperationRow,
     DevelopmentSourceDeploymentOperationRow,
+    DevelopmentSourceEnablementOperationRow,
     DevelopmentSourceRow,
     ManagedInstanceDeleteOperationRow,
     ManagedInstanceLifecycleOperationRow,
@@ -132,6 +136,26 @@ def _seed_equal_timestamp_mixed_history(factory: sessionmaker[Session]) -> None:
         session.flush()
         session.add_all(
             [
+                DevelopmentSourceEnablementOperationRow(
+                    id=str(OPERATION_ID),
+                    original_managed_instance_id=str(INSTANCE_ID),
+                    managed_instance_id=str(INSTANCE_ID),
+                    development_source_id=("97000000-0000-4000-8000-000000000020"),
+                    source_logical_name="Activity source",
+                    addon_id="plugin.video.activity",
+                    addon_version="1.0.0",
+                    runtime_revision_id=str(REVISION_ID),
+                    requested_at=AT,
+                    started_at=AT,
+                    completed_at=AT,
+                    state=DevelopmentSourceEnablementOperationState.SUCCEEDED,
+                    phase=DevelopmentSourceEnablementOperationPhase.FINALIZE,
+                    result_classification=DevelopmentSourceEnablementResult.ENABLED,
+                    prior_enabled=False,
+                    result_enabled=True,
+                    enable_performed=True,
+                    reconciliation_required=False,
+                ),
                 DevelopmentSourceDeploymentOperationRow(
                     id=str(OPERATION_ID),
                     original_managed_instance_id=str(INSTANCE_ID),
@@ -270,6 +294,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         INSTANCE_ID
     )
     assert [item.kind for item in items] == [
+        ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ENABLEMENT,
         ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_DEPLOYMENT,
         ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT,
         ManagedInstanceActivityKind.LIFECYCLE,
@@ -280,6 +305,7 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         ManagedInstanceActivityKind.INSTANCE_DELETE,
     ]
     assert [item.summary for item in items] == [
+        "Development source add-on enabled",
         "Development source copy unchanged",
         "Development source attached",
         "Start succeeded",
@@ -289,11 +315,11 @@ def test_mixed_projection_has_fixed_tie_order_bounded_mapping_and_redaction(
         "Snapshot deletion failed",
         "Instance deletion preserved Snapshots",
     ]
-    assert items[1].development_source_attachment_kind is (
+    assert items[2].development_source_attachment_kind is (
         DevelopmentSourceAttachmentOperationKind.ATTACH
     )
-    assert items[2].lifecycle_kind is ManagedInstanceLifecycleKind.START
-    assert items[4].snapshot_uuid == SNAPSHOT_ID
+    assert items[3].lifecycle_kind is ManagedInstanceLifecycleKind.START
+    assert items[5].snapshot_uuid == SNAPSHOT_ID
     assert items[-1].preserve_snapshots is True
     serialized = " ".join(item.model_dump_json() for item in items)
     for forbidden in (
