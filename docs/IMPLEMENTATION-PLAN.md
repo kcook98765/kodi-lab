@@ -496,3 +496,14 @@ schema, source mutation form, attach/detach route, deployment state, source
 browser/content access, broker method, Docker access, or reconciliation behavior
 is added. Stopped-only copy/sync deployment requires a separate architecture
 gate.
+
+Before Phase 8 Step 4 deployment, the runtime-ownership prerequisite extends
+every immutable RuntimeExecutionProfile with required bounded `runtime_uid` and
+`runtime_gid`. Migration `0019_runtime_execution_ownership` has no default: it
+backfills only the exact retained curated revision/profile/image identities
+whose ownership was proven from repository-controlled builders and exact pinned
+image inspection, and fails on any unknown row. A read-only trusted resolver now
+provides ManagedInstance to RuntimeRevision to RuntimeExecutionProfile ownership
+without any caller ownership parameter. Existing Snapshot and fixture archive
+normalization remains unchanged. No DevelopmentSource deployment authority is
+added by this prerequisite.

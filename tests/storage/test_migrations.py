@@ -1176,7 +1176,7 @@ def test_populated_artifact_mapping_refuses_downgrade(
     engine.dispose()
 
 
-def test_0005_populated_state_upgrades_without_fabricated_validation(
+def test_0005_known_curated_state_upgrades_without_fabricated_validation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(monkeypatch, tmp_path)
@@ -1199,8 +1199,8 @@ def test_0005_populated_state_upgrades_without_fabricated_validation(
                     manifest_digest, built_at, approval_state, approved_at,
                     requires_trusted_build_confirmation
                 ) VALUES (
-                    '00000000-0000-4000-8000-000000000002',
-                    '00000000-0000-4000-8000-000000000001', 1,
+                    '3a000000-0000-4000-8000-000000000004',
+                        '00000000-0000-4000-8000-000000000001', 2,
                     'official-package', 'ubuntu', :digest, 'manifest', :digest,
                     :timestamp, 'approved', :timestamp, 0
                 )
@@ -1212,9 +1212,13 @@ def test_0005_populated_state_upgrades_without_fabricated_validation(
             text(
                 "INSERT INTO runtime_container_artifacts "
                 "(runtime_revision_id, image_id) VALUES "
-                "('00000000-0000-4000-8000-000000000002', :digest)"
+                "('3a000000-0000-4000-8000-000000000004', :digest)"
             ),
-            {"digest": "sha256:" + ("b" * 64)},
+            {
+                "digest": (
+                    "sha256:70e0166fd79ea731c3f81056c2f0516f8fe5c9c8ec729b0c0f1c3e6bac66f254"
+                )
+            },
         )
         connection.execute(
             text(
@@ -1227,7 +1231,7 @@ def test_0005_populated_state_upgrades_without_fabricated_validation(
                     readiness_timeout_seconds, poll_interval_seconds,
                     http_timeout_seconds
                 ) VALUES (
-                    '00000000-0000-4000-8000-000000000002', 'kodi', 'Kodi',
+                    '3a000000-0000-4000-8000-000000000004', 'kodi', 'Kodi',
                     '21.3', 'stable', 8080, '/jsonrpc', 'docker_healthcheck',
                     'kodi_jsonrpc', 90, 1.0, 3.0
                 )
@@ -1255,7 +1259,7 @@ def test_0005_populated_state_upgrades_without_fabricated_validation(
                     runtime_state, start_on_host_boot
                 ) VALUES (
                     '00000000-0000-4000-8000-000000000003', 'disposable',
-                    '00000000-0000-4000-8000-000000000002', 'stopped', 0
+                    '3a000000-0000-4000-8000-000000000004', 'stopped', 0
                 )
                 """
             )
@@ -1290,7 +1294,7 @@ def test_0005_populated_state_upgrades_without_fabricated_validation(
         )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0018_development_source_attach")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert (
@@ -1319,8 +1323,6 @@ def test_0005_populated_state_upgrades_without_fabricated_validation(
             connection.scalar(text("SELECT COUNT(*) FROM web_admin_credentials")) == 1
         )
     engine.dispose()
-    command.check(config)
-
     command.downgrade(config, "0005_web_auth_sessions")
     engine = create_database_engine(database_url)
     assert "support_tier" not in {
@@ -1338,6 +1340,12 @@ def test_0005_populated_state_upgrades_without_fabricated_validation(
         )
     engine.dispose()
     command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT runtime_uid, runtime_gid FROM runtime_execution_profiles")
+        ).one() == (1000, 1000)
+    engine.dispose()
     command.check(config)
 
 
@@ -1939,3 +1947,231 @@ def test_0018_source_attachments_schema_constraints_and_guarded_round_trip(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated development-source attachment"):
         command.downgrade(config, "0017_development_sources")
+
+
+CURATED_OWNERSHIP_ROWS = (
+    (
+        "51950000-0000-4000-8000-000000000002",
+        1,
+        "19.5",
+        "stable",
+        None,
+        "sha256:73c221f1fc1fc14cbfdfd82e62fd4b87752ef71e0521227cb6790451fa51d2bd",
+    ),
+    (
+        "52000000-0000-4000-8000-000000000002",
+        1,
+        "20.5",
+        "stable",
+        None,
+        "sha256:be35d7cb8899dfe474c6a1eca62da99c4ada1280f4325933d7b6193e83537638",
+    ),
+    (
+        "3a000000-0000-4000-8000-000000000002",
+        1,
+        "21.3",
+        "stable",
+        None,
+        "sha256:1ac4521ef5f0f86eb497106c7fd3bdaff11ac989b34e803c3d105e5a24ff6247",
+    ),
+    (
+        "3a000000-0000-4000-8000-000000000004",
+        2,
+        "21.3",
+        "stable",
+        None,
+        "sha256:70e0166fd79ea731c3f81056c2f0516f8fe5c9c8ec729b0c0f1c3e6bac66f254",
+    ),
+    (
+        "52200000-0000-4000-8000-000000000002",
+        1,
+        "22.0",
+        "beta",
+        2,
+        "sha256:4fb611666a2637904d6edd0cf90aa8cfc12c8d89edaa7a7fa60c61ef26655918",
+    ),
+)
+
+
+def _insert_0018_execution_profile(
+    connection: Connection,
+    *,
+    revision_id: str,
+    revision_number: int,
+    version: str,
+    channel: str,
+    prerelease: int | None,
+    image_id: str,
+) -> None:
+    definition_id = f"{revision_id[:-1]}1"
+    canonical_release = (
+        version if prerelease is None else f"{version}-{channel}.{prerelease}"
+    )
+    connection.execute(
+        text(
+            "INSERT OR IGNORE INTO runtime_definitions "
+            "(id, slug, kodi_version, support_tier) "
+            "VALUES (:id, :slug, :release, :tier)"
+        ),
+        {
+            "id": definition_id,
+            "slug": f"migration-{revision_id}",
+            "release": canonical_release,
+            "tier": "preview" if prerelease is not None else "current",
+        },
+    )
+    connection.execute(
+        text(
+            "INSERT INTO runtime_revisions "
+            "(id, runtime_definition_id, revision_number, source_kind, "
+            "source_reference, content_digest, manifest_reference, "
+            "manifest_digest, built_at, approval_state, "
+            "requires_trusted_build_confirmation) VALUES "
+            "(:id, :definition_id, :number, 'curated', 'curated', :digest, "
+            "'manifest', :digest, :timestamp, 'not_approved', 0)"
+        ),
+        {
+            "id": revision_id,
+            "definition_id": definition_id,
+            "number": revision_number,
+            "digest": image_id,
+            "timestamp": "2026-09-16T00:00:00.000000Z",
+        },
+    )
+    connection.execute(
+        text(
+            "INSERT INTO runtime_container_artifacts "
+            "(runtime_revision_id, image_id) VALUES (:id, :image_id)"
+        ),
+        {"id": revision_id, "image_id": image_id},
+    )
+    connection.execute(
+        text(
+            "INSERT INTO runtime_execution_profiles "
+            "(runtime_revision_id, runtime_kind, expected_application_name, "
+            "expected_kodi_version, expected_version_tag, "
+            "expected_prerelease_ordinal, jsonrpc_port, jsonrpc_path, "
+            "process_observation, readiness_probe, readiness_timeout_seconds, "
+            "poll_interval_seconds, http_timeout_seconds) VALUES "
+            "(:id, 'kodi', 'Kodi', :version, :channel, :prerelease, 8080, "
+            "'/jsonrpc', 'docker_healthcheck', 'kodi_jsonrpc', 90, 1.0, 3.0)"
+        ),
+        {
+            "id": revision_id,
+            "version": version,
+            "channel": channel,
+            "prerelease": prerelease,
+        },
+    )
+
+
+def test_0019_explicitly_backfills_all_curated_execution_profiles(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0018_development_source_attach")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        for row in CURATED_OWNERSHIP_ROWS:
+            _insert_0018_execution_profile(
+                connection,
+                revision_id=row[0],
+                revision_number=row[1],
+                version=row[2],
+                channel=row[3],
+                prerelease=row[4],
+                image_id=row[5],
+            )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    ownership_columns = {
+        item["name"]: item
+        for item in inspector.get_columns("runtime_execution_profiles")
+    }
+    assert ownership_columns["runtime_uid"]["nullable"] is False
+    assert ownership_columns["runtime_gid"]["nullable"] is False
+    assert ownership_columns["runtime_uid"]["default"] is None
+    assert ownership_columns["runtime_gid"]["default"] is None
+    with engine.connect() as connection:
+        rows = [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "SELECT runtime_revision_id, runtime_uid, runtime_gid "
+                    "FROM runtime_execution_profiles ORDER BY runtime_revision_id"
+                )
+            )
+        ]
+    assert rows == sorted((row[0], 1000, 1000) for row in CURATED_OWNERSHIP_ROWS)
+    for field, value in (
+        ("runtime_uid", -1),
+        ("runtime_gid", -1),
+        ("runtime_uid", 2**31),
+        ("runtime_gid", 2**31),
+    ):
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"UPDATE runtime_execution_profiles SET {field} = :value "
+                    "WHERE runtime_revision_id = :id"
+                ),
+                {"value": value, "id": CURATED_OWNERSHIP_ROWS[0][0]},
+            )
+    engine.dispose()
+    command.check(config)
+
+    with pytest.raises(RuntimeError, match="populated runtime execution ownership"):
+        command.downgrade(config, "0018_development_source_attach")
+
+
+def test_0019_unknown_profile_fails_without_default_backfill(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0018_development_source_attach")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        _insert_0018_execution_profile(
+            connection,
+            revision_id="99900000-0000-4000-8000-000000000002",
+            revision_number=1,
+            version="21.3",
+            channel="stable",
+            prerelease=None,
+            image_id="sha256:" + "9" * 64,
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="unknown or mismatched execution profile"):
+        command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    assert {
+        item["name"]
+        for item in inspect(engine).get_columns("runtime_execution_profiles")
+    }.isdisjoint({"runtime_uid", "runtime_gid"})
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0018_development_source_attach"
+        )
+    engine.dispose()
+
+
+def test_0019_empty_downgrade_and_reupgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    command.downgrade(config, "0018_development_source_attach")
+    engine = create_database_engine(database_url)
+    columns = {
+        item["name"]
+        for item in inspect(engine).get_columns("runtime_execution_profiles")
+    }
+    assert "runtime_uid" not in columns
+    assert "runtime_gid" not in columns
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)

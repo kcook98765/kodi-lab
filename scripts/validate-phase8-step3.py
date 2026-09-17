@@ -124,6 +124,8 @@ def main() -> None:
                 RuntimeExecutionProfileRow(
                     runtime_revision_id=str(revision_id),
                     runtime_kind="kodi",
+                    runtime_uid=1000,
+                    runtime_gid=1000,
                     expected_application_name="Kodi",
                     expected_kodi_version="21.3",
                     expected_version_tag="stable",

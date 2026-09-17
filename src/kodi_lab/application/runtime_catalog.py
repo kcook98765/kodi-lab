@@ -104,6 +104,8 @@ class RuntimeCatalogAdministrationService:
         *,
         runtime_revision_id: UUID,
         runtime_kind: RuntimeKind,
+        runtime_uid: int,
+        runtime_gid: int,
         expected_application_name: str,
         expected_kodi_version: str,
         expected_version_tag: str,
@@ -122,6 +124,8 @@ class RuntimeCatalogAdministrationService:
             profile = RuntimeExecutionProfile(
                 runtime_revision_id=runtime_revision_id,
                 runtime_kind=runtime_kind,
+                runtime_uid=runtime_uid,
+                runtime_gid=runtime_gid,
                 expected_application_name=expected_application_name,
                 expected_kodi_version=expected_kodi_version,
                 expected_version_tag=expected_version_tag,

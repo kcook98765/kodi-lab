@@ -4,6 +4,8 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application import (
@@ -21,6 +23,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.models import RuntimeExecutionProfileRow
 from kodi_lab.storage.repositories import (
     RuntimeDefinitionRepository,
     RuntimeExecutionProfileRepository,
@@ -60,6 +63,8 @@ def values() -> dict[str, Any]:
     return {
         "runtime_revision_id": REVISION_ID,
         "runtime_kind": RuntimeKind.KODI,
+        "runtime_uid": 1000,
+        "runtime_gid": 1000,
         "expected_application_name": "Kodi",
         "expected_kodi_version": "21.3",
         "expected_version_tag": "stable",
@@ -78,14 +83,32 @@ def test_registers_exact_immutable_execution_profile(tmp_path: Path) -> None:
     profile = service.register_execution_profile(**values())
     with factory() as session:
         assert RuntimeExecutionProfileRepository(session).get(REVISION_ID) == profile
+    assert (profile.runtime_uid, profile.runtime_gid) == (1000, 1000)
     with pytest.raises(RuntimeExecutionProfileConflictError):
-        service.register_execution_profile(**values())
+        changed = values()
+        changed["runtime_uid"] = 2000
+        service.register_execution_profile(**changed)
+
+
+@pytest.mark.parametrize("field", ["runtime_uid", "runtime_gid"])
+def test_profile_creation_requires_runtime_ownership(
+    tmp_path: Path, field: str
+) -> None:
+    service, _factory = service_with_revision(tmp_path)
+    candidate = values()
+    candidate.pop(field)
+    with pytest.raises(TypeError):
+        service.register_execution_profile(**candidate)
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
         ("expected_application_name", "Not Kodi"),
+        ("runtime_uid", -1),
+        ("runtime_uid", 2**31),
+        ("runtime_gid", -1),
+        ("runtime_gid", 2**31),
         ("expected_kodi_version", "21.2"),
         ("expected_version_tag", "beta"),
         ("jsonrpc_port", 0),
@@ -129,3 +152,47 @@ def test_profile_allows_bounded_version_specific_execution_values(
     profile = service.register_execution_profile(**candidate)
     assert profile.jsonrpc_port == 8090
     assert profile.readiness_timeout_seconds == 120
+
+
+@pytest.mark.parametrize("value", [False, 1.5, "1000"])
+@pytest.mark.parametrize("field", ["runtime_uid", "runtime_gid"])
+def test_profile_requires_integer_runtime_ownership(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    service, _factory = service_with_revision(tmp_path)
+    candidate = values()
+    candidate[field] = value
+    with pytest.raises(CatalogDataValidationError):
+        service.register_execution_profile(**candidate)
+
+
+def test_profile_accepts_root_runtime_ownership(tmp_path: Path) -> None:
+    service, _factory = service_with_revision(tmp_path)
+    candidate = values()
+    candidate.update(runtime_uid=0, runtime_gid=0)
+    profile = service.register_execution_profile(**candidate)
+    assert (profile.runtime_uid, profile.runtime_gid) == (0, 0)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("runtime_uid", None),
+        ("runtime_gid", None),
+        ("runtime_uid", -1),
+        ("runtime_gid", -1),
+        ("runtime_uid", 2**31),
+        ("runtime_gid", 2**31),
+    ],
+)
+def test_database_enforces_runtime_ownership_bounds(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    service, factory = service_with_revision(tmp_path)
+    service.register_execution_profile(**values())
+    with factory.begin() as session, pytest.raises(IntegrityError):
+        session.execute(
+            update(RuntimeExecutionProfileRow)
+            .where(RuntimeExecutionProfileRow.runtime_revision_id == str(REVISION_ID))
+            .values(**{field: value})
+        )

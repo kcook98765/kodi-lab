@@ -142,6 +142,33 @@ source registration, attach/detach, deployment, download, browse, edit, or
 unregister action exists. The existing authentication, no-store, same-origin,
 escaping, and no-CORS security policy applies unchanged.
 
+## Step 4 runtime-ownership prerequisite
+
+Copy/sync cannot normalize add-on ownership from a convention or request.
+Every usable RuntimeExecutionProfile therefore has required immutable
+`runtime_uid` and `runtime_gid` catalog facts. They identify the numeric owner
+required for Kodi-managed profile and add-on files inside that exact curated
+runtime environment and permit values from zero through 2147483647.
+
+The trusted resolution path is ManagedInstance to its pinned RuntimeRevision to
+the one-to-one RuntimeExecutionProfile. No future browser, application, or
+broker deployment request may provide a UID, GID, username, or group name.
+Migration `0019_runtime_execution_ownership` explicitly recognizes and
+backfills only the retained Kodi 19.5, 20.5, 21.3, and 22.0 Beta 2 curated
+profile/image identities; an unknown or mismatched row aborts upgrade. Current
+curated values happen to be 1000/1000, but that is matrix evidence rather than a
+general invariant.
+
+RuntimeExecutionProfile has no separate digest today: frozen domain equality
+and the immutable one-to-one persisted row compare the complete profile,
+including ownership. Runtime revision build-manifest digests remain distinct
+build provenance and are not silently rewritten. Existing fixed Snapshot and
+fixture archive owners remain their established archive-format semantics; any
+future conversion of those versioned formats is separately gated.
+
+This prerequisite adds no source traversal, materialization, deployment broker
+operation, destination access, Kodi lifecycle change, or Web/API mutation.
+
 ## Deferred Phase 8 work
 
 Stopped-only copy/sync deployment and its tree-copy/link/VCS rules,

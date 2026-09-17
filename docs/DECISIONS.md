@@ -1533,3 +1533,29 @@ details that it did not specify.
   regardless of provisioned/running state for disposable instances. Persistent
   attachment, deployment, broker source operations, and Web mutation remain
   deferred.
+
+## D-0122A: Runtime execution profile is authoritative for filesystem ownership
+
+- Status: approved prerequisite for Phase 8 Step 4
+- Decision: every immutable `RuntimeExecutionProfile` requires numeric
+  `runtime_uid` and `runtime_gid` values from 0 through 2147483647. They identify
+  the UID/GID that Kodi-managed profile and add-on files must use inside that
+  exact curated runtime execution environment. Zero remains representable even
+  though every currently curated v1 profile uses 1000/1000.
+- Authority: ownership is create-only catalog data attached to the exact runtime
+  revision's execution profile. It is never inferred during an operation from
+  a live container, Dockerfile, image metadata, archive, host account, username,
+  group name, or snapshot convention, and callers cannot supply or override it.
+  Changing ownership semantics requires a new revision/profile under existing
+  catalog versioning and trust rules.
+- Migration: `0019_runtime_execution_ownership` backfills only five explicitly
+  validated retained profiles: Kodi 19.5 revision 1, Kodi 20.5 revision 1, Kodi
+  21.3 revisions 1 and 2, and Kodi 22.0 Beta 2 revision 1. Each exact
+  revision/profile/image identity is mapped to its proven 1000/1000 ownership.
+  Unknown or mismatched rows fail upgrade; there is no default. Populated
+  downgrade is refused rather than discarding ownership semantics.
+- Boundary: existing fixture and Snapshot UID/GID constants remain their
+  established archive-format contracts. This decision adds no deployment,
+  archive conversion, broker mutation, Web field, or DevelopmentSource route.
+  Phase 8 copy/sync must resolve ownership through ManagedInstance, its pinned
+  RuntimeRevision, and this trusted profile.

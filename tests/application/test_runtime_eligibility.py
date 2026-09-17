@@ -119,6 +119,8 @@ def add_profile(
         RuntimeExecutionProfile(
             runtime_revision_id=item.id,
             runtime_kind=RuntimeKind.KODI,
+            runtime_uid=1000,
+            runtime_gid=1000,
             expected_application_name="Kodi",
             expected_kodi_version=f"{release.major}.{release.minor}",
             expected_version_tag=release.channel.value,

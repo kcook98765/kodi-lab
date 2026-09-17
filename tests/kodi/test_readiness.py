@@ -42,6 +42,8 @@ def profile() -> RuntimeExecutionProfile:
     return RuntimeExecutionProfile(
         runtime_revision_id=REVISION_ID,
         runtime_kind=RuntimeKind.KODI,
+        runtime_uid=1000,
+        runtime_gid=1000,
         expected_application_name="Kodi",
         expected_kodi_version="21.3",
         expected_version_tag="stable",
@@ -60,6 +62,8 @@ def preview_profile() -> RuntimeExecutionProfile:
     return RuntimeExecutionProfile(
         runtime_revision_id=values.runtime_revision_id,
         runtime_kind=values.runtime_kind,
+        runtime_uid=values.runtime_uid,
+        runtime_gid=values.runtime_gid,
         expected_application_name=values.expected_application_name,
         expected_kodi_version="22.0",
         expected_version_tag="beta",

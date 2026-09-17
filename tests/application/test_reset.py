@@ -153,6 +153,8 @@ def seed_reset_context(
             RuntimeExecutionProfile(
                 runtime_revision_id=revision.id,
                 runtime_kind=RuntimeKind.KODI,
+                runtime_uid=1000,
+                runtime_gid=1000,
                 expected_application_name="Kodi",
                 expected_kodi_version=kodi_version,
                 expected_version_tag="stable",
@@ -200,6 +202,8 @@ def seed_reset_context(
             RuntimeExecutionProfile(
                 runtime_revision_id=newer.id,
                 runtime_kind=RuntimeKind.KODI,
+                runtime_uid=1000,
+                runtime_gid=1000,
                 expected_application_name="Kodi",
                 expected_kodi_version=kodi_version,
                 expected_version_tag="stable",

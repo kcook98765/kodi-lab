@@ -1261,6 +1261,8 @@ class RuntimeExecutionProfileRepository:
             RuntimeExecutionProfileRow(
                 runtime_revision_id=str(profile.runtime_revision_id),
                 runtime_kind=profile.runtime_kind,
+                runtime_uid=profile.runtime_uid,
+                runtime_gid=profile.runtime_gid,
                 expected_application_name=profile.expected_application_name,
                 expected_kodi_version=profile.expected_kodi_version,
                 expected_version_tag=profile.expected_version_tag,
@@ -1283,6 +1285,8 @@ class RuntimeExecutionProfileRepository:
         return RuntimeExecutionProfile(
             runtime_revision_id=UUID(row.runtime_revision_id),
             runtime_kind=row.runtime_kind,
+            runtime_uid=row.runtime_uid,
+            runtime_gid=row.runtime_gid,
             expected_application_name=row.expected_application_name,
             expected_kodi_version=row.expected_kodi_version,
             expected_version_tag=row.expected_version_tag,

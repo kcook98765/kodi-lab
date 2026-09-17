@@ -10,6 +10,7 @@ from kodi_lab.broker.errors import (
     PersistentProvisioningUnsupportedError,
     ProvisioningStateError,
     RuntimeContainerArtifactUnavailableError,
+    RuntimeExecutionProfileUnavailableError,
 )
 from kodi_lab.broker.provisioning import (
     MANAGED_NETWORK_NAME,
@@ -17,6 +18,7 @@ from kodi_lab.broker.provisioning import (
     ManagedContainerProvisioningSpec,
     SqliteManagedInstanceRevisionResolver,
     SqliteProvisioningResolver,
+    SqliteRuntimeOwnershipResolver,
 )
 from kodi_lab.domain import (
     ConnectionState,
@@ -24,8 +26,12 @@ from kodi_lab.domain import (
     InstanceRuntimeState,
     InstanceType,
     ManagedInstance,
+    ProcessObservationKind,
+    ReadinessProbeKind,
     RuntimeContainerArtifact,
     RuntimeDefinition,
+    RuntimeExecutionProfile,
+    RuntimeKind,
     RuntimeRevision,
     Target,
     TargetAvailability,
@@ -37,6 +43,7 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeContainerArtifactRepository,
     RuntimeDefinitionRepository,
+    RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
     TargetRepository,
 )
@@ -53,6 +60,7 @@ def resolver_with_state(
     instance_type: InstanceType = InstanceType.DISPOSABLE,
     include_artifact: bool = True,
     remove_pinned_revision: bool = False,
+    include_profile: bool = True,
 ) -> SqliteProvisioningResolver:
     tmp_path.mkdir(parents=True, exist_ok=True)
     engine = create_database_engine(f"sqlite:///{tmp_path / 'resolver.db'}")
@@ -100,6 +108,25 @@ def resolver_with_state(
             RuntimeContainerArtifactRepository(session).create(
                 RuntimeContainerArtifact(
                     runtime_revision_id=REVISION_ID, image_id=IMAGE_ID
+                )
+            )
+        if include_profile:
+            RuntimeExecutionProfileRepository(session).create(
+                RuntimeExecutionProfile(
+                    runtime_revision_id=REVISION_ID,
+                    runtime_kind=RuntimeKind.KODI,
+                    runtime_uid=1234,
+                    runtime_gid=2345,
+                    expected_application_name="Kodi",
+                    expected_kodi_version="21.3",
+                    expected_version_tag="stable",
+                    jsonrpc_port=8080,
+                    jsonrpc_path="/jsonrpc",
+                    process_observation=ProcessObservationKind.DOCKER_HEALTHCHECK,
+                    readiness_probe=ReadinessProbeKind.KODI_JSONRPC,
+                    readiness_timeout_seconds=90,
+                    poll_interval_seconds=1.0,
+                    http_timeout_seconds=3.0,
                 )
             )
     if remove_pinned_revision:
@@ -202,3 +229,29 @@ def test_revision_resolver_rejects_missing_instance_and_revision(
     corrupt = revision_resolver_for(tmp_path / "corrupt")
     with pytest.raises(ProvisioningStateError, match="revision does not exist"):
         corrupt.resolve_runtime_revision_id(str(INSTANCE_ID))
+
+
+def ownership_resolver_for(path: Path) -> SqliteRuntimeOwnershipResolver:
+    engine = create_database_engine(f"sqlite:///{path / 'resolver.db'}")
+    return SqliteRuntimeOwnershipResolver(create_session_factory(engine))
+
+
+def test_ownership_resolver_uses_only_pinned_execution_profile(tmp_path: Path) -> None:
+    resolver_with_state(tmp_path)
+    resolved = ownership_resolver_for(tmp_path).resolve(str(INSTANCE_ID))
+    assert resolved.managed_instance_id == str(INSTANCE_ID)
+    assert resolved.runtime_revision_id == str(REVISION_ID)
+    assert (resolved.runtime_uid, resolved.runtime_gid) == (1234, 2345)
+
+
+def test_ownership_resolver_has_no_caller_ownership_parameters(tmp_path: Path) -> None:
+    resolver_with_state(tmp_path)
+    resolver = ownership_resolver_for(tmp_path)
+    with pytest.raises(TypeError):
+        resolver.resolve(str(INSTANCE_ID), runtime_uid=0)  # type: ignore[call-arg]
+
+
+def test_ownership_resolver_fails_closed_without_profile(tmp_path: Path) -> None:
+    resolver_with_state(tmp_path, include_profile=False)
+    with pytest.raises(RuntimeExecutionProfileUnavailableError):
+        ownership_resolver_for(tmp_path).resolve(str(INSTANCE_ID))

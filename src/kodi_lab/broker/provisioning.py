@@ -90,6 +90,21 @@ class RuntimeObservationResolver(Protocol):
         """Resolve exact trusted runtime observation semantics."""
 
 
+@dataclass(frozen=True, slots=True)
+class ManagedRuntimeOwnershipSpec:
+    """Broker-trusted runtime filesystem ownership for one pinned instance."""
+
+    managed_instance_id: str
+    runtime_revision_id: str
+    runtime_uid: int
+    runtime_gid: int
+
+
+class RuntimeOwnershipResolver(Protocol):
+    def resolve(self, managed_instance_id: str) -> ManagedRuntimeOwnershipSpec:
+        """Resolve ownership without accepting caller-provided UID or GID."""
+
+
 class SqliteProvisioningResolver:
     """Read-only resolver over existing Phase 1 repositories."""
 
@@ -243,4 +258,55 @@ class SqliteRuntimeObservationResolver:
         except SQLAlchemyError as error:
             raise ProvisioningStateError(
                 "Canonical runtime observation state could not be read"
+            ) from error
+
+
+class SqliteRuntimeOwnershipResolver:
+    """Read-only ManagedInstance-to-execution-profile ownership resolver."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    @classmethod
+    def production(cls) -> SqliteRuntimeOwnershipResolver:
+        engine = create_database_engine(Settings().database_url)
+        return cls(sessionmaker(engine, expire_on_commit=False))
+
+    def resolve(self, managed_instance_id: str) -> ManagedRuntimeOwnershipSpec:
+        try:
+            identity = UUID(managed_instance_id)
+            if str(identity) != managed_instance_id:
+                raise ValueError
+        except ValueError as error:
+            raise ProvisioningStateError(
+                "Managed instance identity is not canonical"
+            ) from error
+        try:
+            with self._session_factory() as session:
+                instance = ManagedInstanceRepository(session).get(identity)
+                if instance is None:
+                    raise ProvisioningStateError("Managed instance does not exist")
+                revision = RuntimeRevisionRepository(session).get(
+                    instance.runtime_revision_id
+                )
+                if revision is None:
+                    raise ProvisioningStateError(
+                        "Pinned runtime revision does not exist"
+                    )
+                profile = RuntimeExecutionProfileRepository(session).get(revision.id)
+                if profile is None:
+                    raise RuntimeExecutionProfileUnavailableError(
+                        "Pinned runtime execution profile does not exist"
+                    )
+                return ManagedRuntimeOwnershipSpec(
+                    managed_instance_id=managed_instance_id,
+                    runtime_revision_id=str(revision.id),
+                    runtime_uid=profile.runtime_uid,
+                    runtime_gid=profile.runtime_gid,
+                )
+        except ProvisioningStateError:
+            raise
+        except SQLAlchemyError as error:
+            raise ProvisioningStateError(
+                "Canonical runtime ownership state could not be read"
             ) from error

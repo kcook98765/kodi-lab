@@ -189,6 +189,8 @@ def test_prerelease_execution_profile_records_exact_beta_ordinal(
     profile = admin.register_execution_profile(
         runtime_revision_id=runtime_revision_id,
         runtime_kind=RuntimeKind.KODI,
+        runtime_uid=1000,
+        runtime_gid=1000,
         expected_application_name="Kodi",
         expected_kodi_version="22.0",
         expected_version_tag="beta",

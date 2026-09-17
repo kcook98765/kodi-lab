@@ -229,6 +229,8 @@ class RuntimeExecutionProfile:
 
     runtime_revision_id: UUID
     runtime_kind: RuntimeKind
+    runtime_uid: int
+    runtime_gid: int
     expected_application_name: str
     expected_kodi_version: str
     expected_version_tag: str
@@ -244,6 +246,10 @@ class RuntimeExecutionProfile:
     def __post_init__(self) -> None:
         if self.runtime_kind is not RuntimeKind.KODI:
             raise ValueError("runtime_kind is not supported")
+        for field_name in ("runtime_uid", "runtime_gid"):
+            value = getattr(self, field_name)
+            if type(value) is not int or not 0 <= value <= 2**31 - 1:
+                raise ValueError(f"{field_name} must be a POSIX ID from 0 to 2^31 - 1")
         if self.expected_application_name != "Kodi":
             raise ValueError("expected_application_name must be Kodi")
         if (

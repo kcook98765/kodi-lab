@@ -43,6 +43,18 @@ There are no normal definition/revision deletion APIs, and restrictive foreign
 keys preserve revision history. Managed instances reference exactly one runtime
 revision UUID and may change that selection without changing the revision.
 
+Each revision's create-only `RuntimeExecutionProfile` is also the authority for
+numeric runtime filesystem ownership. Required `runtime_uid` and `runtime_gid`
+values describe the owner Kodi-managed profile and add-on files require inside
+that exact curated environment. They are bounded POSIX IDs and are resolved from
+trusted catalog state, never accepted from a browser, application request, or
+broker request and never inferred at operation time from a container, image,
+archive, Dockerfile, or host identity. The profile is a frozen domain value and
+one-to-one immutable row, so ownership changes require a new revision/profile.
+Execution profiles are not folded into the separately recorded build-manifest
+digest; their complete typed values, now including ownership, are the catalog
+identity compared and persisted by the profile repository.
+
 ## Managed-instance application service
 
 `kodi_lab.application` is the transaction and policy boundary above the explicit

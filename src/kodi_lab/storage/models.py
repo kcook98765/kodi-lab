@@ -1366,6 +1366,14 @@ class RuntimeExecutionProfileRow(Base):
             "http_timeout_seconds >= 0.1 AND http_timeout_seconds <= 5.0",
             name="runtime_profile_http_timeout_range",
         ),
+        CheckConstraint(
+            "runtime_uid BETWEEN 0 AND 2147483647",
+            name="runtime_profile_uid_range",
+        ),
+        CheckConstraint(
+            "runtime_gid BETWEEN 0 AND 2147483647",
+            name="runtime_profile_gid_range",
+        ),
     )
 
     runtime_revision_id: Mapped[str] = mapped_column(
@@ -1377,6 +1385,8 @@ class RuntimeExecutionProfileRow(Base):
         Enum(RuntimeKind, values_callable=_enum_values, native_enum=False),
         nullable=False,
     )
+    runtime_uid: Mapped[int] = mapped_column(Integer, nullable=False)
+    runtime_gid: Mapped[int] = mapped_column(Integer, nullable=False)
     expected_application_name: Mapped[str] = mapped_column(String(32), nullable=False)
     expected_kodi_version: Mapped[str] = mapped_column(String(32), nullable=False)
     expected_version_tag: Mapped[str] = mapped_column(String(16), nullable=False)
