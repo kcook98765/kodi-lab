@@ -6,7 +6,18 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$repo_root"
 
 check_tmpdir="$(mktemp -d)"
-trap 'rm -rf -- "$check_tmpdir"' EXIT
+pytest_tmp_parent="${TMPDIR:-/tmp}"
+if [[ -d /dev/shm && -w /dev/shm ]] \
+    && [[ "$(stat -f -c %T /dev/shm)" == "tmpfs" ]] \
+    && (( $(df -B1 --output=avail /dev/shm | tail -n 1) >= 1073741824 )); then
+    pytest_tmp_parent="/dev/shm"
+fi
+pytest_tmpdir="$(mktemp -d --tmpdir="$pytest_tmp_parent" klp.XXXXXXXX)"
+cleanup() {
+    chmod -R u+rwX -- "$pytest_tmpdir" 2>/dev/null || true
+    rm -rf -- "$check_tmpdir" "$pytest_tmpdir"
+}
+trap cleanup EXIT
 
 run_check() {
     local name="$1"
@@ -15,7 +26,7 @@ run_check() {
     "$@"
 }
 
-run_check "pytest" uv run --locked pytest
+run_check "pytest" uv run --locked pytest --basetemp "$pytest_tmpdir"
 run_check "Ruff format" uv run --locked ruff format --check .
 run_check "Ruff lint" uv run --locked ruff check .
 run_check "mypy" uv run --locked mypy src tests migrations
