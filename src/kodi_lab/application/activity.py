@@ -25,6 +25,8 @@ from kodi_lab.domain import (
     DevelopmentSourceSmokeTestOperationState,
     DevelopmentSourceSmokeTestOverallResult,
     ManagedInstanceLifecycleKind,
+    RepositoryReplacementOperationState,
+    RepositoryReplacementPlanState,
 )
 from kodi_lab.storage.repositories import (
     AddonRepositoryAttachmentOperationRepository,
@@ -39,6 +41,8 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceDeleteOperationRepository,
     ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceRepository,
+    RepositoryReplacementOperationRepository,
+    RepositoryReplacementPlanRepository,
     ResetOperationRepository,
     SnapshotCreateOperationRepository,
     SnapshotDeleteOperationRepository,
@@ -47,6 +51,7 @@ from kodi_lab.storage.repositories import (
 
 
 class ManagedInstanceActivityKind(StrEnum):
+    REPOSITORY_REPLACEMENT = "repository_replacement"
     ADDON_REPOSITORY_ATTACHMENT = "addon_repository_attachment"
     ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
@@ -86,6 +91,7 @@ class ManagedInstanceActivityItem(BaseModel):
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.REPOSITORY_REPLACEMENT: 16,
     ManagedInstanceActivityKind.ADDON_REPOSITORY_INSTALLATION: 15,
     ManagedInstanceActivityKind.ADDON_REPOSITORY_ATTACHMENT: 14,
     ManagedInstanceActivityKind.ADDON_ZIP_SMOKE_TEST: 13,
@@ -144,6 +150,70 @@ class ManagedInstanceActivityService:
         session: Session, instance_id: UUID
     ) -> list[ManagedInstanceActivityItem]:
         result: list[ManagedInstanceActivityItem] = []
+        for plan in RepositoryReplacementPlanRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            summary = {
+                RepositoryReplacementPlanState.PENDING: (
+                    "Repository replacement plan prepared"
+                ),
+                RepositoryReplacementPlanState.APPROVED: (
+                    "Repository replacement approved"
+                ),
+                RepositoryReplacementPlanState.CONSUMED: (
+                    "Repository replacement approved"
+                ),
+                RepositoryReplacementPlanState.EXPIRED: (
+                    "Repository replacement plan expired"
+                ),
+                RepositoryReplacementPlanState.INVALIDATED: (
+                    "Repository replacement blocked"
+                ),
+                RepositoryReplacementPlanState.CANCELLED: (
+                    "Repository replacement plan cancelled"
+                ),
+            }[plan.state]
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.REPOSITORY_REPLACEMENT,
+                    operation_uuid=plan.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=plan.created_at,
+                    started_at=None,
+                    completed_at=None,
+                    state=plan.state.value,
+                    summary=summary,
+                    reconciliation_required=False,
+                    addon_zip_artifact_uuid=plan.incoming_artifact_id,
+                )
+            )
+        for replacement in RepositoryReplacementOperationRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            summary = (
+                "DevelopmentSource replacement completed"
+                if replacement.state is RepositoryReplacementOperationState.SUCCEEDED
+                else "Repository replacement requires reconciliation"
+                if replacement.state
+                is RepositoryReplacementOperationState.RECONCILIATION_REQUIRED
+                else "Repository replacement blocked"
+                if replacement.state is RepositoryReplacementOperationState.FAILED
+                else "Repository replacement approved"
+            )
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.REPOSITORY_REPLACEMENT,
+                    operation_uuid=replacement.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=replacement.requested_at,
+                    started_at=replacement.started_at,
+                    completed_at=replacement.completed_at,
+                    state=replacement.state.value,
+                    summary=summary,
+                    reconciliation_required=replacement.reconciliation_required,
+                    addon_zip_artifact_uuid=replacement.incoming_artifact_id,
+                )
+            )
         for repository_attachment in AddonRepositoryAttachmentOperationRepository(
             session
         ).list_for_original_instance(instance_id):

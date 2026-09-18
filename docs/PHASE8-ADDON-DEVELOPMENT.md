@@ -19,12 +19,11 @@ Complete:
 - uploaded-ZIP import, installation, enablement, and smoke workflows;
 - repository registration, attachment, secure refresh, discovery, package
   fetch, and disabled installation; and
-- default attached-DevelopmentSource collision protection for repository
-  installation.
+- default attached-DevelopmentSource collision protection and the explicit
+  approved repository replacement test.
 
-Remaining v1 work:
-
-1. explicit approved replacement/update override.
+All canonical Phase 8 implementation requirements are implemented. The final
+Phase 8 completion review remains a separate milestone.
 
 ## Repository URL testing first slice
 
@@ -54,7 +53,49 @@ uploaded-ZIP enable/smoke services reject repository
 artifacts; the repository slice proves disabled exact recognition and bounded
 historical provenance. Reset/restore stale evidence without deleting catalog,
 attachment, snapshots, artifacts, or history. There is no force, reinstall,
-update, replacement, or ignore-collision input.
+generic update, or ignore-collision input.
+
+## Explicit repository replacement test
+
+The one allowed collision override begins with a strict-empty-body plan for one
+attached same-ID DevelopmentSource and one immutable repository-download
+artifact. Class A requires no destination, inventory target, or deployment
+evidence. Class B requires the retained verified copy operation, exact current
+destination equality, matching live ID/version/type/enabled state, and an
+available same-instance and RuntimeRevision central Snapshot captured within
+15 minutes. Detached, ZIP/repository-installed, manual, bundled, inventory-only,
+destination-only, stale, and unknown incumbents remain unsupported.
+
+The plan binds all attachment, repository source/snapshot/candidate/artifact,
+incumbent, RuntimeRevision/container, payload, and qualifying-Snapshot state.
+It expires after exactly 15 minutes. The only confirmation is immediate
+approve-and-execute with literal `confirmed=true`; approval atomically binds one
+operation, and consumption immediately before application permanently spends
+it. Any state drift invalidates it. Version strings are displayed without
+upgrade/downgrade ordering and an exact payload no-op is rejected.
+
+Class B permits only overwrite and addition: every incumbent path must remain
+in the incoming normalized manifest and retain file/directory class. The broker
+derives the destination, payload, manifest, normalized ownership, and modes
+from the approval; callers have no path, user/group, Docker, overwrite, delete,
+or generic execution field. Add-on data is untouched. Class A uses normal
+materialization and must be recognized disabled. Class B must preserve its
+exact enabled Boolean and declared dependency observations.
+
+The DevelopmentSource remains attached and unchanged. At application start its
+deployment evidence becomes unknown. Success makes that evidence stale,
+publishes verified repository evidence, and derives the UI notice “Attached
+DevelopmentSource is currently overridden.” Only repository provenance is
+current. Same-source copy/sync fails before bytes as
+`repository_override_active`. Snapshot restore stales repository evidence and
+does not automatically verify restored source bytes.
+
+Pre-application failure invalidates the plan and restores running state if a
+stop occurred. After the application marker, unproven success leaves the exact
+instance stopped, both evidence classes unknown, and the operation
+reconciliation-required without retry, adoption, continuation, restart, or
+automatic restore. The exits are restoring the central Snapshot or resetting
+the disposable instance and copying afresh; detach does not restore bytes.
 
 Future/optional: a bind-like live-source workflow may be reconsidered after v1
 only through a containment-safe projection or equivalent policy-enforcing
@@ -460,7 +501,16 @@ working unproven, tested unproven.
 
 ## Phase 8 completion boundary
 
-The authoritative remaining v1 list is above. Watchers, broader execution
+All canonical Phase 8 implementation requirements are implemented through
+`0028_repository_replacement_override`; the separate completion review remains
+the next audit milestone and is not part of this implementation. The explicit
+repository replacement test is limited to one 15-minute exact-state plan,
+immediate single-use approval, attached/unmaterialized or verified-copied
+incumbents, a recent central Snapshot for the copied class, overwrite/add-only
+topology, retained source attachment, enabled/dependency preservation, derived
+override state, and fail-closed stopped reconciliation after application.
+
+Watchers, broader execution
 authority, disable/toggle, generic add-on enablement, dependency installation,
 broader provenance, and containment-safe live projection are outside the Phase
 8 v1 completion requirement.

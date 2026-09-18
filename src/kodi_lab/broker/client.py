@@ -64,6 +64,8 @@ from kodi_lab.broker.operations import (
     ApplyAssignedFixtureResult,
     ApplyManagedInstanceSnapshotParams,
     ApplyManagedInstanceSnapshotResult,
+    ApplyRepositoryReplacementParams,
+    ApplyRepositoryReplacementResult,
     BrokerInfoResult,
     CapabilitiesResult,
     CaptureManagedInstanceSnapshotParams,
@@ -75,6 +77,8 @@ from kodi_lab.broker.operations import (
     DeprovisionManagedContainerParams,
     DeprovisionManagedContainerResult,
     EmptyParams,
+    InspectRepositoryReplacementParams,
+    InspectRepositoryReplacementResult,
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeParams,
     ObserveManagedKodiRuntimeResult,
@@ -622,6 +626,80 @@ class BrokerClient:
         ):
             raise ClientProtocolError(
                 "ZIP enablement destination result identity differs"
+            )
+        return result
+
+    def inspect_repository_replacement(
+        self,
+        *,
+        managed_instance_id: str,
+        approval_id: str,
+        expected_container_id: str,
+    ) -> InspectRepositoryReplacementResult:
+        """Inspect only one persisted exact replacement plan."""
+
+        try:
+            params = InspectRepositoryReplacementParams(
+                managed_instance_id=managed_instance_id,
+                approval_id=approval_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "repository replacement inspection failed local validation"
+            ) from error
+        result = self._call(
+            "inspect_repository_replacement",
+            params,
+            InspectRepositoryReplacementResult,
+            response_timeout=60.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.approval_id != approval_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "repository replacement inspection identity differs"
+            )
+        return result
+
+    def apply_repository_replacement(
+        self,
+        *,
+        managed_instance_id: str,
+        approval_id: str,
+        replacement_operation_id: str,
+        expected_container_id: str,
+    ) -> ApplyRepositoryReplacementResult:
+        """Apply one consumed exact repository replacement approval."""
+
+        try:
+            params = ApplyRepositoryReplacementParams(
+                managed_instance_id=managed_instance_id,
+                approval_id=approval_id,
+                replacement_operation_id=replacement_operation_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "repository replacement application failed local validation"
+            ) from error
+        result = self._call(
+            "apply_repository_replacement",
+            params,
+            ApplyRepositoryReplacementResult,
+            response_timeout=900.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.approval_id != approval_id
+            or result.replacement_operation_id != replacement_operation_id
+            or result.container_id != expected_container_id
+            or not result.matched
+        ):
+            raise ClientProtocolError(
+                "repository replacement application identity differs"
             )
         return result
 

@@ -120,6 +120,37 @@ def test_deterministic_sorted_tar_and_manifest_validation(tmp_path: Path) -> Non
     assert validated.recognized_databases_checked == 0
 
 
+def test_unordered_docker_stream_is_published_in_canonical_order(
+    tmp_path: Path,
+) -> None:
+    ordered = approved_tar()
+    unordered = source_tar(
+        [
+            ("userdata/guisettings.xml", b"<settings/>", tarfile.REGTYPE),
+            ("fixture-media/movie.mkv", b"synthetic", tarfile.REGTYPE),
+            ("addons/plugin.example/settings.xml", b"settings", tarfile.REGTYPE),
+            ("userdata/Database", None, tarfile.DIRTYPE),
+            ("userdata", None, tarfile.DIRTYPE),
+            ("fixture-media", None, tarfile.DIRTYPE),
+            ("addons/plugin.example", None, tarfile.DIRTYPE),
+            ("addons", None, tarfile.DIRTYPE),
+            ("temp/kodi.log", b"excluded", tarfile.REGTYPE),
+            ("temp", None, tarfile.DIRTYPE),
+        ]
+    )
+    first = publish(tmp_path / "ordered", ordered)
+    second = publish(
+        tmp_path / "unordered",
+        unordered,
+        UUID("90000000-0000-4000-8000-000000000098"),
+    )
+
+    assert first.archive_digest == second.archive_digest
+    assert enumerate_snapshot_source([unordered]) == enumerate_snapshot_source(
+        [ordered]
+    )
+
+
 @pytest.mark.parametrize(
     ("name", "member_type"),
     [

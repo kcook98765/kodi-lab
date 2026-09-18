@@ -24,7 +24,10 @@ from docker.errors import (  # type: ignore[import-untyped]
     NotFound,
 )
 
-from kodi_lab.broker.addon_zips import AddonZipInstallationSpec
+from kodi_lab.broker.addon_zips import (
+    AddonZipInstallationSpec,
+    RepositoryReplacementSpec,
+)
 from kodi_lab.broker.development_sources import (
     DevelopmentSourceDeploymentSpec,
     DevelopmentSourceDestinationVerificationSpec,
@@ -342,6 +345,34 @@ class AppliedAddonZipInstallationRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class RepositoryReplacementInspectionRecord:
+    managed_instance_id: str
+    approval_id: str
+    artifact_id: str
+    runtime_revision_id: str
+    container_id: str
+    topology: Literal[
+        "absent_eligible",
+        "overwrite_add_eligible",
+        "exact_payload_noop",
+        "deletion_required",
+        "type_transition",
+        "incumbent_drift",
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class AppliedRepositoryReplacementRecord:
+    managed_instance_id: str
+    approval_id: str
+    replacement_operation_id: str
+    artifact_id: str
+    runtime_revision_id: str
+    container_id: str
+    matched: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _ReconciliationRecord:
     managed_instance_id: str
     container_id: str
@@ -459,6 +490,14 @@ class AddonZipInstallationProvider(Protocol):
     def apply_addon_zip_installation(
         self, *, spec: AddonZipInstallationSpec, expected_container_id: str
     ) -> AppliedAddonZipInstallationRecord: ...
+
+    def inspect_repository_replacement(
+        self, *, spec: RepositoryReplacementSpec, expected_container_id: str
+    ) -> RepositoryReplacementInspectionRecord: ...
+
+    def apply_repository_replacement(
+        self, *, spec: RepositoryReplacementSpec, expected_container_id: str
+    ) -> AppliedRepositoryReplacementRecord: ...
 
 
 class _DockerClient(Protocol):
@@ -971,11 +1010,302 @@ class DockerManagedContainerAdapter:
                 with suppress(OSError):
                     shutil.rmtree(operation_stage)
 
+    def inspect_repository_replacement(
+        self, *, spec: RepositoryReplacementSpec, expected_container_id: str
+    ) -> RepositoryReplacementInspectionRecord:
+        """Classify exact incumbent topology without exposing its manifest."""
+
+        client: _SnapshotDockerClient | None = None
+        try:
+            client = cast(_SnapshotDockerClient, self._client_factory())
+            selected_id, initial_state = self._select_zip_container(
+                client, spec=spec, expected_container_id=expected_container_id
+            )
+            topology = self._repository_replacement_topology(
+                client, selected_id=selected_id, spec=spec
+            )
+            final_id, final_state = self._select_zip_container(
+                client, spec=spec, expected_container_id=expected_container_id
+            )
+            if final_id != selected_id or final_state is not initial_state:
+                raise DockerAddonZipInstallationError(
+                    "repository_replacement_container_drift",
+                    "Managed container changed during replacement inspection.",
+                )
+            return RepositoryReplacementInspectionRecord(
+                managed_instance_id=spec.managed_instance_id,
+                approval_id=spec.approval_id,
+                artifact_id=spec.artifact_id,
+                runtime_revision_id=spec.runtime_revision_id,
+                container_id=selected_id,
+                topology=topology,
+            )
+        except DockerAddonZipInstallationError:
+            raise
+        except (APIError, DockerException, OSError, DevelopmentTreeError) as error:
+            raise DockerAddonZipInstallationError(
+                "repository_replacement_inspection_failed",
+                "Repository replacement topology could not be safely inspected.",
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
+    def _repository_replacement_topology(
+        self,
+        client: _SnapshotDockerClient,
+        *,
+        selected_id: str,
+        spec: RepositoryReplacementSpec,
+    ) -> Literal[
+        "absent_eligible",
+        "overwrite_add_eligible",
+        "exact_payload_noop",
+        "deletion_required",
+        "type_transition",
+        "incumbent_drift",
+    ]:
+        try:
+            stream, _ = client.get_archive(
+                selected_id, f"/home/kodi/.kodi/addons/{spec.addon_id}"
+            )
+        except NotFound:
+            return (
+                "absent_eligible"
+                if spec.incumbent_class.value == "attached_unmaterialized"
+                else "incumbent_drift"
+            )
+        if (
+            spec.incumbent_class.value == "attached_unmaterialized"
+            and not spec.application_started
+        ):
+            return "incumbent_drift"
+        incumbent = capture_destination_archive(
+            cast(Iterable[bytes], stream), root_name=spec.addon_id
+        )
+        actual = incumbent.by_path()
+        incoming = {entry.path: entry for entry in spec.entries}
+        exact = set(actual) == set(incoming) and all(
+            actual[path].entry_type == entry.entry_type
+            and actual[path].mode == entry.mode
+            and actual[path].size == entry.size
+            and actual[path].sha256 == entry.sha256
+            and actual[path].uid == spec.runtime_uid
+            and actual[path].gid == spec.runtime_gid
+            for path, entry in incoming.items()
+        )
+        if exact:
+            return "exact_payload_noop"
+        if spec.incumbent_class.value == "attached_unmaterialized":
+            return "incumbent_drift"
+        if incumbent.digest != spec.verified_destination_digest:
+            return "incumbent_drift"
+        if any(path not in incoming for path in actual):
+            return "deletion_required"
+        if any(
+            incoming[path].entry_type != entry.entry_type
+            for path, entry in actual.items()
+        ):
+            return "type_transition"
+        return "overwrite_add_eligible"
+
+    def apply_repository_replacement(
+        self, *, spec: RepositoryReplacementSpec, expected_container_id: str
+    ) -> AppliedRepositoryReplacementRecord:
+        """Apply one approved overwrite/add-only payload with no deletion authority."""
+
+        client: _SnapshotDockerClient | None = None
+        apply_started = False
+        if spec.replacement_operation_id is None:
+            raise DockerAddonZipInstallationError(
+                "repository_replacement_operation_missing",
+                "Repository replacement execution identity is unavailable.",
+            )
+        operation_stage = spec.staging_root / spec.replacement_operation_id
+        archive_path = operation_stage / "payload.tar"
+        try:
+            if not spec.application_started or not spec.approval_consumed:
+                raise DockerAddonZipInstallationError(
+                    "repository_replacement_not_consumed",
+                    "Repository replacement application is not authorized.",
+                )
+            parent_fd = os.open(spec.staging_root.parent, _PRIVATE_DIRECTORY_FLAGS)
+            try:
+                with suppress(FileExistsError):
+                    os.mkdir(spec.staging_root.name, 0o700, dir_fd=parent_fd)
+                staging_fd = os.open(
+                    spec.staging_root.name,
+                    _PRIVATE_DIRECTORY_FLAGS,
+                    dir_fd=parent_fd,
+                )
+            finally:
+                os.close(parent_fd)
+            try:
+                metadata = os.fstat(staging_fd)
+                if (
+                    stat.S_IMODE(metadata.st_mode) != 0o700
+                    or metadata.st_uid != os.geteuid()
+                ):
+                    raise OSError("unsafe repository replacement staging root")
+                os.mkdir(spec.replacement_operation_id, 0o700, dir_fd=staging_fd)
+                operation_fd = os.open(
+                    spec.replacement_operation_id,
+                    _PRIVATE_DIRECTORY_FLAGS,
+                    dir_fd=staging_fd,
+                )
+            finally:
+                os.close(staging_fd)
+            try:
+                archive_fd = os.open(
+                    "payload.tar",
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=operation_fd,
+                )
+            finally:
+                os.close(operation_fd)
+            client = cast(_SnapshotDockerClient, self._client_factory())
+            selected_id, state = self._select_zip_container(
+                client, spec=spec, expected_container_id=expected_container_id
+            )
+            if state is not ContainerRuntimeState.STOPPED:
+                raise ContainerMustBeStoppedError(
+                    "Repository replacement requires a stopped container"
+                )
+            topology = self._repository_replacement_topology(
+                client, selected_id=selected_id, spec=spec
+            )
+            if topology not in {"absent_eligible", "overwrite_add_eligible"}:
+                raise DockerAddonZipInstallationError(
+                    "unsupported_replacement_topology",
+                    "Repository replacement topology is not eligible.",
+                )
+            with (
+                os.fdopen(archive_fd, "w+b") as archive_file,
+                tarfile.open(
+                    fileobj=archive_file, mode="w", format=tarfile.PAX_FORMAT
+                ) as archive,
+            ):
+                root_name = f".kodi/addons/{spec.addon_id}"
+                root_info = tarfile.TarInfo(root_name)
+                root_info.type = tarfile.DIRTYPE
+                root_info.mode = 0o755
+                root_info.uid = spec.runtime_uid
+                root_info.gid = spec.runtime_gid
+                root_info.mtime = 0
+                archive.addfile(root_info)
+                for entry in spec.entries:
+                    info = tarfile.TarInfo(f"{root_name}/{entry.path}")
+                    info.mode = entry.mode
+                    info.uid = spec.runtime_uid
+                    info.gid = spec.runtime_gid
+                    info.mtime = 0
+                    if entry.entry_type == "directory":
+                        info.type = tarfile.DIRTYPE
+                        archive.addfile(info)
+                    else:
+                        info.size = entry.size
+                        source = spec.payload_root.joinpath(*entry.path.split("/"))
+                        fd = os.open(source, _FILE_READ_FLAGS)
+                        try:
+                            source_metadata = os.fstat(fd)
+                            if (
+                                not stat.S_ISREG(source_metadata.st_mode)
+                                or source_metadata.st_nlink != 1
+                                or stat.S_IMODE(source_metadata.st_mode) != 0o400
+                                or source_metadata.st_size != entry.size
+                            ):
+                                raise OSError("immutable replacement payload changed")
+                            with os.fdopen(fd, "rb", closefd=False) as payload:
+                                hashing = _ExactHashingReader(payload, entry.size)
+                                archive.addfile(info, hashing)
+                                if hashing.hexdigest != entry.sha256:
+                                    raise OSError(
+                                        "immutable replacement payload digest changed"
+                                    )
+                        finally:
+                            os.close(fd)
+            apply_started = True
+            payload_fd = os.open(archive_path, _FILE_READ_FLAGS)
+            with os.fdopen(payload_fd, "rb") as payload_archive:
+                if (
+                    client.put_archive(selected_id, "/home/kodi", payload_archive)
+                    is not True
+                ):
+                    raise DockerAddonZipInstallationError(
+                        "repository_replacement_apply_unverified",
+                        "Docker did not confirm repository replacement application.",
+                        reconciliation_required=True,
+                    )
+            stream, _ = client.get_archive(
+                selected_id, f"/home/kodi/.kodi/addons/{spec.addon_id}"
+            )
+            observed = capture_destination_archive(
+                cast(Iterable[bytes], stream),
+                root_name=spec.addon_id,
+                include_root=True,
+            )
+            if not self._addon_zip_manifest_matches(spec, observed):
+                raise DockerAddonZipInstallationError(
+                    "repository_replacement_readback_mismatch",
+                    "Stopped repository replacement readback did not match.",
+                    reconciliation_required=True,
+                )
+            final_id, final_state = self._select_zip_container(
+                client, spec=spec, expected_container_id=expected_container_id
+            )
+            if (
+                final_id != selected_id
+                or final_state is not ContainerRuntimeState.STOPPED
+            ):
+                raise DockerAddonZipInstallationError(
+                    "repository_replacement_post_apply_drift",
+                    "Container identity changed after repository replacement.",
+                    reconciliation_required=True,
+                )
+            return AppliedRepositoryReplacementRecord(
+                managed_instance_id=spec.managed_instance_id,
+                approval_id=spec.approval_id,
+                replacement_operation_id=spec.replacement_operation_id,
+                artifact_id=spec.artifact_id,
+                runtime_revision_id=spec.runtime_revision_id,
+                container_id=selected_id,
+                matched=True,
+            )
+        except DockerAddonZipInstallationError:
+            raise
+        except (
+            APIError,
+            DockerException,
+            OSError,
+            DevelopmentTreeError,
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ) as error:
+            raise DockerAddonZipInstallationError(
+                "repository_replacement_reconciliation_required"
+                if apply_started
+                else "repository_replacement_application_failed",
+                "Repository replacement could not be completed safely.",
+                reconciliation_required=apply_started,
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+            if operation_stage.parent == spec.staging_root:
+                with suppress(OSError):
+                    shutil.rmtree(operation_stage)
+
     def _select_zip_container(
         self,
         client: _SnapshotDockerClient,
         *,
-        spec: AddonZipInstallationSpec,
+        spec: AddonZipInstallationSpec | RepositoryReplacementSpec,
         expected_container_id: str,
     ) -> tuple[str, ContainerRuntimeState]:
         summaries = client.containers(
@@ -1028,7 +1358,7 @@ class DockerManagedContainerAdapter:
 
     @staticmethod
     def _addon_zip_manifest_matches(
-        spec: AddonZipInstallationSpec, observed: object
+        spec: AddonZipInstallationSpec | RepositoryReplacementSpec, observed: object
     ) -> bool:
         if not hasattr(observed, "by_path"):
             return False

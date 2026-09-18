@@ -78,6 +78,11 @@ from kodi_lab.domain import (
     ProcessObservationKind,
     PythonBytecodePolicy,
     ReadinessProbeKind,
+    RepositoryReplacementIncumbentClass,
+    RepositoryReplacementOperationPhase,
+    RepositoryReplacementOperationState,
+    RepositoryReplacementPlanState,
+    RepositoryReplacementTerminalOutcome,
     ResetOperationPhase,
     ResetOperationState,
     RevisionApprovalState,
@@ -1597,6 +1602,269 @@ class AddonZipInstallationOperationRow(Base):
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class RepositoryReplacementPlanRow(Base):
+    """Exact short-lived repository replacement approval plan."""
+
+    __tablename__ = "repository_replacement_plans"
+    __table_args__ = (
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(incoming_version) BETWEEN 1 AND 128",
+            name="repository_replacement_plan_identity_bounded",
+        ),
+        CheckConstraint(
+            "length(expected_container_id)=64",
+            name="repository_replacement_plan_container_bounded",
+        ),
+        CheckConstraint(
+            "length(incoming_payload_manifest_digest)=71 AND "
+            "substr(incoming_payload_manifest_digest,1,7)='sha256:'",
+            name="repository_replacement_plan_incoming_digest",
+        ),
+        CheckConstraint(
+            "invalidation_reason IS NULL OR "
+            "length(invalidation_reason) BETWEEN 1 AND 128",
+            name="repository_replacement_plan_reason_bounded",
+        ),
+        CheckConstraint(
+            "(incumbent_class='attached_unmaterialized' AND "
+            "development_deployment_operation_id IS NULL AND "
+            "development_source_manifest_digest IS NULL AND "
+            "development_destination_digest IS NULL AND incumbent_version IS NULL AND "
+            "incumbent_type IS NULL AND incumbent_enabled IS NULL AND "
+            "qualifying_snapshot_id IS NULL) OR "
+            "(incumbent_class='verified_copied' AND "
+            "development_deployment_operation_id IS NOT NULL AND "
+            "development_source_manifest_digest IS NOT NULL AND "
+            "development_destination_digest IS NOT NULL AND "
+            "incumbent_version IS NOT NULL AND "
+            "incumbent_type IS NOT NULL AND incumbent_enabled IS NOT NULL AND "
+            "qualifying_snapshot_id IS NOT NULL)",
+            name="repository_replacement_plan_incumbent_consistent",
+        ),
+        Index(
+            "ix_repository_replacement_plan_instance_created",
+            "original_managed_instance_id",
+            "created_at",
+        ),
+        Index(
+            "uq_repository_replacement_plan_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('pending','approved')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    repository_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_repository_sources.id", ondelete="RESTRICT")
+    )
+    repository_attachment_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    repository_snapshot_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_metadata_snapshots.id", ondelete="RESTRICT"),
+    )
+    repository_candidate_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_repository_candidates.id", ondelete="RESTRICT")
+    )
+    incoming_artifact_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_zip_artifacts.id", ondelete="RESTRICT")
+    )
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    incumbent_class: Mapped[RepositoryReplacementIncumbentClass] = mapped_column(
+        Enum(
+            RepositoryReplacementIncumbentClass,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="repository_replacement_incumbent_class",
+        )
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("development_sources.id", ondelete="RESTRICT")
+    )
+    development_source_attachment_at: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )
+    development_deployment_operation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("development_source_deployment_operations.id", ondelete="RESTRICT"),
+    )
+    development_source_manifest_digest: Mapped[str | None] = mapped_column(String(71))
+    development_destination_digest: Mapped[str | None] = mapped_column(String(71))
+    incumbent_version: Mapped[str | None] = mapped_column(String(128))
+    incumbent_type: Mapped[str | None] = mapped_column(String(128))
+    incumbent_enabled: Mapped[bool | None] = mapped_column(Boolean)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runtime_revisions.id", ondelete="RESTRICT")
+    )
+    expected_container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Immutable historical binding: Snapshot deletion invalidates a pending plan but
+    # must not erase which Snapshot protected a consumed operation.
+    qualifying_snapshot_id: Mapped[str | None] = mapped_column(String(36))
+    incoming_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    incoming_payload_manifest_digest: Mapped[str] = mapped_column(
+        String(71), nullable=False
+    )
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    expires_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[RepositoryReplacementPlanState] = mapped_column(
+        Enum(
+            RepositoryReplacementPlanState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="repository_replacement_plan_state",
+        )
+    )
+    consumed_execution_operation_id: Mapped[str | None] = mapped_column(String(36))
+    terminal_outcome: Mapped[RepositoryReplacementTerminalOutcome | None] = (
+        mapped_column(
+            Enum(
+                RepositoryReplacementTerminalOutcome,
+                values_callable=_enum_values,
+                native_enum=False,
+                create_constraint=True,
+                name="repository_replacement_terminal_outcome",
+            )
+        )
+    )
+    invalidation_reason: Mapped[str | None] = mapped_column(String(128))
+
+
+class RepositoryReplacementOperationRow(Base):
+    """One execution attempt bound to one exact replacement plan."""
+
+    __tablename__ = "repository_replacement_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(incoming_version) BETWEEN 1 AND 128",
+            name="repository_replacement_operation_identity_bounded",
+        ),
+        CheckConstraint(
+            "length(expected_container_id)=64",
+            name="repository_replacement_operation_container_bounded",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="repository_replacement_operation_reason_bounded",
+        ),
+        CheckConstraint(
+            "(state='queued' AND started_at IS NULL AND completed_at IS NULL AND "
+            "lease_token_digest IS NULL AND lease_expires_at IS NULL AND "
+            "application_started=0) OR "
+            "(state='running' AND started_at IS NOT NULL AND completed_at IS NULL "
+            "AND lease_token_digest IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(state IN ('succeeded','failed','reconciliation_required') AND "
+            "completed_at IS NOT NULL AND lease_token_digest IS NULL AND "
+            "lease_expires_at IS NULL)",
+            name="repository_replacement_operation_state_consistent",
+        ),
+        CheckConstraint(
+            "(state='succeeded' AND application_started=1 AND "
+            "stopped_readback_matched=1 AND final_readback_matched=1 AND "
+            "recognition_enabled IS NOT NULL AND dependency_baseline_json IS NOT NULL "
+            "AND dependency_post_json IS NOT NULL AND reconciliation_required=0) OR "
+            "(state='failed' AND application_started=0 AND "
+            "reconciliation_required=0) OR "
+            "(state='reconciliation_required' AND application_started=1 AND "
+            "reconciliation_required=1) OR state IN ('queued','running')",
+            name="repository_replacement_operation_result_consistent",
+        ),
+        Index(
+            "uq_repository_replacement_operation_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+        Index(
+            "ix_repository_replacement_operation_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("repository_replacement_plans.id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("managed_instances.target_id", ondelete="SET NULL")
+    )
+    incoming_artifact_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_zip_artifacts.id", ondelete="RESTRICT")
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("development_sources.id", ondelete="RESTRICT")
+    )
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    incoming_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    incumbent_class: Mapped[RepositoryReplacementIncumbentClass] = mapped_column(
+        Enum(
+            RepositoryReplacementIncumbentClass,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="repository_replacement_operation_incumbent_class",
+        )
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    expected_container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[RepositoryReplacementOperationState] = mapped_column(
+        Enum(
+            RepositoryReplacementOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="repository_replacement_operation_state",
+        )
+    )
+    phase: Mapped[RepositoryReplacementOperationPhase] = mapped_column(
+        Enum(
+            RepositoryReplacementOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="repository_replacement_operation_phase",
+        )
+    )
+    application_started: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    stopped_readback_matched: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    final_readback_matched: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    recognition_enabled: Mapped[bool | None] = mapped_column(Boolean)
+    dependency_baseline_json: Mapped[str | None] = mapped_column(Text)
+    dependency_post_json: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[str | None] = mapped_column(String(32))
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32))
+    completed_at: Mapped[str | None] = mapped_column(String(32))
+    failure_reason: Mapped[str | None] = mapped_column(String(256))
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32))
+
+
 class AddonZipInstallationEvidenceRow(Base):
     """Current typed evidence for one successful absent-only ZIP install."""
 
@@ -1620,6 +1888,15 @@ class AddonZipInstallationEvidenceRow(Base):
             "AND repository_candidate_id IS NOT NULL)",
             name="addon_zip_evidence_repository_lineage",
         ),
+        CheckConstraint(
+            "(installation_operation_id IS NOT NULL AND "
+            "replacement_operation_id IS NULL "
+            "AND result='installed_recognized_disabled') OR "
+            "(installation_operation_id IS NULL AND "
+            "replacement_operation_id IS NOT NULL "
+            "AND result='repository_replacement_recognized')",
+            name="addon_zip_evidence_producer_consistent",
+        ),
     )
 
     managed_instance_id: Mapped[str] = mapped_column(
@@ -1635,10 +1912,15 @@ class AddonZipInstallationEvidenceRow(Base):
         ForeignKey("addon_zip_artifacts.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    installation_operation_id: Mapped[str] = mapped_column(
+    installation_operation_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("addon_zip_installation_operations.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
+    )
+    replacement_operation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("repository_replacement_operations.id", ondelete="RESTRICT"),
+        nullable=True,
     )
     runtime_revision_id: Mapped[str] = mapped_column(
         String(36),

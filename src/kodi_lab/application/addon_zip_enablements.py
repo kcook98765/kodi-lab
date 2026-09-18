@@ -366,7 +366,7 @@ class AddonZipEnablementService:
             )
             installation = (
                 None
-                if evidence is None
+                if evidence is None or evidence.installation_operation_id is None
                 else AddonZipInstallationOperationRepository(session).get(
                     evidence.installation_operation_id
                 )

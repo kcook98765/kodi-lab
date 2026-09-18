@@ -946,5 +946,65 @@ same-ID DevelopmentSource blocks before lifecycle mutation and attachment
 changes conflict with installation. Uploaded-ZIP enable/smoke APIs remain
 closed to uploaded artifacts, so repository testing ends at exact disabled
 recognition and historical repository provenance. Reset/restore stale evidence
-without deleting repository records. No replacement, reinstall, update, force,
-or collision override exists.
+without deleting repository records. Generic reinstall, update, force, and
+collision override remain absent.
+
+### Exact approved repository replacement test
+
+Migration `0028_repository_replacement_override` adds the one non-generic
+exception to same-ID DevelopmentSource protection. A server-prepared plan binds
+one repository-download artifact to the current source and repository
+attachments, candidate and metadata lineage, RuntimeRevision/container, live
+incumbent state, and—when a copied destination exists—its exact successful
+deployment evidence and a same-revision central Snapshot no more than 15
+minutes old. The plan itself expires after 15 minutes. Immediate explicit
+approval atomically binds one execution operation; it is consumed at the
+application marker and is never reusable.
+
+The only incumbents are an attached source with no destination or inventory
+target, and a freshly verified copied source whose full destination and live
+ID/version/type/enabled state still agree. Uploaded ZIPs, prior repository
+installs, detached, manual, bundled, inventory-only, destination-only, stale,
+and unknown state remain excluded. Versions are not semantically ordered and
+byte-identical incoming payloads are no-ops, not replacement tests.
+
+For a copied incumbent, every old path must remain in the normalized incoming
+manifest with the same object class. The incoming artifact may add paths and
+overwrite existing regular-file content, normalized ownership, and modes; it
+may not delete an old path or change file/directory type. A dedicated broker
+operation resolves the fixed add-on destination and immutable payload from the
+approval. Its request has no path, payload, user/group, delete, overwrite,
+Docker, or generic-execution authority.
+
+Execution revalidates all persisted, runtime, attachment, inventory,
+destination, Snapshot, and lineage preconditions before and after stopping.
+The durable consume/application marker also changes copied-source evidence to
+unknown. Success preserves the exact enabled Boolean and declared dependency
+observations, publishes verified repository evidence, makes source evidence
+stale, restarts, and retains the unchanged source attachment. Active override
+is derived from the retained same-ID attachment plus exact current verified
+replacement evidence, and copy/sync is explicitly blocked as
+`repository_override_active`.
+
+Pre-marker failure invalidates the approval and restores running state if the
+container had stopped. Any uncertainty after the marker leaves the exact
+container stopped, both evidence classes unknown, and the dedicated operation
+reconciliation-required. No retry, adoption, continuation, automatic restart,
+or automatic Snapshot restore occurs. Restoring the bound central Snapshot or
+resetting the disposable instance and copying afresh are the only first-slice
+exits; detach does not restore bytes. Snapshot restore stales repository
+evidence and does not reattribute restored DevelopmentSource bytes.
+
+The private Web flow prepares with a strict empty body and then accepts only
+`{"confirmed": true}` for immediate approve-and-execute. Safe review/status
+projects logical names, add-on identity, versions, class, enabled state,
+Snapshot readiness, and bounded effect/rollback wording. Paths, manifests,
+digests, URLs, container identities, internal Snapshot paths, and raw errors
+remain outside Web output.
+
+Central Snapshot capture canonicalizes Docker's unordered archive enumeration:
+two passes must contain the same bounded approved inventory, regular-file bytes
+are privately spooled under the artifact staging identity, and publication
+emits sorted normalized members. The disk-reserve check accounts for spool plus
+final archive. This preserves deterministic artifacts without treating Docker
+member order as caller or filesystem authority.

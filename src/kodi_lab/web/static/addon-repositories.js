@@ -13,7 +13,7 @@
       const response = await fetch(path, {credentials: "same-origin"});
       const value = await response.json();
       if (!response.ok) throw new Error(value.message || "Repository status failed.");
-      if (["succeeded", "failed"].includes(value.state)) return value;
+      if (["succeeded", "failed", "reconciliation_required"].includes(value.state)) return value;
       await new Promise((resolve) => window.setTimeout(resolve, 500));
     }
   };
@@ -48,8 +48,11 @@
         const result = await wait(accepted.status_url);
         if (result.state !== "succeeded") throw new Error(result.failure_reason || "Fetch failed.");
         const install = candidate.querySelector('[data-action="install"]');
+        const replacement = candidate.querySelector('[data-action="replacement"]');
         install.dataset.artifactId = result.artifact_id;
+        replacement.dataset.artifactId = result.artifact_id;
         install.hidden = false;
+        replacement.hidden = false;
         status.textContent = "Package validated; choose an attached instance to install.";
       } else if (button.dataset.action === "install") {
         if (!instanceId) throw new Error("Choose the attached instance first.");
@@ -57,6 +60,29 @@
         const result = await wait(accepted.status_url);
         if (result.state !== "succeeded") throw new Error(result.failure_reason || "Install failed.");
         status.textContent = "Repository package installed and recognized disabled.";
+      } else if (button.dataset.action === "replacement") {
+        if (!instanceId) throw new Error("Choose the attached instance first.");
+        const plan = await request(`/api/instances/${instanceId}/repository-artifacts/${button.dataset.artifactId}/replacement-plans`);
+        const details = [
+          plan.confirmation,
+          `Repository: ${plan.repository_logical_name}`,
+          `DevelopmentSource: ${plan.development_source_logical_name}`,
+          `Incumbent version: ${plan.incumbent_version || "not materialized"}`,
+          `Incoming version: ${plan.incoming_version}`,
+          `Enabled state: ${plan.enabled === null ? "must remain disabled" : plan.enabled ? "enabled (preserved)" : "disabled (preserved)"}`,
+          `Snapshot ready: ${plan.snapshot_ready ? "yes" : "not required"}`,
+          plan.retained_attachment_notice,
+          plan.rollback_notice,
+        ].join("\n\n");
+        if (!window.confirm(details)) {
+          status.textContent = "Replacement plan prepared but not approved.";
+          return;
+        }
+        const accepted = await request(`/api/instances/${instanceId}/replacement-plans/${plan.plan_id}/approve-and-execute`, {confirmed: true});
+        const result = await wait(accepted.status_url);
+        if (result.state === "reconciliation_required") throw new Error("Repository replacement requires reconciliation; the instance remains stopped.");
+        if (result.state !== "succeeded") throw new Error(result.failure_reason || "Replacement test failed.");
+        status.textContent = "DevelopmentSource replacement completed; attachment retained.";
       }
     } catch (error) {
       status.textContent = error.message;

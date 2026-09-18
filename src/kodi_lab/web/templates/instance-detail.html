@@ -59,7 +59,14 @@
               <td>{{ addon.version }}</td>
               <td>{{ 'Enabled' if addon.enabled else 'Disabled' }}</td>
               <td>{{ addon.kodi_type }}</td>
-              <td>{% if addon.provenance.classification == 'development_source_at_last_verified_copy' %}Prior verified copy: {{ addon.provenance.development_source_logical_name }}{% elif addon.provenance.classification == 'prior_verified_zip_install' %}Prior verified ZIP install: {{ addon.provenance.addon_zip_logical_label }}{% elif addon.provenance.evidence_status == 'stale' and addon.provenance.development_source_logical_name %}Prior verified copy evidence stale: {{ addon.provenance.development_source_logical_name }}{% elif addon.provenance.evidence_status == 'stale' %}Prior provenance evidence stale{% else %}Provenance unknown{% endif %}</td>
+              <td>
+                {% if addon.provenance.classification == 'development_source_at_last_verified_copy' %}Prior verified copy: {{ addon.provenance.development_source_logical_name }}
+                {% elif addon.provenance.classification == 'prior_verified_zip_install' %}Prior verified ZIP install: {{ addon.provenance.addon_zip_logical_label }}
+                {% elif addon.provenance.classification == 'prior_verified_repository_install' %}Prior verified repository install — {{ addon.provenance.repository_logical_name }}{% if addon.repository_override_active %}<br><strong>Attached DevelopmentSource is currently overridden</strong>{% endif %}
+                {% elif addon.provenance.evidence_status == 'stale' and addon.provenance.development_source_logical_name %}Prior verified copy evidence stale: {{ addon.provenance.development_source_logical_name }}
+                {% elif addon.provenance.evidence_status == 'stale' %}Prior provenance evidence stale
+                {% else %}Provenance unknown{% endif %}
+              </td>
             </tr>
           {% endfor %}
           </tbody>

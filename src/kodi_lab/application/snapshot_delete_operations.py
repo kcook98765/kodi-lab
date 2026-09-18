@@ -34,6 +34,7 @@ from kodi_lab.storage.repositories import (
     GlobalHeavyOperationLeaseRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
+    RepositoryReplacementPlanRepository,
     SnapshotDeleteOperationRepository,
     SnapshotRepository,
 )
@@ -162,6 +163,9 @@ class SnapshotDeleteOperationCoordinator:
                     raise SnapshotDeleteConflictError(
                         "Snapshot state changed before deletion could be reserved."
                     )
+                RepositoryReplacementPlanRepository(session).invalidate_for_snapshot(
+                    snapshot_id
+                )
                 operations.create(operation)
                 GlobalHeavyOperationLeaseRepository(session).reserve(
                     kind=GlobalHeavyOperationKind.SNAPSHOT_DELETE,
@@ -217,6 +221,9 @@ class SnapshotDeleteOperationCoordinator:
                     raise SnapshotDeleteConflictError(
                         "Snapshot state changed before deletion could be reserved."
                     )
+                RepositoryReplacementPlanRepository(session).invalidate_for_snapshot(
+                    snapshot_id
+                )
                 operations.create(operation)
                 GlobalHeavyOperationLeaseRepository(session).reserve(
                     kind=GlobalHeavyOperationKind.SNAPSHOT_DELETE,

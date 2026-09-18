@@ -12,19 +12,25 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.config import Settings
 from kodi_lab.domain import (
+    AddonZipInstallationConfidence,
+    AddonZipInstallationResult,
+    AddonZipOrigin,
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentMode,
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceDeploymentResult,
     InstanceType,
+    RepositoryReplacementOperationState,
 )
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.repositories import (
+    AddonZipInstallationEvidenceRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
     ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceRepository,
+    RepositoryReplacementOperationRepository,
     RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
 )
@@ -32,6 +38,11 @@ from kodi_lab.storage.repositories import (
 
 class DevelopmentSourceDeploymentStateError(RuntimeError):
     code = "development_source_deployment_state_invalid"
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        if code is not None:
+            self.code = code
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +168,41 @@ class SqliteDevelopmentSourceDeploymentResolver:
                 if instance is None or source is None or attachment is None:
                     raise DevelopmentSourceDeploymentStateError(
                         "Attached development-source state does not exist."
+                    )
+                replacement_evidence = AddonZipInstallationEvidenceRepository(
+                    session
+                ).get(instance_id, source.addon_id)
+                replacement_operation = (
+                    None
+                    if replacement_evidence is None
+                    or replacement_evidence.replacement_operation_id is None
+                    else RepositoryReplacementOperationRepository(session).get(
+                        replacement_evidence.replacement_operation_id
+                    )
+                )
+                if (
+                    replacement_evidence is not None
+                    and replacement_operation is not None
+                    and replacement_evidence.confidence
+                    is AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
+                    and replacement_evidence.result
+                    is AddonZipInstallationResult.REPOSITORY_REPLACEMENT_RECOGNIZED
+                    and replacement_evidence.artifact_origin
+                    is AddonZipOrigin.REPOSITORY_DOWNLOAD
+                    and replacement_evidence.runtime_revision_id
+                    == instance.runtime_revision_id
+                    and replacement_evidence.trusted_container_id
+                    == expected_container_id
+                    and replacement_operation.state
+                    is RepositoryReplacementOperationState.SUCCEEDED
+                    and replacement_operation.managed_instance_id == instance_id
+                    and replacement_operation.addon_id == source.addon_id
+                    and replacement_operation.stopped_readback_matched
+                    and replacement_operation.final_readback_matched
+                ):
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Attached DevelopmentSource is currently overridden.",
+                        code="repository_override_active",
                     )
                 if instance.instance_type is not InstanceType.DISPOSABLE:
                     raise DevelopmentSourceDeploymentStateError(

@@ -2407,7 +2407,121 @@ details that it did not specify.
 
 ## D-0192: Replacement and update approval is intentionally deferred
 
-- Status: approved deferral
+- Status: superseded by D-0193 through D-0201
 - Decision: there is no force Boolean, override flag, reinstall, update,
   replacement, or ignore-collision path. A later gate must bind one explicit
   approval to exact incumbent and incoming state before any replacement work.
+
+## D-0193: Repository replacement has exactly two eligible incumbent classes
+
+- Status: approved and implemented
+- Decision: the first slice accepts only a `repository_download` artifact for
+  the same ID as a currently attached DevelopmentSource on a disposable
+  instance. Class A is attached but unmaterialized: no deployment evidence,
+  destination, or live inventory target. Class B is a verified copied source:
+  its retained successful deployment, current full destination equality, and
+  exact live ID/version/type/enabled state must all agree.
+- Exclusions: detached source destinations, uploaded-ZIP or prior repository
+  installs, manual/unknown, inventory-only, destination-only, bundled/system,
+  stale, and unknown incumbents remain ineligible. Same/lower/higher version
+  strings are not ordered; an exact incoming payload no-op is rejected.
+
+## D-0194: One exact plan receives one immediate short-lived approval
+
+- Status: approved and implemented
+- Decision: `RepositoryReplacementPlan` persists an opaque approval UUID and
+  binds immutable original/live instance, repository source/attachment/
+  snapshot/candidate/artifact lineage, add-on and incumbent class, exact source
+  attachment and copied-deployment evidence when applicable, incumbent state,
+  RuntimeRevision/container, qualifying central Snapshot, incoming payload,
+  timestamps, state, bound execution UUID, and terminal outcome.
+- Lifetime: plans expire after a fixed 15 minutes and have closed pending,
+  approved, expired, invalidated, consumed, and cancelled states. Approval and
+  creation of its sole queued operation occur atomically. It is consumed
+  immediately before application and cannot be reactivated or reused. There is
+  no force Boolean or reusable override token.
+
+## D-0195: Replacement retains the attachment and derives active override
+
+- Status: approved and implemented
+- Decision: success never detaches or modifies the DevelopmentSource. Current
+  destination provenance becomes the verified repository replacement while the
+  same-ID source remains attached. “Attached DevelopmentSource is currently
+  overridden” is derived only from that attachment plus exact current verified
+  repository replacement evidence; no generic override-state table exists.
+
+## D-0196: Replacement is overwrite-and-add only
+
+- Status: approved and implemented
+- Decision: Class B is eligible only when every incumbent path exists in the
+  normalized incoming manifest with the same file/directory class. Incoming
+  paths may be added; incumbent-only paths or type transitions are rejected
+  before application. Class A materializes into an absent destination.
+- Authority: the dedicated broker request contains only instance, approval,
+  operation, and expected-container identities. The broker derives payload,
+  destination, ownership, modes, and manifests. It has no delete, arbitrary
+  path, generic execution, Docker argument, user/group, or overwrite control.
+
+## D-0197: Class B preserves enabled and declared dependency state
+
+- Status: approved and implemented
+- Decision: exact incumbent enabled Boolean and relevant declared dependency
+  presence/enabled/version observations are captured before stop and must match
+  after readiness. Class A retains disabled-recognition repository semantics.
+  No dependency or add-on-data/profile mutation is authorized.
+
+## D-0198: Class B requires a recent central Snapshot
+
+- Status: approved and implemented
+- Decision: planning and execution require an available same-instance,
+  same-RuntimeRevision central Snapshot captured no more than 15 minutes before
+  the plan and still available at execution. Class A requires none. There is no
+  automatic rollback or subtree backup; restoring the bound Snapshot is the
+  supported prior-state exit, and restored source bytes do not regain verified
+  provenance automatically.
+- Capture accepts Docker's unordered archive enumeration only after two bounded
+  passes agree on the same approved inventory. Approved regular files are
+  privately spooled, then emitted in canonical sorted order; unsafe objects,
+  duplicate/drifted members, bounds violations, and insufficient two-copy disk
+  reserve still fail closed.
+
+## D-0199: Replacement uses explicit evidence transitions
+
+- Status: approved and implemented
+- Decision: at the durable application marker, copied-source evidence becomes
+  unknown. Proven success publishes verified-at-last-operation repository
+  evidence and makes old source evidence stale. Any post-marker ambiguity makes
+  both evidence classes unknown and requires reconciliation. Snapshot restore
+  makes repository evidence stale and leaves source evidence stale; it does not
+  attribute restored bytes. Inventory shows only qualified current repository
+  provenance plus the separate retained-attachment override notice.
+
+## D-0200: Replacement has dedicated coordination and reconciliation
+
+- Status: approved and implemented
+- Decision: `repository_replacement` owns both per-instance and global-heavy
+  leases and therefore conflicts with lifecycle, reset, Snapshot create/restore,
+  attachment and deployment work, repository work, ZIP work, reassignment, and
+  deletion. Deleting a bound Snapshot invalidates a pending plan.
+- Boundary: pre-marker failure permanently invalidates the approval and, after
+  a stop, deterministically restores the running state. Consumption, application
+  marker, and source-evidence unknown transition are one transaction immediately
+  before first modification. Any later uncertainty leaves the exact instance
+  stopped, both evidence classes unknown, and a reconciliation-required record;
+  there is no retry, adoption, overwrite continuation, restart, or auto-restore.
+
+## D-0201: Replacement Web authority and presentation are private and closed
+
+- Status: approved and implemented
+- Decision: authenticated same-origin CSRF-protected empty-body plan preparation
+  and immediate `{"confirmed": true}` approve-and-execute are the only Web
+  mutations. All extra and caller-selected identity, path, version, Snapshot,
+  container, force, overwrite, and delete fields are rejected.
+- Presentation: review shows only logical repository/source names, add-on
+  identity, incumbent/incoming versions, class, enabled state, Snapshot
+  readiness, and bounded effect/rollback wording. Status and history expose no
+  paths, manifests, digests, package URLs, container identities, raw errors, or
+  internal Snapshot locations. Copy/sync returns `repository_override_active`
+  before destination mutation. Supported exits are central Snapshot restore or
+  disposable reset followed by fresh copy/sync; detach alone does not restore
+  bytes.

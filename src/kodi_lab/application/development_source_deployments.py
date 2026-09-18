@@ -34,6 +34,9 @@ from kodi_lab.development import (
     DevelopmentSourceValidator,
 )
 from kodi_lab.domain import (
+    AddonZipInstallationConfidence,
+    AddonZipInstallationResult,
+    AddonZipOrigin,
     DevelopmentSourceDeployment,
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentMode,
@@ -45,8 +48,10 @@ from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     InstanceType,
     ManagedInstanceMutationKind,
+    RepositoryReplacementOperationState,
 )
 from kodi_lab.storage.repositories import (
+    AddonZipInstallationEvidenceRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
@@ -54,6 +59,7 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
+    RepositoryReplacementOperationRepository,
 )
 
 DEPLOYMENT_LEASE_DURATION = timedelta(minutes=10)
@@ -62,6 +68,11 @@ TERMINAL_RETENTION_PER_INSTANCE = 20
 
 class DevelopmentSourceDeploymentError(RuntimeError):
     code = "development_source_deployment_failed"
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        if code is not None:
+            self.code = code
 
 
 class DevelopmentSourceDeploymentConflictError(DevelopmentSourceDeploymentError):
@@ -174,6 +185,11 @@ class DevelopmentSourceDeploymentOperationCoordinator:
             raise DevelopmentSourceDeploymentUnsupportedError(
                 "Copy/sync supports disposable instances only."
             )
+        if self._repository_override_active(instance_id, source.addon_id):
+            raise DevelopmentSourceDeploymentConflictError(
+                "Attached DevelopmentSource is currently overridden.",
+                code="repository_override_active",
+            )
         try:
             observation = self._validator.validate(source.relative_locator)
         except DevelopmentSourceValidationError as error:
@@ -220,6 +236,44 @@ class DevelopmentSourceDeploymentOperationCoordinator:
                 "Another instance mutation or heavy operation is active."
             ) from error
         return self.to_status(operation)
+
+    def _repository_override_active(self, instance_id: UUID, addon_id: str) -> bool:
+        with self._session_factory() as session:
+            instance = ManagedInstanceRepository(session).get(instance_id)
+            evidence = AddonZipInstallationEvidenceRepository(session).get(
+                instance_id, addon_id
+            )
+            operation = (
+                None
+                if evidence is None or evidence.replacement_operation_id is None
+                else RepositoryReplacementOperationRepository(session).get(
+                    evidence.replacement_operation_id
+                )
+            )
+        if (
+            instance is None
+            or evidence is None
+            or operation is None
+            or evidence.confidence
+            is not AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
+            or evidence.result
+            is not AddonZipInstallationResult.REPOSITORY_REPLACEMENT_RECOGNIZED
+            or evidence.artifact_origin is not AddonZipOrigin.REPOSITORY_DOWNLOAD
+            or evidence.runtime_revision_id != instance.runtime_revision_id
+            or operation.state is not RepositoryReplacementOperationState.SUCCEEDED
+            or operation.managed_instance_id != instance_id
+            or operation.addon_id != addon_id
+            or not operation.stopped_readback_matched
+            or not operation.final_readback_matched
+        ):
+            return False
+        matches = [
+            item
+            for item in self._broker.managed_container_inventory().containers
+            if item.managed_instance_id == str(instance_id)
+            and item.container_id == evidence.trusted_container_id
+        ]
+        return len(matches) == 1
 
     def acquire(self, operation_id: UUID) -> DevelopmentSourceDeploymentLease | None:
         with self._session_factory() as session:

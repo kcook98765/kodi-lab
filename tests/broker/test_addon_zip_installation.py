@@ -11,6 +11,8 @@ from kodi_lab.broker.addon_zips import AddonZipInstallationSpec
 from kodi_lab.broker.docker_inventory import DockerManagedContainerAdapter
 from kodi_lab.broker.operations import (
     AddonZipInstallationParams,
+    ApplyRepositoryReplacementParams,
+    InspectRepositoryReplacementParams,
     VerifyAddonZipEnablementDestinationParams,
 )
 from kodi_lab.development.addon_zip import PayloadManifestEntry
@@ -99,6 +101,43 @@ def test_broker_request_exposes_only_semantic_identities() -> None:
         with pytest.raises(ValidationError):
             AddonZipInstallationParams.model_validate(
                 {**value.model_dump(), name: injected}
+            )
+
+
+def test_replacement_broker_requests_expose_no_filesystem_or_overwrite_authority() -> (
+    None
+):
+    inspect = InspectRepositoryReplacementParams(
+        managed_instance_id=INSTANCE_ID,
+        approval_id=ARTIFACT_ID,
+        expected_container_id=CONTAINER_ID,
+    )
+    apply = ApplyRepositoryReplacementParams(
+        **inspect.model_dump(), replacement_operation_id=OPERATION_ID
+    )
+    assert set(inspect.model_dump()) == {
+        "managed_instance_id",
+        "approval_id",
+        "expected_container_id",
+    }
+    assert set(apply.model_dump()) == {
+        *inspect.model_dump(),
+        "replacement_operation_id",
+    }
+    for name, injected in (
+        ("path", "/home/kodi/.kodi/addons"),
+        ("payload", "/private/payload"),
+        ("destination", "/tmp/target"),
+        ("overwrite", True),
+        ("delete", True),
+        ("force", True),
+        ("uid", 0),
+        ("gid", 0),
+        ("docker_arguments", ["exec", "rm"]),
+    ):
+        with pytest.raises(ValidationError):
+            ApplyRepositoryReplacementParams.model_validate(
+                {**apply.model_dump(), name: injected}
             )
 
 

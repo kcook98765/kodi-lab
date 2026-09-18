@@ -50,6 +50,7 @@ class AddonZipInstallationConfidence(StrEnum):
 
 class AddonZipInstallationResult(StrEnum):
     INSTALLED_RECOGNIZED_DISABLED = "installed_recognized_disabled"
+    REPOSITORY_REPLACEMENT_RECOGNIZED = "repository_replacement_recognized"
 
 
 class AddonZipInstallationOperationState(StrEnum):
@@ -266,7 +267,7 @@ class AddonZipInstallationEvidence:
     managed_instance_id: UUID
     original_managed_instance_id: UUID
     artifact_id: UUID
-    installation_operation_id: UUID
+    installation_operation_id: UUID | None
     runtime_revision_id: UUID
     trusted_container_id: str
     addon_id: str
@@ -279,6 +280,7 @@ class AddonZipInstallationEvidence:
     repository_source_id: UUID | None = None
     repository_snapshot_id: UUID | None = None
     repository_candidate_id: UUID | None = None
+    replacement_operation_id: UUID | None = None
 
     def __post_init__(self) -> None:
         _container_id(self.trusted_container_id)
@@ -313,6 +315,14 @@ class AddonZipInstallationEvidence:
             value is None for value in lineage
         ):
             raise ValueError("repository ZIP evidence requires exact lineage")
+        if (self.installation_operation_id is None) == (
+            self.replacement_operation_id is None
+        ):
+            raise ValueError("ZIP evidence requires exactly one producing operation")
+        if (
+            self.result is AddonZipInstallationResult.REPOSITORY_REPLACEMENT_RECOGNIZED
+        ) != (self.replacement_operation_id is not None):
+            raise ValueError("replacement evidence result is inconsistent")
 
 
 @dataclass(frozen=True, slots=True)

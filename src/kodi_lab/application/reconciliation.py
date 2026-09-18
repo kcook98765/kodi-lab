@@ -56,6 +56,9 @@ from kodi_lab.domain import (
     ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
     ManagedInstanceSemanticState,
+    RepositoryReplacementOperation,
+    RepositoryReplacementOperationState,
+    RepositoryReplacementTerminalOutcome,
     ResetOperation,
     ResetOperationState,
     Snapshot,
@@ -91,6 +94,8 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
+    RepositoryReplacementOperationRepository,
+    RepositoryReplacementPlanRepository,
     ResetOperationRepository,
     SnapshotCreateOperationRepository,
     SnapshotDeleteOperationRepository,
@@ -118,6 +123,7 @@ class ManagedInstanceReconciliationRequiredError(RuntimeError):
 
 
 class ReconciliationOperationKind(StrEnum):
+    REPOSITORY_REPLACEMENT = "repository_replacement"
     ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
@@ -136,6 +142,7 @@ class ReconciliationOperationKind(StrEnum):
 
 
 class ReconciliationAction(StrEnum):
+    REPOSITORY_REPLACEMENT = "repository_replacement"
     ADDON_REPOSITORY_ATTACHMENT = "addon_repository_attachment"
     ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
@@ -178,6 +185,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.ADDON_ZIP_SMOKE_TEST,
     ReconciliationAction.ADDON_REPOSITORY_ATTACHMENT,
     ReconciliationAction.ADDON_REPOSITORY_INSTALLATION,
+    ReconciliationAction.REPOSITORY_REPLACEMENT,
 ]
 
 
@@ -368,6 +376,7 @@ class StaleOperationReconciliationDispatcher:
             | AddonZipInstallationOperation
             | AddonZipEnablementOperation
             | AddonZipSmokeTestOperation
+            | RepositoryReplacementOperation
             | None
         )
         if kind is ManagedInstanceMutationKind.LIFECYCLE:
@@ -537,6 +546,70 @@ class StaleOperationReconciliationDispatcher:
                 session
             ).mark_stale_reconciliation(operation_id, now=now):
                 raise CoordinationCorruptionError("Expired enablement history changed.")
+        elif kind is ManagedInstanceMutationKind.REPOSITORY_REPLACEMENT:
+            operation = RepositoryReplacementOperationRepository(session).get(
+                operation_id
+            )
+            assert operation is not None
+            self._validate_operation(operation, instance_id, digest, now)
+            self._require_matching_global(
+                session,
+                GlobalHeavyOperationKind.REPOSITORY_REPLACEMENT,
+                operation_id,
+                digest,
+                now,
+            )
+            if not RepositoryReplacementOperationRepository(
+                session
+            ).mark_stale_reconciliation(
+                operation_id,
+                token_digest=digest,
+                now=now,
+                application_started=operation.application_started,
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired repository replacement ownership changed."
+                )
+            assert isinstance(operation, RepositoryReplacementOperation)
+            plans = RepositoryReplacementPlanRepository(session)
+            if operation.application_started:
+                plans.finish(
+                    operation.plan_id,
+                    outcome=(
+                        RepositoryReplacementTerminalOutcome.RECONCILIATION_REQUIRED
+                    ),
+                    reason="repository_replacement_lease_expired",
+                )
+                DevelopmentSourceDeploymentRepository(session).mark_confidence(
+                    instance_id,
+                    operation.development_source_id,
+                    DevelopmentSourceDeploymentConfidence.UNKNOWN,
+                )
+                AddonZipInstallationEvidenceRepository(
+                    session
+                ).mark_artifact_confidence(
+                    instance_id,
+                    operation.incoming_artifact_id,
+                    AddonZipInstallationConfidence.UNKNOWN,
+                )
+            else:
+                plans.invalidate(
+                    operation.plan_id,
+                    reason="repository_replacement_lease_expired",
+                )
+                plans.finish(
+                    operation.plan_id,
+                    outcome=RepositoryReplacementTerminalOutcome.FAILED,
+                    reason="repository_replacement_lease_expired",
+                )
+            self._release_global(
+                session,
+                GlobalHeavyOperationKind.REPOSITORY_REPLACEMENT,
+                operation_id,
+                digest,
+                now,
+            )
+            released += 1
         elif kind is ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
             operation = DevelopmentSourceSmokeTestOperationRepository(session).get(
                 operation_id
@@ -717,6 +790,7 @@ class StaleOperationReconciliationDispatcher:
             | AddonZipImportOperation
             | AddonRepositoryRefreshOperation
             | AddonRepositoryFetchOperation
+            | RepositoryReplacementOperation
             | None
         )
         if kind is GlobalHeavyOperationKind.SNAPSHOT_DELETE:
@@ -822,6 +896,10 @@ class StaleOperationReconciliationDispatcher:
             operation = DevelopmentSourceDeploymentOperationRepository(session).get(
                 operation_id
             )
+        elif kind is GlobalHeavyOperationKind.REPOSITORY_REPLACEMENT:
+            operation = RepositoryReplacementOperationRepository(session).get(
+                operation_id
+            )
         elif kind in {
             GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
             GlobalHeavyOperationKind.ADDON_REPOSITORY_INSTALLATION,
@@ -833,6 +911,17 @@ class StaleOperationReconciliationDispatcher:
             raise CoordinationCorruptionError("Unsupported global reservation kind.")
         if operation is None:
             raise CoordinationCorruptionError("Global reservation owner is missing.")
+        assert isinstance(
+            operation,
+            (
+                SnapshotCreateOperation,
+                SnapshotRestoreOperation,
+                ManagedInstanceDeleteOperation,
+                DevelopmentSourceDeploymentOperation,
+                AddonZipInstallationOperation,
+                RepositoryReplacementOperation,
+            ),
+        )
         instance_id = (
             operation.original_managed_instance_id
             if isinstance(operation, ManagedInstanceDeleteOperation)
@@ -857,6 +946,7 @@ class StaleOperationReconciliationDispatcher:
         | ManagedInstanceDeleteOperation
         | DevelopmentSourceDeploymentOperation
         | AddonZipInstallationOperation
+        | RepositoryReplacementOperation
         | None,
         instance_id: UUID | None,
         digest: str,
@@ -881,6 +971,7 @@ class StaleOperationReconciliationDispatcher:
             ManagedInstanceDeleteOperationState.RUNNING,
             DevelopmentSourceDeploymentOperationState.RUNNING,
             AddonZipInstallationOperationState.RUNNING,
+            RepositoryReplacementOperationState.RUNNING,
         }
         if operation.state not in running_states:
             raise CoordinationCorruptionError("Reservation owner is not running.")
@@ -956,6 +1047,12 @@ class ManagedInstanceReconciliationService:
             records.extend(
                 (ReconciliationOperationKind.ADDON_ZIP_ENABLEMENT, item)
                 for item in AddonZipEnablementOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
+            records.extend(
+                (ReconciliationOperationKind.REPOSITORY_REPLACEMENT, item)
+                for item in RepositoryReplacementOperationRepository(
                     session
                 ).reconciliation_for_instance(instance_id)
             )
@@ -1089,6 +1186,9 @@ class ManagedInstanceReconciliationService:
         }:
             assert isinstance(operation, AddonZipInstallationOperation)
             blocking, observed = self._classify_addon_zip(instance_id, operation)
+        elif kind is ReconciliationOperationKind.REPOSITORY_REPLACEMENT:
+            assert isinstance(operation, RepositoryReplacementOperation)
+            observed = "replacement_destination_requires_read_only_inspection"
         reason = {
             ReconciliationOperationKind.LIFECYCLE: (
                 "Lifecycle state requires operator reconciliation."
@@ -1126,6 +1226,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST: (
                 "Uploaded-ZIP smoke execution requires reconciliation."
             ),
+            ReconciliationOperationKind.REPOSITORY_REPLACEMENT: (
+                "Repository replacement requires operator reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -1141,6 +1244,7 @@ class ManagedInstanceReconciliationService:
                 AddonZipInstallationOperation,
                 AddonZipEnablementOperation,
                 AddonZipSmokeTestOperation,
+                RepositoryReplacementOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(

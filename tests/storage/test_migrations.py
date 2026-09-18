@@ -64,6 +64,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "managed_instance_lifecycle_operations",
         "managed_instance_mutation_leases",
         "reset_operations",
+        "repository_replacement_operations",
+        "repository_replacement_plans",
         "runtime_definitions",
         "runtime_container_artifacts",
         "runtime_execution_profiles",

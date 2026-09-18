@@ -26,6 +26,7 @@ from kodi_lab.domain import (
     AddonZipOrigin,
     AddonZipSmokeTestOperationState,
     AddonZipSmokeTestOverallResult,
+    RepositoryReplacementOperationState,
     RuntimeExecutionProfile,
 )
 from kodi_lab.domain.addon_zips import (
@@ -61,7 +62,9 @@ from kodi_lab.storage.repositories import (
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
+    ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceRepository,
+    RepositoryReplacementOperationRepository,
     RuntimeExecutionProfileRepository,
 )
 
@@ -119,6 +122,7 @@ class KodiAddonInventoryItem(BaseModel):
     enabled: StrictBool
     kodi_type: str = Field(max_length=128)
     provenance: KodiAddonProvenance
+    repository_override_active: StrictBool = False
 
 
 class AddonZipEnablementPresentationState(StrEnum):
@@ -358,6 +362,18 @@ class ManagedInstanceAddonInventoryService:
                 zip_evidence,
                 profile,
             )
+            attached_addon_ids = {
+                source.addon_id
+                for attachment in ManagedInstanceDevelopmentSourceRepository(
+                    session
+                ).list_for_instance(instance_id)
+                if (
+                    source := DevelopmentSourceRepository(session).get(
+                        attachment.development_source_id
+                    )
+                )
+                is not None
+            }
         return ManagedInstanceAddonInventory(
             instance_id=instance_id,
             observed_at=self._now(),
@@ -373,6 +389,13 @@ class ManagedInstanceAddonInventoryService:
                     enabled=item.enabled,
                     kodi_type=item.kodi_type,
                     provenance=provenances[item.addon_id],
+                    repository_override_active=(
+                        item.addon_id in attached_addon_ids
+                        and provenances[item.addon_id].classification
+                        is (
+                            KodiAddonProvenanceClassification.PRIOR_VERIFIED_REPOSITORY_INSTALL
+                        )
+                    ),
                 )
                 for item in result.items
             ],
@@ -608,6 +631,7 @@ class ManagedInstanceAddonInventoryService:
     ) -> KodiAddonProvenance:
         zip_candidates = [item for item in zip_evidence if item.addon_id == addon_id]
         zip_operations = AddonZipInstallationOperationRepository(session)
+        replacement_operations = RepositoryReplacementOperationRepository(session)
         zip_artifacts = AddonZipArtifactRepository(session)
         repository_sources = AddonRepositorySourceRepository(session)
         repository_metadata = AddonRepositoryMetadataRepository(session)
@@ -615,7 +639,16 @@ class ManagedInstanceAddonInventoryService:
             tuple[AddonZipInstallationEvidence, str, AddonZipOrigin, UUID | None]
         ] = []
         for zip_item in zip_candidates:
-            zip_operation = zip_operations.get(zip_item.installation_operation_id)
+            zip_operation = (
+                None
+                if zip_item.installation_operation_id is None
+                else zip_operations.get(zip_item.installation_operation_id)
+            )
+            replacement_operation = (
+                None
+                if zip_item.replacement_operation_id is None
+                else replacement_operations.get(zip_item.replacement_operation_id)
+            )
             artifact = zip_artifacts.get(zip_item.artifact_id)
             repository_candidate = (
                 None
@@ -626,25 +659,55 @@ class ManagedInstanceAddonInventoryService:
                 zip_item.confidence
                 is AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
                 and zip_item.result
-                is AddonZipInstallationResult.INSTALLED_RECOGNIZED_DISABLED
+                in {
+                    AddonZipInstallationResult.INSTALLED_RECOGNIZED_DISABLED,
+                    AddonZipInstallationResult.REPOSITORY_REPLACEMENT_RECOGNIZED,
+                }
                 and zip_item.managed_instance_id == instance_id
                 and zip_item.original_managed_instance_id == instance_id
                 and zip_item.runtime_revision_id == runtime_revision_id
                 and zip_item.trusted_container_id == container_id
                 and zip_item.addon_version == version
-                and zip_operation is not None
                 and artifact is not None
-                and zip_operation.state is AddonZipInstallationOperationState.SUCCEEDED
-                and zip_operation.original_managed_instance_id == instance_id
-                and zip_operation.managed_instance_id == instance_id
-                and zip_operation.artifact_id == zip_item.artifact_id
-                and zip_operation.addon_id == addon_id
-                and zip_operation.addon_version == version
-                and zip_operation.runtime_revision_id == runtime_revision_id
-                and zip_operation.expected_container_id == container_id
-                and zip_operation.stopped_readback_matched
-                and zip_operation.final_readback_matched
-                and zip_operation.recognition_enabled is False
+                and (
+                    (
+                        zip_item.result
+                        is AddonZipInstallationResult.INSTALLED_RECOGNIZED_DISABLED
+                        and zip_operation is not None
+                        and zip_operation.state
+                        is AddonZipInstallationOperationState.SUCCEEDED
+                        and zip_operation.original_managed_instance_id == instance_id
+                        and zip_operation.managed_instance_id == instance_id
+                        and zip_operation.artifact_id == zip_item.artifact_id
+                        and zip_operation.addon_id == addon_id
+                        and zip_operation.addon_version == version
+                        and zip_operation.runtime_revision_id == runtime_revision_id
+                        and zip_operation.expected_container_id == container_id
+                        and zip_operation.stopped_readback_matched
+                        and zip_operation.final_readback_matched
+                        and zip_operation.recognition_enabled is False
+                    )
+                    or (
+                        zip_item.result
+                        is AddonZipInstallationResult.REPOSITORY_REPLACEMENT_RECOGNIZED
+                        and replacement_operation is not None
+                        and replacement_operation.state
+                        is RepositoryReplacementOperationState.SUCCEEDED
+                        and replacement_operation.original_managed_instance_id
+                        == instance_id
+                        and replacement_operation.managed_instance_id == instance_id
+                        and replacement_operation.incoming_artifact_id
+                        == zip_item.artifact_id
+                        and replacement_operation.addon_id == addon_id
+                        and replacement_operation.incoming_version == version
+                        and replacement_operation.runtime_revision_id
+                        == runtime_revision_id
+                        and replacement_operation.expected_container_id == container_id
+                        and replacement_operation.stopped_readback_matched
+                        and replacement_operation.final_readback_matched
+                        and replacement_operation.recognition_enabled is not None
+                    )
+                )
                 and artifact.addon_id == addon_id
                 and artifact.addon_version == version
                 and artifact.payload_manifest_digest == zip_item.payload_manifest_digest

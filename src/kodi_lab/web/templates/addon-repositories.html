@@ -45,6 +45,7 @@
           <span>{{ candidate.classification }} · {% if candidate.supported %}supported{% else %}unsupported: {{ candidate.unsupported_reason }}{% endif %}</span>
           {% if candidate.supported %}<button type="button" data-action="fetch">5. Fetch and validate package</button>{% endif %}
           <button type="button" data-action="install"{% if not candidate.fetched_artifact_id %} hidden{% else %} data-artifact-id="{{ candidate.fetched_artifact_id }}"{% endif %}>6. Install fetched artifact disabled</button>
+          <button type="button" data-action="replacement"{% if not candidate.fetched_artifact_id %} hidden{% else %} data-artifact-id="{{ candidate.fetched_artifact_id }}"{% endif %}>Prepare replacement test</button>
         </section>
         {% else %}<p>No current candidates. Refresh this repository explicitly.</p>{% endfor %}
       </article>

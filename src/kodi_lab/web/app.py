@@ -173,6 +173,16 @@ from kodi_lab.application.reconciliation import (
     SnapshotReconciliationStatus,
     StaleOperationReconciliationDispatcher,
 )
+from kodi_lab.application.repository_replacements import (
+    RepositoryReplacementCoordinator,
+    RepositoryReplacementError,
+    RepositoryReplacementExecutor,
+    RepositoryReplacementPlanRead,
+    RepositoryReplacementService,
+    RepositoryReplacementServiceFactory,
+    RepositoryReplacementStatus,
+    RepositoryReplacementUnsupportedError,
+)
 from kodi_lab.application.reset import DisposableInstanceResetService
 from kodi_lab.application.reset_activity import ResetActivityRegistry
 from kodi_lab.application.reset_operations import (
@@ -361,6 +371,20 @@ class AddonRepositoryFetchAccepted(BaseModel):
     status_url: str
 
 
+class RepositoryReplacementConfirmationRequest(BaseModel):
+    """One immediate confirmation bit and no replacement authority."""
+
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
+
+
+class RepositoryReplacementAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: RepositoryReplacementStatus
+    status_url: str
+
+
 class SnapshotCreateRequest(BaseModel):
     """Optional display metadata with no storage or runtime authority."""
 
@@ -466,6 +490,8 @@ class WebApplicationContext:
     addon_repository_refresh_executor: AddonRepositoryExecutor
     addon_repository_fetches: AddonRepositoryFetchCoordinator
     addon_repository_fetch_executor: AddonRepositoryExecutor
+    repository_replacements: RepositoryReplacementCoordinator
+    repository_replacement_executor: RepositoryReplacementExecutor
 
 
 def create_app(
@@ -509,6 +535,9 @@ def create_app(
     addon_repository_refresh_coordinator: AddonRepositoryRefreshCoordinator
     | None = None,
     addon_repository_fetch_coordinator: AddonRepositoryFetchCoordinator | None = None,
+    repository_replacement_service_factory: (
+        RepositoryReplacementServiceFactory | None
+    ) = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -783,6 +812,24 @@ def create_app(
     addon_repository_fetch_executor = AddonRepositoryExecutor(
         addon_repository_fetches, thread_name="repository-fetch"
     )
+    repository_replacements = RepositoryReplacementCoordinator(
+        session_factory,
+        broker,
+        inventory_factory=addon_inventory_adapter_factory,
+        reconciliation=reconciliation,
+    )
+    repository_replacement_factory = repository_replacement_service_factory or (
+        lambda lease: RepositoryReplacementService(
+            session_factory,
+            broker,
+            repository_replacements,
+            lease,
+            inventory_factory=addon_inventory_adapter_factory,
+        )
+    )
+    repository_replacement_executor = RepositoryReplacementExecutor(
+        repository_replacements, repository_replacement_factory
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -860,6 +907,8 @@ def create_app(
         addon_repository_refresh_executor=addon_repository_refresh_executor,
         addon_repository_fetches=addon_repository_fetches,
         addon_repository_fetch_executor=addon_repository_fetch_executor,
+        repository_replacements=repository_replacements,
+        repository_replacement_executor=repository_replacement_executor,
     )
 
     @asynccontextmanager
@@ -877,6 +926,7 @@ def create_app(
         context.addon_zip_smoke_test_executor.start()
         context.addon_repository_refresh_executor.start()
         context.addon_repository_fetch_executor.start()
+        context.repository_replacement_executor.start()
         try:
             yield
         finally:
@@ -892,6 +942,7 @@ def create_app(
             context.addon_zip_smoke_test_executor.close()
             context.addon_repository_refresh_executor.close()
             context.addon_repository_fetch_executor.close()
+            context.repository_replacement_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -986,6 +1037,17 @@ def create_app(
     ) -> JSONResponse:
         return _json_error(409, error.code, str(error)[:256])
 
+    @app.exception_handler(RepositoryReplacementError)
+    async def repository_replacement_failed(
+        _request: Request, error: RepositoryReplacementError
+    ) -> JSONResponse:
+        http_status = (
+            status.HTTP_422_UNPROCESSABLE_CONTENT
+            if isinstance(error, RepositoryReplacementUnsupportedError)
+            else status.HTTP_409_CONFLICT
+        )
+        return _json_error(http_status, error.code, str(error)[:256])
+
     @app.exception_handler(RequestValidationError)
     async def bounded_request_validation(
         request: Request, error: RequestValidationError
@@ -996,6 +1058,7 @@ def create_app(
             or path == "/api/addon-repositories"
             or "/addon-repositories/" in path
             or "/repository-artifacts/" in path
+            or "/replacement-plans/" in path
             or (
                 "/development-sources/" in path
                 and path.endswith(("/attach", "/detach"))
@@ -2182,6 +2245,64 @@ def create_app(
             f"{operation.operation_id}"
         )
         return AddonZipInstallationAccepted(operation=operation, status_url=status_url)
+
+    @app.post(
+        "/api/instances/{instance_id}/repository-artifacts/{artifact_id}/replacement-plans",
+        response_model=RepositoryReplacementPlanRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def prepare_repository_replacement(
+        instance_id: UUID,
+        artifact_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> RepositoryReplacementPlanRead:
+        return context.repository_replacements.prepare(instance_id, artifact_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/replacement-plans/{plan_id}",
+        response_model=RepositoryReplacementPlanRead,
+    )
+    def repository_replacement_plan(
+        instance_id: UUID,
+        plan_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> RepositoryReplacementPlanRead:
+        return context.repository_replacements.get_plan_for(instance_id, plan_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/replacement-plans/{plan_id}/approve-and-execute",
+        response_model=RepositoryReplacementAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def approve_repository_replacement(
+        instance_id: UUID,
+        plan_id: UUID,
+        _body: RepositoryReplacementConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> RepositoryReplacementAccepted:
+        operation = context.repository_replacements.approve_and_queue(
+            instance_id, plan_id
+        )
+        context.repository_replacement_executor.submit(operation.operation_id)
+        status_url = (
+            f"/api/instances/{instance_id}/repository-replacement-operations/"
+            f"{operation.operation_id}"
+        )
+        return RepositoryReplacementAccepted(operation=operation, status_url=status_url)
+
+    @app.get(
+        "/api/instances/{instance_id}/repository-replacement-operations/{operation_id}",
+        response_model=RepositoryReplacementStatus,
+    )
+    def repository_replacement_operation(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> RepositoryReplacementStatus:
+        return context.repository_replacements.get_for_instance(
+            instance_id, operation_id
+        )
 
     @app.post(
         "/api/instances/{instance_id}/addon-zips/{artifact_id}/enable",

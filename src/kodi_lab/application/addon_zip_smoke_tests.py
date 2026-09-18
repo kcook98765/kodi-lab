@@ -225,7 +225,10 @@ class AddonZipSmokeTestOperationCoordinator:
             raise AddonZipSmokeTestNotFoundError(
                 "Repository artifacts require repository-specific smoke authority."
             )
-        if evidence.artifact_id != artifact_id:
+        if (
+            evidence.artifact_id != artifact_id
+            or evidence.installation_operation_id is None
+        ):
             raise AddonZipSmokeTestNotFoundError(
                 "The accepted ZIP artifact has no matching installation evidence."
             )
@@ -680,7 +683,7 @@ class AddonZipSmokeTestService:
             )
             installation = (
                 None
-                if evidence is None
+                if evidence is None or evidence.installation_operation_id is None
                 else AddonZipInstallationOperationRepository(session).get(
                     evidence.installation_operation_id
                 )

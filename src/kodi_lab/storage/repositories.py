@@ -69,6 +69,12 @@ from kodi_lab.domain import (
     ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
     ManagedInstanceSemanticState,
+    RepositoryReplacementOperation,
+    RepositoryReplacementOperationPhase,
+    RepositoryReplacementOperationState,
+    RepositoryReplacementPlan,
+    RepositoryReplacementPlanState,
+    RepositoryReplacementTerminalOutcome,
     ResetOperation,
     ResetOperationPhase,
     ResetOperationState,
@@ -120,6 +126,8 @@ from kodi_lab.storage.models import (
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    RepositoryReplacementOperationRow,
+    RepositoryReplacementPlanRow,
     ResetOperationRow,
     RuntimeContainerArtifactRow,
     RuntimeDefinitionRow,
@@ -416,7 +424,11 @@ def _addon_zip_evidence_from_row(
         managed_instance_id=UUID(row.managed_instance_id),
         original_managed_instance_id=UUID(row.original_managed_instance_id),
         artifact_id=UUID(row.artifact_id),
-        installation_operation_id=UUID(row.installation_operation_id),
+        installation_operation_id=(
+            None
+            if row.installation_operation_id is None
+            else UUID(row.installation_operation_id)
+        ),
         runtime_revision_id=UUID(row.runtime_revision_id),
         trusted_container_id=row.trusted_container_id,
         addon_id=row.addon_id,
@@ -439,6 +451,105 @@ def _addon_zip_evidence_from_row(
             if row.repository_candidate_id is None
             else UUID(row.repository_candidate_id)
         ),
+        replacement_operation_id=(
+            None
+            if row.replacement_operation_id is None
+            else UUID(row.replacement_operation_id)
+        ),
+    )
+
+
+def _repository_replacement_plan_from_row(
+    row: RepositoryReplacementPlanRow,
+) -> RepositoryReplacementPlan:
+    return RepositoryReplacementPlan(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=None
+        if row.managed_instance_id is None
+        else UUID(row.managed_instance_id),
+        repository_source_id=UUID(row.repository_source_id),
+        repository_attachment_at=_timestamp_from_text(row.repository_attachment_at),
+        repository_snapshot_id=UUID(row.repository_snapshot_id),
+        repository_candidate_id=UUID(row.repository_candidate_id),
+        incoming_artifact_id=UUID(row.incoming_artifact_id),
+        addon_id=row.addon_id,
+        incumbent_class=row.incumbent_class,
+        development_source_id=UUID(row.development_source_id),
+        development_source_attachment_at=_timestamp_from_text(
+            row.development_source_attachment_at
+        ),
+        development_deployment_operation_id=(
+            None
+            if row.development_deployment_operation_id is None
+            else UUID(row.development_deployment_operation_id)
+        ),
+        development_source_manifest_digest=row.development_source_manifest_digest,
+        development_destination_digest=row.development_destination_digest,
+        incumbent_version=row.incumbent_version,
+        incumbent_type=row.incumbent_type,
+        incumbent_enabled=row.incumbent_enabled,
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        expected_container_id=row.expected_container_id,
+        qualifying_snapshot_id=None
+        if row.qualifying_snapshot_id is None
+        else UUID(row.qualifying_snapshot_id),
+        incoming_version=row.incoming_version,
+        incoming_payload_manifest_digest=row.incoming_payload_manifest_digest,
+        created_at=_timestamp_from_text(row.created_at),
+        expires_at=_timestamp_from_text(row.expires_at),
+        state=row.state,
+        consumed_execution_operation_id=(
+            None
+            if row.consumed_execution_operation_id is None
+            else UUID(row.consumed_execution_operation_id)
+        ),
+        terminal_outcome=row.terminal_outcome,
+        invalidation_reason=row.invalidation_reason,
+    )
+
+
+def _repository_replacement_operation_from_row(
+    row: RepositoryReplacementOperationRow,
+) -> RepositoryReplacementOperation:
+    return RepositoryReplacementOperation(
+        id=UUID(row.id),
+        plan_id=UUID(row.plan_id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=None
+        if row.managed_instance_id is None
+        else UUID(row.managed_instance_id),
+        incoming_artifact_id=UUID(row.incoming_artifact_id),
+        development_source_id=UUID(row.development_source_id),
+        addon_id=row.addon_id,
+        incoming_version=row.incoming_version,
+        incumbent_class=row.incumbent_class,
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        expected_container_id=row.expected_container_id,
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
+        application_started=row.application_started,
+        stopped_readback_matched=row.stopped_readback_matched,
+        final_readback_matched=row.final_readback_matched,
+        recognition_enabled=row.recognition_enabled,
+        dependency_baseline_json=row.dependency_baseline_json,
+        dependency_post_json=row.dependency_post_json,
+        started_at=None
+        if row.started_at is None
+        else _timestamp_from_text(row.started_at),
+        heartbeat_at=None
+        if row.heartbeat_at is None
+        else _timestamp_from_text(row.heartbeat_at),
+        completed_at=None
+        if row.completed_at is None
+        else _timestamp_from_text(row.completed_at),
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=None
+        if row.lease_expires_at is None
+        else _timestamp_from_text(row.lease_expires_at),
     )
 
 
@@ -1814,6 +1925,429 @@ class AddonZipImportOperationRepository:
         return bool(getattr(result, "rowcount", 0))
 
 
+class RepositoryReplacementPlanRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, plan: RepositoryReplacementPlan) -> None:
+        self._session.add(
+            RepositoryReplacementPlanRow(
+                id=str(plan.id),
+                original_managed_instance_id=str(plan.original_managed_instance_id),
+                managed_instance_id=None
+                if plan.managed_instance_id is None
+                else str(plan.managed_instance_id),
+                repository_source_id=str(plan.repository_source_id),
+                repository_attachment_at=_timestamp_to_text(
+                    plan.repository_attachment_at
+                ),
+                repository_snapshot_id=str(plan.repository_snapshot_id),
+                repository_candidate_id=str(plan.repository_candidate_id),
+                incoming_artifact_id=str(plan.incoming_artifact_id),
+                addon_id=plan.addon_id,
+                incumbent_class=plan.incumbent_class,
+                development_source_id=str(plan.development_source_id),
+                development_source_attachment_at=_timestamp_to_text(
+                    plan.development_source_attachment_at
+                ),
+                development_deployment_operation_id=None
+                if plan.development_deployment_operation_id is None
+                else str(plan.development_deployment_operation_id),
+                development_source_manifest_digest=plan.development_source_manifest_digest,
+                development_destination_digest=plan.development_destination_digest,
+                incumbent_version=plan.incumbent_version,
+                incumbent_type=plan.incumbent_type,
+                incumbent_enabled=plan.incumbent_enabled,
+                runtime_revision_id=str(plan.runtime_revision_id),
+                expected_container_id=plan.expected_container_id,
+                qualifying_snapshot_id=None
+                if plan.qualifying_snapshot_id is None
+                else str(plan.qualifying_snapshot_id),
+                incoming_version=plan.incoming_version,
+                incoming_payload_manifest_digest=plan.incoming_payload_manifest_digest,
+                created_at=_timestamp_to_text(plan.created_at),
+                expires_at=_timestamp_to_text(plan.expires_at),
+                state=plan.state,
+                consumed_execution_operation_id=None
+                if plan.consumed_execution_operation_id is None
+                else str(plan.consumed_execution_operation_id),
+                terminal_outcome=plan.terminal_outcome,
+                invalidation_reason=plan.invalidation_reason,
+            )
+        )
+
+    def get(self, plan_id: UUID) -> RepositoryReplacementPlan | None:
+        row = self._session.get(RepositoryReplacementPlanRow, str(plan_id))
+        return None if row is None else _repository_replacement_plan_from_row(row)
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[RepositoryReplacementPlan]:
+        rows = self._session.scalars(
+            select(RepositoryReplacementPlanRow)
+            .where(
+                RepositoryReplacementPlanRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                RepositoryReplacementPlanRow.created_at.desc(),
+                RepositoryReplacementPlanRow.id.desc(),
+            )
+        )
+        return [_repository_replacement_plan_from_row(row) for row in rows]
+
+    def active_for_instance(
+        self, instance_id: UUID
+    ) -> RepositoryReplacementPlan | None:
+        row = self._session.scalar(
+            select(RepositoryReplacementPlanRow).where(
+                RepositoryReplacementPlanRow.managed_instance_id == str(instance_id),
+                RepositoryReplacementPlanRow.state.in_(
+                    (
+                        RepositoryReplacementPlanState.PENDING,
+                        RepositoryReplacementPlanState.APPROVED,
+                    )
+                ),
+            )
+        )
+        return None if row is None else _repository_replacement_plan_from_row(row)
+
+    def expire_due(self, instance_id: UUID, *, now: datetime) -> int:
+        result = self._session.execute(
+            update(RepositoryReplacementPlanRow)
+            .where(
+                RepositoryReplacementPlanRow.managed_instance_id == str(instance_id),
+                RepositoryReplacementPlanRow.state
+                == RepositoryReplacementPlanState.PENDING,
+                RepositoryReplacementPlanRow.expires_at <= _timestamp_to_text(now),
+            )
+            .values(
+                state=RepositoryReplacementPlanState.EXPIRED,
+                invalidation_reason="approval_expired",
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+    def invalidate(self, plan_id: UUID, *, reason: str) -> bool:
+        result = self._session.execute(
+            update(RepositoryReplacementPlanRow)
+            .where(
+                RepositoryReplacementPlanRow.id == str(plan_id),
+                RepositoryReplacementPlanRow.state.in_(
+                    (
+                        RepositoryReplacementPlanState.PENDING,
+                        RepositoryReplacementPlanState.APPROVED,
+                    )
+                ),
+            )
+            .values(
+                state=RepositoryReplacementPlanState.INVALIDATED,
+                invalidation_reason=reason[:128],
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def invalidate_for_snapshot(self, snapshot_id: UUID) -> int:
+        result = self._session.execute(
+            update(RepositoryReplacementPlanRow)
+            .where(
+                RepositoryReplacementPlanRow.qualifying_snapshot_id == str(snapshot_id),
+                RepositoryReplacementPlanRow.state
+                == RepositoryReplacementPlanState.PENDING,
+            )
+            .values(
+                state=RepositoryReplacementPlanState.INVALIDATED,
+                invalidation_reason="qualifying_snapshot_deleted",
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+    def approve_and_bind(
+        self, plan_id: UUID, operation_id: UUID, *, now: datetime
+    ) -> bool:
+        result = self._session.execute(
+            update(RepositoryReplacementPlanRow)
+            .where(
+                RepositoryReplacementPlanRow.id == str(plan_id),
+                RepositoryReplacementPlanRow.state
+                == RepositoryReplacementPlanState.PENDING,
+                RepositoryReplacementPlanRow.expires_at > _timestamp_to_text(now),
+                RepositoryReplacementPlanRow.consumed_execution_operation_id.is_(None),
+            )
+            .values(
+                state=RepositoryReplacementPlanState.APPROVED,
+                consumed_execution_operation_id=str(operation_id),
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def consume_for_application(self, plan_id: UUID, operation_id: UUID) -> bool:
+        result = self._session.execute(
+            update(RepositoryReplacementPlanRow)
+            .where(
+                RepositoryReplacementPlanRow.id == str(plan_id),
+                RepositoryReplacementPlanRow.state
+                == RepositoryReplacementPlanState.APPROVED,
+                RepositoryReplacementPlanRow.consumed_execution_operation_id
+                == str(operation_id),
+            )
+            .values(state=RepositoryReplacementPlanState.CONSUMED)
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def finish(
+        self,
+        plan_id: UUID,
+        *,
+        outcome: RepositoryReplacementTerminalOutcome,
+        reason: str | None = None,
+    ) -> bool:
+        values: dict[str, object] = {"terminal_outcome": outcome}
+        if reason is not None:
+            values["invalidation_reason"] = reason[:128]
+        result = self._session.execute(
+            update(RepositoryReplacementPlanRow)
+            .where(RepositoryReplacementPlanRow.id == str(plan_id))
+            .values(**values)
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+
+class RepositoryReplacementOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: RepositoryReplacementOperation) -> None:
+        self._session.add(
+            RepositoryReplacementOperationRow(
+                id=str(operation.id),
+                plan_id=str(operation.plan_id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                managed_instance_id=None
+                if operation.managed_instance_id is None
+                else str(operation.managed_instance_id),
+                incoming_artifact_id=str(operation.incoming_artifact_id),
+                development_source_id=str(operation.development_source_id),
+                addon_id=operation.addon_id,
+                incoming_version=operation.incoming_version,
+                incumbent_class=operation.incumbent_class,
+                runtime_revision_id=str(operation.runtime_revision_id),
+                expected_container_id=operation.expected_container_id,
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+                application_started=operation.application_started,
+                stopped_readback_matched=operation.stopped_readback_matched,
+                final_readback_matched=operation.final_readback_matched,
+                recognition_enabled=operation.recognition_enabled,
+                dependency_baseline_json=operation.dependency_baseline_json,
+                dependency_post_json=operation.dependency_post_json,
+                started_at=None
+                if operation.started_at is None
+                else _timestamp_to_text(operation.started_at),
+                heartbeat_at=None
+                if operation.heartbeat_at is None
+                else _timestamp_to_text(operation.heartbeat_at),
+                completed_at=None
+                if operation.completed_at is None
+                else _timestamp_to_text(operation.completed_at),
+                failure_reason=operation.failure_reason,
+                reconciliation_required=operation.reconciliation_required,
+                lease_token_digest=operation.lease_token_digest,
+                lease_expires_at=None
+                if operation.lease_expires_at is None
+                else _timestamp_to_text(operation.lease_expires_at),
+            )
+        )
+
+    def get(self, operation_id: UUID) -> RepositoryReplacementOperation | None:
+        row = self._session.get(RepositoryReplacementOperationRow, str(operation_id))
+        return None if row is None else _repository_replacement_operation_from_row(row)
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID
+    ) -> list[RepositoryReplacementOperation]:
+        rows = self._session.scalars(
+            select(RepositoryReplacementOperationRow).where(
+                RepositoryReplacementOperationRow.original_managed_instance_id
+                == str(instance_id),
+                RepositoryReplacementOperationRow.state
+                == RepositoryReplacementOperationState.RECONCILIATION_REQUIRED,
+            )
+        )
+        return [_repository_replacement_operation_from_row(row) for row in rows]
+
+    def list_queued(self) -> list[RepositoryReplacementOperation]:
+        rows = self._session.scalars(
+            select(RepositoryReplacementOperationRow)
+            .where(
+                RepositoryReplacementOperationRow.state
+                == RepositoryReplacementOperationState.QUEUED
+            )
+            .order_by(
+                RepositoryReplacementOperationRow.requested_at,
+                RepositoryReplacementOperationRow.id,
+            )
+        )
+        return [_repository_replacement_operation_from_row(row) for row in rows]
+
+    def active_for_instance(
+        self, instance_id: UUID
+    ) -> RepositoryReplacementOperation | None:
+        row = self._session.scalar(
+            select(RepositoryReplacementOperationRow).where(
+                RepositoryReplacementOperationRow.managed_instance_id
+                == str(instance_id),
+                RepositoryReplacementOperationRow.state.in_(
+                    (
+                        RepositoryReplacementOperationState.QUEUED,
+                        RepositoryReplacementOperationState.RUNNING,
+                    )
+                ),
+            )
+        )
+        return None if row is None else _repository_replacement_operation_from_row(row)
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(RepositoryReplacementOperationRow)
+            .where(
+                RepositoryReplacementOperationRow.id == str(operation_id),
+                RepositoryReplacementOperationRow.state
+                == RepositoryReplacementOperationState.QUEUED,
+                RepositoryReplacementOperationRow.lease_token_digest.is_(None),
+            )
+            .values(
+                state=RepositoryReplacementOperationState.RUNNING,
+                phase=RepositoryReplacementOperationPhase.PREFLIGHT,
+                started_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(expires_at),
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def update_fields(
+        self, operation_id: UUID, *, token_digest: str, **values: object
+    ) -> bool:
+        for field in ("heartbeat_at", "lease_expires_at", "completed_at"):
+            value = values.get(field)
+            if isinstance(value, datetime):
+                values[field] = _timestamp_to_text(value)
+        result = self._session.execute(
+            update(RepositoryReplacementOperationRow)
+            .where(
+                RepositoryReplacementOperationRow.id == str(operation_id),
+                RepositoryReplacementOperationRow.state
+                == RepositoryReplacementOperationState.RUNNING,
+                RepositoryReplacementOperationRow.lease_token_digest == token_digest,
+            )
+            .values(**values)
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: RepositoryReplacementOperationState,
+        now: datetime,
+        reason: str | None,
+    ) -> bool:
+        result = self._session.execute(
+            update(RepositoryReplacementOperationRow)
+            .where(
+                RepositoryReplacementOperationRow.id == str(operation_id),
+                RepositoryReplacementOperationRow.state
+                == RepositoryReplacementOperationState.RUNNING,
+                RepositoryReplacementOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                state=state,
+                phase=RepositoryReplacementOperationPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+                failure_reason=reason,
+                reconciliation_required=state
+                is RepositoryReplacementOperationState.RECONCILIATION_REQUIRED,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def mark_stale_reconciliation(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        application_started: bool,
+    ) -> bool:
+        result = self._session.execute(
+            update(RepositoryReplacementOperationRow)
+            .where(
+                RepositoryReplacementOperationRow.id == str(operation_id),
+                RepositoryReplacementOperationRow.state
+                == RepositoryReplacementOperationState.RUNNING,
+                RepositoryReplacementOperationRow.lease_token_digest == token_digest,
+                RepositoryReplacementOperationRow.lease_expires_at
+                <= _timestamp_to_text(now),
+            )
+            .values(
+                state=(
+                    RepositoryReplacementOperationState.RECONCILIATION_REQUIRED
+                    if application_started
+                    else RepositoryReplacementOperationState.FAILED
+                ),
+                phase=RepositoryReplacementOperationPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+                failure_reason="repository_replacement_lease_expired",
+                reconciliation_required=application_started,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[RepositoryReplacementOperation]:
+        rows = self._session.scalars(
+            select(RepositoryReplacementOperationRow)
+            .where(
+                RepositoryReplacementOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                RepositoryReplacementOperationRow.requested_at.desc(),
+                RepositoryReplacementOperationRow.id.desc(),
+            )
+        )
+        return [_repository_replacement_operation_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(RepositoryReplacementOperationRow)
+            .where(
+                RepositoryReplacementOperationRow.managed_instance_id
+                == str(instance_id)
+            )
+            .values(managed_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
 class AddonZipInstallationEvidenceRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -1846,7 +2380,16 @@ class AddonZipInstallationEvidenceRepository:
         values = dict(
             original_managed_instance_id=str(evidence.original_managed_instance_id),
             artifact_id=str(evidence.artifact_id),
-            installation_operation_id=str(evidence.installation_operation_id),
+            installation_operation_id=(
+                None
+                if evidence.installation_operation_id is None
+                else str(evidence.installation_operation_id)
+            ),
+            replacement_operation_id=(
+                None
+                if evidence.replacement_operation_id is None
+                else str(evidence.replacement_operation_id)
+            ),
             runtime_revision_id=str(evidence.runtime_revision_id),
             trusted_container_id=evidence.trusted_container_id,
             addon_id=evidence.addon_id,

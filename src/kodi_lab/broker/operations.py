@@ -869,6 +869,84 @@ class ApplyAddonZipInstallationResult(StrictModel):
         return value
 
 
+class InspectRepositoryReplacementParams(StrictModel):
+    """Only instance, exact approval, and immutable container precondition."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    approval_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("managed_instance_id", "approval_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class InspectRepositoryReplacementResult(StrictModel):
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    approval_id: str = Field(min_length=36, max_length=36)
+    artifact_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    topology: Literal[
+        "absent_eligible",
+        "overwrite_add_eligible",
+        "exact_payload_noop",
+        "deletion_required",
+        "type_transition",
+        "incumbent_drift",
+    ]
+
+    @field_validator(
+        "managed_instance_id", "approval_id", "artifact_id", "runtime_revision_id"
+    )
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class ApplyRepositoryReplacementParams(InspectRepositoryReplacementParams):
+    """Add exactly one replacement-operation UUID; no filesystem controls."""
+
+    replacement_operation_id: str = Field(min_length=36, max_length=36)
+
+    @field_validator("replacement_operation_id")
+    @classmethod
+    def _canonical_operation_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class ApplyRepositoryReplacementResult(StrictModel):
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    approval_id: str = Field(min_length=36, max_length=36)
+    replacement_operation_id: str = Field(min_length=36, max_length=36)
+    artifact_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    matched: Literal[True]
+
+    @field_validator(
+        "managed_instance_id",
+        "approval_id",
+        "replacement_operation_id",
+        "artifact_id",
+        "runtime_revision_id",
+    )
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
 type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
@@ -2592,6 +2670,104 @@ def build_foundation_registry(
             "broker_addon_zip_artifact_id": result.artifact_id,
             "broker_addon_zip_operation_id": result.installation_operation_id,
             "broker_addon_zip_matched": result.matched,
+        },
+    )
+
+    def inspect_repository_replacement(
+        params: InspectRepositoryReplacementParams,
+    ) -> InspectRepositoryReplacementResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_replacement_approval_id": params.approval_id,
+        }
+        try:
+            spec = zip_resolver.resolve_replacement_plan(
+                params.managed_instance_id,
+                params.approval_id,
+                params.expected_container_id,
+            )
+            outcome = zip_provider.inspect_repository_replacement(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except AddonZipInstallationStateError as error:
+            raise OperationError(
+                error.code,
+                "Canonical repository replacement state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerAddonZipInstallationError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        return InspectRepositoryReplacementResult(
+            managed_instance_id=outcome.managed_instance_id,
+            approval_id=outcome.approval_id,
+            artifact_id=outcome.artifact_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            topology=outcome.topology,
+        )
+
+    registry.register(
+        name="inspect_repository_replacement",
+        params_model=InspectRepositoryReplacementParams,
+        result_model=InspectRepositoryReplacementResult,
+        handler=inspect_repository_replacement,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_replacement_approval_id": result.approval_id,
+            "broker_replacement_topology": result.topology,
+        },
+    )
+
+    def apply_repository_replacement(
+        params: ApplyRepositoryReplacementParams,
+    ) -> ApplyRepositoryReplacementResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_replacement_approval_id": params.approval_id,
+            "broker_replacement_operation_id": params.replacement_operation_id,
+        }
+        try:
+            spec = zip_resolver.resolve_replacement_execution(
+                params.managed_instance_id,
+                params.approval_id,
+                params.replacement_operation_id,
+                params.expected_container_id,
+            )
+            outcome = zip_provider.apply_repository_replacement(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except AddonZipInstallationStateError as error:
+            raise OperationError(
+                error.code,
+                "Canonical repository replacement state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerAddonZipInstallationError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        return ApplyRepositoryReplacementResult(
+            managed_instance_id=outcome.managed_instance_id,
+            approval_id=outcome.approval_id,
+            replacement_operation_id=outcome.replacement_operation_id,
+            artifact_id=outcome.artifact_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            matched=True,
+        )
+
+    registry.register(
+        name="apply_repository_replacement",
+        params_model=ApplyRepositoryReplacementParams,
+        result_model=ApplyRepositoryReplacementResult,
+        handler=apply_repository_replacement,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_replacement_approval_id": result.approval_id,
+            "broker_replacement_operation_id": result.replacement_operation_id,
+            "broker_replacement_matched": result.matched,
         },
     )
     return registry

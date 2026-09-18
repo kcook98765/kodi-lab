@@ -497,7 +497,6 @@ def enumerate_snapshot_source(
 
     members: list[SnapshotSourceMember] = []
     seen: set[str] = set()
-    last_path: str | None = None
     try:
         with (
             _IteratorReader(chunks) as reader,
@@ -512,13 +511,7 @@ def enumerate_snapshot_source(
                         "unsafe_snapshot_member",
                         "Snapshot source contains duplicate member paths.",
                     )
-                if last_path is not None and member.path <= last_path:
-                    raise SnapshotStorageError(
-                        "snapshot_source_not_sorted",
-                        "Snapshot source enumeration is not deterministic.",
-                    )
                 seen.add(member.path)
-                last_path = member.path
                 members.append(member)
                 if len(members) > MAX_MEMBERS:
                     raise SnapshotStorageError(
@@ -535,7 +528,7 @@ def enumerate_snapshot_source(
         raise SnapshotStorageError(
             "snapshot_source_empty", "Snapshot source contains no approved state."
         )
-    return tuple(members)
+    return tuple(sorted(members, key=lambda member: member.path))
 
 
 def _canonical_manifest(
@@ -664,8 +657,27 @@ def _cleanup_exact_stage(stage: Path) -> None:
         return
     try:
         names = {entry.name for entry in os.scandir(stage)}
-        if not names.issubset({"state.tar", "manifest.json"}):
+        if not names.issubset({"state.tar", "manifest.json", ".source"}):
             return
+        source = stage / ".source"
+        if ".source" in names:
+            if source.is_symlink() or not source.is_dir():
+                return
+            source_names = {entry.name for entry in os.scandir(source)}
+            if any(
+                len(name) != 8
+                or any(character not in "0123456789abcdef" for character in name)
+                for name in source_names
+            ):
+                return
+            for name in source_names:
+                path = source / name
+                if path.is_symlink() or not path.is_file():
+                    return
+            for name in source_names:
+                (source / name).unlink()
+            source.rmdir()
+            names.remove(".source")
         for name in names:
             path = stage / name
             if path.is_symlink() or not path.is_file():
@@ -688,6 +700,14 @@ def publish_snapshot_from_source(
 ) -> SnapshotArtifactIdentity:
     """Build and atomically publish one immutable deterministic snapshot."""
 
+    if expected_members != tuple(
+        sorted(expected_members, key=lambda member: member.path)
+    ) or len({member.path for member in expected_members}) != len(expected_members):
+        raise SnapshotStorageError(
+            "snapshot_inventory_not_canonical",
+            "Snapshot source inventory is not canonical.",
+        )
+
     snapshot_root = data_root / "snapshots"
     snapshot_root.mkdir(mode=0o750, parents=True, exist_ok=True)
     if snapshot_root.is_symlink() or not snapshot_root.is_dir():
@@ -698,7 +718,8 @@ def publish_snapshot_from_source(
         raise SnapshotStorageError(
             "snapshot_storage_unsafe", "Snapshot storage root owner is not trusted."
         )
-    _require_disk_reserve(snapshot_root, _estimated_archive_bytes(expected_members))
+    estimated_bytes = _estimated_archive_bytes(expected_members)
+    _require_disk_reserve(snapshot_root, estimated_bytes * 2)
     stage, final = _prepare_storage(
         snapshot_root,
         context.snapshot_id,
@@ -707,37 +728,56 @@ def publish_snapshot_from_source(
     )
     archive_path = stage / "state.tar"
     manifest_path = stage / "manifest.json"
+    source_root = stage / ".source"
+    source_root.mkdir(mode=0o700)
     records: list[SnapshotMemberRecord] = []
-    expected_index = 0
+    expected_by_path = {member.path: member for member in expected_members}
+    seen: set[str] = set()
+    spooled: dict[str, tuple[Path, str]] = {}
     writer: _BoundedHashingWriter | None = None
     try:
+        with (
+            _IteratorReader(source_chunks) as reader,
+            tarfile.open(fileobj=cast(Any, reader), mode="r|*") as source,
+        ):
+            for info in source:
+                member = _safe_source_member(info)
+                if member is None:
+                    continue
+                expected = expected_by_path.get(member.path)
+                if member.path in seen or expected is None or member != expected:
+                    raise SnapshotStorageError(
+                        "snapshot_source_changed",
+                        "Snapshot source changed while it was being captured.",
+                    )
+                seen.add(member.path)
+                if member.member_type == "file":
+                    extracted = source.extractfile(info)
+                    if extracted is None:
+                        raise SnapshotStorageError(
+                            "snapshot_source_invalid",
+                            "Snapshot source file could not be read.",
+                        )
+                    source_path = source_root / f"{len(spooled):08x}"
+                    hashing_reader = _HashingReader(extracted, member.size)
+                    with source_path.open("xb") as source_file:
+                        while chunk := hashing_reader.read(1024**2):
+                            if source_file.write(chunk) != len(chunk):
+                                raise OSError("short snapshot spool write")
+                    spooled[member.path] = (source_path, hashing_reader.digest)
+        if seen != set(expected_by_path):
+            raise SnapshotStorageError(
+                "snapshot_source_changed",
+                "Snapshot source changed while it was being captured.",
+            )
         with archive_path.open("xb") as raw_output:
             writer = _BoundedHashingWriter(raw_output)
-            with (
-                _IteratorReader(source_chunks) as reader,
-                tarfile.open(fileobj=cast(Any, reader), mode="r|*") as source,
-                tarfile.open(
-                    fileobj=cast(Any, writer),
-                    mode="w|",
-                    format=tarfile.GNU_FORMAT,
-                ) as output,
-            ):
-                for info in source:
-                    member = _safe_source_member(info)
-                    if member is None:
-                        continue
-                    if expected_index >= len(expected_members):
-                        raise SnapshotStorageError(
-                            "snapshot_source_changed",
-                            "Snapshot source changed while it was being captured.",
-                        )
-                    expected = expected_members[expected_index]
-                    if member != expected:
-                        raise SnapshotStorageError(
-                            "snapshot_source_changed",
-                            "Snapshot source changed while it was being captured.",
-                        )
-                    expected_index += 1
+            with tarfile.open(
+                fileobj=cast(Any, writer),
+                mode="w|",
+                format=tarfile.GNU_FORMAT,
+            ) as output:
+                for member in expected_members:
                     destination = tarfile.TarInfo(member.path)
                     destination.type = (
                         tarfile.REGTYPE
@@ -755,15 +795,10 @@ def publish_snapshot_from_source(
                         output.addfile(destination)
                         digest = None
                     else:
-                        extracted = source.extractfile(info)
-                        if extracted is None:
-                            raise SnapshotStorageError(
-                                "snapshot_source_invalid",
-                                "Snapshot source file could not be read.",
-                            )
-                        hashing_reader = _HashingReader(extracted, member.size)
-                        output.addfile(destination, hashing_reader)
-                        digest = hashing_reader.digest
+                        source_path, digest = spooled[member.path]
+                        with source_path.open("rb") as source_file:
+                            output.addfile(destination, source_file)
+                        source_path.unlink()
                     records.append(
                         SnapshotMemberRecord(
                             path=member.path,
@@ -775,7 +810,8 @@ def publish_snapshot_from_source(
                     )
             raw_output.flush()
             os.fsync(raw_output.fileno())
-        if expected_index != len(expected_members) or writer is None:
+        source_root.rmdir()
+        if writer is None:
             raise SnapshotStorageError(
                 "snapshot_source_changed",
                 "Snapshot source changed while it was being captured.",

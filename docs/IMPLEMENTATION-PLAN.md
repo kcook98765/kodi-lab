@@ -700,7 +700,8 @@ plugin-directory invocation completed and the installed tree still exactly
 matched the immutable ZIP payload. It is not a general correctness or health
 guarantee.**
 
-At the current Phase 8 checkpoint, DevelopmentSource catalog/validation and
+At the current Phase 8 implementation checkpoint, DevelopmentSource
+catalog/validation and
 attachment cores, explicit changed/new-only non-deleting copy/sync, inventory,
 bytecode policy, DevelopmentSource enablement/smoke, uploaded-ZIP
 import/install/enable/smoke, and the repository URL testing first slice are
@@ -711,9 +712,19 @@ repository artifact/evidence lineage, and repository-specific absent-only
 installation. Attached same-ID DevelopmentSources block before lifecycle
 mutation. Uploaded-ZIP enable/smoke authority is not widened.
 
-Phase 8 is not complete. Canonical v1 work remaining:
+Migration `0028_repository_replacement_override` implements the final canonical
+capability: one explicit, 15-minute, exact-state replacement plan for a
+repository-download artifact against a currently attached same-ID source. It
+supports only absent/unmaterialized and exactly verified copied incumbents;
+Class B requires a recent central Snapshot. Immediate approval binds one
+attempt, the broker can only overwrite/add within the fixed destination, and
+enabled/dependency state must be preserved. Attachment retention, derived
+override state, `repository_override_active` copy/sync blocking, evidence
+transitions, strict private Web review, and post-marker stopped reconciliation
+are included.
 
-1. explicit approved replacement/update override.
+All canonical Phase 8 implementation requirements are now implemented. The
+separate Phase 8 completion review has not been performed by this milestone.
 
 Containment-safe live projection or equivalent bind-like behavior is optional
 post-v1 research and is not a completion blocker. Raw direct Docker bind of

@@ -150,6 +150,8 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "managed_instance_lifecycle_operations",
         "managed_instance_mutation_leases",
         "reset_operations",
+        "repository_replacement_operations",
+        "repository_replacement_plans",
         "runtime_container_artifacts",
         "runtime_definitions",
         "runtime_execution_profiles",

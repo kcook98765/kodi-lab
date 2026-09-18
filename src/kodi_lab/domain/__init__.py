@@ -122,6 +122,15 @@ from kodi_lab.domain.models import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.domain.repository_replacements import (
+    RepositoryReplacementIncumbentClass,
+    RepositoryReplacementOperation,
+    RepositoryReplacementOperationPhase,
+    RepositoryReplacementOperationState,
+    RepositoryReplacementPlan,
+    RepositoryReplacementPlanState,
+    RepositoryReplacementTerminalOutcome,
+)
 from kodi_lab.domain.reset_operations import (
     ResetOperation,
     ResetOperationPhase,
@@ -270,6 +279,13 @@ __all__ = [
     "ProcessObservationKind",
     "PythonBytecodePolicy",
     "ReadinessProbeKind",
+    "RepositoryReplacementIncumbentClass",
+    "RepositoryReplacementOperation",
+    "RepositoryReplacementOperationPhase",
+    "RepositoryReplacementOperationState",
+    "RepositoryReplacementPlan",
+    "RepositoryReplacementPlanState",
+    "RepositoryReplacementTerminalOutcome",
     "ResetOperation",
     "ResetOperationPhase",
     "ResetOperationState",

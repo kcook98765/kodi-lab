@@ -22,6 +22,20 @@ from kodi_lab.application.addon_zip_installations import (
     AddonZipInstallationService,
     invalidate_addon_zip_installation_evidence,
 )
+from kodi_lab.application.development_source_deployments import (
+    DevelopmentSourceDeploymentConflictError,
+    DevelopmentSourceDeploymentOperationCoordinator,
+)
+from kodi_lab.application.repository_replacements import (
+    APPROVAL_TTL,
+    RepositoryReplacementConflictError,
+    RepositoryReplacementCoordinator,
+    RepositoryReplacementService,
+    RepositoryReplacementUnsupportedError,
+)
+from kodi_lab.application.snapshot_delete_operations import (
+    SnapshotDeleteOperationCoordinator,
+)
 from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
     ContainerRuntimeState,
@@ -30,18 +44,25 @@ from kodi_lab.broker.docker_inventory import (
 from kodi_lab.broker.operations import (
     AddonZipDestinationResult,
     ApplyAddonZipInstallationResult,
+    ApplyRepositoryReplacementResult,
+    CopySyncAttachedDevelopmentSourceResult,
+    InspectRepositoryReplacementResult,
     ManagedContainerInventoryEntry,
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeResult,
     StartManagedContainerResult,
     StopManagedContainerResult,
 )
+from kodi_lab.development import DevelopmentSourceValidator
 from kodi_lab.domain import (
     AddonZipInstallationConfidence,
     AddonZipInstallationOperation,
     AddonZipInstallationOperationState,
     AddonZipOrigin,
     PythonBytecodePolicy,
+    RepositoryReplacementIncumbentClass,
+    RepositoryReplacementOperationState,
+    RepositoryReplacementPlanState,
 )
 from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
 from kodi_lab.kodi.readiness import (
@@ -57,6 +78,8 @@ from kodi_lab.storage.models import (
     AddonRepositoryMetadataSnapshotRow,
     AddonRepositorySourceRow,
     AddonZipArtifactRow,
+    DevelopmentSourceDeploymentOperationRow,
+    DevelopmentSourceDeploymentRow,
     DevelopmentSourceRow,
     ManagedInstanceAddonRepositorySourceRow,
     ManagedInstanceDevelopmentSourceRow,
@@ -64,11 +87,16 @@ from kodi_lab.storage.models import (
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
+    SnapshotRow,
     TargetRow,
 )
 from kodi_lab.storage.repositories import (
     AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
+    DevelopmentSourceDeploymentRepository,
+    ManagedInstanceDevelopmentSourceRepository,
+    RepositoryReplacementOperationRepository,
+    RepositoryReplacementPlanRepository,
 )
 
 INSTANCE_ID = UUID("a8240000-0000-4000-8000-000000000001")
@@ -83,6 +111,8 @@ REPOSITORY_ID = UUID("a8240000-0000-4000-8000-000000000005")
 SNAPSHOT_ID = UUID("a8240000-0000-4000-8000-000000000006")
 CANDIDATE_ID = UUID("a8240000-0000-4000-8000-000000000007")
 SOURCE_ID = UUID("a8240000-0000-4000-8000-000000000008")
+CENTRAL_SNAPSHOT_ID = UUID("a8240000-0000-4000-8000-000000000009")
+DEPLOYMENT_OPERATION_ID = UUID("a8240000-0000-4000-8000-00000000000a")
 
 
 @pytest.fixture
@@ -225,6 +255,14 @@ class FakeBroker:
         self.fail_on: str | None = None
         self.destination_calls = 0
         self.fail_destination_call: int | None = None
+        self.replacement_topology: Literal[
+            "absent_eligible",
+            "overwrite_add_eligible",
+            "exact_payload_noop",
+            "deletion_required",
+            "type_transition",
+            "incumbent_drift",
+        ] = "absent_eligible"
 
     def _fail(self, name: str) -> None:
         self.calls.append(name)
@@ -338,6 +376,59 @@ class FakeBroker:
             container_id=expected_container_id,
             matched=True,
         )
+
+    def inspect_repository_replacement(
+        self,
+        *,
+        managed_instance_id: str,
+        approval_id: str,
+        expected_container_id: str,
+    ) -> InspectRepositoryReplacementResult:
+        self._fail("inspect_replacement")
+        return InspectRepositoryReplacementResult(
+            managed_instance_id=managed_instance_id,
+            approval_id=approval_id,
+            artifact_id=str(ARTIFACT_ID),
+            runtime_revision_id=str(REVISION_ID),
+            container_id=expected_container_id,
+            topology=self.replacement_topology,
+        )
+
+    def apply_repository_replacement(
+        self,
+        *,
+        managed_instance_id: str,
+        approval_id: str,
+        replacement_operation_id: str,
+        expected_container_id: str,
+    ) -> ApplyRepositoryReplacementResult:
+        self._fail("apply_replacement")
+        self.replacement_topology = "exact_payload_noop"
+        return ApplyRepositoryReplacementResult(
+            managed_instance_id=managed_instance_id,
+            approval_id=approval_id,
+            replacement_operation_id=replacement_operation_id,
+            artifact_id=str(ARTIFACT_ID),
+            runtime_revision_id=str(REVISION_ID),
+            container_id=expected_container_id,
+            matched=True,
+        )
+
+    def copy_sync_attached_development_source(
+        self,
+        *,
+        managed_instance_id: str,
+        development_source_id: str,
+        expected_container_id: str,
+        deployment_operation_id: str,
+    ) -> CopySyncAttachedDevelopmentSourceResult:
+        del (
+            managed_instance_id,
+            development_source_id,
+            expected_container_id,
+            deployment_operation_id,
+        )
+        raise AssertionError("copy/sync must be blocked before broker mutation")
 
 
 def execute(
@@ -670,6 +761,377 @@ def configure_repository_artifact(
                     attached_at=NOW.isoformat(),
                 )
             )
+
+
+def replacement_coordinator(
+    factory: sessionmaker[Session],
+    broker: FakeBroker,
+    inventories: InventorySequence,
+    *,
+    clock: Callable[[], datetime] = lambda: NOW,
+) -> RepositoryReplacementCoordinator:
+    return RepositoryReplacementCoordinator(
+        factory,
+        broker,
+        clock=clock,
+        inventory_factory=inventories.factory,
+    )
+
+
+def configure_verified_copied_incumbent(
+    factory: sessionmaker[Session], *, snapshot: bool = True
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    incumbent_version = "1.0.0"
+    with factory.begin() as session:
+        source = session.get(DevelopmentSourceRow, str(SOURCE_ID))
+        assert source is not None
+        source.observed_version = incumbent_version
+        session.add(
+            DevelopmentSourceDeploymentOperationRow(
+                id=str(DEPLOYMENT_OPERATION_ID),
+                original_managed_instance_id=str(INSTANCE_ID),
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id=str(SOURCE_ID),
+                source_logical_name="Protected source",
+                addon_id=ADDON_ID,
+                runtime_revision_id=str(REVISION_ID),
+                request_kind="copy_sync",
+                requested_at=NOW.isoformat(),
+                state="succeeded",
+                phase="finalize",
+                result_classification="initial_deployment",
+                new_count=2,
+                changed_count=0,
+                unchanged_count=0,
+                destination_only_count=0,
+                transferred_bytes=100,
+                expected_container_id=CONTAINER_ID,
+                started_at=NOW.isoformat(),
+                heartbeat_at=NOW.isoformat(),
+                completed_at=NOW.isoformat(),
+                reconciliation_required=False,
+            )
+        )
+        session.flush()
+        session.add(
+            DevelopmentSourceDeploymentRow(
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id=str(SOURCE_ID),
+                addon_id=ADDON_ID,
+                mode="copy",
+                last_successful_operation_id=str(DEPLOYMENT_OPERATION_ID),
+                source_manifest_digest="sha256:" + "8" * 64,
+                verified_destination_digest="sha256:" + "9" * 64,
+                runtime_revision_id=str(REVISION_ID),
+                trusted_container_id=CONTAINER_ID,
+                observed_source_name="Protected Source",
+                observed_source_version=incumbent_version,
+                verified_at=NOW.isoformat(),
+                confidence="verified_at_last_operation",
+            )
+        )
+        if snapshot:
+            session.add(
+                SnapshotRow(
+                    id=str(CENTRAL_SNAPSHOT_ID),
+                    source_managed_instance_id=str(INSTANCE_ID),
+                    original_source_managed_instance_id=str(INSTANCE_ID),
+                    source_binding="attached",
+                    runtime_revision_id=str(REVISION_ID),
+                    captured_at=NOW.isoformat(),
+                    prior_runtime_state="running",
+                    manifest_version=1,
+                    archive_digest="sha256:" + "a" * 64,
+                    manifest_digest="sha256:" + "b" * 64,
+                    archive_size=100,
+                    member_count=2,
+                    state="available",
+                    validation_at=NOW.isoformat(),
+                    validation_result="passed",
+                )
+            )
+
+
+def test_attached_unmaterialized_repository_replacement_is_one_shot_and_retained(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    broker = FakeBroker()
+    coordinator = replacement_coordinator(
+        factory, broker, InventorySequence([(), (), ()])
+    )
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    assert plan.incumbent_class is (
+        RepositoryReplacementIncumbentClass.ATTACHED_UNMATERIALIZED
+    )
+    assert plan.state is RepositoryReplacementPlanState.PENDING
+    assert not plan.snapshot_ready
+    queued = coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    with pytest.raises(RepositoryReplacementConflictError):
+        coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    inventories = InventorySequence(
+        [(), (addon(ADDON_ID, version=VERSION, kodi_type="xbmc.python.pluginsource"),)]
+    )
+    RepositoryReplacementService(
+        factory,
+        broker,
+        coordinator,
+        lease,
+        inventory_factory=inventories.factory,
+        readiness_factory=lambda _broker, _profile: Ready(),
+    ).execute()
+    with factory() as session:
+        operation = RepositoryReplacementOperationRepository(session).get(
+            queued.operation_id
+        )
+        evidence = AddonZipInstallationEvidenceRepository(session).get(
+            INSTANCE_ID, ADDON_ID
+        )
+        attachment = ManagedInstanceDevelopmentSourceRepository(session).get(
+            INSTANCE_ID, SOURCE_ID
+        )
+    assert operation is not None
+    assert operation.state is RepositoryReplacementOperationState.SUCCEEDED
+    assert operation.recognition_enabled is False
+    assert evidence is not None
+    assert evidence.replacement_operation_id == operation.id
+    assert evidence.installation_operation_id is None
+    assert attachment is not None
+    deployment = DevelopmentSourceDeploymentOperationCoordinator(
+        factory,
+        broker,
+        DevelopmentSourceValidator(None),
+    )
+    with pytest.raises(DevelopmentSourceDeploymentConflictError) as blocked:
+        deployment.queue(INSTANCE_ID, SOURCE_ID)
+    assert blocked.value.code == "repository_override_active"
+
+
+def test_verified_copy_replacement_preserves_enabled_and_stales_source_evidence(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_verified_copied_incumbent(factory)
+    broker = FakeBroker()
+    broker.replacement_topology = "overwrite_add_eligible"
+    incumbent = addon(
+        ADDON_ID,
+        version="1.0.0",
+        enabled=True,
+        kodi_type="xbmc.python.pluginsource",
+    )
+    incoming = addon(
+        ADDON_ID,
+        version=VERSION,
+        enabled=True,
+        kodi_type="xbmc.python.pluginsource",
+    )
+    coordinator = replacement_coordinator(
+        factory, broker, InventorySequence([(incumbent,), (incumbent,), (incumbent,)])
+    )
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    assert plan.incumbent_class is RepositoryReplacementIncumbentClass.VERIFIED_COPIED
+    assert plan.snapshot_ready and plan.enabled is True
+    queued = coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    RepositoryReplacementService(
+        factory,
+        broker,
+        coordinator,
+        lease,
+        inventory_factory=InventorySequence([(incumbent,), (incoming,)]).factory,
+        readiness_factory=lambda _broker, _profile: Ready(),
+    ).execute()
+    with factory() as session:
+        operation = RepositoryReplacementOperationRepository(session).get(
+            queued.operation_id
+        )
+        development = DevelopmentSourceDeploymentRepository(session).get(
+            INSTANCE_ID, SOURCE_ID
+        )
+        evidence = AddonZipInstallationEvidenceRepository(session).get(
+            INSTANCE_ID, ADDON_ID
+        )
+    assert operation is not None and operation.recognition_enabled is True
+    assert development is not None
+    assert development.confidence.value == "stale"
+    assert evidence is not None
+    assert (
+        evidence.confidence is AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
+    )
+
+
+def test_verified_copy_requires_recent_available_snapshot(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_verified_copied_incumbent(factory, snapshot=False)
+    broker = FakeBroker()
+    broker.replacement_topology = "overwrite_add_eligible"
+    incumbent = addon(
+        ADDON_ID,
+        version="1.0.0",
+        enabled=True,
+        kodi_type="xbmc.python.pluginsource",
+    )
+    coordinator = replacement_coordinator(
+        factory, broker, InventorySequence([(incumbent,)])
+    )
+    with pytest.raises(RepositoryReplacementUnsupportedError) as raised:
+        coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    assert raised.value.code == "qualifying_snapshot_required"
+
+
+def test_snapshot_deletion_invalidates_pending_replacement_plan(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_verified_copied_incumbent(factory)
+    broker = FakeBroker()
+    broker.replacement_topology = "overwrite_add_eligible"
+    incumbent = addon(
+        ADDON_ID,
+        version="1.0.0",
+        enabled=True,
+        kodi_type="xbmc.python.pluginsource",
+    )
+    coordinator = replacement_coordinator(
+        factory, broker, InventorySequence([(incumbent,)])
+    )
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    SnapshotDeleteOperationCoordinator(factory).queue(INSTANCE_ID, CENTRAL_SNAPSHOT_ID)
+    with factory() as session:
+        persisted = RepositoryReplacementPlanRepository(session).get(plan.plan_id)
+    assert persisted is not None
+    assert persisted.state is RepositoryReplacementPlanState.INVALIDATED
+    assert persisted.invalidation_reason == "qualifying_snapshot_deleted"
+
+
+@pytest.mark.parametrize(
+    ("topology", "code"),
+    [
+        ("exact_payload_noop", "exact_payload_noop"),
+        ("deletion_required", "unsupported_replacement_topology"),
+        ("type_transition", "unsupported_replacement_topology"),
+        ("incumbent_drift", "incumbent_state_drift"),
+    ],
+)
+def test_replacement_plan_rejects_noop_deleting_type_change_and_drift(
+    factory: sessionmaker[Session],
+    topology: Literal[
+        "exact_payload_noop",
+        "deletion_required",
+        "type_transition",
+        "incumbent_drift",
+    ],
+    code: str,
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    broker = FakeBroker()
+    broker.replacement_topology = topology
+    coordinator = replacement_coordinator(factory, broker, InventorySequence([()]))
+    with pytest.raises(RepositoryReplacementUnsupportedError) as raised:
+        coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    assert raised.value.code == code
+    with factory() as session:
+        plans = RepositoryReplacementPlanRepository(session).list_for_original_instance(
+            INSTANCE_ID
+        )
+    assert len(plans) == 1
+    assert plans[0].state is RepositoryReplacementPlanState.INVALIDATED
+
+
+def test_replacement_approval_expires_after_fixed_fifteen_minutes(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    current = [NOW]
+    coordinator = replacement_coordinator(
+        factory,
+        FakeBroker(),
+        InventorySequence([()]),
+        clock=lambda: current[0],
+    )
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    assert plan.expires_at == NOW + APPROVAL_TTL
+    current[0] = plan.expires_at
+    with pytest.raises(RepositoryReplacementConflictError):
+        coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    with factory() as session:
+        persisted = RepositoryReplacementPlanRepository(session).get(plan.plan_id)
+    assert persisted is not None
+    assert persisted.state is RepositoryReplacementPlanState.EXPIRED
+
+
+def test_attachment_drift_invalidates_before_stop_and_cannot_be_reused(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    broker = FakeBroker()
+    coordinator = replacement_coordinator(factory, broker, InventorySequence([()]))
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    queued = coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    with factory.begin() as session:
+        attachment = session.get(
+            ManagedInstanceDevelopmentSourceRow, (str(INSTANCE_ID), str(SOURCE_ID))
+        )
+        assert attachment is not None
+        attachment.attached_at = "2026-09-17T19:00:01+00:00"
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    with pytest.raises(RepositoryReplacementConflictError):
+        RepositoryReplacementService(
+            factory,
+            broker,
+            coordinator,
+            lease,
+            inventory_factory=InventorySequence([]).factory,
+            readiness_factory=lambda _broker, _profile: Ready(),
+        ).execute()
+    with factory() as session:
+        persisted = RepositoryReplacementPlanRepository(session).get(plan.plan_id)
+    assert persisted is not None
+    assert persisted.state is RepositoryReplacementPlanState.INVALIDATED
+    assert "stop" not in broker.calls
+    with pytest.raises(RepositoryReplacementConflictError):
+        coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+
+
+def test_post_application_replacement_failure_is_consumed_and_reconciliation_required(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    broker = FakeBroker()
+    coordinator = replacement_coordinator(
+        factory, broker, InventorySequence([(), (), ()])
+    )
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    queued = coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    broker.fail_on = "apply_replacement"
+    with pytest.raises(RuntimeError, match="injected"):
+        RepositoryReplacementService(
+            factory,
+            broker,
+            coordinator,
+            lease,
+            inventory_factory=InventorySequence([()]).factory,
+            readiness_factory=lambda _broker, _profile: Ready(),
+        ).execute()
+    with factory() as session:
+        operation = RepositoryReplacementOperationRepository(session).get(
+            queued.operation_id
+        )
+        persisted = RepositoryReplacementPlanRepository(session).get(plan.plan_id)
+    assert operation is not None and persisted is not None
+    assert (
+        operation.state is RepositoryReplacementOperationState.RECONCILIATION_REQUIRED
+    )
+    assert operation.application_started
+    assert persisted.state is RepositoryReplacementPlanState.CONSUMED
+    assert broker.state is ContainerRuntimeState.STOPPED
 
 
 def install_repository_successfully(factory: sessionmaker[Session]) -> UUID:
