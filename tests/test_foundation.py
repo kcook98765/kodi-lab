@@ -123,6 +123,12 @@ def test_development_root_rejects_unsafe_configuration(
 
 def test_migration_metadata_contains_core_storage_tables() -> None:
     assert set(metadata.tables) == {
+        "addon_repository_candidates",
+        "addon_repository_attachment_operations",
+        "addon_repository_fetch_operations",
+        "addon_repository_metadata_snapshots",
+        "addon_repository_refresh_operations",
+        "addon_repository_sources",
         "addon_zip_artifacts",
         "addon_zip_enablement_operations",
         "addon_zip_import_operations",
@@ -139,6 +145,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_instance_delete_operations",
+        "managed_instance_addon_repository_sources",
         "managed_instance_development_sources",
         "managed_instance_lifecycle_operations",
         "managed_instance_mutation_leases",

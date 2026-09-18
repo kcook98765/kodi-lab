@@ -9,9 +9,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.domain import (
+    AddonRepositoryAttachmentKind,
+    AddonRepositoryAttachmentState,
     AddonZipEnablementOperationState,
     AddonZipEnablementResult,
     AddonZipInstallationOperationState,
+    AddonZipOrigin,
     AddonZipSmokeTestOperationState,
     AddonZipSmokeTestOverallResult,
     DevelopmentSourceAttachmentOperationKind,
@@ -24,6 +27,8 @@ from kodi_lab.domain import (
     ManagedInstanceLifecycleKind,
 )
 from kodi_lab.storage.repositories import (
+    AddonRepositoryAttachmentOperationRepository,
+    AddonZipArtifactRepository,
     AddonZipEnablementOperationRepository,
     AddonZipInstallationOperationRepository,
     AddonZipSmokeTestOperationRepository,
@@ -42,6 +47,8 @@ from kodi_lab.storage.repositories import (
 
 
 class ManagedInstanceActivityKind(StrEnum):
+    ADDON_REPOSITORY_ATTACHMENT = "addon_repository_attachment"
+    ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     ADDON_ZIP_SMOKE_TEST = "addon_zip_smoke_test"
@@ -79,6 +86,8 @@ class ManagedInstanceActivityItem(BaseModel):
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.ADDON_REPOSITORY_INSTALLATION: 15,
+    ManagedInstanceActivityKind.ADDON_REPOSITORY_ATTACHMENT: 14,
     ManagedInstanceActivityKind.ADDON_ZIP_SMOKE_TEST: 13,
     ManagedInstanceActivityKind.ADDON_ZIP_ENABLEMENT: 12,
     ManagedInstanceActivityKind.ADDON_ZIP_INSTALLATION: 11,
@@ -135,6 +144,33 @@ class ManagedInstanceActivityService:
         session: Session, instance_id: UUID
     ) -> list[ManagedInstanceActivityItem]:
         result: list[ManagedInstanceActivityItem] = []
+        for repository_attachment in AddonRepositoryAttachmentOperationRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            action = (
+                "attached"
+                if repository_attachment.kind is AddonRepositoryAttachmentKind.ATTACH
+                else "detached"
+            )
+            summary = (
+                f"Add-on repository {action}"
+                if repository_attachment.state
+                is AddonRepositoryAttachmentState.SUCCEEDED
+                else f"Add-on repository {action} failed"
+            )
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.ADDON_REPOSITORY_ATTACHMENT,
+                    operation_uuid=repository_attachment.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=repository_attachment.requested_at,
+                    started_at=None,
+                    completed_at=repository_attachment.completed_at,
+                    state=repository_attachment.state.value,
+                    summary=summary,
+                    reconciliation_required=False,
+                )
+            )
         for operation in DevelopmentSourceAttachmentOperationRepository(
             session
         ).list_for_original_instance(instance_id):
@@ -276,20 +312,35 @@ class ManagedInstanceActivityService:
         for installation in AddonZipInstallationOperationRepository(
             session
         ).list_for_original_instance(instance_id):
+            artifact = AddonZipArtifactRepository(session).get(installation.artifact_id)
+            repository_install = (
+                artifact is not None
+                and artifact.origin is AddonZipOrigin.REPOSITORY_DOWNLOAD
+            )
+            subject = "Repository package" if repository_install else "Uploaded ZIP"
             if installation.state is AddonZipInstallationOperationState.SUCCEEDED:
-                summary = "Uploaded ZIP installed and recognized disabled"
+                summary = f"{subject} installed and recognized disabled"
             elif (
                 installation.state
                 is AddonZipInstallationOperationState.RECONCILIATION_REQUIRED
             ):
-                summary = "Uploaded ZIP installation requires reconciliation"
+                summary = f"{subject} installation requires reconciliation"
             else:
-                summary = (
-                    f"Uploaded ZIP installation {_outcome(installation.state.value)}"
-                )
+                summary = f"{subject} installation {_outcome(installation.state.value)}"
+                if (
+                    installation.failure_reason
+                    == "protected_development_source_collision"
+                ):
+                    summary = (
+                        "Repository install blocked by DevelopmentSource collision"
+                    )
             result.append(
                 ManagedInstanceActivityItem(
-                    kind=ManagedInstanceActivityKind.ADDON_ZIP_INSTALLATION,
+                    kind=(
+                        ManagedInstanceActivityKind.ADDON_REPOSITORY_INSTALLATION
+                        if repository_install
+                        else ManagedInstanceActivityKind.ADDON_ZIP_INSTALLATION
+                    ),
                     operation_uuid=installation.id,
                     original_managed_instance_id=instance_id,
                     requested_at=installation.requested_at,

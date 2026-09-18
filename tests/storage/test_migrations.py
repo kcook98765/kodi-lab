@@ -36,6 +36,12 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
+        "addon_repository_candidates",
+        "addon_repository_attachment_operations",
+        "addon_repository_fetch_operations",
+        "addon_repository_metadata_snapshots",
+        "addon_repository_refresh_operations",
+        "addon_repository_sources",
         "addon_zip_artifacts",
         "addon_zip_enablement_operations",
         "addon_zip_import_operations",
@@ -53,6 +59,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_instance_delete_operations",
+        "managed_instance_addon_repository_sources",
         "managed_instance_development_sources",
         "managed_instance_lifecycle_operations",
         "managed_instance_mutation_leases",
@@ -2769,3 +2776,74 @@ def test_0026_zip_smoke_schema_empty_round_trip_and_mutation_kind(
     engine.dispose()
     command.upgrade(config, "head")
     command.check(config)
+
+
+def test_0027_repository_schema_empty_round_trip_and_populated_guard(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        "addon_repository_sources",
+        "managed_instance_addon_repository_sources",
+        "addon_repository_attachment_operations",
+        "addon_repository_metadata_snapshots",
+        "addon_repository_candidates",
+        "addon_repository_refresh_operations",
+        "addon_repository_fetch_operations",
+    } <= set(inspector.get_table_names())
+    assert {
+        "repository_source_id",
+        "repository_snapshot_id",
+        "repository_candidate_id",
+        "repository_fetched_at",
+    } <= {item["name"] for item in inspector.get_columns("addon_zip_artifacts")}
+    assert "artifact_origin" in {
+        item["name"]
+        for item in inspector.get_columns("addon_zip_installation_evidence")
+    }
+    with engine.connect() as connection:
+        mutation_sql = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='managed_instance_mutation_leases'"
+            )
+        )
+        global_sql = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='global_heavy_operation_lease'"
+            )
+        )
+    assert "addon_repository_installation" in mutation_sql
+    assert "addon_repository_refresh" in global_sql
+    assert "addon_repository_fetch" in global_sql
+    engine.dispose()
+
+    command.downgrade(config, "0026_addon_zip_smoke_test")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "addon_repository_sources" not in inspector.get_table_names()
+    assert "repository_source_id" not in {
+        item["name"] for item in inspector.get_columns("addon_zip_artifacts")
+    }
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO addon_repository_sources "
+                "(id, logical_name, canonical_index_url, origin, created_at) VALUES "
+                "('a8270000-0000-4000-8000-000000000001', 'guarded', "
+                "'https://example.com/addons.xml', 'external_https_repository', "
+                "'2026-09-18T12:00:00+00:00')"
+            )
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated repository"):
+        command.downgrade(config, "0026_addon_zip_smoke_test")

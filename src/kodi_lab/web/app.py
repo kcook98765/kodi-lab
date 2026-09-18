@@ -35,6 +35,19 @@ from kodi_lab.application.addon_inventory import (
     ManagedInstanceAddonInventory,
     ManagedInstanceAddonInventoryService,
 )
+from kodi_lab.application.addon_repositories import (
+    AddonRepositoryAdministrationService,
+    AddonRepositoryCandidateRead,
+    AddonRepositoryConflictError,
+    AddonRepositoryExecutor,
+    AddonRepositoryFetchCoordinator,
+    AddonRepositoryFetchStatus,
+    AddonRepositoryNotFoundError,
+    AddonRepositoryRefreshCoordinator,
+    AddonRepositoryRefreshStatus,
+    AddonRepositoryServiceError,
+    AddonRepositorySourceRead,
+)
 from kodi_lab.application.addon_zip_enablements import (
     AddonZipEnablementError,
     AddonZipEnablementOperationCoordinator,
@@ -241,6 +254,7 @@ from kodi_lab.broker.errors import (
 from kodi_lab.config import Settings
 from kodi_lab.development import (
     MAX_COMPRESSED_BYTES,
+    AddonRepositoryError,
     AddonZipValidationError,
     DevelopmentSourceValidationError,
     DevelopmentSourceValidator,
@@ -282,6 +296,15 @@ class DevelopmentSourceRegistrationRequest(BaseModel):
     )
 
 
+class AddonRepositoryRegistrationRequest(BaseModel):
+    """Closed repository registration with no credentials or fetch controls."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    logical_name: str = Field(min_length=1, max_length=120)
+    index_url: str = Field(min_length=1, max_length=2304)
+
+
 class ResetConfirmationRequest(BaseModel):
     """One explicit confirmation bit, with no runtime or Docker authority."""
 
@@ -321,6 +344,20 @@ class AddonZipSmokeTestAccepted(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operation: AddonZipSmokeTestStatus
+    status_url: str
+
+
+class AddonRepositoryRefreshAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: AddonRepositoryRefreshStatus
+    status_url: str
+
+
+class AddonRepositoryFetchAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: AddonRepositoryFetchStatus
     status_url: str
 
 
@@ -424,6 +461,11 @@ class WebApplicationContext:
     addon_zip_enablement: AddonZipEnablementService
     addon_zip_smoke_test_operations: AddonZipSmokeTestOperationCoordinator
     addon_zip_smoke_test_executor: AddonZipSmokeTestExecutor
+    addon_repositories: AddonRepositoryAdministrationService
+    addon_repository_refreshes: AddonRepositoryRefreshCoordinator
+    addon_repository_refresh_executor: AddonRepositoryExecutor
+    addon_repository_fetches: AddonRepositoryFetchCoordinator
+    addon_repository_fetch_executor: AddonRepositoryExecutor
 
 
 def create_app(
@@ -461,6 +503,12 @@ def create_app(
     ) = None,
     development_source_attachment_service: DevelopmentSourceAttachmentService
     | None = None,
+    addon_repository_administration_service: (
+        AddonRepositoryAdministrationService | None
+    ) = None,
+    addon_repository_refresh_coordinator: AddonRepositoryRefreshCoordinator
+    | None = None,
+    addon_repository_fetch_coordinator: AddonRepositoryFetchCoordinator | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -708,6 +756,33 @@ def create_app(
     addon_zip_smoke_test_executor = AddonZipSmokeTestExecutor(
         addon_zip_smoke_test_operations, addon_zip_smoke_test_factory
     )
+    addon_repositories = (
+        addon_repository_administration_service
+        or AddonRepositoryAdministrationService(
+            session_factory,
+            mutation_coordinator=ManagedInstanceMutationCoordinator(
+                session_factory,
+                stale_dispatcher=stale_dispatcher,
+                reconciliation=reconciliation,
+            ),
+        )
+    )
+    addon_repository_refreshes = (
+        addon_repository_refresh_coordinator
+        or AddonRepositoryRefreshCoordinator(session_factory)
+    )
+    addon_repository_fetches = (
+        addon_repository_fetch_coordinator
+        or AddonRepositoryFetchCoordinator(
+            session_factory, data_root=settings.data_root
+        )
+    )
+    addon_repository_refresh_executor = AddonRepositoryExecutor(
+        addon_repository_refreshes, thread_name="repository-refresh"
+    )
+    addon_repository_fetch_executor = AddonRepositoryExecutor(
+        addon_repository_fetches, thread_name="repository-fetch"
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -780,6 +855,11 @@ def create_app(
         addon_zip_enablement=addon_zip_enablement,
         addon_zip_smoke_test_operations=addon_zip_smoke_test_operations,
         addon_zip_smoke_test_executor=addon_zip_smoke_test_executor,
+        addon_repositories=addon_repositories,
+        addon_repository_refreshes=addon_repository_refreshes,
+        addon_repository_refresh_executor=addon_repository_refresh_executor,
+        addon_repository_fetches=addon_repository_fetches,
+        addon_repository_fetch_executor=addon_repository_fetch_executor,
     )
 
     @asynccontextmanager
@@ -795,6 +875,8 @@ def create_app(
         context.addon_zip_import_executor.start()
         context.addon_zip_installation_executor.start()
         context.addon_zip_smoke_test_executor.start()
+        context.addon_repository_refresh_executor.start()
+        context.addon_repository_fetch_executor.start()
         try:
             yield
         finally:
@@ -808,6 +890,8 @@ def create_app(
             context.addon_zip_import_executor.close()
             context.addon_zip_installation_executor.close()
             context.addon_zip_smoke_test_executor.close()
+            context.addon_repository_refresh_executor.close()
+            context.addon_repository_fetch_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -878,19 +962,46 @@ def create_app(
             404, "development_source_not_found", "Development source not found."
         )
 
+    @app.exception_handler(AddonRepositoryNotFoundError)
+    async def addon_repository_not_found(
+        _request: Request, error: AddonRepositoryNotFoundError
+    ) -> JSONResponse:
+        return _json_error(404, error.code, "Repository resource not found.")
+
+    @app.exception_handler(AddonRepositoryConflictError)
+    async def addon_repository_conflict(
+        _request: Request, error: AddonRepositoryConflictError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(AddonRepositoryError)
+    async def addon_repository_policy_failed(
+        _request: Request, error: AddonRepositoryError
+    ) -> JSONResponse:
+        return _json_error(422, error.code, error.safe_message)
+
+    @app.exception_handler(AddonRepositoryServiceError)
+    async def addon_repository_failed(
+        _request: Request, error: AddonRepositoryServiceError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
     @app.exception_handler(RequestValidationError)
     async def bounded_request_validation(
         request: Request, error: RequestValidationError
     ) -> Response:
         path = request.url.path
-        development_source_mutation = request.method == "POST" and (
+        closed_schema_mutation = request.method == "POST" and (
             path == "/api/development-sources"
+            or path == "/api/addon-repositories"
+            or "/addon-repositories/" in path
+            or "/repository-artifacts/" in path
             or (
                 "/development-sources/" in path
                 and path.endswith(("/attach", "/detach"))
             )
         )
-        if development_source_mutation:
+        if closed_schema_mutation:
             return _json_error(
                 422, "request_validation_failed", "Request body is invalid."
             )
@@ -1389,6 +1500,31 @@ def create_app(
             },
         )
 
+    @app.get("/addon-repositories", response_class=HTMLResponse)
+    async def addon_repository_page(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        repositories = context.addon_repositories.list()
+        return templates.TemplateResponse(
+            request,
+            "addon-repositories.html",
+            {
+                "repository_cards": [
+                    (
+                        item,
+                        context.addon_repository_refreshes.candidates(
+                            item.repository_id
+                        ),
+                    )
+                    for item in repositories
+                ],
+                "instances": context.status.list_statuses(),
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
     @app.get("/instances/{instance_id}", response_class=HTMLResponse)
     async def instance_detail_page(request: Request, instance_id: UUID) -> Response:
         try:
@@ -1707,6 +1843,132 @@ def create_app(
     ) -> list[DevelopmentSourceSummary]:
         return context.development_sources.list_sources()
 
+    @app.get("/api/addon-repositories", response_model=list[AddonRepositorySourceRead])
+    def list_addon_repositories(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AddonRepositorySourceRead]:
+        return context.addon_repositories.list()
+
+    @app.post(
+        "/api/addon-repositories",
+        response_model=AddonRepositorySourceRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def register_addon_repository(
+        body: AddonRepositoryRegistrationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonRepositorySourceRead:
+        return context.addon_repositories.register(body.logical_name, body.index_url)
+
+    @app.get(
+        "/api/addon-repositories/{repository_id}",
+        response_model=AddonRepositorySourceRead,
+    )
+    def get_addon_repository(
+        repository_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AddonRepositorySourceRead:
+        return context.addon_repositories.get(repository_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/addon-repositories",
+        response_model=list[AddonRepositorySourceRead],
+    )
+    def list_instance_addon_repositories(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AddonRepositorySourceRead]:
+        return context.addon_repositories.list_for_instance(instance_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/addon-repositories/{repository_id}/attach",
+        response_model=AddonRepositorySourceRead,
+    )
+    def attach_addon_repository(
+        instance_id: UUID,
+        repository_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonRepositorySourceRead:
+        return context.addon_repositories.attach(instance_id, repository_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/addon-repositories/{repository_id}/detach",
+        response_model=AddonRepositorySourceRead,
+    )
+    def detach_addon_repository(
+        instance_id: UUID,
+        repository_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonRepositorySourceRead:
+        return context.addon_repositories.detach(instance_id, repository_id)
+
+    @app.post(
+        "/api/addon-repositories/{repository_id}/refresh",
+        response_model=AddonRepositoryRefreshAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def refresh_addon_repository(
+        repository_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonRepositoryRefreshAccepted:
+        operation = context.addon_repository_refreshes.queue(repository_id)
+        context.addon_repository_refresh_executor.submit(operation.operation_id)
+        return AddonRepositoryRefreshAccepted(
+            operation=operation,
+            status_url=f"/api/addon-repository-refresh-operations/{operation.operation_id}",
+        )
+
+    @app.get(
+        "/api/addon-repository-refresh-operations/{operation_id}",
+        response_model=AddonRepositoryRefreshStatus,
+    )
+    def addon_repository_refresh_status(
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AddonRepositoryRefreshStatus:
+        return context.addon_repository_refreshes.get(operation_id)
+
+    @app.get(
+        "/api/addon-repositories/{repository_id}/candidates",
+        response_model=list[AddonRepositoryCandidateRead],
+    )
+    def list_addon_repository_candidates(
+        repository_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AddonRepositoryCandidateRead]:
+        return context.addon_repository_refreshes.candidates(repository_id)
+
+    @app.post(
+        "/api/addon-repositories/{repository_id}/candidates/{candidate_id}/fetch",
+        response_model=AddonRepositoryFetchAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def fetch_addon_repository_candidate(
+        repository_id: UUID,
+        candidate_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonRepositoryFetchAccepted:
+        operation = context.addon_repository_fetches.queue(repository_id, candidate_id)
+        context.addon_repository_fetch_executor.submit(operation.operation_id)
+        return AddonRepositoryFetchAccepted(
+            operation=operation,
+            status_url=f"/api/addon-repository-fetch-operations/{operation.operation_id}",
+        )
+
+    @app.get(
+        "/api/addon-repository-fetch-operations/{operation_id}",
+        response_model=AddonRepositoryFetchStatus,
+    )
+    def addon_repository_fetch_status(
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AddonRepositoryFetchStatus:
+        return context.addon_repository_fetches.get(operation_id)
+
     @app.post(
         "/api/development-sources",
         response_model=DevelopmentSourceRead,
@@ -1893,6 +2155,27 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> AddonZipInstallationAccepted:
         operation = context.addon_zip_installations.queue(instance_id, artifact_id)
+        context.addon_zip_installation_executor.submit(operation.operation_id)
+        status_url = (
+            f"/api/instances/{instance_id}/addon-zip-installation-operations/"
+            f"{operation.operation_id}"
+        )
+        return AddonZipInstallationAccepted(operation=operation, status_url=status_url)
+
+    @app.post(
+        "/api/instances/{instance_id}/repository-artifacts/{artifact_id}/install",
+        response_model=AddonZipInstallationAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def install_addon_repository_artifact(
+        instance_id: UUID,
+        artifact_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonZipInstallationAccepted:
+        operation = context.addon_zip_installations.queue_repository(
+            instance_id, artifact_id
+        )
         context.addon_zip_installation_executor.submit(operation.operation_id)
         status_url = (
             f"/api/instances/{instance_id}/addon-zip-installation-operations/"

@@ -18,6 +18,14 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from kodi_lab.domain import (
+    AddonRepositoryAttachmentKind,
+    AddonRepositoryAttachmentState,
+    AddonRepositoryCandidateClassification,
+    AddonRepositoryCandidateSupport,
+    AddonRepositoryFetchPhase,
+    AddonRepositoryOperationState,
+    AddonRepositoryOrigin,
+    AddonRepositoryRefreshPhase,
     AddonZipEnablementOperationPhase,
     AddonZipEnablementOperationState,
     AddonZipEnablementResult,
@@ -1042,6 +1050,293 @@ class AddonZipSmokeTestOperationRow(Base):
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class AddonRepositorySourceRow(Base):
+    __tablename__ = "addon_repository_sources"
+    __table_args__ = (
+        UniqueConstraint("logical_name", name="uq_addon_repository_logical_name"),
+        UniqueConstraint(
+            "canonical_index_url", name="uq_addon_repository_canonical_url"
+        ),
+        CheckConstraint(
+            "length(logical_name) BETWEEN 1 AND 120",
+            name="addon_repository_logical_name_bounded",
+        ),
+        CheckConstraint(
+            "length(canonical_index_url) BETWEEN 1 AND 2304",
+            name="addon_repository_url_bounded",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    logical_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    canonical_index_url: Mapped[str] = mapped_column(String(2304), nullable=False)
+    origin: Mapped[AddonRepositoryOrigin] = mapped_column(
+        Enum(
+            AddonRepositoryOrigin,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_repository_origin",
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class ManagedInstanceAddonRepositorySourceRow(Base):
+    __tablename__ = "managed_instance_addon_repository_sources"
+
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    repository_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_sources.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    attached_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class AddonRepositoryAttachmentOperationRow(Base):
+    __tablename__ = "addon_repository_attachment_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(repository_logical_name) BETWEEN 1 AND 120",
+            name="addon_repository_attachment_name_bounded",
+        ),
+        CheckConstraint(
+            "(state='succeeded' AND failure_reason IS NULL) OR "
+            "(state='failed' AND failure_reason IS NOT NULL)",
+            name="addon_repository_attachment_state_consistent",
+        ),
+        Index(
+            "ix_addon_repository_attachment_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    repository_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    repository_logical_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    kind: Mapped[AddonRepositoryAttachmentKind] = mapped_column(
+        Enum(
+            AddonRepositoryAttachmentKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_repository_attachment_kind",
+        ),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    completed_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[AddonRepositoryAttachmentState] = mapped_column(
+        Enum(
+            AddonRepositoryAttachmentState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_repository_attachment_state",
+        ),
+        nullable=False,
+    )
+    failure_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class AddonRepositoryMetadataSnapshotRow(Base):
+    __tablename__ = "addon_repository_metadata_snapshots"
+    __table_args__ = (
+        CheckConstraint(
+            "transfer_size BETWEEN 1 AND 8388608 AND "
+            "expanded_size BETWEEN 1 AND 33554432 AND "
+            "entry_count BETWEEN 0 AND 2048",
+            name="addon_repository_snapshot_aggregates_bounded",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    repository_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    fetched_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    transfer_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    canonical_metadata_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    transfer_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    expanded_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    entry_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class AddonRepositoryCandidateRow(Base):
+    __tablename__ = "addon_repository_candidates"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "addon_id", "version", name="uq_addon_repository_candidate"
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND length(name) BETWEEN 1 AND 256 "
+            "AND length(version) BETWEEN 1 AND 128",
+            name="addon_repository_candidate_identity_bounded",
+        ),
+        CheckConstraint(
+            "unsupported_reason IS NULL OR length(unsupported_reason) BETWEEN 1 AND 64",
+            name="addon_repository_candidate_reason_bounded",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    snapshot_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_metadata_snapshots.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    repository_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    version: Mapped[str] = mapped_column(String(128), nullable=False)
+    classification: Mapped[AddonRepositoryCandidateClassification] = mapped_column(
+        Enum(
+            AddonRepositoryCandidateClassification,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_repository_candidate_classification",
+        ),
+        nullable=False,
+    )
+    dependencies_json: Mapped[str] = mapped_column(Text, nullable=False)
+    support: Mapped[AddonRepositoryCandidateSupport] = mapped_column(
+        Enum(
+            AddonRepositoryCandidateSupport,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_repository_candidate_support",
+        ),
+        nullable=False,
+    )
+    unsupported_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class AddonRepositoryRefreshOperationRow(Base):
+    __tablename__ = "addon_repository_refresh_operations"
+    __table_args__ = (
+        Index(
+            "uq_addon_repository_refresh_active",
+            "repository_source_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    repository_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_repository_sources.id", ondelete="RESTRICT")
+    )
+    snapshot_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_metadata_snapshots.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[AddonRepositoryOperationState] = mapped_column(
+        Enum(
+            AddonRepositoryOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_repository_refresh_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[AddonRepositoryRefreshPhase] = mapped_column(
+        Enum(
+            AddonRepositoryRefreshPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_repository_refresh_phase",
+        ),
+        nullable=False,
+    )
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class AddonRepositoryFetchOperationRow(Base):
+    __tablename__ = "addon_repository_fetch_operations"
+    __table_args__ = (
+        Index(
+            "uq_addon_repository_fetch_active",
+            "repository_source_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    repository_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_repository_sources.id", ondelete="RESTRICT")
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_metadata_snapshots.id", ondelete="RESTRICT"),
+    )
+    candidate_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_repository_candidates.id", ondelete="RESTRICT")
+    )
+    artifact_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[AddonRepositoryOperationState] = mapped_column(
+        Enum(
+            AddonRepositoryOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_repository_fetch_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[AddonRepositoryFetchPhase] = mapped_column(
+        Enum(
+            AddonRepositoryFetchPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_repository_fetch_phase",
+        ),
+        nullable=False,
+    )
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
 class AddonZipArtifactRow(Base):
     """Accepted immutable uploaded-ZIP artifact metadata."""
 
@@ -1071,6 +1366,16 @@ class AddonZipArtifactRow(Base):
             "length(addon_name) BETWEEN 1 AND 256 AND "
             "length(addon_version) BETWEEN 1 AND 128",
             name="addon_zip_artifact_identity_bounded",
+        ),
+        CheckConstraint(
+            "(origin='uploaded_zip' AND repository_source_id IS NULL AND "
+            "repository_snapshot_id IS NULL AND repository_candidate_id IS NULL AND "
+            "repository_fetched_at IS NULL) OR "
+            "(origin='repository_download' AND repository_source_id IS NOT NULL AND "
+            "repository_snapshot_id IS NOT NULL AND "
+            "repository_candidate_id IS NOT NULL "
+            "AND repository_fetched_at IS NOT NULL)",
+            name="addon_zip_artifact_repository_lineage",
         ),
     )
 
@@ -1116,6 +1421,22 @@ class AddonZipArtifactRow(Base):
         ),
         nullable=False,
     )
+    repository_source_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_sources.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    repository_snapshot_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_metadata_snapshots.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    repository_candidate_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_candidates.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    repository_fetched_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class AddonZipImportOperationRow(Base):
@@ -1291,6 +1612,14 @@ class AddonZipInstallationEvidenceRow(Base):
             "substr(payload_manifest_digest,1,7)='sha256:'",
             name="addon_zip_evidence_digest_bounded",
         ),
+        CheckConstraint(
+            "(artifact_origin='uploaded_zip' AND repository_source_id IS NULL AND "
+            "repository_snapshot_id IS NULL AND repository_candidate_id IS NULL) OR "
+            "(artifact_origin='repository_download' AND "
+            "repository_source_id IS NOT NULL AND repository_snapshot_id IS NOT NULL "
+            "AND repository_candidate_id IS NOT NULL)",
+            name="addon_zip_evidence_repository_lineage",
+        ),
     )
 
     managed_instance_id: Mapped[str] = mapped_column(
@@ -1340,6 +1669,33 @@ class AddonZipInstallationEvidenceRow(Base):
             name="addon_zip_installation_result",
         ),
         nullable=False,
+    )
+    artifact_origin: Mapped[AddonZipOrigin] = mapped_column(
+        Enum(
+            AddonZipOrigin,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_evidence_origin",
+        ),
+        nullable=False,
+        default=AddonZipOrigin.UPLOADED_ZIP,
+        server_default=text("'uploaded_zip'"),
+    )
+    repository_source_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_sources.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    repository_snapshot_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_metadata_snapshots.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    repository_candidate_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("addon_repository_candidates.id", ondelete="RESTRICT"),
+        nullable=True,
     )
 
 

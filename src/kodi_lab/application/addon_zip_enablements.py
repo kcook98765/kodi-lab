@@ -49,6 +49,7 @@ from kodi_lab.domain import (
     AddonZipInstallationOperation,
     AddonZipInstallationOperationState,
     AddonZipInstallationResult,
+    AddonZipOrigin,
     AddonZipPayloadVerificationOutcome,
     InstanceType,
     ManagedInstanceMutationKind,
@@ -373,6 +374,12 @@ class AddonZipEnablementService:
         if instance is None or artifact is None:
             raise AddonZipEnablementError(
                 "Managed instance or accepted ZIP artifact is unavailable.",
+                code="zip_enablement_authority_invalid",
+            )
+        if artifact.origin is not AddonZipOrigin.UPLOADED_ZIP:
+            raise AddonZipEnablementError(
+                "Repository artifacts require repository-specific "
+                "enablement authority.",
                 code="zip_enablement_authority_invalid",
             )
         if evidence is None or evidence.artifact_id != artifact_id:

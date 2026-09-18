@@ -45,6 +45,7 @@ from kodi_lab.domain import (
     AddonZipInstallationOperationPhase,
     AddonZipInstallationOperationState,
     AddonZipInstallationResult,
+    AddonZipOrigin,
     GlobalHeavyOperationKind,
     InstanceType,
     ManagedInstance,
@@ -63,10 +64,15 @@ from kodi_lab.kodi.readiness import (
     UsabilityState,
 )
 from kodi_lab.storage.repositories import (
+    AddonRepositoryMetadataRepository,
+    AddonRepositorySourceRepository,
     AddonZipArtifactRepository,
     AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
+    DevelopmentSourceRepository,
     GlobalHeavyOperationLeaseRepository,
+    ManagedInstanceAddonRepositorySourceRepository,
+    ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
     RuntimeExecutionProfileRepository,
@@ -210,10 +216,41 @@ class AddonZipInstallationCoordinator:
         )
 
     def queue(self, instance_id: UUID, artifact_id: UUID) -> AddonZipInstallationStatus:
+        return self._queue(
+            instance_id,
+            artifact_id,
+            required_origin=AddonZipOrigin.UPLOADED_ZIP,
+            mutation_kind=ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION,
+            heavy_kind=GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
+        )
+
+    def queue_repository(
+        self, instance_id: UUID, artifact_id: UUID
+    ) -> AddonZipInstallationStatus:
+        return self._queue(
+            instance_id,
+            artifact_id,
+            required_origin=AddonZipOrigin.REPOSITORY_DOWNLOAD,
+            mutation_kind=ManagedInstanceMutationKind.ADDON_REPOSITORY_INSTALLATION,
+            heavy_kind=GlobalHeavyOperationKind.ADDON_REPOSITORY_INSTALLATION,
+        )
+
+    def _queue(
+        self,
+        instance_id: UUID,
+        artifact_id: UUID,
+        *,
+        required_origin: AddonZipOrigin,
+        mutation_kind: ManagedInstanceMutationKind,
+        heavy_kind: GlobalHeavyOperationKind,
+    ) -> AddonZipInstallationStatus:
         self._stale.sweep_instance(instance_id)
         self._stale.sweep_global()
         self._reconciliation.require_allowed(
-            instance_id, ReconciliationAction.ADDON_ZIP_INSTALLATION
+            instance_id,
+            ReconciliationAction.ADDON_ZIP_INSTALLATION
+            if required_origin is AddonZipOrigin.UPLOADED_ZIP
+            else ReconciliationAction.ADDON_REPOSITORY_INSTALLATION,
         )
         with self._session_factory() as session:
             instance = ManagedInstanceRepository(session).get(instance_id)
@@ -227,6 +264,7 @@ class AddonZipInstallationCoordinator:
             )
         if (
             instance.instance_type is not InstanceType.DISPOSABLE
+            or artifact.origin is not required_origin
             or artifact.extension_classification
             is not AddonZipExtensionClassification.PYTHON_VIDEO_PLUGIN
         ):
@@ -255,11 +293,11 @@ class AddonZipInstallationCoordinator:
                 AddonZipInstallationOperationRepository(session).create(operation)
                 ManagedInstanceMutationLeaseRepository(session).reserve(
                     instance_id,
-                    kind=ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION,
+                    kind=mutation_kind,
                     operation_id=operation.id,
                 )
                 GlobalHeavyOperationLeaseRepository(session).reserve(
-                    kind=GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
+                    kind=heavy_kind,
                     operation_id=operation.id,
                 )
         except IntegrityError as error:
@@ -374,6 +412,10 @@ class AddonZipInstallationCoordinator:
             verified_at=now,
             confidence=AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION,
             result=AddonZipInstallationResult.INSTALLED_RECOGNIZED_DISABLED,
+            artifact_origin=artifact.origin,
+            repository_source_id=artifact.repository_source_id,
+            repository_snapshot_id=artifact.repository_snapshot_id,
+            repository_candidate_id=artifact.repository_candidate_id,
         )
         with self._session_factory.begin() as session:
             AddonZipInstallationEvidenceRepository(session).upsert(evidence)
@@ -489,6 +531,7 @@ class AddonZipInstallationService:
         inventory_adapter_factory: InventoryAdapterFactory | None = None,
         readiness_factory: ReadinessCoordinatorFactory = KodiReadinessCoordinator,
         after_application_hook: Callable[[], None] | None = None,
+        required_origin: AddonZipOrigin | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._broker = broker
@@ -499,6 +542,7 @@ class AddonZipInstallationService:
         )
         self._readiness_factory = readiness_factory
         self._after_application_hook = after_application_hook
+        self._required_origin = required_origin
 
     def install(self) -> None:
         stopped = False
@@ -681,6 +725,10 @@ class AddonZipInstallationService:
         if (
             instance.instance_type is not InstanceType.DISPOSABLE
             or profile.python_bytecode_policy is not PythonBytecodePolicy.SUPPRESS
+            or (
+                self._required_origin is not None
+                and artifact.origin is not self._required_origin
+            )
             or artifact.extension_classification
             is not AddonZipExtensionClassification.PYTHON_VIDEO_PLUGIN
             or operation.managed_instance_id != instance.target_id
@@ -692,7 +740,69 @@ class AddonZipInstallationService:
             raise AddonZipInstallationUnsupportedError(
                 "The instance runtime or artifact is unsupported."
             )
+        if artifact.origin is AddonZipOrigin.REPOSITORY_DOWNLOAD:
+            self._require_repository_authority(instance, artifact)
         return instance, artifact, profile
+
+    def _require_repository_authority(
+        self, instance: ManagedInstance, artifact: AddonZipArtifact
+    ) -> None:
+        source_id = artifact.repository_source_id
+        snapshot_id = artifact.repository_snapshot_id
+        candidate_id = artifact.repository_candidate_id
+        if source_id is None or snapshot_id is None or candidate_id is None:
+            raise AddonZipInstallationUnsupportedError(
+                "Repository artifact lineage is unavailable."
+            )
+        with self._session_factory() as session:
+            source = AddonRepositorySourceRepository(session).get(source_id)
+            attached = ManagedInstanceAddonRepositorySourceRepository(session).get(
+                instance.target_id, source_id
+            )
+            candidate = AddonRepositoryMetadataRepository(session).get_candidate(
+                candidate_id
+            )
+            development_attachments = ManagedInstanceDevelopmentSourceRepository(
+                session
+            ).list_for_instance(instance.target_id)
+            development_sources = DevelopmentSourceRepository(session)
+            collides = any(
+                source_record is not None
+                and source_record.addon_id == artifact.addon_id
+                for attachment in development_attachments
+                for source_record in [
+                    development_sources.get(attachment.development_source_id)
+                ]
+            )
+            prior_installation = AddonZipInstallationEvidenceRepository(session).get(
+                instance.target_id, artifact.addon_id
+            )
+        if source is None or attached is None:
+            raise AddonZipInstallationUnsupportedError(
+                "Repository must be attached before installation.",
+                code="repository_not_attached",
+            )
+        if (
+            candidate is None
+            or candidate.repository_source_id != source_id
+            or candidate.snapshot_id != snapshot_id
+            or candidate.id != candidate_id
+            or candidate.addon_id != artifact.addon_id
+            or candidate.version != artifact.addon_version
+        ):
+            raise AddonZipInstallationUnsupportedError(
+                "Repository artifact lineage is inconsistent."
+            )
+        if collides:
+            raise AddonZipInstallationConflictError(
+                "An attached DevelopmentSource protects this add-on ID.",
+                code="protected_development_source_collision",
+            )
+        if prior_installation is not None:
+            raise AddonZipInstallationConflictError(
+                "A prior verified installation protects this add-on ID.",
+                code="verified_installation_collision",
+            )
 
     def _require_running_runtime(
         self, runtime_revision_id: UUID

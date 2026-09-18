@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Add-on repositories · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main data-repository-workflow data-csrf-token="{{ csrf_token }}">
+      <h1>Add-on repository testing</h1>
+      <p class="secondary">Register a direct public HTTPS addons.xml endpoint, attach it to an instance, refresh immutable metadata, fetch a supported package, then install it disabled. Replacement and update are not available.</p>
+
+      <section>
+        <h2>1. Register repository</h2>
+        <form data-repository-register>
+          <label>Logical name <input name="logical_name" required maxlength="120"></label>
+          <label>Exact index URL <input name="index_url" type="url" required maxlength="2304" placeholder="https://repository.example/addons.xml"></label>
+          <button type="submit">Register</button>
+        </form>
+      </section>
+
+      {% for repository, candidates in repository_cards %}
+      <article data-repository-id="{{ repository.repository_id }}">
+        <h2>{{ repository.logical_name }}</h2>
+        <dl>
+          <dt>Index</dt><dd>{{ repository.canonical_index_url }}</dd>
+          <dt>Origin</dt><dd>{{ repository.origin }}</dd>
+        </dl>
+        <label>Instance
+          <select data-instance required>
+            <option value="">Choose an instance</option>
+            {% for instance in instances %}<option value="{{ instance.managed_instance_id }}">{{ instance.name }} · {{ instance.kodi_version }}</option>{% endfor %}
+          </select>
+        </label>
+        <button type="button" data-action="attach">2. Attach</button>
+        <button type="button" data-action="detach">Detach</button>
+        <button type="button" data-action="refresh">3. Refresh metadata</button>
+        <p class="secondary" data-status role="status"></p>
+
+        <h3>4. Current candidates</h3>
+        {% for candidate in candidates %}
+        <section data-candidate-id="{{ candidate.candidate_id }}">
+          <strong>{{ candidate.addon_id }} — {{ candidate.name }} {{ candidate.version }}</strong>
+          <span>{{ candidate.classification }} · {% if candidate.supported %}supported{% else %}unsupported: {{ candidate.unsupported_reason }}{% endif %}</span>
+          {% if candidate.supported %}<button type="button" data-action="fetch">5. Fetch and validate package</button>{% endif %}
+          <button type="button" data-action="install"{% if not candidate.fetched_artifact_id %} hidden{% else %} data-artifact-id="{{ candidate.fetched_artifact_id }}"{% endif %}>6. Install fetched artifact disabled</button>
+        </section>
+        {% else %}<p>No current candidates. Refresh this repository explicitly.</p>{% endfor %}
+      </article>
+      {% else %}<p>No repositories are registered.</p>{% endfor %}
+      <p><a href="/">Back to dashboard</a></p>
+    </main>
+    <script src="{{ url_for('static', path='/addon-repositories.js') }}" defer></script>
+  </body>
+</html>

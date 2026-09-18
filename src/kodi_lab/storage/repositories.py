@@ -8,6 +8,15 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
+    AddonRepositoryAttachmentOperation,
+    AddonRepositoryCandidate,
+    AddonRepositoryFetchOperation,
+    AddonRepositoryFetchPhase,
+    AddonRepositoryMetadataSnapshot,
+    AddonRepositoryOperationState,
+    AddonRepositoryRefreshOperation,
+    AddonRepositoryRefreshPhase,
+    AddonRepositorySource,
     AddonZipArtifact,
     AddonZipDependency,
     AddonZipEnablementOperation,
@@ -50,6 +59,7 @@ from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     InstanceRuntimeState,
     ManagedInstance,
+    ManagedInstanceAddonRepositorySource,
     ManagedInstanceDeleteOperation,
     ManagedInstanceDeleteOperationPhase,
     ManagedInstanceDeleteOperationState,
@@ -84,6 +94,12 @@ from kodi_lab.domain import (
     Target,
 )
 from kodi_lab.storage.models import (
+    AddonRepositoryAttachmentOperationRow,
+    AddonRepositoryCandidateRow,
+    AddonRepositoryFetchOperationRow,
+    AddonRepositoryMetadataSnapshotRow,
+    AddonRepositoryRefreshOperationRow,
+    AddonRepositorySourceRow,
     AddonZipArtifactRow,
     AddonZipEnablementOperationRow,
     AddonZipImportOperationRow,
@@ -98,6 +114,7 @@ from kodi_lab.storage.models import (
     DevelopmentSourceSmokeTestOperationRow,
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
+    ManagedInstanceAddonRepositorySourceRow,
     ManagedInstanceDeleteOperationRow,
     ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceLifecycleOperationRow,
@@ -183,6 +200,147 @@ def _addon_zip_artifact_from_row(row: AddonZipArtifactRow) -> AddonZipArtifact:
         imported_at=_timestamp_from_text(row.imported_at),
         origin=row.origin,
         validation_state=row.validation_state,
+        repository_source_id=(
+            None if row.repository_source_id is None else UUID(row.repository_source_id)
+        ),
+        repository_snapshot_id=(
+            None
+            if row.repository_snapshot_id is None
+            else UUID(row.repository_snapshot_id)
+        ),
+        repository_candidate_id=(
+            None
+            if row.repository_candidate_id is None
+            else UUID(row.repository_candidate_id)
+        ),
+        repository_fetched_at=(
+            None
+            if row.repository_fetched_at is None
+            else _timestamp_from_text(row.repository_fetched_at)
+        ),
+    )
+
+
+def _addon_repository_source_from_row(
+    row: AddonRepositorySourceRow,
+) -> AddonRepositorySource:
+    return AddonRepositorySource(
+        id=UUID(row.id),
+        logical_name=row.logical_name,
+        canonical_index_url=row.canonical_index_url,
+        origin=row.origin,
+        created_at=_timestamp_from_text(row.created_at),
+    )
+
+
+def _addon_repository_attachment_from_row(
+    row: ManagedInstanceAddonRepositorySourceRow,
+) -> ManagedInstanceAddonRepositorySource:
+    return ManagedInstanceAddonRepositorySource(
+        managed_instance_id=UUID(row.managed_instance_id),
+        repository_source_id=UUID(row.repository_source_id),
+        attached_at=_timestamp_from_text(row.attached_at),
+    )
+
+
+def _addon_repository_attachment_operation_from_row(
+    row: AddonRepositoryAttachmentOperationRow,
+) -> AddonRepositoryAttachmentOperation:
+    return AddonRepositoryAttachmentOperation(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=(
+            None if row.managed_instance_id is None else UUID(row.managed_instance_id)
+        ),
+        repository_source_id=UUID(row.repository_source_id),
+        repository_logical_name=row.repository_logical_name,
+        kind=row.kind,
+        requested_at=_timestamp_from_text(row.requested_at),
+        completed_at=_timestamp_from_text(row.completed_at),
+        state=row.state,
+        failure_reason=row.failure_reason,
+    )
+
+
+def _addon_repository_snapshot_from_row(
+    row: AddonRepositoryMetadataSnapshotRow,
+) -> AddonRepositoryMetadataSnapshot:
+    return AddonRepositoryMetadataSnapshot(
+        id=UUID(row.id),
+        repository_source_id=UUID(row.repository_source_id),
+        fetched_at=_timestamp_from_text(row.fetched_at),
+        transfer_digest=row.transfer_digest,
+        canonical_metadata_digest=row.canonical_metadata_digest,
+        transfer_size=row.transfer_size,
+        expanded_size=row.expanded_size,
+        entry_count=row.entry_count,
+    )
+
+
+def _addon_repository_candidate_from_row(
+    row: AddonRepositoryCandidateRow,
+) -> AddonRepositoryCandidate:
+    return AddonRepositoryCandidate(
+        id=UUID(row.id),
+        snapshot_id=UUID(row.snapshot_id),
+        repository_source_id=UUID(row.repository_source_id),
+        addon_id=row.addon_id,
+        name=row.name,
+        version=row.version,
+        classification=row.classification,
+        dependencies=_addon_zip_dependencies_from_json(row.dependencies_json),
+        support=row.support,
+        unsupported_reason=row.unsupported_reason,
+    )
+
+
+def _addon_repository_refresh_from_row(
+    row: AddonRepositoryRefreshOperationRow,
+) -> AddonRepositoryRefreshOperation:
+    return AddonRepositoryRefreshOperation(
+        id=UUID(row.id),
+        repository_source_id=UUID(row.repository_source_id),
+        snapshot_id=None if row.snapshot_id is None else UUID(row.snapshot_id),
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
+        started_at=None
+        if row.started_at is None
+        else _timestamp_from_text(row.started_at),
+        completed_at=None
+        if row.completed_at is None
+        else _timestamp_from_text(row.completed_at),
+        failure_reason=row.failure_reason,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=None
+        if row.lease_expires_at is None
+        else _timestamp_from_text(row.lease_expires_at),
+    )
+
+
+def _addon_repository_fetch_from_row(
+    row: AddonRepositoryFetchOperationRow,
+) -> AddonRepositoryFetchOperation:
+    return AddonRepositoryFetchOperation(
+        id=UUID(row.id),
+        repository_source_id=UUID(row.repository_source_id),
+        snapshot_id=UUID(row.snapshot_id),
+        candidate_id=UUID(row.candidate_id),
+        artifact_id=UUID(row.artifact_id),
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
+        started_at=None
+        if row.started_at is None
+        else _timestamp_from_text(row.started_at),
+        completed_at=None
+        if row.completed_at is None
+        else _timestamp_from_text(row.completed_at),
+        failure_reason=row.failure_reason,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=None
+        if row.lease_expires_at is None
+        else _timestamp_from_text(row.lease_expires_at),
     )
 
 
@@ -267,6 +425,20 @@ def _addon_zip_evidence_from_row(
         verified_at=_timestamp_from_text(row.verified_at),
         confidence=row.confidence,
         result=row.result,
+        artifact_origin=row.artifact_origin,
+        repository_source_id=(
+            None if row.repository_source_id is None else UUID(row.repository_source_id)
+        ),
+        repository_snapshot_id=(
+            None
+            if row.repository_snapshot_id is None
+            else UUID(row.repository_snapshot_id)
+        ),
+        repository_candidate_id=(
+            None
+            if row.repository_candidate_id is None
+            else UUID(row.repository_candidate_id)
+        ),
     )
 
 
@@ -1001,6 +1173,444 @@ class ManagedInstanceDevelopmentSourceRepository:
         return int(getattr(result, "rowcount", 0))
 
 
+class AddonRepositorySourceRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, source: AddonRepositorySource) -> None:
+        self._session.add(
+            AddonRepositorySourceRow(
+                id=str(source.id),
+                logical_name=source.logical_name,
+                canonical_index_url=source.canonical_index_url,
+                origin=source.origin,
+                created_at=_timestamp_to_text(source.created_at),
+            )
+        )
+
+    def get(self, source_id: UUID) -> AddonRepositorySource | None:
+        row = self._session.get(AddonRepositorySourceRow, str(source_id))
+        return None if row is None else _addon_repository_source_from_row(row)
+
+    def list(self) -> list[AddonRepositorySource]:
+        rows = self._session.scalars(
+            select(AddonRepositorySourceRow).order_by(
+                AddonRepositorySourceRow.logical_name, AddonRepositorySourceRow.id
+            )
+        )
+        return [_addon_repository_source_from_row(row) for row in rows]
+
+
+class ManagedInstanceAddonRepositorySourceRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, attachment: ManagedInstanceAddonRepositorySource) -> None:
+        self._session.add(
+            ManagedInstanceAddonRepositorySourceRow(
+                managed_instance_id=str(attachment.managed_instance_id),
+                repository_source_id=str(attachment.repository_source_id),
+                attached_at=_timestamp_to_text(attachment.attached_at),
+            )
+        )
+
+    def get(
+        self, instance_id: UUID, source_id: UUID
+    ) -> ManagedInstanceAddonRepositorySource | None:
+        row = self._session.get(
+            ManagedInstanceAddonRepositorySourceRow,
+            (str(instance_id), str(source_id)),
+        )
+        return None if row is None else _addon_repository_attachment_from_row(row)
+
+    def list_for_instance(
+        self, instance_id: UUID
+    ) -> list[ManagedInstanceAddonRepositorySource]:
+        rows = self._session.scalars(
+            select(ManagedInstanceAddonRepositorySourceRow)
+            .where(
+                ManagedInstanceAddonRepositorySourceRow.managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(ManagedInstanceAddonRepositorySourceRow.repository_source_id)
+        )
+        return [_addon_repository_attachment_from_row(row) for row in rows]
+
+    def delete(self, instance_id: UUID, source_id: UUID) -> bool:
+        result = self._session.execute(
+            delete(ManagedInstanceAddonRepositorySourceRow).where(
+                ManagedInstanceAddonRepositorySourceRow.managed_instance_id
+                == str(instance_id),
+                ManagedInstanceAddonRepositorySourceRow.repository_source_id
+                == str(source_id),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+
+class AddonRepositoryAttachmentOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: AddonRepositoryAttachmentOperation) -> None:
+        self._session.add(
+            AddonRepositoryAttachmentOperationRow(
+                id=str(operation.id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                managed_instance_id=(
+                    None
+                    if operation.managed_instance_id is None
+                    else str(operation.managed_instance_id)
+                ),
+                repository_source_id=str(operation.repository_source_id),
+                repository_logical_name=operation.repository_logical_name,
+                kind=operation.kind,
+                requested_at=_timestamp_to_text(operation.requested_at),
+                completed_at=_timestamp_to_text(operation.completed_at),
+                state=operation.state,
+                failure_reason=operation.failure_reason,
+            )
+        )
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[AddonRepositoryAttachmentOperation]:
+        rows = self._session.scalars(
+            select(AddonRepositoryAttachmentOperationRow)
+            .where(
+                AddonRepositoryAttachmentOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                AddonRepositoryAttachmentOperationRow.requested_at.desc(),
+                AddonRepositoryAttachmentOperationRow.id.desc(),
+            )
+        )
+        return [_addon_repository_attachment_operation_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(AddonRepositoryAttachmentOperationRow)
+            .where(
+                AddonRepositoryAttachmentOperationRow.managed_instance_id
+                == str(instance_id)
+            )
+            .values(managed_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
+class AddonRepositoryMetadataRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create_snapshot(
+        self,
+        snapshot: AddonRepositoryMetadataSnapshot,
+        candidates: tuple[AddonRepositoryCandidate, ...],
+    ) -> None:
+        self._session.add(
+            AddonRepositoryMetadataSnapshotRow(
+                id=str(snapshot.id),
+                repository_source_id=str(snapshot.repository_source_id),
+                fetched_at=_timestamp_to_text(snapshot.fetched_at),
+                transfer_digest=snapshot.transfer_digest,
+                canonical_metadata_digest=snapshot.canonical_metadata_digest,
+                transfer_size=snapshot.transfer_size,
+                expanded_size=snapshot.expanded_size,
+                entry_count=snapshot.entry_count,
+            )
+        )
+        # No ORM relationship joins these immutable rows. Flush the parent
+        # explicitly so SQLite's immediate foreign-key checks cannot observe
+        # candidate rows before their snapshot.
+        self._session.flush()
+        self._session.add_all(
+            AddonRepositoryCandidateRow(
+                id=str(item.id),
+                snapshot_id=str(item.snapshot_id),
+                repository_source_id=str(item.repository_source_id),
+                addon_id=item.addon_id,
+                name=item.name,
+                version=item.version,
+                classification=item.classification,
+                dependencies_json=_addon_zip_dependencies_to_json(item.dependencies),
+                support=item.support,
+                unsupported_reason=item.unsupported_reason,
+            )
+            for item in candidates
+        )
+
+    def latest_snapshot(
+        self, source_id: UUID
+    ) -> AddonRepositoryMetadataSnapshot | None:
+        row = self._session.scalar(
+            select(AddonRepositoryMetadataSnapshotRow)
+            .where(
+                AddonRepositoryMetadataSnapshotRow.repository_source_id
+                == str(source_id)
+            )
+            .order_by(
+                AddonRepositoryMetadataSnapshotRow.fetched_at.desc(),
+                AddonRepositoryMetadataSnapshotRow.id.desc(),
+            )
+            .limit(1)
+        )
+        return None if row is None else _addon_repository_snapshot_from_row(row)
+
+    def get_candidate(self, candidate_id: UUID) -> AddonRepositoryCandidate | None:
+        row = self._session.get(AddonRepositoryCandidateRow, str(candidate_id))
+        return None if row is None else _addon_repository_candidate_from_row(row)
+
+    def list_candidates(self, snapshot_id: UUID) -> list[AddonRepositoryCandidate]:
+        rows = self._session.scalars(
+            select(AddonRepositoryCandidateRow)
+            .where(AddonRepositoryCandidateRow.snapshot_id == str(snapshot_id))
+            .order_by(
+                AddonRepositoryCandidateRow.addon_id,
+                AddonRepositoryCandidateRow.version,
+                AddonRepositoryCandidateRow.id,
+            )
+        )
+        return [_addon_repository_candidate_from_row(row) for row in rows]
+
+
+class AddonRepositoryRefreshOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: AddonRepositoryRefreshOperation) -> None:
+        self._session.add(
+            AddonRepositoryRefreshOperationRow(
+                id=str(operation.id),
+                repository_source_id=str(operation.repository_source_id),
+                snapshot_id=None
+                if operation.snapshot_id is None
+                else str(operation.snapshot_id),
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+            )
+        )
+
+    def get(self, operation_id: UUID) -> AddonRepositoryRefreshOperation | None:
+        row = self._session.get(AddonRepositoryRefreshOperationRow, str(operation_id))
+        return None if row is None else _addon_repository_refresh_from_row(row)
+
+    def list_queued(self) -> list[AddonRepositoryRefreshOperation]:
+        rows = self._session.scalars(
+            select(AddonRepositoryRefreshOperationRow)
+            .where(
+                AddonRepositoryRefreshOperationRow.state
+                == AddonRepositoryOperationState.QUEUED
+            )
+            .order_by(AddonRepositoryRefreshOperationRow.requested_at)
+        )
+        return [_addon_repository_refresh_from_row(row) for row in rows]
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonRepositoryRefreshOperationRow)
+            .where(
+                AddonRepositoryRefreshOperationRow.id == str(operation_id),
+                AddonRepositoryRefreshOperationRow.state
+                == AddonRepositoryOperationState.QUEUED,
+            )
+            .values(
+                state=AddonRepositoryOperationState.RUNNING,
+                phase=AddonRepositoryRefreshPhase.RESOLVING,
+                started_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(expires_at),
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: AddonRepositoryRefreshPhase,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonRepositoryRefreshOperationRow)
+            .where(
+                AddonRepositoryRefreshOperationRow.id == str(operation_id),
+                AddonRepositoryRefreshOperationRow.state
+                == AddonRepositoryOperationState.RUNNING,
+                AddonRepositoryRefreshOperationRow.lease_token_digest == token_digest,
+            )
+            .values(phase=phase)
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        snapshot_id: UUID | None,
+        reason: str | None,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonRepositoryRefreshOperationRow)
+            .where(
+                AddonRepositoryRefreshOperationRow.id == str(operation_id),
+                AddonRepositoryRefreshOperationRow.state
+                == AddonRepositoryOperationState.RUNNING,
+                AddonRepositoryRefreshOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                state=(
+                    AddonRepositoryOperationState.SUCCEEDED
+                    if reason is None
+                    else AddonRepositoryOperationState.FAILED
+                ),
+                phase=AddonRepositoryRefreshPhase.FINALIZE,
+                snapshot_id=None if snapshot_id is None else str(snapshot_id),
+                completed_at=_timestamp_to_text(now),
+                failure_reason=reason,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+
+class AddonRepositoryFetchOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: AddonRepositoryFetchOperation) -> None:
+        self._session.add(
+            AddonRepositoryFetchOperationRow(
+                id=str(operation.id),
+                repository_source_id=str(operation.repository_source_id),
+                snapshot_id=str(operation.snapshot_id),
+                candidate_id=str(operation.candidate_id),
+                artifact_id=str(operation.artifact_id),
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+            )
+        )
+
+    def get(self, operation_id: UUID) -> AddonRepositoryFetchOperation | None:
+        row = self._session.get(AddonRepositoryFetchOperationRow, str(operation_id))
+        return None if row is None else _addon_repository_fetch_from_row(row)
+
+    def list_queued(self) -> list[AddonRepositoryFetchOperation]:
+        rows = self._session.scalars(
+            select(AddonRepositoryFetchOperationRow)
+            .where(
+                AddonRepositoryFetchOperationRow.state
+                == AddonRepositoryOperationState.QUEUED
+            )
+            .order_by(AddonRepositoryFetchOperationRow.requested_at)
+        )
+        return [_addon_repository_fetch_from_row(row) for row in rows]
+
+    def latest_succeeded_for_candidate(
+        self, candidate_id: UUID
+    ) -> AddonRepositoryFetchOperation | None:
+        row = self._session.scalar(
+            select(AddonRepositoryFetchOperationRow)
+            .where(
+                AddonRepositoryFetchOperationRow.candidate_id == str(candidate_id),
+                AddonRepositoryFetchOperationRow.state
+                == AddonRepositoryOperationState.SUCCEEDED,
+            )
+            .order_by(
+                AddonRepositoryFetchOperationRow.completed_at.desc(),
+                AddonRepositoryFetchOperationRow.id.desc(),
+            )
+            .limit(1)
+        )
+        return None if row is None else _addon_repository_fetch_from_row(row)
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonRepositoryFetchOperationRow)
+            .where(
+                AddonRepositoryFetchOperationRow.id == str(operation_id),
+                AddonRepositoryFetchOperationRow.state
+                == AddonRepositoryOperationState.QUEUED,
+            )
+            .values(
+                state=AddonRepositoryOperationState.RUNNING,
+                phase=AddonRepositoryFetchPhase.RESOLVING,
+                started_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(expires_at),
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def phase(
+        self, operation_id: UUID, *, token_digest: str, phase: AddonRepositoryFetchPhase
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonRepositoryFetchOperationRow)
+            .where(
+                AddonRepositoryFetchOperationRow.id == str(operation_id),
+                AddonRepositoryFetchOperationRow.state
+                == AddonRepositoryOperationState.RUNNING,
+                AddonRepositoryFetchOperationRow.lease_token_digest == token_digest,
+            )
+            .values(phase=phase)
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        reason: str | None,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonRepositoryFetchOperationRow)
+            .where(
+                AddonRepositoryFetchOperationRow.id == str(operation_id),
+                AddonRepositoryFetchOperationRow.state
+                == AddonRepositoryOperationState.RUNNING,
+                AddonRepositoryFetchOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                state=(
+                    AddonRepositoryOperationState.SUCCEEDED
+                    if reason is None
+                    else AddonRepositoryOperationState.FAILED
+                ),
+                phase=AddonRepositoryFetchPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+                failure_reason=reason,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+
 class AddonZipArtifactRepository:
     """Create/read-only repository for accepted immutable ZIP artifacts."""
 
@@ -1027,6 +1637,26 @@ class AddonZipArtifactRepository:
                 imported_at=_timestamp_to_text(artifact.imported_at),
                 origin=artifact.origin,
                 validation_state=artifact.validation_state,
+                repository_source_id=(
+                    None
+                    if artifact.repository_source_id is None
+                    else str(artifact.repository_source_id)
+                ),
+                repository_snapshot_id=(
+                    None
+                    if artifact.repository_snapshot_id is None
+                    else str(artifact.repository_snapshot_id)
+                ),
+                repository_candidate_id=(
+                    None
+                    if artifact.repository_candidate_id is None
+                    else str(artifact.repository_candidate_id)
+                ),
+                repository_fetched_at=(
+                    None
+                    if artifact.repository_fetched_at is None
+                    else _timestamp_to_text(artifact.repository_fetched_at)
+                ),
             )
         )
 
@@ -1225,6 +1855,22 @@ class AddonZipInstallationEvidenceRepository:
             verified_at=_timestamp_to_text(evidence.verified_at),
             confidence=evidence.confidence,
             result=evidence.result,
+            artifact_origin=evidence.artifact_origin,
+            repository_source_id=(
+                None
+                if evidence.repository_source_id is None
+                else str(evidence.repository_source_id)
+            ),
+            repository_snapshot_id=(
+                None
+                if evidence.repository_snapshot_id is None
+                else str(evidence.repository_snapshot_id)
+            ),
+            repository_candidate_id=(
+                None
+                if evidence.repository_candidate_id is None
+                else str(evidence.repository_candidate_id)
+            ),
         )
         if row is None:
             self._session.add(

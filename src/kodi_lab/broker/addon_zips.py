@@ -17,6 +17,7 @@ from kodi_lab.domain import (
     AddonZipInstallationConfidence,
     AddonZipInstallationOperationState,
     AddonZipInstallationResult,
+    AddonZipOrigin,
     AddonZipSmokeTestOperationState,
     InstanceType,
     PythonBytecodePolicy,
@@ -162,6 +163,8 @@ class SqliteAddonZipInstallationResolver:
                 or enablement is None
                 or evidence is None
                 or installation is None
+                or artifact.origin is not AddonZipOrigin.UPLOADED_ZIP
+                or evidence.artifact_origin is not AddonZipOrigin.UPLOADED_ZIP
                 or enablement.state is not AddonZipEnablementOperationState.RUNNING
                 or enablement.managed_instance_id != instance_uuid
                 or enablement.artifact_id != artifact_uuid
@@ -265,6 +268,8 @@ class SqliteAddonZipInstallationResolver:
                 or smoke is None
                 or evidence is None
                 or installation is None
+                or artifact.origin is not AddonZipOrigin.UPLOADED_ZIP
+                or evidence.artifact_origin is not AddonZipOrigin.UPLOADED_ZIP
                 or smoke.state is not AddonZipSmokeTestOperationState.RUNNING
                 or smoke.managed_instance_id != instance_uuid
                 or smoke.artifact_id != artifact_uuid

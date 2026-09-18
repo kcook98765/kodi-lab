@@ -48,6 +48,7 @@ from kodi_lab.domain import (
     AddonZipInstallationOperation,
     AddonZipInstallationOperationState,
     AddonZipInstallationResult,
+    AddonZipOrigin,
     AddonZipSmokeTestExecutionResult,
     AddonZipSmokeTestOperation,
     AddonZipSmokeTestOperationPhase,
@@ -219,6 +220,10 @@ class AddonZipSmokeTestOperationCoordinator:
         if instance is None or artifact is None or evidence is None:
             raise AddonZipSmokeTestNotFoundError(
                 "Managed instance, ZIP artifact, or installation evidence is missing."
+            )
+        if artifact.origin is not AddonZipOrigin.UPLOADED_ZIP:
+            raise AddonZipSmokeTestNotFoundError(
+                "Repository artifacts require repository-specific smoke authority."
             )
         if evidence.artifact_id != artifact_id:
             raise AddonZipSmokeTestNotFoundError(

@@ -65,6 +65,8 @@ class AddonZipPresentationService:
             operations = AddonZipInstallationOperationRepository(session)
             result: list[AddonZipArtifactSummary] = []
             for artifact in artifacts:
+                if artifact.origin is not AddonZipOrigin.UPLOADED_ZIP:
+                    continue
                 latest = next(
                     (item for item in operations.list_for_artifact(artifact.id)),
                     None,

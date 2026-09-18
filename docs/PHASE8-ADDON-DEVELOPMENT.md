@@ -16,13 +16,45 @@ Complete:
 - live inventory and bounded provenance;
 - immutable runtime bytecode policy;
 - DevelopmentSource enablement and smoke workflows; and
-- uploaded-ZIP import, installation, enablement, and smoke workflows.
+- uploaded-ZIP import, installation, enablement, and smoke workflows;
+- repository registration, attachment, secure refresh, discovery, package
+  fetch, and disabled installation; and
+- default attached-DevelopmentSource collision protection for repository
+  installation.
 
 Remaining v1 work:
 
-1. repository URL testing workflow;
-2. default repository-vs-attached-source collision protection; and
-3. explicit approved replacement/update override.
+1. explicit approved replacement/update override.
+
+## Repository URL testing first slice
+
+An `AddonRepositorySource` is global catalog state with an opaque UUID, unique
+logical name, canonical query-free HTTPS index URL, closed external origin, and
+creation time. A separate per-instance attachment is mandatory before install;
+registration and refresh never imply global use. Refresh is explicit only and
+publishes immutable bounded metadata snapshots plus normalized supported or
+display-only unsupported candidates. Raw XML, DNS answers, headers, digests,
+and package URLs are not normal caller authority.
+
+The dedicated fetch component accepts only public DNS-host HTTPS port 443 direct
+`addons.xml` or `addons.xml.gz` URLs. It uses explicit global-unicast filtering,
+bounded DNS, exact validated-address connection, original-host SNI/certificate/
+Host semantics, same-host revalidated redirects, system trust, and no ambient
+proxy behavior. Packages are derived only as
+`<index-directory>/<id>/<id>-<version>.zip`, then processed by the existing
+strict ZIP validator into immutable `repository_download` artifacts with exact
+source/snapshot/candidate lineage.
+
+Repository installation has distinct application/Web authority but shares the
+low-level absent-only ZIP materializer. Any attached same-ID DevelopmentSource
+blocks before lifecycle or filesystem mutation even if inventory/destination
+are absent. Retained prior verified ZIP or repository installation evidence
+also blocks reinstall even if inventory/destination are absent. Existing
+uploaded-ZIP enable/smoke services reject repository
+artifacts; the repository slice proves disabled exact recognition and bounded
+historical provenance. Reset/restore stale evidence without deleting catalog,
+attachment, snapshots, artifacts, or history. There is no force, reinstall,
+update, replacement, or ignore-collision input.
 
 Future/optional: a bind-like live-source workflow may be reconsidered after v1
 only through a containment-safe projection or equivalent policy-enforcing
@@ -37,10 +69,10 @@ inside Kodi. It adds no broker request, Docker access, Web mutation, ZIP or
 repository workflow, Git interpretation, add-on inventory, watcher, operation
 history, deployment reconciliation, or compatibility policy.
 
-The only DevelopmentSource kind is `local_directory`. Uploaded ZIPs are a
-separate implemented artifact workflow; repository URLs remain a separate v1
-input workflow. A Git checkout has no special meaning and may be registered
-only as an ordinary directory.
+The only DevelopmentSource kind is `local_directory`. Uploaded ZIPs and
+repository downloads are separate implemented artifact authorities. A Git
+checkout has no special meaning and may be registered only as an ordinary
+directory.
 
 ## Configuration and path authority
 

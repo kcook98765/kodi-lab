@@ -702,13 +702,18 @@ guarantee.**
 
 At the current Phase 8 checkpoint, DevelopmentSource catalog/validation and
 attachment cores, explicit changed/new-only non-deleting copy/sync, inventory,
-bytecode policy, DevelopmentSource enablement/smoke, and uploaded-ZIP
-import/install/enable/smoke are implemented. Phase 8 is not complete. Canonical
-v1 work remains:
+bytecode policy, DevelopmentSource enablement/smoke, uploaded-ZIP
+import/install/enable/smoke, and the repository URL testing first slice are
+implemented. Migration `0027_addon_repository_testing` adds canonical public
+HTTPS sources, per-instance attachments, pinned DNS/TLS fetch, immutable
+snapshots/candidates, server-derived same-origin packages, strict ZIP reuse,
+repository artifact/evidence lineage, and repository-specific absent-only
+installation. Attached same-ID DevelopmentSources block before lifecycle
+mutation. Uploaded-ZIP enable/smoke authority is not widened.
 
-1. repository URL testing workflow;
-2. default repository-vs-attached-source collision protection; and
-3. explicit approved replacement/update override.
+Phase 8 is not complete. Canonical v1 work remaining:
+
+1. explicit approved replacement/update override.
 
 Containment-safe live projection or equivalent bind-like behavior is optional
 post-v1 research and is not a completion blocker. Raw direct Docker bind of

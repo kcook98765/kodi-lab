@@ -23,6 +23,7 @@ from kodi_lab.broker.operations import (
     ObserveManagedKodiRuntimeResult,
 )
 from kodi_lab.domain import (
+    AddonZipOrigin,
     AddonZipSmokeTestOperationState,
     AddonZipSmokeTestOverallResult,
     RuntimeExecutionProfile,
@@ -50,6 +51,8 @@ from kodi_lab.kodi.addons import (
 )
 from kodi_lab.kodi.readiness import JsonRpcUnavailableError
 from kodi_lab.storage.repositories import (
+    AddonRepositoryMetadataRepository,
+    AddonRepositorySourceRepository,
     AddonZipArtifactRepository,
     AddonZipEnablementOperationRepository,
     AddonZipInstallationEvidenceRepository,
@@ -83,6 +86,7 @@ class KodiAddonProvenanceClassification(StrEnum):
         "development_source_at_last_verified_copy"
     )
     PRIOR_VERIFIED_ZIP_INSTALL = "prior_verified_zip_install"
+    PRIOR_VERIFIED_REPOSITORY_INSTALL = "prior_verified_repository_install"
     UNKNOWN = "unknown"
 
 
@@ -101,6 +105,8 @@ class KodiAddonProvenance(BaseModel):
     development_source_logical_name: str | None = Field(default=None, max_length=256)
     addon_zip_artifact_id: UUID | None = None
     addon_zip_logical_label: str | None = Field(default=None, max_length=256)
+    repository_source_id: UUID | None = None
+    repository_logical_name: str | None = Field(default=None, max_length=120)
     verified_at: datetime | None = None
 
 
@@ -131,7 +137,7 @@ class InstalledAddonZipPresentation(BaseModel):
     logical_label: str = Field(max_length=256)
     addon_id: str = Field(max_length=128)
     addon_version: str = Field(max_length=128)
-    provenance_wording: str = Field(max_length=64)
+    provenance_wording: str = Field(max_length=160)
     live_enabled: StrictBool | None = None
     state: AddonZipEnablementPresentationState
     enable_eligible: StrictBool
@@ -423,6 +429,7 @@ class ManagedInstanceAddonInventoryService:
         profile: RuntimeExecutionProfile | None,
     ) -> list[InstalledAddonZipPresentation]:
         artifacts = AddonZipArtifactRepository(session)
+        repository_sources = AddonRepositorySourceRepository(session)
         operations = AddonZipEnablementOperationRepository(
             session
         ).list_for_original_instance(instance_id)
@@ -439,6 +446,11 @@ class ManagedInstanceAddonInventoryService:
             artifact = artifacts.get(item.artifact_id)
             if artifact is None:
                 continue
+            repository_source = (
+                None
+                if artifact.repository_source_id is None
+                else repository_sources.get(artifact.repository_source_id)
+            )
             latest = next(
                 (
                     operation
@@ -531,7 +543,16 @@ class ManagedInstanceAddonInventoryService:
                     addon_id=item.addon_id,
                     addon_version=item.addon_version,
                     provenance_wording=(
-                        "Prior verified ZIP install"
+                        (
+                            "Prior verified ZIP install"
+                            if artifact.origin is AddonZipOrigin.UPLOADED_ZIP
+                            else (
+                                "Prior verified repository install — "
+                                + repository_source.logical_name
+                                if repository_source is not None
+                                else "Repository installation evidence unknown"
+                            )
+                        )
                         if item.confidence
                         is AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
                         and exact_lineage
@@ -544,14 +565,17 @@ class ManagedInstanceAddonInventoryService:
                     live_enabled=None if live is None else live.enabled,
                     state=state,
                     enable_eligible=(
-                        state is AddonZipEnablementPresentationState.INSTALLED_DISABLED
+                        artifact.origin is AddonZipOrigin.UPLOADED_ZIP
+                        and state
+                        is AddonZipEnablementPresentationState.INSTALLED_DISABLED
                         and exact_lineage
                         and profile is not None
                         and profile.python_bytecode_policy.value == "suppress"
                     ),
                     smoke_test_state=smoke_state,
                     smoke_test_eligible=(
-                        item.confidence
+                        artifact.origin is AddonZipOrigin.UPLOADED_ZIP
+                        and item.confidence
                         is AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
                         and exact_lineage
                         and live is not None
@@ -585,10 +609,19 @@ class ManagedInstanceAddonInventoryService:
         zip_candidates = [item for item in zip_evidence if item.addon_id == addon_id]
         zip_operations = AddonZipInstallationOperationRepository(session)
         zip_artifacts = AddonZipArtifactRepository(session)
-        verified_zip: list[tuple[AddonZipInstallationEvidence, str]] = []
+        repository_sources = AddonRepositorySourceRepository(session)
+        repository_metadata = AddonRepositoryMetadataRepository(session)
+        verified_zip: list[
+            tuple[AddonZipInstallationEvidence, str, AddonZipOrigin, UUID | None]
+        ] = []
         for zip_item in zip_candidates:
             zip_operation = zip_operations.get(zip_item.installation_operation_id)
             artifact = zip_artifacts.get(zip_item.artifact_id)
+            repository_candidate = (
+                None
+                if artifact is None or artifact.repository_candidate_id is None
+                else repository_metadata.get_candidate(artifact.repository_candidate_id)
+            )
             if (
                 zip_item.confidence
                 is AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
@@ -615,19 +648,57 @@ class ManagedInstanceAddonInventoryService:
                 and artifact.addon_id == addon_id
                 and artifact.addon_version == version
                 and artifact.payload_manifest_digest == zip_item.payload_manifest_digest
+                and artifact.origin is zip_item.artifact_origin
+                and artifact.repository_source_id == zip_item.repository_source_id
+                and artifact.repository_snapshot_id == zip_item.repository_snapshot_id
+                and artifact.repository_candidate_id == zip_item.repository_candidate_id
+                and (
+                    artifact.origin is AddonZipOrigin.UPLOADED_ZIP
+                    or (
+                        repository_candidate is not None
+                        and repository_candidate.repository_source_id
+                        == artifact.repository_source_id
+                        and repository_candidate.snapshot_id
+                        == artifact.repository_snapshot_id
+                        and repository_candidate.addon_id == addon_id
+                        and repository_candidate.version == version
+                    )
+                )
             ):
-                verified_zip.append((zip_item, artifact.logical_label))
+                verified_zip.append(
+                    (
+                        zip_item,
+                        artifact.logical_label,
+                        artifact.origin,
+                        artifact.repository_source_id,
+                    )
+                )
         if len(verified_zip) == 1:
-            zip_item, logical_label = verified_zip[0]
+            zip_item, logical_label, origin, repository_source_id = verified_zip[0]
+            repository_source = (
+                None
+                if repository_source_id is None
+                else repository_sources.get(repository_source_id)
+            )
             return KodiAddonProvenance(
                 classification=(
                     KodiAddonProvenanceClassification.PRIOR_VERIFIED_ZIP_INSTALL
+                    if origin is AddonZipOrigin.UPLOADED_ZIP
+                    else (
+                        KodiAddonProvenanceClassification.PRIOR_VERIFIED_REPOSITORY_INSTALL
+                    )
                 ),
                 evidence_status=(
                     KodiAddonProvenanceEvidenceStatus.LAST_OPERATION_VERIFIED
                 ),
                 addon_zip_artifact_id=zip_item.artifact_id,
                 addon_zip_logical_label=logical_label,
+                repository_source_id=repository_source_id,
+                repository_logical_name=(
+                    None
+                    if repository_source is None
+                    else repository_source.logical_name
+                ),
                 verified_at=zip_item.verified_at,
             )
         candidates = [item for item in evidence if item.addon_id == addon_id]

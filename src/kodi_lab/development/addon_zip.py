@@ -258,6 +258,7 @@ def discard_unaccepted_addon_zip_artifact(data_root: Path, artifact_id: UUID) ->
         return
     with suppress(FileNotFoundError, OSError):
         for root, directories, files in os.walk(directory, topdown=False):
+            os.chmod(root, 0o700, follow_symlinks=False)
             for name in files:
                 os.chmod(Path(root) / name, 0o600, follow_symlinks=False)
                 (Path(root) / name).unlink()

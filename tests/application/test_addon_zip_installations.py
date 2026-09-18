@@ -11,9 +11,16 @@ from uuid import UUID
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_repositories import (
+    AddonRepositoryAdministrationService,
+    AddonRepositoryConflictError,
+)
 from kodi_lab.application.addon_zip_installations import (
+    AddonZipInstallationConflictError,
     AddonZipInstallationCoordinator,
+    AddonZipInstallationError,
     AddonZipInstallationService,
+    invalidate_addon_zip_installation_evidence,
 )
 from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
@@ -30,8 +37,10 @@ from kodi_lab.broker.operations import (
     StopManagedContainerResult,
 )
 from kodi_lab.domain import (
+    AddonZipInstallationConfidence,
     AddonZipInstallationOperation,
     AddonZipInstallationOperationState,
+    AddonZipOrigin,
     PythonBytecodePolicy,
 )
 from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
@@ -44,7 +53,13 @@ from kodi_lab.kodi.readiness import (
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    AddonRepositoryCandidateRow,
+    AddonRepositoryMetadataSnapshotRow,
+    AddonRepositorySourceRow,
     AddonZipArtifactRow,
+    DevelopmentSourceRow,
+    ManagedInstanceAddonRepositorySourceRow,
+    ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceRow,
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
@@ -64,6 +79,10 @@ CONTAINER_ID = "a" * 64
 ADDON_ID = "plugin.video.uploaded"
 VERSION = "1.2.3"
 NOW = datetime(2026, 9, 17, 19, 0, tzinfo=UTC)
+REPOSITORY_ID = UUID("a8240000-0000-4000-8000-000000000005")
+SNAPSHOT_ID = UUID("a8240000-0000-4000-8000-000000000006")
+CANDIDATE_ID = UUID("a8240000-0000-4000-8000-000000000007")
+SOURCE_ID = UUID("a8240000-0000-4000-8000-000000000008")
 
 
 @pytest.fixture
@@ -569,3 +588,233 @@ def test_fault_boundaries_preserve_running_or_stopped_policy(
         )
         assert broker.state is ContainerRuntimeState.STOPPED
         assert result.application_started
+
+
+def configure_repository_artifact(
+    factory: sessionmaker[Session], *, attach: bool, development_collision: bool
+) -> None:
+    with factory.begin() as session:
+        session.add(
+            AddonRepositorySourceRow(
+                id=str(REPOSITORY_ID),
+                logical_name="Repository authority",
+                canonical_index_url="https://example.com/addons.xml",
+                origin="external_https_repository",
+                created_at=NOW.isoformat(),
+            )
+        )
+        session.flush()
+        session.add(
+            AddonRepositoryMetadataSnapshotRow(
+                id=str(SNAPSHOT_ID),
+                repository_source_id=str(REPOSITORY_ID),
+                fetched_at=NOW.isoformat(),
+                transfer_digest="sha256:" + "6" * 64,
+                canonical_metadata_digest="sha256:" + "7" * 64,
+                transfer_size=100,
+                expanded_size=100,
+                entry_count=1,
+            )
+        )
+        session.flush()
+        session.add(
+            AddonRepositoryCandidateRow(
+                id=str(CANDIDATE_ID),
+                snapshot_id=str(SNAPSHOT_ID),
+                repository_source_id=str(REPOSITORY_ID),
+                addon_id=ADDON_ID,
+                name="Repository candidate",
+                version=VERSION,
+                classification="python_video_plugin",
+                dependencies_json="[]",
+                support="supported",
+            )
+        )
+        if attach:
+            session.add(
+                ManagedInstanceAddonRepositorySourceRow(
+                    managed_instance_id=str(INSTANCE_ID),
+                    repository_source_id=str(REPOSITORY_ID),
+                    attached_at=NOW.isoformat(),
+                )
+            )
+        artifact = session.get(AddonZipArtifactRow, str(ARTIFACT_ID))
+        assert artifact is not None
+        artifact.origin = AddonZipOrigin.REPOSITORY_DOWNLOAD
+        artifact.repository_source_id = str(REPOSITORY_ID)
+        artifact.repository_snapshot_id = str(SNAPSHOT_ID)
+        artifact.repository_candidate_id = str(CANDIDATE_ID)
+        artifact.repository_fetched_at = NOW.isoformat()
+        if development_collision:
+            session.add(
+                DevelopmentSourceRow(
+                    id=str(SOURCE_ID),
+                    logical_name="Protected source",
+                    source_kind="local_directory",
+                    relative_locator="protected-source",
+                    addon_id=ADDON_ID,
+                    observed_name="Protected Source",
+                    observed_version=VERSION,
+                    extension_types_json=(
+                        '["xbmc.addon.metadata","xbmc.python.pluginsource"]'
+                    ),
+                    registered_at=NOW.isoformat(),
+                    validated_at=NOW.isoformat(),
+                )
+            )
+            session.flush()
+            session.add(
+                ManagedInstanceDevelopmentSourceRow(
+                    managed_instance_id=str(INSTANCE_ID),
+                    development_source_id=str(SOURCE_ID),
+                    attached_at=NOW.isoformat(),
+                )
+            )
+
+
+def install_repository_successfully(factory: sessionmaker[Session]) -> UUID:
+    coordinator = AddonZipInstallationCoordinator(factory)
+    status = coordinator.queue_repository(INSTANCE_ID, ARTIFACT_ID)
+    lease = coordinator.acquire(status.operation_id)
+    assert lease is not None
+    inventories = InventorySequence(
+        [
+            (),
+            (addon(ADDON_ID, version=VERSION, kodi_type="xbmc.python.pluginsource"),),
+        ]
+    )
+    AddonZipInstallationService(
+        factory,
+        FakeBroker(),
+        coordinator,
+        lease,
+        inventory_adapter_factory=inventories.factory,
+        readiness_factory=lambda _broker, _profile: Ready(),
+    ).install()
+    return status.operation_id
+
+
+def test_attached_same_id_development_source_blocks_repository_before_lifecycle(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    coordinator = AddonZipInstallationCoordinator(factory)
+    status = coordinator.queue_repository(INSTANCE_ID, ARTIFACT_ID)
+    lease = coordinator.acquire(status.operation_id)
+    assert lease is not None
+    broker = FakeBroker()
+    with pytest.raises(AddonZipInstallationConflictError) as captured:
+        AddonZipInstallationService(factory, broker, coordinator, lease).install()
+    assert captured.value.code == "protected_development_source_collision"
+    result = operation(factory, status.operation_id)
+    assert result.state is AddonZipInstallationOperationState.FAILED
+    assert result.failure_reason == "protected_development_source_collision"
+    assert broker.calls == []
+
+
+def test_repository_must_be_attached_and_install_conflicts_with_detach(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_repository_artifact(factory, attach=False, development_collision=False)
+    coordinator = AddonZipInstallationCoordinator(factory)
+    status = coordinator.queue_repository(INSTANCE_ID, ARTIFACT_ID)
+    lease = coordinator.acquire(status.operation_id)
+    assert lease is not None
+    broker = FakeBroker()
+    with pytest.raises(AddonZipInstallationError) as captured:
+        AddonZipInstallationService(factory, broker, coordinator, lease).install()
+    assert captured.value.code == "repository_not_attached"
+    assert broker.calls == []
+
+    # A fresh fixture is used for each test; this assertion exercises the shared
+    # attachment/install mutation lease directly while installation owns it.
+
+
+def test_repository_install_lease_blocks_attachment_changes(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=False)
+    coordinator = AddonZipInstallationCoordinator(factory)
+    status = coordinator.queue_repository(INSTANCE_ID, ARTIFACT_ID)
+    lease = coordinator.acquire(status.operation_id)
+    assert lease is not None
+    administration = AddonRepositoryAdministrationService(factory)
+    with pytest.raises(AddonRepositoryConflictError):
+        administration.detach(INSTANCE_ID, REPOSITORY_ID)
+
+
+@pytest.mark.parametrize("incumbent_origin", ["uploaded_zip", "repository_download"])
+def test_prior_verified_installation_blocks_repository_even_if_live_state_is_absent(
+    factory: sessionmaker[Session], incumbent_origin: str
+) -> None:
+    if incumbent_origin == "uploaded_zip":
+        execute(
+            factory,
+            FakeBroker(),
+            (),
+            (addon(ADDON_ID, version=VERSION, kodi_type="xbmc.python.pluginsource"),),
+        )
+        configure_repository_artifact(factory, attach=True, development_collision=False)
+    else:
+        configure_repository_artifact(factory, attach=True, development_collision=False)
+        install_repository_successfully(factory)
+
+    coordinator = AddonZipInstallationCoordinator(factory)
+    status = coordinator.queue_repository(INSTANCE_ID, ARTIFACT_ID)
+    lease = coordinator.acquire(status.operation_id)
+    assert lease is not None
+    broker = FakeBroker()
+    with pytest.raises(AddonZipInstallationConflictError) as captured:
+        AddonZipInstallationService(factory, broker, coordinator, lease).install()
+    assert captured.value.code == "verified_installation_collision"
+    assert broker.calls == []
+
+
+def test_snapshot_reset_invalidation_stales_only_repository_install_evidence(
+    factory: sessionmaker[Session],
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=False)
+    operation_id = install_repository_successfully(factory)
+
+    with factory.begin() as session:
+        evidence = AddonZipInstallationEvidenceRepository(session).get(
+            INSTANCE_ID, ADDON_ID
+        )
+        assert evidence is not None
+        assert evidence.artifact_origin is AddonZipOrigin.REPOSITORY_DOWNLOAD
+        assert invalidate_addon_zip_installation_evidence(session, INSTANCE_ID) == 1
+
+    with factory() as session:
+        stale = AddonZipInstallationEvidenceRepository(session).get(
+            INSTANCE_ID, ADDON_ID
+        )
+        assert stale is not None
+        assert stale.confidence is AddonZipInstallationConfidence.STALE
+        assert session.get(AddonRepositorySourceRow, str(REPOSITORY_ID)) is not None
+        assert (
+            session.get(
+                ManagedInstanceAddonRepositorySourceRow,
+                (str(INSTANCE_ID), str(REPOSITORY_ID)),
+            )
+            is not None
+        )
+        assert (
+            session.get(AddonRepositoryMetadataSnapshotRow, str(SNAPSHOT_ID))
+            is not None
+        )
+        assert session.get(AddonRepositoryCandidateRow, str(CANDIDATE_ID)) is not None
+        assert session.get(AddonZipArtifactRow, str(ARTIFACT_ID)) is not None
+        assert (
+            AddonZipInstallationOperationRepository(session).get(operation_id)
+            is not None
+        )
+
+    coordinator = AddonZipInstallationCoordinator(factory)
+    status = coordinator.queue_repository(INSTANCE_ID, ARTIFACT_ID)
+    lease = coordinator.acquire(status.operation_id)
+    assert lease is not None
+    broker = FakeBroker()
+    with pytest.raises(AddonZipInstallationConflictError) as captured:
+        AddonZipInstallationService(factory, broker, coordinator, lease).install()
+    assert captured.value.code == "verified_installation_collision"
+    assert broker.calls == []

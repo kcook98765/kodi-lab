@@ -129,6 +129,8 @@ class ManagedInstanceMutationKind(StrEnum):
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_SMOKE_TEST = "addon_zip_smoke_test"
+    ADDON_REPOSITORY_ATTACHMENT = "addon_repository_attachment"
+    ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
 
 
 class GlobalHeavyOperationKind(StrEnum):
@@ -139,6 +141,9 @@ class GlobalHeavyOperationKind(StrEnum):
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     ADDON_ZIP_IMPORT = "addon_zip_import"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
+    ADDON_REPOSITORY_REFRESH = "addon_repository_refresh"
+    ADDON_REPOSITORY_FETCH = "addon_repository_fetch"
+    ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
 
 
 def normalize_snapshot_label(value: str | None) -> str | None:

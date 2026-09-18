@@ -917,3 +917,33 @@ discarded writable-layer state. A read-only mount prevents container writes but
 does not contain host-side namespace mutation. A bind-like workflow may be
 revisited after v1 only through a policy-enforcing containment-safe projection
 or equivalent mechanism.
+
+## Phase 8 external HTTPS repository testing
+
+Repository registration is global catalog state, while a separate many-to-many
+attachment is required for each target instance. The application accepts only
+canonical public HTTPS `addons.xml` or `addons.xml.gz` endpoints. Its dedicated
+unprivileged fetcher resolves and explicitly classifies DNS answers immediately
+before every connection, connects to one validated address, and preserves the
+registered hostname for SNI, certificate verification, and Host. Same-host
+redirects are bounded and revalidated. Ambient proxy variables, credentials,
+caller headers, custom trust, and broker network requests are outside this
+boundary.
+
+Explicit refresh publishes an immutable digest-and-aggregate metadata snapshot
+and bounded normalized candidates, never raw XML or caller package-URL
+authority. Packages use only the server-derived same-origin
+`<index-directory>/<id>/<id>-<version>.zip` location. Bounded fetch reuses the
+single strict ZIP validator and publishes an immutable `repository_download`
+artifact carrying exact source/snapshot/candidate lineage.
+
+Repository installation has separate Web/application authority but shares the
+low-level ZIP materializer. It requires attachment, exact lineage, complete
+inventory and destination absence, no prior verified installation evidence,
+and rechecks after stop. Any attached
+same-ID DevelopmentSource blocks before lifecycle mutation and attachment
+changes conflict with installation. Uploaded-ZIP enable/smoke APIs remain
+closed to uploaded artifacts, so repository testing ends at exact disabled
+recognition and historical repository provenance. Reset/restore stale evidence
+without deleting repository records. No replacement, reinstall, update, force,
+or collision override exists.

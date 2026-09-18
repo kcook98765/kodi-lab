@@ -33,11 +33,15 @@ from kodi_lab.development import (
     remove_upload_stage,
 )
 from kodi_lab.domain import (
+    AddonRepositoryFetchOperation,
+    AddonRepositoryOperationState,
+    AddonRepositoryRefreshOperation,
     AddonZipEnablementOperation,
     AddonZipImportOperation,
     AddonZipInstallationConfidence,
     AddonZipInstallationOperation,
     AddonZipInstallationOperationState,
+    AddonZipOrigin,
     AddonZipSmokeTestOperation,
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperation,
@@ -70,6 +74,9 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
 )
 from kodi_lab.storage.repositories import (
+    AddonRepositoryFetchOperationRepository,
+    AddonRepositoryRefreshOperationRepository,
+    AddonZipArtifactRepository,
     AddonZipEnablementOperationRepository,
     AddonZipImportOperationRepository,
     AddonZipInstallationEvidenceRepository,
@@ -111,6 +118,7 @@ class ManagedInstanceReconciliationRequiredError(RuntimeError):
 
 
 class ReconciliationOperationKind(StrEnum):
+    ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     ADDON_ZIP_SMOKE_TEST = "addon_zip_smoke_test"
@@ -128,6 +136,8 @@ class ReconciliationOperationKind(StrEnum):
 
 
 class ReconciliationAction(StrEnum):
+    ADDON_REPOSITORY_ATTACHMENT = "addon_repository_attachment"
+    ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     ADDON_ZIP_SMOKE_TEST = "addon_zip_smoke_test"
@@ -166,6 +176,8 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.ADDON_ZIP_INSTALLATION,
     ReconciliationAction.ADDON_ZIP_ENABLEMENT,
     ReconciliationAction.ADDON_ZIP_SMOKE_TEST,
+    ReconciliationAction.ADDON_REPOSITORY_ATTACHMENT,
+    ReconciliationAction.ADDON_REPOSITORY_INSTALLATION,
 ]
 
 
@@ -402,6 +414,7 @@ class StaleOperationReconciliationDispatcher:
             ManagedInstanceMutationKind.FIXTURE_ASSIGNMENT,
             ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT,
             ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ATTACHMENT,
+            ManagedInstanceMutationKind.ADDON_REPOSITORY_ATTACHMENT,
         }:
             if not ManagedInstanceMutationLeaseRepository(
                 session
@@ -572,7 +585,10 @@ class StaleOperationReconciliationDispatcher:
                     operation.artifact_id,
                     AddonZipInstallationConfidence.UNKNOWN,
                 )
-        elif kind is ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION:
+        elif kind in {
+            ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION,
+            ManagedInstanceMutationKind.ADDON_REPOSITORY_INSTALLATION,
+        }:
             operation = AddonZipInstallationOperationRepository(session).get(
                 operation_id
             )
@@ -585,9 +601,14 @@ class StaleOperationReconciliationDispatcher:
                 raise CoordinationCorruptionError(
                     "Expired uploaded-ZIP installation ownership is inconsistent."
                 )
+            global_kind = (
+                GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION
+                if kind is ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION
+                else GlobalHeavyOperationKind.ADDON_REPOSITORY_INSTALLATION
+            )
             self._require_matching_global(
                 session,
-                GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
+                global_kind,
                 operation_id,
                 digest,
                 now,
@@ -603,7 +624,7 @@ class StaleOperationReconciliationDispatcher:
             )
             self._release_global(
                 session,
-                GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
+                global_kind,
                 operation_id,
                 digest,
                 now,
@@ -694,6 +715,8 @@ class StaleOperationReconciliationDispatcher:
             | DevelopmentSourceDeploymentOperation
             | AddonZipInstallationOperation
             | AddonZipImportOperation
+            | AddonRepositoryRefreshOperation
+            | AddonRepositoryFetchOperation
             | None
         )
         if kind is GlobalHeavyOperationKind.SNAPSHOT_DELETE:
@@ -737,6 +760,56 @@ class StaleOperationReconciliationDispatcher:
                 remove_upload_stage(self._data_root, operation.artifact_id)
             self._release_global(session, kind, operation_id, digest, now)
             return operation_id, 1
+        if kind is GlobalHeavyOperationKind.ADDON_REPOSITORY_REFRESH:
+            operation = AddonRepositoryRefreshOperationRepository(session).get(
+                operation_id
+            )
+            if (
+                operation is None
+                or operation.state is not AddonRepositoryOperationState.RUNNING
+                or operation.lease_token_digest != digest
+                or operation.lease_expires_at is None
+                or operation.lease_expires_at > now
+                or not AddonRepositoryRefreshOperationRepository(session).finish(
+                    operation_id,
+                    token_digest=digest,
+                    now=now,
+                    snapshot_id=None,
+                    reason="repository_refresh_interrupted",
+                )
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired repository refresh ownership is inconsistent."
+                )
+            self._release_global(session, kind, operation_id, digest, now)
+            return operation_id, 1
+        if kind is GlobalHeavyOperationKind.ADDON_REPOSITORY_FETCH:
+            operation = AddonRepositoryFetchOperationRepository(session).get(
+                operation_id
+            )
+            if (
+                operation is None
+                or operation.state is not AddonRepositoryOperationState.RUNNING
+                or operation.lease_token_digest != digest
+                or operation.lease_expires_at is None
+                or operation.lease_expires_at > now
+                or not AddonRepositoryFetchOperationRepository(session).finish(
+                    operation_id,
+                    token_digest=digest,
+                    now=now,
+                    reason="repository_fetch_interrupted",
+                )
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired repository fetch ownership is inconsistent."
+                )
+            if self._data_root is not None:
+                discard_unaccepted_addon_zip_artifact(
+                    self._data_root, operation.artifact_id
+                )
+                remove_upload_stage(self._data_root, operation.artifact_id)
+            self._release_global(session, kind, operation_id, digest, now)
+            return operation_id, 1
         if kind is GlobalHeavyOperationKind.SNAPSHOT_CREATE:
             operation = SnapshotCreateOperationRepository(session).get(operation_id)
         elif kind is GlobalHeavyOperationKind.SNAPSHOT_RESTORE:
@@ -749,7 +822,10 @@ class StaleOperationReconciliationDispatcher:
             operation = DevelopmentSourceDeploymentOperationRepository(session).get(
                 operation_id
             )
-        elif kind is GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION:
+        elif kind in {
+            GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
+            GlobalHeavyOperationKind.ADDON_REPOSITORY_INSTALLATION,
+        }:
             operation = AddonZipInstallationOperationRepository(session).get(
                 operation_id
             )
@@ -883,12 +959,20 @@ class ManagedInstanceReconciliationService:
                     session
                 ).reconciliation_for_instance(instance_id)
             )
-            records.extend(
-                (ReconciliationOperationKind.ADDON_ZIP_INSTALLATION, item)
-                for item in AddonZipInstallationOperationRepository(
-                    session
-                ).reconciliation_for_instance(instance_id)
-            )
+            artifact_repository = AddonZipArtifactRepository(session)
+            for item in AddonZipInstallationOperationRepository(
+                session
+            ).reconciliation_for_instance(instance_id):
+                artifact = artifact_repository.get(item.artifact_id)
+                records.append(
+                    (
+                        ReconciliationOperationKind.ADDON_REPOSITORY_INSTALLATION
+                        if artifact is not None
+                        and artifact.origin is AddonZipOrigin.REPOSITORY_DOWNLOAD
+                        else ReconciliationOperationKind.ADDON_ZIP_INSTALLATION,
+                        item,
+                    )
+                )
             records.extend(
                 (ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST, item)
                 for item in AddonZipSmokeTestOperationRepository(
@@ -999,7 +1083,10 @@ class ManagedInstanceReconciliationService:
         elif kind is ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST:
             assert isinstance(operation, AddonZipSmokeTestOperation)
             blocking, observed = self._classify_smoke(instance_id, operation)
-        elif kind is ReconciliationOperationKind.ADDON_ZIP_INSTALLATION:
+        elif kind in {
+            ReconciliationOperationKind.ADDON_ZIP_INSTALLATION,
+            ReconciliationOperationKind.ADDON_REPOSITORY_INSTALLATION,
+        }:
             assert isinstance(operation, AddonZipInstallationOperation)
             blocking, observed = self._classify_addon_zip(instance_id, operation)
         reason = {
@@ -1029,6 +1116,9 @@ class ManagedInstanceReconciliationService:
             ),
             ReconciliationOperationKind.ADDON_ZIP_INSTALLATION: (
                 "Uploaded-ZIP installation requires operator reconciliation."
+            ),
+            ReconciliationOperationKind.ADDON_REPOSITORY_INSTALLATION: (
+                "Repository installation requires reconciliation."
             ),
             ReconciliationOperationKind.ADDON_ZIP_ENABLEMENT: (
                 "Uploaded-ZIP enablement requires operator reconciliation."

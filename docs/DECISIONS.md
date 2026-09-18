@@ -2303,3 +2303,111 @@ details that it did not specify.
   along. A policy-enforcing containment-safe live projection or equivalent
   mechanism remains optional post-v1 work. Raw direct bind is not an approved
   Kodi Lab mechanism.
+
+## D-0183: Repository sources are global but use is explicitly attached
+
+- Status: approved and implemented for the Phase 8 repository first slice
+- Decision: `AddonRepositorySource` persists an opaque UUID, unique logical
+  name, canonical index URL, closed `external_https_repository` origin, and
+  creation time. `ManagedInstanceAddonRepositorySource` is the only
+  per-instance authority. Registration never implies attachment or global use.
+
+## D-0184: Repository URL authority is a closed HTTPS index endpoint
+
+- Status: approved and implemented
+- Decision: only DNS-host HTTPS on normalized default port 443 ending exactly
+  `/addons.xml` or `/addons.xml.gz` is accepted. Hostnames are lowercase IDNA;
+  paths have safe components and a 2 KiB bound. IP literals, userinfo,
+  query/fragment, controls, traversal, encoded separators, non-default ports,
+  and every other scheme are rejected. Package identity is server-derived.
+
+## D-0185: DNS, connection, redirect, TLS, and proxy policy are pinned
+
+- Status: approved and implemented
+- Decision: an explicit global-unicast predicate rejects private, loopback,
+  CGNAT, link-local, multicast, unspecified, reserved, documentation,
+  benchmarking, Docker/internal, metadata, IPv6 ULA/site-local, and mapped
+  private addresses. DNS has a three-second deadline, at most eight answers,
+  and rejects any mixed set. Each connection uses one exact validated address
+  without socket-time re-resolution while retaining the registered hostname for
+  TLS SNI, certificate verification, and Host. Up to three HTTPS, same-host,
+  port-443 redirects re-resolve and revalidate. Ambient proxy variables are
+  never consulted. System CAs and normal hostname verification are mandatory;
+  credentials, headers, cookies, custom CAs, client certificates, and insecure
+  TLS are unrepresentable.
+
+## D-0186: Explicit refresh publishes immutable bounded metadata
+
+- Status: approved and implemented
+- Decision: only direct XML or one explicit gzip layer is parsed. Transfer,
+  expansion, ratio, headers, candidates, dependencies, XML depth, text, and
+  bounded-string limits are fixed; DTD/entities, HTML, ambiguous content types,
+  repository discovery, datadir/checksum/package orchestration, and background
+  polling are rejected. Each success publishes an immutable snapshot plus
+  normalized candidates; no raw XML or package URL enters normal metadata.
+  Unsupported candidates are display-only. Installable candidates are exactly
+  passive non-service Python video plugins supported by uploaded-ZIP validation.
+
+## D-0187: Candidate UUID derives one same-origin immutable ZIP artifact
+
+- Status: approved and implemented
+- Decision: package location is always
+  `<registered-index-directory>/<id>/<id>-<version>.zip`; metadata cannot
+  override it. Fetch repeats the pinned HTTPS policy, bounded transfer, and the
+  existing strict ZIP validator. Descriptor ID, version, type, and dependencies
+  must exactly match. Publication is all-or-nothing as `repository_download`
+  with exact repository/snapshot/candidate/fetch lineage and private package
+  identity. Refresh and fetch are durable global-heavy typed operations.
+
+## D-0188: Repository install reuses materialization, never Kodi resolution
+
+- Status: approved and implemented
+- Decision: repository installation has separate instance-plus-repository-
+  artifact authority but reuses the validated ZIP materializer. Kodi repository
+  registration, GUI, `InstallAddon`, `InstallFromZip`, native dependency
+  resolution, and dependency mutation are forbidden. Missing or disabled
+  dependencies permit disabled installation and remain unchanged.
+
+## D-0189: Repository installation is absent-only and protects attachments
+
+- Status: approved and implemented
+- Decision: exact attached repository lineage, no reconciliation, complete live
+  inventory absence, destination absence before stop and after stop, and no
+  same-ID attached DevelopmentSource are mandatory. An attached same-ID source
+  blocks before lifecycle mutation even when Kodi and the destination are
+  absent; install conflicts with source and repository attachment changes.
+  Copied, manual, inventory-only, destination-only, and bundled/system
+  collisions block through the shared absent-only checks. Any retained prior
+  verified ZIP or repository installation evidence also blocks even if live
+  inventory and destination observations are absent.
+  `protected_development_source_collision` is the safe typed result.
+
+## D-0190: Repository provenance is exact historical lineage
+
+- Status: approved and implemented
+- Decision: verified evidence carries artifact origin plus exact repository,
+  snapshot, and candidate lineage. Inventory may say `Prior verified repository
+  install — <logical repository name>` only when instance, revision, container,
+  ID/version, operation, artifact, and lineage all agree. This is historical
+  provenance, not publisher trust, byte equality, enablement, or working state.
+  Snapshot restore and reset stale evidence without removing sources,
+  attachments, snapshots, artifacts, or history; restored bytes are not adopted.
+
+## D-0191: Repository work has typed coordination and fail-closed recovery
+
+- Status: approved and implemented
+- Decision: refresh and fetch use repository-specific global-heavy leases;
+  installation uses repository-specific global-heavy plus per-instance mutation
+  leases. Installation conflicts with lifecycle, reset, Snapshot create/restore,
+  runtime/fixture changes, DevelopmentSource mutations, ZIP mutations,
+  repository installation, and deletion. Pre-application network/metadata/ZIP
+  failures are ordinary. After application begins, existing ZIP fail-closed
+  reconciliation leaves the exact instance stopped, evidence unknown, and
+  performs no retry, adoption, delete, overwrite, or automatic restart.
+
+## D-0192: Replacement and update approval is intentionally deferred
+
+- Status: approved deferral
+- Decision: there is no force Boolean, override flag, reinstall, update,
+  replacement, or ignore-collision path. A later gate must bind one explicit
+  approval to exact incumbent and incoming state before any replacement work.

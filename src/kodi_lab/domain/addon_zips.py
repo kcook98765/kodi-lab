@@ -17,6 +17,7 @@ from kodi_lab.domain.runtime_catalog import normalize_sha256_digest
 
 class AddonZipOrigin(StrEnum):
     UPLOADED_ZIP = "uploaded_zip"
+    REPOSITORY_DOWNLOAD = "repository_download"
 
 
 class AddonZipValidationState(StrEnum):
@@ -158,6 +159,10 @@ class AddonZipArtifact:
     imported_at: datetime
     origin: AddonZipOrigin = AddonZipOrigin.UPLOADED_ZIP
     validation_state: AddonZipValidationState = AddonZipValidationState.ACCEPTED
+    repository_source_id: UUID | None = None
+    repository_snapshot_id: UUID | None = None
+    repository_candidate_id: UUID | None = None
+    repository_fetched_at: datetime | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -208,6 +213,26 @@ class AddonZipArtifact:
         normalized = _utc(self.imported_at, "imported_at")
         assert normalized is not None
         object.__setattr__(self, "imported_at", normalized)
+        lineage = (
+            self.repository_source_id,
+            self.repository_snapshot_id,
+            self.repository_candidate_id,
+            self.repository_fetched_at,
+        )
+        if self.origin is AddonZipOrigin.UPLOADED_ZIP and any(
+            value is not None for value in lineage
+        ):
+            raise ValueError("uploaded ZIP artifact cannot carry repository lineage")
+        if self.origin is AddonZipOrigin.REPOSITORY_DOWNLOAD and any(
+            value is None for value in lineage
+        ):
+            raise ValueError("repository ZIP artifact requires exact lineage")
+        if self.repository_fetched_at is not None:
+            object.__setattr__(
+                self,
+                "repository_fetched_at",
+                _utc(self.repository_fetched_at, "repository_fetched_at"),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +275,10 @@ class AddonZipInstallationEvidence:
     verified_at: datetime
     confidence: AddonZipInstallationConfidence
     result: AddonZipInstallationResult
+    artifact_origin: AddonZipOrigin = AddonZipOrigin.UPLOADED_ZIP
+    repository_source_id: UUID | None = None
+    repository_snapshot_id: UUID | None = None
+    repository_candidate_id: UUID | None = None
 
     def __post_init__(self) -> None:
         _container_id(self.trusted_container_id)
@@ -271,6 +300,19 @@ class AddonZipInstallationEvidence:
         normalized = _utc(self.verified_at, "verified_at")
         assert normalized is not None
         object.__setattr__(self, "verified_at", normalized)
+        lineage = (
+            self.repository_source_id,
+            self.repository_snapshot_id,
+            self.repository_candidate_id,
+        )
+        if self.artifact_origin is AddonZipOrigin.UPLOADED_ZIP and any(
+            value is not None for value in lineage
+        ):
+            raise ValueError("uploaded ZIP evidence cannot carry repository lineage")
+        if self.artifact_origin is AddonZipOrigin.REPOSITORY_DOWNLOAD and any(
+            value is None for value in lineage
+        ):
+            raise ValueError("repository ZIP evidence requires exact lineage")
 
 
 @dataclass(frozen=True, slots=True)

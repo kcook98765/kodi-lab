@@ -82,6 +82,9 @@ class ManagedInstanceMutationCoordinator:
             ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_ENABLEMENT: (
                 ReconciliationAction.DEVELOPMENT_SOURCE_ENABLEMENT
             ),
+            ManagedInstanceMutationKind.ADDON_REPOSITORY_ATTACHMENT: (
+                ReconciliationAction.ADDON_REPOSITORY_ATTACHMENT
+            ),
         }.get(kind)
         if action is not None:
             self._reconciliation.require_allowed(instance_id, action)
