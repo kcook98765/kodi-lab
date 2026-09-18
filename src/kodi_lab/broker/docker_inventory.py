@@ -506,6 +506,7 @@ class _ProvisioningDockerClient(_DeprovisionDockerClient, Protocol):
         labels: Mapping[str, str],
         host_config: object,
         networking_config: object,
+        user: str,
         environment: list[str] | None = None,
     ) -> object: ...
 
@@ -1153,6 +1154,7 @@ class DockerManagedContainerAdapter:
                         labels=labels,
                         host_config=host_config,
                         networking_config=networking,
+                        user=f"{spec.runtime_uid}:{spec.runtime_gid}",
                         environment=expected_environment,
                     )
                 else:
@@ -1162,6 +1164,7 @@ class DockerManagedContainerAdapter:
                         labels=labels,
                         host_config=host_config,
                         networking_config=networking,
+                        user=f"{spec.runtime_uid}:{spec.runtime_gid}",
                     )
                 created = _require_mapping(created_value)
                 created_id = _require_container_id(created.get("Id"))
@@ -1745,6 +1748,10 @@ class DockerManagedContainerAdapter:
         if config.get("Env") != expected_environment:
             raise ProvisioningConflictError(
                 "Managed container profile-derived environment has drifted"
+            )
+        if config.get("User") != f"{spec.runtime_uid}:{spec.runtime_gid}":
+            raise ProvisioningConflictError(
+                "Managed container profile-derived user has drifted"
             )
         for field in ("Cmd", "Entrypoint", "Healthcheck"):
             if config.get(field) != image_config.get(field):

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run isolated live validation for the copied-add-on smoke first slice."""
 
+# ruff: noqa: E402 -- bytecode suppression must precede project imports.
+
 from __future__ import annotations
 
 import argparse
@@ -16,6 +18,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 from uuid import UUID, uuid4
+
+sys.dont_write_bytecode = True
 
 import docker  # type: ignore[import-untyped]
 from alembic import command

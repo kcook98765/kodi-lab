@@ -176,10 +176,11 @@ runtime resource.
 
 Each Kodi revision used for execution has one immutable trusted execution
 profile. The profile carries only bounded semantic expectations: exact Kodi
-identity, fixed internal JSON-RPC endpoint, process observation kind, readiness
-probe kind, and time bounds. It is persisted separately from provenance and has
-no update API. Provisioning remains UUID-only and continues to inherit image
-defaults; it gains no caller-provided Docker fields.
+identity, fixed non-root runtime UID/GID, internal JSON-RPC endpoint, process
+observation kind, readiness probe kind, and time bounds. It is persisted
+separately from provenance and has no update API. Provisioning remains UUID-only,
+sets the numeric Docker user from that trusted profile, and otherwise inherits
+image defaults; it gains no caller-provided Docker fields.
 
 The root broker performs only Docker-owned observation. Its fixed-purpose
 runtime operation resolves the persisted revision/profile, proves the immutable

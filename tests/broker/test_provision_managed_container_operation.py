@@ -53,6 +53,8 @@ class FakeResolver:
             runtime_revision_id=REVISION_ID,
             image_id=IMAGE_ID,
             container_name="kodi-lab-managed-" + UUID(managed_instance_id).hex,
+            runtime_uid=1000,
+            runtime_gid=1000,
             python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
         )
 

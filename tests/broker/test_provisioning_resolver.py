@@ -63,6 +63,8 @@ def resolver_with_state(
     include_artifact: bool = True,
     remove_pinned_revision: bool = False,
     include_profile: bool = True,
+    runtime_uid: int = 1234,
+    runtime_gid: int = 2345,
 ) -> SqliteProvisioningResolver:
     tmp_path.mkdir(parents=True, exist_ok=True)
     engine = create_database_engine(f"sqlite:///{tmp_path / 'resolver.db'}")
@@ -117,8 +119,8 @@ def resolver_with_state(
                 RuntimeExecutionProfile(
                     runtime_revision_id=REVISION_ID,
                     runtime_kind=RuntimeKind.KODI,
-                    runtime_uid=1234,
-                    runtime_gid=2345,
+                    runtime_uid=runtime_uid,
+                    runtime_gid=runtime_gid,
                     python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
                     expected_application_name="Kodi",
                     expected_kodi_version="21.3",
@@ -152,6 +154,7 @@ def test_resolver_uses_exact_pinned_artifact_and_fixed_policy(tmp_path: Path) ->
     assert spec.runtime_revision_id == str(REVISION_ID)
     assert spec.image_id == IMAGE_ID
     assert spec.container_name == f"kodi-lab-managed-{INSTANCE_ID.hex}"
+    assert (spec.runtime_uid, spec.runtime_gid) == (1234, 2345)
     assert spec.python_bytecode_policy is PythonBytecodePolicy.INTERPRETER_DEFAULT
     assert spec.network_name == MANAGED_NETWORK_NAME
     assert "PRIVATE" not in repr(spec)
@@ -197,12 +200,24 @@ def test_trusted_spec_rejects_noncanonical_policy_substitutions(
         "runtime_revision_id": str(REVISION_ID),
         "image_id": IMAGE_ID,
         "container_name": f"kodi-lab-managed-{INSTANCE_ID.hex}",
+        "runtime_uid": 1234,
+        "runtime_gid": 2345,
         "python_bytecode_policy": PythonBytecodePolicy.INTERPRETER_DEFAULT,
         "network_name": MANAGED_NETWORK_NAME,
     }
     values.update(overrides)
     with pytest.raises(ValueError):
         ManagedContainerProvisioningSpec(**values)
+
+
+@pytest.mark.parametrize(("runtime_uid", "runtime_gid"), [(0, 2345), (1234, 0)])
+def test_provisioning_rejects_root_execution_profile(
+    tmp_path: Path, runtime_uid: int, runtime_gid: int
+) -> None:
+    with pytest.raises(RuntimeExecutionProfileUnavailableError):
+        resolver_with_state(
+            tmp_path, runtime_uid=runtime_uid, runtime_gid=runtime_gid
+        ).resolve(str(INSTANCE_ID))
 
 
 def test_fixed_network_policy_is_not_caller_selectable(tmp_path: Path) -> None:

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Validate ZIP-specific enablement without any ZIP smoke execution."""
 
+# ruff: noqa: E402 -- bytecode suppression must precede project imports.
+
 from __future__ import annotations
 
 import argparse
@@ -8,11 +10,14 @@ import hashlib
 import importlib.util
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 from uuid import UUID, uuid4
+
+sys.dont_write_bytecode = True
 
 from alembic import command
 from alembic.config import Config

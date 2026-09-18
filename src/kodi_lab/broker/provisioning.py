@@ -45,6 +45,8 @@ class ManagedContainerProvisioningSpec:
     runtime_revision_id: str
     image_id: str
     container_name: str
+    runtime_uid: int
+    runtime_gid: int
     python_bytecode_policy: PythonBytecodePolicy
     network_name: str = MANAGED_NETWORK_NAME
 
@@ -67,6 +69,10 @@ class ManagedContainerProvisioningSpec:
             raise ValueError("image identity must be immutable SHA-256")
         if self.container_name != f"kodi-lab-managed-{instance_id.hex}":
             raise ValueError("container name must be derived from instance identity")
+        for field_name in ("runtime_uid", "runtime_gid"):
+            value = getattr(self, field_name)
+            if type(value) is not int or not 1 <= value <= 2**31 - 1:
+                raise ValueError(f"{field_name} must be a non-root POSIX ID")
         if not isinstance(self.python_bytecode_policy, PythonBytecodePolicy):
             raise ValueError("Python bytecode policy must be trusted closed semantics")
         if self.network_name != MANAGED_NETWORK_NAME:
@@ -171,11 +177,17 @@ class SqliteProvisioningResolver:
                     raise RuntimeExecutionProfileUnavailableError(
                         "Pinned runtime execution profile does not exist"
                     )
+                if profile.runtime_uid == 0 or profile.runtime_gid == 0:
+                    raise RuntimeExecutionProfileUnavailableError(
+                        "Pinned runtime execution profile is not non-root"
+                    )
                 return ManagedContainerProvisioningSpec(
                     managed_instance_id=managed_instance_id,
                     runtime_revision_id=str(revision.id),
                     image_id=artifact.image_id,
                     container_name=f"kodi-lab-managed-{identity.hex}",
+                    runtime_uid=profile.runtime_uid,
+                    runtime_gid=profile.runtime_gid,
                     python_bytecode_policy=profile.python_bytecode_policy,
                 )
         except ProvisioningStateError:

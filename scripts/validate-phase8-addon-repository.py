@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run isolated live validation for Phase 8 repository URL testing."""
 
+# ruff: noqa: E402 -- bytecode suppression must precede project imports.
+
 from __future__ import annotations
 
 import argparse
@@ -10,6 +12,7 @@ import io
 import json
 import os
 import re
+import sys
 import tempfile
 import time
 import zipfile
@@ -17,6 +20,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 from uuid import UUID, uuid4
+
+sys.dont_write_bytecode = True
 
 from alembic import command
 from alembic.config import Config

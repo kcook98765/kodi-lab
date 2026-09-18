@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if (( EUID == 0 )); then
+    echo "Kodi Lab development checks must be run as a non-root user." >&2
+    exit 1
+fi
+
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$repo_root"
 

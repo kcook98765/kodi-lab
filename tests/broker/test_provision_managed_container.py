@@ -56,6 +56,8 @@ def spec(
         runtime_revision_id=REVISION_ID,
         image_id=IMAGE_ID,
         container_name=NAME,
+        runtime_uid=1000,
+        runtime_gid=1000,
         python_bytecode_policy=policy,
     )
 
@@ -96,6 +98,7 @@ def container_data(
         "Image": IMAGE_ID,
         "Config": {
             **image_config,
+            "User": "1000:1000",
             "Labels": {
                 MANAGED_LABEL_KEY: MANAGED_LABEL_VALUE,
                 INSTANCE_ID_LABEL_KEY: INSTANCE_ID,
@@ -243,6 +246,7 @@ def test_create_configuration_is_fully_broker_derived_and_minimal() -> None:
             "networking_config": {
                 "endpoints": {MANAGED_NETWORK_NAME: {"dynamic": True}}
             },
+            "user": "1000:1000",
         }
     ]
     forbidden = {
@@ -362,6 +366,7 @@ def test_fully_matching_existing_container_is_idempotent_even_running() -> None:
         (("Image",), "sha256:" + ("b" * 64)),
         (("Config", "Labels", RUNTIME_REVISION_LABEL_KEY), str(UUID(int=9))),
         (("Config", "Env"), ["INJECTED=1"]),
+        (("Config", "User"), "0:0"),
         (("Config", "Cmd"), ["injected"]),
         (("Config", "Entrypoint"), ["injected"]),
         (("Config", "Volumes"), {"/data": {}}),

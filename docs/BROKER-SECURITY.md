@@ -314,8 +314,9 @@ The adapter requires the pre-existing bridge network `kodi-lab-managed-v1`,
 subnet `10.250.0.0/24`, and its three exact ownership/resource labels. It never
 creates or substitutes a network. Docker assigns the address dynamically. The
 fixed create request uses name `kodi-lab-managed-<uuidhex>`, immutable image ID,
-the managed/instance/runtime-revision labels, restart `no`, non-privileged host
-configuration, and only the managed network endpoint. Command, entrypoint,
+the managed/instance/runtime-revision labels, the trusted profile's explicit
+non-root numeric UID/GID, restart `no`, non-privileged host configuration, and
+only the managed network endpoint. Command, entrypoint,
 environment, ports, mounts, volumes, binds, devices, added capabilities, host
 namespaces, custom security options, and resource limits are absent. Image
 defaults are compared during verification; images declaring volumes are rejected.
@@ -323,7 +324,7 @@ defaults are compared during verification; images declaring volumes are rejected
 Existing same-name state is never adopted. Exactly one label-selected container
 is idempotent only when every fixed create invariant matches and state is running
 or stopped; drift and duplicate ownership fail. A new container must freshly
-verify exact ID/name/labels/image, image defaults, network, no publication or
+verify exact ID/name/labels/image, profile-derived user, image defaults, network, no publication or
 storage, restart/security profile, and stopped state before success.
 
 On post-create failure, cleanup performs another exact-ID inspect and removes

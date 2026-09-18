@@ -11,6 +11,12 @@ uv sync --dev
 ./scripts/check
 ```
 
+Run development commands as the repository owner. Do not use `sudo` for `uv`,
+Python, pytest, or any check script; the check lanes refuse UID 0 so routine work
+cannot leave root-owned source, cache, virtual-environment, or Git artifacts.
+Separately scoped live host-validation scripts may require the privileged broker
+boundary, but they are not development check lanes.
+
 The check is provider-neutral, uses the locked uv environment, stops at the
 first failure, and writes build artifacts only to a temporary directory.
 
