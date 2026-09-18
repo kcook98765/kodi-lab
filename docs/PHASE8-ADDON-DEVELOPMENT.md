@@ -1,5 +1,7 @@
 # Phase 8 add-on development contract
 
+**Phase 8 — Add-on Development Workflows: COMPLETE**
+
 Phase 8 delivers the canonical add-on development workflows from
 `V1-SPEC.md`: uploaded-ZIP installation, explicit copy/sync local development,
 repository URL testing, registered global sources, manual non-deleting sync,
@@ -22,8 +24,11 @@ Complete:
 - default attached-DevelopmentSource collision protection and the explicit
   approved repository replacement test.
 
-All canonical Phase 8 implementation requirements are implemented. The final
-Phase 8 completion review remains a separate milestone.
+The formal completion review found every current canonical Phase 8 requirement
+complete, with D-0182's copy/sync amendment replacing raw bind as the supported
+V1 local-development mode. The reviewed implementation checkpoint is
+`a595136b9689119b1f623704dd5faffe240a481d`, Alembic head
+`0028_repository_replacement_override`, with 1612 collected tests.
 
 ## Repository URL testing first slice
 
@@ -502,18 +507,26 @@ working unproven, tested unproven.
 ## Phase 8 completion boundary
 
 All canonical Phase 8 implementation requirements are implemented through
-`0028_repository_replacement_override`; the separate completion review remains
-the next audit milestone and is not part of this implementation. The explicit
-repository replacement test is limited to one 15-minute exact-state plan,
+`0028_repository_replacement_override` and the formal completion review found
+no remaining V1 blocker. The explicit repository replacement test is limited
+to one 15-minute exact-state plan,
 immediate single-use approval, attached/unmaterialized or verified-copied
 incumbents, a recent central Snapshot for the copied class, overwrite/add-only
 topology, retained source attachment, enabled/dependency preservation, derived
 override state, and fail-closed stopped reconciliation after application.
 
-Watchers, broader execution
-authority, disable/toggle, generic add-on enablement, dependency installation,
-broader provenance, and containment-safe live projection are outside the Phase
-8 v1 completion requirement.
+The supported V1 workflows are registered and attached DevelopmentSources with
+explicit non-deleting copy/sync, uploaded-ZIP testing, public-HTTPS repository
+testing and installation, the narrow approved repository replacement test, and
+bounded inventory/provenance. DevelopmentSource and ZIP enable/smoke workflows
+are completed extensions.
+
+Future, non-blocking work includes containment-safe live projection or bind-like
+behavior; LAN, self-signed, or authenticated repositories; automatic repository
+dependency installation; repository enable/smoke wrappers; generic ZIP
+replacement; deletion-requiring repository upgrades; prior repository
+reinstall/update; generic add-on management; automatic live sync/watchers; and
+broader rollback UX.
 
 ## Copied-add-on execution and smoke testing
 

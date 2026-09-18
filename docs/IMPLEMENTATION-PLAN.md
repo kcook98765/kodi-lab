@@ -723,8 +723,12 @@ override state, `repository_override_active` copy/sync blocking, evidence
 transitions, strict private Web review, and post-marker stopped reconciliation
 are included.
 
-All canonical Phase 8 implementation requirements are now implemented. The
-separate Phase 8 completion review has not been performed by this milestone.
+**Phase 8 — Add-on Development Workflows: COMPLETE.** The formal completion
+review found every current canonical requirement complete at implementation
+checkpoint `a595136b9689119b1f623704dd5faffe240a481d`, Alembic head
+`0028_repository_replacement_override`, with 1612 collected tests. The supported
+and explicitly deferred boundaries are recorded in
+`PHASE8-ADDON-DEVELOPMENT.md`.
 
 Containment-safe live projection or equivalent bind-like behavior is optional
 post-v1 research and is not a completion blocker. Raw direct Docker bind of
