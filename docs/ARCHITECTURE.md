@@ -607,6 +607,35 @@ root nor relative locator, has no source content/download surface, and gains no
 registration, attach/detach, deployment, filesystem, Docker, or broker
 authority.
 
+The administrator mutation slice exposes the already-approved catalog and
+attachment application services without changing those core semantics.
+Authenticated same-origin CSRF-protected `POST /api/development-sources`
+accepts only bounded `logical_name` and `relative_locator`, rejects unknown
+fields, and returns the existing path-free `DevelopmentSourceRead` observation
+with safe registration/validation timestamps. The route never resolves a path
+or reads `addon.xml`; the configured root, descriptor-relative validation,
+parsed identity, normalization, and duplicate checks remain exclusively in
+`DevelopmentSourceAdministrationService` and `DevelopmentSourceValidator`.
+Validation and conflict responses expose only closed safe categories and never
+echo a locator, configured root, OS/XML error, or source content.
+
+Explicit strict-empty-body attach and detach POSTs accept only ManagedInstance
+and DevelopmentSource UUIDs. They delegate to
+`DevelopmentSourceAttachmentService`, which retains its descriptor identity
+revalidation, disposable-instance restriction, one-add-on-ID rule,
+reconciliation gate, and per-instance mutation lease. Attach creates only the
+association; detach removes only the association. Neither action invokes the
+broker, Docker, Kodi, copy/sync, enablement, smoke, lifecycle, artifact cleanup,
+or catalog deletion. Instance detail offers metadata-only advisory attach
+choices and detach controls; the POST always revalidates authority.
+
+Registration history remains the create-only catalog row and its
+`registered_at` timestamp; no duplicate global activity row is persisted.
+Attach/detach continue using existing typed
+`DevelopmentSourceAttachmentOperation` history and unified instance activity.
+This product-boundary slice needs no schema migration and does not expose the
+relative locator on any response or read presentation.
+
 Step 4 adds one stopped-only copy/sync path. A strict empty-body authenticated
 POST queues a typed durable operation only for an attached local directory and
 an exactly stopped, provisioned disposable instance. It reserves both the

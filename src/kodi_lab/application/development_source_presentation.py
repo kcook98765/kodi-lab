@@ -18,6 +18,7 @@ from kodi_lab.application.errors import (
     DevelopmentSourceNotFoundError,
     ManagedInstanceNotFoundError,
 )
+from kodi_lab.domain import InstanceType
 from kodi_lab.storage.repositories import (
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
@@ -152,3 +153,28 @@ class DevelopmentSourcePresentationService:
                     )
                 result.append(item)
             return result
+
+    def list_attachable_sources(self, instance_id: UUID) -> list[DevelopmentSourceRead]:
+        """Return metadata-only advisory choices; POST revalidates all authority."""
+
+        with self._session_factory() as session:
+            instance = ManagedInstanceRepository(session).get(instance_id)
+            if instance is None:
+                raise ManagedInstanceNotFoundError(instance_id)
+            if instance.instance_type is not InstanceType.DISPOSABLE:
+                return []
+            attachment_repository = ManagedInstanceDevelopmentSourceRepository(session)
+            attached = attachment_repository.list_for_instance(instance_id)
+            attached_source_ids = {item.development_source_id for item in attached}
+            sources = DevelopmentSourceRepository(session)
+            attached_addon_ids = {
+                source.addon_id
+                for item in attached
+                if (source := sources.get(item.development_source_id)) is not None
+            }
+            return [
+                development_source_read(source)
+                for source in sources.list()
+                if source.id not in attached_source_ids
+                and source.addon_id not in attached_addon_ids
+            ]

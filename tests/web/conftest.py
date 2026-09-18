@@ -385,10 +385,15 @@ def broker(data_root: Path) -> FakeBroker:
 def client(
     database: sessionmaker[Session], broker: FakeBroker, data_root: Path
 ) -> Iterator[TestClient]:
+    development_root = data_root.parent / "development-root"
+    development_root.mkdir(parents=True)
     auth = WebAuthenticationService(database)
     auth.set_password(PASSWORD)
     app = create_app(
-        settings=Settings(data_root=data_root),
+        settings=Settings(
+            data_root=data_root,
+            development_root=development_root,
+        ),
         session_factory=database,
         broker=broker,
         readiness=ReadinessTaskRegistry(max_workers=1),

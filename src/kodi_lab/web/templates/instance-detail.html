@@ -7,6 +7,7 @@
     <title>{{ detail.runtime.name }} · Kodi Lab</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
     <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/development-source-attachment.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-enable.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-smoke.js') }}" defer></script>
     <script src="{{ url_for('static', path='/addon-zip-enable.js') }}" defer></script>
@@ -96,6 +97,21 @@
       <section id="development-sources">
         <h2>Development Sources</h2>
         <p class="secondary">Attachments are product metadata only; they do not indicate deployment, installation, or current source validity. Smoke passed is bounded historical evidence that one fixed plugin-directory invocation completed and preserved deployed-source provenance. It is not a general working/health guarantee.</p>
+        {% if detail.attachable_development_sources and detail.development_source_attachment_mutation_eligible %}
+        <form id="development-source-attach" data-instance-id="{{ detail.runtime.managed_instance_id }}">
+          <label for="development-source-attach-choice">Attach registered source</label>
+          <select id="development-source-attach-choice" name="source_id" required>
+            <option value="">Select a source</option>
+            {% for source in detail.attachable_development_sources %}
+            <option value="{{ source.id }}">{{ source.logical_name }} · {{ source.addon_id }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Attach</button>
+          <p class="development-source-attach-status secondary" role="status" hidden></p>
+        </form>
+        {% elif detail.development_source_attachment_mutation_eligible %}
+        <p class="secondary">No additional registered source is eligible for attachment.</p>
+        {% endif %}
         {% for source in detail.development_sources %}
         <article data-development-source-id="{{ source.development_source_id }}">
           <h3><a href="/development-sources/{{ source.development_source_id }}">{{ source.logical_name }}</a></h3>
@@ -114,6 +130,10 @@
           {% if source.copy_sync_eligible %}
           <button class="development-source-copy" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">Copy/Sync</button>
           <p class="development-source-copy-status secondary" role="status" hidden></p>
+          {% endif %}
+          {% if detail.development_source_attachment_mutation_eligible %}
+          <button class="development-source-detach" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">Detach</button>
+          <p class="development-source-detach-status secondary" role="status" hidden></p>
           {% endif %}
           {% if source.enable_eligible %}
           <button class="development-source-enable" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-source-id="{{ source.development_source_id }}">Enable</button>

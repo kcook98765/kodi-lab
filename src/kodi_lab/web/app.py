@@ -15,10 +15,12 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, ConfigDict, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from python_multipart.multipart import MultipartParser, parse_options_header
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
@@ -70,6 +72,10 @@ from kodi_lab.application.addon_zip_smoke_tests import (
     AddonZipSmokeTestServiceFactory,
     AddonZipSmokeTestStatus,
 )
+from kodi_lab.application.development_source_attachments import (
+    AttachedDevelopmentSourceRead,
+    DevelopmentSourceAttachmentService,
+)
 from kodi_lab.application.development_source_deployments import (
     DevelopmentSourceDeploymentConflictError,
     DevelopmentSourceDeploymentError,
@@ -101,9 +107,22 @@ from kodi_lab.application.development_source_smoke_tests import (
     DevelopmentSourceSmokeTestServiceFactory,
     DevelopmentSourceSmokeTestStatus,
 )
+from kodi_lab.application.development_sources import (
+    DevelopmentSourceAdministrationService,
+    DevelopmentSourceRead,
+)
 from kodi_lab.application.errors import (
+    DevelopmentSourceAddonConflictError,
+    DevelopmentSourceAlreadyAttachedError,
+    DevelopmentSourceAttachmentError,
+    DevelopmentSourceAttachmentValidationError,
+    DevelopmentSourceConflictError,
+    DevelopmentSourceDataValidationError,
+    DevelopmentSourceIdentityChangedError,
+    DevelopmentSourceNotAttachedError,
     DevelopmentSourceNotFoundError,
     ManagedInstanceNotFoundError,
+    PersistentDevelopmentSourceAttachmentUnsupportedError,
     TargetNotFoundError,
 )
 from kodi_lab.application.instance_delete_operations import (
@@ -127,7 +146,10 @@ from kodi_lab.application.lifecycle_operations import (
     LifecycleOperationConflictError,
     ManagedInstanceLifecycleOperationCoordinator,
 )
-from kodi_lab.application.mutations import ManagedInstanceMutationConflictError
+from kodi_lab.application.mutations import (
+    ManagedInstanceMutationConflictError,
+    ManagedInstanceMutationCoordinator,
+)
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.reconciliation import (
     CoordinationCorruptionError,
@@ -220,6 +242,7 @@ from kodi_lab.config import Settings
 from kodi_lab.development import (
     MAX_COMPRESSED_BYTES,
     AddonZipValidationError,
+    DevelopmentSourceValidationError,
     DevelopmentSourceValidator,
     create_upload_stage,
     finish_upload_stage,
@@ -227,6 +250,8 @@ from kodi_lab.development import (
     write_upload_chunk,
 )
 from kodi_lab.domain import (
+    MAX_DEVELOPMENT_SOURCE_LOCATOR,
+    MAX_DEVELOPMENT_SOURCE_LOGICAL_NAME,
     ManagedInstanceDeleteOperationState,
     SnapshotSourceBinding,
     SnapshotState,
@@ -242,6 +267,19 @@ class EmptyActionRequest(BaseModel):
     """Lifecycle requests deliberately contain no browser authority."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class DevelopmentSourceRegistrationRequest(BaseModel):
+    """Bounded logical registration fields with no host-path authority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    logical_name: str = Field(
+        min_length=1, max_length=MAX_DEVELOPMENT_SOURCE_LOGICAL_NAME
+    )
+    relative_locator: str = Field(
+        min_length=1, max_length=MAX_DEVELOPMENT_SOURCE_LOCATOR
+    )
 
 
 class ResetConfirmationRequest(BaseModel):
@@ -367,6 +405,8 @@ class WebApplicationContext:
     instance_detail: ManagedInstanceDetailService
     deleted_history: DeletedManagedInstanceHistoryService
     development_sources: DevelopmentSourcePresentationService
+    development_source_administration: DevelopmentSourceAdministrationService
+    development_source_attachments: DevelopmentSourceAttachmentService
     development_source_deployment_operations: (
         DevelopmentSourceDeploymentOperationCoordinator
     )
@@ -416,6 +456,11 @@ def create_app(
     addon_zip_readiness_factory: AddonZipReadinessCoordinatorFactory | None = None,
     addon_zip_enablement_service: AddonZipEnablementService | None = None,
     addon_zip_smoke_test_service_factory: AddonZipSmokeTestServiceFactory | None = None,
+    development_source_administration_service: (
+        DevelopmentSourceAdministrationService | None
+    ) = None,
+    development_source_attachment_service: DevelopmentSourceAttachmentService
+    | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -530,6 +575,25 @@ def create_app(
     activity = ManagedInstanceActivityService(session_factory)
     snapshot_status = SnapshotStatusService(session_factory)
     development_sources = DevelopmentSourcePresentationService(session_factory)
+    development_source_validator = DevelopmentSourceValidator(settings.development_root)
+    development_source_administration = (
+        development_source_administration_service
+        or DevelopmentSourceAdministrationService(
+            session_factory, development_source_validator
+        )
+    )
+    development_source_attachments = (
+        development_source_attachment_service
+        or DevelopmentSourceAttachmentService(
+            session_factory,
+            development_source_validator,
+            mutation_coordinator=ManagedInstanceMutationCoordinator(
+                session_factory,
+                stale_dispatcher=stale_dispatcher,
+                reconciliation=reconciliation,
+            ),
+        )
+    )
     addon_inventory = ManagedInstanceAddonInventoryService(
         session_factory,
         broker,
@@ -539,7 +603,7 @@ def create_app(
         DevelopmentSourceDeploymentOperationCoordinator(
             session_factory,
             broker,
-            DevelopmentSourceValidator(settings.development_root),
+            development_source_validator,
             stale_dispatcher=stale_dispatcher,
             reconciliation=reconciliation,
         )
@@ -561,7 +625,7 @@ def create_app(
         or DevelopmentSourceEnablementService(
             session_factory,
             broker,
-            DevelopmentSourceValidator(settings.development_root),
+            development_source_validator,
             coordinator=DevelopmentSourceEnablementOperationCoordinator(
                 session_factory,
                 stale_dispatcher=stale_dispatcher,
@@ -582,7 +646,7 @@ def create_app(
             lambda lease: DevelopmentSourceSmokeTestService(
                 session_factory,
                 broker,
-                DevelopmentSourceValidator(settings.development_root),
+                development_source_validator,
                 development_source_smoke_test_operations,
                 lease,
             )
@@ -697,6 +761,8 @@ def create_app(
         instance_detail=instance_detail,
         deleted_history=deleted_history,
         development_sources=development_sources,
+        development_source_administration=development_source_administration,
+        development_source_attachments=development_source_attachments,
         development_source_deployment_operations=(
             development_source_deployment_operations
         ),
@@ -811,6 +877,128 @@ def create_app(
         return _json_error(
             404, "development_source_not_found", "Development source not found."
         )
+
+    @app.exception_handler(RequestValidationError)
+    async def bounded_request_validation(
+        request: Request, error: RequestValidationError
+    ) -> Response:
+        path = request.url.path
+        development_source_mutation = request.method == "POST" and (
+            path == "/api/development-sources"
+            or (
+                "/development-sources/" in path
+                and path.endswith(("/attach", "/detach"))
+            )
+        )
+        if development_source_mutation:
+            return _json_error(
+                422, "request_validation_failed", "Request body is invalid."
+            )
+        return await request_validation_exception_handler(request, error)
+
+    @app.exception_handler(DevelopmentSourceValidationError)
+    async def development_source_registration_validation_failed(
+        _request: Request, error: DevelopmentSourceValidationError
+    ) -> JSONResponse:
+        messages = {
+            "root_not_configured": "Development-source registration is not configured.",
+            "root_invalid": "Development-source registration is unavailable.",
+            "root_unavailable": (
+                "The configured development-source root is unavailable."
+            ),
+            "locator_invalid": "The development-source locator is unsafe or invalid.",
+            "source_unavailable": (
+                "The development source is missing, unreadable, or link-unsafe."
+            ),
+            "addon_xml_missing": "The development source has no root-level addon.xml.",
+            "addon_xml_unsafe": (
+                "The development source addon.xml is unreadable or unsafe."
+            ),
+            "addon_xml_too_large": (
+                "The development source addon.xml exceeds the limit."
+            ),
+            "addon_xml_malformed": "The development source addon.xml is malformed.",
+            "addon_metadata_invalid": (
+                "The development source addon.xml metadata is invalid."
+            ),
+        }
+        http_status = (
+            status.HTTP_409_CONFLICT
+            if error.code.value.startswith("root_")
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        return _json_error(http_status, error.code.value, messages[error.code.value])
+
+    @app.exception_handler(DevelopmentSourceDataValidationError)
+    async def development_source_registration_data_invalid(
+        _request: Request, _error: DevelopmentSourceDataValidationError
+    ) -> JSONResponse:
+        return _json_error(
+            422,
+            "development_source_registration_invalid",
+            "Development-source registration fields are invalid.",
+        )
+
+    @app.exception_handler(DevelopmentSourceConflictError)
+    async def development_source_registration_conflict(
+        _request: Request, error: DevelopmentSourceConflictError
+    ) -> JSONResponse:
+        codes = {
+            "logical name": (
+                "development_source_logical_name_exists",
+                "A development source with that logical name already exists.",
+            ),
+            "relative locator": (
+                "development_source_already_registered",
+                "That development source is already registered.",
+            ),
+            "add-on ID": (
+                "development_source_addon_id_exists",
+                "A development source for that add-on ID already exists.",
+            ),
+            "catalog identity": (
+                "development_source_registration_conflict",
+                "Development-source registration conflicted with existing data.",
+            ),
+        }
+        code, message = codes.get(
+            error.field,
+            (
+                "development_source_registration_conflict",
+                "Development-source registration conflicted with existing data.",
+            ),
+        )
+        return _json_error(409, code, message)
+
+    @app.exception_handler(DevelopmentSourceAttachmentError)
+    async def development_source_attachment_failed(
+        _request: Request, error: DevelopmentSourceAttachmentError
+    ) -> JSONResponse:
+        if isinstance(error, DevelopmentSourceAlreadyAttachedError):
+            code = "development_source_already_attached"
+            message = "Development source is already attached to this instance."
+        elif isinstance(error, DevelopmentSourceNotAttachedError):
+            code = "development_source_not_attached"
+            message = "Development source is not attached to this instance."
+        elif isinstance(error, DevelopmentSourceAddonConflictError):
+            code = "development_source_addon_conflict"
+            message = "The instance already has a source for this add-on ID."
+        elif isinstance(error, DevelopmentSourceIdentityChangedError):
+            code = error.code
+            message = "Development source add-on identity changed after registration."
+        elif isinstance(error, DevelopmentSourceAttachmentValidationError):
+            code = "development_source_attachment_validation_failed"
+            message = "Development source validation failed before attachment."
+        elif isinstance(error, PersistentDevelopmentSourceAttachmentUnsupportedError):
+            code = "development_source_attachment_unsupported"
+            message = (
+                "Development-source attachment is supported only for disposable "
+                "instances."
+            )
+        else:
+            code = "development_source_attachment_conflict"
+            message = "Development-source attachment could not be changed."
+        return _json_error(409, code, message)
 
     @app.exception_handler(DevelopmentSourceDeploymentConflictError)
     async def development_source_deployment_conflict(
@@ -1160,13 +1348,16 @@ def create_app(
     @app.get("/development-sources", response_class=HTMLResponse)
     async def development_source_list_page(request: Request) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         return templates.TemplateResponse(
             request,
             "development-sources.html",
-            {"sources": context.development_sources.list_sources()},
+            {
+                "sources": context.development_sources.list_sources(),
+                "csrf_token": authenticated.csrf_token,
+            },
         )
 
     @app.get("/development-sources/{source_id}", response_class=HTMLResponse)
@@ -1516,6 +1707,20 @@ def create_app(
     ) -> list[DevelopmentSourceSummary]:
         return context.development_sources.list_sources()
 
+    @app.post(
+        "/api/development-sources",
+        response_model=DevelopmentSourceRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def register_development_source(
+        body: DevelopmentSourceRegistrationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentSourceRead:
+        return context.development_source_administration.register_source(
+            logical_name=body.logical_name,
+            relative_locator=body.relative_locator,
+        )
+
     @app.get("/api/addon-zips", response_model=list[AddonZipArtifactSummary])
     def list_addon_zips(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
@@ -1607,6 +1812,36 @@ def create_app(
         if operation is None or operation.original_managed_instance_id != instance_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
         return context.development_source_deployment_operations.to_status(operation)
+
+    @app.post(
+        "/api/instances/{instance_id}/development-sources/{source_id}/attach",
+        response_model=AttachedDevelopmentSourceRead,
+        status_code=status.HTTP_200_OK,
+    )
+    def attach_development_source(
+        instance_id: UUID,
+        source_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AttachedDevelopmentSourceRead:
+        return context.development_source_attachments.attach_source(
+            instance_id, source_id
+        )
+
+    @app.post(
+        "/api/instances/{instance_id}/development-sources/{source_id}/detach",
+        response_model=AttachedDevelopmentSourceRead,
+        status_code=status.HTTP_200_OK,
+    )
+    def detach_development_source(
+        instance_id: UUID,
+        source_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AttachedDevelopmentSourceRead:
+        return context.development_source_attachments.detach_source(
+            instance_id, source_id
+        )
 
     @app.post(
         "/api/instances/{instance_id}/development-sources/{source_id}/copy-sync",

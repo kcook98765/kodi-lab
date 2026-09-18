@@ -16,6 +16,7 @@
         <dt>Observed name</dt><dd>{{ detail.source.observed_name }}</dd>
         <dt>Observed version</dt><dd>{{ detail.source.observed_version }}</dd>
         <dt>Observed extensions</dt><dd>{% if detail.source.extension_types %}{{ detail.source.extension_types|join(', ') }}{% else %}None observed{% endif %}</dd>
+        <dt>Registered at</dt><dd>{{ detail.source.registered_at }}</dd>
         <dt>Validated at</dt><dd>{{ detail.source.validated_at }}</dd>
       </dl>
       <p class="secondary">These are stored registration-time observations. This page does not revalidate source files, and attachment does not imply deployment.</p>

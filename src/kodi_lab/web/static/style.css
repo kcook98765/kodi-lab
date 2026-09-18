@@ -3,7 +3,7 @@ body { max-width: 64rem; margin: 0 auto; padding: 1.5rem; }
 header { display: flex; align-items: center; justify-content: space-between; }
 .login-panel { max-width: 28rem; margin: 10vh auto; }
 form { display: grid; gap: .75rem; }
-input, button { font: inherit; padding: .55rem .75rem; }
+input, select, button { font: inherit; padding: .55rem .75rem; }
 .button-link { display: inline-block; padding: .55rem .75rem; border: 1px solid currentColor; border-radius: .2rem; text-decoration: none; }
 .confirmation-panel { max-width: 42rem; margin: 8vh auto; }
 input[type="checkbox"] { padding: 0; }

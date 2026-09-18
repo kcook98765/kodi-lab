@@ -10,8 +10,8 @@ working copies remain Phase 9, and MCP development workflows remain Phase 12.
 
 Complete:
 
-- DevelopmentSource catalog and validation core;
-- attachment core;
+- DevelopmentSource catalog, validation, and administrator registration;
+- attachment core and administrator attach/detach;
 - explicit changed/new-only, non-deleting copy/sync;
 - live inventory and bounded provenance;
 - immutable runtime bytecode policy;
@@ -20,11 +20,9 @@ Complete:
 
 Remaining v1 work:
 
-1. administrator-facing DevelopmentSource registration;
-2. administrator-facing attach/detach;
-3. repository URL testing workflow;
-4. default repository-vs-attached-source collision protection; and
-5. explicit approved replacement/update override.
+1. repository URL testing workflow;
+2. default repository-vs-attached-source collision protection; and
+3. explicit approved replacement/update override.
 
 Future/optional: a bind-like live-source workflow may be reconsidered after v1
 only through a containment-safe projection or equivalent policy-enforcing
@@ -166,6 +164,56 @@ locator, derived absolute path, source-tree filenames/content, or raw XML. No
 source registration, attach/detach, deployment, download, browse, edit, or
 unregister action exists. The existing authentication, no-store, same-origin,
 escaping, and no-CORS security policy applies unchanged.
+
+## Administrator registration and attachment product boundary
+
+The administrator registration action is authenticated, same-origin, and
+CSRF-protected `POST /api/development-sources`. Its strict JSON body contains
+only bounded `logical_name` and canonical `relative_locator`; unknown fields,
+absolute paths, traversal, URLs, and caller-supplied type/runtime/container
+facts are rejected. The Web form explains only that the locator is relative to
+the configured development-source root and does not reveal that root.
+
+The route delegates unchanged values to
+`DevelopmentSourceAdministrationService`. Only the existing validator resolves
+the configured root, opens components descriptor-relatively without following
+links, checks existence/readability and exact root `addon.xml`, parses add-on
+identity, normalizes observations, and applies the existing logical-name,
+locator, and add-on-ID uniqueness rules. Exact duplicate registration therefore
+remains rejected rather than being redefined as Web idempotency. HTTP errors use
+closed bounded categories for unsafe locators, unavailable/link-unsafe sources,
+missing/unsafe/oversized/malformed descriptors, invalid metadata, and catalog
+conflicts. They never contain the submitted locator, absolute root, raw XML,
+Python/OS exception, or filesystem path.
+
+The 201 result is the existing path-free catalog DTO: UUID, logical name, fixed
+kind, observed add-on identity/name/version/extensions, and registration and
+validation timestamps. Neither relative nor absolute locator becomes a read
+surface. The catalog row and `registered_at` timestamp are the create-only
+registration record; there is no duplicate global activity persistence.
+
+Explicit authenticated same-origin CSRF-protected strict-empty-body endpoints
+are:
+
+- `POST /api/instances/{instance_id}/development-sources/{source_id}/attach`;
+- `POST /api/instances/{instance_id}/development-sources/{source_id}/detach`.
+
+Both return the existing path-free attached-source DTO and delegate only those
+two UUIDs to `DevelopmentSourceAttachmentService`. Attach retains current
+source/instance lookup, disposable-only policy, descriptor identity
+revalidation, unique pair and per-instance add-on-ID collision rules,
+reconciliation gate, and `development_source_attachment` lease. Detach retains
+the same coordination and removes only the association. Existing typed
+attachment operation history and unified instance activity supply safe
+`Development source attached` and `Development source detached` summaries.
+
+Instance detail shows a compact advisory selector for registered sources that
+are not currently attached or metadata-colliding and a Detach action beside
+attached sources. Server validation remains authoritative. Registration,
+attach, and detach never copy/sync or delete destination bytes, invoke the
+broker/Docker/Kodi, change lifecycle, enable or smoke an add-on, alter ZIP
+artifacts, delete catalog sources, introduce repository inputs, or add bind
+authority. No migration is required.
 
 ## Step 4 runtime-ownership prerequisite
 

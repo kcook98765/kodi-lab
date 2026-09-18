@@ -41,6 +41,7 @@ class DevelopmentSourceRead(BaseModel):
     observed_name: str = Field(max_length=MAX_ADDON_NAME)
     observed_version: str = Field(max_length=MAX_ADDON_VERSION)
     extension_types: tuple[str, ...] = Field(max_length=MAX_EXTENSION_TYPES)
+    registered_at: datetime
     validated_at: datetime
 
 
@@ -55,6 +56,7 @@ def development_source_read(source: DevelopmentSource) -> DevelopmentSourceRead:
         observed_name=source.observed_name,
         observed_version=source.observed_version,
         extension_types=source.extension_types,
+        registered_at=source.registered_at,
         validated_at=source.validated_at,
     )
 

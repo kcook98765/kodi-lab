@@ -498,6 +498,28 @@ browser/content access, broker method, Docker access, or reconciliation behavior
 is added. Stopped-only copy/sync deployment requires a separate architecture
 gate.
 
+The later administrator product-boundary slice adds the missing catalog and
+association mutations without changing the Step 1/2 core. The Development
+Sources page now submits only bounded `logical_name` and `relative_locator` to
+authenticated same-origin CSRF-protected `POST /api/development-sources`.
+Strict schema handling rejects every additional field. The route delegates to
+`DevelopmentSourceAdministrationService`; configured-root selection,
+descriptor-relative no-follow lookup, `addon.xml` validation, identity parsing,
+normalization, and duplicate rejection remain application/validator authority.
+Responses and errors are path-free and do not echo locators, configured roots,
+raw XML, exceptions, or OS failures.
+
+Instance detail supplies a compact advisory choice of currently unattached
+registered source identities and explicit detach controls. Strict-empty-body
+`POST .../attach` and `POST .../detach` accept only instance/source UUIDs and
+delegate to `DevelopmentSourceAttachmentService`. Existing disposable-only,
+revalidation, add-on-ID collision, reconciliation, and mutation-lease rules are
+unchanged. Association changes perform no materialization, destination cleanup,
+catalog deletion, enablement, smoke, broker, Docker, or Kodi lifecycle action.
+Existing typed attachment operation history continues to project into instance
+activity. Registration time is presented from the create-only catalog row; no
+new activity table or migration is introduced.
+
 Before Phase 8 Step 4 deployment, the runtime-ownership prerequisite extends
 every immutable RuntimeExecutionProfile with required bounded `runtime_uid` and
 `runtime_gid`. Migration `0019_runtime_execution_ownership` has no default: it
@@ -684,11 +706,9 @@ bytecode policy, DevelopmentSource enablement/smoke, and uploaded-ZIP
 import/install/enable/smoke are implemented. Phase 8 is not complete. Canonical
 v1 work remains:
 
-1. administrator-facing DevelopmentSource registration;
-2. administrator-facing DevelopmentSource attach/detach;
-3. repository URL testing workflow;
-4. default repository-vs-attached-source collision protection; and
-5. explicit approved replacement/update override.
+1. repository URL testing workflow;
+2. default repository-vs-attached-source collision protection; and
+3. explicit approved replacement/update override.
 
 Containment-safe live projection or equivalent bind-like behavior is optional
 post-v1 research and is not a completion blocker. Raw direct Docker bind of

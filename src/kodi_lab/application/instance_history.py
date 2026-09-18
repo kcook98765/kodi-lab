@@ -21,6 +21,7 @@ from kodi_lab.application.development_source_attachments import (
 from kodi_lab.application.development_source_presentation import (
     DevelopmentSourcePresentationService,
 )
+from kodi_lab.application.development_sources import DevelopmentSourceRead
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationService,
@@ -80,6 +81,8 @@ class ManagedInstanceDetail(BaseModel):
     fixture: InstanceFixtureDetail | None
     snapshots: list[SnapshotHistoryItem]
     development_sources: list[AttachedDevelopmentSourceRead]
+    attachable_development_sources: list[DevelopmentSourceRead]
+    development_source_attachment_mutation_eligible: bool
     addons: ManagedInstanceAddonInventory
     recent_activity: list[ManagedInstanceActivityItem] = Field(max_length=10)
     reconciliation: ManagedInstanceReconciliationStatus
@@ -157,6 +160,9 @@ class ManagedInstanceDetailService:
         runtime = self._status.get(instance_id)
         reconciliation = self._reconciliation.status(instance_id)
         sources = self._development_sources.list_attached_sources(instance_id)
+        attachable_sources = self._development_sources.list_attachable_sources(
+            instance_id
+        )
         with self._session_factory() as session:
             active_mutation = (
                 ManagedInstanceMutationLeaseRepository(session).current(instance_id)
@@ -350,6 +356,16 @@ class ManagedInstanceDetailService:
             ),
             snapshots=self._snapshots.list_for_instance(instance_id),
             development_sources=presented_sources,
+            attachable_development_sources=(
+                attachable_sources
+                if not reconciliation.blocking and not active_mutation
+                else []
+            ),
+            development_source_attachment_mutation_eligible=(
+                instance.instance_type is InstanceType.DISPOSABLE
+                and not reconciliation.blocking
+                and not active_mutation
+            ),
             addons=addons,
             recent_activity=self._activity.list_for_live_instance(
                 instance_id, limit=10

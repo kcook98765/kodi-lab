@@ -3,13 +3,27 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
     <title>Development Sources · Kodi Lab</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    <script src="{{ url_for('static', path='/development-source-registration.js') }}" defer></script>
   </head>
   <body>
     <main>
       <h1>Development Sources</h1>
       <p class="secondary">Registered source metadata observed at its validation time. Registration and attachment do not indicate deployment or current filesystem validity.</p>
+      <section>
+        <h2>Register Development Source</h2>
+        <form id="development-source-registration">
+          <label for="development-source-logical-name">Logical source name</label>
+          <input id="development-source-logical-name" name="logical_name" type="text" required maxlength="120" autocomplete="off">
+          <label for="development-source-relative-locator">Relative source locator</label>
+          <input id="development-source-relative-locator" name="relative_locator" type="text" required maxlength="1024" autocomplete="off">
+          <p class="secondary">Path is relative to the configured development-source root. Absolute paths and linked or unsafe sources are rejected.</p>
+          <button type="submit">Register source</button>
+          <p id="development-source-registration-status" class="secondary" role="status" hidden></p>
+        </form>
+      </section>
       {% for item in sources %}
       <article data-development-source-id="{{ item.source.id }}">
         <h2><a href="/development-sources/{{ item.source.id }}">{{ item.source.logical_name }}</a></h2>
@@ -20,6 +34,7 @@
           <dt>Observed name</dt><dd>{{ item.source.observed_name }}</dd>
           <dt>Observed version</dt><dd>{{ item.source.observed_version }}</dd>
           <dt>Extensions</dt><dd>{% if item.source.extension_types %}{{ item.source.extension_types|join(', ') }}{% else %}None observed{% endif %}</dd>
+          <dt>Registered at</dt><dd>{{ item.source.registered_at }}</dd>
           <dt>Validated at</dt><dd>{{ item.source.validated_at }}</dd>
           <dt>Attached live instances</dt><dd>{{ item.attached_instance_count }}</dd>
         </dl>
