@@ -42,6 +42,7 @@ from kodi_lab.domain import (
     AgentWorkspaceCreationOperation,
     AgentWorkspaceCreationPhase,
     AgentWorkspaceCreationState,
+    AgentWorkspaceMutationEvent,
     AgentWorkspaceState,
     DevelopmentSource,
     DevelopmentSourceAttachmentOperation,
@@ -118,6 +119,7 @@ from kodi_lab.storage.models import (
     AddonZipInstallationOperationRow,
     AddonZipSmokeTestOperationRow,
     AgentWorkspaceCreationOperationRow,
+    AgentWorkspaceMutationEventRow,
     AgentWorkspaceRow,
     DevelopmentSourceAttachmentOperationRow,
     DevelopmentSourceDeploymentOperationRow,
@@ -885,6 +887,19 @@ def _agent_workspace_creation_from_row(
     )
 
 
+def _agent_workspace_mutation_from_row(
+    row: AgentWorkspaceMutationEventRow,
+) -> AgentWorkspaceMutationEvent:
+    return AgentWorkspaceMutationEvent(
+        id=UUID(row.id),
+        workspace_id=UUID(row.workspace_id),
+        generation=row.generation,
+        kind=row.kind,
+        relative_path=row.relative_path,
+        occurred_at=_timestamp_from_text(row.occurred_at),
+    )
+
+
 def _development_source_attachment_operation_from_row(
     row: DevelopmentSourceAttachmentOperationRow,
 ) -> DevelopmentSourceAttachmentOperation:
@@ -1295,6 +1310,83 @@ class AgentWorkspaceRepository:
             )
         )
         return int(getattr(result, "rowcount", 0)) == 1
+
+    def publish_mutation(
+        self,
+        workspace_id: UUID,
+        *,
+        expected_generation: int,
+        expected_tree_digest: str,
+        tree_digest: str,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceRow)
+            .where(
+                AgentWorkspaceRow.id == str(workspace_id),
+                AgentWorkspaceRow.state == AgentWorkspaceState.READY,
+                AgentWorkspaceRow.generation == expected_generation,
+                AgentWorkspaceRow.current_tree_digest == expected_tree_digest,
+            )
+            .values(
+                generation=expected_generation + 1,
+                current_tree_digest=tree_digest,
+                updated_at=_timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def require_reconciliation(
+        self,
+        workspace_id: UUID,
+        *,
+        expected_generation: int,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceRow)
+            .where(
+                AgentWorkspaceRow.id == str(workspace_id),
+                AgentWorkspaceRow.state == AgentWorkspaceState.READY,
+                AgentWorkspaceRow.generation == expected_generation,
+            )
+            .values(
+                state=AgentWorkspaceState.RECONCILIATION_REQUIRED,
+                updated_at=_timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+
+class AgentWorkspaceMutationEventRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, event: AgentWorkspaceMutationEvent) -> None:
+        self._session.add(
+            AgentWorkspaceMutationEventRow(
+                id=str(event.id),
+                workspace_id=str(event.workspace_id),
+                generation=event.generation,
+                kind=event.kind,
+                relative_path=event.relative_path,
+                occurred_at=_timestamp_to_text(event.occurred_at),
+            )
+        )
+        self._session.flush()
+
+    def list_for_workspace(
+        self, workspace_id: UUID
+    ) -> list[AgentWorkspaceMutationEvent]:
+        rows = self._session.scalars(
+            select(AgentWorkspaceMutationEventRow)
+            .where(AgentWorkspaceMutationEventRow.workspace_id == str(workspace_id))
+            .order_by(
+                AgentWorkspaceMutationEventRow.generation.desc(),
+                AgentWorkspaceMutationEventRow.id.desc(),
+            )
+        )
+        return [_agent_workspace_mutation_from_row(row) for row in rows]
 
 
 class AgentWorkspaceCreationOperationRepository:

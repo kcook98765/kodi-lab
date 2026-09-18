@@ -2576,3 +2576,50 @@ details that it did not specify.
   traversal is descriptor-relative and no-follow. Host paths, ownership,
   inodes, timestamps, symlink targets, manifests, digests, and baseline bytes
   are not exposed.
+
+## D-0205: Workspace mutation authority is bounded, exact, and generation-bound
+
+- Status: approved and implemented for Phase 9 Slice 2
+- Authority: the application accepts only AgentWorkspace UUID, expected current
+  generation, normalized workspace-relative file path, and bounded UTF-8 text.
+  Ready workspaces alone may mutate. A server-derived per-workspace advisory
+  lock serializes edits across application processes; a conditional database
+  update publishes exactly generation plus one. Independent workspaces do not
+  share this filesystem lock.
+- Operations: create requires an absent target beneath an existing safe
+  directory. Replace requires an existing single-link regular UTF-8 file. Exact
+  patch is a full-file expected-text preimage plus replacement text; mismatch
+  fails with no fuzzy search, offset interpretation, merge, or partial apply.
+  Each text field and resulting file is at most 2 MiB, and mutation JSON is
+  capped at 16 MiB. Create mode is 0644; replace and patch preserve the current
+  normalized regular-file mode. Callers control no ownership, mode, timestamp,
+  ACL, xattr, temporary path, or metadata.
+- Integrity and durability: before mutation, a full bounded no-follow recapture
+  must equal durable current-tree identity and rejects VCS administration
+  directories. Complete content is fsynced in a private same-directory file.
+  Create uses atomic Linux `renameat2(RENAME_NOREPLACE)`; replace/patch use
+  atomic rename. Afterward, a second full recapture supplies the new identity.
+  A private exact preimage link permits deterministic one-target rollback if
+  recapture or database publication fails. Unproven rollback or remaining tree
+  disagreement changes the workspace to `reconciliation_required`; unknown
+  bytes are never adopted.
+- Diff and history: change listing freshly validates immutable baseline and
+  durable current tree, reports added/modified files only, and provides bounded
+  16 KiB UTF-8 before/after previews. Missing baseline entries, type changes,
+  changed binary files, and external drift fail closed. Root `addon.xml` may
+  retain a valid changed ID, but the immutable source ID remains unchanged and
+  the workspace is classified `identity_changed` for later promotion blocking.
+  Migration `0030_agent_workspace_mutations` stores only event UUID, workspace
+  UUID, generation, create/replace/patch kind, relative path, and time in the
+  same transaction as generation publication; it stores no content or digest.
+
+## D-0206: Initial workspace mutation has no delete, rename, or type transition
+
+- Status: approved and implemented for Phase 9 Slice 2
+- Decision: there is no file/directory delete, rename, move, mkdir, cleanup,
+  chmod, ownership, binary-write, type-transition, shell, Git, broker, Docker,
+  Kodi, DevelopmentSource mutation, promotion, or MCP authority. Exact patch may
+  produce an empty regular file but cannot remove it. File creation is limited
+  to already existing safe directories. Recovery-only removal of an exactly
+  proven just-created postimage and restoration of a private exact preimage are
+  internal atomicity mechanisms, not caller operations.

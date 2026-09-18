@@ -20,11 +20,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 from python_multipart.multipart import MultipartParser, parse_options_header
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kodi_lab.application.activity import (
     ManagedInstanceActivityItem,
@@ -86,11 +87,14 @@ from kodi_lab.application.addon_zip_smoke_tests import (
     AddonZipSmokeTestStatus,
 )
 from kodi_lab.application.agent_workspaces import (
+    AgentWorkspaceActivityRead,
+    AgentWorkspaceChangesRead,
     AgentWorkspaceConflictError,
     AgentWorkspaceCreationExecutor,
     AgentWorkspaceCreationStatus,
     AgentWorkspaceError,
     AgentWorkspaceFileRead,
+    AgentWorkspaceMutationRead,
     AgentWorkspaceNotFoundError,
     AgentWorkspaceRead,
     AgentWorkspaceService,
@@ -297,6 +301,65 @@ from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRep
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
 _WEB_ROOT = Path(__file__).parent
+_MAX_WORKSPACE_MUTATION_REQUEST_BYTES = 16 * 1024 * 1024
+
+
+class _WorkspaceRequestTooLarge(Exception):
+    pass
+
+
+class _WorkspaceMutationBodyLimitMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "")
+        limited = (
+            scope["type"] == "http"
+            and scope.get("method") in {"POST", "PUT"}
+            and isinstance(path, str)
+            and path.startswith("/api/agent-workspaces/")
+            and path.endswith(("/files", "/patches"))
+        )
+        if not limited:
+            await self._app(scope, receive, send)
+            return
+        headers = dict(scope.get("headers", ()))
+        content_length = headers.get(b"content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > _MAX_WORKSPACE_MUTATION_REQUEST_BYTES:
+                    await self._reject(scope, receive, send)
+                    return
+            except ValueError:
+                await self._reject(scope, receive, send)
+                return
+        received = 0
+
+        async def bounded_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > _MAX_WORKSPACE_MUTATION_REQUEST_BYTES:
+                    raise _WorkspaceRequestTooLarge
+            return message
+
+        try:
+            await self._app(scope, bounded_receive, send)
+        except _WorkspaceRequestTooLarge:
+            await self._reject(scope, receive, send)
+
+    @staticmethod
+    async def _reject(scope: Scope, receive: Receive, send: Send) -> None:
+        response = JSONResponse(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            content={
+                "code": "agent_workspace_request_too_large",
+                "message": "Workspace mutation request is too large.",
+            },
+        )
+        await response(scope, receive, send)
 
 
 class EmptyActionRequest(BaseModel):
@@ -332,6 +395,48 @@ class AgentWorkspaceCreationAccepted(BaseModel):
     operation: AgentWorkspaceCreationStatus
     status_url: str
     workspace_url: str
+
+
+class AgentWorkspaceTextWriteRequest(BaseModel):
+    """One bounded path-and-text mutation with an optimistic generation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_generation: int = Field(ge=0)
+    path: str = Field(min_length=1, max_length=512)
+    content: str = Field(max_length=2 * 1024 * 1024)
+
+    @model_validator(mode="after")
+    def validate_utf8_bound(self) -> AgentWorkspaceTextWriteRequest:
+        try:
+            encoded = self.content.encode("utf-8", "strict")
+        except UnicodeEncodeError as error:
+            raise ValueError("content must be UTF-8 text") from error
+        if len(encoded) > 2 * 1024 * 1024:
+            raise ValueError("content exceeds the 2 MiB limit")
+        return self
+
+
+class AgentWorkspaceExactPatchRequest(BaseModel):
+    """Exact full-file preimage replacement; no offsets or fuzzy matching."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_generation: int = Field(ge=0)
+    path: str = Field(min_length=1, max_length=512)
+    expected_text: str = Field(max_length=2 * 1024 * 1024)
+    replacement_text: str = Field(max_length=2 * 1024 * 1024)
+
+    @model_validator(mode="after")
+    def validate_utf8_bounds(self) -> AgentWorkspaceExactPatchRequest:
+        for value in (self.expected_text, self.replacement_text):
+            try:
+                encoded = value.encode("utf-8", "strict")
+            except UnicodeEncodeError as error:
+                raise ValueError("patch fields must be UTF-8 text") from error
+            if len(encoded) > 2 * 1024 * 1024:
+                raise ValueError("patch field exceeds the 2 MiB limit")
+        return self
 
 
 class AddonRepositoryRegistrationRequest(BaseModel):
@@ -998,6 +1103,7 @@ def create_app(
         TrustedHostMiddleware,
         allowed_hosts=[settings.web_host, "localhost"],
     )
+    app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
     templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
     app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
 
@@ -1630,7 +1736,7 @@ def create_app(
         request: Request, workspace_id: UUID
     ) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         workspace = context.agent_workspaces.get(workspace_id)
@@ -1639,10 +1745,26 @@ def create_app(
             if workspace.state.value == "ready"
             else []
         )
+        changes = (
+            context.agent_workspaces.list_changes(workspace_id)
+            if workspace.state.value == "ready"
+            else None
+        )
+        activity = (
+            context.agent_workspaces.list_activity(workspace_id)
+            if workspace.state.value == "ready"
+            else []
+        )
         return templates.TemplateResponse(
             request,
             "agent-workspace-detail.html",
-            {"workspace": workspace, "entries": entries},
+            {
+                "workspace": workspace,
+                "entries": entries,
+                "changes": changes,
+                "activity": activity,
+                "csrf_token": authenticated.csrf_token,
+            },
         )
 
     @app.get("/addon-zips", response_class=HTMLResponse)
@@ -2074,6 +2196,78 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> AgentWorkspaceFileRead:
         return context.agent_workspaces.read_file(workspace_id, relative_path)
+
+    @app.post(
+        "/api/agent-workspaces/{workspace_id}/files",
+        response_model=AgentWorkspaceMutationRead,
+        status_code=status.HTTP_200_OK,
+    )
+    def create_agent_workspace_file(
+        workspace_id: UUID,
+        body: AgentWorkspaceTextWriteRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AgentWorkspaceMutationRead:
+        return context.agent_workspaces.create_text_file(
+            workspace_id,
+            expected_generation=body.expected_generation,
+            relative_path=body.path,
+            content=body.content,
+        )
+
+    @app.put(
+        "/api/agent-workspaces/{workspace_id}/files",
+        response_model=AgentWorkspaceMutationRead,
+        status_code=status.HTTP_200_OK,
+    )
+    def replace_agent_workspace_file(
+        workspace_id: UUID,
+        body: AgentWorkspaceTextWriteRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AgentWorkspaceMutationRead:
+        return context.agent_workspaces.replace_text_file(
+            workspace_id,
+            expected_generation=body.expected_generation,
+            relative_path=body.path,
+            content=body.content,
+        )
+
+    @app.post(
+        "/api/agent-workspaces/{workspace_id}/patches",
+        response_model=AgentWorkspaceMutationRead,
+        status_code=status.HTTP_200_OK,
+    )
+    def patch_agent_workspace_file(
+        workspace_id: UUID,
+        body: AgentWorkspaceExactPatchRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AgentWorkspaceMutationRead:
+        return context.agent_workspaces.apply_exact_patch(
+            workspace_id,
+            expected_generation=body.expected_generation,
+            relative_path=body.path,
+            expected_text=body.expected_text,
+            replacement_text=body.replacement_text,
+        )
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/changes",
+        response_model=AgentWorkspaceChangesRead,
+    )
+    def list_agent_workspace_changes(
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AgentWorkspaceChangesRead:
+        return context.agent_workspaces.list_changes(workspace_id)
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/activity",
+        response_model=list[AgentWorkspaceActivityRead],
+    )
+    def list_agent_workspace_activity(
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AgentWorkspaceActivityRead]:
+        return context.agent_workspaces.list_activity(workspace_id)
 
     @app.get("/api/addon-repositories", response_model=list[AddonRepositorySourceRead])
     def list_addon_repositories(

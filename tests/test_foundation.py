@@ -136,6 +136,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "addon_zip_installation_operations",
         "addon_zip_smoke_test_operations",
         "agent_workspace_creation_operations",
+        "agent_workspace_mutation_events",
         "agent_workspaces",
         "development_source_attachment_operations",
         "development_source_deployment_operations",

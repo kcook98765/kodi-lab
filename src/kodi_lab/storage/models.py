@@ -46,6 +46,7 @@ from kodi_lab.domain import (
     AddonZipValidationState,
     AgentWorkspaceCreationPhase,
     AgentWorkspaceCreationState,
+    AgentWorkspaceMutationKind,
     AgentWorkspaceState,
     ConnectionState,
     DevelopmentSourceAttachmentOperationKind,
@@ -318,6 +319,43 @@ class AgentWorkspaceCreationOperationRow(Base):
     failure_code: Mapped[str | None] = mapped_column(String(128))
     lease_token_digest: Mapped[str | None] = mapped_column(String(64))
     lease_expires_at: Mapped[str | None] = mapped_column(String(32))
+
+
+class AgentWorkspaceMutationEventRow(Base):
+    """Content-free synchronous history for one published workspace mutation."""
+
+    __tablename__ = "agent_workspace_mutation_events"
+    __table_args__ = (
+        CheckConstraint(
+            "generation >= 1", name="agent_workspace_mutation_generation_positive"
+        ),
+        CheckConstraint(
+            "length(relative_path) BETWEEN 1 AND 512",
+            name="agent_workspace_mutation_path_bounded",
+        ),
+        UniqueConstraint(
+            "workspace_id", "generation", name="uq_workspace_mutation_generation"
+        ),
+        Index("ix_agent_workspace_mutation_occurred", "workspace_id", "occurred_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_workspaces.id", ondelete="RESTRICT")
+    )
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[AgentWorkspaceMutationKind] = mapped_column(
+        Enum(
+            AgentWorkspaceMutationKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_mutation_kind",
+        ),
+        nullable=False,
+    )
+    relative_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    occurred_at: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
 class TargetRow(Base):

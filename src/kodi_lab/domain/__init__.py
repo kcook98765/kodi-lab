@@ -51,6 +51,8 @@ from kodi_lab.domain.agent_workspaces import (
     AgentWorkspaceCreationOperation,
     AgentWorkspaceCreationPhase,
     AgentWorkspaceCreationState,
+    AgentWorkspaceMutationEvent,
+    AgentWorkspaceMutationKind,
     AgentWorkspaceState,
 )
 from kodi_lab.domain.development_source_attachments import (
@@ -241,6 +243,8 @@ __all__ = [
     "AgentWorkspaceCreationOperation",
     "AgentWorkspaceCreationPhase",
     "AgentWorkspaceCreationState",
+    "AgentWorkspaceMutationEvent",
+    "AgentWorkspaceMutationKind",
     "AgentWorkspaceState",
     "ConnectionState",
     "DevelopmentSource",

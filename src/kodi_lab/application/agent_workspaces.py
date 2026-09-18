@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,20 +23,26 @@ from kodi_lab.domain import (
     AgentWorkspaceCreationOperation,
     AgentWorkspaceCreationPhase,
     AgentWorkspaceCreationState,
+    AgentWorkspaceMutationEvent,
+    AgentWorkspaceMutationKind,
     AgentWorkspaceState,
     DevelopmentSourceKind,
     GlobalHeavyOperationKind,
 )
 from kodi_lab.storage.repositories import (
     AgentWorkspaceCreationOperationRepository,
+    AgentWorkspaceMutationEventRepository,
     AgentWorkspaceRepository,
     DevelopmentSourceRepository,
     GlobalHeavyOperationLeaseRepository,
 )
 from kodi_lab.workspace import (
+    AgentWorkspaceReconciliationRequired,
     AgentWorkspaceStorageError,
     create_workspace_storage,
+    derive_workspace_diff,
     inspect_workspace_directory,
+    mutate_workspace_text,
     read_workspace_text,
     workspace_baseline_published,
 )
@@ -103,6 +110,47 @@ class AgentWorkspaceFileRead(BaseModel):
     path: str = Field(max_length=512)
     encoding: str = "utf-8"
     content: str
+
+
+class AgentWorkspaceMutationRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    path: str = Field(max_length=512)
+    operation: Literal["created", "replaced", "patched"]
+    generation: int = Field(ge=1)
+
+
+class AgentWorkspaceActivityRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: UUID
+    generation: int = Field(ge=1)
+    operation: Literal["created", "replaced", "patched"]
+    path: str = Field(max_length=512)
+    occurred_at: datetime
+
+
+class AgentWorkspaceChangeRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(max_length=512)
+    change_kind: Literal["added", "modified"]
+    baseline_size: int | None = Field(default=None, ge=0)
+    current_size: int = Field(ge=0)
+    before_preview: str | None
+    after_preview: str
+    before_truncated: bool
+    after_truncated: bool
+
+
+class AgentWorkspaceChangesRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    generation: int = Field(ge=0)
+    identity_status: Literal["stable", "identity_changed"]
+    changes: list[AgentWorkspaceChangeRead]
 
 
 def _workspace_read(workspace: AgentWorkspace) -> AgentWorkspaceRead:
@@ -425,6 +473,245 @@ class AgentWorkspaceService:
             path=relative_path,
             content=read_workspace_text(self._data_root, workspace_id, relative_path),
         )
+
+    def _mutation_workspace(
+        self, workspace_id: UUID, expected_generation: int
+    ) -> AgentWorkspace:
+        workspace = self._require_ready(workspace_id)
+        if workspace.generation != expected_generation:
+            raise AgentWorkspaceConflictError(
+                "agent_workspace_generation_conflict",
+                "Workspace generation is stale.",
+            )
+        return workspace
+
+    def _mark_reconciliation(self, workspace: AgentWorkspace) -> None:
+        with self._session_factory.begin() as session:
+            marked = AgentWorkspaceRepository(session).require_reconciliation(
+                workspace.id,
+                expected_generation=workspace.generation,
+                now=self._clock(),
+            )
+            if not marked:
+                raise AgentWorkspaceConflictError(
+                    "agent_workspace_reconciliation_publication_failed",
+                    "Workspace reconciliation state could not be published.",
+                )
+
+    def _mutate(
+        self,
+        workspace_id: UUID,
+        *,
+        expected_generation: int,
+        relative_path: str,
+        operation: Literal["create", "replace", "patch"],
+        content: str,
+        expected_text: str | None = None,
+    ) -> AgentWorkspaceMutationRead:
+        workspace = self._mutation_workspace(workspace_id, expected_generation)
+        if workspace.current_tree_digest is None:
+            raise AgentWorkspaceConflictError(
+                "agent_workspace_not_ready", "Workspace is not ready for mutation."
+            )
+        try:
+            with (
+                mutate_workspace_text(
+                    self._data_root,
+                    workspace_id,
+                    relative_path,
+                    operation=operation,
+                    content=content,
+                    expected_tree_digest=workspace.current_tree_digest,
+                    expected_text=expected_text,
+                ) as result,
+                self._session_factory.begin() as session,
+            ):
+                repository = AgentWorkspaceRepository(session)
+                if not repository.publish_mutation(
+                    workspace_id,
+                    expected_generation=expected_generation,
+                    expected_tree_digest=workspace.current_tree_digest,
+                    tree_digest=result.tree_digest,
+                    now=self._clock(),
+                ):
+                    raise AgentWorkspaceConflictError(
+                        "agent_workspace_generation_conflict",
+                        "Workspace generation changed before publication.",
+                    )
+                AgentWorkspaceMutationEventRepository(session).create(
+                    AgentWorkspaceMutationEvent(
+                        id=self._uuid_factory(),
+                        workspace_id=workspace_id,
+                        generation=expected_generation + 1,
+                        kind=AgentWorkspaceMutationKind(operation),
+                        relative_path=relative_path,
+                        occurred_at=self._clock(),
+                    )
+                )
+        except AgentWorkspaceReconciliationRequired:
+            self._mark_reconciliation(workspace)
+            raise
+        except AgentWorkspaceStorageError as error:
+            if error.code in {
+                "agent_workspace_integrity_changed",
+                "agent_workspace_tree_unsafe",
+            }:
+                with self._session_factory() as session:
+                    current = AgentWorkspaceRepository(session).get(workspace_id)
+                if current is not None and current.generation != expected_generation:
+                    raise AgentWorkspaceConflictError(
+                        "agent_workspace_generation_conflict",
+                        "Workspace generation is stale.",
+                    ) from error
+                self._mark_reconciliation(workspace)
+            raise
+        names: dict[str, Literal["created", "replaced", "patched"]] = {
+            "create": "created",
+            "replace": "replaced",
+            "patch": "patched",
+        }
+        return AgentWorkspaceMutationRead(
+            workspace_id=workspace_id,
+            path=relative_path,
+            operation=names[operation],
+            generation=expected_generation + 1,
+        )
+
+    def create_text_file(
+        self,
+        workspace_id: UUID,
+        *,
+        expected_generation: int,
+        relative_path: str,
+        content: str,
+    ) -> AgentWorkspaceMutationRead:
+        return self._mutate(
+            workspace_id,
+            expected_generation=expected_generation,
+            relative_path=relative_path,
+            operation="create",
+            content=content,
+        )
+
+    def replace_text_file(
+        self,
+        workspace_id: UUID,
+        *,
+        expected_generation: int,
+        relative_path: str,
+        content: str,
+    ) -> AgentWorkspaceMutationRead:
+        return self._mutate(
+            workspace_id,
+            expected_generation=expected_generation,
+            relative_path=relative_path,
+            operation="replace",
+            content=content,
+        )
+
+    def apply_exact_patch(
+        self,
+        workspace_id: UUID,
+        *,
+        expected_generation: int,
+        relative_path: str,
+        expected_text: str,
+        replacement_text: str,
+    ) -> AgentWorkspaceMutationRead:
+        return self._mutate(
+            workspace_id,
+            expected_generation=expected_generation,
+            relative_path=relative_path,
+            operation="patch",
+            content=replacement_text,
+            expected_text=expected_text,
+        )
+
+    def list_changes(self, workspace_id: UUID) -> AgentWorkspaceChangesRead:
+        workspace = self._require_ready(workspace_id)
+        for attempt in range(2):
+            if (
+                workspace.baseline_manifest_digest is None
+                or workspace.current_tree_digest is None
+            ):
+                raise AgentWorkspaceConflictError(
+                    "agent_workspace_not_ready",
+                    "Workspace is not ready for inspection.",
+                )
+            try:
+                result = derive_workspace_diff(
+                    self._data_root,
+                    workspace_id,
+                    expected_baseline_digest=workspace.baseline_manifest_digest,
+                    expected_tree_digest=workspace.current_tree_digest,
+                    expected_addon_id=workspace.source_addon_id,
+                )
+                break
+            except AgentWorkspaceStorageError:
+                with self._session_factory() as session:
+                    current = AgentWorkspaceRepository(session).get(workspace_id)
+                if (
+                    current is not None
+                    and current.state is AgentWorkspaceState.READY
+                    and (
+                        current.generation != workspace.generation
+                        or current.current_tree_digest != workspace.current_tree_digest
+                    )
+                    and attempt == 0
+                ):
+                    workspace = current
+                    continue
+                self._mark_reconciliation(workspace)
+                raise
+        else:
+            raise AgentWorkspaceConflictError(
+                "agent_workspace_generation_conflict",
+                "Workspace changed during change inspection.",
+            )
+        return AgentWorkspaceChangesRead(
+            workspace_id=workspace_id,
+            generation=workspace.generation,
+            identity_status=(
+                "identity_changed" if result.identity_changed else "stable"
+            ),
+            changes=[
+                AgentWorkspaceChangeRead(
+                    path=item.path,
+                    change_kind=item.change_kind,
+                    baseline_size=item.baseline_size,
+                    current_size=item.current_size,
+                    before_preview=item.before_preview,
+                    after_preview=item.after_preview,
+                    before_truncated=item.before_truncated,
+                    after_truncated=item.after_truncated,
+                )
+                for item in result.changes
+            ],
+        )
+
+    def list_activity(self, workspace_id: UUID) -> list[AgentWorkspaceActivityRead]:
+        self.get(workspace_id)
+        with self._session_factory() as session:
+            events = AgentWorkspaceMutationEventRepository(session).list_for_workspace(
+                workspace_id
+            )
+        names: dict[
+            AgentWorkspaceMutationKind, Literal["created", "replaced", "patched"]
+        ] = {
+            AgentWorkspaceMutationKind.CREATE: "created",
+            AgentWorkspaceMutationKind.REPLACE: "replaced",
+            AgentWorkspaceMutationKind.PATCH: "patched",
+        }
+        return [
+            AgentWorkspaceActivityRead(
+                event_id=event.id,
+                generation=event.generation,
+                operation=names[event.kind],
+                path=event.relative_path,
+                occurred_at=event.occurred_at,
+            )
+            for event in events
+        ]
 
     def queued(self) -> list[AgentWorkspaceCreationOperation]:
         with self._session_factory() as session:

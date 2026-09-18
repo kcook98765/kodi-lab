@@ -15,7 +15,22 @@
       <dt>Generation</dt><dd>{{ workspace.generation }}</dd>
     </dl>
     {% if entries %}<h2>Root directory</h2><ul>{% for entry in entries %}<li>{{ entry.name }} — {{ entry.entry_type }}</li>{% endfor %}</ul>{% endif %}
-    <p class="secondary">Read-only in this slice. File creation, writing, patching, promotion, Git, and Kodi actions are not available.</p>
+    {% if workspace.state.value == "ready" %}
+    <section id="workspace-editor" data-workspace-id="{{ workspace.id }}" data-generation="{{ workspace.generation }}" data-csrf="{{ csrf_token }}">
+      <h2>Text file editing</h2>
+      <form data-action="create"><label>Relative path <input name="path" required maxlength="512"></label><label>New UTF-8 content <textarea name="content"></textarea></label><button>Create file</button></form>
+      <form data-action="replace"><label>Relative path <input name="path" required maxlength="512"></label><label>Replacement UTF-8 content <textarea name="content"></textarea></label><button>Replace file</button></form>
+      <form data-action="patch"><label>Relative path <input name="path" required maxlength="512"></label><label>Exact current text <textarea name="expected_text"></textarea></label><label>Replacement text <textarea name="replacement_text"></textarea></label><button>Apply exact patch</button></form>
+      <p id="workspace-edit-result" role="status"></p>
+    </section>
+    <h2>Derived changes</h2>
+    <p>Identity: {{ changes.identity_status }}. {{ changes.changes|length }} changed file(s).</p>
+    {% for change in changes.changes %}<article><h3>{{ change.path }} — {{ change.change_kind }}</h3><p>{{ change.baseline_size if change.baseline_size is not none else "absent" }} → {{ change.current_size }} bytes</p>{% if change.before_preview is not none %}<h4>Before{% if change.before_truncated %} (preview truncated){% endif %}</h4><pre>{{ change.before_preview }}</pre>{% endif %}<h4>After{% if change.after_truncated %} (preview truncated){% endif %}</h4><pre>{{ change.after_preview }}</pre></article>{% endfor %}
+    <h2>Workspace activity</h2>
+    <ul>{% for item in activity %}<li>Generation {{ item.generation }}: {{ item.operation }} {{ item.path }}</li>{% else %}<li>No workspace mutations.</li>{% endfor %}</ul>
+    {% endif %}
+    <p class="secondary">Edits are limited to existing workspace directories and UTF-8 files. Delete, rename, mkdir, promotion, Git, MCP, and Kodi actions are not available.</p>
     <p><a href="/agent-workspaces">Back to workspaces</a></p>
+    <script src="{{ url_for('static', path='/agent-workspace-edit.js') }}" defer></script>
   </main></body>
 </html>

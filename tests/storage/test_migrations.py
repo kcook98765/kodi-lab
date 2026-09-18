@@ -49,6 +49,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "addon_zip_installation_operations",
         "addon_zip_smoke_test_operations",
         "agent_workspace_creation_operations",
+        "agent_workspace_mutation_events",
         "agent_workspaces",
         "alembic_version",
         "development_source_attachment_operations",
@@ -2922,3 +2923,72 @@ def test_0029_agent_workspace_schema_round_trip_constraints_and_guard(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated agent workspace"):
         command.downgrade(config, "0028_repository_replacement_override")
+
+
+def test_0030_workspace_mutation_activity_round_trip_and_guard(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0029_agent_workspaces")
+    engine = create_database_engine(database_url)
+    assert "agent_workspace_mutation_events" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "agent_workspace_mutation_events" in inspector.get_table_names()
+    assert inspector.get_foreign_keys("agent_workspace_mutation_events")[0][
+        "options"
+    ] == {"ondelete": "RESTRICT"}
+    engine.dispose()
+    command.downgrade(config, "0029_agent_workspaces")
+    command.upgrade(config, "head")
+    command.check(config)
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        timestamp = "2026-09-18T12:00:00+00:00"
+        source_id = "a9300000-0000-4000-8000-000000000001"
+        workspace_id = "a9300000-0000-4000-8000-000000000002"
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id,logical_name,source_kind,relative_locator,addon_id,observed_name,"
+                "observed_version,extension_types_json,registered_at,validated_at) "
+                "VALUES (:id,'Source','local_directory','source','plugin.video.source',"
+                "'Source','1.0','[\"xbmc.python.pluginsource\"]',:time,:time)"
+            ),
+            {"id": source_id, "time": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspaces "
+                "(id,development_source_id,source_addon_id,source_logical_name,"
+                "source_observed_name,source_observed_version,state,baseline_artifact_id,"
+                "generation,capture_started_at,created_at,updated_at) VALUES "
+                "(:id,:source,'plugin.video.source','Source','Source','1.0','creating',"
+                ":baseline,1,:time,:time,:time)"
+            ),
+            {
+                "id": workspace_id,
+                "source": source_id,
+                "baseline": "a9300000-0000-4000-8000-000000000003",
+                "time": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspace_mutation_events "
+                "(id,workspace_id,generation,kind,relative_path,occurred_at) VALUES "
+                "(:id,:workspace,1,'create','new.txt',:time)"
+            ),
+            {
+                "id": "a9300000-0000-4000-8000-000000000004",
+                "workspace": workspace_id,
+                "time": timestamp,
+            },
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="workspace mutation history"):
+        command.downgrade(config, "0029_agent_workspaces")

@@ -1039,3 +1039,52 @@ manifest, ownership, inode, and raw filesystem errors.
 This slice intentionally has no file create/write/replace/patch/delete/rename,
 no diff or promotion, no source mutation, no Kodi deployment/reload/test/log
 operation, no MCP exposure, no cleanup mutation, and no Git operation.
+
+## Phase 9 bounded workspace editing and derived changes
+
+Slice 2 makes only the private workspace tree mutable. Semantic application
+services create an absent UTF-8 file beneath an existing directory, replace an
+existing safe UTF-8 regular file, apply an exact full-file preimage patch, and
+derive added/modified changes against the immutable baseline. Inputs contain a
+workspace UUID, normalized relative path, expected generation, and bounded text;
+they contain no source/storage path or infrastructure/runtime parameter.
+
+Every mutation takes a server-derived cross-process lock for that workspace,
+requires ready state and exact generation/current-tree identity, then performs a
+complete bounded descriptor-relative recapture. Workspace recapture rejects VCS
+administration directories instead of applying source-capture exclusion, so an
+injected `.git`, `.hg`, or `.svn` object cannot disappear from integrity
+evidence. Only an absent target or existing single-link regular file is valid.
+New files use 0644; replacements retain the current normalized file mode.
+
+Complete UTF-8 content is capped at 2 MiB and fsynced to a private
+same-directory temporary inode. Linux no-replace rename publishes creates;
+ordinary atomic rename publishes replacements and patches. A private preimage
+link remains outside the mutable tree until full post-write recapture and
+conditional database publication complete. Known failure restores the exact
+preimage (or removes only the exact just-created postimage) and proves the old
+tree digest. Unprovable recovery makes the workspace
+`reconciliation_required`; no unknown filesystem state is adopted.
+
+The database compare-and-swap increments generation once and publishes the
+server-captured current-tree identity together with content-free mutation
+activity. The activity records only workspace/event UUIDs, generation,
+create/replace/patch kind, normalized relative path, and time. It is synchronous
+history, not an asynchronous operation or generic event payload.
+
+Change derivation recaptures both baseline and current trees and requires their
+durable identities. It omits unchanged entries and returns added/modified file
+metadata plus at most 16 KiB of UTF-8 before/after preview per side. Missing
+baseline entries, added directories, type transitions, invalid descriptor state,
+changed binary files, or external current-tree drift are integrity failures.
+A valid root `addon.xml` ID change is retained for experimentation but appears as
+`identity_changed`; immutable source provenance is never rewritten and later
+promotion must refuse it.
+
+Authenticated same-origin CSRF-protected JSON create/replace/patch routes carry
+paths in strict bodies, not URL path captures. Authenticated change and activity
+GETs plus the administrator detail page expose bounded relative paths and text
+previews but no host/source path, internal digest, ownership, inode, temporary
+name, or raw error. There remains no promotion, DevelopmentSource mutation,
+backup/apply workflow, Kodi integration, MCP exposure, cleanup, deletion,
+rename, mkdir, shell, Docker, broker, or Git capability.

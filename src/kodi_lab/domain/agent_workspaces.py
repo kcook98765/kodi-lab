@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -37,6 +38,12 @@ class AgentWorkspaceCreationPhase(StrEnum):
     CREATING_TREE = "creating_tree"
     VERIFYING_TREE = "verifying_tree"
     FINALIZE = "finalize"
+
+
+class AgentWorkspaceMutationKind(StrEnum):
+    CREATE = "create"
+    REPLACE = "replace"
+    PATCH = "patch"
 
 
 def _utc(value: datetime | None, field: str) -> datetime | None:
@@ -124,3 +131,31 @@ class AgentWorkspaceCreationOperation:
             )
         ):
             raise ValueError("workspace creation lease digest is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class AgentWorkspaceMutationEvent:
+    id: UUID
+    workspace_id: UUID
+    generation: int
+    kind: AgentWorkspaceMutationKind
+    relative_path: str
+    occurred_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.generation < 1:
+            raise ValueError("workspace mutation generation must be positive")
+        try:
+            encoded = self.relative_path.encode("utf-8", "strict")
+        except UnicodeEncodeError as error:
+            raise ValueError("workspace mutation path is invalid") from error
+        if (
+            not self.relative_path
+            or len(encoded) > 512
+            or any(
+                unicodedata.category(character) == "Cc"
+                for character in self.relative_path
+            )
+        ):
+            raise ValueError("workspace mutation path is invalid")
+        object.__setattr__(self, "occurred_at", _utc(self.occurred_at, "occurred_at"))

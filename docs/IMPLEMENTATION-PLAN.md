@@ -751,10 +751,25 @@ UTF-8 text reads capped at 2 MiB. They expose no host/storage path, baseline,
 manifest/digest, filesystem ownership, Git, runtime, instance, Docker, or Kodi
 control. The ordinary application identity performs all work.
 
-Canonical progress is deliberately partial: read and directory-inspect
-authority inside the Lab-managed copy are implemented. Workspace
-write/create/replace and patch-based edit remain the next implementation
-slice. Reviewed conflict-aware promotion back to DevelopmentSource remains
-unimplemented, as do subsequent copy/sync/reload/verification, Kodi integration,
-MCP exposure, Git operations, and cleanup mutation. No later Phase 9 decision
-is recorded as implemented by Slice 1.
+Slice 2 completes the canonical working-copy read, directory-inspect,
+write/create/replace, exact patch-edit, and derived change-review capabilities.
+Each synchronous text mutation is limited to workspace UUID plus relative path,
+requires exact optimistic generation, serializes per workspace, and performs
+complete safe pre/post recapture around atomic same-filesystem publication.
+The fixed resulting-file bound is 2 MiB. Create is absent-only beneath an
+existing directory; replacement/patch requires a single-link UTF-8 regular file.
+No delete, rename, mkdir, binary write, type transition, metadata control, or
+caller temporary path is added.
+
+Migration `0030_agent_workspace_mutations` adds only content-free generation
+activity. Baseline/current comparison returns added and modified files with
+bounded previews and classifies a valid root descriptor ID change without
+rewriting immutable provenance. Unexpected deletion, binary change, unsafe
+object, VCS administration directory, type change, or digest drift fails closed;
+uncertain filesystem/metadata agreement becomes reconciliation-required.
+
+Canonical Phase 9 remains partial. Reviewed conflict-aware promotion back to
+the registered DevelopmentSource, promotion backup/application, subsequent
+copy/sync/reload/verification, Kodi integration, MCP exposure, and workspace
+cleanup/abandon mutation remain unimplemented. D-0205 and D-0206 are the only
+Slice 2 decisions recorded as implemented.

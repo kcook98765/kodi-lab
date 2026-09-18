@@ -109,8 +109,158 @@ def test_workspace_routes_do_not_expose_mutation_verbs(client: TestClient) -> No
     csrf = login(client)
     workspace_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
     headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
-    for suffix in ("file/x", "tree/x", "promote", "patch", "git"):
+    for suffix in ("promote", "delete", "rename", "mkdir", "git", "shell"):
         response = client.post(
             f"/api/agent-workspaces/{workspace_id}/{suffix}", json={}, headers=headers
         )
         assert response.status_code in {404, 405}
+
+
+def test_workspace_mutation_and_changes_api_is_strict_private_and_generation_bound(
+    client: TestClient, database: sessionmaker[Session], data_root: Path
+) -> None:
+    _seed_source(database, data_root)
+    csrf = login(client)
+    accepted = client.post(
+        "/api/agent-workspaces",
+        json={"development_source_id": str(SOURCE_ID)},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    ).json()
+    status_url = accepted["status_url"]
+    for _ in range(100):
+        operation = client.get(status_url).json()
+        if operation["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+    assert operation["state"] == "succeeded"
+    workspace_id = accepted["operation"]["workspace_id"]
+    files_url = f"/api/agent-workspaces/{workspace_id}/files"
+    patch_url = f"/api/agent-workspaces/{workspace_id}/patches"
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+
+    assert (
+        client.post(
+            files_url,
+            json={
+                "expected_generation": 0,
+                "path": "resources/new.txt",
+                "content": "x",
+            },
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            files_url,
+            json={
+                "expected_generation": 0,
+                "path": "resources/new.txt",
+                "content": "x",
+            },
+            headers={"X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            files_url,
+            json={
+                "expected_generation": 0,
+                "path": "resources/new.txt",
+                "content": "x",
+                "host_path": "/tmp/escape",
+            },
+            headers=headers,
+        ).status_code
+        == 422
+    )
+
+    created = client.post(
+        files_url,
+        json={
+            "expected_generation": 0,
+            "path": "resources/new.txt",
+            "content": "new \N{GREEK SMALL LETTER ALPHA}\n",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    assert created.json() == {
+        "workspace_id": workspace_id,
+        "path": "resources/new.txt",
+        "operation": "created",
+        "generation": 1,
+    }
+    stale = client.put(
+        files_url,
+        json={
+            "expected_generation": 0,
+            "path": "resources/main.py",
+            "content": "stale",
+        },
+        headers=headers,
+    )
+    assert stale.status_code == 409
+
+    patched = client.post(
+        patch_url,
+        json={
+            "expected_generation": 1,
+            "path": "resources/main.py",
+            "expected_text": "print('web')\n",
+            "replacement_text": "print('patched')\n",
+        },
+        headers=headers,
+    )
+    assert patched.status_code == 200
+    mismatch = client.post(
+        patch_url,
+        json={
+            "expected_generation": 2,
+            "path": "resources/main.py",
+            "expected_text": "private preimage",
+            "replacement_text": "private replacement",
+        },
+        headers=headers,
+    )
+    assert mismatch.status_code == 422
+    assert "private preimage" not in mismatch.text
+    assert "private replacement" not in mismatch.text
+
+    changes = client.get(f"/api/agent-workspaces/{workspace_id}/changes")
+    assert changes.status_code == 200
+    assert changes.json()["generation"] == 2
+    assert changes.json()["identity_status"] == "stable"
+    assert [item["path"] for item in changes.json()["changes"]] == [
+        "resources/main.py",
+        "resources/new.txt",
+    ]
+    serialized = changes.text
+    assert str(data_root) not in serialized
+    assert "development-root" not in serialized
+    assert "digest" not in serialized
+    activity = client.get(f"/api/agent-workspaces/{workspace_id}/activity")
+    assert activity.status_code == 200
+    assert [item["operation"] for item in activity.json()] == ["patched", "created"]
+    assert "content" not in activity.text
+
+    oversized = client.post(
+        files_url,
+        json={
+            "expected_generation": 2,
+            "path": "resources/too-large.txt",
+            "content": "x" * (2 * 1024 * 1024 + 1),
+        },
+        headers=headers,
+    )
+    assert oversized.status_code == 422
+    request_oversized = client.post(
+        files_url,
+        content=b"{}",
+        headers={
+            **headers,
+            "Content-Type": "application/json",
+            "Content-Length": str(16 * 1024 * 1024 + 1),
+        },
+    )
+    assert request_oversized.status_code == 413

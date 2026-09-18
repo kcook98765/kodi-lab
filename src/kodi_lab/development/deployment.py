@@ -156,8 +156,9 @@ def _same_object(first: os.stat_result, second: os.stat_result) -> bool:
 
 
 class _Capture:
-    def __init__(self, stage_root: Path | None) -> None:
+    def __init__(self, stage_root: Path | None, *, reject_vcs: bool) -> None:
         self.stage_root = stage_root
+        self.reject_vcs = reject_vcs
         self.entries: list[DevelopmentTreeEntry] = []
         self.regular_files = 0
         self.included_bytes = 0
@@ -217,11 +218,12 @@ def capture_development_tree(
     locator: str,
     *,
     stage_root: Path | None = None,
+    reject_vcs: bool = False,
 ) -> DevelopmentTreeManifest:
     """Capture one deterministic tree, optionally materializing normalized bytes."""
 
     source_fd = _open_development_source(development_root, locator)
-    capture = _Capture(stage_root)
+    capture = _Capture(stage_root, reject_vcs=reject_vcs)
     try:
         root_stat = os.fstat(source_fd)
         _walk_directory(source_fd, "", 0, capture)
@@ -281,6 +283,12 @@ def _walk_directory(
                         "Development source changed during capture.",
                     )
                 if name in VCS_ADMIN_DIRECTORIES:
+                    if capture.reject_vcs:
+                        raise DevelopmentTreeError(
+                            "development_source_unsafe_entry",
+                            "Source tree contains a forbidden "
+                            "administration directory.",
+                        )
                     continue
                 capture.add(
                     DevelopmentTreeEntry(

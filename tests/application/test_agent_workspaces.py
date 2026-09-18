@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import os
+import socket
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from kodi_lab.application.agent_workspaces import (
+    AgentWorkspaceConflictError,
+    AgentWorkspaceMutationRead,
     AgentWorkspaceNotFoundError,
     AgentWorkspaceService,
 )
@@ -69,6 +74,9 @@ def _service(tmp_path: Path) -> tuple[AgentWorkspaceService, Path]:
             UUID("20000000-0000-0000-0000-000000000002"),
             UUID("30000000-0000-0000-0000-000000000002"),
             UUID("40000000-0000-0000-0000-000000000002"),
+            UUID("50000000-0000-0000-0000-000000000001"),
+            UUID("50000000-0000-0000-0000-000000000002"),
+            UUID("50000000-0000-0000-0000-000000000003"),
         )
     )
     return (
@@ -364,3 +372,435 @@ def test_failure_after_generation_zero_tree_requires_reconciliation(
     root = tmp_path / "data" / "agent-workspaces" / str(queued.workspace_id)
     assert (root / "baseline" / "tree").is_dir()
     assert (root / "tree").is_dir()
+
+
+def test_create_replace_patch_increment_generation_and_derive_diff(
+    tmp_path: Path,
+) -> None:
+    service, source = _service(tmp_path)
+    workspace_id = _create(service)
+
+    created = service.create_text_file(
+        workspace_id,
+        expected_generation=0,
+        relative_path="resources/new.txt",
+        content="Snowman ☃\n",
+    )
+    assert created.generation == 1
+    replaced = service.replace_text_file(
+        workspace_id,
+        expected_generation=1,
+        relative_path="resources/main.py",
+        content="print('replaced')\n",
+    )
+    assert replaced.generation == 2
+    patched = service.apply_exact_patch(
+        workspace_id,
+        expected_generation=2,
+        relative_path="resources/main.py",
+        expected_text="print('replaced')\n",
+        replacement_text="",
+    )
+    assert patched.generation == 3
+    assert service.read_file(workspace_id, "resources/main.py").content == ""
+
+    changes = service.list_changes(workspace_id)
+    assert changes.generation == 3
+    assert changes.identity_status == "stable"
+    assert [(item.path, item.change_kind) for item in changes.changes] == [
+        ("resources/main.py", "modified"),
+        ("resources/new.txt", "added"),
+    ]
+    assert [item.operation for item in service.list_activity(workspace_id)] == [
+        "patched",
+        "replaced",
+        "created",
+    ]
+    assert (source / "resources" / "main.py").read_text() == "print('safe')\n"
+
+
+def test_create_replace_patch_preconditions_leave_bytes_and_generation_unchanged(
+    tmp_path: Path,
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    original = service.read_file(workspace_id, "resources/main.py").content
+
+    failures: tuple[Callable[[], AgentWorkspaceMutationRead], ...] = (
+        lambda: service.create_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path="resources/main.py",
+            content="overwrite",
+        ),
+        lambda: service.replace_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path="resources/missing.py",
+            content="missing",
+        ),
+        lambda: service.apply_exact_patch(
+            workspace_id,
+            expected_generation=0,
+            relative_path="resources/main.py",
+            expected_text="wrong preimage",
+            replacement_text="changed",
+        ),
+    )
+    for operation in failures:
+        with pytest.raises(AgentWorkspaceStorageError):
+            operation()
+        assert service.get(workspace_id).generation == 0
+        assert service.read_file(workspace_id, "resources/main.py").content == original
+
+    service.create_text_file(
+        workspace_id,
+        expected_generation=0,
+        relative_path="resources/first.txt",
+        content="first",
+    )
+    with pytest.raises(AgentWorkspaceConflictError) as stale:
+        service.create_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path="resources/second.txt",
+            content="second",
+        )
+    assert stale.value.code == "agent_workspace_generation_conflict"
+    assert service.get(workspace_id).generation == 1
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "",
+        "/absolute",
+        ".",
+        "..",
+        "resources/../escape",
+        "resources\\file",
+        "resources/\x00file",
+        "resources/\x01file",
+        "x" * 256,
+        "/".join(("a" * 200, "b" * 200, "c" * 200)),
+        "/".join("x" for _ in range(33)),
+    ],
+)
+def test_mutation_path_policy_rejects_unsafe_paths(tmp_path: Path, path: str) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    with pytest.raises(AgentWorkspaceStorageError) as rejected:
+        service.create_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path=path,
+            content="safe",
+        )
+    assert rejected.value.code == "agent_workspace_path_invalid"
+    assert service.get(workspace_id).generation == 0
+
+
+@pytest.mark.parametrize("kind", ["directory", "symlink", "hardlink", "fifo", "socket"])
+def test_mutation_rejects_unsafe_targets_and_external_tree_objects(
+    tmp_path: Path, kind: str
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    tree = tmp_path / "data" / "agent-workspaces" / str(workspace_id) / "tree"
+    target = tree / "unsafe"
+    opened_socket = None
+    socket_link = None
+    if kind == "directory":
+        target.mkdir()
+    elif kind == "symlink":
+        target.symlink_to("addon.xml")
+    elif kind == "hardlink":
+        os.link(tree / "addon.xml", target)
+    elif kind == "fifo":
+        os.mkfifo(target)
+    else:
+        socket_link = Path("/dev/shm") / f"kodi-lab-ws-{uuid4().hex}"
+        socket_link.symlink_to(tree, target_is_directory=True)
+        opened_socket = socket.socket(socket.AF_UNIX)
+        opened_socket.bind(str(socket_link / "unsafe"))
+    try:
+        with pytest.raises(AgentWorkspaceStorageError):
+            service.replace_text_file(
+                workspace_id,
+                expected_generation=0,
+                relative_path="unsafe",
+                content="safe",
+            )
+        assert service.get(workspace_id).state.value == "reconciliation_required"
+        assert service.get(workspace_id).generation == 0
+    finally:
+        if opened_socket is not None:
+            opened_socket.close()
+        if socket_link is not None:
+            socket_link.unlink()
+
+
+def test_text_bounds_utf8_and_existing_binary_policy(tmp_path: Path) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    service.create_text_file(
+        workspace_id,
+        expected_generation=0,
+        relative_path="resources/boundary.txt",
+        content="x" * (2 * 1024 * 1024),
+    )
+    assert service.get(workspace_id).generation == 1
+    with pytest.raises(AgentWorkspaceStorageError) as oversized:
+        service.replace_text_file(
+            workspace_id,
+            expected_generation=1,
+            relative_path="resources/boundary.txt",
+            content="x" * (2 * 1024 * 1024 + 1),
+        )
+    assert oversized.value.code == "agent_workspace_content_too_large"
+
+    tree = tmp_path / "data" / "agent-workspaces" / str(workspace_id) / "tree"
+    (tree / "resources" / "binary").write_bytes(b"\xff")
+    with pytest.raises(AgentWorkspaceStorageError):
+        service.replace_text_file(
+            workspace_id,
+            expected_generation=1,
+            relative_path="resources/binary",
+            content="text",
+        )
+    assert service.get(workspace_id).state.value == "reconciliation_required"
+
+
+def test_post_write_capture_failure_rolls_back_exactly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    original = service.read_file(workspace_id, "resources/main.py").content
+    real_capture = workspace_storage._capture_workspace_tree
+    calls = 0
+
+    def fail_once(*args: object, **kwargs: object) -> DevelopmentTreeManifest:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise AgentWorkspaceStorageError("injected", "Injected recapture failure.")
+        return real_capture(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(workspace_storage, "_capture_workspace_tree", fail_once)
+    with pytest.raises(AgentWorkspaceStorageError):
+        service.replace_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path="resources/main.py",
+            content="changed",
+        )
+    assert service.read_file(workspace_id, "resources/main.py").content == original
+    assert service.get(workspace_id).generation == 0
+    assert service.get(workspace_id).state.value == "ready"
+
+
+@pytest.mark.parametrize("failure_point", ["temporary_write", "rename"])
+def test_prepublication_write_failures_leave_original_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_point: str,
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    original = service.read_file(workspace_id, "resources/main.py").content
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise OSError("injected prepublication failure")
+
+    target = (
+        "_write_private_file"
+        if failure_point == "temporary_write"
+        else "_atomic_replace"
+    )
+    monkeypatch.setattr(workspace_storage, target, fail)
+    with pytest.raises(OSError):
+        service.replace_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path="resources/main.py",
+            content="changed",
+        )
+    assert service.read_file(workspace_id, "resources/main.py").content == original
+    assert service.get(workspace_id).generation == 0
+    assert service.get(workspace_id).state.value == "ready"
+
+
+def test_database_publication_failure_rolls_back_exactly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    original = service.read_file(workspace_id, "resources/main.py").content
+    monkeypatch.setattr(
+        "kodi_lab.storage.repositories.AgentWorkspaceRepository.publish_mutation",
+        lambda *args, **kwargs: False,
+    )
+    with pytest.raises(AgentWorkspaceConflictError):
+        service.replace_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path="resources/main.py",
+            content="changed",
+        )
+    assert service.read_file(workspace_id, "resources/main.py").content == original
+    assert service.get(workspace_id).generation == 0
+
+
+def test_external_injection_during_postcapture_requires_reconciliation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    original = service.read_file(workspace_id, "resources/main.py").content
+    tree = tmp_path / "data" / "agent-workspaces" / str(workspace_id) / "tree"
+    real_capture = workspace_storage._capture_workspace_tree
+    calls = 0
+
+    def inject(*args: object, **kwargs: object) -> DevelopmentTreeManifest:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            (tree / "late-link").symlink_to("addon.xml")
+        return real_capture(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(workspace_storage, "_capture_workspace_tree", inject)
+    with pytest.raises(workspace_storage.AgentWorkspaceReconciliationRequired):
+        service.replace_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path="resources/main.py",
+            content="changed",
+        )
+    assert (tree / "resources" / "main.py").read_text() == original
+    assert service.get(workspace_id).generation == 0
+    assert service.get(workspace_id).state.value == "reconciliation_required"
+
+
+def test_full_tree_recapture_detects_injected_vcs_and_missing_baseline_file(
+    tmp_path: Path,
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    tree = tmp_path / "data" / "agent-workspaces" / str(workspace_id) / "tree"
+    (tree / ".git").mkdir()
+    with pytest.raises(AgentWorkspaceStorageError):
+        service.create_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path="resources/new.txt",
+            content="new",
+        )
+    assert service.get(workspace_id).state.value == "reconciliation_required"
+
+    (tmp_path / "second").mkdir()
+    service2, _source2 = _service(tmp_path / "second")
+    workspace2 = _create(service2)
+    tree2 = tmp_path / "second" / "data" / "agent-workspaces" / str(workspace2) / "tree"
+    (tree2 / "resources" / "main.py").unlink()
+    with pytest.raises(AgentWorkspaceStorageError):
+        service2.list_changes(workspace2)
+    assert service2.get(workspace2).state.value == "reconciliation_required"
+
+
+def test_addon_identity_change_is_allowed_but_classified(tmp_path: Path) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    current = service.read_file(workspace_id, "addon.xml").content
+    changed = current.replace("plugin.video.example", "plugin.video.changed")
+    service.apply_exact_patch(
+        workspace_id,
+        expected_generation=0,
+        relative_path="addon.xml",
+        expected_text=current,
+        replacement_text=changed,
+    )
+    diff = service.list_changes(workspace_id)
+    assert diff.identity_status == "identity_changed"
+    assert [item.path for item in diff.changes] == ["addon.xml"]
+    assert service.get(workspace_id).source_addon_id == "plugin.video.example"
+
+
+def test_pristine_binary_is_omitted_and_external_binary_change_fails_closed(
+    tmp_path: Path,
+) -> None:
+    service, source = _service(tmp_path)
+    (source / "resources" / "asset.bin").write_bytes(b"\x00\xff")
+    workspace_id = _create(service)
+    assert service.list_changes(workspace_id).changes == []
+
+    tree = tmp_path / "data" / "agent-workspaces" / str(workspace_id) / "tree"
+    (tree / "resources" / "asset.bin").write_bytes(b"\x00\xfe")
+    with pytest.raises(AgentWorkspaceStorageError):
+        service.list_changes(workspace_id)
+    assert service.get(workspace_id).state.value == "reconciliation_required"
+
+
+def test_unknown_and_non_ready_workspaces_reject_mutation(tmp_path: Path) -> None:
+    service, _source = _service(tmp_path)
+    unknown = UUID("ffffffff-ffff-ffff-ffff-ffffffffffff")
+    with pytest.raises(AgentWorkspaceNotFoundError):
+        service.create_text_file(
+            unknown,
+            expected_generation=0,
+            relative_path="new.txt",
+            content="new",
+        )
+
+    queued = service.queue_creation(SOURCE_ID)
+    with pytest.raises(AgentWorkspaceConflictError) as not_ready:
+        service.create_text_file(
+            queued.workspace_id,
+            expected_generation=0,
+            relative_path="new.txt",
+            content="new",
+        )
+    assert not_ready.value.code == "agent_workspace_not_ready"
+
+
+def test_mutation_does_not_change_source_or_sibling_workspace(tmp_path: Path) -> None:
+    service, source = _service(tmp_path)
+    first = _create(service)
+    second = _create(service)
+    original = (source / "resources" / "main.py").read_text()
+
+    service.replace_text_file(
+        first,
+        expected_generation=0,
+        relative_path="resources/main.py",
+        content="first only\n",
+    )
+
+    assert (source / "resources" / "main.py").read_text() == original
+    assert service.read_file(second, "resources/main.py").content == original
+    assert service.get(second).generation == 0
+
+
+def test_competing_mutations_cannot_both_publish_same_generation(
+    tmp_path: Path,
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+
+    def create(name: str) -> str:
+        try:
+            service.create_text_file(
+                workspace_id,
+                expected_generation=0,
+                relative_path=f"resources/{name}.txt",
+                content=name,
+            )
+        except AgentWorkspaceConflictError:
+            return "conflict"
+        return "succeeded"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(create, ("one", "two")))
+    assert sorted(results) == ["conflict", "succeeded"]
+    assert service.get(workspace_id).generation == 1
+    assert service.get(workspace_id).state.value == "ready"
