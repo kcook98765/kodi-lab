@@ -28,7 +28,8 @@ v1 must provide:
 - screenshot visual inspection;
 - optional noVNC/interactive display where reliable;
 - browser remote controls;
-- ZIP, repository, bind-mounted, and copied/synced add-on development workflows;
+- uploaded-ZIP, repository URL testing, and copied/synced add-on development
+  workflows;
 - protected agent working copies and reviewable patch-back;
 - integrated MCP;
 - remote LAN Kodi targets;
@@ -499,9 +500,8 @@ Restore:
 ## 24. Add-on development
 
 v1 must support:
-- ZIP installation;
-- bind-mounted local dev source;
-- copy/sync local dev source;
+- uploaded-ZIP installation;
+- safe explicit copy/sync from a registered local DevelopmentSource;
 - repository URL testing.
 
 Registered dev sources:
@@ -509,17 +509,20 @@ Registered dev sources:
 - logical name + host path;
 - constrained to configured global dev root;
 - original source read-only to Kodi Lab agent workflows;
-- validate exists/readable; addon.xml validation where straightforward.
+- validate exists/readable; addon.xml validation where straightforward;
+- explicit source/instance attachment and detachment.
 
-Preferred attachment: bind mount.
-Fallback: copy/sync.
+The supported v1 local-development materialization workflow is explicit
+copy/sync from an attached registered DevelopmentSource.
 
 Manual sync initially:
 - changed/new files;
 - no deletes initially;
-- no automatic Kodi restart.
+- no automatic Kodi restart;
+- exact source/instance provenance and replacement-conflict protection.
 
-Protect attached dev source from repository replacement by default; allow explicit override for upgrade testing.
+Protect an attached DevelopmentSource from repository replacement by default.
+Allow an explicit approved replacement/update override for upgrade testing.
 
 Inventory where possible:
 - ID;
@@ -527,6 +530,11 @@ Inventory where possible:
 - version;
 - enabled state;
 - provenance only when Kodi Lab knows it.
+
+After v1, live-source development may be revisited only through a
+containment-safe projection or equivalent policy-enforcing mechanism. **Raw
+direct Docker bind of mutable DevelopmentSource host paths is not an approved
+Kodi Lab mechanism.**
 
 ## 25. Agent working copy
 

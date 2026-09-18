@@ -2282,3 +2282,24 @@ details that it did not specify.
   HTTP 202 plus bounded status. UI eligibility is advisory and warns: “Plugin
   execution may contact external services; the managed runtime network is not
   egress-isolated.”
+
+## D-0182: V1 local development uses copy/sync; raw bind removed from V1
+
+- Status: approved v1 scope change
+- Decision: the supported v1 DevelopmentSource materialization workflow is a
+  manual explicit copy/sync from an attached registered source. It transfers
+  changed and new entries only, performs no deletion or automatic Kodi restart,
+  and retains exact provenance and replacement protection. Existing bounded
+  inventory, enablement, and smoke workflows remain separate optional steps.
+- Security evidence: raw direct Docker bind of mutable DevelopmentSource host
+  paths is rejected. The architecture gate demonstrated source-root path
+  re-resolution to outside-root content, late hardlink exposure of outside-root
+  files, late Unix-socket boundary crossing, VCS metadata exposure to Kodi and
+  Snapshot capture, and loss of writable-layer state during container
+  recreation. Read-only mounting prevents container writes but does not contain
+  host-side namespace mutation.
+- Scope: this explicitly changes the original bind-first v1 requirement; it
+  does not reinterpret copy/sync as having satisfied that requirement all
+  along. A policy-enforcing containment-safe live projection or equivalent
+  mechanism remains optional post-v1 work. Raw direct bind is not an approved
+  Kodi Lab mechanism.

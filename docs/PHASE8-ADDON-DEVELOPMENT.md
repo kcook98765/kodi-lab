@@ -1,11 +1,35 @@
 # Phase 8 add-on development contract
 
 Phase 8 delivers the canonical add-on development workflows from
-`V1-SPEC.md`: ZIP installation, bind-mounted local development source,
-copy/sync local development source, repository URL testing, registered global
-sources, manual non-deleting sync, protected repository replacement, and known
-add-on inventory/provenance. Agent working copies remain Phase 9, and MCP
-development workflows remain Phase 12.
+`V1-SPEC.md`: uploaded-ZIP installation, explicit copy/sync local development,
+repository URL testing, registered global sources, manual non-deleting sync,
+protected repository replacement, and known add-on inventory/provenance. Agent
+working copies remain Phase 9, and MCP development workflows remain Phase 12.
+
+## Authoritative current state
+
+Complete:
+
+- DevelopmentSource catalog and validation core;
+- attachment core;
+- explicit changed/new-only, non-deleting copy/sync;
+- live inventory and bounded provenance;
+- immutable runtime bytecode policy;
+- DevelopmentSource enablement and smoke workflows; and
+- uploaded-ZIP import, installation, enablement, and smoke workflows.
+
+Remaining v1 work:
+
+1. administrator-facing DevelopmentSource registration;
+2. administrator-facing attach/detach;
+3. repository URL testing workflow;
+4. default repository-vs-attached-source collision protection; and
+5. explicit approved replacement/update override.
+
+Future/optional: a bind-like live-source workflow may be reconsidered after v1
+only through a containment-safe projection or equivalent policy-enforcing
+mechanism. **Raw direct Docker bind of mutable DevelopmentSource host paths is
+not an approved Kodi Lab mechanism.**
 
 ## Step 1 boundary
 
@@ -15,9 +39,10 @@ inside Kodi. It adds no broker request, Docker access, Web mutation, ZIP or
 repository workflow, Git interpretation, add-on inventory, watcher, operation
 history, deployment reconciliation, or compatibility policy.
 
-The only source kind is `local_directory`. ZIPs and repository URLs are separate
-future input workflows. A Git checkout has no special meaning and may later be
-registered only as an ordinary directory.
+The only DevelopmentSource kind is `local_directory`. Uploaded ZIPs are a
+separate implemented artifact workflow; repository URLs remain a separate v1
+input workflow. A Git checkout has no special meaning and may be registered
+only as an ordinary directory.
 
 ## Configuration and path authority
 
@@ -298,8 +323,8 @@ unchanged. Suppression prevents normal CPython imports from generating those
 new entries beneath a DevelopmentSource deployment. Pre-existing packaged or
 system bytecode elsewhere is unaffected, and an add-on that intentionally writes
 inside its installation directory remains incompatible with strict provenance.
-Bind-mounted sources may benefit from suppression, but bind-mount architecture
-has not yet been validated.
+A future containment-safe live projection may benefit from suppression, but it
+is optional post-v1 research rather than a Phase 8 completion requirement.
 
 ## Copied-add-on enablement
 
@@ -353,11 +378,12 @@ the POST revalidates all authority. The state ladder remains explicit:
 attached, materialized, recognized, enabled, dependencies generally unproven,
 working unproven, tested unproven.
 
-## Deferred Phase 8 work
+## Phase 8 completion boundary
 
-Bind-mounted sources, ZIP installation, repository URL testing, watchers,
-broader execution authority, disable/toggle, generic add-on enablement,
-dependency installation, and broader provenance remain separately gated.
+The authoritative remaining v1 list is above. Watchers, broader execution
+authority, disable/toggle, generic add-on enablement, dependency installation,
+broader provenance, and containment-safe live projection are outside the Phase
+8 v1 completion requirement.
 
 ## Copied-add-on execution and smoke testing
 
@@ -440,9 +466,9 @@ and reset stale current evidence without reconstructing artifact lineage.
 Inventory may say only `Prior verified ZIP install` for an exact retained
 identity match and does not claim fresh byte equality.
 
-Raw direct bind remains rejected. ZIP replacement/upgrade/rollback and
-ZIP-specific smoke, DevelopmentSource packaging, repository
-integration, and accepted-artifact cleanup remain separate gates.
+Raw direct bind remains rejected. ZIP replacement/upgrade/rollback,
+DevelopmentSource packaging, repository integration, and accepted-artifact
+cleanup remain separate gates.
 
 ## Uploaded-ZIP enablement first slice
 

@@ -463,10 +463,11 @@ observations. UUID, logical name, locator, and parsed add-on ID provide immutabl
 catalog identity while source content remains mutable. The schema is create/read
 only, and the conservative application DTO contains no host path.
 
-ManagedInstance attachment, deployment, copy/sync, bind mounts, ZIP installation,
-repository URL testing, Git semantics, add-on inventory, source watchers,
-history, reconciliation, broker/Docker capability, and Web mutation remain
-separately authorized future Phase 8 milestones.
+At the Step 1 checkpoint, ManagedInstance attachment, deployment, copy/sync,
+ZIP installation, repository URL testing, Git semantics, add-on inventory,
+source watchers, history, reconciliation, broker/Docker capability, and Web
+mutation remained separately authorized future Phase 8 milestones. The later
+raw-bind gate rejected direct mutable host-path binding.
 
 Phase 8 Step 2 adds only durable per-disposable-instance DevelopmentSource
 attachment. The many-to-many association is mode-neutral, preserves unique
@@ -480,8 +481,8 @@ Attach/detach are synchronous database-oriented configuration mutations under
 the existing per-instance lease and central reconciliation gate. Typed terminal
 history survives instance deletion and joins unified activity. No global-heavy
 lease, deployment state, broker/Docker source operation, Web mutation, copy,
-sync, bind mount, ZIP, repository URL, watcher, or persistent-instance workflow
-is introduced.
+sync, ZIP, repository URL, watcher, or persistent-instance workflow is
+introduced by Step 2.
 
 Phase 8 Step 3 adds only authenticated read-only source presentation. Global
 HTML and JSON list/detail routes use a path-free application projection with
@@ -527,9 +528,10 @@ destination evidence; external destination drift conflicts before apply.
 
 The strict authenticated empty-body POST returns 202 and no caller path,
 ownership, destination, archive, policy, restart, or override authority. Success
-proves filesystem materialization only. Kodi recognition/inventory, bind-mounted
-sources, ZIP installation, repositories, enablement, JSON-RPC, watchers, and
-MCP development authority remain future architecture milestones.
+proves filesystem materialization only. At the Step 4 checkpoint, Kodi
+recognition/inventory, ZIP installation, repositories, enablement, JSON-RPC,
+watchers, and MCP development authority remained future architecture milestones;
+direct mutable host-path binds were later rejected.
 
 Phase 8 Step 5 implements live Kodi-recognized add-on inventory. Authenticated
 `GET /api/instances/{instance_id}/addons` and the instance-detail Add-ons section
@@ -551,9 +553,9 @@ Kodi recognizes the same ID/version last successfully verified copied for the
 same source, instance, revision, and exact current container. This is presented
 only as a prior verified copy and never proves current bytes, installation,
 enablement, or function. Stale/unknown deployment confidence and every mismatch
-remain unknown. Fresh destination readback, Snapshot/repository provenance,
-durable observations, enable/disable, dependency installation, bind mounts, and
-ZIP installation remain separately gated.
+remain unknown. At the Step 5 checkpoint, fresh destination readback,
+Snapshot/repository provenance, durable observations, enable/disable, dependency
+installation, and ZIP installation remained separately gated.
 
 The approved Phase 8 runtime compatibility correction versions Python bytecode
 behavior as immutable execution-profile policy. Migration
@@ -572,8 +574,8 @@ presence/value or required absence. Historical instance and Snapshot pins do
 not move. The correction changes no DevelopmentSource manifest, destination
 readback, exclusion, replacement, or provenance rule. Normal Python imports on
 the new revisions can therefore coexist with strict Step 4 unchanged sync;
-intentional add-on writes remain conflicts. Bind-mounted-source benefit remains
-an unvalidated later architecture gate.
+intentional add-on writes remain conflicts. A containment-safe live-source
+projection is optional post-v1 research, not a Phase 8 completion requirement.
 
 Phase 8 copied-add-on enablement adds migration
 `0022_dev_source_enablement`, the typed synchronous
@@ -649,8 +651,8 @@ The approved uploaded-ZIP first slice is implemented after copied-add-on smoke:
 
 **ZIP installation here is Lab-controlled validated materialization, not Kodi's
 native Install-from-ZIP GUI/installer path.** Replacement, upgrade, enablement,
-smoke, packaging, repository integration, artifact deletion, and raw direct
-bind remain deferred. The next milestone requires a separate architecture gate.
+smoke, packaging, repository integration, and artifact deletion remain
+separately gated. Raw direct bind is rejected rather than deferred v1 work.
 
 The ZIP-specific enablement first slice follows installation with migration
 `0025_addon_zip_enablement`. Authority is exact ManagedInstance UUID plus
@@ -675,3 +677,19 @@ raw errors, JSON, or logs.
 plugin-directory invocation completed and the installed tree still exactly
 matched the immutable ZIP payload. It is not a general correctness or health
 guarantee.**
+
+At the current Phase 8 checkpoint, DevelopmentSource catalog/validation and
+attachment cores, explicit changed/new-only non-deleting copy/sync, inventory,
+bytecode policy, DevelopmentSource enablement/smoke, and uploaded-ZIP
+import/install/enable/smoke are implemented. Phase 8 is not complete. Canonical
+v1 work remains:
+
+1. administrator-facing DevelopmentSource registration;
+2. administrator-facing DevelopmentSource attach/detach;
+3. repository URL testing workflow;
+4. default repository-vs-attached-source collision protection; and
+5. explicit approved replacement/update override.
+
+Containment-safe live projection or equivalent bind-like behavior is optional
+post-v1 research and is not a completion blocker. Raw direct Docker bind of
+mutable DevelopmentSource host paths is not approved.

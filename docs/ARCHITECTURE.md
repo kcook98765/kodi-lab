@@ -551,10 +551,14 @@ restore, undelete, repair, retry, acknowledge, or finalization authority.
 
 ## Phase 8 local-directory development-source workflows
 
-Phase 8 as a whole owns ZIP installation, bind-mounted and copied/synced local
-development sources, repository URL testing, protected replacement behavior,
-and known add-on provenance. Step 1 implements only the global reusable source
-catalog required before any ManagedInstance association or deployment exists.
+Phase 8 as a whole owns uploaded-ZIP installation, copied/synced local
+DevelopmentSources, repository URL testing, protected replacement behavior,
+and known add-on provenance. The supported v1 DevelopmentSource flow is:
+registered source → attachment → explicit copy/sync materialization → inventory
+→ optional enablement → optional smoke test. Each transition has independent
+authority and evidence; no earlier state implies a later one. Step 1 implements
+only the global reusable source catalog required before any ManagedInstance
+association or deployment exists.
 
 `DevelopmentSource` is a create-only registration-time observation. Its UUID,
 logical name, `local_directory` kind, root-relative locator, parsed add-on ID,
@@ -683,9 +687,9 @@ new-pin selection prefers the higher suppression revision; existing instances
 and Snapshots retain their exact old pins. Normal embedded-Python imports on a
 suppression revision do not create `.pyc` or `__pycache__` beneath copied source,
 allowing a fresh unchanged Step 4 sync to retain exact provenance. Step 4 itself
-has no runtime-artifact exemption or destination-adoption rule. Bind-mounted
-DevelopmentSource workflows may benefit from the same policy, but that
-architecture remains unvalidated.
+has no runtime-artifact exemption or destination-adoption rule. Any future
+live-source projection may benefit from the same policy, but it is outside v1
+and requires a separate containment-safe design.
 
 Copied-add-on enablement is the next narrow Phase 8 slice. It binds one
 synchronous mutation to the exact ManagedInstance, attached DevelopmentSource,
@@ -870,4 +874,17 @@ both authenticated, same-origin and CSRF-protected with HTTP 202 status. Safe
 presentation omits upload filenames, archive members/content, internal paths,
 descriptor XML and digests. Accepted artifacts are retained; no browse,
 download, delete, enable, smoke, replacement, repository, or bind surface is
-introduced. Raw direct bind remains rejected.
+introduced.
+
+### Rejected raw-bind design evidence
+
+Raw direct Docker bind of mutable DevelopmentSource host paths is rejected, not
+an active Phase 8 implementation TODO. The completed architecture gate showed
+that Docker could re-resolve a replaced source-root path and expose outside-root
+content; late hardlinks could expose outside-root files; late Unix sockets could
+cross the intended host boundary; and VCS metadata became visible to Kodi,
+add-on code, and Snapshot capture. Post-provision container recreation also
+discarded writable-layer state. A read-only mount prevents container writes but
+does not contain host-side namespace mutation. A bind-like workflow may be
+revisited after v1 only through a policy-enforcing containment-safe projection
+or equivalent mechanism.
