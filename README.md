@@ -14,6 +14,14 @@ sessions, CSRF/origin protection, semantic lifecycle actions, and ephemeral
 readiness polling. Additional runtimes and broader product surfaces remain later
 work.
 
+Phase 8 also includes a narrow uploaded-ZIP first slice. An authenticated upload
+is validated into an immutable private artifact, then an asynchronous managed
+operation may install one absent Python video plugin on a healthy disposable
+suppression runtime. This is Lab-controlled validated filesystem
+materialization—not Kodi's native Install-from-ZIP installer. It performs no
+replacement, upgrade, enablement, execution, dependency/repository action, bind
+mount, or caller-directed filesystem/JSON-RPC operation.
+
 [`docs/V1-SPEC.md`](docs/V1-SPEC.md) is the authoritative v1 product and
 architecture specification. [`docs/PROJECT-HANDOFF.md`](docs/PROJECT-HANDOFF.md)
 records the development host host baseline and coexistence constraints for development.

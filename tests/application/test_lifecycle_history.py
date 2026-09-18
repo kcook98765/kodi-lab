@@ -270,6 +270,7 @@ def test_stale_lifecycle_with_transitional_observation_blocks_all_mutations(
         "development_source_deployment",
         "development_source_enablement",
         "development_source_smoke_test",
+        "addon_zip_installation",
     }
 
 

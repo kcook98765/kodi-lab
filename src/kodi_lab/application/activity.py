@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.domain import (
+    AddonZipInstallationOperationState,
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
     DevelopmentSourceDeploymentOperationState,
@@ -19,6 +20,7 @@ from kodi_lab.domain import (
     ManagedInstanceLifecycleKind,
 )
 from kodi_lab.storage.repositories import (
+    AddonZipInstallationOperationRepository,
     DevelopmentSourceAttachmentOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceEnablementOperationRepository,
@@ -34,6 +36,7 @@ from kodi_lab.storage.repositories import (
 
 
 class ManagedInstanceActivityKind(StrEnum):
+    ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
@@ -64,9 +67,11 @@ class ManagedInstanceActivityItem(BaseModel):
     development_source_attachment_kind: (
         DevelopmentSourceAttachmentOperationKind | None
     ) = None
+    addon_zip_artifact_uuid: UUID | None = None
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.ADDON_ZIP_INSTALLATION: 11,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_SMOKE_TEST: 10,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ENABLEMENT: 9,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_DEPLOYMENT: 8,
@@ -256,6 +261,34 @@ class ManagedInstanceActivityService:
                     state=smoke.state.value,
                     summary=summary,
                     reconciliation_required=smoke.reconciliation_required,
+                )
+            )
+        for installation in AddonZipInstallationOperationRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            if installation.state is AddonZipInstallationOperationState.SUCCEEDED:
+                summary = "Uploaded ZIP installed and recognized disabled"
+            elif (
+                installation.state
+                is AddonZipInstallationOperationState.RECONCILIATION_REQUIRED
+            ):
+                summary = "Uploaded ZIP installation requires reconciliation"
+            else:
+                summary = (
+                    f"Uploaded ZIP installation {_outcome(installation.state.value)}"
+                )
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.ADDON_ZIP_INSTALLATION,
+                    operation_uuid=installation.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=installation.requested_at,
+                    started_at=installation.started_at,
+                    completed_at=installation.completed_at,
+                    state=installation.state.value,
+                    summary=summary,
+                    reconciliation_required=installation.reconciliation_required,
+                    addon_zip_artifact_uuid=installation.artifact_id,
                 )
             )
         for lifecycle in ManagedInstanceLifecycleOperationRepository(

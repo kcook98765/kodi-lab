@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
 import stat
+import tarfile
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import IPv4Address, IPv4Network
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import IO, Literal, Protocol, cast
 from uuid import UUID
 
 import docker  # type: ignore[import-untyped]
@@ -22,6 +24,7 @@ from docker.errors import (  # type: ignore[import-untyped]
     NotFound,
 )
 
+from kodi_lab.broker.addon_zips import AddonZipInstallationSpec
 from kodi_lab.broker.development_sources import (
     DevelopmentSourceDeploymentSpec,
     DevelopmentSourceDestinationVerificationSpec,
@@ -32,6 +35,7 @@ from kodi_lab.broker.errors import (
     ContainerMustBeStoppedError,
     ContainerStateNotReconcilableError,
     ContainerStateNotStoppableError,
+    DockerAddonZipInstallationError,
     DockerCreateError,
     DockerDaemonUnavailableError,
     DockerDevelopmentSourceDeploymentError,
@@ -121,6 +125,7 @@ PYTHON_BYTECODE_SUPPRESS_ENV = f"{PYTHON_BYTECODE_ENV_KEY}=1"
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PRIVATE_DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+_FILE_READ_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
 _FIXED_LIST_FILTERS: Mapping[str, list[str]] = {
     "label": [f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}"]
 }
@@ -133,6 +138,32 @@ class ContainerRuntimeState(StrEnum):
     STOPPED = "stopped"
     TRANSITIONAL = "transitional"
     UNKNOWN = "unknown"
+
+
+class _ExactHashingReader:
+    """Hash exactly the bytes tar consumes from one immutable payload file."""
+
+    def __init__(self, raw: IO[bytes], expected_size: int) -> None:
+        self._raw = raw
+        self._remaining = expected_size
+        self._digest = hashlib.sha256()
+
+    def read(self, size: int = -1) -> bytes:
+        if self._remaining == 0:
+            return b""
+        bounded = self._remaining if size < 0 else min(size, self._remaining)
+        value = self._raw.read(bounded)
+        if not value:
+            raise OSError("immutable ZIP payload file changed")
+        self._remaining -= len(value)
+        self._digest.update(value)
+        return value
+
+    @property
+    def hexdigest(self) -> str:
+        if self._remaining:
+            raise OSError("immutable ZIP payload file changed")
+        return self._digest.hexdigest()
 
 
 class ContainerHealthState(StrEnum):
@@ -290,6 +321,27 @@ class VerifiedDevelopmentSourceDestinationRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class AddonZipDestinationRecord:
+    managed_instance_id: str
+    artifact_id: str
+    installation_operation_id: str
+    runtime_revision_id: str
+    container_id: str
+    state: Literal["absent", "exact_payload_present", "partial_or_unexpected"]
+    matched: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AppliedAddonZipInstallationRecord:
+    managed_instance_id: str
+    artifact_id: str
+    installation_operation_id: str
+    runtime_revision_id: str
+    container_id: str
+    matched: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _ReconciliationRecord:
     managed_instance_id: str
     container_id: str
@@ -397,6 +449,16 @@ class DevelopmentSourceDeploymentProvider(Protocol):
         expected_container_id: str,
     ) -> VerifiedDevelopmentSourceDestinationRecord:
         """Verify one server-derived destination against retained evidence."""
+
+
+class AddonZipInstallationProvider(Protocol):
+    def observe_addon_zip_destination(
+        self, *, spec: AddonZipInstallationSpec, expected_container_id: str
+    ) -> AddonZipDestinationRecord: ...
+
+    def apply_addon_zip_installation(
+        self, *, spec: AddonZipInstallationSpec, expected_container_id: str
+    ) -> AppliedAddonZipInstallationRecord: ...
 
 
 class _DockerClient(Protocol):
@@ -651,6 +713,351 @@ class DockerManagedContainerAdapter:
             if client is not None:
                 with suppress(DockerException, OSError):
                     client.close()
+
+    def observe_addon_zip_destination(
+        self, *, spec: AddonZipInstallationSpec, expected_container_id: str
+    ) -> AddonZipDestinationRecord:
+        """Classify only the server-derived destination on one exact container."""
+
+        client: _SnapshotDockerClient | None = None
+        try:
+            client = cast(_SnapshotDockerClient, self._client_factory())
+            selected_id, initial_state = self._select_zip_container(
+                client, spec=spec, expected_container_id=expected_container_id
+            )
+            try:
+                stream, _ = client.get_archive(
+                    selected_id, f"/home/kodi/.kodi/addons/{spec.addon_id}"
+                )
+            except NotFound:
+                state: Literal[
+                    "absent", "exact_payload_present", "partial_or_unexpected"
+                ] = "absent"
+                matched = False
+            else:
+                try:
+                    manifest = capture_destination_archive(
+                        cast(Iterable[bytes], stream),
+                        root_name=spec.addon_id,
+                        include_root=True,
+                    )
+                    matched = self._addon_zip_manifest_matches(spec, manifest)
+                    state = (
+                        "exact_payload_present" if matched else "partial_or_unexpected"
+                    )
+                except DevelopmentTreeError:
+                    state = "partial_or_unexpected"
+                    matched = False
+            final_id, final_state = self._select_zip_container(
+                client, spec=spec, expected_container_id=expected_container_id
+            )
+            if final_id != selected_id or final_state is not initial_state:
+                raise DockerAddonZipInstallationError(
+                    "addon_zip_container_drift",
+                    "Managed container changed during ZIP destination observation.",
+                )
+            return AddonZipDestinationRecord(
+                managed_instance_id=spec.managed_instance_id,
+                artifact_id=spec.artifact_id,
+                installation_operation_id=spec.installation_operation_id,
+                runtime_revision_id=spec.runtime_revision_id,
+                container_id=selected_id,
+                state=state,
+                matched=matched,
+            )
+        except DockerAddonZipInstallationError:
+            raise
+        except (APIError, DockerException, OSError) as error:
+            raise DockerAddonZipInstallationError(
+                "addon_zip_destination_observation_failed",
+                "ZIP destination could not be safely observed.",
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
+    def apply_addon_zip_installation(
+        self, *, spec: AddonZipInstallationSpec, expected_container_id: str
+    ) -> AppliedAddonZipInstallationRecord:
+        """Apply one normalized immutable payload to one absent stopped destination."""
+
+        client: _SnapshotDockerClient | None = None
+        apply_started = False
+        operation_stage = spec.staging_root / spec.installation_operation_id
+        archive_path = operation_stage / "payload.tar"
+        try:
+            if not spec.application_started:
+                raise DockerAddonZipInstallationError(
+                    "addon_zip_application_not_authorized",
+                    "ZIP application phase has not been durably recorded.",
+                )
+            parent_fd = os.open(spec.staging_root.parent, _PRIVATE_DIRECTORY_FLAGS)
+            try:
+                with suppress(FileExistsError):
+                    os.mkdir(spec.staging_root.name, 0o700, dir_fd=parent_fd)
+                staging_fd = os.open(
+                    spec.staging_root.name,
+                    _PRIVATE_DIRECTORY_FLAGS,
+                    dir_fd=parent_fd,
+                )
+            finally:
+                os.close(parent_fd)
+            try:
+                staging_metadata = os.fstat(staging_fd)
+                if (
+                    stat.S_IMODE(staging_metadata.st_mode) != 0o700
+                    or staging_metadata.st_uid != os.geteuid()
+                ):
+                    raise OSError("unsafe ZIP installation staging root")
+                os.mkdir(spec.installation_operation_id, 0o700, dir_fd=staging_fd)
+                operation_fd = os.open(
+                    spec.installation_operation_id,
+                    _PRIVATE_DIRECTORY_FLAGS,
+                    dir_fd=staging_fd,
+                )
+            finally:
+                os.close(staging_fd)
+            try:
+                archive_fd = os.open(
+                    "payload.tar",
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=operation_fd,
+                )
+            finally:
+                os.close(operation_fd)
+            client = cast(_SnapshotDockerClient, self._client_factory())
+            selected_id, state = self._select_zip_container(
+                client, spec=spec, expected_container_id=expected_container_id
+            )
+            if state is not ContainerRuntimeState.STOPPED:
+                raise ContainerMustBeStoppedError(
+                    "ZIP installation application requires a stopped container"
+                )
+            try:
+                client.get_archive(
+                    selected_id, f"/home/kodi/.kodi/addons/{spec.addon_id}"
+                )
+            except NotFound:
+                pass
+            else:
+                raise DockerAddonZipInstallationError(
+                    "addon_zip_destination_exists",
+                    "ZIP installation destination already exists.",
+                )
+            with (
+                os.fdopen(archive_fd, "w+b") as archive_file,
+                tarfile.open(
+                    fileobj=archive_file, mode="w", format=tarfile.PAX_FORMAT
+                ) as archive,
+            ):
+                root_name = f".kodi/addons/{spec.addon_id}"
+                root_info = tarfile.TarInfo(root_name)
+                root_info.type = tarfile.DIRTYPE
+                root_info.mode = 0o755
+                root_info.uid = spec.runtime_uid
+                root_info.gid = spec.runtime_gid
+                root_info.mtime = 0
+                archive.addfile(root_info)
+                for entry in spec.entries:
+                    member_name = f"{root_name}/{entry.path}"
+                    info = tarfile.TarInfo(member_name)
+                    info.mode = entry.mode
+                    info.uid = spec.runtime_uid
+                    info.gid = spec.runtime_gid
+                    info.mtime = 0
+                    if entry.entry_type == "directory":
+                        info.type = tarfile.DIRTYPE
+                        archive.addfile(info)
+                    else:
+                        info.size = entry.size
+                        source = spec.payload_root.joinpath(*entry.path.split("/"))
+                        fd = os.open(source, _FILE_READ_FLAGS)
+                        try:
+                            metadata = os.fstat(fd)
+                            if (
+                                not stat.S_ISREG(metadata.st_mode)
+                                or metadata.st_nlink != 1
+                                or stat.S_IMODE(metadata.st_mode) != 0o400
+                                or metadata.st_size != entry.size
+                            ):
+                                raise OSError("immutable ZIP payload file changed")
+                            with os.fdopen(fd, "rb", closefd=False) as payload:
+                                hashing_payload = _ExactHashingReader(
+                                    payload, entry.size
+                                )
+                                archive.addfile(info, hashing_payload)
+                                if hashing_payload.hexdigest != entry.sha256:
+                                    raise OSError(
+                                        "immutable ZIP payload digest changed"
+                                    )
+                        finally:
+                            os.close(fd)
+            apply_started = True
+            payload_fd = os.open(archive_path, _FILE_READ_FLAGS)
+            with os.fdopen(payload_fd, "rb") as payload_archive:
+                if (
+                    client.put_archive(selected_id, "/home/kodi", payload_archive)
+                    is not True
+                ):
+                    raise DockerAddonZipInstallationError(
+                        "addon_zip_apply_unverified",
+                        "Docker did not confirm ZIP payload application.",
+                        reconciliation_required=True,
+                    )
+            stream, _ = client.get_archive(
+                selected_id, f"/home/kodi/.kodi/addons/{spec.addon_id}"
+            )
+            observed = capture_destination_archive(
+                cast(Iterable[bytes], stream),
+                root_name=spec.addon_id,
+                include_root=True,
+            )
+            if not self._addon_zip_manifest_matches(spec, observed):
+                raise DockerAddonZipInstallationError(
+                    "addon_zip_readback_mismatch",
+                    "Stopped ZIP destination readback did not match the payload.",
+                    reconciliation_required=True,
+                )
+            final_id, final_state = self._select_zip_container(
+                client, spec=spec, expected_container_id=expected_container_id
+            )
+            if (
+                final_id != selected_id
+                or final_state is not ContainerRuntimeState.STOPPED
+            ):
+                raise DockerAddonZipInstallationError(
+                    "addon_zip_post_apply_drift",
+                    "Container identity changed after ZIP payload application.",
+                    reconciliation_required=True,
+                )
+            return AppliedAddonZipInstallationRecord(
+                managed_instance_id=spec.managed_instance_id,
+                artifact_id=spec.artifact_id,
+                installation_operation_id=spec.installation_operation_id,
+                runtime_revision_id=spec.runtime_revision_id,
+                container_id=selected_id,
+                matched=True,
+            )
+        except DockerAddonZipInstallationError:
+            raise
+        except (
+            APIError,
+            DockerException,
+            OSError,
+            DevelopmentTreeError,
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ) as error:
+            raise DockerAddonZipInstallationError(
+                (
+                    "addon_zip_reconciliation_required"
+                    if apply_started
+                    else "addon_zip_application_failed"
+                ),
+                "ZIP payload application could not be completed safely.",
+                reconciliation_required=apply_started,
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+            if operation_stage.parent == spec.staging_root:
+                with suppress(OSError):
+                    shutil.rmtree(operation_stage)
+
+    def _select_zip_container(
+        self,
+        client: _SnapshotDockerClient,
+        *,
+        spec: AddonZipInstallationSpec,
+        expected_container_id: str,
+    ) -> tuple[str, ContainerRuntimeState]:
+        summaries = client.containers(
+            all=True,
+            filters={
+                "label": [
+                    f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                    f"{INSTANCE_ID_LABEL_KEY}={spec.managed_instance_id}",
+                ]
+            },
+        )
+        if not isinstance(summaries, list) or not summaries:
+            raise ManagedContainerNotFoundError("Managed ZIP target is absent")
+        if len(summaries) != 1:
+            raise AmbiguousManagedContainerError("Managed ZIP target is ambiguous")
+        selected_id = _require_container_id(_require_mapping(summaries[0]).get("Id"))
+        inspected = _require_mapping(client.inspect_container(selected_id))
+        if selected_id != expected_container_id:
+            raise ContainerIdentityPreconditionError("Managed ZIP target changed")
+        config = _require_mapping(inspected.get("Config"))
+        expected_name = f"/kodi-lab-managed-{UUID(spec.managed_instance_id).hex}"
+        if inspected.get("Name") != expected_name:
+            raise InvalidManagedContainerMetadataError(
+                "Managed ZIP target name is invalid"
+            )
+        _validate_profile_bytecode_environment(
+            config.get("Env"), PythonBytecodePolicy.SUPPRESS
+        )
+        labels = _require_mapping(config.get("Labels"))
+        if (
+            labels.get(MANAGED_LABEL_KEY) != MANAGED_LABEL_VALUE
+            or labels.get(INSTANCE_ID_LABEL_KEY) != spec.managed_instance_id
+        ):
+            raise InvalidManagedContainerMetadataError(
+                "Managed ZIP target ownership is invalid"
+            )
+        if labels.get(RUNTIME_REVISION_LABEL_KEY) != spec.runtime_revision_id:
+            raise RuntimeRevisionPreconditionError(
+                "Managed ZIP target revision changed"
+            )
+        state = normalize_runtime_state(
+            _require_mapping(inspected.get("State")).get("Status")
+        )
+        if state not in {ContainerRuntimeState.RUNNING, ContainerRuntimeState.STOPPED}:
+            raise DockerAddonZipInstallationError(
+                "addon_zip_container_state_invalid",
+                "Managed ZIP target is not in a stable runtime state.",
+            )
+        return selected_id, state
+
+    @staticmethod
+    def _addon_zip_manifest_matches(
+        spec: AddonZipInstallationSpec, observed: object
+    ) -> bool:
+        if not hasattr(observed, "by_path"):
+            return False
+        actual = observed.by_path()
+        expected = {entry.path: entry for entry in spec.entries}
+        root = actual.pop(".", None)
+        if (
+            root is None
+            or root.entry_type != "directory"
+            or root.mode != 0o755
+            or root.size != 0
+            or root.sha256 is not None
+            or root.uid != spec.runtime_uid
+            or root.gid != spec.runtime_gid
+        ):
+            return False
+        if set(actual) != set(expected):
+            return False
+        for path, entry in expected.items():
+            item = actual[path]
+            if (
+                item.entry_type != entry.entry_type
+                or item.mode != entry.mode
+                or item.size != entry.size
+                or item.sha256 != entry.sha256
+                or item.uid != spec.runtime_uid
+                or item.gid != spec.runtime_gid
+            ):
+                return False
+        return True
 
     def provision_managed_container(
         self, spec: ManagedContainerProvisioningSpec

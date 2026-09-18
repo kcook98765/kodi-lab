@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Uploaded ZIPs · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>Uploaded ZIPs</h1>
+      <p class="secondary">Accepted immutable uploaded ZIP artifacts. Installation is Lab-controlled validated materialization, not Kodi's native Install-from-ZIP path.</p>
+      <form id="addon-zip-upload" data-csrf-token="{{ csrf_token }}">
+        <label>Logical label <input name="logical_label" required maxlength="256"></label>
+        <label>ZIP <input name="zip" type="file" accept=".zip,application/zip" required></label>
+        <button type="submit">Validate upload</button>
+        <p id="addon-zip-upload-status" class="secondary" role="status"></p>
+      </form>
+      {% for artifact in artifacts %}
+      <article data-addon-zip-artifact-id="{{ artifact.artifact_id }}">
+        <h2>{{ artifact.logical_label }}</h2>
+        <dl>
+          <dt>Add-on ID</dt><dd>{{ artifact.addon_id }}</dd>
+          <dt>Name</dt><dd>{{ artifact.addon_name }}</dd>
+          <dt>Version</dt><dd>{{ artifact.addon_version }}</dd>
+          <dt>Compressed size</dt><dd>{{ artifact.compressed_size }} bytes</dd>
+          <dt>Uncompressed size</dt><dd>{{ artifact.total_uncompressed_bytes }} bytes</dd>
+          <dt>Entries</dt><dd>{{ artifact.member_count }}</dd>
+          <dt>Origin</dt><dd>Uploaded ZIP</dd>
+          <dt>Validation</dt><dd>{{ artifact.validation_state }}</dd>
+          <dt>Latest installation</dt><dd>{% if artifact.latest_installation_state %}{{ artifact.latest_installation_state }} / {{ artifact.latest_installation_phase }}{% else %}Never requested{% endif %}</dd>
+        </dl>
+      </article>
+      {% else %}<p>No uploaded ZIP artifacts have been accepted.</p>{% endfor %}
+      <p><a href="/">Back to dashboard</a></p>
+    </main>
+    <script src="{{ url_for('static', path='/addon-zip-upload.js') }}" defer></script>
+  </body>
+</html>

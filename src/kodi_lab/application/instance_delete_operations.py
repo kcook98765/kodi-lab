@@ -34,6 +34,8 @@ from kodi_lab.domain import (
 )
 from kodi_lab.snapshot.storage import snapshot_artifact_presence
 from kodi_lab.storage.repositories import (
+    AddonZipInstallationEvidenceRepository,
+    AddonZipInstallationOperationRepository,
     DevelopmentSourceAttachmentOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
@@ -487,6 +489,12 @@ class ManagedInstanceDeleteOperationCoordinator:
                 lease.managed_instance_id
             )
             DevelopmentSourceSmokeTestOperationRepository(session).clear_live_instance(
+                lease.managed_instance_id
+            )
+            AddonZipInstallationEvidenceRepository(session).delete_for_instance(
+                lease.managed_instance_id
+            )
+            AddonZipInstallationOperationRepository(session).clear_live_instance(
                 lease.managed_instance_id
             )
             if not instances.delete(lease.managed_instance_id):

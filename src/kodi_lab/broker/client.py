@@ -57,6 +57,9 @@ from kodi_lab.broker.errors import (
     TruncatedFrameError,
 )
 from kodi_lab.broker.operations import (
+    AddonZipDestinationResult,
+    AddonZipInstallationParams,
+    ApplyAddonZipInstallationResult,
     ApplyAssignedFixtureParams,
     ApplyAssignedFixtureResult,
     ApplyManagedInstanceSnapshotParams,
@@ -500,6 +503,83 @@ class BrokerClient:
         ):
             raise ClientProtocolError(
                 "development-source destination verification identity differs"
+            )
+        return result
+
+    def observe_addon_zip_destination(
+        self,
+        *,
+        managed_instance_id: str,
+        artifact_id: str,
+        installation_operation_id: str,
+        expected_container_id: str,
+    ) -> AddonZipDestinationResult:
+        """Observe only one broker-resolved ZIP installation destination."""
+
+        try:
+            params = AddonZipInstallationParams(
+                managed_instance_id=managed_instance_id,
+                artifact_id=artifact_id,
+                installation_operation_id=installation_operation_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "uploaded-ZIP destination request failed local validation"
+            ) from error
+        result = self._call(
+            "observe_addon_zip_destination",
+            params,
+            AddonZipDestinationResult,
+            response_timeout=60.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.artifact_id != artifact_id
+            or result.installation_operation_id != installation_operation_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "uploaded-ZIP destination result identity differs"
+            )
+        return result
+
+    def apply_addon_zip_installation(
+        self,
+        *,
+        managed_instance_id: str,
+        artifact_id: str,
+        installation_operation_id: str,
+        expected_container_id: str,
+    ) -> ApplyAddonZipInstallationResult:
+        """Apply only one broker-resolved immutable normalized ZIP payload."""
+
+        try:
+            params = AddonZipInstallationParams(
+                managed_instance_id=managed_instance_id,
+                artifact_id=artifact_id,
+                installation_operation_id=installation_operation_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "uploaded-ZIP installation request failed local validation"
+            ) from error
+        result = self._call(
+            "apply_addon_zip_installation",
+            params,
+            ApplyAddonZipInstallationResult,
+            response_timeout=900.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.artifact_id != artifact_id
+            or result.installation_operation_id != installation_operation_id
+            or result.container_id != expected_container_id
+            or not result.matched
+        ):
+            raise ClientProtocolError(
+                "uploaded-ZIP installation result identity differs"
             )
         return result
 

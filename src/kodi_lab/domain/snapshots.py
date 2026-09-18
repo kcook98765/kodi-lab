@@ -126,6 +126,7 @@ class ManagedInstanceMutationKind(StrEnum):
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
+    ADDON_ZIP_INSTALLATION = "addon_zip_installation"
 
 
 class GlobalHeavyOperationKind(StrEnum):
@@ -134,6 +135,8 @@ class GlobalHeavyOperationKind(StrEnum):
     SNAPSHOT_DELETE = "snapshot_delete"
     INSTANCE_DELETE = "instance_delete"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
+    ADDON_ZIP_IMPORT = "addon_zip_import"
+    ADDON_ZIP_INSTALLATION = "addon_zip_installation"
 
 
 def normalize_snapshot_label(value: str | None) -> str | None:

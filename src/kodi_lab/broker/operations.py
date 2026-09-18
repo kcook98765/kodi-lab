@@ -10,6 +10,10 @@ from typing import Literal, TypeVar, cast
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from kodi_lab import __version__
+from kodi_lab.broker.addon_zips import (
+    AddonZipInstallationStateError,
+    SqliteAddonZipInstallationResolver,
+)
 from kodi_lab.broker.development_sources import (
     DevelopmentSourceDeploymentResolver,
     DevelopmentSourceDeploymentStateError,
@@ -17,6 +21,7 @@ from kodi_lab.broker.development_sources import (
 )
 from kodi_lab.broker.docker_inventory import (
     MAX_MANAGED_CONTAINERS,
+    AddonZipInstallationProvider,
     AppliedAssignedFixtureRecord,
     AssignedFixtureApplicationProvider,
     ContainerHealthState,
@@ -40,6 +45,7 @@ from kodi_lab.broker.errors import (
     ContainerMustBeStoppedError,
     ContainerStateNotReconcilableError,
     ContainerStateNotStoppableError,
+    DockerAddonZipInstallationError,
     DockerCreateError,
     DockerDaemonUnavailableError,
     DockerDevelopmentSourceDeploymentError,
@@ -712,6 +718,69 @@ class VerifyAttachedDevelopmentSourceDestinationResult(StrictModel):
         return value
 
 
+class AddonZipInstallationParams(StrictModel):
+    """Only installation, artifact, operation, and immutable container identity."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    artifact_id: str = Field(min_length=36, max_length=36)
+    installation_operation_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("managed_instance_id", "artifact_id", "installation_operation_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class AddonZipDestinationResult(StrictModel):
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    artifact_id: str = Field(min_length=36, max_length=36)
+    installation_operation_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    destination_state: Literal[
+        "absent", "exact_payload_present", "partial_or_unexpected"
+    ]
+    matched: bool
+
+    @field_validator(
+        "managed_instance_id",
+        "artifact_id",
+        "installation_operation_id",
+        "runtime_revision_id",
+    )
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class ApplyAddonZipInstallationResult(StrictModel):
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    artifact_id: str = Field(min_length=36, max_length=36)
+    installation_operation_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    matched: Literal[True]
+
+    @field_validator(
+        "managed_instance_id",
+        "artifact_id",
+        "installation_operation_id",
+        "runtime_revision_id",
+    )
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 type OperationHandler = Callable[[BaseModel], BaseModel]
 type OperationAuditBuilder = Callable[[BaseModel], dict[str, object]]
 
@@ -858,6 +927,8 @@ def build_foundation_registry(
     development_source_deployment_provider: (
         DevelopmentSourceDeploymentProvider | None
     ) = None,
+    addon_zip_installation_resolver: SqliteAddonZipInstallationResolver | None = None,
+    addon_zip_installation_provider: AddonZipInstallationProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -909,6 +980,13 @@ def build_foundation_registry(
     )
     deployment_provider = development_source_deployment_provider or cast(
         DevelopmentSourceDeploymentProvider, provider
+    )
+    zip_resolver = (
+        addon_zip_installation_resolver
+        or SqliteAddonZipInstallationResolver.production()
+    )
+    zip_provider = addon_zip_installation_provider or cast(
+        AddonZipInstallationProvider, provider
     )
     registry.register(
         name="ping",
@@ -2153,6 +2231,139 @@ def build_foundation_registry(
             "broker_managed_instance_id": result.managed_instance_id,
             "broker_development_source_id": result.development_source_id,
             "broker_destination_matched": result.matched,
+        },
+    )
+
+    def observe_addon_zip_destination(
+        params: AddonZipInstallationParams,
+    ) -> AddonZipDestinationResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_addon_zip_artifact_id": params.artifact_id,
+            "broker_addon_zip_operation_id": params.installation_operation_id,
+        }
+        try:
+            spec = zip_resolver.resolve_observation(
+                params.managed_instance_id,
+                params.artifact_id,
+                params.installation_operation_id,
+                params.expected_container_id,
+            )
+            outcome = zip_provider.observe_addon_zip_destination(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except AddonZipInstallationStateError as error:
+            raise OperationError(
+                error.code,
+                "Canonical uploaded-ZIP installation state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerAddonZipInstallationError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            DockerDaemonUnavailableError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ) as error:
+            raise OperationError(
+                "addon_zip_destination_observation_failed",
+                "ZIP destination could not be safely observed.",
+                audit_fields=audit_fields,
+            ) from error
+        return AddonZipDestinationResult(
+            managed_instance_id=outcome.managed_instance_id,
+            artifact_id=outcome.artifact_id,
+            installation_operation_id=outcome.installation_operation_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            destination_state=outcome.state,
+            matched=outcome.matched,
+        )
+
+    registry.register(
+        name="observe_addon_zip_destination",
+        params_model=AddonZipInstallationParams,
+        result_model=AddonZipDestinationResult,
+        handler=observe_addon_zip_destination,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_addon_zip_artifact_id": result.artifact_id,
+            "broker_addon_zip_operation_id": result.installation_operation_id,
+            "broker_addon_zip_destination_state": result.destination_state,
+            "broker_addon_zip_destination_matched": result.matched,
+        },
+    )
+
+    def apply_addon_zip_installation(
+        params: AddonZipInstallationParams,
+    ) -> ApplyAddonZipInstallationResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_addon_zip_artifact_id": params.artifact_id,
+            "broker_addon_zip_operation_id": params.installation_operation_id,
+        }
+        try:
+            spec = zip_resolver.resolve(
+                params.managed_instance_id,
+                params.artifact_id,
+                params.installation_operation_id,
+                params.expected_container_id,
+            )
+            outcome = zip_provider.apply_addon_zip_installation(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except AddonZipInstallationStateError as error:
+            raise OperationError(
+                error.code,
+                "Canonical uploaded-ZIP installation state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerAddonZipInstallationError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            DockerDaemonUnavailableError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ) as error:
+            raise OperationError(
+                "addon_zip_application_failed",
+                "ZIP payload application could not be completed safely.",
+                audit_fields=audit_fields,
+            ) from error
+        if not outcome.matched:
+            raise RuntimeError("ZIP installation adapter returned an unverified result")
+        return ApplyAddonZipInstallationResult(
+            managed_instance_id=outcome.managed_instance_id,
+            artifact_id=outcome.artifact_id,
+            installation_operation_id=outcome.installation_operation_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            matched=True,
+        )
+
+    registry.register(
+        name="apply_addon_zip_installation",
+        params_model=AddonZipInstallationParams,
+        result_model=ApplyAddonZipInstallationResult,
+        handler=apply_addon_zip_installation,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_addon_zip_artifact_id": result.artifact_id,
+            "broker_addon_zip_operation_id": result.installation_operation_id,
+            "broker_addon_zip_matched": result.matched,
         },
     )
     return registry

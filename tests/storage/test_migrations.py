@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from alembic import command
@@ -35,6 +36,10 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
+        "addon_zip_artifacts",
+        "addon_zip_import_operations",
+        "addon_zip_installation_evidence",
+        "addon_zip_installation_operations",
         "alembic_version",
         "development_source_attachment_operations",
         "development_source_deployment_operations",
@@ -2612,5 +2617,60 @@ def test_0023_populated_smoke_history_refuses_lossy_downgrade(
                 text("SELECT COUNT(*) FROM development_source_smoke_test_operations")
             )
             == 1
+        )
+    engine.dispose()
+
+
+def test_0024_uploaded_zip_schema_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0024_addon_zip_installation"
+        )
+    engine.dispose()
+
+    command.downgrade(config, "0023_dev_source_smoke_test")
+    command.upgrade(config, "head")
+
+
+def test_0024_populated_uploaded_zip_state_refuses_lossy_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    artifact_id = str(uuid4())
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO addon_zip_artifacts "
+                "(id, logical_label, sha256_digest, compressed_size, "
+                "total_uncompressed_bytes, member_count, addon_id, addon_name, "
+                "addon_version, extension_classification, dependencies_json, "
+                "payload_manifest_digest, imported_at, origin, validation_state) "
+                "VALUES (:id, 'ZIP fixture', :digest, 100, 200, 2, "
+                "'plugin.video.test', 'Test', '1.0.0', 'python_video_plugin', "
+                "'[]', :manifest, :imported, 'uploaded_zip', 'accepted')"
+            ),
+            {
+                "id": artifact_id,
+                "digest": "sha256:" + "1" * 64,
+                "manifest": "sha256:" + "2" * 64,
+                "imported": "2026-09-17T12:00:00+00:00",
+            },
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated uploaded-ZIP"):
+        command.downgrade(config, "0023_dev_source_smoke_test")
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        assert (
+            connection.scalar(text("SELECT id FROM addon_zip_artifacts")) == artifact_id
         )
     engine.dispose()

@@ -5,19 +5,21 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, StrictBool
+from python_multipart.multipart import MultipartParser, parse_options_header
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -30,6 +32,27 @@ from kodi_lab.application.addon_inventory import (
     InventoryAdapterFactory,
     ManagedInstanceAddonInventory,
     ManagedInstanceAddonInventoryService,
+)
+from kodi_lab.application.addon_zip_imports import (
+    AddonZipImportConflictError,
+    AddonZipImportCoordinator,
+    AddonZipImportExecutor,
+)
+from kodi_lab.application.addon_zip_installations import (
+    AddonZipInstallationCoordinator,
+    AddonZipInstallationError,
+    AddonZipInstallationExecutor,
+    AddonZipInstallationService,
+    AddonZipInstallationServiceFactory,
+    AddonZipInstallationStatus,
+)
+from kodi_lab.application.addon_zip_installations import (
+    ReadinessCoordinatorFactory as AddonZipReadinessCoordinatorFactory,
+)
+from kodi_lab.application.addon_zip_presentation import (
+    AddonZipArtifactSummary,
+    AddonZipImportStatus,
+    AddonZipPresentationService,
 )
 from kodi_lab.application.development_source_deployments import (
     DevelopmentSourceDeploymentConflictError,
@@ -178,11 +201,20 @@ from kodi_lab.broker.errors import (
     RemoteBrokerError,
 )
 from kodi_lab.config import Settings
-from kodi_lab.development import DevelopmentSourceValidator
+from kodi_lab.development import (
+    MAX_COMPRESSED_BYTES,
+    AddonZipValidationError,
+    DevelopmentSourceValidator,
+    create_upload_stage,
+    finish_upload_stage,
+    remove_upload_stage,
+    write_upload_chunk,
+)
 from kodi_lab.domain import (
     ManagedInstanceDeleteOperationState,
     SnapshotSourceBinding,
     SnapshotState,
+    normalize_development_source_logical_name,
 )
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
@@ -214,6 +246,20 @@ class DevelopmentSourceSmokeTestAccepted(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operation: DevelopmentSourceSmokeTestStatus
+    status_url: str
+
+
+class AddonZipImportAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: AddonZipImportStatus
+    status_url: str
+
+
+class AddonZipInstallationAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: AddonZipInstallationStatus
     status_url: str
 
 
@@ -307,6 +353,11 @@ class WebApplicationContext:
         DevelopmentSourceSmokeTestOperationCoordinator
     )
     development_source_smoke_test_executor: DevelopmentSourceSmokeTestExecutor
+    addon_zips: AddonZipPresentationService
+    addon_zip_imports: AddonZipImportCoordinator
+    addon_zip_import_executor: AddonZipImportExecutor
+    addon_zip_installations: AddonZipInstallationCoordinator
+    addon_zip_installation_executor: AddonZipInstallationExecutor
 
 
 def create_app(
@@ -333,13 +384,20 @@ def create_app(
     development_source_smoke_test_service_factory: (
         DevelopmentSourceSmokeTestServiceFactory | None
     ) = None,
+    addon_zip_installation_service_factory: (
+        AddonZipInstallationServiceFactory | None
+    ) = None,
+    addon_zip_readiness_factory: AddonZipReadinessCoordinatorFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
     task_registry = readiness or ReadinessTaskRegistry()
     reset_registry = reset_activity or ResetActivityRegistry()
     stale_dispatcher = StaleOperationReconciliationDispatcher(
-        session_factory, broker=broker, readiness=task_registry
+        session_factory,
+        broker=broker,
+        readiness=task_registry,
+        data_root=settings.data_root,
     )
     reconciliation = ManagedInstanceReconciliationService(
         session_factory,
@@ -506,6 +564,31 @@ def create_app(
         development_source_smoke_test_operations,
         development_source_smoke_test_factory,
     )
+    addon_zips = AddonZipPresentationService(session_factory)
+    addon_zip_imports = AddonZipImportCoordinator(
+        session_factory,
+        data_root=settings.data_root,
+        stale_dispatcher=stale_dispatcher,
+    )
+    addon_zip_import_executor = AddonZipImportExecutor(addon_zip_imports)
+    addon_zip_installations = AddonZipInstallationCoordinator(
+        session_factory,
+        stale_dispatcher=stale_dispatcher,
+        reconciliation=reconciliation,
+    )
+    addon_zip_installation_factory = addon_zip_installation_service_factory or (
+        lambda lease: AddonZipInstallationService(
+            session_factory,
+            broker,
+            addon_zip_installations,
+            lease,
+            inventory_adapter_factory=addon_inventory_adapter_factory,
+            readiness_factory=addon_zip_readiness_factory or KodiReadinessCoordinator,
+        )
+    )
+    addon_zip_installation_executor = AddonZipInstallationExecutor(
+        addon_zip_installations, addon_zip_installation_factory
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -568,6 +651,11 @@ def create_app(
             development_source_smoke_test_operations
         ),
         development_source_smoke_test_executor=(development_source_smoke_test_executor),
+        addon_zips=addon_zips,
+        addon_zip_imports=addon_zip_imports,
+        addon_zip_import_executor=addon_zip_import_executor,
+        addon_zip_installations=addon_zip_installations,
+        addon_zip_installation_executor=addon_zip_installation_executor,
     )
 
     @asynccontextmanager
@@ -580,6 +668,8 @@ def create_app(
         context.instance_delete_executor.start()
         context.development_source_deployment_executor.start()
         context.development_source_smoke_test_executor.start()
+        context.addon_zip_import_executor.start()
+        context.addon_zip_installation_executor.start()
         try:
             yield
         finally:
@@ -590,6 +680,8 @@ def create_app(
             context.instance_delete_executor.close()
             context.development_source_deployment_executor.close()
             context.development_source_smoke_test_executor.close()
+            context.addon_zip_import_executor.close()
+            context.addon_zip_installation_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -699,6 +791,24 @@ def create_app(
     @app.exception_handler(DevelopmentSourceSmokeTestError)
     async def development_source_smoke_test_failed(
         _request: Request, error: DevelopmentSourceSmokeTestError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(AddonZipImportConflictError)
+    async def addon_zip_import_conflict(
+        _request: Request, error: AddonZipImportConflictError
+    ) -> JSONResponse:
+        return _json_error(409, "addon_zip_import_conflict", str(error)[:256])
+
+    @app.exception_handler(AddonZipValidationError)
+    async def addon_zip_upload_invalid(
+        _request: Request, error: AddonZipValidationError
+    ) -> JSONResponse:
+        return _json_error(422, error.code, error.safe_message)
+
+    @app.exception_handler(AddonZipInstallationError)
+    async def addon_zip_installation_failed(
+        _request: Request, error: AddonZipInstallationError
     ) -> JSONResponse:
         return _json_error(409, error.code, str(error)[:256])
 
@@ -987,6 +1097,21 @@ def create_app(
             request,
             "development-source-detail.html",
             {"detail": context.development_sources.get_source(source_id)},
+        )
+
+    @app.get("/addon-zips", response_class=HTMLResponse)
+    async def addon_zip_list_page(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "addon-zips.html",
+            {
+                "artifacts": context.addon_zips.list_artifacts(),
+                "csrf_token": authenticated.csrf_token,
+            },
         )
 
     @app.get("/instances/{instance_id}", response_class=HTMLResponse)
@@ -1307,6 +1432,45 @@ def create_app(
     ) -> list[DevelopmentSourceSummary]:
         return context.development_sources.list_sources()
 
+    @app.get("/api/addon-zips", response_model=list[AddonZipArtifactSummary])
+    def list_addon_zips(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AddonZipArtifactSummary]:
+        return context.addon_zips.list_artifacts()
+
+    @app.get(
+        "/api/addon-zip-import-operations/{operation_id}",
+        response_model=AddonZipImportStatus,
+    )
+    def addon_zip_import_operation(
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AddonZipImportStatus:
+        operation = context.addon_zip_imports.get(operation_id)
+        if operation is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        return context.addon_zips.import_status(operation)
+
+    @app.post(
+        "/api/addon-zips",
+        response_model=AddonZipImportAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def upload_addon_zip(
+        request: Request,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonZipImportAccepted:
+        artifact_id = uuid4()
+        logical_label = await _stream_addon_zip_multipart(
+            request, settings.data_root, artifact_id
+        )
+        operation = context.addon_zip_imports.queue(artifact_id, logical_label)
+        context.addon_zip_import_executor.submit(operation.id)
+        return AddonZipImportAccepted(
+            operation=context.addon_zips.import_status(operation),
+            status_url=f"/api/addon-zip-import-operations/{operation.id}",
+        )
+
     @app.get(
         "/api/development-sources/{source_id}",
         response_model=DevelopmentSourceDetail,
@@ -1383,6 +1547,39 @@ def create_app(
         return DevelopmentSourceDeploymentAccepted(
             operation=operation, status_url=status_url
         )
+
+    @app.get(
+        "/api/instances/{instance_id}/addon-zip-installation-operations/{operation_id}",
+        response_model=AddonZipInstallationStatus,
+    )
+    def addon_zip_installation_operation(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AddonZipInstallationStatus:
+        operation = context.addon_zip_installations.get(operation_id)
+        if operation is None or operation.original_managed_instance_id != instance_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        return context.addon_zip_installations.to_status(operation)
+
+    @app.post(
+        "/api/instances/{instance_id}/addon-zips/{artifact_id}/install",
+        response_model=AddonZipInstallationAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def install_addon_zip(
+        instance_id: UUID,
+        artifact_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonZipInstallationAccepted:
+        operation = context.addon_zip_installations.queue(instance_id, artifact_id)
+        context.addon_zip_installation_executor.submit(operation.operation_id)
+        status_url = (
+            f"/api/instances/{instance_id}/addon-zip-installation-operations/"
+            f"{operation.operation_id}"
+        )
+        return AddonZipInstallationAccepted(operation=operation, status_url=status_url)
 
     @app.post(
         "/api/instances/{instance_id}/development-sources/{source_id}/enable",
@@ -1751,6 +1948,162 @@ def _require_same_origin(request: Request) -> None:
 
 def _selection_bool(value: Literal["false", "true"]) -> bool:
     return value == "true"
+
+
+async def _stream_addon_zip_multipart(
+    request: Request, data_root: Path, artifact_id: UUID
+) -> str:
+    """Stream exactly one ZIP part into UUID staging; never retain its filename."""
+
+    media_type, options = parse_options_header(request.headers.get("content-type"))
+    boundary = options.get(b"boundary")
+    if (
+        media_type != b"multipart/form-data"
+        or boundary is None
+        or not 1 <= len(boundary) <= 200
+    ):
+        raise AddonZipValidationError(
+            "addon_zip_multipart_invalid",
+            "A bounded multipart ZIP upload is required.",
+        )
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > MAX_COMPRESSED_BYTES + 1024 * 1024:
+                raise AddonZipValidationError(
+                    "addon_zip_compressed_size_exceeded",
+                    "Uploaded ZIP exceeds the 256 MiB compressed limit.",
+                )
+        except ValueError as error:
+            raise AddonZipValidationError(
+                "addon_zip_multipart_invalid", "Multipart length is invalid."
+            ) from error
+
+    fd, _path = create_upload_stage(data_root, artifact_id)
+    current_header_name = bytearray()
+    current_header_value = bytearray()
+    headers: dict[bytes, bytes] = {}
+    current_part: str | None = None
+    zip_parts = 0
+    label_parts = 0
+    zip_bytes = 0
+    label_bytes = bytearray()
+    complete = False
+
+    def part_begin() -> None:
+        nonlocal current_part
+        current_part = None
+        headers.clear()
+
+    def header_begin() -> None:
+        current_header_name.clear()
+        current_header_value.clear()
+
+    def header_field(data: bytes, start: int, end: int) -> None:
+        current_header_name.extend(data[start:end])
+
+    def header_value(data: bytes, start: int, end: int) -> None:
+        current_header_value.extend(data[start:end])
+
+    def header_end() -> None:
+        name = bytes(current_header_name).lower()
+        if name in headers:
+            raise AddonZipValidationError(
+                "addon_zip_multipart_invalid", "Duplicate multipart header."
+            )
+        headers[name] = bytes(current_header_value)
+
+    def headers_finished() -> None:
+        nonlocal current_part, label_parts, zip_parts
+        disposition = headers.get(b"content-disposition")
+        disposition_type, disposition_options = parse_options_header(disposition)
+        if disposition_type != b"form-data":
+            raise AddonZipValidationError(
+                "addon_zip_multipart_invalid",
+                "Multipart content disposition is invalid.",
+            )
+        raw_name = disposition_options.get(b"name")
+        if raw_name == b"zip":
+            zip_parts += 1
+            current_part = "zip"
+        elif raw_name == b"logical_label":
+            label_parts += 1
+            current_part = "logical_label"
+        else:
+            raise AddonZipValidationError(
+                "addon_zip_multipart_invalid",
+                "Only one ZIP and one logical label are accepted.",
+            )
+        if zip_parts > 1 or label_parts > 1:
+            raise AddonZipValidationError(
+                "addon_zip_multipart_invalid", "Multipart fields must be unique."
+            )
+
+    def part_data(data: bytes, start: int, end: int) -> None:
+        nonlocal zip_bytes
+        chunk = data[start:end]
+        if current_part == "zip":
+            zip_bytes = write_upload_chunk(fd, chunk, zip_bytes)
+        elif current_part == "logical_label":
+            if len(label_bytes) + len(chunk) > 1024:
+                raise AddonZipValidationError(
+                    "addon_zip_label_invalid", "Logical label is too long."
+                )
+            label_bytes.extend(chunk)
+        else:
+            raise AddonZipValidationError(
+                "addon_zip_multipart_invalid", "Multipart state is invalid."
+            )
+
+    def ended() -> None:
+        nonlocal complete
+        complete = True
+
+    parser = MultipartParser(
+        boundary,
+        {
+            "on_part_begin": part_begin,
+            "on_header_begin": header_begin,
+            "on_header_field": header_field,
+            "on_header_value": header_value,
+            "on_header_end": header_end,
+            "on_headers_finished": headers_finished,
+            "on_part_data": part_data,
+            "on_end": ended,
+        },
+        max_size=MAX_COMPRESSED_BYTES + 1024 * 1024,
+        max_header_count=4,
+        max_header_size=1024,
+    )
+    try:
+        async for chunk in request.stream():
+            parser.write(chunk)
+        parser.finalize()
+        if not complete or zip_parts != 1 or label_parts != 1:
+            raise AddonZipValidationError(
+                "addon_zip_multipart_invalid",
+                "Exactly one ZIP and one logical label are required.",
+            )
+        try:
+            label = label_bytes.decode("utf-8", "strict")
+        except UnicodeDecodeError as error:
+            raise AddonZipValidationError(
+                "addon_zip_label_invalid", "Logical label must be UTF-8."
+            ) from error
+        try:
+            normalized = normalize_development_source_logical_name(label)
+        except ValueError as error:
+            raise AddonZipValidationError(
+                "addon_zip_label_invalid", "Logical label is invalid."
+            ) from error
+        finish_upload_stage(fd, zip_bytes)
+        return normalized
+    except Exception:
+        remove_upload_stage(data_root, artifact_id)
+        raise
+    finally:
+        parser.close()
+        os.close(fd)
 
 
 def _login_failure(

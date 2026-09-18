@@ -71,6 +71,7 @@ def test_real_temporary_unix_server_client_round_trip(
         assert isinstance(client.broker_info(), BrokerInfoResult)
         assert client.capabilities() == CapabilitiesResult(
             operations=[
+                "apply_addon_zip_installation",
                 "apply_assigned_fixture",
                 "apply_managed_instance_snapshot",
                 "broker_info",
@@ -80,6 +81,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "delete_managed_snapshot_artifact",
                 "deprovision_managed_container",
                 "managed_container_inventory",
+                "observe_addon_zip_destination",
                 "observe_managed_kodi_runtime",
                 "ping",
                 "provision_managed_container",

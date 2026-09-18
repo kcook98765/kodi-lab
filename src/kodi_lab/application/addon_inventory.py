@@ -23,6 +23,12 @@ from kodi_lab.broker.operations import (
     ObserveManagedKodiRuntimeResult,
 )
 from kodi_lab.domain import RuntimeExecutionProfile
+from kodi_lab.domain.addon_zips import (
+    AddonZipInstallationConfidence,
+    AddonZipInstallationEvidence,
+    AddonZipInstallationOperationState,
+    AddonZipInstallationResult,
+)
 from kodi_lab.domain.development_source_deployments import (
     DevelopmentSourceDeployment,
     DevelopmentSourceDeploymentConfidence,
@@ -38,6 +44,9 @@ from kodi_lab.kodi.addons import (
 )
 from kodi_lab.kodi.readiness import JsonRpcUnavailableError
 from kodi_lab.storage.repositories import (
+    AddonZipArtifactRepository,
+    AddonZipInstallationEvidenceRepository,
+    AddonZipInstallationOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
@@ -65,6 +74,7 @@ class KodiAddonProvenanceClassification(StrEnum):
     DEVELOPMENT_SOURCE_AT_LAST_VERIFIED_COPY = (
         "development_source_at_last_verified_copy"
     )
+    PRIOR_VERIFIED_ZIP_INSTALL = "prior_verified_zip_install"
     UNKNOWN = "unknown"
 
 
@@ -81,6 +91,8 @@ class KodiAddonProvenance(BaseModel):
     evidence_status: KodiAddonProvenanceEvidenceStatus
     development_source_id: UUID | None = None
     development_source_logical_name: str | None = Field(default=None, max_length=256)
+    addon_zip_artifact_id: UUID | None = None
+    addon_zip_logical_label: str | None = Field(default=None, max_length=256)
     verified_at: datetime | None = None
 
 
@@ -278,6 +290,9 @@ class ManagedInstanceAddonInventoryService:
             evidence = DevelopmentSourceDeploymentRepository(session).list_for_instance(
                 instance_id
             )
+            zip_evidence = AddonZipInstallationEvidenceRepository(
+                session
+            ).list_for_instance(instance_id)
             provenances = {
                 item.addon_id: self._provenance(
                     session,
@@ -287,6 +302,7 @@ class ManagedInstanceAddonInventoryService:
                     item.addon_id,
                     item.version,
                     evidence,
+                    zip_evidence,
                 )
                 for item in result.items
             }
@@ -335,39 +351,91 @@ class ManagedInstanceAddonInventoryService:
         addon_id: str,
         version: str,
         evidence: list[DevelopmentSourceDeployment],
+        zip_evidence: list[AddonZipInstallationEvidence],
     ) -> KodiAddonProvenance:
+        zip_candidates = [item for item in zip_evidence if item.addon_id == addon_id]
+        zip_operations = AddonZipInstallationOperationRepository(session)
+        zip_artifacts = AddonZipArtifactRepository(session)
+        verified_zip: list[tuple[AddonZipInstallationEvidence, str]] = []
+        for zip_item in zip_candidates:
+            zip_operation = zip_operations.get(zip_item.installation_operation_id)
+            artifact = zip_artifacts.get(zip_item.artifact_id)
+            if (
+                zip_item.confidence
+                is AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
+                and zip_item.result
+                is AddonZipInstallationResult.INSTALLED_RECOGNIZED_DISABLED
+                and zip_item.managed_instance_id == instance_id
+                and zip_item.original_managed_instance_id == instance_id
+                and zip_item.runtime_revision_id == runtime_revision_id
+                and zip_item.trusted_container_id == container_id
+                and zip_item.addon_version == version
+                and zip_operation is not None
+                and artifact is not None
+                and zip_operation.state is AddonZipInstallationOperationState.SUCCEEDED
+                and zip_operation.original_managed_instance_id == instance_id
+                and zip_operation.managed_instance_id == instance_id
+                and zip_operation.artifact_id == zip_item.artifact_id
+                and zip_operation.addon_id == addon_id
+                and zip_operation.addon_version == version
+                and zip_operation.runtime_revision_id == runtime_revision_id
+                and zip_operation.expected_container_id == container_id
+                and zip_operation.stopped_readback_matched
+                and zip_operation.final_readback_matched
+                and zip_operation.recognition_enabled is False
+                and artifact.addon_id == addon_id
+                and artifact.addon_version == version
+                and artifact.payload_manifest_digest == zip_item.payload_manifest_digest
+            ):
+                verified_zip.append((zip_item, artifact.logical_label))
+        if len(verified_zip) == 1:
+            zip_item, logical_label = verified_zip[0]
+            return KodiAddonProvenance(
+                classification=(
+                    KodiAddonProvenanceClassification.PRIOR_VERIFIED_ZIP_INSTALL
+                ),
+                evidence_status=(
+                    KodiAddonProvenanceEvidenceStatus.LAST_OPERATION_VERIFIED
+                ),
+                addon_zip_artifact_id=zip_item.artifact_id,
+                addon_zip_logical_label=logical_label,
+                verified_at=zip_item.verified_at,
+            )
         candidates = [item for item in evidence if item.addon_id == addon_id]
         verified: list[tuple[DevelopmentSourceDeployment, str]] = []
         historical: list[tuple[DevelopmentSourceDeployment, str]] = []
         sources = DevelopmentSourceRepository(session)
         operations = DevelopmentSourceDeploymentOperationRepository(session)
-        for item in candidates:
-            source = sources.get(item.development_source_id)
+        for deployment_item in candidates:
+            source = sources.get(deployment_item.development_source_id)
             if source is None:
                 continue
-            historical.append((item, source.logical_name))
-            operation = operations.get(item.last_successful_operation_id)
+            historical.append((deployment_item, source.logical_name))
+            deployment_operation = operations.get(
+                deployment_item.last_successful_operation_id
+            )
             if (
-                item.confidence
+                deployment_item.confidence
                 is DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
-                and item.managed_instance_id == instance_id
-                and item.runtime_revision_id == runtime_revision_id
-                and item.trusted_container_id == container_id
-                and item.observed_source_version == version
-                and operation is not None
+                and deployment_item.managed_instance_id == instance_id
+                and deployment_item.runtime_revision_id == runtime_revision_id
+                and deployment_item.trusted_container_id == container_id
+                and deployment_item.observed_source_version == version
+                and deployment_operation is not None
                 and source.addon_id == addon_id
-                and operation.state
+                and deployment_operation.state
                 is DevelopmentSourceDeploymentOperationState.SUCCEEDED
-                and operation.original_managed_instance_id == instance_id
-                and operation.managed_instance_id == instance_id
-                and operation.development_source_id == item.development_source_id
-                and operation.addon_id == addon_id
-                and operation.runtime_revision_id == runtime_revision_id
-                and operation.expected_container_id == container_id
-                and operation.result_classification is not None
-                and operation.completed_at is not None
+                and deployment_operation.original_managed_instance_id == instance_id
+                and deployment_operation.managed_instance_id == instance_id
+                and deployment_operation.development_source_id
+                == deployment_item.development_source_id
+                and deployment_operation.addon_id == addon_id
+                and deployment_operation.runtime_revision_id == runtime_revision_id
+                and deployment_operation.expected_container_id == container_id
+                and deployment_operation.result_classification is not None
+                and deployment_operation.completed_at is not None
             ):
-                verified.append((item, source.logical_name))
+                verified.append((deployment_item, source.logical_name))
         if len(verified) == 1:
             item, logical_name = verified[0]
             return KodiAddonProvenance(
@@ -394,6 +462,16 @@ class ManagedInstanceAddonInventoryService:
                 development_source_id=item.development_source_id,
                 development_source_logical_name=logical_name,
                 verified_at=item.verified_at,
+            )
+        if zip_candidates:
+            confidence = zip_candidates[0].confidence
+            return KodiAddonProvenance(
+                classification=KodiAddonProvenanceClassification.UNKNOWN,
+                evidence_status=(
+                    KodiAddonProvenanceEvidenceStatus.STALE
+                    if confidence is AddonZipInstallationConfidence.STALE
+                    else KodiAddonProvenanceEvidenceStatus.UNKNOWN
+                ),
             )
         return KodiAddonProvenance(
             classification=KodiAddonProvenanceClassification.UNKNOWN,

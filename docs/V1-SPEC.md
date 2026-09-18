@@ -1065,6 +1065,14 @@ Must include at least:
 
 ## 47. Implementation phases
 
+The Phase 8 uploaded-ZIP first slice interprets “ZIP install” narrowly:
+authenticated upload produces an immutable, bounded, validated private artifact;
+installation is Lab-controlled normalized materialization into an absent managed
+destination with operation-owned stop/restart and exact readback. It is not
+Kodi's native Install-from-ZIP installer and grants no replacement, upgrade,
+enablement, execution, dependency/repository, bind, caller-path, or generic
+filesystem/JSON-RPC authority. Those capabilities require later explicit gates.
+
 Phase 0 — Repository foundation  
 Phase 1 — Core domain/storage  
 Phase 2 — Restricted container broker  

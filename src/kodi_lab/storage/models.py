@@ -18,6 +18,15 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from kodi_lab.domain import (
+    AddonZipExtensionClassification,
+    AddonZipImportOperationPhase,
+    AddonZipImportOperationState,
+    AddonZipInstallationConfidence,
+    AddonZipInstallationOperationPhase,
+    AddonZipInstallationOperationState,
+    AddonZipInstallationResult,
+    AddonZipOrigin,
+    AddonZipValidationState,
     ConnectionState,
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
@@ -864,6 +873,307 @@ class DevelopmentSourceSmokeTestOperationRow(Base):
     )
     lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class AddonZipArtifactRow(Base):
+    """Accepted immutable uploaded-ZIP artifact metadata."""
+
+    __tablename__ = "addon_zip_artifacts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(logical_label) BETWEEN 1 AND 120",
+            name="addon_zip_artifact_label_bounded",
+        ),
+        CheckConstraint(
+            "length(sha256_digest) = 71 AND substr(sha256_digest,1,7)='sha256:'",
+            name="addon_zip_artifact_digest_bounded",
+        ),
+        CheckConstraint(
+            "length(payload_manifest_digest) = 71 AND "
+            "substr(payload_manifest_digest,1,7)='sha256:'",
+            name="addon_zip_payload_digest_bounded",
+        ),
+        CheckConstraint(
+            "compressed_size BETWEEN 1 AND 268435456 AND "
+            "total_uncompressed_bytes BETWEEN 0 AND 1073741824 AND "
+            "member_count BETWEEN 1 AND 50000",
+            name="addon_zip_artifact_aggregates_bounded",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_name) BETWEEN 1 AND 256 AND "
+            "length(addon_version) BETWEEN 1 AND 128",
+            name="addon_zip_artifact_identity_bounded",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    logical_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    sha256_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    compressed_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    total_uncompressed_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    member_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    extension_classification: Mapped[AddonZipExtensionClassification] = mapped_column(
+        Enum(
+            AddonZipExtensionClassification,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_extension_classification",
+        ),
+        nullable=False,
+    )
+    dependencies_json: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_manifest_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    imported_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    origin: Mapped[AddonZipOrigin] = mapped_column(
+        Enum(
+            AddonZipOrigin,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_origin",
+        ),
+        nullable=False,
+    )
+    validation_state: Mapped[AddonZipValidationState] = mapped_column(
+        Enum(
+            AddonZipValidationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_validation_state",
+        ),
+        nullable=False,
+    )
+
+
+class AddonZipImportOperationRow(Base):
+    """Durable global-heavy import/validation operation."""
+
+    __tablename__ = "addon_zip_import_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(logical_label) BETWEEN 1 AND 120",
+            name="addon_zip_import_label_bounded",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="addon_zip_import_failure_bounded",
+        ),
+        Index(
+            "uq_addon_zip_import_active",
+            "state",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    artifact_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    logical_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[AddonZipImportOperationState] = mapped_column(
+        Enum(
+            AddonZipImportOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_import_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[AddonZipImportOperationPhase] = mapped_column(
+        Enum(
+            AddonZipImportOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_import_operation_phase",
+        ),
+        nullable=False,
+    )
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class AddonZipInstallationOperationRow(Base):
+    """Durable dual-coordinated running-instance ZIP installation."""
+
+    __tablename__ = "addon_zip_installation_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128",
+            name="addon_zip_installation_identity_bounded",
+        ),
+        CheckConstraint(
+            "expected_container_id IS NULL OR length(expected_container_id)=64",
+            name="addon_zip_installation_container_bounded",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="addon_zip_installation_failure_bounded",
+        ),
+        CheckConstraint(
+            "dependency_baseline_json IS NULL OR "
+            "length(dependency_baseline_json)<=16384",
+            name="addon_zip_installation_dependency_baseline_bounded",
+        ),
+        CheckConstraint(
+            "dependency_post_json IS NULL OR length(dependency_post_json)<=16384",
+            name="addon_zip_installation_dependency_post_bounded",
+        ),
+        Index(
+            "uq_addon_zip_installation_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+        Index(
+            "ix_addon_zip_installation_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    artifact_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_zip_artifacts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[AddonZipInstallationOperationState] = mapped_column(
+        Enum(
+            AddonZipInstallationOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_installation_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[AddonZipInstallationOperationPhase] = mapped_column(
+        Enum(
+            AddonZipInstallationOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_installation_operation_phase",
+        ),
+        nullable=False,
+    )
+    expected_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    application_started: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    stopped_readback_matched: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    final_readback_matched: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    recognition_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    dependency_baseline_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dependency_post_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class AddonZipInstallationEvidenceRow(Base):
+    """Current typed evidence for one successful absent-only ZIP install."""
+
+    __tablename__ = "addon_zip_installation_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "length(trusted_container_id)=64 AND length(addon_id) BETWEEN 1 AND 128 "
+            "AND length(addon_version) BETWEEN 1 AND 128",
+            name="addon_zip_evidence_identity_bounded",
+        ),
+        CheckConstraint(
+            "length(payload_manifest_digest)=71 AND "
+            "substr(payload_manifest_digest,1,7)='sha256:'",
+            name="addon_zip_evidence_digest_bounded",
+        ),
+    )
+
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    artifact_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_zip_artifacts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    installation_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_zip_installation_operations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    trusted_container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False, primary_key=True)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload_manifest_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    verified_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[AddonZipInstallationConfidence] = mapped_column(
+        Enum(
+            AddonZipInstallationConfidence,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_installation_confidence",
+        ),
+        nullable=False,
+    )
+    result: Mapped[AddonZipInstallationResult] = mapped_column(
+        Enum(
+            AddonZipInstallationResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_installation_result",
+        ),
+        nullable=False,
+    )
 
 
 class FixtureDefinitionRow(Base):

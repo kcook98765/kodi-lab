@@ -266,6 +266,18 @@ class DockerDevelopmentSourceDeploymentError(DockerInventoryError):
         super().__init__(safe_message)
 
 
+class DockerAddonZipInstallationError(DockerInventoryError):
+    """A fixed uploaded-ZIP destination operation failed safely."""
+
+    def __init__(
+        self, code: str, safe_message: str, *, reconciliation_required: bool = False
+    ) -> None:
+        self.code = code
+        self.safe_message = safe_message
+        self.reconciliation_required = reconciliation_required
+        super().__init__(safe_message)
+
+
 class ManagedRuntimeObservationError(DockerInventoryError):
     """A fixed managed-runtime observation could not be safely produced."""
 

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,11 +23,20 @@ from kodi_lab.application.readiness_tasks import (
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
 from kodi_lab.broker.errors import ClientError
 from kodi_lab.broker.operations import (
+    AddonZipDestinationResult,
     ManagedContainerInventoryEntry,
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeResult,
 )
+from kodi_lab.development import (
+    discard_unaccepted_addon_zip_artifact,
+    remove_upload_stage,
+)
 from kodi_lab.domain import (
+    AddonZipImportOperation,
+    AddonZipInstallationConfidence,
+    AddonZipInstallationOperation,
+    AddonZipInstallationOperationState,
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperation,
     DevelopmentSourceDeploymentOperationState,
@@ -59,6 +68,9 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
 )
 from kodi_lab.storage.repositories import (
+    AddonZipImportOperationRepository,
+    AddonZipInstallationEvidenceRepository,
+    AddonZipInstallationOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceEnablementOperationRepository,
@@ -95,6 +107,7 @@ class ManagedInstanceReconciliationRequiredError(RuntimeError):
 
 
 class ReconciliationOperationKind(StrEnum):
+    ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
@@ -109,6 +122,7 @@ class ReconciliationOperationKind(StrEnum):
 
 
 class ReconciliationAction(StrEnum):
+    ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
@@ -141,6 +155,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.DEVELOPMENT_SOURCE_DEPLOYMENT,
     ReconciliationAction.DEVELOPMENT_SOURCE_ENABLEMENT,
     ReconciliationAction.DEVELOPMENT_SOURCE_SMOKE_TEST,
+    ReconciliationAction.ADDON_ZIP_INSTALLATION,
 ]
 
 
@@ -155,7 +170,7 @@ class ManagedInstanceReconciliationStatus(BaseModel):
     last_phase: str | None = Field(default=None, max_length=64)
     safe_reason: str | None = Field(default=None, max_length=256)
     observed_state: str | None = Field(default=None, max_length=64)
-    blocked_actions: list[ReconciliationAction] = Field(max_length=14)
+    blocked_actions: list[ReconciliationAction] = Field(max_length=15)
     requested_at: datetime | None = None
     started_at: datetime | None = None
     stale_since: datetime | None = None
@@ -217,11 +232,13 @@ class StaleOperationReconciliationDispatcher:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         broker: _ObservationBroker | None = None,
         readiness: ReadinessTaskRegistry | None = None,
+        data_root: Path | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
         self._broker = broker
         self._readiness = readiness
+        self._data_root = data_root
 
     def sweep_startup(self) -> StaleSweepResult:
         with self._session_factory() as session:
@@ -326,6 +343,7 @@ class StaleOperationReconciliationDispatcher:
             | ManagedInstanceLifecycleOperation
             | DevelopmentSourceDeploymentOperation
             | DevelopmentSourceSmokeTestOperation
+            | AddonZipInstallationOperation
             | None
         )
         if kind is ManagedInstanceMutationKind.LIFECYCLE:
@@ -517,6 +535,43 @@ class StaleOperationReconciliationDispatcher:
                     operation.development_source_id,
                     DevelopmentSourceDeploymentConfidence.UNKNOWN,
                 )
+        elif kind is ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION:
+            operation = AddonZipInstallationOperationRepository(session).get(
+                operation_id
+            )
+            if (
+                operation is None
+                or operation.managed_instance_id != instance_id
+                or operation.state is not AddonZipInstallationOperationState.RUNNING
+                or operation.lease_token_digest != digest
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired uploaded-ZIP installation ownership is inconsistent."
+                )
+            self._require_matching_global(
+                session,
+                GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
+                operation_id,
+                digest,
+                now,
+            )
+            if not AddonZipInstallationOperationRepository(
+                session
+            ).mark_stale_reconciliation(operation_id, token_digest=digest, now=now):
+                raise CoordinationCorruptionError(
+                    "Expired uploaded-ZIP installation history changed."
+                )
+            AddonZipInstallationEvidenceRepository(session).mark_confidence(
+                instance_id, AddonZipInstallationConfidence.UNKNOWN
+            )
+            self._release_global(
+                session,
+                GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
+                operation_id,
+                digest,
+                now,
+            )
+            released += 1
         elif kind is ManagedInstanceMutationKind.INSTANCE_DELETE:
             operation = ManagedInstanceDeleteOperationRepository(session).get(
                 operation_id
@@ -576,6 +631,8 @@ class StaleOperationReconciliationDispatcher:
             | SnapshotRestoreOperation
             | ManagedInstanceDeleteOperation
             | DevelopmentSourceDeploymentOperation
+            | AddonZipInstallationOperation
+            | AddonZipImportOperation
             | None
         )
         if kind is GlobalHeavyOperationKind.SNAPSHOT_DELETE:
@@ -594,6 +651,31 @@ class StaleOperationReconciliationDispatcher:
                 )
             self._release_global(session, kind, operation_id, digest, now)
             return operation_id, 1
+        if kind is GlobalHeavyOperationKind.ADDON_ZIP_IMPORT:
+            operation = AddonZipImportOperationRepository(session).get(operation_id)
+            if (
+                operation is None
+                or operation.state.value != "running"
+                or operation.lease_token_digest != digest
+                or operation.lease_expires_at is None
+                or operation.lease_expires_at > now
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired uploaded-ZIP import ownership is inconsistent."
+                )
+            if not AddonZipImportOperationRepository(session).mark_stale_failed(
+                operation_id, token_digest=digest, now=now
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired uploaded-ZIP import history changed."
+                )
+            if self._data_root is not None:
+                discard_unaccepted_addon_zip_artifact(
+                    self._data_root, operation.artifact_id
+                )
+                remove_upload_stage(self._data_root, operation.artifact_id)
+            self._release_global(session, kind, operation_id, digest, now)
+            return operation_id, 1
         if kind is GlobalHeavyOperationKind.SNAPSHOT_CREATE:
             operation = SnapshotCreateOperationRepository(session).get(operation_id)
         elif kind is GlobalHeavyOperationKind.SNAPSHOT_RESTORE:
@@ -604,6 +686,10 @@ class StaleOperationReconciliationDispatcher:
             )
         elif kind is GlobalHeavyOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT:
             operation = DevelopmentSourceDeploymentOperationRepository(session).get(
+                operation_id
+            )
+        elif kind is GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION:
+            operation = AddonZipInstallationOperationRepository(session).get(
                 operation_id
             )
         else:
@@ -633,6 +719,7 @@ class StaleOperationReconciliationDispatcher:
         | SnapshotDeleteOperation
         | ManagedInstanceDeleteOperation
         | DevelopmentSourceDeploymentOperation
+        | AddonZipInstallationOperation
         | None,
         instance_id: UUID | None,
         digest: str,
@@ -656,6 +743,7 @@ class StaleOperationReconciliationDispatcher:
             SnapshotDeleteOperationState.RUNNING,
             ManagedInstanceDeleteOperationState.RUNNING,
             DevelopmentSourceDeploymentOperationState.RUNNING,
+            AddonZipInstallationOperationState.RUNNING,
         }
         if operation.state not in running_states:
             raise CoordinationCorruptionError("Reservation owner is not running.")
@@ -725,6 +813,12 @@ class ManagedInstanceReconciliationService:
             records.extend(
                 (ReconciliationOperationKind.LIFECYCLE, item)
                 for item in ManagedInstanceLifecycleOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
+            records.extend(
+                (ReconciliationOperationKind.ADDON_ZIP_INSTALLATION, item)
+                for item in AddonZipInstallationOperationRepository(
                     session
                 ).reconciliation_for_instance(instance_id)
             )
@@ -827,6 +921,9 @@ class ManagedInstanceReconciliationService:
         elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
             assert isinstance(operation, DevelopmentSourceSmokeTestOperation)
             blocking, observed = self._classify_smoke(instance_id, operation)
+        elif kind is ReconciliationOperationKind.ADDON_ZIP_INSTALLATION:
+            assert isinstance(operation, AddonZipInstallationOperation)
+            blocking, observed = self._classify_addon_zip(instance_id, operation)
         reason = {
             ReconciliationOperationKind.LIFECYCLE: (
                 "Lifecycle state requires operator reconciliation."
@@ -852,6 +949,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST: (
                 "Development-source smoke execution requires reconciliation."
             ),
+            ReconciliationOperationKind.ADDON_ZIP_INSTALLATION: (
+                "Uploaded-ZIP installation requires operator reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -864,6 +964,7 @@ class ManagedInstanceReconciliationService:
                 DevelopmentSourceDeploymentOperation,
                 DevelopmentSourceEnablementOperation,
                 DevelopmentSourceSmokeTestOperation,
+                AddonZipInstallationOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(
@@ -922,6 +1023,69 @@ class ManagedInstanceReconciliationService:
         ):
             return True, "original_container_running"
         return True, "original_container_state_unknown"
+
+    def _classify_addon_zip(
+        self, instance_id: UUID, operation: AddonZipInstallationOperation
+    ) -> tuple[bool, str]:
+        """Classify bounded observations without resolving ambiguous history."""
+
+        expected_container = operation.expected_container_id
+        if self._broker is None or expected_container is None:
+            return True, "zip_runtime_identity_unknown"
+        with self._session_factory() as session:
+            instance = ManagedInstanceRepository(session).get(instance_id)
+        if (
+            instance is None
+            or instance.runtime_revision_id != operation.runtime_revision_id
+        ):
+            return True, "zip_container_or_revision_changed"
+        try:
+            matching = [
+                item
+                for item in self._broker.managed_container_inventory().containers
+                if item.managed_instance_id == str(instance_id)
+            ]
+            if len(matching) != 1 or matching[0].container_id != expected_container:
+                return True, "zip_container_or_revision_changed"
+            observe_destination = getattr(
+                self._broker, "observe_addon_zip_destination", None
+            )
+            if not callable(observe_destination):
+                return True, "zip_destination_observation_unavailable"
+            destination = cast(
+                AddonZipDestinationResult,
+                observe_destination(
+                    managed_instance_id=str(instance_id),
+                    artifact_id=str(operation.artifact_id),
+                    installation_operation_id=str(operation.id),
+                    expected_container_id=expected_container,
+                ),
+            )
+        except (ClientError, RuntimeError, ValueError):
+            return True, "zip_destination_observation_unavailable"
+        if (
+            operation.dependency_baseline_json is not None
+            and operation.dependency_post_json is not None
+            and operation.dependency_baseline_json != operation.dependency_post_json
+        ):
+            return True, "zip_dependency_state_changed"
+        if destination.destination_state == "absent":
+            return True, "zip_destination_absent"
+        if destination.destination_state != "exact_payload_present":
+            return True, "zip_destination_partial_or_unexpected"
+        if operation.recognition_enabled is True:
+            return True, "zip_recognized_unexpectedly_enabled"
+        if operation.failure_reason in {
+            "Kodi did not recognize the installed add-on.",
+            "Kodi recognition did not match the exact disabled postcondition.",
+        }:
+            return True, "zip_recognition_missing_or_unexpected"
+        if (
+            operation.recognition_enabled is False
+            and operation.dependency_post_json is not None
+        ):
+            return True, "zip_expected_disabled_recognition_observed"
+        return True, "zip_exact_payload_recognition_unknown"
 
     def require_allowed(
         self, instance_id: UUID, action: ReconciliationAction

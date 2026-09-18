@@ -39,6 +39,9 @@ from kodi_lab.kodi.readiness import JsonRpcUnavailableError, KodiApplicationIden
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    AddonZipArtifactRow,
+    AddonZipInstallationEvidenceRow,
+    AddonZipInstallationOperationRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
     DevelopmentSourceRow,
@@ -55,6 +58,8 @@ OTHER_REVISION_ID = UUID("81000000-0000-4000-8000-000000000003")
 DEFINITION_ID = UUID("81000000-0000-4000-8000-000000000004")
 SOURCE_ID = UUID("81000000-0000-4000-8000-000000000005")
 OPERATION_ID = UUID("81000000-0000-4000-8000-000000000006")
+ZIP_ARTIFACT_ID = UUID("81000000-0000-4000-8000-000000000007")
+ZIP_OPERATION_ID = UUID("81000000-0000-4000-8000-000000000008")
 CONTAINER_ID = "a" * 64
 NOW = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
 
@@ -285,6 +290,79 @@ def add_evidence(
         )
 
 
+def add_zip_evidence(
+    factory: sessionmaker[Session],
+    *,
+    confidence: str = "verified_at_last_operation",
+    version: str = "1.2.3",
+    runtime_revision_id: UUID = REVISION_ID,
+    container_id: str = CONTAINER_ID,
+    include_evidence: bool = True,
+) -> None:
+    with factory.begin() as session:
+        session.add(
+            AddonZipArtifactRow(
+                id=str(ZIP_ARTIFACT_ID),
+                logical_label="uploaded example",
+                sha256_digest="sha256:" + "5" * 64,
+                compressed_size=100,
+                total_uncompressed_bytes=200,
+                member_count=2,
+                addon_id="plugin.video.example",
+                addon_name="Example",
+                addon_version=version,
+                extension_classification="python_video_plugin",
+                dependencies_json="[]",
+                payload_manifest_digest="sha256:" + "6" * 64,
+                imported_at=NOW.isoformat(),
+                origin="uploaded_zip",
+                validation_state="accepted",
+            )
+        )
+        session.add(
+            AddonZipInstallationOperationRow(
+                id=str(ZIP_OPERATION_ID),
+                original_managed_instance_id=str(INSTANCE_ID),
+                managed_instance_id=str(INSTANCE_ID),
+                artifact_id=str(ZIP_ARTIFACT_ID),
+                addon_id="plugin.video.example",
+                addon_version=version,
+                runtime_revision_id=str(runtime_revision_id),
+                requested_at=NOW.isoformat(),
+                state="succeeded",
+                phase="finalize",
+                expected_container_id=container_id,
+                application_started=True,
+                stopped_readback_matched=True,
+                final_readback_matched=True,
+                recognition_enabled=False,
+                dependency_baseline_json="[]",
+                dependency_post_json="[]",
+                started_at=NOW.isoformat(),
+                heartbeat_at=NOW.isoformat(),
+                completed_at=NOW.isoformat(),
+                reconciliation_required=False,
+            )
+        )
+        if include_evidence:
+            session.add(
+                AddonZipInstallationEvidenceRow(
+                    managed_instance_id=str(INSTANCE_ID),
+                    original_managed_instance_id=str(INSTANCE_ID),
+                    artifact_id=str(ZIP_ARTIFACT_ID),
+                    installation_operation_id=str(ZIP_OPERATION_ID),
+                    runtime_revision_id=str(runtime_revision_id),
+                    trusted_container_id=container_id,
+                    addon_id="plugin.video.example",
+                    addon_version=version,
+                    payload_manifest_digest="sha256:" + "6" * 64,
+                    verified_at=NOW.isoformat(),
+                    confidence=confidence,
+                    result="installed_recognized_disabled",
+                )
+            )
+
+
 def test_exact_running_managed_instance_returns_complete_live_inventory(
     factory: sessionmaker[Session],
 ) -> None:
@@ -459,6 +537,56 @@ def test_attachment_or_matching_id_without_deployment_is_unknown(
     provenance = service(factory, FakeBroker()).get(INSTANCE_ID).items[0].provenance
     assert provenance.classification is KodiAddonProvenanceClassification.UNKNOWN
     assert provenance.evidence_status is KodiAddonProvenanceEvidenceStatus.UNKNOWN
+
+
+def test_exact_retained_zip_evidence_is_precise_historical_attribution(
+    factory: sessionmaker[Session],
+) -> None:
+    add_zip_evidence(factory)
+    provenance = service(factory, FakeBroker()).get(INSTANCE_ID).items[0].provenance
+    assert provenance.classification is (
+        KodiAddonProvenanceClassification.PRIOR_VERIFIED_ZIP_INSTALL
+    )
+    assert provenance.evidence_status is (
+        KodiAddonProvenanceEvidenceStatus.LAST_OPERATION_VERIFIED
+    )
+    assert provenance.addon_zip_artifact_id == ZIP_ARTIFACT_ID
+    assert provenance.addon_zip_logical_label == "uploaded example"
+
+
+@pytest.mark.parametrize(
+    ("confidence", "version", "revision", "container"),
+    [
+        ("stale", "1.2.3", REVISION_ID, CONTAINER_ID),
+        ("verified_at_last_operation", "9.9.9", REVISION_ID, CONTAINER_ID),
+        ("verified_at_last_operation", "1.2.3", OTHER_REVISION_ID, CONTAINER_ID),
+        ("verified_at_last_operation", "1.2.3", REVISION_ID, "c" * 64),
+    ],
+)
+def test_stale_or_wrong_zip_evidence_is_unknown(
+    factory: sessionmaker[Session],
+    confidence: str,
+    version: str,
+    revision: UUID,
+    container: str,
+) -> None:
+    add_zip_evidence(
+        factory,
+        confidence=confidence,
+        version=version,
+        runtime_revision_id=revision,
+        container_id=container,
+    )
+    provenance = service(factory, FakeBroker()).get(INSTANCE_ID).items[0].provenance
+    assert provenance.classification is KodiAddonProvenanceClassification.UNKNOWN
+
+
+def test_uploaded_artifact_without_install_evidence_is_unknown(
+    factory: sessionmaker[Session],
+) -> None:
+    add_zip_evidence(factory, include_evidence=False)
+    provenance = service(factory, FakeBroker()).get(INSTANCE_ID).items[0].provenance
+    assert provenance.classification is KodiAddonProvenanceClassification.UNKNOWN
 
 
 @pytest.mark.parametrize(

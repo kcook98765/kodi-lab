@@ -410,3 +410,22 @@ The intended production unit name still collides with the protected legacy
 `kodi-lab-broker.service`, so production deployment remains blocked pending a
 separate naming/migration decision. Neither that deployment concern nor deferred
 persistent-instance storage weakens the completed disposable broker boundary.
+
+## Uploaded-ZIP materialization authority
+
+The Phase 8 ZIP broker operations accept only canonical instance, artifact and
+server-generated installation-operation UUIDs plus the exact expected container
+identity. Trusted SQLite state resolves the immutable accepted artifact,
+normalized payload, add-on ID, destination, runtime revision, suppression
+profile and runtime UID/GID. A caller cannot represent a path, archive bytes,
+destination, mode, ownership, extraction flag, URL, command, Docker option, or
+Kodi install request.
+
+Observation classifies only the fixed managed add-on destination as absent,
+exact normalized payload, or partial/unexpected. Application additionally
+requires the durable application marker, exact stopped disposable container,
+suppression environment and absent destination. Docker receives a private
+server-built normalized tar stream and the fixed `/home/kodi` root. Complete
+post-write readback must match every expected type, mode, digest and profile
+UID/GID with no unexpected member. ZIP metadata never supplies runtime
+ownership or modes, and neither operation invokes Kodi's native installer.

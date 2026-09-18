@@ -404,5 +404,42 @@ introduced.
 invocation completed and preserved deployed-source provenance. It is not a
 general working/health guarantee.**
 
-The remaining gated alternatives are bind-mounted DevelopmentSource deployment,
-ZIP installation, and repository testing workflow architecture.
+## Uploaded-ZIP installation
+
+The implemented first slice accepts only independently uploaded ZIP artifacts;
+it never infers DevelopmentSource, Git, repository, publisher, or trust origin.
+Upload streams through a bounded authenticated multipart endpoint into
+server-UUID private staging, and the browser filename is ignored. The strict
+validator enforces D-0161 before canonicalization, requires one add-on-ID root,
+and accepts only a passive-metadata Python video plugin on a suppression
+runtime. Accepted originals and normalized payloads are immutable and retained.
+
+**ZIP installation in this first slice is Lab-controlled validated
+materialization of an uploaded immutable ZIP artifact. It is not Kodi's native
+Install-from-ZIP GUI/installer path.** Kodi install APIs, repository lookup,
+enablement, execution, caller paths, generic extraction, and generic JSON-RPC
+remain absent.
+
+Installation begins with an already-running healthy disposable instance because
+complete live inventory must prove the ID absent. The operation owns exact stop,
+stopped identity/absence recheck, normalized apply, stopped readback, restart,
+readiness, disabled recognition, declared-dependency non-mutation, final
+readback, and the running terminal state. The destination must also be absent;
+there is no replacement, upgrade, overwrite, adoption, or reinstall.
+
+Normalized modes follow Step 4 and ownership comes only from the immutable
+RuntimeExecutionProfile. A complete canonical manifest drives both stopped and
+post-recognition readbacks, including every path, digest, type, mode, UID/GID,
+and absence of extras. Missing or disabled dependencies are allowed because the
+target remains disabled, but their recorded state must not change.
+
+Any uncertainty after application begins leaves the exact instance stopped,
+current ZIP evidence unknown, and history reconciliation-required. No retry,
+delete, adoption, overwrite, restart, or manual success exists. Snapshot restore
+and reset stale current evidence without reconstructing artifact lineage.
+Inventory may say only `Prior verified ZIP install` for an exact retained
+identity match and does not claim fresh byte equality.
+
+Raw direct bind remains rejected. ZIP replacement/upgrade/rollback,
+ZIP-specific enablement/smoke, DevelopmentSource packaging, repository
+integration, and accepted-artifact cleanup remain separate gates.

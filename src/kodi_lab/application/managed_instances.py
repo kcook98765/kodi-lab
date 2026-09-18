@@ -6,6 +6,9 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_zip_installations import (
+    invalidate_addon_zip_installation_evidence,
+)
 from kodi_lab.application.development_source_deployments import (
     invalidate_development_source_deployments,
 )
@@ -174,6 +177,7 @@ class ManagedInstanceService:
                             )
                     updated = replace(current, runtime_revision_id=revision.id)
                     invalidate_development_source_deployments(session, target_id)
+                    invalidate_addon_zip_installation_evidence(session, target_id)
                     instances.update(updated)
                     return updated
             except IntegrityError as error:

@@ -56,6 +56,7 @@ def test_exact_uid_policy_accepts_only_uid() -> None:
 def test_foundation_registry_contains_exact_operation_set() -> None:
     registry = build_foundation_registry()
     assert registry.names == (
+        "apply_addon_zip_installation",
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",
         "broker_info",
@@ -65,6 +66,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
         "managed_container_inventory",
+        "observe_addon_zip_destination",
         "observe_managed_kodi_runtime",
         "ping",
         "provision_managed_container",
@@ -78,6 +80,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
     assert isinstance(registry.dispatch(request("broker_info")), BrokerInfoResult)
     assert registry.dispatch(request("capabilities")) == CapabilitiesResult(
         operations=[
+            "apply_addon_zip_installation",
             "apply_assigned_fixture",
             "apply_managed_instance_snapshot",
             "broker_info",
@@ -87,6 +90,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
             "delete_managed_snapshot_artifact",
             "deprovision_managed_container",
             "managed_container_inventory",
+            "observe_addon_zip_destination",
             "observe_managed_kodi_runtime",
             "ping",
             "provision_managed_container",

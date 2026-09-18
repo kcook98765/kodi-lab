@@ -183,6 +183,7 @@ def test_capabilities_reports_exact_semantic_operations() -> None:
         )
     )
     assert result.model_dump(mode="json")["operations"] == [
+        "apply_addon_zip_installation",
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",
         "broker_info",
@@ -192,6 +193,7 @@ def test_capabilities_reports_exact_semantic_operations() -> None:
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
         "managed_container_inventory",
+        "observe_addon_zip_destination",
         "observe_managed_kodi_runtime",
         "ping",
         "provision_managed_container",
@@ -286,6 +288,7 @@ def test_success_audit_contains_count_not_inventory_data(
 def test_registry_has_no_generic_docker_or_execution_operation() -> None:
     names = build_foundation_registry(FakeInventoryProvider()).names
     assert names == (
+        "apply_addon_zip_installation",
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",
         "broker_info",
@@ -295,6 +298,7 @@ def test_registry_has_no_generic_docker_or_execution_operation() -> None:
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
         "managed_container_inventory",
+        "observe_addon_zip_destination",
         "observe_managed_kodi_runtime",
         "ping",
         "provision_managed_container",

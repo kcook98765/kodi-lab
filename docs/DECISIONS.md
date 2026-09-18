@@ -1979,3 +1979,171 @@ details that it did not specify.
   execution inherits existing access, and plugin code may contact external
   services. This slice adds no network toggle, namespace, firewall, repository
   control, or isolation claim.
+
+## D-0160: Uploaded ZIP is a separate workflow
+
+- Status: approved for the Phase 8 uploaded-ZIP first slice
+- Decision: only origin `uploaded_zip` is supported. ZIP artifacts are not
+  DevelopmentSources. ID, name, version, logical label, multipart filename,
+  and payload never imply Git, DevelopmentSource, repository, publisher, or
+  trust origin.
+
+## D-0161: ZIP format and limits are closed
+
+- Status: approved
+- Bounds: compressed ZIP 256 MiB; total uncompressed 1 GiB; regular files
+  25,000; all entries 50,000; one file 256 MiB; normalized path 512 UTF-8
+  bytes; component 255 bytes; depth 32; `addon.xml` 1 MiB; central directory
+  16 MiB; canonical manifest 16 MiB.
+- Ratio protection: each member may expand to at most the greater of 1 MiB or
+  200 times compressed size; the archive may expand to at most the greater of
+  4 MiB or 100 times compressed size.
+- Parser: bounded EOCD and central-directory validation precedes member
+  processing. Only stored and deflate are accepted. Multi-disk, ZIP64,
+  encryption, data descriptors, comments, unsupported compression or extra
+  fields, absolute/traversal/backslash/control/non-NFC/overlong names,
+  duplicate normalized names, case collisions, links and special Unix types,
+  inconsistent headers, overlap, invalid offsets, CRC/length mismatch are
+  rejected. Nested archives are opaque files and are never recursed.
+
+## D-0162: Accepted ZIP artifacts are immutable private records
+
+- Status: approved
+- Decision: `AddonZipArtifact` stores a UUID, bounded sanitized logical label,
+  SHA-256 and byte/member aggregates, parsed ID/name/version/type/dependencies,
+  canonical payload-manifest digest, import timestamp, `uploaded_zip` origin,
+  and accepted validation state. Browser filenames are neither retained nor
+  presented.
+- Storage: request bytes stream to a UUID-only 0600 O_EXCL no-follow stage with
+  an enforced compressed ceiling and fsync. Validation publishes the original,
+  manifest, and normalized payload by same-filesystem atomic rename under the
+  private data root. Publication and later install both verify digests. Failed
+  stages are removed only by server UUID. Accepted artifacts have no deletion,
+  download, browse, or member-list surface and are retained pending a later
+  explicit lifecycle policy.
+
+## D-0163: Layout and descriptor identity are exact
+
+- Status: approved
+- Decision: one logical top-level directory is required, its name equals the
+  parsed add-on ID, and `addon.xml` is directly beneath it; an explicit root
+  directory entry is optional and every extra root entry is forbidden. `.git`,
+  `.hg`, and `.svn` components are forbidden case-insensitively. Repository
+  descriptors are rejected.
+- Type: the first slice accepts only a non-repository, non-service Python video
+  plugin with one `xbmc.python.pluginsource`, exact `video` provides, a present
+  safe relative library, and optional passive metadata. Service/auto-start and
+  mixed executable extensions are rejected. Installation requires a
+  suppression RuntimeRevision/Profile.
+
+## D-0164: Installation is Lab-controlled materialization
+
+- Status: approved
+- Decision: ZIP installation means materializing the already-validated private
+  normalized payload at the managed add-on destination under Lab authority. It
+  is not Kodi's native Install-from-ZIP GUI/installer path. `InstallAddon`,
+  `InstallFromZip`, repositories, generic builtins/JSON-RPC, and GUI automation
+  are absent.
+- Normalization: established Step 4 file/directory modes apply; runtime UID/GID
+  comes only from immutable RuntimeExecutionProfile. ZIP ownership, timestamps,
+  ACLs, xattrs, and special bits are discarded.
+
+## D-0165: The operation owns running-instance choreography
+
+- Status: approved
+- Decision: a healthy already-running disposable instance is required so live
+  inventory can exclude bundled/system/same-ID add-ons. One coordinated
+  operation proves runtime, suppression, inventory absence and dependency
+  baseline; stops the exact container; reproves stopped identity and destination
+  absence; applies and reads back; restarts that exact container; waits normal
+  readiness; requires exact disabled recognition and unchanged dependencies;
+  repeats exact readback; and leaves the instance running. There is no user
+  stop/install/user start model, enablement, or smoke execution.
+
+## D-0166: Installation is absent-only
+
+- Status: approved
+- Decision: both complete live inventory and the fixed destination must show
+  the ID absent before stop/application, with destination absence reproved while
+  stopped. Any prior ZIP, DevelopmentSource, future bind, repository/system,
+  manual, unknown, or partial same-ID state blocks. There is no replacement,
+  upgrade, overwrite, override, retry application, or idempotent byte reapply.
+
+## D-0167: ZIP evidence and exact readback are distinct
+
+- Status: approved
+- Decision: `AddonZipInstallationOperation` and current
+  `AddonZipInstallationEvidence` bind artifact, live/original instance,
+  RuntimeRevision, exact container, ID/version, manifest identity, timestamp,
+  confidence, and `installed_recognized_disabled`. DevelopmentSource evidence
+  is never reused.
+- Verification: the canonical normalized manifest must match every destination
+  path, file digest/bytes, type, normalized mode and runtime UID/GID with no
+  missing or unexpected entry, once stopped and again after recognition.
+  Recognition must be exact ID/version/`xbmc.python.pluginsource` and
+  `enabled=false`; unexpected enablement is ambiguity, never success.
+
+## D-0168: Dependencies and repositories are not mutated
+
+- Status: approved
+- Decision: missing required, disabled required, and optional-missing
+  dependencies do not block disabled materialization. For artifact-declared
+  dependencies only, bounded pre/post presence, enablement, and version state
+  must remain identical. Installation never looks up, installs, enables, or
+  infers satisfaction of a dependency. ZIP enablement is separately gated.
+
+## D-0169: Import and install have durable coordination
+
+- Status: approved
+- Decision: import/validation is an asynchronous artifact-global operation with
+  a global-heavy lease. Installation is asynchronous with both the per-instance
+  `addon_zip_installation` mutation lease and global-heavy lease. Its closed
+  phases cover queue, preflight, stop, apply, stopped verification, restart,
+  readiness, recognition, final verification, and terminalization.
+- Conflicts: installation excludes lifecycle, reset, Snapshot create/restore,
+  runtime/fixture changes, DevelopmentSource attachment/copy/enable/smoke,
+  another ZIP installation, and instance deletion.
+- Failure: known pre-application failure is ordinary and restores a container
+  stopped by this operation only when exact restoration is deterministic. Any
+  uncertainty after the durable application marker leaves the exact instance
+  stopped, history reconciliation-required, current evidence unknown, and
+  performs no retry, adoption, deletion, overwrite, or automatic restart.
+  Read-only reconciliation classifies absence, exact/partial payload, expected
+  or unexpected recognition, container/revision drift, and dependency drift;
+  it never offers manual success.
+
+## D-0170: Snapshot, reset, and provenance remain conservative
+
+- Status: approved
+- Decision: active install conflicts with Snapshot create/restore. Later
+  Snapshots may capture bytes but carry no ZIP lineage; restore stales current
+  ZIP evidence and never reassociates restored bytes. Reset invalidates current
+  evidence before recreation while artifact and typed history survive, with no
+  automatic reinstall.
+- Inventory: `Prior verified ZIP install` requires exact retained successful
+  evidence for ID/version, instance, revision, and current container. It is
+  historical provenance only and never claims current byte equality; every
+  mismatch, stale/unknown evidence, or merely uploaded artifact is unknown.
+
+## D-0171: Broker and Web authority are narrow
+
+- Status: approved
+- Broker: callers provide only instance UUID, artifact UUID, server operation
+  UUID, and exact-container precondition. The broker resolves artifact,
+  normalized payload, destination, ownership, and container. Paths, bytes,
+  UID/GID, mode, flags, command, URL, and Docker options are unrepresentable.
+- Web: authenticated same-origin CSRF-protected bounded multipart
+  `POST /api/addon-zips` accepts exactly one ZIP plus logical label, ignores its
+  filename, and returns HTTP 202 import status. Strict-empty-body
+  `POST /api/instances/{instance_id}/addon-zips/{artifact_id}/install` returns
+  HTTP 202 operation status. UI/API expose only safe label/identity/aggregate,
+  origin, validation, and operation state—not filename, members, paths,
+  contents, XML, or full digests.
+
+## D-0172: Replacement and execution remain deferred
+
+- Status: approved
+- Decision: ZIP replacement, upgrade, rollback, ZIP enablement, ZIP smoke,
+  DevelopmentSource packaging, repository integration, and successful-artifact
+  deletion/cleanup surfaces are explicit future gates. Raw direct bind remains
+  rejected by the completed bind gate.

@@ -171,12 +171,14 @@ def test_adapter_exposes_only_inventory_and_semantic_stop_public_methods() -> No
         and callable(getattr(DockerManagedContainerAdapter, name))
     }
     assert public_callables == {
+        "apply_addon_zip_installation",
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",
         "capture_managed_instance_snapshot",
         "copy_sync_attached_development_source",
         "deprovision_managed_container",
         "list_managed_containers",
+        "observe_addon_zip_destination",
         "observe_managed_kodi_runtime",
         "provision_managed_container",
         "start_managed_container",

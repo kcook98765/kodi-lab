@@ -631,5 +631,23 @@ URL and a non-egress-isolation warning.
 invocation completed and preserved deployed-source provenance. It is not a
 general working/health guarantee.**
 
-Bind-mounted DevelopmentSource deployment, ZIP installation, and repository
-testing workflows remain separate architecture gates.
+The approved uploaded-ZIP first slice is implemented after copied-add-on smoke:
+
+- migration `0024_addon_zip_installation` adds immutable accepted artifacts,
+  durable asynchronous import and installation history, current typed evidence,
+  and the two new global/per-instance coordination kinds;
+- a bounded pre-extraction ZIP validator and private UUID-only storage publish
+  the immutable original and normalized canonical payload;
+- the narrow broker derives the fixed destination and profile ownership, and
+  applies only an accepted artifact under exact stopped-container authority;
+- the operation-owned running → stopped → running choreography requires absent
+  inventory/destination, two exact filesystem readbacks, exact disabled Kodi
+  recognition, and unchanged declared dependencies;
+- upload/install Web actions are authenticated, origin/CSRF protected, HTTP 202,
+  and expose no filename, member, content, path, extraction, Docker, or Kodi
+  installer authority.
+
+**ZIP installation here is Lab-controlled validated materialization, not Kodi's
+native Install-from-ZIP GUI/installer path.** Replacement, upgrade, enablement,
+smoke, packaging, repository integration, artifact deletion, and raw direct
+bind remain deferred. The next milestone requires a separate architecture gate.

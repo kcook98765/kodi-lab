@@ -9,6 +9,9 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_zip_installations import (
+    invalidate_addon_zip_installation_evidence,
+)
 from kodi_lab.application.development_source_deployments import (
     invalidate_development_source_deployments,
 )
@@ -186,6 +189,7 @@ class ManagedRuntimeLifecycleService:
         self._readiness.clear(instance_id)
         with self._session_factory.begin() as session:
             invalidate_development_source_deployments(session, instance_id)
+            invalidate_addon_zip_installation_evidence(session, instance_id)
         self._broker.deprovision_managed_container(
             managed_instance_id=str(instance_id),
             expected_container_id=container.container_id,

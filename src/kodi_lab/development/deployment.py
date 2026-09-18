@@ -494,6 +494,7 @@ def capture_destination_archive(
     *,
     root_name: str,
     capture_paths: frozenset[str] = frozenset(),
+    include_root: bool = False,
 ) -> DevelopmentTreeManifest:
     """Build a bounded semantic manifest from Docker's fixed-path tar readback."""
 
@@ -523,6 +524,18 @@ def capture_destination_archive(
                             "Destination root is not a directory.",
                         )
                     root_seen = True
+                    if include_root:
+                        entries.append(
+                            DevelopmentTreeEntry(
+                                ".",
+                                "directory",
+                                member.mode & 0o7777,
+                                0,
+                                None,
+                                member.uid,
+                                member.gid,
+                            )
+                        )
                     continue
                 if not root_seen:
                     raise DevelopmentTreeError(

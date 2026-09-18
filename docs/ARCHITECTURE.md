@@ -768,3 +768,49 @@ existing network access. No network or repository control is added.
 **Smoke passed is bounded historical evidence that one fixed plugin-directory
 invocation completed and preserved deployed-source provenance. It is not a
 general working/health guarantee.**
+
+## Uploaded-ZIP installation first slice
+
+Uploaded ZIPs are immutable `uploaded_zip` artifacts, never DevelopmentSources
+or repository/publisher evidence. Authenticated multipart streaming writes only
+to UUID-derived private staging. A bounded manual EOCD/central-directory parser
+accepts stored/deflate members under D-0161, validates the one-root descriptor
+policy, and atomically publishes an immutable original plus a canonical
+normalized payload and manifest. Kodi never receives an unvalidated archive.
+
+**ZIP installation in this first slice is Lab-controlled validated
+materialization of an uploaded immutable ZIP artifact. It is not Kodi's native
+Install-from-ZIP GUI/installer path.** No Kodi install method, repository,
+generic JSON-RPC/builtin, GUI automation, caller path, or archive-extraction
+authority exists.
+
+The asynchronous import owns the global-heavy lease. Installation owns both
+global-heavy and the exact instance mutation lease. It requires a healthy
+running disposable suppression runtime, complete live inventory with the ID
+absent, and an absent fixed destination. The same operation stops the exact
+container, reproves absence, applies a broker-resolved normalized tree using
+profile UID/GID, performs exact stopped readback, restarts and waits readiness,
+requires exact disabled recognition and unchanged declared-dependency state,
+performs exact final readback, and leaves Kodi running.
+
+The authoritative normalized manifest includes every directory and file with
+type, normalized mode, size and file digest. Both readbacks also require exact
+runtime ownership and no extra entry. Archive modes, UID/GID, timestamps,
+ACL/xattrs and special bits have no runtime authority. Any existing inventory
+ID or destination blocks; replacement, upgrade, overwrite and byte reapply are
+absent.
+
+Uncertainty after the durable application marker leaves the instance stopped
+and history reconciliation-required. Bounded observation may classify absent,
+exact, partial, recognition, dependency, and container/revision states but
+cannot retry, adopt, delete, restart, or mark success. Snapshot restore, reset,
+deprovision and runtime reassignment stale current ZIP evidence; artifacts and
+typed history survive. Inventory attribution is only historical `Prior verified
+ZIP install` when every retained identity matches.
+
+The Web surface is one bounded upload POST and one strict-empty install POST,
+both authenticated, same-origin and CSRF-protected with HTTP 202 status. Safe
+presentation omits upload filenames, archive members/content, internal paths,
+descriptor XML and digests. Accepted artifacts are retained; no browse,
+download, delete, enable, smoke, replacement, repository, or bind surface is
+introduced. Raw direct bind remains rejected.

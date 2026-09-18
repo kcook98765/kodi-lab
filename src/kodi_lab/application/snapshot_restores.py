@@ -14,6 +14,9 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_zip_installations import (
+    invalidate_addon_zip_installation_evidence,
+)
 from kodi_lab.application.development_source_deployments import (
     invalidate_development_source_deployments,
 )
@@ -207,6 +210,9 @@ class DisposableSnapshotRestoreService:
             )
             with self._session_factory.begin() as session:
                 invalidate_development_source_deployments(
+                    session, self._lease.managed_instance_id
+                )
+                invalidate_addon_zip_installation_evidence(
                     session, self._lease.managed_instance_id
                 )
             self._broker.deprovision_managed_container(
