@@ -46,6 +46,13 @@ from kodi_lab.domain.addon_zips import (
     AddonZipPayloadVerificationOutcome,
     AddonZipValidationState,
 )
+from kodi_lab.domain.agent_workspaces import (
+    AgentWorkspace,
+    AgentWorkspaceCreationOperation,
+    AgentWorkspaceCreationPhase,
+    AgentWorkspaceCreationState,
+    AgentWorkspaceState,
+)
 from kodi_lab.domain.development_source_attachments import (
     MAX_DEVELOPMENT_SOURCE_ATTACHMENT_REASON,
     DevelopmentSourceAttachmentOperation,
@@ -230,6 +237,11 @@ __all__ = [
     "AddonZipSmokeTestOverallResult",
     "AddonZipSmokeTestPostProvenance",
     "AddonZipValidationState",
+    "AgentWorkspace",
+    "AgentWorkspaceCreationOperation",
+    "AgentWorkspaceCreationPhase",
+    "AgentWorkspaceCreationState",
+    "AgentWorkspaceState",
     "ConnectionState",
     "DevelopmentSource",
     "DevelopmentSourceAttachmentOperation",

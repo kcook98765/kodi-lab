@@ -43,6 +43,8 @@ from kodi_lab.domain import (
     AddonZipInstallationOperationState,
     AddonZipOrigin,
     AddonZipSmokeTestOperation,
+    AgentWorkspaceCreationOperation,
+    AgentWorkspaceCreationState,
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperation,
     DevelopmentSourceDeploymentOperationState,
@@ -85,6 +87,8 @@ from kodi_lab.storage.repositories import (
     AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
     AddonZipSmokeTestOperationRepository,
+    AgentWorkspaceCreationOperationRepository,
+    AgentWorkspaceRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceEnablementOperationRepository,
@@ -101,6 +105,10 @@ from kodi_lab.storage.repositories import (
     SnapshotDeleteOperationRepository,
     SnapshotRepository,
     SnapshotRestoreOperationRepository,
+)
+from kodi_lab.workspace import (
+    remove_unpublished_workspace_storage,
+    workspace_baseline_published,
 )
 
 
@@ -781,7 +789,8 @@ class StaleOperationReconciliationDispatcher:
         digest = row.lease_token_digest
         assert digest is not None
         operation: (
-            SnapshotDeleteOperation
+            AgentWorkspaceCreationOperation
+            | SnapshotDeleteOperation
             | SnapshotCreateOperation
             | SnapshotRestoreOperation
             | ManagedInstanceDeleteOperation
@@ -793,6 +802,51 @@ class StaleOperationReconciliationDispatcher:
             | RepositoryReplacementOperation
             | None
         )
+        if kind is GlobalHeavyOperationKind.AGENT_WORKSPACE_CREATION:
+            operation = AgentWorkspaceCreationOperationRepository(session).get(
+                operation_id
+            )
+            if (
+                operation is None
+                or operation.state is not AgentWorkspaceCreationState.RUNNING
+                or operation.lease_token_digest != digest
+                or operation.lease_expires_at is None
+                or operation.lease_expires_at > now
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired agent-workspace creation ownership is inconsistent."
+                )
+            published = (
+                True
+                if self._data_root is None
+                else workspace_baseline_published(
+                    self._data_root, operation.workspace_id
+                )
+            )
+            if self._data_root is not None and not published:
+                remove_unpublished_workspace_storage(
+                    self._data_root, operation.workspace_id
+                )
+            if not AgentWorkspaceRepository(session).finish_failed(
+                operation.workspace_id,
+                reconciliation_required=published,
+                now=now,
+            ) or not AgentWorkspaceCreationOperationRepository(session).finish(
+                operation_id,
+                token_digest=digest,
+                state=(
+                    AgentWorkspaceCreationState.RECONCILIATION_REQUIRED
+                    if published
+                    else AgentWorkspaceCreationState.FAILED
+                ),
+                now=now,
+                failure_code="agent_workspace_creation_interrupted",
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired agent-workspace creation history changed."
+                )
+            self._release_global(session, kind, operation_id, digest, now)
+            return operation_id, 1
         if kind is GlobalHeavyOperationKind.SNAPSHOT_DELETE:
             operation = SnapshotDeleteOperationRepository(session).get(operation_id)
             self._validate_operation(

@@ -2,6 +2,8 @@
 
 from kodi_lab.storage.metadata import Base, metadata
 from kodi_lab.storage.models import (
+    AgentWorkspaceCreationOperationRow,
+    AgentWorkspaceRow,
     DevelopmentSourceAttachmentOperationRow,
     DevelopmentSourceRow,
     FixtureDefinitionRow,
@@ -20,6 +22,8 @@ from kodi_lab.storage.models import (
 )
 
 __all__ = [
+    "AgentWorkspaceCreationOperationRow",
+    "AgentWorkspaceRow",
     "Base",
     "DevelopmentSourceAttachmentOperationRow",
     "DevelopmentSourceRow",

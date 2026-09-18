@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <title>Agent Workspaces · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    <script src="{{ url_for('static', path='/agent-workspaces.js') }}" defer></script>
+  </head>
+  <body><main>
+    <h1>Agent Workspaces</h1>
+    <p class="secondary">Protected plain working copies. Git, promotion, file mutation, and Kodi integration are unavailable.</p>
+    <form id="agent-workspace-create" data-csrf="{{ csrf_token }}">
+      <label for="development-source">Development source</label>
+      <select id="development-source" name="development_source_id" required>
+        {% for item in sources %}<option value="{{ item.source.id }}">{{ item.source.logical_name }} — {{ item.source.addon_id }}</option>{% endfor %}
+      </select>
+      <button type="submit">Create workspace</button>
+      <p id="agent-workspace-result" role="status"></p>
+    </form>
+    {% for workspace in workspaces %}
+    <article><h2><a href="/agent-workspaces/{{ workspace.id }}">{{ workspace.source_logical_name }}</a></h2><p>{{ workspace.source_addon_id }} — {{ workspace.state.value }} — generation {{ workspace.generation }}</p></article>
+    {% else %}<p>No workspaces.</p>{% endfor %}
+    <p><a href="/">Back to dashboard</a></p>
+  </main></body>
+</html>

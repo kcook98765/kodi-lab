@@ -2525,3 +2525,54 @@ details that it did not specify.
   before destination mutation. Supported exits are central Snapshot restore or
   disposable reset followed by fresh copy/sync; detach alone does not restore
   bytes.
+
+## D-0202: Phase 9 V1 workspaces are plain copies of registered local sources
+
+- Status: approved and implemented for Phase 9 Slice 1
+- Decision: one workspace originates only from one registered
+  `local_directory` DevelopmentSource and is a normalized Lab-owned safe copy.
+  It is not a Git clone/worktree/repository, mount, bind, alias, uploaded ZIP,
+  repository-download artifact, or arbitrary host directory. A source inside a
+  Git checkout is still treated only as an ordinary tree. No Git command,
+  configuration, hook, remote, submodule, LFS, branch, commit, tag, fetch,
+  pull, or push authority exists. Existing safe-capture policy excludes
+  `.git`, `.hg`, and `.svn` administration directories.
+
+## D-0203: Workspaces have durable UUID identity and private application storage
+
+- Status: approved and implemented for Phase 9 Slice 1
+- Decision: `AgentWorkspace` retains workspace/source UUIDs, immutable source
+  add-on ID and source name/version snapshots, closed lifecycle state,
+  independent baseline artifact UUID and manifest identity, generation, current
+  tree identity, and capture/create/update timestamps. No host path is stored.
+- Lifecycle and storage: Slice 1 uses only `creating`, `ready`, `abandoned`, and
+  `reconciliation_required`; generation starts at zero. Bytes live only below
+  `KODI_LAB_DATA_ROOT/agent-workspaces/<workspace-uuid>/` as private baseline,
+  mutable `tree/`, and creation staging. Paths are server-derived from UUIDs.
+  Multiple independent workspaces per source are allowed. Ordinary non-root
+  application code owns creation and reads; broker, Docker, sudo, root, Kodi,
+  Git, and an implicit current-workspace pointer are absent.
+
+## D-0204: Creation publishes one immutable baseline and its equal generation-0 tree
+
+- Status: approved and implemented for Phase 9 Slice 1
+- Decision: creation reuses the Phase 8 bounded descriptor-relative no-follow
+  capture and its canonical constants: 25,000 files, 50,000 entries, 1 GiB
+  total, 256 MiB per file, 512-byte paths, 255-byte components, depth 32, and a
+  16 MiB manifest. It rejects links, hardlinks, special files, unsafe names and
+  VCS administration directories, validates captured root `addon.xml` identity,
+  and requires a matching second source pass.
+- Publication: a private normalized capture becomes the retained baseline. The
+  mutable generation-0 tree is copied only from that capture and both trees are
+  recaptured and required to match its exact topology, bytes, and normalized
+  modes before `ready`. A typed global-heavy creation operation records bounded
+  phase/failure history. Proven pre-publication failure removes exact private
+  partial state and abandons the catalog row; uncertainty after baseline
+  publication retains bytes and becomes `reconciliation_required`.
+- Read-only Slice 1 authority: directory inspection returns at most 2,000 safe
+  name/type/optional-size entries. File reads return only strict UTF-8 text and
+  are capped at 2 MiB. Semantic relative paths reject absolute, empty-file,
+  dot, parent, backslash, NUL/control, component, path, and depth violations;
+  traversal is descriptor-relative and no-follow. Host paths, ownership,
+  inodes, timestamps, symlink targets, manifests, digests, and baseline bytes
+  are not exposed.

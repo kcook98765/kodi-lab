@@ -38,6 +38,11 @@ from kodi_lab.domain import (
     AddonZipSmokeTestOperationState,
     AddonZipSmokeTestOverallResult,
     AddonZipSmokeTestPostProvenance,
+    AgentWorkspace,
+    AgentWorkspaceCreationOperation,
+    AgentWorkspaceCreationPhase,
+    AgentWorkspaceCreationState,
+    AgentWorkspaceState,
     DevelopmentSource,
     DevelopmentSourceAttachmentOperation,
     DevelopmentSourceDeployment,
@@ -112,6 +117,8 @@ from kodi_lab.storage.models import (
     AddonZipInstallationEvidenceRow,
     AddonZipInstallationOperationRow,
     AddonZipSmokeTestOperationRow,
+    AgentWorkspaceCreationOperationRow,
+    AgentWorkspaceRow,
     DevelopmentSourceAttachmentOperationRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
@@ -830,6 +837,54 @@ def _development_source_from_row(row: DevelopmentSourceRow) -> DevelopmentSource
     )
 
 
+def _agent_workspace_from_row(row: AgentWorkspaceRow) -> AgentWorkspace:
+    return AgentWorkspace(
+        id=UUID(row.id),
+        development_source_id=UUID(row.development_source_id),
+        source_addon_id=row.source_addon_id,
+        source_logical_name=row.source_logical_name,
+        source_observed_name=row.source_observed_name,
+        source_observed_version=row.source_observed_version,
+        state=row.state,
+        baseline_artifact_id=UUID(row.baseline_artifact_id),
+        baseline_manifest_digest=row.baseline_manifest_digest,
+        generation=row.generation,
+        current_tree_digest=row.current_tree_digest,
+        capture_started_at=_timestamp_from_text(row.capture_started_at),
+        captured_at=None
+        if row.captured_at is None
+        else _timestamp_from_text(row.captured_at),
+        created_at=_timestamp_from_text(row.created_at),
+        updated_at=_timestamp_from_text(row.updated_at),
+    )
+
+
+def _agent_workspace_creation_from_row(
+    row: AgentWorkspaceCreationOperationRow,
+) -> AgentWorkspaceCreationOperation:
+    return AgentWorkspaceCreationOperation(
+        id=UUID(row.id),
+        workspace_id=UUID(row.workspace_id),
+        development_source_id=UUID(row.development_source_id),
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
+        started_at=None
+        if row.started_at is None
+        else _timestamp_from_text(row.started_at),
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        failure_code=row.failure_code,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=(
+            None
+            if row.lease_expires_at is None
+            else _timestamp_from_text(row.lease_expires_at)
+        ),
+    )
+
+
 def _development_source_attachment_operation_from_row(
     row: DevelopmentSourceAttachmentOperationRow,
 ) -> DevelopmentSourceAttachmentOperation:
@@ -1153,6 +1208,199 @@ class DevelopmentSourceRepository:
             )
         )
         return [_development_source_from_row(row) for row in rows]
+
+
+class AgentWorkspaceRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, workspace: AgentWorkspace) -> None:
+        self._session.add(
+            AgentWorkspaceRow(
+                id=str(workspace.id),
+                development_source_id=str(workspace.development_source_id),
+                source_addon_id=workspace.source_addon_id,
+                source_logical_name=workspace.source_logical_name,
+                source_observed_name=workspace.source_observed_name,
+                source_observed_version=workspace.source_observed_version,
+                state=workspace.state,
+                baseline_artifact_id=str(workspace.baseline_artifact_id),
+                baseline_manifest_digest=workspace.baseline_manifest_digest,
+                generation=workspace.generation,
+                current_tree_digest=workspace.current_tree_digest,
+                capture_started_at=_timestamp_to_text(workspace.capture_started_at),
+                captured_at=(
+                    None
+                    if workspace.captured_at is None
+                    else _timestamp_to_text(workspace.captured_at)
+                ),
+                created_at=_timestamp_to_text(workspace.created_at),
+                updated_at=_timestamp_to_text(workspace.updated_at),
+            )
+        )
+        self._session.flush()
+
+    def get(self, workspace_id: UUID) -> AgentWorkspace | None:
+        row = self._session.get(AgentWorkspaceRow, str(workspace_id))
+        return None if row is None else _agent_workspace_from_row(row)
+
+    def list(self) -> list[AgentWorkspace]:
+        rows = self._session.scalars(
+            select(AgentWorkspaceRow).order_by(
+                AgentWorkspaceRow.created_at.desc(), AgentWorkspaceRow.id
+            )
+        )
+        return [_agent_workspace_from_row(row) for row in rows]
+
+    def finish_ready(
+        self,
+        workspace_id: UUID,
+        *,
+        manifest_digest: str,
+        tree_digest: str,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceRow)
+            .where(
+                AgentWorkspaceRow.id == str(workspace_id),
+                AgentWorkspaceRow.state == AgentWorkspaceState.CREATING,
+            )
+            .values(
+                state=AgentWorkspaceState.READY,
+                baseline_manifest_digest=manifest_digest,
+                current_tree_digest=tree_digest,
+                captured_at=_timestamp_to_text(now),
+                updated_at=_timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish_failed(
+        self, workspace_id: UUID, *, reconciliation_required: bool, now: datetime
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceRow)
+            .where(
+                AgentWorkspaceRow.id == str(workspace_id),
+                AgentWorkspaceRow.state == AgentWorkspaceState.CREATING,
+            )
+            .values(
+                state=(
+                    AgentWorkspaceState.RECONCILIATION_REQUIRED
+                    if reconciliation_required
+                    else AgentWorkspaceState.ABANDONED
+                ),
+                updated_at=_timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+
+class AgentWorkspaceCreationOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: AgentWorkspaceCreationOperation) -> None:
+        self._session.add(
+            AgentWorkspaceCreationOperationRow(
+                id=str(operation.id),
+                workspace_id=str(operation.workspace_id),
+                development_source_id=str(operation.development_source_id),
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> AgentWorkspaceCreationOperation | None:
+        row = self._session.get(AgentWorkspaceCreationOperationRow, str(operation_id))
+        return None if row is None else _agent_workspace_creation_from_row(row)
+
+    def list_queued(self) -> list[AgentWorkspaceCreationOperation]:
+        rows = self._session.scalars(
+            select(AgentWorkspaceCreationOperationRow)
+            .where(
+                AgentWorkspaceCreationOperationRow.state
+                == AgentWorkspaceCreationState.QUEUED
+            )
+            .order_by(AgentWorkspaceCreationOperationRow.requested_at)
+        )
+        return [_agent_workspace_creation_from_row(row) for row in rows]
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceCreationOperationRow)
+            .where(
+                AgentWorkspaceCreationOperationRow.id == str(operation_id),
+                AgentWorkspaceCreationOperationRow.state
+                == AgentWorkspaceCreationState.QUEUED,
+                AgentWorkspaceCreationOperationRow.lease_token_digest.is_(None),
+            )
+            .values(
+                state=AgentWorkspaceCreationState.RUNNING,
+                phase=AgentWorkspaceCreationPhase.CAPTURING,
+                started_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: AgentWorkspaceCreationPhase,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceCreationOperationRow)
+            .where(
+                AgentWorkspaceCreationOperationRow.id == str(operation_id),
+                AgentWorkspaceCreationOperationRow.state
+                == AgentWorkspaceCreationState.RUNNING,
+                AgentWorkspaceCreationOperationRow.lease_token_digest == token_digest,
+            )
+            .values(phase=phase)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: AgentWorkspaceCreationState,
+        now: datetime,
+        failure_code: str | None,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceCreationOperationRow)
+            .where(
+                AgentWorkspaceCreationOperationRow.id == str(operation_id),
+                AgentWorkspaceCreationOperationRow.state
+                == AgentWorkspaceCreationState.RUNNING,
+                AgentWorkspaceCreationOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                state=state,
+                phase=AgentWorkspaceCreationPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+                failure_code=failure_code,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
 
 
 class ManagedInstanceDevelopmentSourceRepository:

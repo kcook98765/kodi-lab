@@ -1008,3 +1008,34 @@ are privately spooled under the artifact staging identity, and publication
 emits sorted normalized members. The disk-reserve check accounts for spool plus
 final archive. This preserves deterministic artifacts without treating Docker
 member order as caller or filesystem authority.
+
+## Phase 9 protected agent workspace foundation
+
+Phase 9 Slice 1 adds an unprivileged application-only workspace catalog. The
+only source is a registered `local_directory` DevelopmentSource. The original
+source remains outside agent mutation authority; creation performs a bounded
+read-only capture beneath the configured development root. There is no broker,
+Docker, container, Kodi, Git, mount, ZIP, repository-artifact, or caller path
+in the workflow.
+
+The application derives
+`KODI_LAB_DATA_ROOT/agent-workspaces/<workspace-uuid>/` and privately retains
+`baseline/tree`, `baseline/manifest.json`, and mutable `tree`. The first
+normalized no-follow capture is checked against a second source pass, its
+captured `addon.xml` must retain the registered add-on ID, and generation zero
+is made only from those captured bytes. Independent recapture proves baseline
+and tree equality before the catalog becomes ready. Creation is a typed
+global-heavy operation; exact pre-publication failure is cleaned, while any
+post-publication uncertainty is retained for reconciliation.
+
+Internal read services accept only workspace UUID plus normalized semantic
+relative paths. Directory results are bounded to 2,000 safe entries. Content
+authority is strict UTF-8 text only, at most 2 MiB per request. Every traversal
+opens components descriptor-relatively with `O_NOFOLLOW` and rejects links,
+hardlinks, and special objects, including unsafe entries injected after
+creation. Safe Web DTOs omit storage/source paths, baseline identity/digest,
+manifest, ownership, inode, and raw filesystem errors.
+
+This slice intentionally has no file create/write/replace/patch/delete/rename,
+no diff or promotion, no source mutation, no Kodi deployment/reload/test/log
+operation, no MCP exposure, no cleanup mutation, and no Git operation.

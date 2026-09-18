@@ -85,6 +85,17 @@ from kodi_lab.application.addon_zip_smoke_tests import (
     AddonZipSmokeTestServiceFactory,
     AddonZipSmokeTestStatus,
 )
+from kodi_lab.application.agent_workspaces import (
+    AgentWorkspaceConflictError,
+    AgentWorkspaceCreationExecutor,
+    AgentWorkspaceCreationStatus,
+    AgentWorkspaceError,
+    AgentWorkspaceFileRead,
+    AgentWorkspaceNotFoundError,
+    AgentWorkspaceRead,
+    AgentWorkspaceService,
+    AgentWorkspaceTreeEntryRead,
+)
 from kodi_lab.application.development_source_attachments import (
     AttachedDevelopmentSourceRead,
     DevelopmentSourceAttachmentService,
@@ -283,6 +294,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
+from kodi_lab.workspace import AgentWorkspaceStorageError
 
 _WEB_ROOT = Path(__file__).parent
 
@@ -304,6 +316,22 @@ class DevelopmentSourceRegistrationRequest(BaseModel):
     relative_locator: str = Field(
         min_length=1, max_length=MAX_DEVELOPMENT_SOURCE_LOCATOR
     )
+
+
+class AgentWorkspaceCreationRequest(BaseModel):
+    """The caller selects only one registered DevelopmentSource UUID."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    development_source_id: UUID
+
+
+class AgentWorkspaceCreationAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: AgentWorkspaceCreationStatus
+    status_url: str
+    workspace_url: str
 
 
 class AddonRepositoryRegistrationRequest(BaseModel):
@@ -492,6 +520,8 @@ class WebApplicationContext:
     addon_repository_fetch_executor: AddonRepositoryExecutor
     repository_replacements: RepositoryReplacementCoordinator
     repository_replacement_executor: RepositoryReplacementExecutor
+    agent_workspaces: AgentWorkspaceService
+    agent_workspace_executor: AgentWorkspaceCreationExecutor
 
 
 def create_app(
@@ -538,6 +568,7 @@ def create_app(
     repository_replacement_service_factory: (
         RepositoryReplacementServiceFactory | None
     ) = None,
+    agent_workspace_service: AgentWorkspaceService | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -830,6 +861,12 @@ def create_app(
     repository_replacement_executor = RepositoryReplacementExecutor(
         repository_replacements, repository_replacement_factory
     )
+    agent_workspaces = agent_workspace_service or AgentWorkspaceService(
+        session_factory,
+        data_root=settings.data_root,
+        development_root=settings.development_root,
+    )
+    agent_workspace_executor = AgentWorkspaceCreationExecutor(agent_workspaces)
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -909,6 +946,8 @@ def create_app(
         addon_repository_fetch_executor=addon_repository_fetch_executor,
         repository_replacements=repository_replacements,
         repository_replacement_executor=repository_replacement_executor,
+        agent_workspaces=agent_workspaces,
+        agent_workspace_executor=agent_workspace_executor,
     )
 
     @asynccontextmanager
@@ -927,6 +966,7 @@ def create_app(
         context.addon_repository_refresh_executor.start()
         context.addon_repository_fetch_executor.start()
         context.repository_replacement_executor.start()
+        context.agent_workspace_executor.start()
         try:
             yield
         finally:
@@ -943,6 +983,7 @@ def create_app(
             context.addon_repository_refresh_executor.close()
             context.addon_repository_fetch_executor.close()
             context.repository_replacement_executor.close()
+            context.agent_workspace_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -1013,6 +1054,26 @@ def create_app(
             404, "development_source_not_found", "Development source not found."
         )
 
+    @app.exception_handler(AgentWorkspaceNotFoundError)
+    async def agent_workspace_not_found(
+        _request: Request, error: AgentWorkspaceNotFoundError
+    ) -> JSONResponse:
+        return _json_error(404, error.code, error.safe_message)
+
+    @app.exception_handler(AgentWorkspaceStorageError)
+    async def agent_workspace_storage_failed(
+        _request: Request, error: AgentWorkspaceStorageError
+    ) -> JSONResponse:
+        http_status = 404 if error.code == "agent_workspace_path_unavailable" else 422
+        return _json_error(http_status, error.code, error.safe_message)
+
+    @app.exception_handler(AgentWorkspaceError)
+    async def agent_workspace_failed(
+        _request: Request, error: AgentWorkspaceError
+    ) -> JSONResponse:
+        http_status = 409 if isinstance(error, AgentWorkspaceConflictError) else 422
+        return _json_error(http_status, error.code, error.safe_message)
+
     @app.exception_handler(AddonRepositoryNotFoundError)
     async def addon_repository_not_found(
         _request: Request, error: AddonRepositoryNotFoundError
@@ -1054,7 +1115,7 @@ def create_app(
     ) -> Response:
         path = request.url.path
         closed_schema_mutation = request.method == "POST" and (
-            path == "/api/development-sources"
+            path in {"/api/development-sources", "/api/agent-workspaces"}
             or path == "/api/addon-repositories"
             or "/addon-repositories/" in path
             or "/repository-artifacts/" in path
@@ -1548,6 +1609,42 @@ def create_app(
             {"detail": context.development_sources.get_source(source_id)},
         )
 
+    @app.get("/agent-workspaces", response_class=HTMLResponse)
+    async def agent_workspace_list_page(request: Request) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "agent-workspaces.html",
+            {
+                "workspaces": context.agent_workspaces.list_workspaces(),
+                "sources": context.development_sources.list_sources(),
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
+    @app.get("/agent-workspaces/{workspace_id}", response_class=HTMLResponse)
+    async def agent_workspace_detail_page(
+        request: Request, workspace_id: UUID
+    ) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        workspace = context.agent_workspaces.get(workspace_id)
+        entries = (
+            context.agent_workspaces.inspect_directory(workspace_id, "")
+            if workspace.state.value == "ready"
+            else []
+        )
+        return templates.TemplateResponse(
+            request,
+            "agent-workspace-detail.html",
+            {"workspace": workspace, "entries": entries},
+        )
+
     @app.get("/addon-zips", response_class=HTMLResponse)
     async def addon_zip_list_page(request: Request) -> Response:
         try:
@@ -1905,6 +2002,78 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[DevelopmentSourceSummary]:
         return context.development_sources.list_sources()
+
+    @app.get("/api/agent-workspaces", response_model=list[AgentWorkspaceRead])
+    def list_agent_workspaces(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AgentWorkspaceRead]:
+        return context.agent_workspaces.list_workspaces()
+
+    @app.post(
+        "/api/agent-workspaces",
+        response_model=AgentWorkspaceCreationAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def create_agent_workspace(
+        body: AgentWorkspaceCreationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AgentWorkspaceCreationAccepted:
+        operation = context.agent_workspaces.queue_creation(body.development_source_id)
+        context.agent_workspace_executor.submit(operation.operation_id)
+        return AgentWorkspaceCreationAccepted(
+            operation=operation,
+            status_url=f"/api/agent-workspace-creation-operations/{operation.operation_id}",
+            workspace_url=f"/api/agent-workspaces/{operation.workspace_id}",
+        )
+
+    @app.get(
+        "/api/agent-workspace-creation-operations/{operation_id}",
+        response_model=AgentWorkspaceCreationStatus,
+    )
+    def get_agent_workspace_creation(
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AgentWorkspaceCreationStatus:
+        return context.agent_workspaces.creation_status(operation_id)
+
+    @app.get("/api/agent-workspaces/{workspace_id}", response_model=AgentWorkspaceRead)
+    def get_agent_workspace(
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AgentWorkspaceRead:
+        return context.agent_workspaces.get(workspace_id)
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/tree",
+        response_model=list[AgentWorkspaceTreeEntryRead],
+    )
+    def inspect_agent_workspace_root(
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AgentWorkspaceTreeEntryRead]:
+        return context.agent_workspaces.inspect_directory(workspace_id, "")
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/tree/{relative_path:path}",
+        response_model=list[AgentWorkspaceTreeEntryRead],
+    )
+    def inspect_agent_workspace_directory(
+        workspace_id: UUID,
+        relative_path: str,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AgentWorkspaceTreeEntryRead]:
+        return context.agent_workspaces.inspect_directory(workspace_id, relative_path)
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/file/{relative_path:path}",
+        response_model=AgentWorkspaceFileRead,
+    )
+    def read_agent_workspace_file(
+        workspace_id: UUID,
+        relative_path: str,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AgentWorkspaceFileRead:
+        return context.agent_workspaces.read_file(workspace_id, relative_path)
 
     @app.get("/api/addon-repositories", response_model=list[AddonRepositorySourceRead])
     def list_addon_repositories(

@@ -44,6 +44,9 @@ from kodi_lab.domain import (
     AddonZipSmokeTestOverallResult,
     AddonZipSmokeTestPostProvenance,
     AddonZipValidationState,
+    AgentWorkspaceCreationPhase,
+    AgentWorkspaceCreationState,
+    AgentWorkspaceState,
     ConnectionState,
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
@@ -184,6 +187,137 @@ class DevelopmentSourceRow(Base):
     extension_types_json: Mapped[str] = mapped_column(Text, nullable=False)
     registered_at: Mapped[str] = mapped_column(String(32), nullable=False)
     validated_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class AgentWorkspaceRow(Base):
+    """Path-free durable identity for one protected working copy."""
+
+    __tablename__ = "agent_workspaces"
+    __table_args__ = (
+        CheckConstraint(
+            "generation >= 0", name="agent_workspace_generation_nonnegative"
+        ),
+        CheckConstraint(
+            "length(source_addon_id) BETWEEN 1 AND 128 AND "
+            "length(source_logical_name) BETWEEN 1 AND 120 AND "
+            "length(source_observed_name) BETWEEN 1 AND 256 AND "
+            "length(source_observed_version) BETWEEN 1 AND 128",
+            name="agent_workspace_source_snapshot_bounded",
+        ),
+        CheckConstraint(
+            "(baseline_manifest_digest IS NULL OR "
+            "(length(baseline_manifest_digest)=71 AND "
+            "substr(baseline_manifest_digest,1,7)='sha256:')) AND "
+            "(current_tree_digest IS NULL OR "
+            "(length(current_tree_digest)=71 AND "
+            "substr(current_tree_digest,1,7)='sha256:'))",
+            name="agent_workspace_digests_valid",
+        ),
+        CheckConstraint(
+            "state <> 'ready' OR (baseline_manifest_digest IS NOT NULL AND "
+            "current_tree_digest IS NOT NULL AND captured_at IS NOT NULL)",
+            name="agent_workspace_ready_complete",
+        ),
+        Index(
+            "ix_agent_workspace_source_created", "development_source_id", "created_at"
+        ),
+        Index("ix_agent_workspace_state", "state"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_logical_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_observed_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    source_observed_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    state: Mapped[AgentWorkspaceState] = mapped_column(
+        Enum(
+            AgentWorkspaceState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_state",
+        ),
+        nullable=False,
+    )
+    baseline_artifact_id: Mapped[str] = mapped_column(
+        String(36), nullable=False, unique=True
+    )
+    baseline_manifest_digest: Mapped[str | None] = mapped_column(String(71))
+    generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    current_tree_digest: Mapped[str | None] = mapped_column(String(71))
+    capture_started_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    captured_at: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class AgentWorkspaceCreationOperationRow(Base):
+    """Bounded typed history for one asynchronous workspace creation."""
+
+    __tablename__ = "agent_workspace_creation_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 128",
+            name="agent_workspace_creation_failure_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest)=64 AND "
+            "lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="agent_workspace_creation_lease_digest",
+        ),
+        CheckConstraint(
+            "(state IN ('queued','running') AND completed_at IS NULL AND "
+            "failure_code IS NULL) OR (state='succeeded' AND completed_at IS NOT NULL "
+            "AND failure_code IS NULL) OR "
+            "(state IN ('failed','reconciliation_required') "
+            "AND completed_at IS NOT NULL AND failure_code IS NOT NULL)",
+            name="agent_workspace_creation_terminal_consistent",
+        ),
+        Index(
+            "ix_agent_workspace_creation_source_requested",
+            "development_source_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_workspaces.id", ondelete="RESTRICT"), unique=True
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("development_sources.id", ondelete="RESTRICT")
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(32))
+    completed_at: Mapped[str | None] = mapped_column(String(32))
+    state: Mapped[AgentWorkspaceCreationState] = mapped_column(
+        Enum(
+            AgentWorkspaceCreationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_creation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[AgentWorkspaceCreationPhase] = mapped_column(
+        Enum(
+            AgentWorkspaceCreationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_creation_phase",
+        ),
+        nullable=False,
+    )
+    failure_code: Mapped[str | None] = mapped_column(String(128))
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32))
 
 
 class TargetRow(Base):

@@ -146,6 +146,7 @@ class GlobalHeavyOperationKind(StrEnum):
     ADDON_REPOSITORY_FETCH = "addon_repository_fetch"
     ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
     REPOSITORY_REPLACEMENT = "repository_replacement"
+    AGENT_WORKSPACE_CREATION = "agent_workspace_creation"
 
 
 def normalize_snapshot_label(value: str | None) -> str | None:

@@ -733,3 +733,28 @@ and explicitly deferred boundaries are recorded in
 Containment-safe live projection or equivalent bind-like behavior is optional
 post-v1 research and is not a completion blocker. Raw direct Docker bind of
 mutable DevelopmentSource host paths is not approved.
+
+## Phase 9 — Agent working copy
+
+Slice 1 implements only workspace catalog, safe creation, immutable baseline,
+and bounded read/inspect. Migration `0029_agent_workspaces` adds path-free
+`AgentWorkspace` state plus typed asynchronous creation history and the
+`agent_workspace_creation` global-heavy kind. One registered local-directory
+DevelopmentSource produces each independent UUID workspace through the reused
+Phase 8 no-follow bounded capture. A matching second pass and captured add-on
+identity are required. Generation zero and the private baseline derive from one
+normalized capture and must recapture identically before ready publication.
+
+Authenticated administrator Web routes provide list/detail, strict UUID-only
+HTTP 202 creation/status, bounded semantic directory inspection, and strict
+UTF-8 text reads capped at 2 MiB. They expose no host/storage path, baseline,
+manifest/digest, filesystem ownership, Git, runtime, instance, Docker, or Kodi
+control. The ordinary application identity performs all work.
+
+Canonical progress is deliberately partial: read and directory-inspect
+authority inside the Lab-managed copy are implemented. Workspace
+write/create/replace and patch-based edit remain the next implementation
+slice. Reviewed conflict-aware promotion back to DevelopmentSource remains
+unimplemented, as do subsequent copy/sync/reload/verification, Kodi integration,
+MCP exposure, Git operations, and cleanup mutation. No later Phase 9 decision
+is recorded as implemented by Slice 1.
