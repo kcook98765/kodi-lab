@@ -2143,7 +2143,90 @@ details that it did not specify.
 ## D-0172: Replacement and execution remain deferred
 
 - Status: approved
-- Decision: ZIP replacement, upgrade, rollback, ZIP enablement, ZIP smoke,
+- Decision: ZIP replacement, upgrade, rollback, and ZIP smoke remain deferred;
+  ZIP enablement was separately approved by D-0173 through D-0178.
   DevelopmentSource packaging, repository integration, and successful-artifact
   deletion/cleanup surfaces are explicit future gates. Raw direct bind remains
   rejected by the completed bind gate.
+
+## D-0173: Uploaded-ZIP enablement has artifact-and-installation authority only
+
+- Status: approved and implemented for the Phase 8 ZIP-enable first slice
+- Decision: authority is exactly ManagedInstance UUID plus accepted
+  AddonZipArtifact UUID. The server resolves immutable artifact, successful ZIP
+  installation evidence and operation, exact ID/version/type, normalized
+  payload, RuntimeRevision/Profile, current container, and fixed destination.
+  DevelopmentSource authority is never accepted or inferred.
+- Scope: enable only. There is no disable, toggle, caller add-on ID, generic
+  enablement, repository action, dependency installation, or ZIP smoke. Kodi
+  must already be running, healthy, freshly ready, and suppression-profiled;
+  enablement performs no lifecycle mutation.
+
+## D-0174: ZIP enablement requires fresh immutable-payload verification
+
+- Status: approved and implemented
+- Decision: before Kodi mutation, a ZIP-enable-only broker verifier resolves
+  artifact, successful installation lineage/evidence, immutable normalized
+  payload, destination, revision/container, and profile ownership from semantic
+  UUIDs and the exact-container precondition. No generic path, digest, hash, or
+  filesystem observation authority exists.
+- Outcomes: complete byte/digest/path/type/mode/UID/GID equality with no missing
+  or unexpected entry is `matched`. Exact change is `changed` and makes only
+  that artifact evidence stale. Unavailable/unclassifiable verification is
+  `unknown` and makes it unknown. Both block with no adoption or retry.
+
+## D-0175: ZIP dependency preflight reuses only pure evaluation machinery
+
+- Status: approved and implemented
+- Decision: immutable artifact declarations are cross-checked with fixed Kodi
+  details, then evaluated against complete inventory by the smallest pure
+  comparison/status machinery also used by DevelopmentSource enablement. ZIP
+  application authority, evidence, orchestration, and history remain separate.
+- Result: required missing, disabled, mismatched, unclassifiable, or actually
+  version-constrained dependencies block before enable; optional missing is
+  allowed. Constraints are `dependency_version_unverified`. Kodi Lab never
+  installs/enables a dependency, queries a repository, or infers compatibility.
+
+## D-0176: ZIP enablement is fixed enable-true plus exact readback
+
+- Status: approved and implemented
+- Decision: the established adapter constructs only `Addons.SetAddonEnabled`
+  with server-derived ID and literal Boolean `true`. `result: OK` is
+  insufficient; a fresh query must prove exact ID/version/type and enabled true.
+- Idempotence/ambiguity: already enabled succeeds only after every precondition,
+  returns `already_enabled` and `enable_performed=false`, and sends no mutation.
+  Possible post-dispatch mutation without trustworthy final state becomes
+  reconciliation-required and makes target ZIP evidence unknown. There is no
+  retry, toggle, rollback disable, or historical success rewrite.
+
+## D-0177: ZIP enablement has separate durable history and coordination
+
+- Status: approved and implemented
+- Decision: `AddonZipEnablementOperation` stores bounded semantic identity,
+  immutable original and nullable live instance, artifact/installation refs,
+  ID/version snapshots, RuntimeRevision/container precondition, state/phase,
+  payload outcome, prior/result enabled Booleans, enable-performed marker,
+  dependency/failure classes, and timestamps. It stores no Web paths/digests,
+  raw JSON-RPC/errors, repository URLs, or authoritative current enabled state.
+- Coordination: `addon_zip_enablement` conflicts with lifecycle, reset, Snapshot
+  create/restore, fixture/runtime reassignment, DevelopmentSource
+  attach/detach/copy/enable/smoke, ZIP install/enable, future ZIP smoke, and
+  deletion. Snapshot deletion and unrelated import do not conflict; no global
+  lease is used. Retain newest 20 ordinary terminal rows plus all active and
+  reconciliation-required history.
+- Invalidation: existing Snapshot/reset/deprovision/runtime/container rules
+  invalidate ZIP installation evidence; history never restores authority.
+  Ordinary same-container stop/start does not itself invalidate lineage.
+
+## D-0178: ZIP-enable Web and presentation authority is strict and private
+
+- Status: approved and implemented
+- Decision: authenticated same-origin CSRF-protected
+  `POST /api/instances/{instance_id}/addon-zips/{artifact_id}/enable` accepts a
+  strict empty body and synchronously returns HTTP 200 typed status. It accepts
+  no add-on ID, mutation flag, dependency option, path, digest, or Kodi input.
+- Presentation: ZIP-install provenance remains `Prior verified ZIP install`;
+  live enabled Boolean and bounded disabled/enabled, stale, unknown,
+  dependency-blocked, or reconciliation state are separate. Safe activity never
+  exposes operational detail or says Verified ZIP enabled, Working, Tested, or
+  Healthy.

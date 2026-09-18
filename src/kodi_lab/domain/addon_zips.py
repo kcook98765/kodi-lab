@@ -72,6 +72,37 @@ class AddonZipInstallationOperationPhase(StrEnum):
     FINALIZE = "finalize"
 
 
+class AddonZipEnablementOperationState(StrEnum):
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class AddonZipEnablementOperationPhase(StrEnum):
+    PREFLIGHT = "preflight"
+    PAYLOAD_VERIFICATION = "payload_verification"
+    MUTATION = "mutation"
+    POSTCONDITION = "postcondition"
+    FINALIZE = "finalize"
+
+
+class AddonZipEnablementResult(StrEnum):
+    ENABLED = "enabled"
+    ALREADY_ENABLED = "already_enabled"
+    DEPENDENCY_BLOCKED = "dependency_blocked"
+    REJECTED = "rejected"
+    FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class AddonZipPayloadVerificationOutcome(StrEnum):
+    NOT_CHECKED = "not_checked"
+    MATCHED = "matched"
+    CHANGED = "changed"
+    UNKNOWN = "unknown"
+
+
 def _utc(value: datetime | None, field: str) -> datetime | None:
     if value is None:
         return None
@@ -302,3 +333,114 @@ class AddonZipInstallationOperation:
             AddonZipInstallationOperationState.QUEUED,
             AddonZipInstallationOperationState.RUNNING,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class AddonZipEnablementOperation:
+    id: UUID
+    original_managed_instance_id: UUID
+    managed_instance_id: UUID | None
+    artifact_id: UUID
+    installation_operation_id: UUID
+    addon_id: str
+    addon_version: str
+    runtime_revision_id: UUID
+    requested_at: datetime
+    started_at: datetime
+    state: AddonZipEnablementOperationState
+    phase: AddonZipEnablementOperationPhase
+    expected_container_id: str | None = None
+    result_classification: AddonZipEnablementResult | None = None
+    payload_verification: AddonZipPayloadVerificationOutcome = (
+        AddonZipPayloadVerificationOutcome.NOT_CHECKED
+    )
+    prior_enabled: bool | None = None
+    result_enabled: bool | None = None
+    enable_performed: bool = False
+    blocked_dependency_id: str | None = None
+    blocked_dependency_reason: str | None = None
+    completed_at: datetime | None = None
+    failure_reason: str | None = None
+    reconciliation_required: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "addon_id", validate_addon_id(self.addon_id))
+        object.__setattr__(
+            self,
+            "addon_version",
+            validate_observed_metadata(
+                self.addon_version, field="version", maximum=128
+            ),
+        )
+        object.__setattr__(
+            self, "expected_container_id", _container_id(self.expected_container_id)
+        )
+        if self.blocked_dependency_id is not None:
+            object.__setattr__(
+                self,
+                "blocked_dependency_id",
+                validate_addon_id(self.blocked_dependency_id),
+            )
+        if (
+            self.blocked_dependency_reason is not None
+            and not 1 <= len(self.blocked_dependency_reason) <= 64
+        ):
+            raise ValueError("blocked dependency reason must be bounded")
+        if self.failure_reason is not None and not 1 <= len(self.failure_reason) <= 256:
+            raise ValueError("ZIP enablement failure reason must be bounded")
+        for field in ("requested_at", "started_at", "completed_at"):
+            object.__setattr__(self, field, _utc(getattr(self, field), field))
+        if self.state is AddonZipEnablementOperationState.RUNNING:
+            if (
+                self.result_classification is not None
+                or self.completed_at is not None
+                or self.failure_reason is not None
+                or self.reconciliation_required
+            ):
+                raise ValueError("running ZIP enablement fields are inconsistent")
+        elif self.result_classification is None or self.completed_at is None:
+            raise ValueError("terminal ZIP enablement fields are incomplete")
+        if self.state is AddonZipEnablementOperationState.SUCCEEDED and (
+            self.result_classification
+            not in {
+                AddonZipEnablementResult.ENABLED,
+                AddonZipEnablementResult.ALREADY_ENABLED,
+            }
+            or self.payload_verification
+            is not AddonZipPayloadVerificationOutcome.MATCHED
+            or self.result_enabled is not True
+            or self.failure_reason is not None
+            or self.reconciliation_required
+        ):
+            raise ValueError("successful ZIP enablement is inconsistent")
+        if self.result_classification is AddonZipEnablementResult.ENABLED and (
+            self.prior_enabled is not False or not self.enable_performed
+        ):
+            raise ValueError("enabled ZIP operation must record one mutation")
+        if self.result_classification is AddonZipEnablementResult.ALREADY_ENABLED and (
+            self.prior_enabled is not True or self.enable_performed
+        ):
+            raise ValueError("already-enabled ZIP operation must be idempotent")
+        if self.state is AddonZipEnablementOperationState.FAILED and (
+            self.result_classification
+            not in {
+                AddonZipEnablementResult.DEPENDENCY_BLOCKED,
+                AddonZipEnablementResult.REJECTED,
+                AddonZipEnablementResult.FAILED,
+            }
+            or self.failure_reason is None
+            or self.reconciliation_required
+        ):
+            raise ValueError("failed ZIP enablement is inconsistent")
+        if self.state is AddonZipEnablementOperationState.RECONCILIATION_REQUIRED and (
+            self.result_classification
+            is not AddonZipEnablementResult.RECONCILIATION_REQUIRED
+            or self.failure_reason is None
+            or not self.reconciliation_required
+            or not self.enable_performed
+        ):
+            raise ValueError("reconciliation ZIP enablement is inconsistent")
+
+    @property
+    def active(self) -> bool:
+        return self.state is AddonZipEnablementOperationState.RUNNING

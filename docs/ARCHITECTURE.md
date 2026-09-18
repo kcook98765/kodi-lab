@@ -769,6 +769,40 @@ existing network access. No network or repository control is added.
 invocation completed and preserved deployed-source provenance. It is not a
 general working/health guarantee.**
 
+## Uploaded-ZIP enablement
+
+ZIP enablement reuses lower-level Kodi/dependency/readback primitives but
+remains authorized solely by the immutable uploaded artifact and its verified
+ZIP installation evidence. Authority begins with ManagedInstance UUID plus
+AddonZipArtifact UUID; the server resolves successful installation,
+ID/version/type, revision/profile/container, normalized payload, ownership, and
+fixed destination. DevelopmentSource evidence cannot grant this authority, and
+there is no generic add-on-by-ID service.
+
+The synchronous operation requires an already-running healthy disposable Kodi
+on the exact suppression revision/container and repeats fresh identity,
+recognition, inventory, immutable destination, and dependency checks. Its broker
+verifier accepts only instance, artifact, enablement-operation, and exact
+container identities and uses complete exact-tree comparison. Change makes the
+target evidence stale; unavailable verification makes it unknown. Neither
+outcome mutates or adopts bytes.
+
+Artifact declarations and fixed Kodi details must agree. The pure evaluator
+allows optional-missing only; required missing, disabled, unknown, mismatched,
+or actually version-constrained dependencies block without dependency or
+repository mutation. The target mutation is fixed enable-true followed by
+exact ID/version/type/enabled readback. Already-enabled performs every check
+and emits no mutation.
+
+Migration `0025_addon_zip_enablement` adds separate bounded history and one
+per-instance mutation kind, not an enabled-state table. Known pre-mutation
+failure is ordinary; possible post-dispatch mutation is retained reconciliation
+and makes only target installation evidence unknown. Existing
+Snapshot/reset/runtime/container invalidation remains evidence-owned; history
+never recreates authority. The strict empty-body HTTP-200 API and UI expose
+safe classifications only. ZIP smoke remains unimplemented and separately
+gated.
+
 ## Uploaded-ZIP installation first slice
 
 Uploaded ZIPs are immutable `uploaded_zip` artifacts, never DevelopmentSources

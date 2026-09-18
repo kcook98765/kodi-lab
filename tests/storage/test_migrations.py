@@ -37,6 +37,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
         "addon_zip_artifacts",
+        "addon_zip_enablement_operations",
         "addon_zip_import_operations",
         "addon_zip_installation_evidence",
         "addon_zip_installation_operations",
@@ -2625,7 +2626,7 @@ def test_0024_uploaded_zip_schema_empty_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    command.upgrade(config, "0024_addon_zip_installation")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
@@ -2634,7 +2635,7 @@ def test_0024_uploaded_zip_schema_empty_round_trip(
     engine.dispose()
 
     command.downgrade(config, "0023_dev_source_smoke_test")
-    command.upgrade(config, "head")
+    command.upgrade(config, "0024_addon_zip_installation")
 
 
 def test_0024_populated_uploaded_zip_state_refuses_lossy_downgrade(
@@ -2674,3 +2675,49 @@ def test_0024_populated_uploaded_zip_state_refuses_lossy_downgrade(
             connection.scalar(text("SELECT id FROM addon_zip_artifacts")) == artifact_id
         )
     engine.dispose()
+
+
+def test_0025_zip_enablement_schema_empty_round_trip_and_mutation_kind(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    table = "addon_zip_enablement_operations"
+    assert table in inspector.get_table_names()
+    columns = {item["name"] for item in inspector.get_columns(table)}
+    assert {
+        "artifact_id",
+        "installation_operation_id",
+        "original_managed_instance_id",
+        "managed_instance_id",
+        "expected_container_id",
+        "payload_verification",
+        "enable_performed",
+        "blocked_dependency_reason",
+    } <= columns
+    foreign_keys = {
+        item["constrained_columns"][0]: item
+        for item in inspector.get_foreign_keys(table)
+    }
+    assert foreign_keys["managed_instance_id"]["options"] == {"ondelete": "SET NULL"}
+    assert "original_managed_instance_id" not in foreign_keys
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0025_addon_zip_enablement"
+        )
+        mutation_sql = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='managed_instance_mutation_leases'"
+            )
+        )
+    assert "addon_zip_enablement" in mutation_sql
+    engine.dispose()
+    command.downgrade(config, "0024_addon_zip_installation")
+    engine = create_database_engine(database_url)
+    assert table not in inspect(engine).get_table_names()
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)

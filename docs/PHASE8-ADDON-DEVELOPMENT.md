@@ -440,6 +440,41 @@ and reset stale current evidence without reconstructing artifact lineage.
 Inventory may say only `Prior verified ZIP install` for an exact retained
 identity match and does not claim fresh byte equality.
 
-Raw direct bind remains rejected. ZIP replacement/upgrade/rollback,
-ZIP-specific enablement/smoke, DevelopmentSource packaging, repository
+Raw direct bind remains rejected. ZIP replacement/upgrade/rollback and
+ZIP-specific smoke, DevelopmentSource packaging, repository
 integration, and accepted-artifact cleanup remain separate gates.
+
+## Uploaded-ZIP enablement first slice
+
+ZIP enablement reuses lower-level Kodi/dependency/readback primitives but
+remains authorized solely by the immutable uploaded artifact and its verified
+ZIP installation evidence. The request supplies only ManagedInstance UUID and
+AddonZipArtifact UUID. The server resolves exact successful installation
+lineage, ID/version/type, normalized payload, suppression profile/revision,
+current container, destination, and ownership. No DevelopmentSource or generic
+add-on-ID authority crosses this boundary.
+
+An already-running healthy Kodi is mandatory. Before mutation, the narrow
+broker verifier freshly compares the complete installed tree with the immutable
+payload: bytes/digests, paths/types, modes, runtime UID/GID, and no missing or
+unexpected entry. `changed` makes target evidence stale; `unknown` makes it
+unknown. Neither retries or adopts bytes.
+
+Artifact dependencies are compared with fixed Kodi details and complete live
+inventory by shared pure evaluation. Required missing, disabled, mismatched,
+unknown, or version-constrained declarations block before the adapter; optional
+missing is allowed. No dependency or repository action exists. Fixed enable
+uses server-derived ID and Boolean true, then proves exact enabled poststate.
+Already enabled still runs payload/dependency preflight and sends no mutation.
+
+`AddonZipEnablementOperation` is separate bounded history under per-instance
+coordination. It never persists current enabled state or browser-visible paths,
+digests, JSON-RPC/errors, or repositories. Post-dispatch uncertainty remains
+reconciliation, makes target evidence unknown, and cannot retry, disable,
+toggle, or later rewrite success.
+
+The authenticated same-origin CSRF-protected endpoint accepts a strict empty
+body and returns synchronous HTTP 200. Installation provenance stays `Prior
+verified ZIP install`; live enabled state and safe enablement outcome are
+separate and never imply Working, Tested, or Healthy. This slice does not
+implement ZIP smoke testing.

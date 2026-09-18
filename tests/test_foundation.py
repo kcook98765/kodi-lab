@@ -124,6 +124,7 @@ def test_development_root_rejects_unsafe_configuration(
 def test_migration_metadata_contains_core_storage_tables() -> None:
     assert set(metadata.tables) == {
         "addon_zip_artifacts",
+        "addon_zip_enablement_operations",
         "addon_zip_import_operations",
         "addon_zip_installation_evidence",
         "addon_zip_installation_operations",

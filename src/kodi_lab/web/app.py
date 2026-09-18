@@ -33,6 +33,12 @@ from kodi_lab.application.addon_inventory import (
     ManagedInstanceAddonInventory,
     ManagedInstanceAddonInventoryService,
 )
+from kodi_lab.application.addon_zip_enablements import (
+    AddonZipEnablementError,
+    AddonZipEnablementOperationCoordinator,
+    AddonZipEnablementService,
+    AddonZipEnablementStatus,
+)
 from kodi_lab.application.addon_zip_imports import (
     AddonZipImportConflictError,
     AddonZipImportCoordinator,
@@ -358,6 +364,7 @@ class WebApplicationContext:
     addon_zip_import_executor: AddonZipImportExecutor
     addon_zip_installations: AddonZipInstallationCoordinator
     addon_zip_installation_executor: AddonZipInstallationExecutor
+    addon_zip_enablement: AddonZipEnablementService
 
 
 def create_app(
@@ -388,6 +395,7 @@ def create_app(
         AddonZipInstallationServiceFactory | None
     ) = None,
     addon_zip_readiness_factory: AddonZipReadinessCoordinatorFactory | None = None,
+    addon_zip_enablement_service: AddonZipEnablementService | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -589,6 +597,16 @@ def create_app(
     addon_zip_installation_executor = AddonZipInstallationExecutor(
         addon_zip_installations, addon_zip_installation_factory
     )
+    addon_zip_enablement = addon_zip_enablement_service or AddonZipEnablementService(
+        session_factory,
+        broker,
+        coordinator=AddonZipEnablementOperationCoordinator(
+            session_factory,
+            stale_dispatcher=stale_dispatcher,
+            reconciliation=reconciliation,
+        ),
+        inventory_adapter_factory=addon_inventory_adapter_factory,
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -656,6 +674,7 @@ def create_app(
         addon_zip_import_executor=addon_zip_import_executor,
         addon_zip_installations=addon_zip_installations,
         addon_zip_installation_executor=addon_zip_installation_executor,
+        addon_zip_enablement=addon_zip_enablement,
     )
 
     @asynccontextmanager
@@ -809,6 +828,12 @@ def create_app(
     @app.exception_handler(AddonZipInstallationError)
     async def addon_zip_installation_failed(
         _request: Request, error: AddonZipInstallationError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(AddonZipEnablementError)
+    async def addon_zip_enablement_failed(
+        _request: Request, error: AddonZipEnablementError
     ) -> JSONResponse:
         return _json_error(409, error.code, str(error)[:256])
 
@@ -1580,6 +1605,19 @@ def create_app(
             f"{operation.operation_id}"
         )
         return AddonZipInstallationAccepted(operation=operation, status_url=status_url)
+
+    @app.post(
+        "/api/instances/{instance_id}/addon-zips/{artifact_id}/enable",
+        response_model=AddonZipEnablementStatus,
+        status_code=status.HTTP_200_OK,
+    )
+    def enable_addon_zip(
+        instance_id: UUID,
+        artifact_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonZipEnablementStatus:
+        return context.addon_zip_enablement.enable(instance_id, artifact_id)
 
     @app.post(
         "/api/instances/{instance_id}/development-sources/{source_id}/enable",

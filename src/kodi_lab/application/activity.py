@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.domain import (
+    AddonZipEnablementOperationState,
+    AddonZipEnablementResult,
     AddonZipInstallationOperationState,
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
@@ -20,6 +22,7 @@ from kodi_lab.domain import (
     ManagedInstanceLifecycleKind,
 )
 from kodi_lab.storage.repositories import (
+    AddonZipEnablementOperationRepository,
     AddonZipInstallationOperationRepository,
     DevelopmentSourceAttachmentOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
@@ -36,6 +39,7 @@ from kodi_lab.storage.repositories import (
 
 
 class ManagedInstanceActivityKind(StrEnum):
+    ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
@@ -71,6 +75,7 @@ class ManagedInstanceActivityItem(BaseModel):
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.ADDON_ZIP_ENABLEMENT: 12,
     ManagedInstanceActivityKind.ADDON_ZIP_INSTALLATION: 11,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_SMOKE_TEST: 10,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ENABLEMENT: 9,
@@ -289,6 +294,42 @@ class ManagedInstanceActivityService:
                     summary=summary,
                     reconciliation_required=installation.reconciliation_required,
                     addon_zip_artifact_uuid=installation.artifact_id,
+                )
+            )
+        for zip_enablement in AddonZipEnablementOperationRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            if zip_enablement.result_classification is AddonZipEnablementResult.ENABLED:
+                summary = "Uploaded ZIP add-on enabled"
+            elif (
+                zip_enablement.result_classification
+                is AddonZipEnablementResult.ALREADY_ENABLED
+            ):
+                summary = "Uploaded ZIP add-on already enabled"
+            elif (
+                zip_enablement.result_classification
+                is AddonZipEnablementResult.DEPENDENCY_BLOCKED
+            ):
+                summary = "ZIP enablement blocked by dependency"
+            elif (
+                zip_enablement.state
+                is AddonZipEnablementOperationState.RECONCILIATION_REQUIRED
+            ):
+                summary = "ZIP enablement requires reconciliation"
+            else:
+                summary = "Uploaded ZIP enablement failed"
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.ADDON_ZIP_ENABLEMENT,
+                    operation_uuid=zip_enablement.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=zip_enablement.requested_at,
+                    started_at=zip_enablement.started_at,
+                    completed_at=zip_enablement.completed_at,
+                    state=zip_enablement.state.value,
+                    summary=summary,
+                    reconciliation_required=zip_enablement.reconciliation_required,
+                    addon_zip_artifact_uuid=zip_enablement.artifact_id,
                 )
             )
         for lifecycle in ManagedInstanceLifecycleOperationRepository(

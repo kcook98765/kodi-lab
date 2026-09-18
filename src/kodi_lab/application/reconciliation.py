@@ -33,6 +33,7 @@ from kodi_lab.development import (
     remove_upload_stage,
 )
 from kodi_lab.domain import (
+    AddonZipEnablementOperation,
     AddonZipImportOperation,
     AddonZipInstallationConfidence,
     AddonZipInstallationOperation,
@@ -68,6 +69,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
 )
 from kodi_lab.storage.repositories import (
+    AddonZipEnablementOperationRepository,
     AddonZipImportOperationRepository,
     AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
@@ -107,6 +109,7 @@ class ManagedInstanceReconciliationRequiredError(RuntimeError):
 
 
 class ReconciliationOperationKind(StrEnum):
+    ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
@@ -122,6 +125,7 @@ class ReconciliationOperationKind(StrEnum):
 
 
 class ReconciliationAction(StrEnum):
+    ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -156,6 +160,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.DEVELOPMENT_SOURCE_ENABLEMENT,
     ReconciliationAction.DEVELOPMENT_SOURCE_SMOKE_TEST,
     ReconciliationAction.ADDON_ZIP_INSTALLATION,
+    ReconciliationAction.ADDON_ZIP_ENABLEMENT,
 ]
 
 
@@ -170,7 +175,7 @@ class ManagedInstanceReconciliationStatus(BaseModel):
     last_phase: str | None = Field(default=None, max_length=64)
     safe_reason: str | None = Field(default=None, max_length=256)
     observed_state: str | None = Field(default=None, max_length=64)
-    blocked_actions: list[ReconciliationAction] = Field(max_length=15)
+    blocked_actions: list[ReconciliationAction] = Field(max_length=16)
     requested_at: datetime | None = None
     started_at: datetime | None = None
     stale_since: datetime | None = None
@@ -344,6 +349,7 @@ class StaleOperationReconciliationDispatcher:
             | DevelopmentSourceDeploymentOperation
             | DevelopmentSourceSmokeTestOperation
             | AddonZipInstallationOperation
+            | AddonZipEnablementOperation
             | None
         )
         if kind is ManagedInstanceMutationKind.LIFECYCLE:
@@ -572,6 +578,30 @@ class StaleOperationReconciliationDispatcher:
                 now,
             )
             released += 1
+        elif kind is ManagedInstanceMutationKind.ADDON_ZIP_ENABLEMENT:
+            operation = AddonZipEnablementOperationRepository(session).get(operation_id)
+            if (
+                operation is None
+                or operation.managed_instance_id != instance_id
+                or not operation.active
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired ZIP enablement ownership is inconsistent."
+                )
+            if not AddonZipEnablementOperationRepository(
+                session
+            ).mark_stale_reconciliation(operation_id, now=now):
+                raise CoordinationCorruptionError(
+                    "Expired ZIP enablement history changed."
+                )
+            if operation.enable_performed:
+                AddonZipInstallationEvidenceRepository(
+                    session
+                ).mark_artifact_confidence(
+                    instance_id,
+                    operation.artifact_id,
+                    AddonZipInstallationConfidence.UNKNOWN,
+                )
         elif kind is ManagedInstanceMutationKind.INSTANCE_DELETE:
             operation = ManagedInstanceDeleteOperationRepository(session).get(
                 operation_id
@@ -817,6 +847,12 @@ class ManagedInstanceReconciliationService:
                 ).reconciliation_for_instance(instance_id)
             )
             records.extend(
+                (ReconciliationOperationKind.ADDON_ZIP_ENABLEMENT, item)
+                for item in AddonZipEnablementOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
+            records.extend(
                 (ReconciliationOperationKind.ADDON_ZIP_INSTALLATION, item)
                 for item in AddonZipInstallationOperationRepository(
                     session
@@ -918,6 +954,8 @@ class ManagedInstanceReconciliationService:
             observed = "deployment_destination_requires_read_only_inspection"
         elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_ENABLEMENT:
             observed = "live_enabled_state_does_not_resolve_history"
+        elif kind is ReconciliationOperationKind.ADDON_ZIP_ENABLEMENT:
+            observed = "live_enabled_state_does_not_resolve_zip_history"
         elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
             assert isinstance(operation, DevelopmentSourceSmokeTestOperation)
             blocking, observed = self._classify_smoke(instance_id, operation)
@@ -952,6 +990,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.ADDON_ZIP_INSTALLATION: (
                 "Uploaded-ZIP installation requires operator reconciliation."
             ),
+            ReconciliationOperationKind.ADDON_ZIP_ENABLEMENT: (
+                "Uploaded-ZIP enablement requires operator reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -965,6 +1006,7 @@ class ManagedInstanceReconciliationService:
                 DevelopmentSourceEnablementOperation,
                 DevelopmentSourceSmokeTestOperation,
                 AddonZipInstallationOperation,
+                AddonZipEnablementOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(

@@ -12,14 +12,19 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.config import Settings
 from kodi_lab.development import PayloadManifestEntry, revalidate_addon_zip_artifact
 from kodi_lab.domain import (
+    AddonZipEnablementOperationState,
     AddonZipExtensionClassification,
+    AddonZipInstallationConfidence,
     AddonZipInstallationOperationState,
+    AddonZipInstallationResult,
     InstanceType,
     PythonBytecodePolicy,
 )
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.repositories import (
     AddonZipArtifactRepository,
+    AddonZipEnablementOperationRepository,
+    AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
     ManagedInstanceRepository,
     RuntimeExecutionProfileRepository,
@@ -45,6 +50,11 @@ class AddonZipInstallationSpec:
     staging_root: Path
     entries: tuple[PayloadManifestEntry, ...]
     application_started: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AddonZipEnablementVerificationSpec(AddonZipInstallationSpec):
+    enablement_operation_id: str
 
 
 class SqliteAddonZipInstallationResolver:
@@ -96,6 +106,111 @@ class SqliteAddonZipInstallationResolver:
                 AddonZipInstallationOperationState.RECONCILIATION_REQUIRED,
             },
         )
+
+    def resolve_enablement_verification(
+        self,
+        managed_instance_id: str,
+        artifact_id: str,
+        enablement_operation_id: str,
+        expected_container_id: str,
+    ) -> AddonZipEnablementVerificationSpec:
+        """Resolve fresh readback solely from ZIP enablement semantic identity."""
+
+        try:
+            instance_uuid = UUID(managed_instance_id)
+            artifact_uuid = UUID(artifact_id)
+            enablement_uuid = UUID(enablement_operation_id)
+            if (
+                str(instance_uuid) != managed_instance_id
+                or str(artifact_uuid) != artifact_id
+                or str(enablement_uuid) != enablement_operation_id
+            ):
+                raise ValueError
+        except ValueError as error:
+            raise AddonZipInstallationStateError(
+                "ZIP enablement identities are not canonical."
+            ) from error
+        try:
+            with self._session_factory() as session:
+                artifact = AddonZipArtifactRepository(session).get(artifact_uuid)
+                enablement = AddonZipEnablementOperationRepository(session).get(
+                    enablement_uuid
+                )
+                evidence = (
+                    None
+                    if artifact is None
+                    else AddonZipInstallationEvidenceRepository(session).get(
+                        instance_uuid, artifact.addon_id
+                    )
+                )
+                installation = (
+                    None
+                    if evidence is None
+                    else AddonZipInstallationOperationRepository(session).get(
+                        evidence.installation_operation_id
+                    )
+                )
+            if (
+                artifact is None
+                or enablement is None
+                or evidence is None
+                or installation is None
+                or enablement.state is not AddonZipEnablementOperationState.RUNNING
+                or enablement.managed_instance_id != instance_uuid
+                or enablement.artifact_id != artifact_uuid
+                or enablement.installation_operation_id
+                != evidence.installation_operation_id
+                or enablement.expected_container_id != expected_container_id
+                or enablement.runtime_revision_id != evidence.runtime_revision_id
+                or enablement.addon_id != artifact.addon_id
+                or enablement.addon_version != artifact.addon_version
+                or evidence.artifact_id != artifact_uuid
+                or evidence.trusted_container_id != expected_container_id
+                or evidence.confidence
+                is not AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
+                or evidence.result
+                is not AddonZipInstallationResult.INSTALLED_RECOGNIZED_DISABLED
+                or evidence.original_managed_instance_id != instance_uuid
+                or evidence.addon_id != artifact.addon_id
+                or evidence.addon_version != artifact.addon_version
+                or evidence.payload_manifest_digest != artifact.payload_manifest_digest
+                or installation.state
+                is not AddonZipInstallationOperationState.SUCCEEDED
+                or installation.original_managed_instance_id != instance_uuid
+                or installation.managed_instance_id != instance_uuid
+                or installation.artifact_id != artifact_uuid
+                or installation.addon_id != artifact.addon_id
+                or installation.addon_version != artifact.addon_version
+                or installation.runtime_revision_id != evidence.runtime_revision_id
+                or installation.expected_container_id != expected_container_id
+                or not installation.application_started
+                or not installation.stopped_readback_matched
+                or not installation.final_readback_matched
+                or installation.recognition_enabled is not False
+            ):
+                raise AddonZipInstallationStateError(
+                    "Canonical ZIP enablement state is inconsistent."
+                )
+            base = self._resolve(
+                managed_instance_id,
+                artifact_id,
+                str(evidence.installation_operation_id),
+                expected_container_id,
+                allowed_states={AddonZipInstallationOperationState.SUCCEEDED},
+            )
+            return AddonZipEnablementVerificationSpec(
+                **{
+                    field: getattr(base, field)
+                    for field in AddonZipInstallationSpec.__dataclass_fields__
+                },
+                enablement_operation_id=enablement_operation_id,
+            )
+        except AddonZipInstallationStateError:
+            raise
+        except (SQLAlchemyError, OSError, ValueError) as error:
+            raise AddonZipInstallationStateError(
+                "Canonical ZIP enablement verification state is unavailable."
+            ) from error
 
     def _resolve(
         self,

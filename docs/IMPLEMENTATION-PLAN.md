@@ -651,3 +651,17 @@ The approved uploaded-ZIP first slice is implemented after copied-add-on smoke:
 native Install-from-ZIP GUI/installer path.** Replacement, upgrade, enablement,
 smoke, packaging, repository integration, artifact deletion, and raw direct
 bind remain deferred. The next milestone requires a separate architecture gate.
+
+The ZIP-specific enablement first slice follows installation with migration
+`0025_addon_zip_enablement`. Authority is exact ManagedInstance UUID plus
+accepted immutable AddonZipArtifact UUID and retained verified installation
+evidence. A fresh ZIP-scoped exact-tree verifier precedes complete inventory,
+fixed details, pure dependency preflight, and fixed enable-true. Changed or
+unknown payload blocks and degrades only target evidence. Dependency blocks send
+no mutation; already enabled is idempotent only after all checks.
+
+Separate typed history, per-instance coordination, newest-20 ordinary
+retention, reconciliation, activity, strict-empty-body HTTP 200, and bounded UI
+states are included. There is no authoritative enabled-state table. Existing
+Snapshot/reset/runtime/container/provenance semantics remain evidence-driven.
+ZIP smoke execution is not implemented and remains a later explicit milestone.

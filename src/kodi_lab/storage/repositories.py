@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 from kodi_lab.domain import (
     AddonZipArtifact,
     AddonZipDependency,
+    AddonZipEnablementOperation,
+    AddonZipEnablementOperationPhase,
+    AddonZipEnablementOperationState,
+    AddonZipEnablementResult,
     AddonZipImportOperation,
     AddonZipImportOperationPhase,
     AddonZipImportOperationState,
@@ -18,6 +22,7 @@ from kodi_lab.domain import (
     AddonZipInstallationOperation,
     AddonZipInstallationOperationPhase,
     AddonZipInstallationOperationState,
+    AddonZipPayloadVerificationOutcome,
     DevelopmentSource,
     DevelopmentSourceAttachmentOperation,
     DevelopmentSourceDeployment,
@@ -74,6 +79,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.storage.models import (
     AddonZipArtifactRow,
+    AddonZipEnablementOperationRow,
     AddonZipImportOperationRow,
     AddonZipInstallationEvidenceRow,
     AddonZipInstallationOperationRow,
@@ -254,6 +260,40 @@ def _addon_zip_evidence_from_row(
         verified_at=_timestamp_from_text(row.verified_at),
         confidence=row.confidence,
         result=row.result,
+    )
+
+
+def _addon_zip_enablement_from_row(
+    row: AddonZipEnablementOperationRow,
+) -> AddonZipEnablementOperation:
+    return AddonZipEnablementOperation(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=(
+            None if row.managed_instance_id is None else UUID(row.managed_instance_id)
+        ),
+        artifact_id=UUID(row.artifact_id),
+        installation_operation_id=UUID(row.installation_operation_id),
+        addon_id=row.addon_id,
+        addon_version=row.addon_version,
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        expected_container_id=row.expected_container_id,
+        requested_at=_timestamp_from_text(row.requested_at),
+        started_at=_timestamp_from_text(row.started_at),
+        state=row.state,
+        phase=row.phase,
+        result_classification=row.result_classification,
+        payload_verification=row.payload_verification,
+        prior_enabled=row.prior_enabled,
+        result_enabled=row.result_enabled,
+        enable_performed=row.enable_performed,
+        blocked_dependency_id=row.blocked_dependency_id,
+        blocked_dependency_reason=row.blocked_dependency_reason,
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
     )
 
 
@@ -1158,6 +1198,22 @@ class AddonZipInstallationEvidenceRepository:
         )
         return int(getattr(result, "rowcount", 0))
 
+    def mark_artifact_confidence(
+        self,
+        instance_id: UUID,
+        artifact_id: UUID,
+        confidence: AddonZipInstallationConfidence,
+    ) -> int:
+        result = self._session.execute(
+            update(AddonZipInstallationEvidenceRow)
+            .where(
+                AddonZipInstallationEvidenceRow.managed_instance_id == str(instance_id),
+                AddonZipInstallationEvidenceRow.artifact_id == str(artifact_id),
+            )
+            .values(confidence=confidence)
+        )
+        return int(getattr(result, "rowcount", 0))
+
     def delete_for_instance(self, instance_id: UUID) -> int:
         result = self._session.execute(
             delete(AddonZipInstallationEvidenceRow).where(
@@ -1444,6 +1500,238 @@ class AddonZipInstallationOperationRepository:
         result = self._session.execute(
             delete(AddonZipInstallationOperationRow).where(
                 AddonZipInstallationOperationRow.id.in_(rows)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
+class AddonZipEnablementOperationRepository:
+    """Durable typed synchronous ZIP enablement persistence."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: AddonZipEnablementOperation) -> None:
+        self._session.add(
+            AddonZipEnablementOperationRow(
+                id=str(operation.id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                managed_instance_id=(
+                    None
+                    if operation.managed_instance_id is None
+                    else str(operation.managed_instance_id)
+                ),
+                artifact_id=str(operation.artifact_id),
+                installation_operation_id=str(operation.installation_operation_id),
+                addon_id=operation.addon_id,
+                addon_version=operation.addon_version,
+                runtime_revision_id=str(operation.runtime_revision_id),
+                expected_container_id=operation.expected_container_id,
+                requested_at=_timestamp_to_text(operation.requested_at),
+                started_at=_timestamp_to_text(operation.started_at),
+                state=operation.state,
+                phase=operation.phase,
+                result_classification=operation.result_classification,
+                payload_verification=operation.payload_verification,
+                prior_enabled=operation.prior_enabled,
+                result_enabled=operation.result_enabled,
+                enable_performed=operation.enable_performed,
+                blocked_dependency_id=operation.blocked_dependency_id,
+                blocked_dependency_reason=operation.blocked_dependency_reason,
+                completed_at=(
+                    None
+                    if operation.completed_at is None
+                    else _timestamp_to_text(operation.completed_at)
+                ),
+                failure_reason=operation.failure_reason,
+                reconciliation_required=operation.reconciliation_required,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> AddonZipEnablementOperation | None:
+        row = self._session.get(AddonZipEnablementOperationRow, str(operation_id))
+        return None if row is None else _addon_zip_enablement_from_row(row)
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[AddonZipEnablementOperation]:
+        rows = self._session.scalars(
+            select(AddonZipEnablementOperationRow)
+            .where(
+                AddonZipEnablementOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                AddonZipEnablementOperationRow.requested_at.desc(),
+                AddonZipEnablementOperationRow.id.desc(),
+            )
+        )
+        return [_addon_zip_enablement_from_row(row) for row in rows]
+
+    def list_for_artifact(self, artifact_id: UUID) -> list[AddonZipEnablementOperation]:
+        rows = self._session.scalars(
+            select(AddonZipEnablementOperationRow)
+            .where(AddonZipEnablementOperationRow.artifact_id == str(artifact_id))
+            .order_by(
+                AddonZipEnablementOperationRow.requested_at.desc(),
+                AddonZipEnablementOperationRow.id.desc(),
+            )
+        )
+        return [_addon_zip_enablement_from_row(row) for row in rows]
+
+    def active_for_instance(
+        self, instance_id: UUID
+    ) -> AddonZipEnablementOperation | None:
+        row = self._session.scalar(
+            select(AddonZipEnablementOperationRow).where(
+                AddonZipEnablementOperationRow.managed_instance_id == str(instance_id),
+                AddonZipEnablementOperationRow.state
+                == AddonZipEnablementOperationState.RUNNING,
+            )
+        )
+        return None if row is None else _addon_zip_enablement_from_row(row)
+
+    def update_fields(self, operation_id: UUID, **values: object) -> bool:
+        allowed = {
+            "phase",
+            "expected_container_id",
+            "payload_verification",
+            "prior_enabled",
+            "enable_performed",
+        }
+        if not values or not set(values) <= allowed:
+            raise ValueError("unsupported ZIP enablement operation update")
+        result = self._session.execute(
+            update(AddonZipEnablementOperationRow)
+            .where(
+                AddonZipEnablementOperationRow.id == str(operation_id),
+                AddonZipEnablementOperationRow.state
+                == AddonZipEnablementOperationState.RUNNING,
+            )
+            .values(**values)
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def terminalize(
+        self,
+        operation_id: UUID,
+        *,
+        state: AddonZipEnablementOperationState,
+        result_classification: AddonZipEnablementResult,
+        payload_verification: AddonZipPayloadVerificationOutcome,
+        result_enabled: bool | None,
+        blocked_dependency_id: str | None,
+        blocked_dependency_reason: str | None,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonZipEnablementOperationRow)
+            .where(
+                AddonZipEnablementOperationRow.id == str(operation_id),
+                AddonZipEnablementOperationRow.state
+                == AddonZipEnablementOperationState.RUNNING,
+            )
+            .values(
+                state=state,
+                phase=AddonZipEnablementOperationPhase.FINALIZE,
+                result_classification=result_classification,
+                payload_verification=payload_verification,
+                result_enabled=result_enabled,
+                blocked_dependency_id=blocked_dependency_id,
+                blocked_dependency_reason=blocked_dependency_reason,
+                completed_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+            )
+        )
+        return bool(getattr(result, "rowcount", 0))
+
+    def mark_stale_reconciliation(self, operation_id: UUID, *, now: datetime) -> bool:
+        row = self._session.get(AddonZipEnablementOperationRow, str(operation_id))
+        if row is None or row.state is not AddonZipEnablementOperationState.RUNNING:
+            return False
+        if not row.enable_performed:
+            return self.terminalize(
+                operation_id,
+                state=AddonZipEnablementOperationState.FAILED,
+                result_classification=AddonZipEnablementResult.FAILED,
+                payload_verification=row.payload_verification,
+                result_enabled=None,
+                blocked_dependency_id=None,
+                blocked_dependency_reason=None,
+                failure_reason="zip_enablement_failed_before_mutation",
+                reconciliation_required=False,
+                now=now,
+            )
+        return self.terminalize(
+            operation_id,
+            state=AddonZipEnablementOperationState.RECONCILIATION_REQUIRED,
+            result_classification=AddonZipEnablementResult.RECONCILIATION_REQUIRED,
+            payload_verification=row.payload_verification,
+            result_enabled=None,
+            blocked_dependency_id=None,
+            blocked_dependency_reason=None,
+            failure_reason="zip_enablement_reconciliation_required",
+            reconciliation_required=True,
+            now=now,
+        )
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[AddonZipEnablementOperation]:
+        rows = self._session.scalars(
+            select(AddonZipEnablementOperationRow)
+            .where(
+                AddonZipEnablementOperationRow.original_managed_instance_id
+                == str(instance_id),
+                AddonZipEnablementOperationRow.reconciliation_required.is_(True),
+            )
+            .order_by(AddonZipEnablementOperationRow.requested_at.desc())
+            .limit(limit)
+        )
+        return [_addon_zip_enablement_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(AddonZipEnablementOperationRow)
+            .where(
+                AddonZipEnablementOperationRow.managed_instance_id == str(instance_id)
+            )
+            .values(managed_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
+
+    def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        rows = list(
+            self._session.scalars(
+                select(AddonZipEnablementOperationRow.id)
+                .where(
+                    AddonZipEnablementOperationRow.original_managed_instance_id
+                    == str(instance_id),
+                    AddonZipEnablementOperationRow.state.in_(
+                        (
+                            AddonZipEnablementOperationState.SUCCEEDED,
+                            AddonZipEnablementOperationState.FAILED,
+                        )
+                    ),
+                )
+                .order_by(
+                    AddonZipEnablementOperationRow.requested_at.desc(),
+                    AddonZipEnablementOperationRow.id.desc(),
+                )
+                .offset(retain)
+            )
+        )
+        if not rows:
+            return 0
+        result = self._session.execute(
+            delete(AddonZipEnablementOperationRow).where(
+                AddonZipEnablementOperationRow.id.in_(rows)
             )
         )
         return int(getattr(result, "rowcount", 0))

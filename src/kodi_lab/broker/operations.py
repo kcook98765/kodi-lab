@@ -760,6 +760,50 @@ class AddonZipDestinationResult(StrictModel):
         return value
 
 
+class VerifyAddonZipEnablementDestinationParams(StrictModel):
+    """Only ZIP enablement semantic identity and exact-container precondition."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    artifact_id: str = Field(min_length=36, max_length=36)
+    enablement_operation_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("managed_instance_id", "artifact_id", "enablement_operation_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class VerifyAddonZipEnablementDestinationResult(StrictModel):
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    artifact_id: str = Field(min_length=36, max_length=36)
+    enablement_operation_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    addon_id: str = Field(min_length=1, max_length=128)
+    addon_version: str = Field(min_length=1, max_length=128)
+    destination_state: Literal[
+        "absent", "exact_payload_present", "partial_or_unexpected"
+    ]
+    matched: bool
+
+    @field_validator(
+        "managed_instance_id",
+        "artifact_id",
+        "enablement_operation_id",
+        "runtime_revision_id",
+    )
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 class ApplyAddonZipInstallationResult(StrictModel):
     managed_instance_id: str = Field(min_length=36, max_length=36)
     artifact_id: str = Field(min_length=36, max_length=36)
@@ -2295,6 +2339,78 @@ def build_foundation_registry(
             "broker_managed_instance_id": result.managed_instance_id,
             "broker_addon_zip_artifact_id": result.artifact_id,
             "broker_addon_zip_operation_id": result.installation_operation_id,
+            "broker_addon_zip_destination_state": result.destination_state,
+            "broker_addon_zip_destination_matched": result.matched,
+        },
+    )
+
+    def verify_addon_zip_enablement_destination(
+        params: VerifyAddonZipEnablementDestinationParams,
+    ) -> VerifyAddonZipEnablementDestinationResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_addon_zip_artifact_id": params.artifact_id,
+            "broker_addon_zip_enablement_operation_id": (
+                params.enablement_operation_id
+            ),
+        }
+        try:
+            spec = zip_resolver.resolve_enablement_verification(
+                params.managed_instance_id,
+                params.artifact_id,
+                params.enablement_operation_id,
+                params.expected_container_id,
+            )
+            outcome = zip_provider.observe_addon_zip_destination(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except AddonZipInstallationStateError as error:
+            raise OperationError(
+                error.code,
+                "Canonical ZIP enablement verification state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerAddonZipInstallationError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            DockerDaemonUnavailableError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ) as error:
+            raise OperationError(
+                "addon_zip_enablement_destination_verification_failed",
+                "ZIP enablement destination could not be safely verified.",
+                audit_fields=audit_fields,
+            ) from error
+        return VerifyAddonZipEnablementDestinationResult(
+            managed_instance_id=outcome.managed_instance_id,
+            artifact_id=outcome.artifact_id,
+            enablement_operation_id=params.enablement_operation_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            addon_id=spec.addon_id,
+            addon_version=spec.addon_version,
+            destination_state=outcome.state,
+            matched=outcome.matched,
+        )
+
+    registry.register(
+        name="verify_addon_zip_enablement_destination",
+        params_model=VerifyAddonZipEnablementDestinationParams,
+        result_model=VerifyAddonZipEnablementDestinationResult,
+        handler=verify_addon_zip_enablement_destination,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_addon_zip_artifact_id": result.artifact_id,
+            "broker_addon_zip_enablement_operation_id": (
+                result.enablement_operation_id
+            ),
             "broker_addon_zip_destination_state": result.destination_state,
             "broker_addon_zip_destination_matched": result.matched,
         },

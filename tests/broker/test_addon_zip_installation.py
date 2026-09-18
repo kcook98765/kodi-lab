@@ -9,7 +9,10 @@ from pydantic import ValidationError
 
 from kodi_lab.broker.addon_zips import AddonZipInstallationSpec
 from kodi_lab.broker.docker_inventory import DockerManagedContainerAdapter
-from kodi_lab.broker.operations import AddonZipInstallationParams
+from kodi_lab.broker.operations import (
+    AddonZipInstallationParams,
+    VerifyAddonZipEnablementDestinationParams,
+)
 from kodi_lab.development.addon_zip import PayloadManifestEntry
 from kodi_lab.development.deployment import (
     DevelopmentTreeEntry,
@@ -95,6 +98,33 @@ def test_broker_request_exposes_only_semantic_identities() -> None:
     ):
         with pytest.raises(ValidationError):
             AddonZipInstallationParams.model_validate(
+                {**value.model_dump(), name: injected}
+            )
+
+
+def test_enablement_verifier_exposes_no_path_hash_or_filesystem_authority() -> None:
+    value = VerifyAddonZipEnablementDestinationParams(
+        managed_instance_id=INSTANCE_ID,
+        artifact_id=ARTIFACT_ID,
+        enablement_operation_id=OPERATION_ID,
+        expected_container_id=CONTAINER_ID,
+    )
+    assert set(value.model_dump()) == {
+        "managed_instance_id",
+        "artifact_id",
+        "enablement_operation_id",
+        "expected_container_id",
+    }
+    for name, injected in (
+        ("path", "/home/kodi/.kodi/addons/plugin.video.example"),
+        ("digest", "sha256:" + "1" * 64),
+        ("manifest", []),
+        ("uid", 0),
+        ("gid", 0),
+        ("mode", 0o777),
+    ):
+        with pytest.raises(ValidationError):
+            VerifyAddonZipEnablementDestinationParams.model_validate(
                 {**value.model_dump(), name: injected}
             )
 

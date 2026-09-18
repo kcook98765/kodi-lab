@@ -7,7 +7,6 @@ import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Protocol
 from uuid import UUID, uuid4
 
@@ -15,6 +14,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_dependencies import (
+    AddonDependencyState,
+    declaration_mismatch,
+    dependency_failure_code,
+    evaluate_dependencies,
+    first_blocking_dependency,
+    is_builtin_dependency,
+    reported_constraint,
+)
+from kodi_lab.application.addon_dependencies import (
+    DependencyStatus as DependencyStatus,
+)
 from kodi_lab.application.mutations import MUTATION_LEASE_DURATION
 from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationService,
@@ -77,9 +88,6 @@ from kodi_lab.storage.repositories import (
 )
 
 TERMINAL_RETENTION_PER_INSTANCE = 20
-_BUILTIN_DEPENDENCY_IDS = frozenset(
-    {"xbmc.gui", "xbmc.json", "xbmc.metadata", "xbmc.python"}
-)
 _PYTHON_EXTENSION_POINTS = frozenset(
     {
         "xbmc.python.pluginsource",
@@ -105,26 +113,7 @@ class DevelopmentSourceEnablementConflictError(DevelopmentSourceEnablementError)
     code = "enablement_conflict"
 
 
-class DependencyStatus(StrEnum):
-    PRESENT_ENABLED = "present_enabled"
-    MISSING = "missing"
-    DISABLED = "disabled"
-    OPTIONAL_MISSING = "optional_missing"
-    VERSION_UNVERIFIED = "version_unverified"
-    UNKNOWN = "unknown"
-
-
-class DevelopmentSourceDependencyState(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    dependency_id: str = Field(max_length=128)
-    declared_version: str | None = Field(default=None, max_length=128)
-    declared_minversion: str | None = Field(default=None, max_length=128)
-    optional: bool
-    recognized: bool
-    enabled: bool | None
-    reported_version: str | None = Field(default=None, max_length=128)
-    status: DependencyStatus
+DevelopmentSourceDependencyState = AddonDependencyState
 
 
 class DevelopmentSourceEnablementStatus(BaseModel):
@@ -535,7 +524,7 @@ class DevelopmentSourceEnablementService:
                 return self._failed(
                     handle, "runtime_bytecode_policy_incompatible", dependencies
                 )
-            mismatch = self._declarations_match(
+            mismatch = declaration_mismatch(
                 source_observation.dependencies, details.dependencies
             )
             if mismatch is not None:
@@ -543,33 +532,12 @@ class DevelopmentSourceEnablementService:
                 return self._dependency_blocked(
                     handle, "dependency_state_unknown", mismatch, dependencies
                 )
-            dependencies = self._preflight_dependencies(
+            dependencies = evaluate_dependencies(
                 source_observation.dependencies, inventory_by_id
             )
-            blocked = next(
-                (
-                    item
-                    for item in dependencies
-                    if not item.optional
-                    and item.status
-                    in {
-                        DependencyStatus.MISSING,
-                        DependencyStatus.DISABLED,
-                        DependencyStatus.VERSION_UNVERIFIED,
-                        DependencyStatus.UNKNOWN,
-                    }
-                ),
-                None,
-            )
+            blocked = first_blocking_dependency(dependencies)
             if blocked is not None:
-                code = {
-                    DependencyStatus.MISSING: "dependency_missing",
-                    DependencyStatus.DISABLED: "dependency_disabled",
-                    DependencyStatus.VERSION_UNVERIFIED: (
-                        "dependency_version_unverified"
-                    ),
-                    DependencyStatus.UNKNOWN: "dependency_state_unknown",
-                }[blocked.status]
+                code = dependency_failure_code(blocked.status)
                 return self._dependency_blocked(handle, code, blocked, dependencies)
             self._coordinator.set_preflight_state(handle, prior_enabled=details.enabled)
             if details.enabled:
@@ -710,132 +678,24 @@ class DevelopmentSourceEnablementService:
         source: tuple[DevelopmentSourceDependency, ...],
         reported: tuple[KodiReportedAddonDependency, ...],
     ) -> DevelopmentSourceDependencyState | None:
-        by_id = {item.dependency_id: item for item in reported}
-        source_ids = {item.dependency_id for item in source}
-        if source_ids != set(by_id):
-            dependency_id = sorted(source_ids ^ set(by_id))[0]
-            declared = next(
-                (item for item in source if item.dependency_id == dependency_id), None
-            )
-            return DevelopmentSourceDependencyState(
-                dependency_id=dependency_id,
-                declared_version=None if declared is None else declared.version,
-                declared_minversion=None if declared is None else declared.minversion,
-                optional=False if declared is None else declared.optional,
-                recognized=False,
-                enabled=None,
-                reported_version=(
-                    None
-                    if dependency_id not in by_id
-                    else by_id[dependency_id].version or by_id[dependency_id].minversion
-                ),
-                status=DependencyStatus.UNKNOWN,
-            )
-        for declared in source:
-            actual = by_id[declared.dependency_id]
-            if (
-                declared.optional != actual.optional
-                or declared.version
-                != DevelopmentSourceEnablementService._reported_constraint(
-                    actual.version
-                )
-                or declared.minversion
-                != DevelopmentSourceEnablementService._reported_constraint(
-                    actual.minversion
-                )
-            ):
-                return DevelopmentSourceDependencyState(
-                    dependency_id=declared.dependency_id,
-                    declared_version=declared.version,
-                    declared_minversion=declared.minversion,
-                    optional=declared.optional,
-                    recognized=True,
-                    enabled=None,
-                    reported_version=actual.version or actual.minversion,
-                    status=DependencyStatus.UNKNOWN,
-                )
-        return None
+        return declaration_mismatch(source, reported)
 
     @staticmethod
     def _reported_constraint(value: str | None) -> str | None:
         """Map Kodi's exact neutral version sentinel to no declaration constraint."""
 
-        return None if value in (None, "0.0.0") else value
+        return reported_constraint(value)
 
     @staticmethod
     def _preflight_dependencies(
         declarations: tuple[DevelopmentSourceDependency, ...],
         inventory: Mapping[str, KodiAddonInventoryRecord],
     ) -> list[DevelopmentSourceDependencyState]:
-        result: list[DevelopmentSourceDependencyState] = []
-        for declared in declarations:
-            record = inventory.get(declared.dependency_id)
-            constraint = declared.version or declared.minversion
-            if record is None and DevelopmentSourceEnablementService._is_builtin(
-                declared.dependency_id
-            ):
-                result.append(
-                    DevelopmentSourceDependencyState(
-                        dependency_id=declared.dependency_id,
-                        declared_version=declared.version,
-                        declared_minversion=declared.minversion,
-                        optional=declared.optional,
-                        recognized=True,
-                        enabled=True,
-                        reported_version=None,
-                        status=(
-                            DependencyStatus.PRESENT_ENABLED
-                            if constraint is None
-                            else DependencyStatus.VERSION_UNVERIFIED
-                        ),
-                    )
-                )
-                continue
-            if record is None:
-                result.append(
-                    DevelopmentSourceDependencyState(
-                        dependency_id=declared.dependency_id,
-                        declared_version=declared.version,
-                        declared_minversion=declared.minversion,
-                        optional=declared.optional,
-                        recognized=False,
-                        enabled=None,
-                        reported_version=None,
-                        status=(
-                            DependencyStatus.OPTIONAL_MISSING
-                            if declared.optional
-                            else DependencyStatus.MISSING
-                        ),
-                    )
-                )
-                continue
-            enabled = bool(record.enabled)
-            reported_version = str(record.version)
-            if not enabled:
-                status = DependencyStatus.DISABLED
-            elif constraint is not None:
-                status = DependencyStatus.VERSION_UNVERIFIED
-            else:
-                status = DependencyStatus.PRESENT_ENABLED
-            result.append(
-                DevelopmentSourceDependencyState(
-                    dependency_id=declared.dependency_id,
-                    declared_version=declared.version,
-                    declared_minversion=declared.minversion,
-                    optional=declared.optional,
-                    recognized=True,
-                    enabled=enabled,
-                    reported_version=reported_version,
-                    status=status,
-                )
-            )
-        return result
+        return evaluate_dependencies(declarations, inventory)
 
     @staticmethod
     def _is_builtin(dependency_id: str) -> bool:
-        return dependency_id in _BUILTIN_DEPENDENCY_IDS or dependency_id.startswith(
-            "kodi.binary.global."
-        )
+        return is_builtin_dependency(dependency_id)
 
     def _dependency_blocked(
         self,

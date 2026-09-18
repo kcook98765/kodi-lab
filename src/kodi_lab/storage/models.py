@@ -18,6 +18,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from kodi_lab.domain import (
+    AddonZipEnablementOperationPhase,
+    AddonZipEnablementOperationState,
+    AddonZipEnablementResult,
     AddonZipExtensionClassification,
     AddonZipImportOperationPhase,
     AddonZipImportOperationState,
@@ -26,6 +29,7 @@ from kodi_lab.domain import (
     AddonZipInstallationOperationState,
     AddonZipInstallationResult,
     AddonZipOrigin,
+    AddonZipPayloadVerificationOutcome,
     AddonZipValidationState,
     ConnectionState,
     DevelopmentSourceAttachmentOperationKind,
@@ -1173,6 +1177,133 @@ class AddonZipInstallationEvidenceRow(Base):
             name="addon_zip_installation_result",
         ),
         nullable=False,
+    )
+
+
+class AddonZipEnablementOperationRow(Base):
+    """ZIP-specific synchronous enablement history."""
+
+    __tablename__ = "addon_zip_enablement_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128",
+            name="addon_zip_enablement_identity_bounded",
+        ),
+        CheckConstraint(
+            "expected_container_id IS NULL OR (length(expected_container_id)=64 AND "
+            "expected_container_id NOT GLOB '*[^0-9a-f]*')",
+            name="addon_zip_enablement_container_bounded",
+        ),
+        CheckConstraint(
+            "blocked_dependency_id IS NULL OR "
+            "length(blocked_dependency_id) BETWEEN 1 AND 128",
+            name="addon_zip_enablement_blocked_id_bounded",
+        ),
+        CheckConstraint(
+            "blocked_dependency_reason IS NULL OR "
+            "length(blocked_dependency_reason) BETWEEN 1 AND 64",
+            name="addon_zip_enablement_blocked_reason_bounded",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="addon_zip_enablement_failure_bounded",
+        ),
+        Index(
+            "uq_addon_zip_enablement_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state='running'"),
+        ),
+        Index(
+            "ix_addon_zip_enablement_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+        Index("ix_addon_zip_enablement_artifact", "artifact_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    artifact_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_zip_artifacts.id", ondelete="RESTRICT")
+    )
+    installation_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_zip_installation_operations.id", ondelete="RESTRICT"),
+    )
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runtime_revisions.id", ondelete="RESTRICT")
+    )
+    expected_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[AddonZipEnablementOperationState] = mapped_column(
+        Enum(
+            AddonZipEnablementOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_enablement_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[AddonZipEnablementOperationPhase] = mapped_column(
+        Enum(
+            AddonZipEnablementOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_enablement_operation_phase",
+        ),
+        nullable=False,
+    )
+    result_classification: Mapped[AddonZipEnablementResult | None] = mapped_column(
+        Enum(
+            AddonZipEnablementResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_enablement_result",
+        ),
+        nullable=True,
+    )
+    payload_verification: Mapped[AddonZipPayloadVerificationOutcome] = mapped_column(
+        Enum(
+            AddonZipPayloadVerificationOutcome,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_payload_verification_outcome",
+        ),
+        nullable=False,
+        default=AddonZipPayloadVerificationOutcome.NOT_CHECKED,
+        server_default=text("'not_checked'"),
+    )
+    prior_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    result_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    enable_performed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    blocked_dependency_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    blocked_dependency_reason: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
     )
 
 

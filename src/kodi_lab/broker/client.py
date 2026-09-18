@@ -85,6 +85,8 @@ from kodi_lab.broker.operations import (
     StartManagedContainerResult,
     StopManagedContainerParams,
     StopManagedContainerResult,
+    VerifyAddonZipEnablementDestinationParams,
+    VerifyAddonZipEnablementDestinationResult,
     VerifyAttachedDevelopmentSourceDestinationParams,
     VerifyAttachedDevelopmentSourceDestinationResult,
 )
@@ -580,6 +582,44 @@ class BrokerClient:
         ):
             raise ClientProtocolError(
                 "uploaded-ZIP installation result identity differs"
+            )
+        return result
+
+    def verify_addon_zip_enablement_destination(
+        self,
+        *,
+        managed_instance_id: str,
+        artifact_id: str,
+        enablement_operation_id: str,
+        expected_container_id: str,
+    ) -> VerifyAddonZipEnablementDestinationResult:
+        """Freshly verify only the server-resolved immutable ZIP destination."""
+
+        try:
+            params = VerifyAddonZipEnablementDestinationParams(
+                managed_instance_id=managed_instance_id,
+                artifact_id=artifact_id,
+                enablement_operation_id=enablement_operation_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "ZIP enablement destination request failed local validation"
+            ) from error
+        result = self._call(
+            "verify_addon_zip_enablement_destination",
+            params,
+            VerifyAddonZipEnablementDestinationResult,
+            response_timeout=60.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.artifact_id != artifact_id
+            or result.enablement_operation_id != enablement_operation_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "ZIP enablement destination result identity differs"
             )
         return result
 

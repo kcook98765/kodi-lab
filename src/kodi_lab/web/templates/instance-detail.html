@@ -9,6 +9,7 @@
     <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-enable.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-smoke.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/addon-zip-enable.js') }}" defer></script>
   </head>
   <body>
     <main>
@@ -56,7 +57,7 @@
               <td>{{ addon.version }}</td>
               <td>{{ 'Enabled' if addon.enabled else 'Disabled' }}</td>
               <td>{{ addon.kodi_type }}</td>
-              <td>{% if addon.provenance.classification == 'development_source_at_last_verified_copy' %}Prior verified copy: {{ addon.provenance.development_source_logical_name }}{% elif addon.provenance.evidence_status == 'stale' %}Prior verified copy evidence stale{% if addon.provenance.development_source_logical_name %}: {{ addon.provenance.development_source_logical_name }}{% endif %}{% else %}Provenance unknown{% endif %}</td>
+              <td>{% if addon.provenance.classification == 'development_source_at_last_verified_copy' %}Prior verified copy: {{ addon.provenance.development_source_logical_name }}{% elif addon.provenance.classification == 'prior_verified_zip_install' %}Prior verified ZIP install: {{ addon.provenance.addon_zip_logical_label }}{% elif addon.provenance.evidence_status == 'stale' and addon.provenance.development_source_logical_name %}Prior verified copy evidence stale: {{ addon.provenance.development_source_logical_name }}{% elif addon.provenance.evidence_status == 'stale' %}Prior provenance evidence stale{% else %}Provenance unknown{% endif %}</td>
             </tr>
           {% endfor %}
           </tbody>
@@ -64,6 +65,26 @@
         {% else %}
         <p>Add-on inventory unavailable: {{ detail.addons.unavailable_reason|replace('_', ' ') }}. Kodi Lab did not start or change this instance.</p>
         {% endif %}
+        <h3>Uploaded ZIP installations</h3>
+        <p class="secondary">ZIP installation provenance and live Kodi enabled state are separate. Enabled does not mean working, tested, or healthy.</p>
+        {% for installed in detail.addons.installed_zip_artifacts %}
+        <article data-addon-zip-artifact-id="{{ installed.artifact_id }}">
+          <h4>{{ installed.logical_label }}</h4>
+          <dl>
+            <dt>Add-on</dt><dd>{{ installed.addon_id }} · version {{ installed.addon_version }}</dd>
+            <dt>Installation provenance</dt><dd>{{ installed.provenance_wording }}</dd>
+            <dt>Live enabled state</dt><dd>{% if installed.live_enabled is none %}Unavailable{% elif installed.live_enabled %}Enabled{% else %}Disabled{% endif %}</dd>
+            <dt>ZIP enablement</dt><dd>{{ installed.state|replace('_', ' ')|capitalize }}</dd>
+          </dl>
+          {% if installed.blocked_dependency_id and installed.state == 'dependency_blocked' %}
+          <p class="secondary">{{ installed.blocked_dependency_reason|replace('_', ' ')|capitalize }}: <code>{{ installed.blocked_dependency_id }}</code></p>
+          {% endif %}
+          {% if installed.enable_eligible %}
+          <button class="addon-zip-enable" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-artifact-id="{{ installed.artifact_id }}">Enable</button>
+          <p class="addon-zip-enable-status secondary" role="status" hidden></p>
+          {% endif %}
+        </article>
+        {% else %}<p>No retained uploaded ZIP installations.</p>{% endfor %}
       </section>
       <section id="development-sources">
         <h2>Development Sources</h2>

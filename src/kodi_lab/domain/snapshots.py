@@ -127,6 +127,7 @@ class ManagedInstanceMutationKind(StrEnum):
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
+    ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
 
 
 class GlobalHeavyOperationKind(StrEnum):

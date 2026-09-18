@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
     AddonInventoryUnavailableReason,
+    AddonZipEnablementPresentationState,
     KodiAddonProvenanceClassification,
     KodiAddonProvenanceEvidenceStatus,
     ManagedInstanceAddonInventoryService,
@@ -543,7 +544,8 @@ def test_exact_retained_zip_evidence_is_precise_historical_attribution(
     factory: sessionmaker[Session],
 ) -> None:
     add_zip_evidence(factory)
-    provenance = service(factory, FakeBroker()).get(INSTANCE_ID).items[0].provenance
+    result = service(factory, FakeBroker()).get(INSTANCE_ID)
+    provenance = result.items[0].provenance
     assert provenance.classification is (
         KodiAddonProvenanceClassification.PRIOR_VERIFIED_ZIP_INSTALL
     )
@@ -552,6 +554,12 @@ def test_exact_retained_zip_evidence_is_precise_historical_attribution(
     )
     assert provenance.addon_zip_artifact_id == ZIP_ARTIFACT_ID
     assert provenance.addon_zip_logical_label == "uploaded example"
+    assert len(result.installed_zip_artifacts) == 1
+    installed = result.installed_zip_artifacts[0]
+    assert installed.provenance_wording == "Prior verified ZIP install"
+    assert installed.live_enabled is False
+    assert installed.state is AddonZipEnablementPresentationState.INSTALLED_DISABLED
+    assert installed.enable_eligible is False
 
 
 @pytest.mark.parametrize(

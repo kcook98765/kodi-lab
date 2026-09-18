@@ -24,6 +24,8 @@ from kodi_lab.broker.operations import (
 )
 from kodi_lab.domain import RuntimeExecutionProfile
 from kodi_lab.domain.addon_zips import (
+    AddonZipEnablementOperationState,
+    AddonZipEnablementResult,
     AddonZipInstallationConfidence,
     AddonZipInstallationEvidence,
     AddonZipInstallationOperationState,
@@ -45,6 +47,7 @@ from kodi_lab.kodi.addons import (
 from kodi_lab.kodi.readiness import JsonRpcUnavailableError
 from kodi_lab.storage.repositories import (
     AddonZipArtifactRepository,
+    AddonZipEnablementOperationRepository,
     AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
@@ -107,6 +110,30 @@ class KodiAddonInventoryItem(BaseModel):
     provenance: KodiAddonProvenance
 
 
+class AddonZipEnablementPresentationState(StrEnum):
+    INSTALLED_DISABLED = "installed_disabled"
+    INSTALLED_ENABLED = "installed_enabled"
+    EVIDENCE_STALE = "installation_evidence_stale"
+    EVIDENCE_UNKNOWN = "installation_evidence_unknown"
+    DEPENDENCY_BLOCKED = "dependency_blocked"
+    RECONCILIATION_REQUIRED = "enablement_requires_reconciliation"
+
+
+class InstalledAddonZipPresentation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: UUID
+    logical_label: str = Field(max_length=256)
+    addon_id: str = Field(max_length=128)
+    addon_version: str = Field(max_length=128)
+    provenance_wording: str = Field(max_length=64)
+    live_enabled: StrictBool | None = None
+    state: AddonZipEnablementPresentationState
+    enable_eligible: StrictBool
+    blocked_dependency_id: str | None = Field(default=None, max_length=128)
+    blocked_dependency_reason: str | None = Field(default=None, max_length=64)
+
+
 class ManagedInstanceAddonInventory(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -117,6 +144,9 @@ class ManagedInstanceAddonInventory(BaseModel):
     unavailable_reason: AddonInventoryUnavailableReason | None = None
     complete: StrictBool
     items: list[KodiAddonInventoryItem] = Field(max_length=2_048)
+    installed_zip_artifacts: list[InstalledAddonZipPresentation] = Field(
+        default_factory=list, max_length=2_048
+    )
 
 
 class _BrokerInventoryClient(Protocol):
@@ -306,6 +336,15 @@ class ManagedInstanceAddonInventoryService:
                 )
                 for item in result.items
             }
+            zip_presentations = self._zip_presentations(
+                session,
+                instance_id,
+                instance.runtime_revision_id,
+                observation.container_id,
+                result,
+                zip_evidence,
+                profile,
+            )
         return ManagedInstanceAddonInventory(
             instance_id=instance_id,
             observed_at=self._now(),
@@ -324,6 +363,7 @@ class ManagedInstanceAddonInventoryService:
                 )
                 for item in result.items
             ],
+            installed_zip_artifacts=zip_presentations,
         )
 
     def _unavailable(
@@ -340,7 +380,132 @@ class ManagedInstanceAddonInventoryService:
             unavailable_reason=reason,
             complete=False,
             items=[],
+            installed_zip_artifacts=self._unavailable_zip_presentations(instance_id),
         )
+
+    def _unavailable_zip_presentations(
+        self, instance_id: UUID
+    ) -> list[InstalledAddonZipPresentation]:
+        with self._session_factory() as session:
+            instance = ManagedInstanceRepository(session).get(instance_id)
+            if instance is None:
+                return []
+            profile = RuntimeExecutionProfileRepository(session).get(
+                instance.runtime_revision_id
+            )
+            return self._zip_presentations(
+                session,
+                instance_id,
+                instance.runtime_revision_id,
+                None,
+                None,
+                AddonZipInstallationEvidenceRepository(session).list_for_instance(
+                    instance_id
+                ),
+                profile,
+            )
+
+    @staticmethod
+    def _zip_presentations(
+        session: Session,
+        instance_id: UUID,
+        runtime_revision_id: UUID,
+        container_id: str | None,
+        inventory: KodiAddonInventoryResult | None,
+        evidence: list[AddonZipInstallationEvidence],
+        profile: RuntimeExecutionProfile | None,
+    ) -> list[InstalledAddonZipPresentation]:
+        artifacts = AddonZipArtifactRepository(session)
+        operations = AddonZipEnablementOperationRepository(
+            session
+        ).list_for_original_instance(instance_id)
+        live_by_id = (
+            {}
+            if inventory is None
+            else {item.addon_id: item for item in inventory.items}
+        )
+        rows: list[InstalledAddonZipPresentation] = []
+        for item in evidence:
+            artifact = artifacts.get(item.artifact_id)
+            if artifact is None:
+                continue
+            latest = next(
+                (
+                    operation
+                    for operation in operations
+                    if operation.artifact_id == item.artifact_id
+                ),
+                None,
+            )
+            live = live_by_id.get(item.addon_id)
+            exact_lineage = (
+                item.managed_instance_id == instance_id
+                and item.original_managed_instance_id == instance_id
+                and item.runtime_revision_id == runtime_revision_id
+                and container_id is not None
+                and item.trusted_container_id == container_id
+            )
+            state = AddonZipEnablementPresentationState.EVIDENCE_UNKNOWN
+            if (
+                latest is not None
+                and latest.state
+                is AddonZipEnablementOperationState.RECONCILIATION_REQUIRED
+            ):
+                state = AddonZipEnablementPresentationState.RECONCILIATION_REQUIRED
+            elif item.confidence is AddonZipInstallationConfidence.STALE:
+                state = AddonZipEnablementPresentationState.EVIDENCE_STALE
+            elif item.confidence is AddonZipInstallationConfidence.UNKNOWN:
+                state = AddonZipEnablementPresentationState.EVIDENCE_UNKNOWN
+            elif (
+                latest is not None
+                and latest.result_classification
+                is AddonZipEnablementResult.DEPENDENCY_BLOCKED
+            ):
+                state = AddonZipEnablementPresentationState.DEPENDENCY_BLOCKED
+            elif (
+                exact_lineage
+                and live is not None
+                and live.version == item.addon_version
+            ):
+                state = (
+                    AddonZipEnablementPresentationState.INSTALLED_ENABLED
+                    if live.enabled
+                    else AddonZipEnablementPresentationState.INSTALLED_DISABLED
+                )
+            rows.append(
+                InstalledAddonZipPresentation(
+                    artifact_id=item.artifact_id,
+                    logical_label=artifact.logical_label,
+                    addon_id=item.addon_id,
+                    addon_version=item.addon_version,
+                    provenance_wording=(
+                        "Prior verified ZIP install"
+                        if item.confidence
+                        is AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
+                        and exact_lineage
+                        else (
+                            "Installation evidence stale"
+                            if item.confidence is AddonZipInstallationConfidence.STALE
+                            else "Installation evidence unknown"
+                        )
+                    ),
+                    live_enabled=None if live is None else live.enabled,
+                    state=state,
+                    enable_eligible=(
+                        state is AddonZipEnablementPresentationState.INSTALLED_DISABLED
+                        and exact_lineage
+                        and profile is not None
+                        and profile.python_bytecode_policy.value == "suppress"
+                    ),
+                    blocked_dependency_id=(
+                        None if latest is None else latest.blocked_dependency_id
+                    ),
+                    blocked_dependency_reason=(
+                        None if latest is None else latest.blocked_dependency_reason
+                    ),
+                )
+            )
+        return rows
 
     @staticmethod
     def _provenance(

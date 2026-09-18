@@ -3,6 +3,10 @@
 from kodi_lab.domain.addon_zips import (
     AddonZipArtifact,
     AddonZipDependency,
+    AddonZipEnablementOperation,
+    AddonZipEnablementOperationPhase,
+    AddonZipEnablementOperationState,
+    AddonZipEnablementResult,
     AddonZipExtensionClassification,
     AddonZipImportOperation,
     AddonZipImportOperationPhase,
@@ -14,6 +18,7 @@ from kodi_lab.domain.addon_zips import (
     AddonZipInstallationOperationState,
     AddonZipInstallationResult,
     AddonZipOrigin,
+    AddonZipPayloadVerificationOutcome,
     AddonZipValidationState,
 )
 from kodi_lab.domain.development_source_attachments import (
@@ -154,6 +159,10 @@ __all__ = [
     "RECOGNIZED_VALIDATION_CONTRACTS",
     "AddonZipArtifact",
     "AddonZipDependency",
+    "AddonZipEnablementOperation",
+    "AddonZipEnablementOperationPhase",
+    "AddonZipEnablementOperationState",
+    "AddonZipEnablementResult",
     "AddonZipExtensionClassification",
     "AddonZipImportOperation",
     "AddonZipImportOperationPhase",
@@ -165,6 +174,7 @@ __all__ = [
     "AddonZipInstallationOperationState",
     "AddonZipInstallationResult",
     "AddonZipOrigin",
+    "AddonZipPayloadVerificationOutcome",
     "AddonZipValidationState",
     "ConnectionState",
     "DevelopmentSource",

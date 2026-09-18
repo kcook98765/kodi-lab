@@ -170,6 +170,22 @@ class ManagedInstanceDetailService:
             and not active_mutation
         )
         addons = self._addons.get(instance_id)
+        addons = addons.model_copy(
+            update={
+                "installed_zip_artifacts": [
+                    item.model_copy(
+                        update={
+                            "enable_eligible": (
+                                item.enable_eligible
+                                and not reconciliation.blocking
+                                and not active_mutation
+                            )
+                        }
+                    )
+                    for item in addons.installed_zip_artifacts
+                ]
+            }
+        )
         addon_by_id = {item.addon_id: item for item in addons.items}
         presented_sources: list[AttachedDevelopmentSourceRead] = []
         for source in sources:
