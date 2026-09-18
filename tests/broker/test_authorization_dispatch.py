@@ -73,6 +73,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
         "start_managed_container",
         "stop_managed_container",
         "verify_addon_zip_enablement_destination",
+        "verify_addon_zip_smoke_destination",
         "verify_attached_development_source_destination",
     )
     assert registry.dispatch(request("ping")) == PingResult(
@@ -98,6 +99,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
             "start_managed_container",
             "stop_managed_container",
             "verify_addon_zip_enablement_destination",
+            "verify_addon_zip_smoke_destination",
             "verify_attached_development_source_destination",
         ],
         protocol_version=1,

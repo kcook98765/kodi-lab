@@ -2230,3 +2230,55 @@ details that it did not specify.
   dependency-blocked, or reconciliation state are separate. Safe activity never
   exposes operational detail or says Verified ZIP enabled, Working, Tested, or
   Healthy.
+
+## D-0179: ZIP smoke authority is artifact-and-installation specific
+
+- Status: approved and implemented
+- Decision: authority is exactly ManagedInstance UUID plus accepted immutable
+  AddonZipArtifact UUID. The server resolves successful verified installation
+  evidence, normalized payload, exact ID/version/type, RuntimeRevision/Profile,
+  current container, and fixed destination. There is no smoke-by-add-on-ID or
+  caller invocation authority.
+- Preconditions: the disposable suppression-profile instance must already be
+  running, healthy, freshly ready, exactly recognized and enabled, with no
+  blocking reconciliation. Immutable dependency declarations must cross-check
+  Kodi details and pass complete live inventory evaluation. Exact installed-tree
+  readback must match before dispatch; changed makes evidence stale, unknown
+  makes it unknown, and neither is adopted or retried.
+- Invocation: the existing fixed adapter performs only `Files.GetDirectory` for
+  server-derived `plugin://<addon-id>/`, `media=video`, no properties, result
+  range 0..1, and a ten-second timeout. No lifecycle, enablement, dependency, or
+  retry mutation is automatic.
+
+## D-0180: ZIP smoke results preserve execution and tree provenance separately
+
+- Status: approved and implemented
+- Decision: durable operation state, overall result, execution result, and
+  post-execution provenance remain distinct. `passed` requires correlated
+  bounded completion plus exact post-readback; zero items is valid. A correlated
+  Kodi error with matched tree is `execution_failed` and preserves verified ZIP
+  evidence. A changed tree is `installed_tree_changed` and makes evidence stale;
+  an unavailable/incomplete verifier makes evidence unknown and cannot pass.
+- Ambiguity: timeout or crash after dispatch is permanently
+  reconciliation-required with timeout/ambiguous execution and unknown evidence.
+  Ping/readiness or an immediate matching tree cannot restore authority. There
+  is no automatic retry/restart/kill; explicit ordinary stop contains execution.
+
+## D-0181: ZIP smoke has separate history, coordination, and private Web surface
+
+- Status: approved and implemented
+- Decision: `AddonZipSmokeTestOperation` stores only bounded semantic identity,
+  artifact and installation references, nullable live plus immutable original
+  instance, revision/container precondition, typed results, duration, item count,
+  dependency classification, and timestamps. It stores no directory content,
+  plugin URI, paths, raw JSON/errors, logs, or container identity in Web output.
+- Coordination: per-instance `addon_zip_smoke_test` conflicts with lifecycle,
+  reset, Snapshot create/restore, fixture/runtime reassignment, DevelopmentSource
+  mutations, ZIP install/enable/smoke, and deletion. Snapshot deletion remains
+  unrelated and no global-heavy lease is used. Retention keeps 20 ordinary
+  terminal rows and never prunes active or reconciliation-required rows.
+- Web: authenticated same-origin CSRF-protected strict-empty-body
+  `POST /api/instances/{instance_id}/addon-zips/{artifact_id}/smoke-test` returns
+  HTTP 202 plus bounded status. UI eligibility is advisory and warns: “Plugin
+  execution may contact external services; the managed runtime network is not
+  egress-isolated.”

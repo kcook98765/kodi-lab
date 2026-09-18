@@ -800,8 +800,31 @@ failure is ordinary; possible post-dispatch mutation is retained reconciliation
 and makes only target installation evidence unknown. Existing
 Snapshot/reset/runtime/container invalidation remains evidence-owned; history
 never recreates authority. The strict empty-body HTTP-200 API and UI expose
-safe classifications only. ZIP smoke remains unimplemented and separately
-gated.
+  safe classifications only.
+
+## Uploaded-ZIP smoke testing
+
+ZIP smoke testing is a separate asynchronous operation rooted only in a
+ManagedInstance UUID and accepted AddonZipArtifact UUID. It requires retained
+verified installation lineage for the exact current suppression revision and
+container, complete live inventory, exact enabled plugin recognition, immutable
+dependency cross-check/evaluation, and fresh exact installed-tree verification.
+The only invocation is the established bounded `Files.GetDirectory` adapter;
+caller URI, route, query, timeout, media, properties, paths, and add-on ID are
+unrepresentable.
+
+Migration `0026_addon_zip_smoke_test` adds separate bounded history and the
+per-instance `addon_zip_smoke_test` mutation kind without a global-heavy lease.
+Correlated errors preserve verified evidence only after matched post-readback.
+Tree change makes evidence stale. Timeout, post-dispatch crash, or unknown
+post-readback makes evidence unknown and leaves permanent reconciliation history;
+the exact running container blocks another smoke while explicit stop remains
+allowed.
+
+**ZIP smoke passed is bounded historical evidence that one fixed
+plugin-directory invocation completed and the installed tree still exactly
+matched the immutable ZIP payload. It is not a general correctness or health
+guarantee.** Returned directory objects are discarded after bounded validation.
 
 ## Uploaded-ZIP installation first slice
 

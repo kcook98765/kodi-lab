@@ -477,4 +477,27 @@ The authenticated same-origin CSRF-protected endpoint accepts a strict empty
 body and returns synchronous HTTP 200. Installation provenance stays `Prior
 verified ZIP install`; live enabled state and safe enablement outcome are
 separate and never imply Working, Tested, or Healthy. This slice does not
-implement ZIP smoke testing.
+  use the separate ZIP smoke workflow described below.
+
+## Uploaded-ZIP smoke testing
+
+The implemented ZIP-specific smoke slice accepts only ManagedInstance UUID plus
+accepted AddonZipArtifact UUID. Server-side authority resolves verified
+successful installation evidence, immutable payload and dependency declarations,
+exact revision/container/destination, suppression profile, complete inventory,
+enabled plugin details, and fixed invocation. It performs no lifecycle,
+enablement, dependency, repository, adoption, or retry action.
+
+Exact installed-tree verification runs before and after the sole
+`Files.GetDirectory` invocation. Changed bytes make installation evidence stale;
+unknown verification makes it unknown. A correlated execution error with matched
+tree preserves verified evidence. Timeout or crash after dispatch is permanently
+reconciliation-required and blocks another smoke while that exact container runs;
+ordinary explicit stop is the containment action and never rewrites history.
+
+**ZIP smoke passed is bounded historical evidence that one fixed
+plugin-directory invocation completed and the installed tree still exactly
+matched the immutable ZIP payload. It is not a general correctness or health
+guarantee.** Zero items is valid. Returned labels, URLs, paths, raw JSON/errors,
+and logs are never persisted or exposed. The UI warns: **Plugin execution may
+contact external services; the managed runtime network is not egress-isolated.**

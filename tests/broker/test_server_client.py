@@ -88,6 +88,7 @@ def test_real_temporary_unix_server_client_round_trip(
                 "start_managed_container",
                 "stop_managed_container",
                 "verify_addon_zip_enablement_destination",
+                "verify_addon_zip_smoke_destination",
                 "verify_attached_development_source_destination",
             ],
             protocol_version=1,

@@ -23,6 +23,12 @@ from kodi_lab.domain import (
     AddonZipInstallationOperationPhase,
     AddonZipInstallationOperationState,
     AddonZipPayloadVerificationOutcome,
+    AddonZipSmokeTestExecutionResult,
+    AddonZipSmokeTestOperation,
+    AddonZipSmokeTestOperationPhase,
+    AddonZipSmokeTestOperationState,
+    AddonZipSmokeTestOverallResult,
+    AddonZipSmokeTestPostProvenance,
     DevelopmentSource,
     DevelopmentSourceAttachmentOperation,
     DevelopmentSourceDeployment,
@@ -83,6 +89,7 @@ from kodi_lab.storage.models import (
     AddonZipImportOperationRow,
     AddonZipInstallationEvidenceRow,
     AddonZipInstallationOperationRow,
+    AddonZipSmokeTestOperationRow,
     DevelopmentSourceAttachmentOperationRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
@@ -667,6 +674,49 @@ def _development_source_smoke_test_operation_from_row(
         ),
         development_source_id=UUID(row.development_source_id),
         source_logical_name=row.source_logical_name,
+        addon_id=row.addon_id,
+        addon_version=row.addon_version,
+        runtime_revision_id=UUID(row.runtime_revision_id),
+        requested_at=_timestamp_from_text(row.requested_at),
+        state=row.state,
+        phase=row.phase,
+        overall_result=row.overall_result,
+        execution_result=row.execution_result,
+        post_execution_provenance=row.post_execution_provenance,
+        invocation_dispatched=row.invocation_dispatched,
+        invocation_duration_ms=row.invocation_duration_ms,
+        returned_item_count=row.returned_item_count,
+        blocked_dependency_id=row.blocked_dependency_id,
+        blocked_dependency_reason=row.blocked_dependency_reason,
+        expected_container_id=row.expected_container_id,
+        started_at=(
+            None if row.started_at is None else _timestamp_from_text(row.started_at)
+        ),
+        completed_at=(
+            None if row.completed_at is None else _timestamp_from_text(row.completed_at)
+        ),
+        failure_reason=row.failure_reason,
+        reconciliation_required=row.reconciliation_required,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=(
+            None
+            if row.lease_expires_at is None
+            else _timestamp_from_text(row.lease_expires_at)
+        ),
+    )
+
+
+def _addon_zip_smoke_test_operation_from_row(
+    row: AddonZipSmokeTestOperationRow,
+) -> AddonZipSmokeTestOperation:
+    return AddonZipSmokeTestOperation(
+        id=UUID(row.id),
+        original_managed_instance_id=UUID(row.original_managed_instance_id),
+        managed_instance_id=(
+            None if row.managed_instance_id is None else UUID(row.managed_instance_id)
+        ),
+        artifact_id=UUID(row.artifact_id),
+        installation_operation_id=UUID(row.installation_operation_id),
         addon_id=row.addon_id,
         addon_version=row.addon_version,
         runtime_revision_id=UUID(row.runtime_revision_id),
@@ -4964,6 +5014,339 @@ class DevelopmentSourceSmokeTestOperationRepository:
         result = self._session.execute(
             delete(DevelopmentSourceSmokeTestOperationRow).where(
                 DevelopmentSourceSmokeTestOperationRow.id.in_(rows)
+            )
+        )
+        return int(getattr(result, "rowcount", 0))
+
+
+class AddonZipSmokeTestOperationRepository:
+    """Durable smoke-test history with a fixed 90-second running lease."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: AddonZipSmokeTestOperation) -> None:
+        self._session.add(
+            AddonZipSmokeTestOperationRow(
+                id=str(operation.id),
+                original_managed_instance_id=str(
+                    operation.original_managed_instance_id
+                ),
+                managed_instance_id=(
+                    None
+                    if operation.managed_instance_id is None
+                    else str(operation.managed_instance_id)
+                ),
+                artifact_id=str(operation.artifact_id),
+                installation_operation_id=str(operation.installation_operation_id),
+                addon_id=operation.addon_id,
+                addon_version=operation.addon_version,
+                runtime_revision_id=str(operation.runtime_revision_id),
+                requested_at=_timestamp_to_text(operation.requested_at),
+                state=operation.state,
+                phase=operation.phase,
+                overall_result=operation.overall_result,
+                execution_result=operation.execution_result,
+                post_execution_provenance=operation.post_execution_provenance,
+                invocation_dispatched=operation.invocation_dispatched,
+                reconciliation_required=operation.reconciliation_required,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> AddonZipSmokeTestOperation | None:
+        row = self._session.get(AddonZipSmokeTestOperationRow, str(operation_id))
+        return None if row is None else _addon_zip_smoke_test_operation_from_row(row)
+
+    def list_for_original_instance(
+        self, instance_id: UUID
+    ) -> list[AddonZipSmokeTestOperation]:
+        rows = self._session.scalars(
+            select(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.original_managed_instance_id
+                == str(instance_id)
+            )
+            .order_by(
+                AddonZipSmokeTestOperationRow.requested_at.desc(),
+                AddonZipSmokeTestOperationRow.id.desc(),
+            )
+        )
+        return [_addon_zip_smoke_test_operation_from_row(row) for row in rows]
+
+    def list_queued(self) -> list[AddonZipSmokeTestOperation]:
+        rows = self._session.scalars(
+            select(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.state
+                == AddonZipSmokeTestOperationState.QUEUED
+            )
+            .order_by(
+                AddonZipSmokeTestOperationRow.requested_at,
+                AddonZipSmokeTestOperationRow.id,
+            )
+        )
+        return [_addon_zip_smoke_test_operation_from_row(row) for row in rows]
+
+    def active_for_instance(
+        self, instance_id: UUID
+    ) -> AddonZipSmokeTestOperation | None:
+        row = self._session.scalar(
+            select(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.managed_instance_id == str(instance_id),
+                AddonZipSmokeTestOperationRow.state.in_(
+                    (
+                        AddonZipSmokeTestOperationState.QUEUED,
+                        AddonZipSmokeTestOperationState.RUNNING,
+                    )
+                ),
+            )
+            .limit(1)
+        )
+        return None if row is None else _addon_zip_smoke_test_operation_from_row(row)
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        expected_container_id: str | None,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.id == str(operation_id),
+                AddonZipSmokeTestOperationRow.state
+                == AddonZipSmokeTestOperationState.QUEUED,
+            )
+            .values(
+                state=AddonZipSmokeTestOperationState.RUNNING,
+                phase=AddonZipSmokeTestOperationPhase.ACQUIRE,
+                expected_container_id=expected_container_id,
+                started_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(lease_expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def set_expected_container(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        expected_container_id: str,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.id == str(operation_id),
+                AddonZipSmokeTestOperationRow.state
+                == AddonZipSmokeTestOperationState.RUNNING,
+                AddonZipSmokeTestOperationRow.lease_token_digest == token_digest,
+                AddonZipSmokeTestOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+                AddonZipSmokeTestOperationRow.expected_container_id.is_(None),
+            )
+            .values(expected_container_id=expected_container_id)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update_phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: AddonZipSmokeTestOperationPhase,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.id == str(operation_id),
+                AddonZipSmokeTestOperationRow.state
+                == AddonZipSmokeTestOperationState.RUNNING,
+                AddonZipSmokeTestOperationRow.lease_token_digest == token_digest,
+                AddonZipSmokeTestOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+            )
+            .values(phase=phase)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_invocation_dispatched(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.id == str(operation_id),
+                AddonZipSmokeTestOperationRow.state
+                == AddonZipSmokeTestOperationState.RUNNING,
+                AddonZipSmokeTestOperationRow.lease_token_digest == token_digest,
+                AddonZipSmokeTestOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+                AddonZipSmokeTestOperationRow.invocation_dispatched.is_(False),
+            )
+            .values(
+                phase=AddonZipSmokeTestOperationPhase.INVOKE,
+                invocation_dispatched=True,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: AddonZipSmokeTestOperationState,
+        overall_result: AddonZipSmokeTestOverallResult | None,
+        execution_result: AddonZipSmokeTestExecutionResult,
+        post_execution_provenance: AddonZipSmokeTestPostProvenance,
+        invocation_duration_ms: int | None,
+        returned_item_count: int | None,
+        blocked_dependency_id: str | None,
+        blocked_dependency_reason: str | None,
+        failure_reason: str | None,
+        reconciliation_required: bool,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.id == str(operation_id),
+                AddonZipSmokeTestOperationRow.state
+                == AddonZipSmokeTestOperationState.RUNNING,
+                AddonZipSmokeTestOperationRow.lease_token_digest == token_digest,
+                AddonZipSmokeTestOperationRow.lease_expires_at
+                > _timestamp_to_text(now),
+            )
+            .values(
+                state=state,
+                phase=AddonZipSmokeTestOperationPhase.FINALIZE,
+                overall_result=overall_result,
+                execution_result=execution_result,
+                post_execution_provenance=post_execution_provenance,
+                invocation_duration_ms=invocation_duration_ms,
+                returned_item_count=returned_item_count,
+                blocked_dependency_id=blocked_dependency_id,
+                blocked_dependency_reason=blocked_dependency_reason,
+                completed_at=_timestamp_to_text(now),
+                failure_reason=failure_reason,
+                reconciliation_required=reconciliation_required,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
+        row = self._session.get(AddonZipSmokeTestOperationRow, str(operation_id))
+        if (
+            row is None
+            or row.state is not AddonZipSmokeTestOperationState.RUNNING
+            or row.lease_token_digest != token_digest
+            or row.lease_expires_at is None
+            or row.lease_expires_at > _timestamp_to_text(now)
+        ):
+            return False
+        if row.invocation_dispatched:
+            values = {
+                "state": (AddonZipSmokeTestOperationState.RECONCILIATION_REQUIRED),
+                "overall_result": (
+                    AddonZipSmokeTestOverallResult.RECONCILIATION_REQUIRED
+                ),
+                "execution_result": (AddonZipSmokeTestExecutionResult.AMBIGUOUS),
+                "post_execution_provenance": (AddonZipSmokeTestPostProvenance.UNKNOWN),
+                "failure_reason": "smoke_execution_abandoned",
+                "reconciliation_required": True,
+            }
+        else:
+            values = {
+                "state": AddonZipSmokeTestOperationState.FAILED,
+                "overall_result": None,
+                "execution_result": (AddonZipSmokeTestExecutionResult.NOT_ATTEMPTED),
+                "post_execution_provenance": (
+                    AddonZipSmokeTestPostProvenance.NOT_CHECKED
+                ),
+                "failure_reason": "smoke_failed_before_invocation",
+                "reconciliation_required": False,
+            }
+        result = self._session.execute(
+            update(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.id == str(operation_id),
+                AddonZipSmokeTestOperationRow.state
+                == AddonZipSmokeTestOperationState.RUNNING,
+                AddonZipSmokeTestOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                **values,
+                phase=AddonZipSmokeTestOperationPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID, *, limit: int = 2
+    ) -> list[AddonZipSmokeTestOperation]:
+        rows = self._session.scalars(
+            select(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.original_managed_instance_id
+                == str(instance_id),
+                AddonZipSmokeTestOperationRow.reconciliation_required.is_(True),
+            )
+            .order_by(
+                AddonZipSmokeTestOperationRow.requested_at.desc(),
+                AddonZipSmokeTestOperationRow.id.desc(),
+            )
+            .limit(limit)
+        )
+        return [_addon_zip_smoke_test_operation_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(AddonZipSmokeTestOperationRow)
+            .where(
+                AddonZipSmokeTestOperationRow.managed_instance_id == str(instance_id)
+            )
+            .values(managed_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
+
+    def prune_terminal(self, instance_id: UUID, *, retain: int = 20) -> int:
+        rows = list(
+            self._session.scalars(
+                select(AddonZipSmokeTestOperationRow.id)
+                .where(
+                    AddonZipSmokeTestOperationRow.original_managed_instance_id
+                    == str(instance_id),
+                    AddonZipSmokeTestOperationRow.state.in_(
+                        (
+                            AddonZipSmokeTestOperationState.SUCCEEDED,
+                            AddonZipSmokeTestOperationState.FAILED,
+                        )
+                    ),
+                )
+                .order_by(
+                    AddonZipSmokeTestOperationRow.requested_at.desc(),
+                    AddonZipSmokeTestOperationRow.id.desc(),
+                )
+                .offset(retain)
+            )
+        )
+        if not rows:
+            return 0
+        result = self._session.execute(
+            delete(AddonZipSmokeTestOperationRow).where(
+                AddonZipSmokeTestOperationRow.id.in_(rows)
             )
         )
         return int(getattr(result, "rowcount", 0))

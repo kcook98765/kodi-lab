@@ -87,6 +87,8 @@ from kodi_lab.broker.operations import (
     StopManagedContainerResult,
     VerifyAddonZipEnablementDestinationParams,
     VerifyAddonZipEnablementDestinationResult,
+    VerifyAddonZipSmokeDestinationParams,
+    VerifyAddonZipSmokeDestinationResult,
     VerifyAttachedDevelopmentSourceDestinationParams,
     VerifyAttachedDevelopmentSourceDestinationResult,
 )
@@ -621,6 +623,42 @@ class BrokerClient:
             raise ClientProtocolError(
                 "ZIP enablement destination result identity differs"
             )
+        return result
+
+    def verify_addon_zip_smoke_destination(
+        self,
+        *,
+        managed_instance_id: str,
+        artifact_id: str,
+        smoke_operation_id: str,
+        expected_container_id: str,
+    ) -> VerifyAddonZipSmokeDestinationResult:
+        """Verify only the server-resolved ZIP smoke destination."""
+
+        try:
+            params = VerifyAddonZipSmokeDestinationParams(
+                managed_instance_id=managed_instance_id,
+                artifact_id=artifact_id,
+                smoke_operation_id=smoke_operation_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "ZIP smoke destination request failed local validation"
+            ) from error
+        result = self._call(
+            "verify_addon_zip_smoke_destination",
+            params,
+            VerifyAddonZipSmokeDestinationResult,
+            response_timeout=60.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.artifact_id != artifact_id
+            or result.smoke_operation_id != smoke_operation_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError("ZIP smoke destination result identity differs")
         return result
 
     def _call(

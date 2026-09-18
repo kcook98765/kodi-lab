@@ -60,6 +60,16 @@ from kodi_lab.application.addon_zip_presentation import (
     AddonZipImportStatus,
     AddonZipPresentationService,
 )
+from kodi_lab.application.addon_zip_smoke_tests import (
+    AddonZipSmokeTestConflictError,
+    AddonZipSmokeTestError,
+    AddonZipSmokeTestExecutor,
+    AddonZipSmokeTestNotFoundError,
+    AddonZipSmokeTestOperationCoordinator,
+    AddonZipSmokeTestService,
+    AddonZipSmokeTestServiceFactory,
+    AddonZipSmokeTestStatus,
+)
 from kodi_lab.application.development_source_deployments import (
     DevelopmentSourceDeploymentConflictError,
     DevelopmentSourceDeploymentError,
@@ -269,6 +279,13 @@ class AddonZipInstallationAccepted(BaseModel):
     status_url: str
 
 
+class AddonZipSmokeTestAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: AddonZipSmokeTestStatus
+    status_url: str
+
+
 class SnapshotCreateRequest(BaseModel):
     """Optional display metadata with no storage or runtime authority."""
 
@@ -365,6 +382,8 @@ class WebApplicationContext:
     addon_zip_installations: AddonZipInstallationCoordinator
     addon_zip_installation_executor: AddonZipInstallationExecutor
     addon_zip_enablement: AddonZipEnablementService
+    addon_zip_smoke_test_operations: AddonZipSmokeTestOperationCoordinator
+    addon_zip_smoke_test_executor: AddonZipSmokeTestExecutor
 
 
 def create_app(
@@ -396,6 +415,7 @@ def create_app(
     ) = None,
     addon_zip_readiness_factory: AddonZipReadinessCoordinatorFactory | None = None,
     addon_zip_enablement_service: AddonZipEnablementService | None = None,
+    addon_zip_smoke_test_service_factory: AddonZipSmokeTestServiceFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -607,6 +627,23 @@ def create_app(
         ),
         inventory_adapter_factory=addon_inventory_adapter_factory,
     )
+    addon_zip_smoke_test_operations = AddonZipSmokeTestOperationCoordinator(
+        session_factory,
+        stale_dispatcher=stale_dispatcher,
+        reconciliation=reconciliation,
+    )
+    addon_zip_smoke_test_factory = addon_zip_smoke_test_service_factory or (
+        lambda lease: AddonZipSmokeTestService(
+            session_factory,
+            broker,
+            addon_zip_smoke_test_operations,
+            lease,
+            inventory_adapter_factory=addon_inventory_adapter_factory,
+        )
+    )
+    addon_zip_smoke_test_executor = AddonZipSmokeTestExecutor(
+        addon_zip_smoke_test_operations, addon_zip_smoke_test_factory
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -675,6 +712,8 @@ def create_app(
         addon_zip_installations=addon_zip_installations,
         addon_zip_installation_executor=addon_zip_installation_executor,
         addon_zip_enablement=addon_zip_enablement,
+        addon_zip_smoke_test_operations=addon_zip_smoke_test_operations,
+        addon_zip_smoke_test_executor=addon_zip_smoke_test_executor,
     )
 
     @asynccontextmanager
@@ -689,6 +728,7 @@ def create_app(
         context.development_source_smoke_test_executor.start()
         context.addon_zip_import_executor.start()
         context.addon_zip_installation_executor.start()
+        context.addon_zip_smoke_test_executor.start()
         try:
             yield
         finally:
@@ -701,6 +741,7 @@ def create_app(
             context.development_source_smoke_test_executor.close()
             context.addon_zip_import_executor.close()
             context.addon_zip_installation_executor.close()
+            context.addon_zip_smoke_test_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -834,6 +875,24 @@ def create_app(
     @app.exception_handler(AddonZipEnablementError)
     async def addon_zip_enablement_failed(
         _request: Request, error: AddonZipEnablementError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(AddonZipSmokeTestNotFoundError)
+    async def addon_zip_smoke_test_not_found(
+        _request: Request, error: AddonZipSmokeTestNotFoundError
+    ) -> JSONResponse:
+        return _json_error(404, error.code, str(error)[:256])
+
+    @app.exception_handler(AddonZipSmokeTestConflictError)
+    async def addon_zip_smoke_test_conflict(
+        _request: Request, error: AddonZipSmokeTestConflictError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, str(error)[:256])
+
+    @app.exception_handler(AddonZipSmokeTestError)
+    async def addon_zip_smoke_test_failed(
+        _request: Request, error: AddonZipSmokeTestError
     ) -> JSONResponse:
         return _json_error(409, error.code, str(error)[:256])
 
@@ -1618,6 +1677,41 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> AddonZipEnablementStatus:
         return context.addon_zip_enablement.enable(instance_id, artifact_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/addon-zip-smoke-test-operations/{operation_id}",
+        response_model=AddonZipSmokeTestStatus,
+    )
+    def addon_zip_smoke_test_operation(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AddonZipSmokeTestStatus:
+        operation = context.addon_zip_smoke_test_operations.get(operation_id)
+        if operation is None or operation.original_managed_instance_id != instance_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        return context.addon_zip_smoke_test_operations.to_status(operation)
+
+    @app.post(
+        "/api/instances/{instance_id}/addon-zips/{artifact_id}/smoke-test",
+        response_model=AddonZipSmokeTestAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def smoke_test_addon_zip(
+        instance_id: UUID,
+        artifact_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AddonZipSmokeTestAccepted:
+        operation = context.addon_zip_smoke_test_operations.queue(
+            instance_id, artifact_id
+        )
+        context.addon_zip_smoke_test_executor.submit(operation.operation_id)
+        status_url = (
+            f"/api/instances/{instance_id}/addon-zip-smoke-test-operations/"
+            f"{operation.operation_id}"
+        )
+        return AddonZipSmokeTestAccepted(operation=operation, status_url=status_url)
 
     @app.post(
         "/api/instances/{instance_id}/development-sources/{source_id}/enable",

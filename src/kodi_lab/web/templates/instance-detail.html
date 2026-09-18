@@ -10,6 +10,7 @@
     <script src="{{ url_for('static', path='/development-source-enable.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-smoke.js') }}" defer></script>
     <script src="{{ url_for('static', path='/addon-zip-enable.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/addon-zip-smoke.js') }}" defer></script>
   </head>
   <body>
     <main>
@@ -75,6 +76,7 @@
             <dt>Installation provenance</dt><dd>{{ installed.provenance_wording }}</dd>
             <dt>Live enabled state</dt><dd>{% if installed.live_enabled is none %}Unavailable{% elif installed.live_enabled %}Enabled{% else %}Disabled{% endif %}</dd>
             <dt>ZIP enablement</dt><dd>{{ installed.state|replace('_', ' ')|capitalize }}</dd>
+            <dt>Smoke test</dt><dd>{{ installed.smoke_test_state }}</dd>
           </dl>
           {% if installed.blocked_dependency_id and installed.state == 'dependency_blocked' %}
           <p class="secondary">{{ installed.blocked_dependency_reason|replace('_', ' ')|capitalize }}: <code>{{ installed.blocked_dependency_id }}</code></p>
@@ -82,6 +84,11 @@
           {% if installed.enable_eligible %}
           <button class="addon-zip-enable" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-artifact-id="{{ installed.artifact_id }}">Enable</button>
           <p class="addon-zip-enable-status secondary" role="status" hidden></p>
+          {% endif %}
+          {% if installed.smoke_test_eligible %}
+          <button class="addon-zip-smoke" type="button" data-instance-id="{{ detail.runtime.managed_instance_id }}" data-artifact-id="{{ installed.artifact_id }}">Run smoke test</button>
+          <p class="addon-zip-smoke-status secondary" role="status" hidden></p>
+          <p class="secondary">Plugin execution may contact external services; the managed runtime network is not egress-isolated.</p>
           {% endif %}
         </article>
         {% else %}<p>No retained uploaded ZIP installations.</p>{% endfor %}

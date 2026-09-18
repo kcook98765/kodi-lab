@@ -38,6 +38,7 @@ from kodi_lab.domain import (
     AddonZipInstallationConfidence,
     AddonZipInstallationOperation,
     AddonZipInstallationOperationState,
+    AddonZipSmokeTestOperation,
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperation,
     DevelopmentSourceDeploymentOperationState,
@@ -73,6 +74,7 @@ from kodi_lab.storage.repositories import (
     AddonZipImportOperationRepository,
     AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
+    AddonZipSmokeTestOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceEnablementOperationRepository,
@@ -111,6 +113,7 @@ class ManagedInstanceReconciliationRequiredError(RuntimeError):
 class ReconciliationOperationKind(StrEnum):
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
+    ADDON_ZIP_SMOKE_TEST = "addon_zip_smoke_test"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
@@ -127,6 +130,7 @@ class ReconciliationOperationKind(StrEnum):
 class ReconciliationAction(StrEnum):
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
+    ADDON_ZIP_SMOKE_TEST = "addon_zip_smoke_test"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
@@ -161,6 +165,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.DEVELOPMENT_SOURCE_SMOKE_TEST,
     ReconciliationAction.ADDON_ZIP_INSTALLATION,
     ReconciliationAction.ADDON_ZIP_ENABLEMENT,
+    ReconciliationAction.ADDON_ZIP_SMOKE_TEST,
 ]
 
 
@@ -175,7 +180,7 @@ class ManagedInstanceReconciliationStatus(BaseModel):
     last_phase: str | None = Field(default=None, max_length=64)
     safe_reason: str | None = Field(default=None, max_length=256)
     observed_state: str | None = Field(default=None, max_length=64)
-    blocked_actions: list[ReconciliationAction] = Field(max_length=16)
+    blocked_actions: list[ReconciliationAction] = Field(max_length=32)
     requested_at: datetime | None = None
     started_at: datetime | None = None
     stale_since: datetime | None = None
@@ -350,6 +355,7 @@ class StaleOperationReconciliationDispatcher:
             | DevelopmentSourceSmokeTestOperation
             | AddonZipInstallationOperation
             | AddonZipEnablementOperation
+            | AddonZipSmokeTestOperation
             | None
         )
         if kind is ManagedInstanceMutationKind.LIFECYCLE:
@@ -540,6 +546,31 @@ class StaleOperationReconciliationDispatcher:
                     instance_id,
                     operation.development_source_id,
                     DevelopmentSourceDeploymentConfidence.UNKNOWN,
+                )
+        elif kind is ManagedInstanceMutationKind.ADDON_ZIP_SMOKE_TEST:
+            operation = AddonZipSmokeTestOperationRepository(session).get(operation_id)
+            if (
+                operation is None
+                or operation.managed_instance_id != instance_id
+                or operation.state.value != "running"
+                or operation.lease_token_digest != digest
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired ZIP smoke-test ownership is inconsistent."
+                )
+            if not AddonZipSmokeTestOperationRepository(session).mark_stale(
+                operation_id, token_digest=digest, now=now
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired ZIP smoke-test history changed."
+                )
+            if operation.invocation_dispatched:
+                AddonZipInstallationEvidenceRepository(
+                    session
+                ).mark_artifact_confidence(
+                    instance_id,
+                    operation.artifact_id,
+                    AddonZipInstallationConfidence.UNKNOWN,
                 )
         elif kind is ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION:
             operation = AddonZipInstallationOperationRepository(session).get(
@@ -859,6 +890,12 @@ class ManagedInstanceReconciliationService:
                 ).reconciliation_for_instance(instance_id)
             )
             records.extend(
+                (ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST, item)
+                for item in AddonZipSmokeTestOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
+            records.extend(
                 (ReconciliationOperationKind.RESET, item)
                 for item in ResetOperationRepository(
                     session
@@ -959,6 +996,9 @@ class ManagedInstanceReconciliationService:
         elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
             assert isinstance(operation, DevelopmentSourceSmokeTestOperation)
             blocking, observed = self._classify_smoke(instance_id, operation)
+        elif kind is ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST:
+            assert isinstance(operation, AddonZipSmokeTestOperation)
+            blocking, observed = self._classify_smoke(instance_id, operation)
         elif kind is ReconciliationOperationKind.ADDON_ZIP_INSTALLATION:
             assert isinstance(operation, AddonZipInstallationOperation)
             blocking, observed = self._classify_addon_zip(instance_id, operation)
@@ -993,6 +1033,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.ADDON_ZIP_ENABLEMENT: (
                 "Uploaded-ZIP enablement requires operator reconciliation."
             ),
+            ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST: (
+                "Uploaded-ZIP smoke execution requires reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -1007,6 +1050,7 @@ class ManagedInstanceReconciliationService:
                 DevelopmentSourceSmokeTestOperation,
                 AddonZipInstallationOperation,
                 AddonZipEnablementOperation,
+                AddonZipSmokeTestOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(
@@ -1029,7 +1073,11 @@ class ManagedInstanceReconciliationService:
                     if action is not ReconciliationAction.STOP
                 ]
                 if blocking
-                and kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST
+                and kind
+                in {
+                    ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST,
+                    ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST,
+                }
                 else INSTANCE_MUTATIONS
                 if blocking
                 else []
@@ -1039,7 +1087,9 @@ class ManagedInstanceReconciliationService:
         )
 
     def _classify_smoke(
-        self, instance_id: UUID, operation: DevelopmentSourceSmokeTestOperation
+        self,
+        instance_id: UUID,
+        operation: DevelopmentSourceSmokeTestOperation | AddonZipSmokeTestOperation,
     ) -> tuple[bool, str]:
         if self._broker is None or operation.expected_container_id is None:
             return True, "original_container_state_unknown"

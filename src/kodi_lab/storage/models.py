@@ -30,6 +30,11 @@ from kodi_lab.domain import (
     AddonZipInstallationResult,
     AddonZipOrigin,
     AddonZipPayloadVerificationOutcome,
+    AddonZipSmokeTestExecutionResult,
+    AddonZipSmokeTestOperationPhase,
+    AddonZipSmokeTestOperationState,
+    AddonZipSmokeTestOverallResult,
+    AddonZipSmokeTestPostProvenance,
     AddonZipValidationState,
     ConnectionState,
     DevelopmentSourceAttachmentOperationKind,
@@ -856,6 +861,164 @@ class DevelopmentSourceSmokeTestOperationRow(Base):
             default=DevelopmentSourceSmokeTestPostProvenance.NOT_CHECKED,
             server_default=text("'not_checked'"),
         )
+    )
+    invocation_dispatched: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    invocation_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    returned_item_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    blocked_dependency_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True
+    )
+    blocked_dependency_reason: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    expected_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class AddonZipSmokeTestOperationRow(Base):
+    """Durable bounded ZIP-specific smoke-test history and coordination."""
+
+    __tablename__ = "addon_zip_smoke_test_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128",
+            name="addon_zip_smoke_test_identity_bounded",
+        ),
+        CheckConstraint(
+            "invocation_duration_ms IS NULL OR "
+            "invocation_duration_ms BETWEEN 0 AND 90000",
+            name="addon_zip_smoke_test_duration_bounded",
+        ),
+        CheckConstraint(
+            "returned_item_count IS NULL OR returned_item_count BETWEEN 0 AND 1",
+            name="addon_zip_smoke_test_item_count_bounded",
+        ),
+        CheckConstraint(
+            "blocked_dependency_id IS NULL OR "
+            "length(blocked_dependency_id) BETWEEN 1 AND 128",
+            name="addon_zip_smoke_test_blocked_id_bounded",
+        ),
+        CheckConstraint(
+            "blocked_dependency_reason IS NULL OR "
+            "length(blocked_dependency_reason) BETWEEN 1 AND 64",
+            name="addon_zip_smoke_test_blocked_reason_bounded",
+        ),
+        CheckConstraint(
+            "expected_container_id IS NULL OR (length(expected_container_id) = 64 "
+            "AND expected_container_id NOT GLOB '*[^0-9a-f]*')",
+            name="addon_zip_smoke_test_expected_container",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest) = 64 "
+            "AND lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="addon_zip_smoke_test_lease_digest",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="addon_zip_smoke_test_failure_bounded",
+        ),
+        Index(
+            "uq_addon_zip_smoke_test_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+        Index(
+            "ix_addon_zip_smoke_test_original_requested",
+            "original_managed_instance_id",
+            "requested_at",
+        ),
+        Index(
+            "ix_addon_zip_smoke_test_artifact",
+            "artifact_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_managed_instance_id: Mapped[str] = mapped_column(
+        String(36), nullable=False
+    )
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    artifact_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("addon_zip_artifacts.id", ondelete="RESTRICT")
+    )
+    installation_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("addon_zip_installation_operations.id", ondelete="RESTRICT"),
+    )
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runtime_revisions.id", ondelete="RESTRICT")
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[AddonZipSmokeTestOperationState] = mapped_column(
+        Enum(
+            AddonZipSmokeTestOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_smoke_test_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[AddonZipSmokeTestOperationPhase] = mapped_column(
+        Enum(
+            AddonZipSmokeTestOperationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_smoke_test_operation_phase",
+        ),
+        nullable=False,
+    )
+    overall_result: Mapped[AddonZipSmokeTestOverallResult | None] = mapped_column(
+        Enum(
+            AddonZipSmokeTestOverallResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_smoke_test_overall_result",
+        ),
+        nullable=True,
+    )
+    execution_result: Mapped[AddonZipSmokeTestExecutionResult] = mapped_column(
+        Enum(
+            AddonZipSmokeTestExecutionResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_smoke_test_execution_result",
+        ),
+        nullable=False,
+        default=AddonZipSmokeTestExecutionResult.NOT_ATTEMPTED,
+        server_default=text("'not_attempted'"),
+    )
+    post_execution_provenance: Mapped[AddonZipSmokeTestPostProvenance] = mapped_column(
+        Enum(
+            AddonZipSmokeTestPostProvenance,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="addon_zip_smoke_test_post_provenance",
+        ),
+        nullable=False,
+        default=AddonZipSmokeTestPostProvenance.NOT_CHECKED,
+        server_default=text("'not_checked'"),
     )
     invocation_dispatched: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("0")

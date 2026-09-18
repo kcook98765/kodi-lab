@@ -664,4 +664,14 @@ Separate typed history, per-instance coordination, newest-20 ordinary
 retention, reconciliation, activity, strict-empty-body HTTP 200, and bounded UI
 states are included. There is no authoritative enabled-state table. Existing
 Snapshot/reset/runtime/container/provenance semantics remain evidence-driven.
-ZIP smoke execution is not implemented and remains a later explicit milestone.
+ZIP smoke execution follows as migration `0026_addon_zip_smoke_test`. It adds a
+separate asynchronous operation, per-instance mutation kind, exact ZIP payload
+readback before and after the fixed directory invocation, pure dependency
+preflight, bounded status/history, timeout containment through explicit stop,
+and no global-heavy lease. It persists no returned plugin content, URI, paths,
+raw errors, JSON, or logs.
+
+**ZIP smoke passed is bounded historical evidence that one fixed
+plugin-directory invocation completed and the installed tree still exactly
+matched the immutable ZIP payload. It is not a general correctness or health
+guarantee.**

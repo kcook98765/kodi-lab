@@ -37,6 +37,7 @@ from kodi_lab.storage.repositories import (
     AddonZipEnablementOperationRepository,
     AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
+    AddonZipSmokeTestOperationRepository,
     DevelopmentSourceAttachmentOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
@@ -499,6 +500,9 @@ class ManagedInstanceDeleteOperationCoordinator:
                 lease.managed_instance_id
             )
             AddonZipEnablementOperationRepository(session).clear_live_instance(
+                lease.managed_instance_id
+            )
+            AddonZipSmokeTestOperationRepository(session).clear_live_instance(
                 lease.managed_instance_id
             )
             if not instances.delete(lease.managed_instance_id):

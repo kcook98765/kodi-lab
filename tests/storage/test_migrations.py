@@ -41,6 +41,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "addon_zip_import_operations",
         "addon_zip_installation_evidence",
         "addon_zip_installation_operations",
+        "addon_zip_smoke_test_operations",
         "alembic_version",
         "development_source_attachment_operations",
         "development_source_deployment_operations",
@@ -2681,7 +2682,7 @@ def test_0025_zip_enablement_schema_empty_round_trip_and_mutation_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    command.upgrade(config, "0025_addon_zip_enablement")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     table = "addon_zip_enablement_operations"
@@ -2716,6 +2717,53 @@ def test_0025_zip_enablement_schema_empty_round_trip_and_mutation_kind(
     assert "addon_zip_enablement" in mutation_sql
     engine.dispose()
     command.downgrade(config, "0024_addon_zip_installation")
+    engine = create_database_engine(database_url)
+    assert table not in inspect(engine).get_table_names()
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_0026_zip_smoke_schema_empty_round_trip_and_mutation_kind(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    table = "addon_zip_smoke_test_operations"
+    columns = {item["name"] for item in inspector.get_columns(table)}
+    assert {
+        "artifact_id",
+        "installation_operation_id",
+        "original_managed_instance_id",
+        "managed_instance_id",
+        "expected_container_id",
+        "overall_result",
+        "execution_result",
+        "post_execution_provenance",
+        "returned_item_count",
+    } <= columns
+    foreign_keys = {
+        item["constrained_columns"][0]: item
+        for item in inspector.get_foreign_keys(table)
+    }
+    assert foreign_keys["managed_instance_id"]["options"] == {"ondelete": "SET NULL"}
+    assert foreign_keys["artifact_id"]["referred_table"] == "addon_zip_artifacts"
+    assert (
+        foreign_keys["installation_operation_id"]["referred_table"]
+        == "addon_zip_installation_operations"
+    )
+    with engine.connect() as connection:
+        mutation_sql = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='managed_instance_mutation_leases'"
+            )
+        )
+    assert "addon_zip_smoke_test" in mutation_sql
+    engine.dispose()
+    command.downgrade(config, "0025_addon_zip_enablement")
     engine = create_database_engine(database_url)
     assert table not in inspect(engine).get_table_names()
     engine.dispose()

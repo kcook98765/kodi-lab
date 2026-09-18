@@ -12,6 +12,8 @@ from kodi_lab.domain import (
     AddonZipEnablementOperationState,
     AddonZipEnablementResult,
     AddonZipInstallationOperationState,
+    AddonZipSmokeTestOperationState,
+    AddonZipSmokeTestOverallResult,
     DevelopmentSourceAttachmentOperationKind,
     DevelopmentSourceAttachmentOperationState,
     DevelopmentSourceDeploymentOperationState,
@@ -24,6 +26,7 @@ from kodi_lab.domain import (
 from kodi_lab.storage.repositories import (
     AddonZipEnablementOperationRepository,
     AddonZipInstallationOperationRepository,
+    AddonZipSmokeTestOperationRepository,
     DevelopmentSourceAttachmentOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceEnablementOperationRepository,
@@ -41,6 +44,7 @@ from kodi_lab.storage.repositories import (
 class ManagedInstanceActivityKind(StrEnum):
     ADDON_ZIP_ENABLEMENT = "addon_zip_enablement"
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
+    ADDON_ZIP_SMOKE_TEST = "addon_zip_smoke_test"
     DEVELOPMENT_SOURCE_ATTACHMENT = "development_source_attachment"
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
@@ -75,6 +79,7 @@ class ManagedInstanceActivityItem(BaseModel):
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.ADDON_ZIP_SMOKE_TEST: 13,
     ManagedInstanceActivityKind.ADDON_ZIP_ENABLEMENT: 12,
     ManagedInstanceActivityKind.ADDON_ZIP_INSTALLATION: 11,
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_SMOKE_TEST: 10,
@@ -330,6 +335,47 @@ class ManagedInstanceActivityService:
                     summary=summary,
                     reconciliation_required=zip_enablement.reconciliation_required,
                     addon_zip_artifact_uuid=zip_enablement.artifact_id,
+                )
+            )
+        for zip_smoke in AddonZipSmokeTestOperationRepository(
+            session
+        ).list_for_original_instance(instance_id):
+            summary = {
+                AddonZipSmokeTestOverallResult.PASSED: "ZIP smoke test passed",
+                AddonZipSmokeTestOverallResult.EXECUTION_FAILED: (
+                    "ZIP smoke execution failed"
+                ),
+                AddonZipSmokeTestOverallResult.TIMEOUT: "ZIP smoke test timed out",
+                AddonZipSmokeTestOverallResult.DEPENDENCY_BLOCKED: (
+                    "ZIP smoke blocked by dependency"
+                ),
+                AddonZipSmokeTestOverallResult.INSTALLED_TREE_CHANGED: (
+                    "ZIP smoke found installed tree changed"
+                ),
+                AddonZipSmokeTestOverallResult.UNSUPPORTED_ADDON_TYPE: (
+                    "ZIP smoke unsupported add-on type"
+                ),
+                AddonZipSmokeTestOverallResult.RECONCILIATION_REQUIRED: (
+                    "ZIP smoke requires reconciliation"
+                ),
+                None: (
+                    "ZIP smoke test queued"
+                    if zip_smoke.state is AddonZipSmokeTestOperationState.QUEUED
+                    else "ZIP smoke precondition failed"
+                ),
+            }[zip_smoke.overall_result]
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.ADDON_ZIP_SMOKE_TEST,
+                    operation_uuid=zip_smoke.id,
+                    original_managed_instance_id=instance_id,
+                    requested_at=zip_smoke.requested_at,
+                    started_at=zip_smoke.started_at,
+                    completed_at=zip_smoke.completed_at,
+                    state=zip_smoke.state.value,
+                    summary=summary,
+                    reconciliation_required=zip_smoke.reconciliation_required,
+                    addon_zip_artifact_uuid=zip_smoke.artifact_id,
                 )
             )
         for lifecycle in ManagedInstanceLifecycleOperationRepository(

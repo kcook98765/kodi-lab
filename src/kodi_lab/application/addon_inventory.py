@@ -22,7 +22,11 @@ from kodi_lab.broker.operations import (
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeResult,
 )
-from kodi_lab.domain import RuntimeExecutionProfile
+from kodi_lab.domain import (
+    AddonZipSmokeTestOperationState,
+    AddonZipSmokeTestOverallResult,
+    RuntimeExecutionProfile,
+)
 from kodi_lab.domain.addon_zips import (
     AddonZipEnablementOperationState,
     AddonZipEnablementResult,
@@ -50,6 +54,7 @@ from kodi_lab.storage.repositories import (
     AddonZipEnablementOperationRepository,
     AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
+    AddonZipSmokeTestOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
@@ -130,6 +135,8 @@ class InstalledAddonZipPresentation(BaseModel):
     live_enabled: StrictBool | None = None
     state: AddonZipEnablementPresentationState
     enable_eligible: StrictBool
+    smoke_test_state: str = Field(max_length=64)
+    smoke_test_eligible: StrictBool
     blocked_dependency_id: str | None = Field(default=None, max_length=128)
     blocked_dependency_reason: str | None = Field(default=None, max_length=64)
 
@@ -419,6 +426,9 @@ class ManagedInstanceAddonInventoryService:
         operations = AddonZipEnablementOperationRepository(
             session
         ).list_for_original_instance(instance_id)
+        smoke_operations = AddonZipSmokeTestOperationRepository(
+            session
+        ).list_for_original_instance(instance_id)
         live_by_id = (
             {}
             if inventory is None
@@ -438,6 +448,48 @@ class ManagedInstanceAddonInventoryService:
                 None,
             )
             live = live_by_id.get(item.addon_id)
+            latest_smoke = next(
+                (
+                    operation
+                    for operation in smoke_operations
+                    if operation.artifact_id == item.artifact_id
+                ),
+                None,
+            )
+            smoke_state = "Not run"
+            if latest_smoke is not None:
+                if latest_smoke.state is AddonZipSmokeTestOperationState.QUEUED:
+                    smoke_state = "Queued"
+                elif latest_smoke.state is AddonZipSmokeTestOperationState.RUNNING:
+                    smoke_state = "Running"
+                else:
+                    smoke_state = {
+                        AddonZipSmokeTestOverallResult.PASSED: "Smoke passed",
+                        AddonZipSmokeTestOverallResult.EXECUTION_FAILED: (
+                            "Execution failed"
+                        ),
+                        AddonZipSmokeTestOverallResult.TIMEOUT: "Timed out",
+                        AddonZipSmokeTestOverallResult.DEPENDENCY_BLOCKED: (
+                            "Dependency blocked"
+                        ),
+                        AddonZipSmokeTestOverallResult.INSTALLED_TREE_CHANGED: (
+                            "Installed tree changed"
+                        ),
+                        AddonZipSmokeTestOverallResult.UNSUPPORTED_ADDON_TYPE: (
+                            "Unsupported add-on type"
+                        ),
+                        AddonZipSmokeTestOverallResult.RECONCILIATION_REQUIRED: (
+                            "Reconciliation required"
+                        ),
+                        None: {
+                            "zip_installation_evidence_stale": (
+                                "Installation evidence stale"
+                            ),
+                            "zip_installation_evidence_unknown": (
+                                "Installation evidence unknown"
+                            ),
+                        }.get(latest_smoke.failure_reason or "", "Precondition failed"),
+                    }[latest_smoke.overall_result]
             exact_lineage = (
                 item.managed_instance_id == instance_id
                 and item.original_managed_instance_id == instance_id
@@ -494,6 +546,18 @@ class ManagedInstanceAddonInventoryService:
                     enable_eligible=(
                         state is AddonZipEnablementPresentationState.INSTALLED_DISABLED
                         and exact_lineage
+                        and profile is not None
+                        and profile.python_bytecode_policy.value == "suppress"
+                    ),
+                    smoke_test_state=smoke_state,
+                    smoke_test_eligible=(
+                        item.confidence
+                        is AddonZipInstallationConfidence.VERIFIED_AT_LAST_OPERATION
+                        and exact_lineage
+                        and live is not None
+                        and live.version == item.addon_version
+                        and live.enabled
+                        and live.kodi_type == "xbmc.python.pluginsource"
                         and profile is not None
                         and profile.python_bytecode_policy.value == "suppress"
                     ),

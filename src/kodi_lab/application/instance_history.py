@@ -179,7 +179,12 @@ class ManagedInstanceDetailService:
                                 item.enable_eligible
                                 and not reconciliation.blocking
                                 and not active_mutation
-                            )
+                            ),
+                            "smoke_test_eligible": (
+                                item.smoke_test_eligible
+                                and not reconciliation.blocking
+                                and not active_mutation
+                            ),
                         }
                     )
                     for item in addons.installed_zip_artifacts

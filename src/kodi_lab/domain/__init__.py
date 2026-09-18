@@ -1,5 +1,13 @@
 """Core Kodi Lab domain models."""
 
+from kodi_lab.domain.addon_zip_smoke_tests import (
+    AddonZipSmokeTestExecutionResult,
+    AddonZipSmokeTestOperation,
+    AddonZipSmokeTestOperationPhase,
+    AddonZipSmokeTestOperationState,
+    AddonZipSmokeTestOverallResult,
+    AddonZipSmokeTestPostProvenance,
+)
 from kodi_lab.domain.addon_zips import (
     AddonZipArtifact,
     AddonZipDependency,
@@ -175,6 +183,12 @@ __all__ = [
     "AddonZipInstallationResult",
     "AddonZipOrigin",
     "AddonZipPayloadVerificationOutcome",
+    "AddonZipSmokeTestExecutionResult",
+    "AddonZipSmokeTestOperation",
+    "AddonZipSmokeTestOperationPhase",
+    "AddonZipSmokeTestOperationState",
+    "AddonZipSmokeTestOverallResult",
+    "AddonZipSmokeTestPostProvenance",
     "AddonZipValidationState",
     "ConnectionState",
     "DevelopmentSource",
