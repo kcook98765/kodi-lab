@@ -151,6 +151,7 @@ class GlobalHeavyOperationKind(StrEnum):
     AGENT_WORKSPACE_CREATION = "agent_workspace_creation"
     AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
     PROMOTION_VERIFICATION = "promotion_verification"
+    AGENT_WORKSPACE_CLEANUP = "agent_workspace_cleanup"
 
 
 def normalize_snapshot_label(value: str | None) -> str | None:

@@ -86,6 +86,12 @@ from kodi_lab.application.addon_zip_smoke_tests import (
     AddonZipSmokeTestServiceFactory,
     AddonZipSmokeTestStatus,
 )
+from kodi_lab.application.agent_workspace_cleanup import (
+    AgentWorkspaceCleanupError,
+    AgentWorkspaceCleanupExecutor,
+    AgentWorkspaceCleanupService,
+    AgentWorkspaceCleanupStatus,
+)
 from kodi_lab.application.agent_workspace_promotions import (
     AgentWorkspacePromotionConflictError,
     AgentWorkspacePromotionError,
@@ -102,6 +108,7 @@ from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceCreationStatus,
     AgentWorkspaceError,
     AgentWorkspaceFileRead,
+    AgentWorkspaceLifecycleActivityRead,
     AgentWorkspaceMutationRead,
     AgentWorkspaceNotFoundError,
     AgentWorkspaceRead,
@@ -411,6 +418,20 @@ class AgentWorkspaceCreationAccepted(BaseModel):
     workspace_url: str
 
 
+class AgentWorkspaceCleanupConfirmationRequest(BaseModel):
+    """One confirmation bit and no filesystem authority."""
+
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
+
+
+class AgentWorkspaceCleanupAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: AgentWorkspaceCleanupStatus
+    status_url: str
+
+
 class AgentWorkspaceTextWriteRequest(BaseModel):
     """One bounded path-and-text mutation with an optimistic generation."""
 
@@ -648,6 +669,8 @@ class WebApplicationContext:
     repository_replacement_executor: RepositoryReplacementExecutor
     agent_workspaces: AgentWorkspaceService
     agent_workspace_executor: AgentWorkspaceCreationExecutor
+    agent_workspace_cleanups: AgentWorkspaceCleanupService
+    agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
     agent_workspace_promotions: AgentWorkspacePromotionService
     promotion_verifications: PromotionVerificationService
 
@@ -699,6 +722,7 @@ def create_app(
     agent_workspace_service: AgentWorkspaceService | None = None,
     agent_workspace_promotion_service: AgentWorkspacePromotionService | None = None,
     promotion_verification_service: PromotionVerificationService | None = None,
+    agent_workspace_cleanup_service: AgentWorkspaceCleanupService | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -997,6 +1021,13 @@ def create_app(
         development_root=settings.development_root,
     )
     agent_workspace_executor = AgentWorkspaceCreationExecutor(agent_workspaces)
+    agent_workspace_cleanups = (
+        agent_workspace_cleanup_service
+        or AgentWorkspaceCleanupService(session_factory, data_root=settings.data_root)
+    )
+    agent_workspace_cleanup_executor = AgentWorkspaceCleanupExecutor(
+        agent_workspace_cleanups
+    )
 
     def require_promotion_verification_reconciliation(instance_id: UUID) -> None:
         reconciliation.require_allowed(
@@ -1124,6 +1155,8 @@ def create_app(
         repository_replacement_executor=repository_replacement_executor,
         agent_workspaces=agent_workspaces,
         agent_workspace_executor=agent_workspace_executor,
+        agent_workspace_cleanups=agent_workspace_cleanups,
+        agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
         agent_workspace_promotions=agent_workspace_promotions,
         promotion_verifications=promotion_verifications,
     )
@@ -1147,6 +1180,7 @@ def create_app(
         context.addon_repository_fetch_executor.start()
         context.repository_replacement_executor.start()
         context.agent_workspace_executor.start()
+        context.agent_workspace_cleanup_executor.start()
         try:
             yield
         finally:
@@ -1164,6 +1198,7 @@ def create_app(
             context.addon_repository_fetch_executor.close()
             context.repository_replacement_executor.close()
             context.agent_workspace_executor.close()
+            context.agent_workspace_cleanup_executor.close()
             context.readiness.close()
 
     app = FastAPI(
@@ -1267,6 +1302,16 @@ def create_app(
             else 422
         )
         return _json_error(http_status, error.code, error.safe_message)
+
+    @app.exception_handler(AgentWorkspaceCleanupError)
+    async def agent_workspace_cleanup_failed(
+        _request: Request, error: AgentWorkspaceCleanupError
+    ) -> JSONResponse:
+        return _json_error(
+            404 if error.code.endswith("not_found") else 409,
+            error.code,
+            error.safe_message,
+        )
 
     @app.exception_handler(PromotionVerificationError)
     async def promotion_verification_failed(
@@ -1849,11 +1894,7 @@ def create_app(
             if workspace.state.value == "ready"
             else None
         )
-        activity = (
-            context.agent_workspaces.list_activity(workspace_id)
-            if workspace.state.value == "ready"
-            else []
-        )
+        activity = context.agent_workspaces.list_activity(workspace_id)
         return templates.TemplateResponse(
             request,
             "agent-workspace-detail.html",
@@ -1862,6 +1903,9 @@ def create_app(
                 "entries": entries,
                 "changes": changes,
                 "activity": activity,
+                "lifecycle_activity": context.agent_workspaces.list_lifecycle_activity(
+                    workspace_id
+                ),
                 "promotion_targets": (
                     context.agent_workspace_promotions.eligible_targets(workspace_id)
                     if workspace.state.value == "ready"
@@ -2289,6 +2333,45 @@ def create_app(
     ) -> AgentWorkspaceRead:
         return context.agent_workspaces.get(workspace_id)
 
+    @app.post(
+        "/api/agent-workspaces/{workspace_id}/abandon",
+        response_model=AgentWorkspaceRead,
+    )
+    def abandon_agent_workspace(
+        workspace_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AgentWorkspaceRead:
+        return context.agent_workspaces.abandon(workspace_id)
+
+    @app.post(
+        "/api/agent-workspaces/{workspace_id}/cleanup",
+        response_model=AgentWorkspaceCleanupAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def cleanup_agent_workspace(
+        workspace_id: UUID,
+        _body: AgentWorkspaceCleanupConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AgentWorkspaceCleanupAccepted:
+        operation = context.agent_workspace_cleanups.queue(workspace_id)
+        if operation.state.value == "queued":
+            context.agent_workspace_cleanup_executor.submit(operation.operation_id)
+        return AgentWorkspaceCleanupAccepted(
+            operation=operation,
+            status_url=f"/api/agent-workspace-cleanup-operations/{operation.operation_id}",
+        )
+
+    @app.get(
+        "/api/agent-workspace-cleanup-operations/{operation_id}",
+        response_model=AgentWorkspaceCleanupStatus,
+    )
+    def get_agent_workspace_cleanup(
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AgentWorkspaceCleanupStatus:
+        return context.agent_workspace_cleanups.get(operation_id)
+
     @app.get(
         "/api/agent-workspaces/{workspace_id}/tree",
         response_model=list[AgentWorkspaceTreeEntryRead],
@@ -2392,6 +2475,16 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[AgentWorkspaceActivityRead]:
         return context.agent_workspaces.list_activity(workspace_id)
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/lifecycle-activity",
+        response_model=list[AgentWorkspaceLifecycleActivityRead],
+    )
+    def list_agent_workspace_lifecycle_activity(
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AgentWorkspaceLifecycleActivityRead]:
+        return context.agent_workspaces.list_lifecycle_activity(workspace_id)
 
     @app.get(
         "/api/agent-workspaces/{workspace_id}/promotion-targets",

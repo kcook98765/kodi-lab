@@ -1189,3 +1189,43 @@ uncertainty after mutation is reconciliation-required and does not retry or
 roll back the already promoted source. Canonical patch-back is complete; Phase
 9 cleanup/abandon/retention remains separate work. MCP exposure remains its
 later Phase 11/12 milestone and is not a Phase 9 completion blocker.
+
+## Phase 9 explicit workspace abandonment and byte cleanup
+
+Slice 5 completes D-0210 without conflating lifecycle with retained storage.
+Ready workspaces may be explicitly abandoned only while promotion planning and
+execution are inactive. Promoted workspaces remain promoted and cannot be
+abandoned. Both outcomes are immutable; reconciliation-required workspaces are
+protected from both actions. `AgentWorkspace.bytes_state` separately records
+`present` or `cleaned`, with promoted, abandoned, and cleanup timestamps retained
+for path-free list/detail projection.
+
+Cleanup is an authenticated, confirmed, UUID-only durable operation and owns the
+global-heavy lease. Eligibility requires abandoned or promoted lifecycle,
+terminal creation and promotion, terminal verification for promoted workspaces,
+no active plan or operation, and no reconciliation outcome. Expired leases do
+not weaken those checks. There is no caller path, bulk selector, broker, Docker,
+Kodi, Git, shell, root helper, source write, or automatic scheduler.
+
+Before deletion, the operation records the no-follow device/inode identity of
+the exact server-derived `agent-workspaces/<workspace-uuid>` root. A
+descriptor-relative walk stays on that device, opens directories with
+`O_NOFOLLOW`, and unlinks non-directory entries—including injected links,
+hardlinks, FIFOs, sockets, or devices—without following them. It removes the
+complete baseline and editable tree, retains the storage parent and sibling
+workspaces, fsyncs deletion, and verifies exact subtree absence. A mount/device
+boundary or root substitution fails closed.
+
+Pre-marker interruption is an ordinary failure. Post-marker interruption may
+resume only as the same operation against the persisted exact root identity;
+absence is accepted only with that durable marker. Contradiction becomes
+reconciliation-required. Successful repetition returns the one retained cleanup
+operation and does no second deletion.
+
+Migration `0033_agent_workspace_cleanup` adds independent byte state,
+lifecycle timestamps, typed cleanup operations, content-free lifecycle events,
+and the cleanup global-heavy kind. Workspace metadata, provenance, final
+generation, mutation history, promotion plans/operations/journal/handoff,
+verification and bounded log evidence, and private source-promotion backup are
+not workspace bytes and are retained. V1 has no TTL, background or disk-pressure
+pruning, cleanup-all, or automatic cleanup after abandonment or promotion.

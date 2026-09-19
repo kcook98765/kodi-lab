@@ -12,6 +12,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import AddonInventoryQueryStatus
+from kodi_lab.application.agent_workspace_cleanup import AgentWorkspaceCleanupService
 from kodi_lab.application.agent_workspace_promotions import (
     AgentWorkspacePromotionConflictError,
     AgentWorkspacePromotionService,
@@ -49,6 +50,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    PromotionVerificationLogEvidenceRow,
     PromotionVerificationOperationRow,
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
@@ -564,6 +566,39 @@ def test_success_automatically_supports_bound_same_container_verification(
             TARGET_ID, harness.workspace_id, plan.plan_id
         )
     assert repeat.value.code == "promotion_plan_not_executable"
+
+    cleanup = AgentWorkspaceCleanupService(
+        harness.factory,
+        data_root=harness.data_root,
+        clock=harness.clock,
+    )
+    queued_cleanup = cleanup.queue(harness.workspace_id)
+    cleanup_lease = cleanup.acquire(queued_cleanup.operation_id)
+    assert cleanup_lease is not None
+    cleanup.run(cleanup_lease)
+    assert cleanup.get(queued_cleanup.operation_id).state.value == "succeeded"
+    retained_workspace = harness.workspaces.get(harness.workspace_id)
+    assert retained_workspace.state.value == "promoted"
+    assert retained_workspace.bytes_state.value == "cleaned"
+    assert harness.source.joinpath("main.py").read_text() == "print('promoted')\n"
+    with harness.factory() as session:
+        source_operation = session.get(
+            AgentWorkspacePromotionOperationRow, str(source_result.operation_id)
+        )
+        assert source_operation is not None
+        assert source_operation.backup_artifact_id is not None
+        assert (
+            harness.data_root
+            / "source-promotions"
+            / str(source_result.operation_id)
+            / f"backup-{source_operation.backup_artifact_id}"
+        ).is_dir()
+        assert (
+            session.get(
+                PromotionVerificationLogEvidenceRow, str(verification.verification_id)
+            )
+            is not None
+        )
 
 
 @pytest.mark.parametrize(

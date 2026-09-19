@@ -44,8 +44,12 @@ from kodi_lab.domain import (
     AddonZipSmokeTestOverallResult,
     AddonZipSmokeTestPostProvenance,
     AddonZipValidationState,
+    AgentWorkspaceBytesState,
+    AgentWorkspaceCleanupPhase,
+    AgentWorkspaceCleanupState,
     AgentWorkspaceCreationPhase,
     AgentWorkspaceCreationState,
+    AgentWorkspaceLifecycleEventKind,
     AgentWorkspaceMutationKind,
     AgentWorkspacePromotionChangeKind,
     AgentWorkspacePromotionJournalState,
@@ -228,6 +232,11 @@ class AgentWorkspaceRow(Base):
             "current_tree_digest IS NOT NULL AND captured_at IS NOT NULL)",
             name="agent_workspace_ready_complete",
         ),
+        CheckConstraint(
+            "(bytes_state='present' AND cleaned_at IS NULL) OR "
+            "(bytes_state='cleaned' AND cleaned_at IS NOT NULL)",
+            name="agent_workspace_bytes_state_consistent",
+        ),
         Index(
             "ix_agent_workspace_source_created", "development_source_id", "created_at"
         ),
@@ -254,6 +263,17 @@ class AgentWorkspaceRow(Base):
         ),
         nullable=False,
     )
+    bytes_state: Mapped[AgentWorkspaceBytesState] = mapped_column(
+        Enum(
+            AgentWorkspaceBytesState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_bytes_state",
+        ),
+        nullable=False,
+        default=AgentWorkspaceBytesState.PRESENT,
+    )
     baseline_artifact_id: Mapped[str] = mapped_column(
         String(36), nullable=False, unique=True
     )
@@ -264,6 +284,121 @@ class AgentWorkspaceRow(Base):
     captured_at: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[str] = mapped_column(String(32), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    promoted_at: Mapped[str | None] = mapped_column(String(32))
+    abandoned_at: Mapped[str | None] = mapped_column(String(32))
+    cleaned_at: Mapped[str | None] = mapped_column(String(32))
+
+
+class AgentWorkspaceCleanupOperationRow(Base):
+    """Durable exact-UUID byte cleanup history."""
+
+    __tablename__ = "agent_workspace_cleanup_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "(expected_device IS NULL AND expected_inode IS NULL) OR "
+            "(expected_device IS NOT NULL AND expected_inode IS NOT NULL)",
+            name="agent_workspace_cleanup_identity_shape",
+        ),
+        CheckConstraint(
+            "deletion_started=0 OR expected_device IS NOT NULL",
+            name="agent_workspace_cleanup_deletion_identity",
+        ),
+        CheckConstraint(
+            "failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 128",
+            name="agent_workspace_cleanup_failure_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest)=64 AND "
+            "lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="agent_workspace_cleanup_lease_digest",
+        ),
+        CheckConstraint(
+            "(state='queued' AND started_at IS NULL AND completed_at IS NULL AND "
+            "lease_token_digest IS NULL AND lease_expires_at IS NULL) OR "
+            "(state='running' AND started_at IS NOT NULL AND completed_at IS NULL "
+            "AND lease_token_digest IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(state IN ('succeeded','failed','reconciliation_required') AND "
+            "completed_at IS NOT NULL AND lease_token_digest IS NULL AND "
+            "lease_expires_at IS NULL)",
+            name="agent_workspace_cleanup_state_fields",
+        ),
+        Index(
+            "uq_agent_workspace_cleanup_active",
+            "workspace_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_workspaces.id", ondelete="RESTRICT")
+    )
+    state: Mapped[AgentWorkspaceCleanupState] = mapped_column(
+        Enum(
+            AgentWorkspaceCleanupState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_cleanup_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[AgentWorkspaceCleanupPhase] = mapped_column(
+        Enum(
+            AgentWorkspaceCleanupPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_cleanup_phase",
+        ),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    deletion_started: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    expected_device: Mapped[int | None] = mapped_column(BigInteger)
+    expected_inode: Mapped[int | None] = mapped_column(BigInteger)
+    started_at: Mapped[str | None] = mapped_column(String(32))
+    completed_at: Mapped[str | None] = mapped_column(String(32))
+    failure_code: Mapped[str | None] = mapped_column(String(128))
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32))
+
+
+class AgentWorkspaceLifecycleEventRow(Base):
+    """Content-free abandonment and cleanup activity."""
+
+    __tablename__ = "agent_workspace_lifecycle_events"
+    __table_args__ = (
+        CheckConstraint(
+            "failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 128",
+            name="agent_workspace_lifecycle_failure_bounded",
+        ),
+        Index("ix_agent_workspace_lifecycle_occurred", "workspace_id", "occurred_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_workspaces.id", ondelete="RESTRICT")
+    )
+    kind: Mapped[AgentWorkspaceLifecycleEventKind] = mapped_column(
+        Enum(
+            AgentWorkspaceLifecycleEventKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_lifecycle_event_kind",
+        ),
+        nullable=False,
+    )
+    occurred_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    cleanup_operation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspace_cleanup_operations.id", ondelete="RESTRICT"),
+    )
+    failure_code: Mapped[str | None] = mapped_column(String(128))
 
 
 class AgentWorkspaceCreationOperationRow(Base):

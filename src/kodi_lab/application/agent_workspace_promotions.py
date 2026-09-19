@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.domain import (
     AgentWorkspace,
+    AgentWorkspaceBytesState,
     AgentWorkspacePromotionChangeKind,
     AgentWorkspacePromotionHandoff,
     AgentWorkspacePromotionJournalState,
@@ -203,6 +204,11 @@ class AgentWorkspacePromotionService:
         if workspace is None:
             raise AgentWorkspacePromotionError(
                 "agent_workspace_not_found", "Agent workspace was not found."
+            )
+        if workspace.bytes_state is AgentWorkspaceBytesState.CLEANED:
+            raise AgentWorkspacePromotionConflictError(
+                "workspace_bytes_cleaned",
+                "Workspace bytes have been permanently cleaned.",
             )
         if workspace.state is not AgentWorkspaceState.READY:
             raise AgentWorkspacePromotionConflictError(
@@ -549,6 +555,18 @@ class AgentWorkspacePromotionService:
         )
         try:
             with self._session_factory.begin() as session:
+                current_workspace = AgentWorkspaceRepository(session).get(workspace_id)
+                if (
+                    current_workspace is None
+                    or current_workspace.state is not AgentWorkspaceState.READY
+                    or current_workspace.generation != workspace.generation
+                    or current_workspace.current_tree_digest
+                    != workspace.current_tree_digest
+                ):
+                    raise AgentWorkspacePromotionConflictError(
+                        "promotion_workspace_not_ready",
+                        "Only a stable ready workspace may be promoted.",
+                    )
                 AgentWorkspacePromotionPlanRepository(session).create(preparing, [])
                 heavy = GlobalHeavyOperationLeaseRepository(session)
                 heavy.reserve(

@@ -110,6 +110,120 @@ def _workspace_root(data_root: Path, workspace_id: UUID) -> Path:
     return _storage_root(data_root) / str(workspace_id)
 
 
+def workspace_storage_identity(data_root: Path, workspace_id: UUID) -> tuple[int, int]:
+    """Return the no-follow identity of one exact UUID-derived workspace root."""
+
+    storage_fd = os.open(_storage_root(data_root), _DIRECTORY_FLAGS)
+    try:
+        metadata = os.stat(str(workspace_id), dir_fd=storage_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise AgentWorkspaceReconciliationRequired(
+                "workspace_cleanup_identity_changed",
+                "Workspace cleanup storage identity could not be proven.",
+            )
+        return metadata.st_dev, metadata.st_ino
+    except FileNotFoundError as error:
+        raise AgentWorkspaceReconciliationRequired(
+            "workspace_cleanup_storage_missing",
+            "Workspace cleanup storage identity could not be proven.",
+        ) from error
+    finally:
+        os.close(storage_fd)
+
+
+def _remove_directory_contents_fd(directory_fd: int, root_device: int) -> None:
+    for name in os.listdir(directory_fd):
+        metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if stat.S_ISDIR(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode):
+            child_fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=directory_fd)
+            try:
+                opened = os.fstat(child_fd)
+                if (
+                    opened.st_dev != root_device
+                    or opened.st_dev != metadata.st_dev
+                    or opened.st_ino != metadata.st_ino
+                ):
+                    raise AgentWorkspaceStorageError(
+                        "agent_workspace_cleanup_mount_boundary",
+                        "Workspace cleanup encountered an unsafe mount boundary.",
+                    )
+                _remove_directory_contents_fd(child_fd, root_device)
+            finally:
+                os.close(child_fd)
+            os.rmdir(name, dir_fd=directory_fd)
+        else:
+            # Lab owns the complete UUID subtree. Unlink links, hardlinks, and
+            # special objects themselves; never open or follow their targets.
+            os.unlink(name, dir_fd=directory_fd)
+    os.fsync(directory_fd)
+
+
+def cleanup_workspace_storage(
+    data_root: Path,
+    workspace_id: UUID,
+    *,
+    expected_identity: tuple[int, int],
+) -> None:
+    """Remove only one proven UUID subtree using descriptor-relative no-follow IO."""
+
+    storage_fd = os.open(_storage_root(data_root), _DIRECTORY_FLAGS)
+    name = str(workspace_id)
+    try:
+        try:
+            metadata = os.stat(name, dir_fd=storage_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or stat.S_ISLNK(metadata.st_mode)
+            or (metadata.st_dev, metadata.st_ino) != expected_identity
+        ):
+            raise AgentWorkspaceReconciliationRequired(
+                "workspace_cleanup_identity_changed",
+                "Workspace cleanup storage identity changed.",
+            )
+        root_fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=storage_fd)
+        try:
+            opened = os.fstat(root_fd)
+            if (opened.st_dev, opened.st_ino) != expected_identity:
+                raise AgentWorkspaceReconciliationRequired(
+                    "workspace_cleanup_identity_changed",
+                    "Workspace cleanup storage identity changed.",
+                )
+            _remove_directory_contents_fd(root_fd, opened.st_dev)
+        finally:
+            os.close(root_fd)
+        final = os.stat(name, dir_fd=storage_fd, follow_symlinks=False)
+        if (final.st_dev, final.st_ino) != expected_identity:
+            raise AgentWorkspaceReconciliationRequired(
+                "workspace_cleanup_identity_changed",
+                "Workspace cleanup storage identity changed.",
+            )
+        os.rmdir(name, dir_fd=storage_fd)
+        os.fsync(storage_fd)
+    except AgentWorkspaceStorageError:
+        raise
+    except OSError as error:
+        raise AgentWorkspaceReconciliationRequired(
+            "workspace_cleanup_interrupted",
+            "Workspace cleanup requires reconciliation.",
+        ) from error
+    finally:
+        os.close(storage_fd)
+
+
+def workspace_storage_absent(data_root: Path, workspace_id: UUID) -> bool:
+    storage_fd = os.open(_storage_root(data_root), _DIRECTORY_FLAGS)
+    try:
+        try:
+            os.stat(str(workspace_id), dir_fd=storage_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return True
+        return False
+    finally:
+        os.close(storage_fd)
+
+
 def _remove_exact_private_tree(path: Path) -> None:
     try:
         metadata = path.lstat()

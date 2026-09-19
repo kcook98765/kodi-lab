@@ -49,6 +49,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "addon_zip_installation_operations",
         "addon_zip_smoke_test_operations",
         "agent_workspace_creation_operations",
+        "agent_workspace_cleanup_operations",
+        "agent_workspace_lifecycle_events",
         "agent_workspace_mutation_events",
         "agent_workspace_promotion_handoffs",
         "agent_workspace_promotion_journal",
@@ -3117,8 +3119,92 @@ def test_0032_promotion_verification_schema_round_trip(
     assert inspector.get_foreign_keys("promotion_verification_operations")
 
     command.downgrade(config, "0031_agent_workspace_promotions")
+    engine = create_database_engine(database_url)
     assert "promotion_verification_operations" not in inspect(engine).get_table_names()
     assert (
         "promotion_verification_log_evidence" not in inspect(engine).get_table_names()
     )
+    engine.dispose()
     command.upgrade(config, "head")
+
+
+def test_0033_workspace_cleanup_schema_round_trip_and_populated_guard(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0032_promotion_verification")
+    engine = create_database_engine(database_url)
+    assert "agent_workspace_cleanup_operations" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        "agent_workspace_cleanup_operations",
+        "agent_workspace_lifecycle_events",
+    } <= set(inspector.get_table_names())
+    assert {item["name"] for item in inspector.get_columns("agent_workspaces")} >= {
+        "bytes_state",
+        "promoted_at",
+        "abandoned_at",
+        "cleaned_at",
+    }
+    with engine.connect() as connection:
+        heavy_sql = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='global_heavy_operation_lease'"
+            )
+        )
+    assert "agent_workspace_cleanup" in heavy_sql
+    engine.dispose()
+    command.downgrade(config, "0032_promotion_verification")
+    command.upgrade(config, "head")
+    command.check(config)
+
+    engine = create_database_engine(database_url)
+    now = "2026-09-18T12:00:00+00:00"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id,logical_name,source_kind,relative_locator,addon_id,observed_name,"
+                "observed_version,extension_types_json,registered_at,validated_at) "
+                "VALUES (:id,'Source','local_directory','source','plugin.video.source',"
+                "'Source','1.0','[\"xbmc.python.pluginsource\"]',:time,:time)"
+            ),
+            {"id": "a9330000-0000-4000-8000-000000000001", "time": now},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspaces "
+                "(id,development_source_id,source_addon_id,source_logical_name,"
+                "source_observed_name,source_observed_version,state,bytes_state,"
+                "baseline_artifact_id,generation,capture_started_at,created_at,"
+                "updated_at,abandoned_at) VALUES (:id,:source,'plugin.video.source',"
+                "'Source','Source','1.0','abandoned','present',:baseline,0,:time,:time,"
+                ":time,:time)"
+            ),
+            {
+                "id": "a9330000-0000-4000-8000-000000000002",
+                "source": "a9330000-0000-4000-8000-000000000001",
+                "baseline": "a9330000-0000-4000-8000-000000000003",
+                "time": now,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspace_lifecycle_events "
+                "(id,workspace_id,kind,occurred_at) VALUES "
+                "(:id,:workspace,'abandoned',:time)"
+            ),
+            {
+                "id": "a9330000-0000-4000-8000-000000000004",
+                "workspace": "a9330000-0000-4000-8000-000000000002",
+                "time": now,
+            },
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated agent workspace cleanup"):
+        command.downgrade(config, "0032_promotion_verification")

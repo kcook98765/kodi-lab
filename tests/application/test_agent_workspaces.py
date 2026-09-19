@@ -12,6 +12,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from kodi_lab.application.agent_workspace_cleanup import (
+    AgentWorkspaceCleanupError,
+    AgentWorkspaceCleanupService,
+)
 from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceConflictError,
     AgentWorkspaceMutationRead,
@@ -26,7 +30,10 @@ from kodi_lab.development.deployment import (
 )
 from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
 from kodi_lab.storage import Base
-from kodi_lab.storage.repositories import DevelopmentSourceRepository
+from kodi_lab.storage.repositories import (
+    AgentWorkspaceRepository,
+    DevelopmentSourceRepository,
+)
 from kodi_lab.workspace import AgentWorkspaceStorageError
 from kodi_lab.workspace import storage as workspace_storage
 
@@ -163,6 +170,252 @@ def test_multiple_workspaces_are_independent(tmp_path: Path) -> None:
         encoding="utf-8"
     )
     assert first != second
+
+
+def test_ready_workspace_abandonment_is_immutable_but_retains_bytes(
+    tmp_path: Path,
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    root = tmp_path / "data" / "agent-workspaces" / str(workspace_id)
+
+    abandoned = service.abandon(workspace_id)
+
+    assert abandoned.state.value == "abandoned"
+    assert abandoned.bytes_state.value == "present"
+    assert abandoned.abandoned_at is not None
+    assert root.is_dir()
+    assert service.abandon(workspace_id).state.value == "abandoned"
+    with pytest.raises(AgentWorkspaceConflictError):
+        service.create_text_file(
+            workspace_id,
+            expected_generation=0,
+            relative_path="new.py",
+            content="pass\n",
+        )
+
+
+def test_cleanup_is_exact_safe_and_retains_metadata_history(tmp_path: Path) -> None:
+    service, _source = _service(tmp_path)
+    first = _create(service)
+    second = _create(service)
+    service.create_text_file(
+        first,
+        expected_generation=0,
+        relative_path="new.py",
+        content="pass\n",
+    )
+    service.abandon(first)
+    first_root = tmp_path / "data" / "agent-workspaces" / str(first)
+    second_root = tmp_path / "data" / "agent-workspaces" / str(second)
+    outside = tmp_path / "outside"
+    outside.write_text("protected", encoding="utf-8")
+    (first_root / "tree" / "escape").symlink_to(outside)
+    os.mkfifo(first_root / "tree" / "injected-fifo")
+    cleanup = AgentWorkspaceCleanupService(
+        service._session_factory,
+        data_root=tmp_path / "data",
+    )
+
+    queued = cleanup.queue(first)
+    lease = cleanup.acquire(queued.operation_id)
+    assert lease is not None
+    cleanup.run(lease)
+
+    result = cleanup.get(queued.operation_id)
+    assert result.state.value == "succeeded"
+    assert not first_root.exists()
+    assert second_root.is_dir()
+    assert outside.read_text(encoding="utf-8") == "protected"
+    retained = service.get(first)
+    assert retained.state.value == "abandoned"
+    assert retained.bytes_state.value == "cleaned"
+    assert retained.cleaned_at is not None
+    assert service.list_activity(first)[0].path == "new.py"
+    assert {
+        item.operation.value for item in service.list_lifecycle_activity(first)
+    } == {
+        "abandoned",
+        "cleanup_queued",
+        "cleanup_succeeded",
+    }
+    assert cleanup.queue(first).operation_id == queued.operation_id
+    with pytest.raises(AgentWorkspaceConflictError) as cleaned:
+        service.read_file(first, "addon.xml")
+    assert cleaned.value.code == "workspace_bytes_cleaned"
+
+
+def test_cleanup_requires_abandonment_and_fails_safely_before_marker(
+    tmp_path: Path,
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    cleanup = AgentWorkspaceCleanupService(
+        service._session_factory,
+        data_root=tmp_path / "data",
+    )
+    with pytest.raises(AgentWorkspaceCleanupError) as active:
+        cleanup.queue(workspace_id)
+    assert active.value.code == "workspace_cleanup_not_eligible"
+
+    service.abandon(workspace_id)
+    cleanup = AgentWorkspaceCleanupService(
+        service._session_factory,
+        data_root=tmp_path / "data",
+        failure_injector=lambda phase: (
+            (_ for _ in ()).throw(RuntimeError("stop"))
+            if phase == "before_deletion_marker"
+            else None
+        ),
+    )
+    queued = cleanup.queue(workspace_id)
+    lease = cleanup.acquire(queued.operation_id)
+    assert lease is not None
+    cleanup.run(lease)
+    assert cleanup.get(queued.operation_id).state.value == "failed"
+    assert (tmp_path / "data" / "agent-workspaces" / str(workspace_id)).is_dir()
+    retry = AgentWorkspaceCleanupService(
+        service._session_factory,
+        data_root=tmp_path / "data",
+    )
+    retried = retry.queue(workspace_id)
+    assert retried.operation_id != queued.operation_id
+    retry_lease = retry.acquire(retried.operation_id)
+    assert retry_lease is not None
+    retry.run(retry_lease)
+    assert retry.get(retried.operation_id).state.value == "succeeded"
+
+
+def test_cleanup_same_operation_resumes_after_stale_destructive_crash(
+    tmp_path: Path,
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    service.abandon(workspace_id)
+    crashed = False
+    current = [datetime(2026, 9, 18, tzinfo=UTC)]
+
+    def inject(phase: str) -> None:
+        nonlocal crashed
+        if phase == "before_delete" and not crashed:
+            crashed = True
+            raise SystemExit("simulated worker crash")
+
+    cleanup = AgentWorkspaceCleanupService(
+        service._session_factory,
+        data_root=tmp_path / "data",
+        clock=lambda: current[0],
+        failure_injector=inject,
+    )
+    queued = cleanup.queue(workspace_id)
+    lease = cleanup.acquire(queued.operation_id)
+    assert lease is not None
+    with pytest.raises(SystemExit):
+        cleanup.run(lease)
+    interrupted = cleanup.get(queued.operation_id)
+    assert interrupted.state.value == "running"
+    assert interrupted.deletion_started is True
+
+    current[0] += timedelta(minutes=31)
+    recovered = AgentWorkspaceCleanupService(
+        service._session_factory,
+        data_root=tmp_path / "data",
+        clock=lambda: current[0],
+    )
+    recovered.sweep_startup()
+    assert recovered.get(queued.operation_id).state.value == "queued"
+    resumed_lease = recovered.acquire(queued.operation_id)
+    assert resumed_lease is not None
+    recovered.run(resumed_lease)
+
+    assert recovered.get(queued.operation_id).state.value == "succeeded"
+    assert service.get(workspace_id).bytes_state.value == "cleaned"
+
+
+def test_abandonment_and_cleanup_protect_active_or_reconciliation_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    monkeypatch.setattr(
+        "kodi_lab.application.agent_workspaces."
+        "AgentWorkspacePromotionPlanRepository.active_for_workspace",
+        lambda *_args, **_kwargs: object(),
+    )
+    with pytest.raises(AgentWorkspaceConflictError) as active:
+        service.abandon(workspace_id)
+    assert active.value.code == "workspace_promotion_active"
+    monkeypatch.undo()
+
+    with service._session_factory.begin() as session:
+        workspace = AgentWorkspaceRepository(session).get(workspace_id)
+        assert workspace is not None
+        assert AgentWorkspaceRepository(session).require_reconciliation(
+            workspace_id,
+            expected_generation=workspace.generation,
+            now=datetime(2026, 9, 18, tzinfo=UTC),
+        )
+    with pytest.raises(AgentWorkspaceConflictError) as reconciliation:
+        service.abandon(workspace_id)
+    assert reconciliation.value.code == "workspace_reconciliation_blocked"
+    cleanup = AgentWorkspaceCleanupService(
+        service._session_factory,
+        data_root=tmp_path / "data",
+    )
+    with pytest.raises(AgentWorkspaceCleanupError) as protected:
+        cleanup.queue(workspace_id)
+    assert protected.value.code == "workspace_reconciliation_blocked"
+
+
+def test_cleanup_blocks_active_promotion_and_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    service.abandon(workspace_id)
+    cleanup = AgentWorkspaceCleanupService(
+        service._session_factory,
+        data_root=tmp_path / "data",
+    )
+    monkeypatch.setattr(
+        "kodi_lab.application.agent_workspace_cleanup."
+        "AgentWorkspacePromotionOperationRepository.active_for_workspace",
+        lambda *_args, **_kwargs: object(),
+    )
+    with pytest.raises(AgentWorkspaceCleanupError) as promotion:
+        cleanup.queue(workspace_id)
+    assert promotion.value.code == "workspace_cleanup_promotion_active"
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        "kodi_lab.application.agent_workspace_cleanup."
+        "PromotionVerificationOperationRepository.blocking_for_workspace",
+        lambda *_args, **_kwargs: [object()],
+    )
+    with pytest.raises(AgentWorkspaceCleanupError) as verification:
+        cleanup.queue(workspace_id)
+    assert verification.value.code == "workspace_cleanup_verification_blocked"
+
+
+def test_cleanup_does_not_adopt_unexplained_missing_storage(tmp_path: Path) -> None:
+    service, _source = _service(tmp_path)
+    workspace_id = _create(service)
+    service.abandon(workspace_id)
+    root = tmp_path / "data" / "agent-workspaces" / str(workspace_id)
+    displaced = tmp_path / "externally-displaced-workspace"
+    root.rename(displaced)
+    cleanup = AgentWorkspaceCleanupService(
+        service._session_factory,
+        data_root=tmp_path / "data",
+    )
+    queued = cleanup.queue(workspace_id)
+    lease = cleanup.acquire(queued.operation_id)
+    assert lease is not None
+
+    cleanup.run(lease)
+
+    assert cleanup.get(queued.operation_id).state.value == "reconciliation_required"
+    assert service.get(workspace_id).state.value == "reconciliation_required"
+    assert displaced.is_dir()
 
 
 def test_unknown_workspace_is_safe(tmp_path: Path) -> None:

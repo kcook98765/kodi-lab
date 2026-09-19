@@ -20,23 +20,30 @@ from kodi_lab.application.errors import DevelopmentSourceNotFoundError
 from kodi_lab.development.deployment import DevelopmentTreeError
 from kodi_lab.domain import (
     AgentWorkspace,
+    AgentWorkspaceBytesState,
     AgentWorkspaceCreationOperation,
     AgentWorkspaceCreationPhase,
     AgentWorkspaceCreationState,
+    AgentWorkspaceLifecycleEvent,
+    AgentWorkspaceLifecycleEventKind,
     AgentWorkspaceMutationEvent,
     AgentWorkspaceMutationKind,
+    AgentWorkspacePromotionOperationState,
     AgentWorkspaceState,
     DevelopmentSourceKind,
     GlobalHeavyOperationKind,
+    PromotionVerificationState,
 )
 from kodi_lab.storage.repositories import (
     AgentWorkspaceCreationOperationRepository,
+    AgentWorkspaceLifecycleEventRepository,
     AgentWorkspaceMutationEventRepository,
     AgentWorkspacePromotionOperationRepository,
     AgentWorkspacePromotionPlanRepository,
     AgentWorkspaceRepository,
     DevelopmentSourceRepository,
     GlobalHeavyOperationLeaseRepository,
+    PromotionVerificationOperationRepository,
 )
 from kodi_lab.workspace import (
     AgentWorkspaceReconciliationRequired,
@@ -79,9 +86,15 @@ class AgentWorkspaceRead(BaseModel):
     source_observed_name: str = Field(max_length=256)
     source_observed_version: str = Field(max_length=128)
     state: AgentWorkspaceState
+    bytes_state: AgentWorkspaceBytesState
     generation: int = Field(ge=0)
     created_at: datetime
     captured_at: datetime | None
+    promoted_at: datetime | None
+    abandoned_at: datetime | None
+    cleaned_at: datetime | None
+    promotion_outcome: AgentWorkspacePromotionOperationState | None = None
+    verification_outcome: PromotionVerificationState | None = None
 
 
 class AgentWorkspaceCreationStatus(BaseModel):
@@ -133,6 +146,16 @@ class AgentWorkspaceActivityRead(BaseModel):
     occurred_at: datetime
 
 
+class AgentWorkspaceLifecycleActivityRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: UUID
+    operation: AgentWorkspaceLifecycleEventKind
+    cleanup_operation_id: UUID | None
+    failure_code: str | None
+    occurred_at: datetime
+
+
 class AgentWorkspaceChangeRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -155,7 +178,12 @@ class AgentWorkspaceChangesRead(BaseModel):
     changes: list[AgentWorkspaceChangeRead]
 
 
-def _workspace_read(workspace: AgentWorkspace) -> AgentWorkspaceRead:
+def _workspace_read(
+    workspace: AgentWorkspace,
+    *,
+    promotion_outcome: AgentWorkspacePromotionOperationState | None = None,
+    verification_outcome: PromotionVerificationState | None = None,
+) -> AgentWorkspaceRead:
     return AgentWorkspaceRead(
         id=workspace.id,
         development_source_id=workspace.development_source_id,
@@ -164,9 +192,15 @@ def _workspace_read(workspace: AgentWorkspace) -> AgentWorkspaceRead:
         source_observed_name=workspace.source_observed_name,
         source_observed_version=workspace.source_observed_version,
         state=workspace.state,
+        bytes_state=workspace.bytes_state,
         generation=workspace.generation,
         created_at=workspace.created_at,
         captured_at=workspace.captured_at,
+        promoted_at=workspace.promoted_at,
+        abandoned_at=workspace.abandoned_at,
+        cleaned_at=workspace.cleaned_at,
+        promotion_outcome=promotion_outcome,
+        verification_outcome=verification_outcome,
     )
 
 
@@ -240,6 +274,7 @@ class AgentWorkspaceService:
             source_observed_name=source.observed_name,
             source_observed_version=source.observed_version,
             state=AgentWorkspaceState.CREATING,
+            bytes_state=AgentWorkspaceBytesState.PRESENT,
             baseline_artifact_id=self._uuid_factory(),
             baseline_manifest_digest=None,
             generation=0,
@@ -422,14 +457,43 @@ class AgentWorkspaceService:
     def get(self, workspace_id: UUID) -> AgentWorkspaceRead:
         with self._session_factory() as session:
             workspace = AgentWorkspaceRepository(session).get(workspace_id)
+            promotion = AgentWorkspacePromotionOperationRepository(
+                session
+            ).latest_for_workspace(workspace_id)
+            verification = PromotionVerificationOperationRepository(
+                session
+            ).latest_for_workspace(workspace_id)
         if workspace is None:
             raise AgentWorkspaceNotFoundError(workspace_id)
-        return _workspace_read(workspace)
+        return _workspace_read(
+            workspace,
+            promotion_outcome=None if promotion is None else promotion.state,
+            verification_outcome=None if verification is None else verification.state,
+        )
 
     def list_workspaces(self) -> list[AgentWorkspaceRead]:
         with self._session_factory() as session:
             workspaces = AgentWorkspaceRepository(session).list()
-        return [_workspace_read(workspace) for workspace in workspaces]
+            results = []
+            for workspace in workspaces:
+                promotion = AgentWorkspacePromotionOperationRepository(
+                    session
+                ).latest_for_workspace(workspace.id)
+                verification = PromotionVerificationOperationRepository(
+                    session
+                ).latest_for_workspace(workspace.id)
+                results.append(
+                    _workspace_read(
+                        workspace,
+                        promotion_outcome=None
+                        if promotion is None
+                        else promotion.state,
+                        verification_outcome=None
+                        if verification is None
+                        else verification.state,
+                    )
+                )
+        return results
 
     def creation_status(self, operation_id: UUID) -> AgentWorkspaceCreationStatus:
         with self._session_factory() as session:
@@ -448,11 +512,78 @@ class AgentWorkspaceService:
             workspace = AgentWorkspaceRepository(session).get(workspace_id)
         if workspace is None:
             raise AgentWorkspaceNotFoundError(workspace_id)
+        if workspace.bytes_state is AgentWorkspaceBytesState.CLEANED:
+            raise AgentWorkspaceConflictError(
+                "workspace_bytes_cleaned",
+                "Workspace bytes have been permanently cleaned.",
+            )
         if workspace.state is not AgentWorkspaceState.READY:
             raise AgentWorkspaceConflictError(
                 "agent_workspace_not_ready", "Workspace is not ready for inspection."
             )
         return workspace
+
+    def abandon(self, workspace_id: UUID) -> AgentWorkspaceRead:
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            workspaces = AgentWorkspaceRepository(session)
+            workspace = workspaces.get(workspace_id)
+            if workspace is None:
+                raise AgentWorkspaceNotFoundError(workspace_id)
+            if workspace.state is AgentWorkspaceState.ABANDONED:
+                return _workspace_read(workspace)
+            if workspace.state is AgentWorkspaceState.RECONCILIATION_REQUIRED:
+                raise AgentWorkspaceConflictError(
+                    "workspace_reconciliation_blocked",
+                    "Workspace reconciliation is required before abandonment.",
+                )
+            if workspace.state is not AgentWorkspaceState.READY:
+                raise AgentWorkspaceConflictError(
+                    "workspace_abandonment_not_allowed",
+                    "Only a ready workspace may be abandoned.",
+                )
+            active_plan = AgentWorkspacePromotionPlanRepository(
+                session
+            ).active_for_workspace(workspace_id, now=now)
+            active_operation = AgentWorkspacePromotionOperationRepository(
+                session
+            ).active_for_workspace(workspace_id)
+            active_verification = PromotionVerificationOperationRepository(
+                session
+            ).blocking_for_workspace(workspace_id)
+            creation = AgentWorkspaceCreationOperationRepository(
+                session
+            ).get_for_workspace(workspace_id)
+            if (
+                active_plan is not None
+                or active_operation is not None
+                or active_verification
+                or creation is None
+                or creation.state
+                in {
+                    AgentWorkspaceCreationState.QUEUED,
+                    AgentWorkspaceCreationState.RUNNING,
+                    AgentWorkspaceCreationState.RECONCILIATION_REQUIRED,
+                }
+            ):
+                raise AgentWorkspaceConflictError(
+                    "workspace_promotion_active",
+                    "Workspace has active or unresolved work.",
+                )
+            if not workspaces.abandon(workspace_id, now=now):
+                raise AgentWorkspaceConflictError(
+                    "workspace_abandonment_conflict",
+                    "Workspace changed before abandonment could be published.",
+                )
+            AgentWorkspaceLifecycleEventRepository(session).create(
+                AgentWorkspaceLifecycleEvent(
+                    id=self._uuid_factory(),
+                    workspace_id=workspace_id,
+                    kind=AgentWorkspaceLifecycleEventKind.ABANDONED,
+                    occurred_at=now,
+                )
+            )
+        return self.get(workspace_id)
 
     def inspect_directory(
         self, workspace_id: UUID, relative_path: str
@@ -722,6 +853,25 @@ class AgentWorkspaceService:
                 generation=event.generation,
                 operation=names[event.kind],
                 path=event.relative_path,
+                occurred_at=event.occurred_at,
+            )
+            for event in events
+        ]
+
+    def list_lifecycle_activity(
+        self, workspace_id: UUID
+    ) -> list[AgentWorkspaceLifecycleActivityRead]:
+        self.get(workspace_id)
+        with self._session_factory() as session:
+            events = AgentWorkspaceLifecycleEventRepository(session).list_for_workspace(
+                workspace_id
+            )
+        return [
+            AgentWorkspaceLifecycleActivityRead(
+                event_id=event.id,
+                operation=event.kind,
+                cleanup_operation_id=event.cleanup_operation_id,
+                failure_code=event.failure_code,
                 occurred_at=event.occurred_at,
             )
             for event in events

@@ -19,6 +19,7 @@ from kodi_lab.workspace.storage import (
     WorkspaceDiff,
     WorkspaceMutationResult,
     WorkspaceTreeEntry,
+    cleanup_workspace_storage,
     create_workspace_storage,
     derive_workspace_diff,
     inspect_workspace_directory,
@@ -26,6 +27,8 @@ from kodi_lab.workspace.storage import (
     read_workspace_text,
     remove_unpublished_workspace_storage,
     workspace_baseline_published,
+    workspace_storage_absent,
+    workspace_storage_identity,
 )
 
 __all__ = [
@@ -42,6 +45,7 @@ __all__ = [
     "WorkspaceDiff",
     "WorkspaceMutationResult",
     "WorkspaceTreeEntry",
+    "cleanup_workspace_storage",
     "create_workspace_storage",
     "derive_workspace_diff",
     "execute_promotion",
@@ -52,4 +56,6 @@ __all__ = [
     "read_workspace_text",
     "remove_unpublished_workspace_storage",
     "workspace_baseline_published",
+    "workspace_storage_absent",
+    "workspace_storage_identity",
 ]

@@ -39,9 +39,14 @@ from kodi_lab.domain import (
     AddonZipSmokeTestOverallResult,
     AddonZipSmokeTestPostProvenance,
     AgentWorkspace,
+    AgentWorkspaceBytesState,
+    AgentWorkspaceCleanupOperation,
+    AgentWorkspaceCleanupPhase,
+    AgentWorkspaceCleanupState,
     AgentWorkspaceCreationOperation,
     AgentWorkspaceCreationPhase,
     AgentWorkspaceCreationState,
+    AgentWorkspaceLifecycleEvent,
     AgentWorkspaceMutationEvent,
     AgentWorkspacePromotionHandoff,
     AgentWorkspacePromotionJournalState,
@@ -128,7 +133,9 @@ from kodi_lab.storage.models import (
     AddonZipInstallationEvidenceRow,
     AddonZipInstallationOperationRow,
     AddonZipSmokeTestOperationRow,
+    AgentWorkspaceCleanupOperationRow,
     AgentWorkspaceCreationOperationRow,
+    AgentWorkspaceLifecycleEventRow,
     AgentWorkspaceMutationEventRow,
     AgentWorkspacePromotionHandoffRow,
     AgentWorkspacePromotionJournalRow,
@@ -866,6 +873,7 @@ def _agent_workspace_from_row(row: AgentWorkspaceRow) -> AgentWorkspace:
         source_observed_name=row.source_observed_name,
         source_observed_version=row.source_observed_version,
         state=row.state,
+        bytes_state=row.bytes_state,
         baseline_artifact_id=UUID(row.baseline_artifact_id),
         baseline_manifest_digest=row.baseline_manifest_digest,
         generation=row.generation,
@@ -876,6 +884,56 @@ def _agent_workspace_from_row(row: AgentWorkspaceRow) -> AgentWorkspace:
         else _timestamp_from_text(row.captured_at),
         created_at=_timestamp_from_text(row.created_at),
         updated_at=_timestamp_from_text(row.updated_at),
+        promoted_at=None
+        if row.promoted_at is None
+        else _timestamp_from_text(row.promoted_at),
+        abandoned_at=None
+        if row.abandoned_at is None
+        else _timestamp_from_text(row.abandoned_at),
+        cleaned_at=None
+        if row.cleaned_at is None
+        else _timestamp_from_text(row.cleaned_at),
+    )
+
+
+def _agent_workspace_cleanup_from_row(
+    row: AgentWorkspaceCleanupOperationRow,
+) -> AgentWorkspaceCleanupOperation:
+    return AgentWorkspaceCleanupOperation(
+        id=UUID(row.id),
+        workspace_id=UUID(row.workspace_id),
+        state=row.state,
+        phase=row.phase,
+        requested_at=_timestamp_from_text(row.requested_at),
+        deletion_started=row.deletion_started,
+        expected_device=row.expected_device,
+        expected_inode=row.expected_inode,
+        started_at=None
+        if row.started_at is None
+        else _timestamp_from_text(row.started_at),
+        completed_at=None
+        if row.completed_at is None
+        else _timestamp_from_text(row.completed_at),
+        failure_code=row.failure_code,
+        lease_token_digest=row.lease_token_digest,
+        lease_expires_at=None
+        if row.lease_expires_at is None
+        else _timestamp_from_text(row.lease_expires_at),
+    )
+
+
+def _agent_workspace_lifecycle_from_row(
+    row: AgentWorkspaceLifecycleEventRow,
+) -> AgentWorkspaceLifecycleEvent:
+    return AgentWorkspaceLifecycleEvent(
+        id=UUID(row.id),
+        workspace_id=UUID(row.workspace_id),
+        kind=row.kind,
+        occurred_at=_timestamp_from_text(row.occurred_at),
+        cleanup_operation_id=None
+        if row.cleanup_operation_id is None
+        else UUID(row.cleanup_operation_id),
+        failure_code=row.failure_code,
     )
 
 
@@ -1331,6 +1389,7 @@ class AgentWorkspaceRepository:
                 source_observed_name=workspace.source_observed_name,
                 source_observed_version=workspace.source_observed_version,
                 state=workspace.state,
+                bytes_state=workspace.bytes_state,
                 baseline_artifact_id=str(workspace.baseline_artifact_id),
                 baseline_manifest_digest=workspace.baseline_manifest_digest,
                 generation=workspace.generation,
@@ -1343,6 +1402,9 @@ class AgentWorkspaceRepository:
                 ),
                 created_at=_timestamp_to_text(workspace.created_at),
                 updated_at=_timestamp_to_text(workspace.updated_at),
+                promoted_at=None,
+                abandoned_at=None,
+                cleaned_at=None,
             )
         )
         self._session.flush()
@@ -1397,6 +1459,9 @@ class AgentWorkspaceRepository:
                     AgentWorkspaceState.RECONCILIATION_REQUIRED
                     if reconciliation_required
                     else AgentWorkspaceState.ABANDONED
+                ),
+                abandoned_at=(
+                    None if reconciliation_required else _timestamp_to_text(now)
                 ),
                 updated_at=_timestamp_to_text(now),
             )
@@ -1466,10 +1531,293 @@ class AgentWorkspaceRepository:
                 AgentWorkspaceRow.current_tree_digest == expected_tree_digest,
             )
             .values(
-                state=AgentWorkspaceState.PROMOTED, updated_at=_timestamp_to_text(now)
+                state=AgentWorkspaceState.PROMOTED,
+                promoted_at=_timestamp_to_text(now),
+                updated_at=_timestamp_to_text(now),
             )
         )
         return int(getattr(result, "rowcount", 0)) == 1
+
+    def abandon(self, workspace_id: UUID, *, now: datetime) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceRow)
+            .where(
+                AgentWorkspaceRow.id == str(workspace_id),
+                AgentWorkspaceRow.state == AgentWorkspaceState.READY,
+                AgentWorkspaceRow.bytes_state == AgentWorkspaceBytesState.PRESENT,
+            )
+            .values(
+                state=AgentWorkspaceState.ABANDONED,
+                abandoned_at=_timestamp_to_text(now),
+                updated_at=_timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_bytes_cleaned(self, workspace_id: UUID, *, now: datetime) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceRow)
+            .where(
+                AgentWorkspaceRow.id == str(workspace_id),
+                AgentWorkspaceRow.bytes_state == AgentWorkspaceBytesState.PRESENT,
+                AgentWorkspaceRow.state.in_(
+                    (AgentWorkspaceState.ABANDONED, AgentWorkspaceState.PROMOTED)
+                ),
+            )
+            .values(
+                bytes_state=AgentWorkspaceBytesState.CLEANED,
+                cleaned_at=_timestamp_to_text(now),
+                updated_at=_timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_cleanup_reconciliation(self, workspace_id: UUID, *, now: datetime) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceRow)
+            .where(
+                AgentWorkspaceRow.id == str(workspace_id),
+                AgentWorkspaceRow.bytes_state == AgentWorkspaceBytesState.PRESENT,
+                AgentWorkspaceRow.state.in_(
+                    (AgentWorkspaceState.ABANDONED, AgentWorkspaceState.PROMOTED)
+                ),
+            )
+            .values(
+                state=AgentWorkspaceState.RECONCILIATION_REQUIRED,
+                updated_at=_timestamp_to_text(now),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+
+class AgentWorkspaceCleanupOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, operation: AgentWorkspaceCleanupOperation) -> None:
+        self._session.add(
+            AgentWorkspaceCleanupOperationRow(
+                id=str(operation.id),
+                workspace_id=str(operation.workspace_id),
+                state=operation.state,
+                phase=operation.phase,
+                requested_at=_timestamp_to_text(operation.requested_at),
+                deletion_started=operation.deletion_started,
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> AgentWorkspaceCleanupOperation | None:
+        row = self._session.get(AgentWorkspaceCleanupOperationRow, str(operation_id))
+        return None if row is None else _agent_workspace_cleanup_from_row(row)
+
+    def get_for_workspace(
+        self, workspace_id: UUID
+    ) -> AgentWorkspaceCleanupOperation | None:
+        row = self._session.scalar(
+            select(AgentWorkspaceCleanupOperationRow)
+            .where(AgentWorkspaceCleanupOperationRow.workspace_id == str(workspace_id))
+            .order_by(
+                AgentWorkspaceCleanupOperationRow.requested_at.desc(),
+                AgentWorkspaceCleanupOperationRow.id.desc(),
+            )
+            .limit(1)
+        )
+        return None if row is None else _agent_workspace_cleanup_from_row(row)
+
+    def list_queued(self) -> list[AgentWorkspaceCleanupOperation]:
+        rows = self._session.scalars(
+            select(AgentWorkspaceCleanupOperationRow)
+            .where(
+                AgentWorkspaceCleanupOperationRow.state
+                == AgentWorkspaceCleanupState.QUEUED
+            )
+            .order_by(AgentWorkspaceCleanupOperationRow.requested_at)
+        )
+        return [_agent_workspace_cleanup_from_row(row) for row in rows]
+
+    def list_active(self) -> list[AgentWorkspaceCleanupOperation]:
+        rows = self._session.scalars(
+            select(AgentWorkspaceCleanupOperationRow).where(
+                AgentWorkspaceCleanupOperationRow.state.in_(
+                    (
+                        AgentWorkspaceCleanupState.QUEUED,
+                        AgentWorkspaceCleanupState.RUNNING,
+                    )
+                )
+            )
+        )
+        return [_agent_workspace_cleanup_from_row(row) for row in rows]
+
+    def acquire(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceCleanupOperationRow)
+            .where(
+                AgentWorkspaceCleanupOperationRow.id == str(operation_id),
+                AgentWorkspaceCleanupOperationRow.state
+                == AgentWorkspaceCleanupState.QUEUED,
+            )
+            .values(
+                state=AgentWorkspaceCleanupState.RUNNING,
+                phase=AgentWorkspaceCleanupPhase.VALIDATING,
+                started_at=_timestamp_to_text(now),
+                lease_token_digest=token_digest,
+                lease_expires_at=_timestamp_to_text(expires_at),
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def start_deletion(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        device: int,
+        inode: int,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceCleanupOperationRow)
+            .where(
+                AgentWorkspaceCleanupOperationRow.id == str(operation_id),
+                AgentWorkspaceCleanupOperationRow.state
+                == AgentWorkspaceCleanupState.RUNNING,
+                AgentWorkspaceCleanupOperationRow.lease_token_digest == token_digest,
+                AgentWorkspaceCleanupOperationRow.deletion_started.is_(False),
+            )
+            .values(
+                phase=AgentWorkspaceCleanupPhase.DELETING,
+                deletion_started=True,
+                expected_device=device,
+                expected_inode=inode,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def set_phase(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        phase: AgentWorkspaceCleanupPhase,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceCleanupOperationRow)
+            .where(
+                AgentWorkspaceCleanupOperationRow.id == str(operation_id),
+                AgentWorkspaceCleanupOperationRow.state
+                == AgentWorkspaceCleanupState.RUNNING,
+                AgentWorkspaceCleanupOperationRow.lease_token_digest == token_digest,
+            )
+            .values(phase=phase)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def finish(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        state: AgentWorkspaceCleanupState,
+        now: datetime,
+        failure_code: str | None,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspaceCleanupOperationRow)
+            .where(
+                AgentWorkspaceCleanupOperationRow.id == str(operation_id),
+                AgentWorkspaceCleanupOperationRow.state
+                == AgentWorkspaceCleanupState.RUNNING,
+                AgentWorkspaceCleanupOperationRow.lease_token_digest == token_digest,
+            )
+            .values(
+                state=state,
+                phase=AgentWorkspaceCleanupPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+                failure_code=failure_code,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def recover_stale(
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        resume: bool,
+    ) -> bool:
+        values: dict[str, object] = {
+            "lease_token_digest": None,
+            "lease_expires_at": None,
+        }
+        if resume:
+            values.update(
+                state=AgentWorkspaceCleanupState.QUEUED,
+                phase=AgentWorkspaceCleanupPhase.QUEUED,
+                started_at=None,
+            )
+        else:
+            values.update(
+                state=AgentWorkspaceCleanupState.FAILED,
+                phase=AgentWorkspaceCleanupPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+                failure_code="workspace_cleanup_interrupted_before_delete",
+            )
+        result = self._session.execute(
+            update(AgentWorkspaceCleanupOperationRow)
+            .where(
+                AgentWorkspaceCleanupOperationRow.id == str(operation_id),
+                AgentWorkspaceCleanupOperationRow.state
+                == AgentWorkspaceCleanupState.RUNNING,
+                AgentWorkspaceCleanupOperationRow.lease_token_digest == token_digest,
+                AgentWorkspaceCleanupOperationRow.lease_expires_at
+                <= _timestamp_to_text(now),
+            )
+            .values(**values)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+
+class AgentWorkspaceLifecycleEventRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(self, event: AgentWorkspaceLifecycleEvent) -> None:
+        self._session.add(
+            AgentWorkspaceLifecycleEventRow(
+                id=str(event.id),
+                workspace_id=str(event.workspace_id),
+                kind=event.kind,
+                occurred_at=_timestamp_to_text(event.occurred_at),
+                cleanup_operation_id=None
+                if event.cleanup_operation_id is None
+                else str(event.cleanup_operation_id),
+                failure_code=event.failure_code,
+            )
+        )
+        self._session.flush()
+
+    def list_for_workspace(
+        self, workspace_id: UUID
+    ) -> list[AgentWorkspaceLifecycleEvent]:
+        rows = self._session.scalars(
+            select(AgentWorkspaceLifecycleEventRow)
+            .where(AgentWorkspaceLifecycleEventRow.workspace_id == str(workspace_id))
+            .order_by(
+                AgentWorkspaceLifecycleEventRow.occurred_at,
+                AgentWorkspaceLifecycleEventRow.id,
+            )
+        )
+        return [_agent_workspace_lifecycle_from_row(row) for row in rows]
 
 
 class AgentWorkspaceMutationEventRepository:
@@ -1522,6 +1870,16 @@ class AgentWorkspaceCreationOperationRepository:
 
     def get(self, operation_id: UUID) -> AgentWorkspaceCreationOperation | None:
         row = self._session.get(AgentWorkspaceCreationOperationRow, str(operation_id))
+        return None if row is None else _agent_workspace_creation_from_row(row)
+
+    def get_for_workspace(
+        self, workspace_id: UUID
+    ) -> AgentWorkspaceCreationOperation | None:
+        row = self._session.scalar(
+            select(AgentWorkspaceCreationOperationRow).where(
+                AgentWorkspaceCreationOperationRow.workspace_id == str(workspace_id)
+            )
+        )
         return None if row is None else _agent_workspace_creation_from_row(row)
 
     def list_queued(self) -> list[AgentWorkspaceCreationOperation]:
@@ -7453,6 +7811,33 @@ class AgentWorkspacePromotionOperationRepository:
             None if row is None else _agent_workspace_promotion_operation_from_row(row)
         )
 
+    def reconciliation_for_workspace(
+        self, workspace_id: UUID
+    ) -> list[AgentWorkspacePromotionOperation]:
+        rows = self._session.scalars(
+            select(AgentWorkspacePromotionOperationRow).where(
+                AgentWorkspacePromotionOperationRow.workspace_id == str(workspace_id),
+                AgentWorkspacePromotionOperationRow.state
+                == AgentWorkspacePromotionOperationState.RECONCILIATION_REQUIRED,
+            )
+        )
+        return [_agent_workspace_promotion_operation_from_row(row) for row in rows]
+
+    def latest_for_workspace(
+        self, workspace_id: UUID
+    ) -> AgentWorkspacePromotionOperation | None:
+        row = self._session.scalar(
+            select(AgentWorkspacePromotionOperationRow)
+            .where(
+                AgentWorkspacePromotionOperationRow.workspace_id == str(workspace_id)
+            )
+            .order_by(AgentWorkspacePromotionOperationRow.requested_at.desc())
+            .limit(1)
+        )
+        return (
+            None if row is None else _agent_workspace_promotion_operation_from_row(row)
+        )
+
     def list_active(self) -> list[AgentWorkspacePromotionOperation]:
         rows = self._session.scalars(
             select(AgentWorkspacePromotionOperationRow)
@@ -7955,6 +8340,34 @@ class PromotionVerificationOperationRepository:
             )
         )
         return [self._domain(row) for row in rows]
+
+    def blocking_for_workspace(
+        self, workspace_id: UUID
+    ) -> list[PromotionVerificationOperation]:
+        rows = self._session.scalars(
+            select(PromotionVerificationOperationRow).where(
+                PromotionVerificationOperationRow.workspace_id == str(workspace_id),
+                PromotionVerificationOperationRow.state.in_(
+                    (
+                        PromotionVerificationState.QUEUED,
+                        PromotionVerificationState.RUNNING,
+                        PromotionVerificationState.RECONCILIATION_REQUIRED,
+                    )
+                ),
+            )
+        )
+        return [self._domain(row) for row in rows]
+
+    def latest_for_workspace(
+        self, workspace_id: UUID
+    ) -> PromotionVerificationOperation | None:
+        row = self._session.scalar(
+            select(PromotionVerificationOperationRow)
+            .where(PromotionVerificationOperationRow.workspace_id == str(workspace_id))
+            .order_by(PromotionVerificationOperationRow.requested_at.desc())
+            .limit(1)
+        )
+        return None if row is None else self._domain(row)
 
     def recover_interrupted(
         self,

@@ -12,7 +12,14 @@
       <dt>Workspace</dt><dd>{{ workspace.id }}</dd>
       <dt>Add-on</dt><dd>{{ workspace.source_addon_id }} — {{ workspace.source_observed_name }} {{ workspace.source_observed_version }}</dd>
       <dt>State</dt><dd>{{ workspace.state.value }}</dd>
+      <dt>Workspace files</dt><dd>{{ workspace.bytes_state.value }}</dd>
       <dt>Generation</dt><dd>{{ workspace.generation }}</dd>
+      <dt>Created</dt><dd>{{ workspace.created_at }}</dd>
+      {% if workspace.promoted_at %}<dt>Promoted</dt><dd>{{ workspace.promoted_at }}</dd>{% endif %}
+      {% if workspace.abandoned_at %}<dt>Abandoned</dt><dd>{{ workspace.abandoned_at }}</dd>{% endif %}
+      {% if workspace.cleaned_at %}<dt>Cleaned</dt><dd>{{ workspace.cleaned_at }}</dd>{% endif %}
+      {% if workspace.promotion_outcome %}<dt>Source promotion</dt><dd>{{ workspace.promotion_outcome.value }}</dd>{% endif %}
+      {% if workspace.verification_outcome %}<dt>Kodi verification</dt><dd>{{ workspace.verification_outcome.value }}</dd>{% endif %}
     </dl>
     {% if entries %}<h2>Root directory</h2><ul>{% for entry in entries %}<li>{{ entry.name }} — {{ entry.entry_type }}</li>{% endfor %}</ul>{% endif %}
     {% if workspace.state.value == "ready" %}
@@ -36,9 +43,26 @@
       {% else %}<p>No eligible running target has an exact retained verified deployment of this source.</p>{% endif %}
     </section>
     {% endif %}
+    <h2>Lifecycle activity</h2>
+    <ul>{% for item in lifecycle_activity %}<li>{{ item.occurred_at }}: {{ item.operation.value }}{% if item.failure_code %} ({{ item.failure_code }}){% endif %}</li>{% else %}<li>No abandonment or cleanup activity.</li>{% endfor %}</ul>
+    <section id="workspace-retention" data-workspace-id="{{ workspace.id }}" data-csrf="{{ csrf_token }}">
+      <h2>Workspace retention</h2>
+      {% if workspace.state.value == "ready" %}
+      <p>Abandoning this workspace prevents further edits or promotion. Workspace files remain until explicitly cleaned.</p>
+      <button id="abandon-workspace" type="button">Abandon workspace</button>
+      {% elif workspace.bytes_state.value == "present" and workspace.state.value in ["abandoned", "promoted"] %}
+      <p>Cleanup permanently removes this workspace's retained baseline and editable tree. Durable history remains.</p>
+      {% if workspace.state.value == "promoted" %}<p>The canonical source promotion and Kodi verification history are not removed.</p>{% endif %}
+      <button id="cleanup-workspace" type="button">Permanently clean workspace files</button>
+      {% elif workspace.bytes_state.value == "cleaned" %}
+      <p>Workspace files were permanently cleaned. Durable history remains.</p>
+      {% endif %}
+      <p id="workspace-retention-result" role="status"></p>
+    </section>
     <p class="secondary">Edits are limited to existing workspace directories and UTF-8 files. Delete, rename, mkdir, Git, MCP, and Kodi actions are not available.</p>
     <p><a href="/agent-workspaces">Back to workspaces</a></p>
     <script src="{{ url_for('static', path='/agent-workspace-edit.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-promotion.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/agent-workspace-retention.js') }}" defer></script>
   </main></body>
 </html>

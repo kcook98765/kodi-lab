@@ -10,7 +10,7 @@
   </head>
   <body><main>
     <h1>Agent Workspaces</h1>
-    <p class="secondary">Protected plain working copies. Git, promotion, file mutation, and Kodi integration are unavailable.</p>
+    <p class="secondary">Protected plain working copies with explicit abandonment and manual byte cleanup. Durable history is retained; automatic pruning is unavailable.</p>
     <form id="agent-workspace-create" data-csrf="{{ csrf_token }}">
       <label for="development-source">Development source</label>
       <select id="development-source" name="development_source_id" required>
@@ -20,7 +20,7 @@
       <p id="agent-workspace-result" role="status"></p>
     </form>
     {% for workspace in workspaces %}
-    <article><h2><a href="/agent-workspaces/{{ workspace.id }}">{{ workspace.source_logical_name }}</a></h2><p>{{ workspace.source_addon_id }} — {{ workspace.state.value }} — generation {{ workspace.generation }}</p></article>
+    <article><h2><a href="/agent-workspaces/{{ workspace.id }}">{{ workspace.source_logical_name }}</a></h2><p>{{ workspace.source_addon_id }} — {{ workspace.state.value }} — bytes {{ workspace.bytes_state.value }} — generation {{ workspace.generation }}</p></article>
     {% else %}<p>No workspaces.</p>{% endfor %}
     <p><a href="/">Back to dashboard</a></p>
   </main></body>

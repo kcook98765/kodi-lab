@@ -1,4 +1,4 @@
-# Phase 9 Slices 1–4 — Protected Agent Workspaces
+# Phase 9 Slices 1–5 — Protected Agent Workspaces
 
 ## Boundary
 
@@ -13,8 +13,9 @@ No Git command executes. VCS administration directories are excluded from
 source capture and rejected if injected into a mutable workspace. Slice 2 adds
 bounded workspace text mutation and derived changes. Slice 3 adds only reviewed
 promotion of eligible UTF-8 file additions/modifications into that registered
-source. There is no Kodi integration, broker call, Docker access, MCP exposure,
-or cleanup API.
+source. Slices 1–4 add no cleanup API; Slice 5 adds only UUID-specific
+application cleanup. Cleanup has no broker, Docker, Kodi, Git, root, shell, or
+MCP authority.
 
 ## Durable model and layout
 
@@ -244,14 +245,59 @@ Web status explicitly separates Source promotion from Kodi verification and
 returns only logical identity, versions, enabled Booleans, classifications,
 counts, and bounded sanitized snippets.
 
-## Remaining Phase 9 work
+## Slice 5 abandonment, cleanup, and conservative retention
 
 Canonical read, directory inspection, bounded text write/create/replace, exact
 patch editing, and derived workspace change review are implemented.
 Conflict-aware reviewed promotion, exact source backup/application, promoted
 state, evidence staling, and the private selected-target handoff are implemented.
 Promotion-bound Kodi copy/sync/reload/verification and bounded diagnostics are
-implemented, so canonical patch-back is complete. Workspace
-cleanup/abandon/retention mutation is the only remaining Phase 9 blocker. MCP
-exposure remains later Phase 11/12 work. Delete, rename, move, mkdir, binary
-write, type transition, shell, and Git remain absent by design.
+implemented, so canonical patch-back is complete.
+
+A ready workspace may be explicitly abandoned only with no active promotion
+plan or source operation and no reconciliation blocker. Abandonment is
+metadata-only: it makes the workspace immutable and retains its baseline and
+tree until a separate confirmed cleanup. Promoted workspaces are already
+immutable and cannot be abandoned. Lifecycle is independent from byte state, so
+successful cleanup leaves the lifecycle `abandoned` or `promoted` and changes
+only durable byte state from `present` to `cleaned`.
+
+Cleanup accepts one workspace UUID and `{"confirmed": true}`. It requires an
+abandoned workspace, or a promoted workspace with terminal source promotion and
+terminal verification. Creating, ready, active-plan, queued/running promotion,
+queued/running verification, and every reconciliation-required condition block.
+A typed global-heavy operation records queued/running/terminal state and
+validating/deleting/verifying/finalize phase.
+
+The server derives the exact UUID subtree and persists its no-follow device and
+inode before the destructive marker. Descriptor-relative deletion never follows
+links and never crosses a device boundary. Because the subtree is wholly
+Lab-owned, injected symlinks, hardlinks, sockets, FIFOs, and devices are unlinked
+as directory entries; their targets are never opened. Baseline, editable tree,
+manifest, and workspace-private transient entries are removed together. The
+storage parent, sibling workspaces, DevelopmentSource, managed Kodi instances,
+deployment evidence, and canonical source are untouched.
+
+Failure before the deletion marker is ordinary. Once marked, only the same
+operation may resume the idempotent goal of exact subtree absence. Missing bytes
+alone are not authoritative without that operation evidence (except a proven
+failed pre-publication creation). Identity contradiction or uncertain partial
+state becomes reconciliation-required. A completed cleanup request is
+idempotent and never recreates or deletes again.
+
+List/detail retain logical provenance, add-on identity, creation/final
+generation, lifecycle, byte state, and promoted/abandoned/cleaned timestamps.
+Mutation and lifecycle activity, promotion plan/source operation/journal,
+handoff, verification, private source backup, and bounded log evidence remain.
+Tree inspection, reads, edits, diffs, and promotion after cleanup return
+`workspace_bytes_cleaned`; no host path is exposed.
+
+V1 cleanup is manual and one UUID at a time. There is no TTL, timer, background
+worker, disk-pressure policy, automatic post-promotion/abandonment cleanup,
+cleanup-all, age/source/status selector, or promotion-backup/log-evidence
+pruning. A later artifact-retention decision must authorize any such policy.
+
+All canonical Phase 9 implementation requirements are now implemented. Formal
+Phase 9 completion review is the remaining milestone; MCP exposure remains
+later Phase 11/12 work. Delete, rename, move, mkdir, binary write, type
+transition, shell, and Git remain absent by design.

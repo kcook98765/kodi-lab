@@ -2697,8 +2697,7 @@ details that it did not specify.
 
 ## D-0210: Promotion state and evidence cross the source boundary explicitly
 
-- Status: Slice 3 source subset and Slice 4 verification subset implemented;
-  cleanup/retention remains deferred
+- Status: approved and implemented for Phase 9 Slices 3–5
 - Decision: successful source application makes the workspace durably
   `promoted` and immutable, retains its history, preserves DevelopmentSource
   UUID/add-on ID, and makes every prior deployment-confidence row for that
@@ -2721,3 +2720,39 @@ details that it did not specify.
   replacement work. Exact sync restores ordinary verified deployment evidence;
   verification history never changes the succeeded source operation or
   promoted immutable workspace.
+- Final lifecycle: `creating` may become `ready`, cleanly failed `abandoned`, or
+  `reconciliation_required`; `ready` may become `promoted`, explicitly
+  `abandoned`, or `reconciliation_required`. `promoted` and `abandoned` are
+  immutable lifecycle outcomes. Ordinary cleanup never changes either outcome.
+  `reconciliation_required` cannot be abandoned or cleaned by this workflow.
+- Retention: byte presence is independent durable state, `present` or `cleaned`,
+  with `cleaned_at`. A ready workspace must first be explicitly abandoned;
+  promoted cleanup requires terminal source promotion and terminal Kodi
+  verification. Active preparation/review/approval, source promotion,
+  verification, creation, or reconciliation blocks cleanup. Lease expiry alone
+  never makes work eligible.
+- Cleanup authority: authenticated administrators submit one workspace UUID and
+  `{"confirmed": true}`. A typed global-heavy cleanup operation records
+  validation, a durable deletion marker with the exact root device/inode,
+  descriptor-relative deletion, verification, and terminal outcome. The server
+  derives `agent-workspaces/<uuid>` and removes the complete baseline, tree, and
+  workspace-private staging/lock contents. It never accepts a path, follows a
+  link, crosses a mount boundary, calls the broker, Docker, Kodi, Git, shell, or
+  root, or modifies the DevelopmentSource.
+- Crash rule: failure before the deletion marker is ordinary and leaves bytes.
+  After the marker, only the same operation may resume removal of the same
+  proven UUID subtree; identity contradiction or unprovable partial state is
+  reconciliation-required. Directory-descriptor traversal removes injected
+  links and special entries themselves without following them. Directory
+  absence is success evidence only after the durable destructive marker (or a
+  proven pre-publication creation failure).
+- Durable history: metadata, final generation, provenance, mutation/lifecycle
+  activity, plans, source operations and journals, verification operations,
+  handoffs, private promotion backups, and bounded log evidence survive byte
+  cleanup. List/detail remain path-free. Read, inspect, edit, diff, and promotion
+  return `workspace_bytes_cleaned`; cleanup is idempotent and never recreates
+  storage.
+- Conservative V1 policy: cleanup is one-workspace-at-a-time and manual only.
+  There is no TTL, timer, disk-pressure pruning, bulk cleanup, automatic cleanup
+  after promotion/abandonment, or backup/log-evidence pruning. Later artifact
+  retention work must approve any such deletion separately.

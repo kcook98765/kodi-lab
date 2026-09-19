@@ -173,6 +173,59 @@ def test_workspace_api_is_authenticated_strict_and_safe(
     assert "plugin.video.workspace" in detail.text
     assert str(data_root) not in detail.text
 
+    abandon_url = f"/api/agent-workspaces/{workspace_id}/abandon"
+    assert (
+        client.post(
+            abandon_url,
+            json={"delete": True},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 422
+    )
+    abandoned = client.post(
+        abandon_url,
+        json={},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert abandoned.status_code == 200
+    assert abandoned.json()["state"] == "abandoned"
+    assert abandoned.json()["bytes_state"] == "present"
+    assert (
+        client.post(
+            f"/api/agent-workspaces/{workspace_id}/cleanup",
+            json={},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 422
+    )
+    accepted_cleanup = client.post(
+        f"/api/agent-workspaces/{workspace_id}/cleanup",
+        json={"confirmed": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert accepted_cleanup.status_code == 202
+    cleanup_url = accepted_cleanup.json()["status_url"]
+    for _ in range(100):
+        cleanup_status = client.get(cleanup_url).json()
+        if cleanup_status["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+    assert cleanup_status["state"] == "succeeded"
+    retained = client.get(workspace_url)
+    assert retained.json()["state"] == "abandoned"
+    assert retained.json()["bytes_state"] == "cleaned"
+    assert retained.json()["cleaned_at"] is not None
+    blocked = client.get(f"/api/agent-workspaces/{workspace_id}/tree")
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "workspace_bytes_cleaned"
+    lifecycle = client.get(f"/api/agent-workspaces/{workspace_id}/lifecycle-activity")
+    assert [item["operation"] for item in lifecycle.json()] == [
+        "abandoned",
+        "cleanup_queued",
+        "cleanup_succeeded",
+    ]
+    assert str(data_root) not in lifecycle.text
+
 
 def test_workspace_routes_do_not_expose_mutation_verbs(client: TestClient) -> None:
     csrf = login(client)

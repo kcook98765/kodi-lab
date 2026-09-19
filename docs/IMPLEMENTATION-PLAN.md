@@ -787,5 +787,18 @@ readback and fresh evidence atomically consume it. Reserved failures remain
 non-reusable, including reconciliation-required ambiguity.
 Source success remains immutable across succeeded, failed, incomplete, and
 reconciliation-required verification outcomes. Canonical Phase 9 patch-back is
-now complete. Slice 5 workspace cleanup/abandon/retention is the only remaining
-Phase 9 blocker. MCP exposure remains later Phase 11/12 work.
+complete.
+
+Slice 5 completes D-0210 and the remaining Phase 9 implementation scope.
+Migration `0033_agent_workspace_cleanup` adds lifecycle timestamps, independent
+present/cleaned byte state, a durable global-heavy UUID-only cleanup operation,
+and content-free abandonment/cleanup activity. Ready workspaces may be
+explicitly abandoned without deleting bytes. Abandoned and promoted workspaces
+may be explicitly cleaned only after all relevant plans and operations are
+terminal; reconciliation-required state always blocks. Descriptor-relative
+no-follow deletion removes only the exact workspace baseline/tree subtree and
+retains all database history, promotion backup, handoff, verification, and log
+evidence. There is no automatic, age, pressure, source, status, or bulk pruning.
+
+**Phase 9 implementation: COMPLETE; formal completion review remains.** MCP
+exposure remains later Phase 11/12 work and Phase 10 has not begun.

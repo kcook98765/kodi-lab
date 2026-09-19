@@ -23,6 +23,35 @@ class AgentWorkspaceState(StrEnum):
     RECONCILIATION_REQUIRED = "reconciliation_required"
 
 
+class AgentWorkspaceBytesState(StrEnum):
+    PRESENT = "present"
+    CLEANED = "cleaned"
+
+
+class AgentWorkspaceCleanupState(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class AgentWorkspaceCleanupPhase(StrEnum):
+    QUEUED = "queued"
+    VALIDATING = "validating"
+    DELETING = "deleting"
+    VERIFYING = "verifying"
+    FINALIZE = "finalize"
+
+
+class AgentWorkspaceLifecycleEventKind(StrEnum):
+    ABANDONED = "abandoned"
+    CLEANUP_QUEUED = "cleanup_queued"
+    CLEANUP_SUCCEEDED = "cleanup_succeeded"
+    CLEANUP_FAILED = "cleanup_failed"
+    CLEANUP_RECONCILIATION_REQUIRED = "cleanup_reconciliation_required"
+
+
 class AgentWorkspaceCreationState(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -72,6 +101,10 @@ class AgentWorkspace:
     captured_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    bytes_state: AgentWorkspaceBytesState = AgentWorkspaceBytesState.PRESENT
+    promoted_at: datetime | None = None
+    abandoned_at: datetime | None = None
+    cleaned_at: datetime | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -95,7 +128,15 @@ class AgentWorkspace:
                 object.__setattr__(self, field, normalize_sha256_digest(value, field))
         if self.generation < 0:
             raise ValueError("workspace generation must be non-negative")
-        for field in ("capture_started_at", "captured_at", "created_at", "updated_at"):
+        for field in (
+            "capture_started_at",
+            "captured_at",
+            "created_at",
+            "updated_at",
+            "promoted_at",
+            "abandoned_at",
+            "cleaned_at",
+        ):
             object.__setattr__(self, field, _utc(getattr(self, field), field))
         if self.state is AgentWorkspaceState.READY and (
             self.baseline_manifest_digest is None
@@ -103,6 +144,52 @@ class AgentWorkspace:
             or self.captured_at is None
         ):
             raise ValueError("ready workspace requires complete baseline provenance")
+        if (self.bytes_state is AgentWorkspaceBytesState.CLEANED) != (
+            self.cleaned_at is not None
+        ):
+            raise ValueError("workspace byte state and cleanup timestamp disagree")
+
+
+@dataclass(frozen=True, slots=True)
+class AgentWorkspaceCleanupOperation:
+    id: UUID
+    workspace_id: UUID
+    state: AgentWorkspaceCleanupState
+    phase: AgentWorkspaceCleanupPhase
+    requested_at: datetime
+    deletion_started: bool = False
+    expected_device: int | None = None
+    expected_inode: int | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    failure_code: str | None = None
+    lease_token_digest: str | None = None
+    lease_expires_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        for field in ("requested_at", "started_at", "completed_at", "lease_expires_at"):
+            object.__setattr__(self, field, _utc(getattr(self, field), field))
+        if (self.expected_device is None) != (self.expected_inode is None):
+            raise ValueError("cleanup storage identity is incomplete")
+        if self.deletion_started and self.expected_device is None:
+            raise ValueError("cleanup deletion requires storage identity")
+        if self.failure_code is not None and not 1 <= len(self.failure_code) <= 128:
+            raise ValueError("workspace cleanup failure code is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class AgentWorkspaceLifecycleEvent:
+    id: UUID
+    workspace_id: UUID
+    kind: AgentWorkspaceLifecycleEventKind
+    occurred_at: datetime
+    cleanup_operation_id: UUID | None = None
+    failure_code: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "occurred_at", _utc(self.occurred_at, "occurred_at"))
+        if self.failure_code is not None and not 1 <= len(self.failure_code) <= 128:
+            raise ValueError("workspace lifecycle failure code is invalid")
 
 
 @dataclass(frozen=True, slots=True)
