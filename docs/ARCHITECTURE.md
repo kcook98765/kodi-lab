@@ -1154,7 +1154,10 @@ Slice 4 implements D-0209 as a separate durable
 `PromotionVerificationOperation`. Source terminal success, handoff publication,
 verification-child creation, exact reservation, and queued coordination commit
 as one database publication boundary. Source success therefore cannot commit
-without its required child. Execution starts afterward and never reopens
+without its required child. The promotion service cannot be constructed
+without the publication collaborator, and later dispatch only executes or
+recovers the durable child; it never creates a missing child after success.
+Execution starts afterward and never reopens
 approval or rewrites `AgentWorkspacePromotionOperation`. Preflight binds the successful
 promotion, promoted workspace, attached DevelopmentSource, disposable target,
 RuntimeRevision, immutable container, prior destination proof, promoted
@@ -1185,10 +1188,12 @@ Inventory is authoritative for ID, promoted version, supported type, and exact
 enabled preservation. Ten seconds after readiness, the broker correlates at
 most 1 MiB of new data across append or normal `kodi.log` to `kodi.old.log`
 rotation. Correlation ambiguity is `incomplete`. At most twenty sanitized
-512-byte target snippets and 8 KiB total reach Web status. Full bounded raw
-acquisition precedes deterministic obvious-secret redaction, control
-normalization, and output truncation, so truncation cannot expose a token
-fragment that escaped matching. This covers common Bearer, key/token/password,
+512-byte target snippets and 8 KiB total reach Web status. The complete
+attributable raw buffer, bounded by the 1 MiB acquisition ceiling, is decoded
+and deterministically redacted before control normalization, the 40 KiB
+retained-evidence cut, and public output truncation, so truncation cannot expose
+a token fragment that escaped matching. This covers common Bearer,
+key/token/password,
 URL-userinfo, and obvious token-prefix forms but is not general DLP. Raw bytes
 are transient inside the private broker boundary; retained evidence and normal
 DTO/history surfaces contain only redacted snippets. Target-correlated

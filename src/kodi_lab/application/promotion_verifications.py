@@ -11,7 +11,6 @@ from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import (
@@ -147,20 +146,10 @@ class PromotionVerificationService:
     def queue_and_run(self, source_promotion_id: UUID) -> PromotionVerificationStatus:
         existing = self._get_for_promotion(source_promotion_id)
         if existing is None:
-            try:
-                with self._sessions.begin() as session:
-                    verification_id = self.publish_durable(session, source_promotion_id)
-            except IntegrityError as error:
-                raise PromotionVerificationError(
-                    "promotion_verification_coordination_conflict",
-                    "Target mutation coordination is unavailable.",
-                ) from error
-            existing = self._get_for_promotion(source_promotion_id)
-            if existing is None or existing.id != verification_id:
-                raise PromotionVerificationError(
-                    "promotion_verification_publication_failed",
-                    "Durable verification publication could not be proven.",
-                )
+            raise PromotionVerificationError(
+                "promotion_verification_missing",
+                "Durable verification publication is unavailable.",
+            )
         if existing.state is not PromotionVerificationState.QUEUED:
             return self.get(existing.id)
         with self._sessions() as session:

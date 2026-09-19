@@ -338,18 +338,33 @@ def _redact_obvious_secrets(line: str) -> str:
     return _VENDOR_TOKEN.sub("[REDACTED]", redacted)
 
 
-def _sanitize(line: str) -> str:
-    redacted = _redact_obvious_secrets(line)
-    clean = "".join(
-        character if character >= " " and character != "\x7f" else " "
-        for character in redacted
+def _normalize_controls(text: str) -> str:
+    return "".join(
+        character
+        if character in "\r\n" or (character >= " " and character != "\x7f")
+        else " "
+        for character in text
     )
+
+
+def _sanitize_snippet(line: str) -> str:
+    clean = _normalize_controls(line)
     encoded = clean.encode("utf-8", "replace")[:MAX_SNIPPET_BYTES]
     return encoded.decode("utf-8", "ignore")
 
 
+def _sanitized_retained_text(data: bytes) -> str:
+    # The provider bounds attributable input at MAX_NEW_LOG_BYTES. Decode and
+    # redact that complete bounded window before any retained-output cut so a
+    # cut cannot discard a secret key while retaining part of its value.
+    decoded = data.decode("utf-8", "replace")
+    sanitized = _normalize_controls(_redact_obvious_secrets(decoded))
+    retained = sanitized.encode("utf-8", "replace")[-MAX_RETAINED_BYTES:]
+    return retained.decode("utf-8", "ignore")
+
+
 def classify_kodi_log_window(data: bytes, addon_id: str) -> KodiLogWindow:
-    text = data[-MAX_RETAINED_BYTES:].decode("utf-8", "replace")
+    text = _sanitized_retained_text(data)
     target_patterns = (
         "traceback",
         "importerror",
@@ -372,7 +387,7 @@ def classify_kodi_log_window(data: bytes, addon_id: str) -> KodiLogWindow:
         )
         if target:
             target_count += 1
-            snippet = _sanitize(line)
+            snippet = _sanitize_snippet(line)
             if (
                 len(targets) < MAX_SNIPPETS
                 and sum(len(item.encode()) for item in targets) + len(snippet.encode())

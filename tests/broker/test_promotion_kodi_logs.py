@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from kodi_lab.broker.kodi_logs import (
     MAX_NEW_LOG_BYTES,
+    MAX_RETAINED_BYTES,
     MAX_SNIPPETS,
     KodiLogAuthority,
     KodiLogWindowProvider,
@@ -147,8 +148,13 @@ def test_multiline_traceback_is_correlated_and_snippets_are_bounded() -> None:
         ("Bearer bearer-token-123", "bearer-token-123"),
         ("Authorization: Bearer authorization-token-456", "authorization-token-456"),
         ("api_key=api-value-789", "api-value-789"),
+        ("ApIkEy=apikey-value-012", "apikey-value-012"),
+        ("api-key=api-hyphen-value-345", "api-hyphen-value-345"),
         ("ToKeN: token-value-abc", "token-value-abc"),
+        ("ACCESS_TOKEN=access-value-678", "access-value-678"),
+        ("auth_token: auth-value-901", "auth-value-901"),
         ("password='password-value-def'", "password-value-def"),
+        ("PaSsWd=passwd-value-234", "passwd-value-234"),
         ("secret=secret-value-ghi", "secret-value-ghi"),
         (
             "https://audit-user:audit-password@example.invalid/path",
@@ -211,12 +217,126 @@ def test_secret_at_truncation_boundary_cannot_leak_a_fragment() -> None:
     assert "[REDACTED]" in rendered
 
 
+def test_secret_crossing_retained_window_boundary_is_redacted_before_cut() -> None:
+    secret = "audit-boundary-secret-" + "q" * (MAX_RETAINED_BYTES + 256)
+    result = classify_kodi_log_window(
+        (f"api_key={secret} ERROR plugin.video.example dependency failed\n").encode(),
+        "plugin.video.example",
+    )
+
+    rendered = "\n".join(result.snippets)
+    assert result.classification == "target_errors"
+    assert "[REDACTED]" in rendered
+    assert "audit-boundary-secret" not in rendered
+    assert "q" * 32 not in rendered
+    assert "dependency failed" in rendered
+
+
+def test_secrets_in_different_retained_regions_leave_no_fragments() -> None:
+    first = "first-region-" + "a" * 2_000
+    crossing = "crossing-region-" + "b" * (MAX_RETAINED_BYTES + 128)
+    final = "final-region-" + "c" * 2_000
+    data = (
+        f"NOTICE token={first}\n"
+        f"api-key={crossing} ERROR plugin.video.example dependency failed\n"
+        f"ERROR plugin.video.example passwd={final} service failed\n"
+    ).encode()
+
+    result = classify_kodi_log_window(data, "plugin.video.example")
+    rendered = "\n".join(result.snippets)
+
+    assert result.classification == "target_errors"
+    assert rendered.count("[REDACTED]") >= 2
+    for fragment in ("first-region", "crossing-region", "final-region"):
+        assert fragment not in rendered
+    for repeated in ("a" * 32, "b" * 32, "c" * 32):
+        assert repeated not in rendered
+
+
+def test_secret_before_retained_cut_and_redacted_output_truncation_are_safe() -> None:
+    early = "early-secret-" + "d" * 2_000
+    late = "late-secret-" + "e" * 2_000
+    filler = ("NOTICE ordinary Kodi text\n" * 2_000).encode()
+    data = (
+        f"NOTICE api_key={early}\n".encode()
+        + filler
+        + (
+            "ERROR plugin.video.example "
+            + "x" * 470
+            + f" auth_token={late} dependency failed\n"
+        ).encode()
+    )
+
+    result = classify_kodi_log_window(data, "plugin.video.example")
+    rendered = "\n".join(result.snippets)
+
+    assert len(data) > MAX_RETAINED_BYTES
+    assert all(len(snippet.encode()) <= 512 for snippet in result.snippets)
+    assert "early-secret" not in rendered
+    assert "late-secret" not in rendered
+    assert "d" * 32 not in rendered
+    assert "e" * 32 not in rendered
+
+
+def test_near_scan_limit_secret_is_fully_redacted() -> None:
+    secret = "near-scan-limit-" + "v" * (MAX_NEW_LOG_BYTES - 256)
+    data = (
+        f"api_key={secret} ERROR plugin.video.example importerror dependency failed\n"
+    ).encode()
+    assert len(data) <= MAX_NEW_LOG_BYTES
+
+    result = classify_kodi_log_window(data, "plugin.video.example")
+    rendered = "\n".join(result.snippets)
+
+    assert "[REDACTED]" in rendered
+    assert "near-scan-limit" not in rendered
+    assert "v" * 32 not in rendered
+    assert result.classification == "target_errors"
+
+
+def test_malformed_utf8_inside_secret_is_redacted_before_normalization() -> None:
+    result = classify_kodi_log_window(
+        b"api_key=prefix\xffsuffix ERROR plugin.video.example service failed\n",
+        "plugin.video.example",
+    )
+
+    rendered = "\n".join(result.snippets)
+    assert "[REDACTED]" in rendered
+    assert "prefix" not in rendered
+    assert "suffix" not in rendered
+
+
 def test_ordinary_target_error_text_is_unchanged_by_secret_sanitizer() -> None:
     line = "ERROR plugin.video.example dependency import failed normally"
     result = classify_kodi_log_window(f"{line}\n".encode(), "plugin.video.example")
 
     assert result.snippets == (line,)
     assert result.classification == "target_errors"
+
+
+@pytest.mark.parametrize(
+    "classification_text",
+    [
+        "Traceback: Python exception",
+        "ImportError dependency failed",
+        "ModuleNotFoundError dependency failed",
+        "service failed",
+    ],
+)
+def test_redaction_preserves_target_error_classification(
+    classification_text: str,
+) -> None:
+    result = classify_kodi_log_window(
+        (
+            "NOTICE plugin.video.example token=classification-secret\n"
+            f"{classification_text}\n"
+        ).encode(),
+        "plugin.video.example",
+    )
+
+    assert result.classification == "target_errors"
+    assert result.target_error_count == 1
+    assert "classification-secret" not in "\n".join(result.snippets)
 
 
 def test_post_cursor_scan_ceiling_is_incomplete() -> None:

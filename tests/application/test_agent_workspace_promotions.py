@@ -4,11 +4,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import AddonInventoryQueryStatus
@@ -21,7 +21,10 @@ from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceConflictError,
     AgentWorkspaceService,
 )
-from kodi_lab.application.promotion_verifications import PromotionVerificationService
+from kodi_lab.application.promotion_verifications import (
+    PromotionVerificationError,
+    PromotionVerificationService,
+)
 from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationService,
     StaleOperationReconciliationDispatcher,
@@ -31,6 +34,7 @@ from kodi_lab.broker.development_sources import (
     SqliteDevelopmentSourceDeploymentResolver,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.broker.kodi_logs import classify_kodi_log_window
 from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
 from kodi_lab.kodi.readiness import UsabilityState
 from kodi_lab.storage import Base
@@ -57,7 +61,10 @@ from kodi_lab.storage.models import (
     RuntimeRevisionRow,
     TargetRow,
 )
-from kodi_lab.storage.repositories import DevelopmentSourceRepository
+from kodi_lab.storage.repositories import (
+    AgentWorkspacePromotionHandoffRepository,
+    DevelopmentSourceRepository,
+)
 
 SOURCE_ID = UUID("82000000-0000-4000-8000-000000000001")
 TARGET_ID = UUID("82000000-0000-4000-8000-000000000002")
@@ -78,6 +85,16 @@ class Clock:
 
     def __call__(self) -> datetime:
         return self.now
+
+
+def _verification_publisher(factory: sessionmaker[Session], clock: Clock) -> Any:
+    service = PromotionVerificationService(
+        factory,
+        cast(Any, object()),
+        cast(Any, object()),
+        clock=clock,
+    )
+    return service.publish_durable
 
 
 @dataclass
@@ -297,6 +314,7 @@ def _harness(tmp_path: Path, *, failure_phase: str | None = None) -> Harness:
         factory,
         data_root=data_root,
         development_root=development_root,
+        verification_publisher=_verification_publisher(factory, clock),
         clock=clock,
         uuid_factory=uuid4,
         failure_injector=inject,
@@ -364,6 +382,142 @@ def _promotion_with_durable_child(
         verification_publisher=verification.publish_durable,
         verification_starter=starter,
     )
+
+
+def test_promotion_service_requires_publication_dependency_before_mutation(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+
+    with pytest.raises(TypeError, match="verification_publisher"):
+        AgentWorkspacePromotionService(  # type: ignore[call-arg]
+            harness.factory,
+            data_root=harness.data_root,
+            development_root=harness.source.parent,
+        )
+    with pytest.raises(ValueError, match="verification_publisher is required"):
+        AgentWorkspacePromotionService(
+            harness.factory,
+            data_root=harness.data_root,
+            development_root=harness.source.parent,
+            verification_publisher=None,  # type: ignore[arg-type]
+        )
+
+    assert harness.source.joinpath("main.py").read_text() == "print('old')\n"
+    with harness.factory() as session:
+        assert session.scalar(select(AgentWorkspacePromotionOperationRow)) is None
+
+
+def test_handoff_reservation_failure_rolls_back_source_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _harness(tmp_path)
+    monkeypatch.setattr(
+        AgentWorkspacePromotionHandoffRepository,
+        "reserve_for_verification",
+        lambda _repository, *_args, **_kwargs: False,
+    )
+    _edit(harness)
+    plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+
+    result = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+
+    assert result.state.value == "failed"
+    assert harness.workspaces.get(harness.workspace_id).state.value == "ready"
+    assert harness.source.joinpath("main.py").read_text() == "print('old')\n"
+    with harness.factory() as session:
+        assert session.scalar(select(PromotionVerificationOperationRow)) is None
+        source = session.get(
+            AgentWorkspacePromotionOperationRow, str(result.operation_id)
+        )
+        assert source is not None and source.state.value != "succeeded"
+
+
+def test_double_publication_reuses_sole_child_and_reservation(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+    verification = PromotionVerificationService(
+        harness.factory,
+        cast(Any, object()),
+        cast(Any, object()),
+        clock=harness.clock,
+    )
+    published: list[UUID] = []
+
+    def publish_twice(session: Session, operation_id: UUID) -> UUID:
+        first = verification.publish_durable(session, operation_id)
+        second = verification.publish_durable(session, operation_id)
+        assert second == first
+        published.extend((first, second))
+        return first
+
+    promotions = AgentWorkspacePromotionService(
+        harness.factory,
+        data_root=harness.data_root,
+        development_root=harness.source.parent,
+        verification_publisher=publish_twice,
+        clock=harness.clock,
+    )
+    _edit(harness)
+    plan = promotions.prepare(TARGET_ID, harness.workspace_id)
+    result = promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+
+    assert result.state.value == "succeeded"
+    assert published[0] == published[1]
+    with harness.factory() as session:
+        rows = list(session.scalars(select(PromotionVerificationOperationRow)))
+        handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+        assert len(rows) == 1
+        assert handoff is not None
+        assert handoff.verification_operation_id == rows[0].id
+
+
+def test_queue_and_run_cannot_fabricate_missing_child_after_source_success(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness)
+    plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    source = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+    with harness.factory.begin() as session:
+        child = session.scalar(select(PromotionVerificationOperationRow))
+        assert child is not None
+        session.execute(
+            update(AgentWorkspacePromotionHandoffRow).values(
+                verification_operation_id=None,
+                expected_addon_id=None,
+                expected_name=None,
+                expected_version=None,
+                expected_enabled=None,
+            )
+        )
+        session.execute(delete(ManagedInstanceMutationLeaseRow))
+        session.execute(delete(GlobalHeavyOperationLeaseRow))
+        session.execute(delete(PromotionVerificationOperationRow))
+        session.execute(
+            delete(DevelopmentSourceDeploymentOperationRow).where(
+                DevelopmentSourceDeploymentOperationRow.id
+                == child.deployment_operation_id
+            )
+        )
+    verification = PromotionVerificationService(
+        harness.factory,
+        cast(Any, object()),
+        cast(Any, object()),
+        clock=harness.clock,
+    )
+
+    with pytest.raises(PromotionVerificationError) as missing:
+        verification.queue_and_run(source.operation_id)
+
+    assert missing.value.code == "promotion_verification_missing"
+    with harness.factory() as session:
+        assert session.scalar(select(PromotionVerificationOperationRow)) is None
 
 
 def test_starter_begin_failure_is_durable_and_source_success_is_unchanged(
@@ -598,12 +752,17 @@ def test_success_promotes_workspace_stales_evidence_and_publishes_exact_handoff(
             DevelopmentSourceEnablementOperationRow, str(ENABLEMENT_ID)
         )
         smoke = session.get(DevelopmentSourceSmokeTestOperationRow, str(SMOKE_ID))
+        verification_rows = list(
+            session.scalars(select(PromotionVerificationOperationRow))
+        )
         assert deployment is not None and deployment.confidence.value == "stale"
         assert handoff is not None
         assert handoff.target_instance_id == str(TARGET_ID)
         assert handoff.prior_deployment_operation_id == str(DEPLOYMENT_ID)
         assert handoff.prior_source_digest == SOURCE_DIGEST
         assert handoff.prior_destination_digest == DESTINATION_DIGEST
+        assert len(verification_rows) == 1
+        assert handoff.verification_operation_id == verification_rows[0].id
         assert [item.state.value for item in journals] == ["applied", "applied"]
         assert historical is not None and historical.state.value == "succeeded"
         assert enablement is not None and enablement.state.value == "succeeded"
@@ -615,7 +774,13 @@ def test_success_promotes_workspace_stales_evidence_and_publishes_exact_handoff(
             session.scalar(
                 select(func.count()).select_from(ManagedInstanceMutationLeaseRow)
             )
-            == 0
+            == 1
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(GlobalHeavyOperationLeaseRow)
+            )
+            == 1
         )
 
 
@@ -849,6 +1014,7 @@ def test_verification_failures_never_change_source_success(
     expected: str,
 ) -> None:
     harness = _harness(tmp_path)
+    boundary_secret = "status-boundary-secret-" + "z" * 42_000
     _edit(harness)
     plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
     source_result = harness.promotions.approve_and_execute(
@@ -909,13 +1075,19 @@ def test_verification_failures_never_change_source_success(
             self.state = ContainerRuntimeState.RUNNING
 
         def read_promotion_kodi_log_window(self, **_kwargs: object) -> Any:
+            if log_result == "target_errors":
+                return classify_kodi_log_window(
+                    (
+                        f"api_key={boundary_secret} ERROR "
+                        "plugin.video.example dependency failed\n"
+                    ).encode(),
+                    "plugin.video.example",
+                )
             return SimpleNamespace(
                 classification=log_result,
-                target_error_count=1 if log_result == "target_errors" else 0,
+                target_error_count=0,
                 unrelated_warning_count=0,
-                snippets=["bounded target error"]
-                if log_result == "target_errors"
-                else [],
+                snippets=[],
             )
 
     verification = PromotionVerificationService(
@@ -932,11 +1104,24 @@ def test_verification_failures_never_change_source_success(
     ).queue_and_run(source_result.operation_id)
     assert verification.state.value == expected
     assert (harness.source / "main.py").read_bytes() == source_after_promotion
+    rendered_status = verification.model_dump_json()
+    assert "status-boundary-secret" not in rendered_status
+    assert "z" * 32 not in rendered_status
+    if log_result == "target_errors":
+        assert "[REDACTED]" in rendered_status
     with harness.factory() as session:
         retained = session.get(
             AgentWorkspacePromotionOperationRow, str(source_result.operation_id)
         )
         assert retained is not None and retained.state.value == "succeeded"
+        evidence = session.get(
+            PromotionVerificationLogEvidenceRow, str(verification.verification_id)
+        )
+        assert evidence is not None
+        assert "status-boundary-secret" not in evidence.target_error_snippets_json
+        assert "z" * 32 not in evidence.target_error_snippets_json
+        if log_result == "target_errors":
+            assert "[REDACTED]" in evidence.target_error_snippets_json
 
 
 @pytest.mark.parametrize(
@@ -1342,6 +1527,7 @@ def test_startup_recovery_never_adopts_apparent_success(
         harness.factory,
         data_root=harness.data_root,
         development_root=harness.source.parent,
+        verification_publisher=_verification_publisher(harness.factory, harness.clock),
         clock=harness.clock,
     )
     assert recovered.sweep_startup() == 1
@@ -1406,6 +1592,7 @@ def test_startup_recovery_closes_interrupted_preparing_plan(
         harness.factory,
         data_root=harness.data_root,
         development_root=harness.source.parent,
+        verification_publisher=_verification_publisher(harness.factory, harness.clock),
         clock=harness.clock,
     )
     assert recovered.sweep_startup() == 1

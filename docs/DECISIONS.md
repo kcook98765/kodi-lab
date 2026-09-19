@@ -2682,8 +2682,11 @@ details that it did not specify.
   its private selected-target handoff. Source terminal success, handoff
   publication, verification-child creation, exact reservation, and queued
   coordination commit in one database transaction before fallible verification
-  preflight. The sole verification UUID reserves the handoff without consuming
-  it. The operation captures a fixed
+  preflight. Every promotion-service construction requires this publication
+  collaborator; there is no optional/no-op construction mode. Later dispatch
+  can execute or recover only the already durable child and cannot fabricate a
+  missing child after source success. The sole verification UUID reserves the
+  handoff without consuming it. The operation captures a fixed
   Kodi-log cursor, stops the exact container, performs handoff-bound
   changed/new-only sync, starts the same container, waits for normal readiness,
   proves ID,
@@ -2697,8 +2700,10 @@ details that it did not specify.
   recreate, source rollback, shell, arbitrary JSON-RPC, or generic file read is
   authorized. Ordinary history retains only classifications and counts;
   sanitized bounded target snippets live in a separate private evidence row.
-  Bounded raw acquisition precedes deterministic obvious-secret redaction,
-  control normalization, and truncation. Bearer credentials, common token/key/
+  The complete attributable raw buffer, bounded by the existing 1 MiB scan
+  ceiling, is decoded and deterministically redacted before control
+  normalization, the 40 KiB retained-evidence cut, and snippet truncation.
+  Bearer credentials, common token/key/
   password assignments, credential-like URL userinfo, and obvious token prefixes
   are replaced with `[REDACTED]`. This is not general DLP; raw log bytes are
   transient inside the private broker boundary and never enter normal DTO,

@@ -803,6 +803,9 @@ Completion-audit remediation adds migration
 `0034_phase9_completion_remediation`, atomic source-success/verification-child
 publication, retained nullable live-target history, deterministic obvious-secret
 snippet redaction, and direct privilege-policy coverage for the root-only Phase
-9 validator. These findings are remediated, but **Phase 9 is not formally
-COMPLETE until the formal completion review is rerun.** MCP exposure remains
-later Phase 11/12 work and Phase 10 has not begun.
+9 validator. The second completion review's two remaining blockers are also
+remediated: verification publication is a mandatory service-construction
+dependency with execute-only later dispatch, and redaction now covers the full
+bounded attributable log buffer before its retained-window cut. **Phase 9 is
+not formally COMPLETE until one final completion review is rerun.** MCP
+exposure remains later Phase 11/12 work and Phase 10 has not begun.

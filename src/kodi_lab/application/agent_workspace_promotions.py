@@ -173,14 +173,16 @@ class AgentWorkspacePromotionService:
         *,
         data_root: Path,
         development_root: Path | None,
+        verification_publisher: Callable[[Session, UUID], UUID],
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         uuid_factory: Callable[[], UUID] = uuid4,
         reconciliation_gate: Callable[[UUID], None] | None = None,
         failure_injector: Callable[[str], None] = lambda _phase: None,
-        verification_publisher: Callable[[Session, UUID], UUID] | None = None,
         verification_starter: Callable[[UUID], object] | None = None,
         enabled_state_reader: Callable[[UUID, str], bool] | None = None,
     ) -> None:
+        if verification_publisher is None:
+            raise ValueError("verification_publisher is required")
         self._session_factory = session_factory
         self._data_root = data_root
         self._development_root = development_root
@@ -1082,8 +1084,7 @@ class AgentWorkspacePromotionService:
                         "Promotion success could not be published.",
                     )
                 self._release(session, lease)
-                if self._verification_publisher is not None:
-                    self._verification_publisher(session, lease.operation_id)
+                self._verification_publisher(session, lease.operation_id)
 
         try:
             update_phase(AgentWorkspacePromotionPhase.BACKUP)

@@ -236,7 +236,10 @@ filesystem metadata, or raw exceptions.
 Source terminal success, handoff publication, verification-child creation, and
 reservation of its one selected-target handoff to the exact verification UUID
 commit in one database transaction. Fallible drift and handoff preflight begins
-only after that durable publication. The handoff remains
+only after that durable publication. The promotion service requires its
+publication collaborator at construction, and verification dispatch can only
+execute or recover an existing durable child; it cannot repair success by
+creating one later. The handoff remains
 unconsumed through preflight, cursor, stop, and sync. Only exact sync readback
 and fresh ordinary deployment evidence atomically set both consumption markers;
 deterministic earlier failure and ambiguity remain reserved and non-reusable. A
@@ -254,8 +257,10 @@ incomplete; mutation uncertainty is reconciliation-required. All outcomes
 retain the already succeeded promotion and immutable promoted workspace.
 Web status explicitly separates Source promotion from Kodi verification and
 returns only logical identity, versions, enabled Booleans, classifications,
-counts, and bounded sanitized snippets. Sanitization performs deterministic
-obvious-secret redaction before control normalization and truncation. It covers
+counts, and bounded sanitized snippets. The complete attributable buffer is
+bounded to 1 MiB, decoded, and subjected to deterministic obvious-secret
+redaction before control normalization, the 40 KiB retained-evidence cut, and
+snippet truncation. It covers
 Bearer credentials, common token/password assignments, credential-like URL
 userinfo, and obvious common token prefixes; it is not a general DLP guarantee.
 Raw log bytes remain transient inside the fixed private broker boundary and are
@@ -313,8 +318,10 @@ worker, disk-pressure policy, automatic post-promotion/abandonment cleanup,
 cleanup-all, age/source/status selector, or promotion-backup/log-evidence
 pruning. A later artifact-retention decision must authorize any such policy.
 
-The formal Phase 9 completion-audit blockers have been remediated in code and
-direct regression coverage. Phase 9 is not yet formally COMPLETE: its completion
+The second formal Phase 9 completion review found two remaining structural
+blockers: an optional verification-publication service dependency and redaction
+after the retained-window cut. Both are now remediated in code and direct
+regression coverage. Phase 9 is not yet formally COMPLETE: one final completion
 review must be rerun against this remediation. MCP exposure remains later Phase
 11/12 work. Delete, rename, move, mkdir, binary write, type transition, shell,
 and Git remain absent by design.
