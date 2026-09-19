@@ -32,6 +32,8 @@ from kodi_lab.domain import (
 from kodi_lab.storage.repositories import (
     AgentWorkspaceCreationOperationRepository,
     AgentWorkspaceMutationEventRepository,
+    AgentWorkspacePromotionOperationRepository,
+    AgentWorkspacePromotionPlanRepository,
     AgentWorkspaceRepository,
     DevelopmentSourceRepository,
     GlobalHeavyOperationLeaseRepository,
@@ -478,6 +480,18 @@ class AgentWorkspaceService:
         self, workspace_id: UUID, expected_generation: int
     ) -> AgentWorkspace:
         workspace = self._require_ready(workspace_id)
+        with self._session_factory.begin() as session:
+            active_plan = AgentWorkspacePromotionPlanRepository(
+                session
+            ).active_for_workspace(workspace_id, now=self._clock())
+            active_operation = AgentWorkspacePromotionOperationRepository(
+                session
+            ).active_for_workspace(workspace_id)
+        if active_plan is not None or active_operation is not None:
+            raise AgentWorkspaceConflictError(
+                "agent_workspace_promotion_active",
+                "Workspace has an active promotion review or execution.",
+            )
         if workspace.generation != expected_generation:
             raise AgentWorkspaceConflictError(
                 "agent_workspace_generation_conflict",

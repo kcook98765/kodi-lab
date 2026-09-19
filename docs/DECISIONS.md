@@ -2623,3 +2623,75 @@ details that it did not specify.
   to already existing safe directories. Recovery-only removal of an exactly
   proven just-created postimage and restoration of a private exact preimage are
   internal atomicity mechanisms, not caller operations.
+
+## D-0207: Canonical source promotion is an exact reviewed three-way operation
+
+- Status: approved and implemented for Phase 9 Slice 3
+- Eligibility: only added and modified UTF-8 single-link regular files are
+  promotable. Delete, rename, directory creation, binary mutation, object-type
+  transition, mode-only transition, and whole-tree replacement are rejected.
+- Decision: a private 15-minute plan compares immutable workspace baseline,
+  fresh complete DevelopmentSource capture, and the exact current workspace
+  generation/tree. A modification is clean only while source type, bytes, and
+  normalized executable identity equal baseline. An addition is clean only
+  while absent beneath existing safe directories. Unrelated safe source adds,
+  modifications, and deletions do not conflict; any unsafe source object does.
+  Root `addon.xml` may change valid metadata but the effective promoted add-on
+  ID must equal immutable registered identity. There is no XML merge.
+- Review and approval: at most 100 files and 4 MiB total complete before/after
+  UTF-8 text are persisted privately and returned within an 8 MiB encoded
+  envelope. Truncation can never authorize promotion. The strict administrator
+  flow is empty-body plan creation followed by immediate
+  `{"confirmed": true}` approval. Approval binds exactly one target and one
+  source operation and is permanently single-use once application starts.
+
+## D-0208: Promotion source writes use unprivileged exact filesystem authority
+
+- Status: approved and implemented for Phase 9 Slice 3
+- Permission: registration never changes ownership or mode. Planning classifies
+  a readable source separately from one actually writable by the effective
+  application account, including every affected existing parent. Missing
+  provisioning fails closed. Promotion uses no broker/root helper, Git, shell,
+  Docker, or Kodi operation.
+- Backup and apply: before first canonical mutation, a private operation/UUID
+  backup records exact modified-file bytes and normalized mode or an addition's
+  absence marker, then verifies publication. Fixed server-derived relative
+  paths apply in UTF-8 lexical order through descriptor-relative no-follow
+  traversal with no parent creation. Added files require Linux
+  `renameat2(RENAME_NOREPLACE)`. Modified files require
+  `renameat2(RENAME_EXCHANGE)`, followed by exact displaced-preimage proof;
+  absence of the primitive fails closed.
+- Failure: durable per-path journal states distinguish not attempted, applied,
+  rolled back, and uncertain. Reverse rollback restores a modification only
+  while its operation postimage is exact and removes an addition only while
+  operation-bound rollback proves both prior absence and the exact created
+  postimage. Exact restoration is an ordinary failure; ambiguity becomes
+  reconciliation-required. Startup never adopts apparent success or retries an
+  interrupted application.
+
+## D-0209: Post-promotion Kodi verification remains a separate bounded stage
+
+- Status: approved architecture; not implemented in Phase 9 Slice 3
+- Boundary: Slice 3 performs no stop, copy/sync, start, inventory verification,
+  log read, broker call, Docker action, or Kodi action. A later Kodi validation
+  failure will not automatically undo a successful canonical source promotion.
+  Slice 4 remains required before canonical Phase 9 patch-back is complete.
+
+## D-0210: Promotion state and evidence cross the source boundary explicitly
+
+- Status: Slice 3 subset approved and implemented; Slice 4 verification remains
+  unimplemented
+- Decision: successful source application makes the workspace durably
+  `promoted` and immutable, retains its history, preserves DevelopmentSource
+  UUID/add-on ID, and makes every prior deployment-confidence row for that
+  source stale. Enablement, smoke, and deployment operation history remain
+  immutable history but do not prove the promoted tree.
+- Handoff and coordination: immediately before staling evidence, Slice 3 writes
+  one private promotion/target/source/runtime/container/prior-deployment-bound
+  handoff for Slice 4. It is not generic current deployment confidence and has
+  no public copy/sync authority. Per-workspace plan/operation exclusion,
+  per-source promotion ownership, selected-target mutation ownership, and a
+  global-heavy lease serialize capture/backup/apply against relevant mutation,
+  deployment, attachment, lifecycle, reassignment, and deletion work. Complete
+  rollback leaves the workspace ready; unresolved source state makes it
+  reconciliation-required.

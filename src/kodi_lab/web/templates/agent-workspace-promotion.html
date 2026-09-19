@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Workspace promotion review · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body><main>
+    <h1>Exact source promotion review</h1>
+    <dl>
+      <dt>Workspace provenance name</dt><dd>{{ plan.workspace_logical_name }}</dd>
+      <dt>Canonical source</dt><dd>{{ plan.source_logical_name }}</dd>
+      <dt>Verification target</dt><dd>{{ plan.verification_target_name }}</dd>
+      <dt>Add-on ID</dt><dd>{{ plan.addon_id }}</dd>
+      <dt>Version</dt><dd>{{ plan.current_version }} → {{ plan.promoted_version }}</dd>
+      <dt>Plan state</dt><dd>{{ plan.state.value }}</dd>
+      <dt>Review bounds</dt><dd>{{ plan.changed_file_count }}/{{ plan.review_file_limit }} files; {{ plan.review_text_bytes }}/{{ plan.review_text_limit_bytes }} UTF-8 bytes</dd>
+    </dl>
+    {% for change in plan.changes %}
+    <article>
+      <h2>{{ change.path }} — {{ change.change_kind.value }}</h2>
+      {% if change.conflict_reason %}<p class="error">Conflict: {{ change.conflict_reason }}</p>{% endif %}
+      <h3>Exact complete before text</h3>
+      {% if change.before_text is none %}<p>Absent.</p>{% else %}<pre>{{ change.before_text }}</pre>{% endif %}
+      <h3>Exact complete after text</h3><pre>{{ change.after_text }}</pre>
+    </article>
+    {% endfor %}
+    <p>{{ plan.rollback_notice }}</p>
+    <p><strong>{{ plan.kodi_verification_notice }}</strong></p>
+    {% if plan.state.value == "reviewable" %}
+    <section id="promotion-approval" data-instance-id="{{ plan.verification_target_id }}" data-workspace-id="{{ plan.workspace_id }}" data-plan-id="{{ plan.plan_id }}" data-csrf="{{ csrf_token }}">
+      <button id="approve-promotion" type="button">Confirm and apply reviewed source changes</button>
+      <p id="promotion-approval-result" role="status"></p>
+    </section>
+    {% endif %}
+    <p><a href="/agent-workspaces/{{ plan.workspace_id }}">Back to workspace</a></p>
+    <script src="{{ url_for('static', path='/agent-workspace-promotion.js') }}" defer></script>
+  </main></body>
+</html>

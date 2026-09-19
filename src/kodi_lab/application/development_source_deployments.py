@@ -52,6 +52,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.storage.repositories import (
     AddonZipInstallationEvidenceRepository,
+    AgentWorkspacePromotionOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
@@ -177,9 +178,17 @@ class DevelopmentSourceDeploymentOperationCoordinator:
             attachment = ManagedInstanceDevelopmentSourceRepository(session).get(
                 instance_id, source_id
             )
+            promotion_reconciliation = AgentWorkspacePromotionOperationRepository(
+                session
+            ).reconciliation_for_source(source_id)
         if instance is None or source is None or attachment is None:
             raise DevelopmentSourceDeploymentUnsupportedError(
                 "An attached development source is required."
+            )
+        if promotion_reconciliation:
+            raise DevelopmentSourceDeploymentConflictError(
+                "Development source promotion requires reconciliation.",
+                code="promotion_source_reconciliation_required",
             )
         if instance.instance_type is not InstanceType.DISPOSABLE:
             raise DevelopmentSourceDeploymentUnsupportedError(

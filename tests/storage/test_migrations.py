@@ -50,11 +50,17 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "addon_zip_smoke_test_operations",
         "agent_workspace_creation_operations",
         "agent_workspace_mutation_events",
+        "agent_workspace_promotion_handoffs",
+        "agent_workspace_promotion_journal",
+        "agent_workspace_promotion_operations",
+        "agent_workspace_promotion_plan_paths",
+        "agent_workspace_promotion_plans",
         "agent_workspaces",
         "alembic_version",
         "development_source_attachment_operations",
         "development_source_deployment_operations",
         "development_source_deployments",
+        "development_source_promotion_leases",
         "development_source_enablement_operations",
         "development_source_smoke_test_operations",
         "development_sources",
@@ -2992,3 +2998,90 @@ def test_0030_workspace_mutation_activity_round_trip_and_guard(
     engine.dispose()
     with pytest.raises(RuntimeError, match="workspace mutation history"):
         command.downgrade(config, "0029_agent_workspaces")
+
+
+def test_0031_workspace_promotion_schema_round_trip_constraints_and_guard(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0030_agent_workspace_mutations")
+    engine = create_database_engine(database_url)
+    assert "agent_workspace_promotion_plans" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    expected = {
+        "agent_workspace_promotion_plans",
+        "agent_workspace_promotion_plan_paths",
+        "agent_workspace_promotion_operations",
+        "agent_workspace_promotion_journal",
+        "development_source_promotion_leases",
+        "agent_workspace_promotion_handoffs",
+    }
+    assert expected <= set(inspector.get_table_names())
+    plan_checks = " ".join(
+        str(item["sqltext"])
+        for item in inspector.get_check_constraints("agent_workspace_promotion_plans")
+    )
+    assert "changed_file_count BETWEEN 1 AND 100" in plan_checks
+    assert "review_text_bytes BETWEEN 0 AND 4194304" in plan_checks
+    workspace_checks = " ".join(
+        str(item["sqltext"])
+        for item in inspector.get_check_constraints("agent_workspaces")
+    )
+    assert "promoted" in workspace_checks
+    mutation_checks = " ".join(
+        str(item["sqltext"])
+        for item in inspector.get_check_constraints("managed_instance_mutation_leases")
+    )
+    heavy_checks = " ".join(
+        str(item["sqltext"])
+        for item in inspector.get_check_constraints("global_heavy_operation_lease")
+    )
+    assert "agent_workspace_promotion" in mutation_checks
+    assert "agent_workspace_promotion" in heavy_checks
+    assert inspector.get_foreign_keys("agent_workspace_promotion_handoffs")
+    engine.dispose()
+
+    command.downgrade(config, "0030_agent_workspace_mutations")
+    engine = create_database_engine(database_url)
+    assert expected.isdisjoint(inspect(engine).get_table_names())
+    engine.dispose()
+    command.upgrade(config, "head")
+    command.check(config)
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        timestamp = "2026-09-18T12:00:00+00:00"
+        source_id = "a9310000-0000-4000-8000-000000000001"
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id,logical_name,source_kind,relative_locator,addon_id,observed_name,"
+                "observed_version,extension_types_json,registered_at,validated_at) "
+                "VALUES (:id,'Source','local_directory','source','plugin.video.source',"
+                "'Source','1.0','[\"xbmc.python.pluginsource\"]',:time,:time)"
+            ),
+            {"id": source_id, "time": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspaces "
+                "(id,development_source_id,source_addon_id,source_logical_name,"
+                "source_observed_name,source_observed_version,state,baseline_artifact_id,"
+                "generation,capture_started_at,created_at,updated_at) VALUES "
+                "(:id,:source,'plugin.video.source','Source','Source','1.0','promoted',"
+                ":baseline,1,:time,:time,:time)"
+            ),
+            {
+                "id": "a9310000-0000-4000-8000-000000000002",
+                "source": source_id,
+                "baseline": "a9310000-0000-4000-8000-000000000003",
+                "time": timestamp,
+            },
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated agent workspace promotion"):
+        command.downgrade(config, "0030_agent_workspace_mutations")

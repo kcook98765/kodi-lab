@@ -18,6 +18,7 @@ from kodi_lab.domain.runtime_catalog import normalize_sha256_digest
 class AgentWorkspaceState(StrEnum):
     CREATING = "creating"
     READY = "ready"
+    PROMOTED = "promoted"
     ABANDONED = "abandoned"
     RECONCILIATION_REQUIRED = "reconciliation_required"
 

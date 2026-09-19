@@ -1,4 +1,4 @@
-# Phase 9 Slices 1–2 — Protected Agent Workspaces
+# Phase 9 Slices 1–3 — Protected Agent Workspaces
 
 ## Boundary
 
@@ -11,9 +11,10 @@ eligible inputs.
 
 No Git command executes. VCS administration directories are excluded from
 source capture and rejected if injected into a mutable workspace. Slice 2 adds
-only bounded workspace text mutation and derived changes. There is no
-promotion, source mutation, Kodi integration, broker call, Docker access, MCP
-exposure, or cleanup API.
+bounded workspace text mutation and derived changes. Slice 3 adds only reviewed
+promotion of eligible UTF-8 file additions/modifications into that registered
+source. There is no Kodi integration, broker call, Docker access, MCP exposure,
+or cleanup API.
 
 ## Durable model and layout
 
@@ -140,11 +141,99 @@ published generation, create/replace/patch kind, normalized relative path, and
 time. It stores no content, preview, digest, host path, source locator, inode,
 ownership, or raw error.
 
+## Slice 3 plan and exact three-way review
+
+A plan binds one ready workspace, its immutable baseline, exact current
+generation/tree, a fresh complete source capture, immutable add-on ID, and one
+administrator-selected eligible ManagedInstance. Target eligibility requires a
+running/ready disposable instance, the source attachment, exact same-runtime and
+same-container retained verified deployment evidence, and no reconciliation or
+mutation blocker. These are future Slice 4 preconditions; planning invokes no
+runtime or Kodi operation.
+
+Only added and byte-modified strict UTF-8 regular files are candidates. A
+modification is clean only when source type, bytes, and normalized executable
+mode still equal baseline. An addition is clean only when absent from source and
+all parents are safe existing directories. Delete, rename, mkdir, binary
+mutation, type transition, mode-only transition, and whole-tree replacement
+are rejected. Safe unrelated source modification/addition/deletion remains
+allowed; any unsafe source object blocks the whole plan. Effective promoted
+`addon.xml` must retain registered ID, while valid name/version/provider,
+extension, dependency, and service metadata edits remain eligible without XML
+merge.
+
+Review retains complete before/after text privately for at most 100 changed
+files, with the existing 2 MiB per-file text bound, a 4 MiB aggregate review
+bound, and an 8 MiB encoded response bound. `promotion_review_too_large` leaves
+the workspace valid. Plans become reviewable for 15 minutes and persist exact
+pre/post identities, classifications, target preconditions, source capture,
+and expiration/state. Conflicts are visible by relative path but cannot be
+approved. No truncated content authorizes execution.
+
+## Slice 3 permission, backup, apply, and rollback
+
+The registered source is promotion-enabled only when the effective non-root
+application account can actually write/search its root and all affected
+parents. Readable-only sources are classified separately and fail closed.
+Registration does not chmod, chown, or grant authority. There is no root helper,
+broker, Git, shell, Docker, or Kodi fallback.
+
+Execution repeats workspace and complete source validation. It accepts no
+caller paths: source root and lexical affected path set come from the plan.
+Before first mutation it publishes and verifies a private UUID-derived backup
+containing exact modified-file preimages/modes and absent markers for additions.
+The durable application marker then consumes approval. Descriptor-relative
+`O_NOFOLLOW` traversal creates no parents. Adds require Linux
+`renameat2(RENAME_NOREPLACE)`; modifications require `RENAME_EXCHANGE` and
+exact displaced-preimage verification. Unsupported filesystems fail closed.
+
+The durable content-free journal records not-attempted, applied, rolled-back,
+or uncertain per path. Failure after mutation rolls back in reverse order only
+while exact operation postimages remain. Added-file removal is confined to this
+operation-bound rollback and requires prior absence plus the exact created
+postimage. Complete recapture must prove original affected state. Exact rollback
+is an ordinary failed operation and leaves workspace ready; uncertainty makes
+workspace and operation reconciliation-required. An interrupted prior-process
+operation is never retried or inferred successful from source appearance.
+
+## Slice 3 success and evidence boundary
+
+Before source deployment confidence is staled, success stores one private exact
+handoff bound to promotion, selected target, source, runtime/container, prior
+deployment operation, and prior source/destination evidence. It cannot authorize
+another target or arbitrary copy/sync and is not public current-confidence
+evidence. Every deployment-confidence row for the promoted source becomes
+stale. Historical deployment, enablement, and smoke operations remain unchanged
+but do not prove the current source tree.
+
+The workspace becomes durably `promoted`, remains retained, and can no longer
+create/replace/patch or promote again. Only ready workspaces mutate; creating,
+promoted, abandoned, and reconciliation-required states reject edits. Planning
+and execution use per-workspace exclusion, per-source promotion ownership, the
+selected target's mutation lease, and global-heavy ownership in fixed order.
+This conflicts with workspace mutation, same-source promotion, copy/sync, and
+selected-target attachment/lifecycle/reassignment/deletion work.
+
+The authenticated Web workflow creates a plan with a strict empty body, shows
+the complete exact review, and accepts only immediate `{"confirmed": true}`.
+It exposes logical names, safe semantic UUIDs, add-on/version metadata, relative
+changed paths, complete review text, bounds, and rollback/staging notices. It
+does not expose absolute/storage/backup paths, internal hashes, container IDs,
+filesystem metadata, or raw exceptions.
+
+**Kodi verification occurs in the next bounded stage and a later Kodi
+validation failure will not automatically undo a successful source promotion.**
+
+Phase 9 canonical patch-back remains incomplete until Slice 4 implements
+D-0209 post-apply Kodi stopped copy/sync, start, inventory/provenance
+verification, and approved diagnostics.
+
 ## Remaining Phase 9 work
 
 Canonical read, directory inspection, bounded text write/create/replace, exact
 patch editing, and derived workspace change review are implemented.
-Conflict-aware reviewed promotion to the original DevelopmentSource, promotion
-backup/application, Kodi copy/sync/reload/verification, diagnostics, MCP
-exposure, and cleanup/abandon mutation remain later work. Delete, rename, move,
+Conflict-aware reviewed promotion, exact source backup/application, promoted
+state, evidence staling, and the private selected-target handoff are implemented.
+Slice 4 Kodi copy/sync/reload/verification and diagnostics, MCP exposure, and
+workspace cleanup/retention mutation remain later work. Delete, rename, move,
 mkdir, binary write, type transition, shell, and Git remain absent by design.

@@ -28,9 +28,17 @@
     {% for change in changes.changes %}<article><h3>{{ change.path }} — {{ change.change_kind }}</h3><p>{{ change.baseline_size if change.baseline_size is not none else "absent" }} → {{ change.current_size }} bytes</p>{% if change.before_preview is not none %}<h4>Before{% if change.before_truncated %} (preview truncated){% endif %}</h4><pre>{{ change.before_preview }}</pre>{% endif %}<h4>After{% if change.after_truncated %} (preview truncated){% endif %}</h4><pre>{{ change.after_preview }}</pre></article>{% endfor %}
     <h2>Workspace activity</h2>
     <ul>{% for item in activity %}<li>Generation {{ item.generation }}: {{ item.operation }} {{ item.path }}</li>{% else %}<li>No workspace mutations.</li>{% endfor %}</ul>
+    <section id="workspace-promotion" data-workspace-id="{{ workspace.id }}" data-csrf="{{ csrf_token }}">
+      <h2>Promote reviewed changes</h2>
+      {% if promotion_targets %}
+      <p><label>Future verification target <select id="promotion-target">{% for target in promotion_targets %}<option value="{{ target.id }}">{{ target.name }}</option>{% endfor %}</select></label> <button id="prepare-promotion" type="button">Prepare exact promotion review</button></p>
+      <p id="promotion-result" role="status"></p>
+      {% else %}<p>No eligible running target has an exact retained verified deployment of this source.</p>{% endif %}
+    </section>
     {% endif %}
-    <p class="secondary">Edits are limited to existing workspace directories and UTF-8 files. Delete, rename, mkdir, promotion, Git, MCP, and Kodi actions are not available.</p>
+    <p class="secondary">Edits are limited to existing workspace directories and UTF-8 files. Delete, rename, mkdir, Git, MCP, and Kodi actions are not available.</p>
     <p><a href="/agent-workspaces">Back to workspaces</a></p>
     <script src="{{ url_for('static', path='/agent-workspace-edit.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/agent-workspace-promotion.js') }}" defer></script>
   </main></body>
 </html>

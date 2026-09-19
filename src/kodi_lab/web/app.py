@@ -86,6 +86,14 @@ from kodi_lab.application.addon_zip_smoke_tests import (
     AddonZipSmokeTestServiceFactory,
     AddonZipSmokeTestStatus,
 )
+from kodi_lab.application.agent_workspace_promotions import (
+    AgentWorkspacePromotionConflictError,
+    AgentWorkspacePromotionError,
+    AgentWorkspacePromotionOperationStatus,
+    AgentWorkspacePromotionPlanRead,
+    AgentWorkspacePromotionService,
+    AgentWorkspacePromotionTargetRead,
+)
 from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceActivityRead,
     AgentWorkspaceChangesRead,
@@ -184,6 +192,7 @@ from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationRequiredError,
     ManagedInstanceReconciliationService,
     ManagedInstanceReconciliationStatus,
+    ReconciliationAction,
     SnapshotReconciliationService,
     SnapshotReconciliationStatus,
     StaleOperationReconciliationDispatcher,
@@ -518,6 +527,13 @@ class RepositoryReplacementAccepted(BaseModel):
     status_url: str
 
 
+class AgentWorkspacePromotionConfirmationRequest(BaseModel):
+    """One immediate confirmation bit and no source-write authority."""
+
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
+
+
 class SnapshotCreateRequest(BaseModel):
     """Optional display metadata with no storage or runtime authority."""
 
@@ -627,6 +643,7 @@ class WebApplicationContext:
     repository_replacement_executor: RepositoryReplacementExecutor
     agent_workspaces: AgentWorkspaceService
     agent_workspace_executor: AgentWorkspaceCreationExecutor
+    agent_workspace_promotions: AgentWorkspacePromotionService
 
 
 def create_app(
@@ -674,6 +691,7 @@ def create_app(
         RepositoryReplacementServiceFactory | None
     ) = None,
     agent_workspace_service: AgentWorkspaceService | None = None,
+    agent_workspace_promotion_service: AgentWorkspacePromotionService | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -972,6 +990,21 @@ def create_app(
         development_root=settings.development_root,
     )
     agent_workspace_executor = AgentWorkspaceCreationExecutor(agent_workspaces)
+
+    def require_promotion_reconciliation(instance_id: UUID) -> None:
+        reconciliation.require_allowed(
+            instance_id, ReconciliationAction.AGENT_WORKSPACE_PROMOTION
+        )
+
+    agent_workspace_promotions = (
+        agent_workspace_promotion_service
+        or AgentWorkspacePromotionService(
+            session_factory,
+            data_root=settings.data_root,
+            development_root=settings.development_root,
+            reconciliation_gate=require_promotion_reconciliation,
+        )
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -1053,10 +1086,12 @@ def create_app(
         repository_replacement_executor=repository_replacement_executor,
         agent_workspaces=agent_workspaces,
         agent_workspace_executor=agent_workspace_executor,
+        agent_workspace_promotions=agent_workspace_promotions,
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        context.agent_workspace_promotions.sweep_startup()
         context.stale_dispatcher.sweep_startup()
         context.reset_executor.start()
         context.snapshot_executor.start()
@@ -1180,6 +1215,19 @@ def create_app(
         http_status = 409 if isinstance(error, AgentWorkspaceConflictError) else 422
         return _json_error(http_status, error.code, error.safe_message)
 
+    @app.exception_handler(AgentWorkspacePromotionError)
+    async def agent_workspace_promotion_failed(
+        _request: Request, error: AgentWorkspacePromotionError
+    ) -> JSONResponse:
+        http_status = (
+            409
+            if isinstance(error, AgentWorkspacePromotionConflictError)
+            else 404
+            if error.code.endswith("not_found")
+            else 422
+        )
+        return _json_error(http_status, error.code, error.safe_message)
+
     @app.exception_handler(AddonRepositoryNotFoundError)
     async def addon_repository_not_found(
         _request: Request, error: AddonRepositoryNotFoundError
@@ -1226,6 +1274,7 @@ def create_app(
             or "/addon-repositories/" in path
             or "/repository-artifacts/" in path
             or "/replacement-plans/" in path
+            or "/promotion-plans" in path
             or (
                 "/development-sources/" in path
                 and path.endswith(("/attach", "/detach"))
@@ -1763,8 +1812,33 @@ def create_app(
                 "entries": entries,
                 "changes": changes,
                 "activity": activity,
+                "promotion_targets": (
+                    context.agent_workspace_promotions.eligible_targets(workspace_id)
+                    if workspace.state.value == "ready"
+                    else []
+                ),
                 "csrf_token": authenticated.csrf_token,
             },
+        )
+
+    @app.get(
+        "/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans/{plan_id}",
+        response_class=HTMLResponse,
+    )
+    async def agent_workspace_promotion_review_page(
+        request: Request, instance_id: UUID, workspace_id: UUID, plan_id: UUID
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        plan = context.agent_workspace_promotions.get_plan(
+            instance_id, workspace_id, plan_id
+        )
+        return templates.TemplateResponse(
+            request,
+            "agent-workspace-promotion.html",
+            {"plan": plan, "csrf_token": authenticated.csrf_token},
         )
 
     @app.get("/addon-zips", response_class=HTMLResponse)
@@ -2268,6 +2342,73 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[AgentWorkspaceActivityRead]:
         return context.agent_workspaces.list_activity(workspace_id)
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/promotion-targets",
+        response_model=list[AgentWorkspacePromotionTargetRead],
+    )
+    def list_agent_workspace_promotion_targets(
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[AgentWorkspacePromotionTargetRead]:
+        return context.agent_workspace_promotions.eligible_targets(workspace_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans",
+        response_model=AgentWorkspacePromotionPlanRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def prepare_agent_workspace_promotion(
+        instance_id: UUID,
+        workspace_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AgentWorkspacePromotionPlanRead:
+        return context.agent_workspace_promotions.prepare(instance_id, workspace_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans/{plan_id}",
+        response_model=AgentWorkspacePromotionPlanRead,
+    )
+    def get_agent_workspace_promotion_plan(
+        instance_id: UUID,
+        workspace_id: UUID,
+        plan_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AgentWorkspacePromotionPlanRead:
+        return context.agent_workspace_promotions.get_plan(
+            instance_id, workspace_id, plan_id
+        )
+
+    @app.post(
+        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans/{plan_id}/approve-and-execute",
+        response_model=AgentWorkspacePromotionOperationStatus,
+        status_code=status.HTTP_200_OK,
+    )
+    def approve_agent_workspace_promotion(
+        instance_id: UUID,
+        workspace_id: UUID,
+        plan_id: UUID,
+        _body: AgentWorkspacePromotionConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AgentWorkspacePromotionOperationStatus:
+        return context.agent_workspace_promotions.approve_and_execute(
+            instance_id, workspace_id, plan_id
+        )
+
+    @app.get(
+        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-operations/{operation_id}",
+        response_model=AgentWorkspacePromotionOperationStatus,
+    )
+    def get_agent_workspace_promotion_operation(
+        instance_id: UUID,
+        workspace_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> AgentWorkspacePromotionOperationStatus:
+        return context.agent_workspace_promotions.get_operation(
+            instance_id, workspace_id, operation_id
+        )
 
     @app.get("/api/addon-repositories", response_model=list[AddonRepositorySourceRead])
     def list_addon_repositories(

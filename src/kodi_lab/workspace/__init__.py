@@ -1,5 +1,13 @@
 """Unprivileged protected agent-workspace storage."""
 
+from kodi_lab.workspace.promotion import (
+    AgentWorkspacePromotionStorageError,
+    PromotionPathMaterial,
+    PromotionReviewMaterial,
+    execute_promotion,
+    prepare_promotion_review,
+    prove_promotion_preimages,
+)
 from kodi_lab.workspace.storage import (
     MAX_CHANGE_PREVIEW_BYTES,
     MAX_DIRECTORY_ENTRIES,
@@ -24,8 +32,11 @@ __all__ = [
     "MAX_CHANGE_PREVIEW_BYTES",
     "MAX_DIRECTORY_ENTRIES",
     "MAX_TEXT_READ_BYTES",
+    "AgentWorkspacePromotionStorageError",
     "AgentWorkspaceReconciliationRequired",
     "AgentWorkspaceStorageError",
+    "PromotionPathMaterial",
+    "PromotionReviewMaterial",
     "WorkspaceChange",
     "WorkspaceCreationResult",
     "WorkspaceDiff",
@@ -33,8 +44,11 @@ __all__ = [
     "WorkspaceTreeEntry",
     "create_workspace_storage",
     "derive_workspace_diff",
+    "execute_promotion",
     "inspect_workspace_directory",
     "mutate_workspace_text",
+    "prepare_promotion_review",
+    "prove_promotion_preimages",
     "read_workspace_text",
     "remove_unpublished_workspace_storage",
     "workspace_baseline_published",

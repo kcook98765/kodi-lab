@@ -132,6 +132,7 @@ class ManagedInstanceMutationKind(StrEnum):
     ADDON_REPOSITORY_ATTACHMENT = "addon_repository_attachment"
     ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
     REPOSITORY_REPLACEMENT = "repository_replacement"
+    AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
 
 
 class GlobalHeavyOperationKind(StrEnum):
@@ -147,6 +148,7 @@ class GlobalHeavyOperationKind(StrEnum):
     ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
     REPOSITORY_REPLACEMENT = "repository_replacement"
     AGENT_WORKSPACE_CREATION = "agent_workspace_creation"
+    AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
 
 
 def normalize_snapshot_label(value: str | None) -> str | None:

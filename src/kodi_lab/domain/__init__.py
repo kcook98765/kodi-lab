@@ -46,6 +46,16 @@ from kodi_lab.domain.addon_zips import (
     AddonZipPayloadVerificationOutcome,
     AddonZipValidationState,
 )
+from kodi_lab.domain.agent_workspace_promotions import (
+    AgentWorkspacePromotionChangeKind,
+    AgentWorkspacePromotionHandoff,
+    AgentWorkspacePromotionJournalState,
+    AgentWorkspacePromotionOperation,
+    AgentWorkspacePromotionOperationState,
+    AgentWorkspacePromotionPhase,
+    AgentWorkspacePromotionPlan,
+    AgentWorkspacePromotionPlanState,
+)
 from kodi_lab.domain.agent_workspaces import (
     AgentWorkspace,
     AgentWorkspaceCreationOperation,
@@ -245,6 +255,14 @@ __all__ = [
     "AgentWorkspaceCreationState",
     "AgentWorkspaceMutationEvent",
     "AgentWorkspaceMutationKind",
+    "AgentWorkspacePromotionChangeKind",
+    "AgentWorkspacePromotionHandoff",
+    "AgentWorkspacePromotionJournalState",
+    "AgentWorkspacePromotionOperation",
+    "AgentWorkspacePromotionOperationState",
+    "AgentWorkspacePromotionPhase",
+    "AgentWorkspacePromotionPlan",
+    "AgentWorkspacePromotionPlanState",
     "AgentWorkspaceState",
     "ConnectionState",
     "DevelopmentSource",

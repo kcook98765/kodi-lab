@@ -768,8 +768,18 @@ rewriting immutable provenance. Unexpected deletion, binary change, unsafe
 object, VCS administration directory, type change, or digest drift fails closed;
 uncertain filesystem/metadata agreement becomes reconciliation-required.
 
-Canonical Phase 9 remains partial. Reviewed conflict-aware promotion back to
-the registered DevelopmentSource, promotion backup/application, subsequent
-copy/sync/reload/verification, Kodi integration, MCP exposure, and workspace
-cleanup/abandon mutation remain unimplemented. D-0205 and D-0206 are the only
-Slice 2 decisions recorded as implemented.
+Slice 3 implements D-0207, D-0208, and the source-side subset of D-0210.
+Migration `0031_agent_workspace_promotions` provides exact three-way private
+plans and complete review, 15-minute single-use approval, an unprivileged
+permission-gated source apply, exact private backup, multi-file journal,
+conditional reverse rollback, restart reconciliation, promoted workspace state,
+source deployment-confidence staling, and one exact selected-target sync
+handoff. Fixed per-workspace, per-source, target, and global-heavy coordination
+protects planning and execution. The Web flow exposes no source/storage paths,
+digests, container identities, filesystem metadata, or generic write controls.
+
+Canonical Phase 9 patch-back remains incomplete. D-0209 is not implemented:
+Slice 4 must consume the private handoff for bounded stopped copy/sync, restart,
+Kodi inventory/provenance verification, and approved diagnostics without
+automatically reversing a successful source promotion. MCP exposure and
+workspace cleanup/retention mutation also remain later work.

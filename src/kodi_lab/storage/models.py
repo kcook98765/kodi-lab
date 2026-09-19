@@ -47,6 +47,11 @@ from kodi_lab.domain import (
     AgentWorkspaceCreationPhase,
     AgentWorkspaceCreationState,
     AgentWorkspaceMutationKind,
+    AgentWorkspacePromotionChangeKind,
+    AgentWorkspacePromotionJournalState,
+    AgentWorkspacePromotionOperationState,
+    AgentWorkspacePromotionPhase,
+    AgentWorkspacePromotionPlanState,
     AgentWorkspaceState,
     ConnectionState,
     DevelopmentSourceAttachmentOperationKind,
@@ -356,6 +361,335 @@ class AgentWorkspaceMutationEventRow(Base):
     )
     relative_path: Mapped[str] = mapped_column(String(512), nullable=False)
     occurred_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class AgentWorkspacePromotionPlanRow(Base):
+    """Private exact review plan bound to workspace, source, and future target."""
+
+    __tablename__ = "agent_workspace_promotion_plans"
+    __table_args__ = (
+        CheckConstraint(
+            "workspace_generation >= 0", name="workspace_promotion_generation"
+        ),
+        CheckConstraint(
+            "changed_file_count BETWEEN 1 AND 100 AND "
+            "review_text_bytes BETWEEN 0 AND 4194304",
+            name="workspace_promotion_review_bounds",
+        ),
+        CheckConstraint(
+            "length(workspace_digest)=71 AND length(baseline_digest)=71 AND "
+            "length(source_capture_digest)=71 AND length(target_source_digest)=71 "
+            "AND length(target_destination_digest)=71",
+            name="workspace_promotion_digest_bounds",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(current_version) BETWEEN 1 AND 128 AND "
+            "length(promoted_name) BETWEEN 1 AND 256 AND "
+            "length(promoted_version) BETWEEN 1 AND 128 AND "
+            "length(target_container_id)=64",
+            name="workspace_promotion_identity_bounds",
+        ),
+        CheckConstraint(
+            "invalidation_reason IS NULL OR "
+            "length(invalidation_reason) BETWEEN 1 AND 128",
+            name="workspace_promotion_invalidation_bounded",
+        ),
+        Index(
+            "uq_workspace_promotion_active_workspace",
+            "workspace_id",
+            unique=True,
+            sqlite_where=text(
+                "state IN ('preparing','reviewable','approved_and_queued')"
+            ),
+        ),
+        Index(
+            "ix_workspace_promotion_source_created",
+            "development_source_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    workspace_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    workspace_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    baseline_artifact_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    baseline_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    source_capture_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    current_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    promoted_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    promoted_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_deployment_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_source_deployment_operations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_source_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    target_destination_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    changed_file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    review_text_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    reviewable_at: Mapped[str | None] = mapped_column(String(32))
+    expires_at: Mapped[str | None] = mapped_column(String(32))
+    state: Mapped[AgentWorkspacePromotionPlanState] = mapped_column(
+        Enum(
+            AgentWorkspacePromotionPlanState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_promotion_plan_state",
+        ),
+        nullable=False,
+    )
+    source_operation_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    invalidation_reason: Mapped[str | None] = mapped_column(String(128))
+
+
+class AgentWorkspacePromotionPlanPathRow(Base):
+    """Private complete review material and exact affected-path identities."""
+
+    __tablename__ = "agent_workspace_promotion_plan_paths"
+    __table_args__ = (
+        CheckConstraint(
+            "ordinal BETWEEN 0 AND 99", name="workspace_promotion_path_ordinal"
+        ),
+        CheckConstraint(
+            "length(relative_path) BETWEEN 1 AND 512",
+            name="workspace_promotion_path_bounded",
+        ),
+        CheckConstraint(
+            "length(post_sha256)=64 AND post_sha256 NOT GLOB '*[^0-9a-f]*' AND "
+            "(pre_sha256 IS NULL OR (length(pre_sha256)=64 AND "
+            "pre_sha256 NOT GLOB '*[^0-9a-f]*'))",
+            name="workspace_promotion_path_hashes",
+        ),
+        CheckConstraint(
+            "(change_kind='add' AND pre_sha256 IS NULL AND pre_size IS NULL AND "
+            "pre_mode IS NULL AND before_text IS NULL) OR "
+            "(change_kind='modify' AND pre_sha256 IS NOT NULL AND "
+            "pre_size IS NOT NULL AND pre_mode IS NOT NULL AND "
+            "before_text IS NOT NULL)",
+            name="workspace_promotion_path_preimage_shape",
+        ),
+        UniqueConstraint(
+            "plan_id", "relative_path", name="uq_workspace_promotion_path"
+        ),
+    )
+
+    plan_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspace_promotion_plans.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    relative_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    change_kind: Mapped[AgentWorkspacePromotionChangeKind] = mapped_column(
+        Enum(
+            AgentWorkspacePromotionChangeKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_promotion_change_kind",
+        ),
+        nullable=False,
+    )
+    pre_sha256: Mapped[str | None] = mapped_column(String(64))
+    pre_size: Mapped[int | None] = mapped_column(BigInteger)
+    pre_mode: Mapped[int | None] = mapped_column(Integer)
+    post_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    post_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    post_mode: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_text: Mapped[str | None] = mapped_column(Text)
+    after_text: Mapped[str] = mapped_column(Text, nullable=False)
+    conflict_reason: Mapped[str | None] = mapped_column(String(64))
+
+
+class AgentWorkspacePromotionOperationRow(Base):
+    """One permanently single-use source-application attempt."""
+
+    __tablename__ = "agent_workspace_promotion_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 128",
+            name="workspace_promotion_failure_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest)=64 AND "
+            "lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="workspace_promotion_lease_digest",
+        ),
+        CheckConstraint(
+            "(state='queued' AND started_at IS NULL AND completed_at IS NULL AND "
+            "lease_token_digest IS NULL AND lease_expires_at IS NULL) OR "
+            "(state='running' AND started_at IS NOT NULL AND completed_at IS NULL "
+            "AND lease_token_digest IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(state IN ('succeeded','failed','reconciliation_required') AND "
+            "completed_at IS NOT NULL AND lease_token_digest IS NULL AND "
+            "lease_expires_at IS NULL)",
+            name="workspace_promotion_operation_state_fields",
+        ),
+        CheckConstraint(
+            "application_started=0 OR (backup_verified=1 AND "
+            "backup_artifact_id IS NOT NULL)",
+            name="workspace_promotion_marker_requires_backup",
+        ),
+        Index(
+            "uq_workspace_promotion_active_source",
+            "development_source_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspace_promotion_plans.id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    state: Mapped[AgentWorkspacePromotionOperationState] = mapped_column(
+        Enum(
+            AgentWorkspacePromotionOperationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_promotion_operation_state",
+        ),
+        nullable=False,
+    )
+    phase: Mapped[AgentWorkspacePromotionPhase] = mapped_column(
+        Enum(
+            AgentWorkspacePromotionPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_promotion_phase",
+        ),
+        nullable=False,
+    )
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    application_started: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    backup_artifact_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    backup_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    started_at: Mapped[str | None] = mapped_column(String(32))
+    completed_at: Mapped[str | None] = mapped_column(String(32))
+    failure_code: Mapped[str | None] = mapped_column(String(128))
+    reconciliation_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32))
+
+
+class AgentWorkspacePromotionJournalRow(Base):
+    """Content-free per-path source application progress."""
+
+    __tablename__ = "agent_workspace_promotion_journal"
+    __table_args__ = (
+        UniqueConstraint(
+            "operation_id", "relative_path", name="uq_workspace_promotion_journal_path"
+        ),
+        CheckConstraint(
+            "(state='applied' AND applied_device IS NOT NULL AND "
+            "applied_inode IS NOT NULL) OR (state!='applied' AND "
+            "applied_device IS NULL AND applied_inode IS NULL)",
+            name="workspace_promotion_journal_identity_shape",
+        ),
+    )
+
+    operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspace_promotion_operations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    relative_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    state: Mapped[AgentWorkspacePromotionJournalState] = mapped_column(
+        Enum(
+            AgentWorkspacePromotionJournalState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="agent_workspace_promotion_journal_state",
+        ),
+        nullable=False,
+    )
+    applied_device: Mapped[int | None] = mapped_column(BigInteger)
+    applied_inode: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class AgentWorkspacePromotionHandoffRow(Base):
+    """Private exact Slice-4 sync handoff; never current deployment evidence."""
+
+    __tablename__ = "agent_workspace_promotion_handoffs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspace_promotion_operations.id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_workspaces.id", ondelete="RESTRICT")
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("development_sources.id", ondelete="RESTRICT")
+    )
+    target_instance_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("managed_instances.target_id", ondelete="RESTRICT")
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runtime_revisions.id", ondelete="RESTRICT")
+    )
+    trusted_container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    prior_deployment_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_source_deployment_operations.id", ondelete="RESTRICT"),
+    )
+    prior_source_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    prior_destination_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
 class TargetRow(Base):
@@ -3100,6 +3434,38 @@ class GlobalHeavyOperationLeaseRow(Base):
     acquired_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class DevelopmentSourcePromotionLeaseRow(Base):
+    """One exact promotion application lease per canonical source."""
+
+    __tablename__ = "development_source_promotion_leases"
+    __table_args__ = (
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest)=64 AND "
+            "lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="development_source_promotion_lease_digest",
+        ),
+    )
+
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspace_promotion_operations.id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64))
+    acquired_at: Mapped[str | None] = mapped_column(String(32))
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32))
 
 
 class RuntimeDefinitionRow(Base):

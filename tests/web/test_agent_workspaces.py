@@ -9,11 +9,18 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
+from kodi_lab.storage.models import (
+    DevelopmentSourceDeploymentOperationRow,
+    DevelopmentSourceDeploymentRow,
+    ManagedInstanceDevelopmentSourceRow,
+    ManagedInstanceRow,
+)
 from kodi_lab.storage.repositories import DevelopmentSourceRepository
 
-from .conftest import ORIGIN, login
+from .conftest import CONTAINER_ID, INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
 
 SOURCE_ID = UUID("71000000-0000-0000-0000-000000000001")
+DEPLOYMENT_ID = UUID("71000000-0000-0000-0000-000000000002")
 
 
 def _seed_source(database: sessionmaker[Session], data_root: Path) -> None:
@@ -40,6 +47,57 @@ def _seed_source(database: sessionmaker[Session], data_root: Path) -> None:
                 extension_types=("xbmc.python.pluginsource",),
                 registered_at=now,
                 validated_at=now,
+            )
+        )
+
+
+def _seed_promotion_target(database: sessionmaker[Session]) -> None:
+    now = datetime(2026, 9, 18, tzinfo=UTC).isoformat()
+    with database.begin() as session:
+        session.query(ManagedInstanceRow).filter_by(target_id=str(INSTANCE_ID)).update(
+            {"runtime_state": "running"}
+        )
+        session.add(
+            ManagedInstanceDevelopmentSourceRow(
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id=str(SOURCE_ID),
+                attached_at=now,
+            )
+        )
+        session.add(
+            DevelopmentSourceDeploymentOperationRow(
+                id=str(DEPLOYMENT_ID),
+                original_managed_instance_id=str(INSTANCE_ID),
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id=str(SOURCE_ID),
+                source_logical_name="Workspace source",
+                addon_id="plugin.video.workspace",
+                runtime_revision_id=str(REVISION_ID),
+                request_kind="copy_sync",
+                requested_at=now,
+                state="succeeded",
+                phase="finalize",
+                result_classification="unchanged",
+                completed_at=now,
+                reconciliation_required=False,
+            )
+        )
+        session.flush()
+        session.add(
+            DevelopmentSourceDeploymentRow(
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id=str(SOURCE_ID),
+                addon_id="plugin.video.workspace",
+                mode="copy",
+                last_successful_operation_id=str(DEPLOYMENT_ID),
+                source_manifest_digest="sha256:" + "1" * 64,
+                verified_destination_digest="sha256:" + "2" * 64,
+                runtime_revision_id=str(REVISION_ID),
+                trusted_container_id=CONTAINER_ID,
+                observed_source_name="Workspace",
+                observed_source_version="1.0.0",
+                verified_at=now,
+                confidence="verified_at_last_operation",
             )
         )
 
@@ -264,3 +322,123 @@ def test_workspace_mutation_and_changes_api_is_strict_private_and_generation_bou
         },
     )
     assert request_oversized.status_code == 413
+
+
+def test_promotion_review_and_approval_are_strict_complete_and_private(
+    client: TestClient,
+    database: sessionmaker[Session],
+    data_root: Path,
+    broker: FakeBroker,
+) -> None:
+    _seed_source(database, data_root)
+    _seed_promotion_target(database)
+    assert (
+        client.get(
+            "/api/agent-workspaces/ffffffff-ffff-ffff-ffff-ffffffffffff/"
+            "promotion-targets"
+        ).status_code
+        == 401
+    )
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    created = client.post(
+        "/api/agent-workspaces",
+        json={"development_source_id": str(SOURCE_ID)},
+        headers=headers,
+    ).json()
+    for _ in range(100):
+        creation = client.get(created["status_url"]).json()
+        if creation["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+    assert creation["state"] == "succeeded"
+    workspace_id = created["operation"]["workspace_id"]
+    changed = client.put(
+        f"/api/agent-workspaces/{workspace_id}/files",
+        json={
+            "expected_generation": 0,
+            "path": "resources/main.py",
+            "content": "print('promoted')\n",
+        },
+        headers=headers,
+    )
+    assert changed.status_code == 200
+    targets = client.get(f"/api/agent-workspaces/{workspace_id}/promotion-targets")
+    assert targets.status_code == 200
+    assert targets.json() == [
+        {"id": str(INSTANCE_ID), "name": "Kodi <script>not markup</script>"}
+    ]
+
+    plans_url = (
+        f"/api/instances/{INSTANCE_ID}/agent-workspaces/{workspace_id}/promotion-plans"
+    )
+    assert client.post(plans_url, json={}).status_code == 403
+    assert (
+        client.post(
+            plans_url,
+            json={"source_id": str(SOURCE_ID)},
+            headers=headers,
+        ).status_code
+        == 422
+    )
+    planned = client.post(plans_url, json={}, headers=headers)
+    assert planned.status_code == 201
+    review = planned.json()
+    assert review["state"] == "reviewable"
+    assert review["source_logical_name"] == "Workspace source"
+    assert review["verification_target_id"] == str(INSTANCE_ID)
+    assert review["addon_id"] == "plugin.video.workspace"
+    assert review["changes"] == [
+        {
+            "path": "resources/main.py",
+            "change_kind": "modify",
+            "before_text": "print('web')\n",
+            "after_text": "print('promoted')\n",
+            "before_bytes": 13,
+            "after_bytes": 18,
+            "conflict_reason": None,
+        }
+    ]
+    serialized = planned.text
+    for forbidden in (
+        str(data_root),
+        "development-root",
+        "container_id",
+        "sha256",
+        "source_capture",
+        "baseline",
+        "preimage",
+    ):
+        assert forbidden not in serialized
+    plan_id = review["plan_id"]
+    page = client.get(
+        f"/instances/{INSTANCE_ID}/agent-workspaces/{workspace_id}/"
+        f"promotion-plans/{plan_id}"
+    )
+    assert page.status_code == 200
+    assert "print(&#39;web&#39;)" in page.text
+    assert "print(&#39;promoted&#39;)" in page.text
+    assert "Kodi verification occurs in the next bounded stage" in page.text
+    assert "<script>not markup</script>" not in page.text
+
+    approve_url = f"{plans_url}/{plan_id}/approve-and-execute"
+    assert client.post(approve_url, json={"confirmed": True}).status_code == 403
+    for payload in ({}, {"confirmed": False}, {"confirmed": True, "force": True}):
+        assert (
+            client.post(approve_url, json=payload, headers=headers).status_code == 422
+        )
+    before_calls = list(broker.calls)
+    approved = client.post(approve_url, json={"confirmed": True}, headers=headers)
+    assert approved.status_code == 200
+    operation = approved.json()
+    assert operation["state"] == "succeeded"
+    assert operation["handoff_published"] is True
+    assert "container" not in approved.text
+    assert "digest" not in approved.text
+    assert broker.calls == before_calls
+    source = data_root.parent / "development-root" / "plugin.video.workspace"
+    assert source.joinpath("resources/main.py").read_text() == "print('promoted')\n"
+    workspace = client.get(f"/api/agent-workspaces/{workspace_id}").json()
+    assert workspace["state"] == "promoted"
+    repeated = client.post(approve_url, json={"confirmed": True}, headers=headers)
+    assert repeated.status_code == 409

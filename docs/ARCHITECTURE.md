@@ -1087,4 +1087,62 @@ GETs plus the administrator detail page expose bounded relative paths and text
 previews but no host/source path, internal digest, ownership, inode, temporary
 name, or raw error. There remains no promotion, DevelopmentSource mutation,
 backup/apply workflow, Kodi integration, MCP exposure, cleanup, deletion,
-rename, mkdir, shell, Docker, broker, or Git capability.
+  rename, mkdir, shell, Docker, broker, or Git capability.
+
+## Phase 9 reviewed canonical-source promotion
+
+Slice 3 adds a private, administrator-reviewed three-way transition from one
+ready AgentWorkspace into its registered canonical DevelopmentSource. Planning
+fully recaptures immutable baseline, current workspace, and current source. It
+admits only added or byte-modified UTF-8 regular files, capped at 100 paths,
+2 MiB per text file, and 4 MiB aggregate complete before/after review text. No
+truncated preview can be approved. Modifications require exact source-baseline
+agreement; additions require source absence and safe existing parents. A source
+tree may have unrelated safe changes, but any unsafe object anywhere blocks.
+
+Plans are private, expire 15 minutes after becoming reviewable, and bind exact
+workspace generation/tree, baseline, source capture, immutable add-on ID,
+affected pre/post identities, one eligible running disposable target, its
+RuntimeRevision/container, and exact retained verified source deployment.
+Browser projections expose only logical names, safe UUIDs, add-on/version
+metadata, changed relative paths, full review text, bounds, and rollback/staging
+notices. Approval accepts only `{"confirmed": true}` and creates exactly one
+source operation. Workspace/source/path/runtime/postimage authority is never
+caller-selectable.
+
+The ordinary application account must have actual write/search permission on
+the registered source root and affected parents. Registration grants nothing.
+Execution repeats complete no-follow source validation and workspace identity
+checks, then publishes and verifies an operation-bound private exact backup.
+After a durable application marker consumes approval, fixed paths apply in
+UTF-8 lexical order. Linux `renameat2` no-replace publishes additions;
+`RENAME_EXCHANGE` publishes modifications and exposes the displaced inode for
+exact preimage proof. Lack of those primitives fails closed. No parent is
+created and no Git, shell, broker, Docker, or Kodi facility participates.
+
+A content-free durable journal records each path as not attempted, applied,
+rolled back, or uncertain. Failure rolls applied paths back in reverse order,
+conditional on exact operation postimages; operation-created additions have the
+only narrowly scoped unlink. Full source recapture must prove the original
+affected state. Unproven state becomes reconciliation-required and is neither
+retried nor adopted. Startup closes a pre-marker interruption as failed and
+marks every post-marker interruption unresolved.
+
+Success writes a private exact selected-target sync handoff before making all
+prior deployment confidence for the source stale. It then marks the workspace
+`promoted`; only `ready` workspaces can mutate, so promoted, creating,
+abandoned, and reconciliation-required trees are immutable. Historical
+enablement/smoke/deployment rows are untouched. The handoff does not confer
+generic deployment confidence or browser copy authority.
+
+Migration `0031_agent_workspace_promotions` stores private plans/review paths,
+single-use source operations, per-path journal, source lease, target handoff,
+the promoted workspace state, and promotion coordination kinds. Per-workspace,
+per-source, selected-target, and global-heavy coordination follows a fixed
+plan/operation → target → global → source acquisition order.
+
+This architecture deliberately stops before post-apply Kodi verification.
+Phase 9 canonical patch-back remains incomplete until Slice 4 performs the
+separately bounded stopped copy/sync, start, inventory/provenance verification,
+and approved diagnostic behavior. Later Kodi failure will not automatically
+reverse an already successful canonical source promotion.

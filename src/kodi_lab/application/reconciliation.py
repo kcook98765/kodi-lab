@@ -45,6 +45,9 @@ from kodi_lab.domain import (
     AddonZipSmokeTestOperation,
     AgentWorkspaceCreationOperation,
     AgentWorkspaceCreationState,
+    AgentWorkspacePromotionOperation,
+    AgentWorkspacePromotionOperationState,
+    AgentWorkspacePromotionPlanState,
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperation,
     DevelopmentSourceDeploymentOperationState,
@@ -88,10 +91,13 @@ from kodi_lab.storage.repositories import (
     AddonZipInstallationOperationRepository,
     AddonZipSmokeTestOperationRepository,
     AgentWorkspaceCreationOperationRepository,
+    AgentWorkspacePromotionOperationRepository,
+    AgentWorkspacePromotionPlanRepository,
     AgentWorkspaceRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceEnablementOperationRepository,
+    DevelopmentSourcePromotionLeaseRepository,
     DevelopmentSourceSmokeTestOperationRepository,
     GlobalHeavyOperationLeaseRepository,
     ManagedInstanceDeleteOperationRepository,
@@ -139,6 +145,7 @@ class ReconciliationOperationKind(StrEnum):
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
+    AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -171,6 +178,7 @@ class ReconciliationAction(StrEnum):
     DEVELOPMENT_SOURCE_DEPLOYMENT = "development_source_deployment"
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
+    AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
 
 
 INSTANCE_MUTATIONS = [
@@ -194,6 +202,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.ADDON_REPOSITORY_ATTACHMENT,
     ReconciliationAction.ADDON_REPOSITORY_INSTALLATION,
     ReconciliationAction.REPOSITORY_REPLACEMENT,
+    ReconciliationAction.AGENT_WORKSPACE_PROMOTION,
 ]
 
 
@@ -385,6 +394,7 @@ class StaleOperationReconciliationDispatcher:
             | AddonZipEnablementOperation
             | AddonZipSmokeTestOperation
             | RepositoryReplacementOperation
+            | AgentWorkspacePromotionOperation
             | None
         )
         if kind is ManagedInstanceMutationKind.LIFECYCLE:
@@ -618,6 +628,85 @@ class StaleOperationReconciliationDispatcher:
                 now,
             )
             released += 1
+        elif kind is ManagedInstanceMutationKind.AGENT_WORKSPACE_PROMOTION:
+            operation = AgentWorkspacePromotionOperationRepository(session).get(
+                operation_id
+            )
+            if (
+                operation is None
+                or operation.target_instance_id != instance_id
+                or operation.state.value != "running"
+                or operation.lease_token_digest != digest
+                or operation.lease_expires_at is None
+                or operation.lease_expires_at > now
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired workspace-promotion ownership is inconsistent."
+                )
+            self._require_matching_global(
+                session,
+                GlobalHeavyOperationKind.AGENT_WORKSPACE_PROMOTION,
+                operation_id,
+                digest,
+                now,
+            )
+            state = (
+                AgentWorkspacePromotionOperationState.RECONCILIATION_REQUIRED
+                if operation.application_started
+                else AgentWorkspacePromotionOperationState.FAILED
+            )
+            if not AgentWorkspacePromotionOperationRepository(session).recover_startup(
+                operation_id,
+                token_digest=digest,
+                state=state,
+                now=now,
+                failure_code=(
+                    "promotion_lease_expired_after_application"
+                    if operation.application_started
+                    else "promotion_lease_expired_before_application"
+                ),
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired workspace-promotion history changed."
+                )
+            plan = AgentWorkspacePromotionPlanRepository(session).get(operation.plan_id)
+            if plan is None:
+                raise CoordinationCorruptionError(
+                    "Expired workspace-promotion plan is missing."
+                )
+            if operation.application_started:
+                if not AgentWorkspaceRepository(session).require_reconciliation(
+                    operation.workspace_id,
+                    expected_generation=plan.workspace_generation,
+                    now=now,
+                ):
+                    raise CoordinationCorruptionError(
+                        "Expired workspace-promotion state changed."
+                    )
+                DevelopmentSourceDeploymentRepository(session).mark_source_confidence(
+                    operation.development_source_id,
+                    DevelopmentSourceDeploymentConfidence.UNKNOWN,
+                )
+            else:
+                AgentWorkspacePromotionPlanRepository(session).invalidate(
+                    operation.plan_id, "promotion_lease_expired_before_application"
+                )
+            if not DevelopmentSourcePromotionLeaseRepository(session).release(
+                operation.development_source_id,
+                operation_id,
+                token_digest=digest,
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired workspace-promotion source ownership changed."
+                )
+            self._release_global(
+                session,
+                GlobalHeavyOperationKind.AGENT_WORKSPACE_PROMOTION,
+                operation_id,
+                digest,
+                now,
+            )
+            released += 1
         elif kind is ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
             operation = DevelopmentSourceSmokeTestOperationRepository(session).get(
                 operation_id
@@ -788,8 +877,27 @@ class StaleOperationReconciliationDispatcher:
             ) from error
         digest = row.lease_token_digest
         assert digest is not None
+        if kind is GlobalHeavyOperationKind.AGENT_WORKSPACE_PROMOTION:
+            promotion = AgentWorkspacePromotionOperationRepository(session).get(
+                operation_id
+            )
+            if promotion is None:
+                plan = AgentWorkspacePromotionPlanRepository(session).get(operation_id)
+                if (
+                    plan is None
+                    or plan.state is not AgentWorkspacePromotionPlanState.PREPARING
+                ):
+                    raise CoordinationCorruptionError(
+                        "Expired workspace-promotion preparation is inconsistent."
+                    )
+                AgentWorkspacePromotionPlanRepository(session).invalidate(
+                    operation_id, "promotion_preparation_lease_expired"
+                )
+                self._release_global(session, kind, operation_id, digest, now)
+                return operation_id, 1
         operation: (
             AgentWorkspaceCreationOperation
+            | AgentWorkspacePromotionOperation
             | SnapshotDeleteOperation
             | SnapshotCreateOperation
             | SnapshotRestoreOperation
@@ -954,6 +1062,10 @@ class StaleOperationReconciliationDispatcher:
             operation = RepositoryReplacementOperationRepository(session).get(
                 operation_id
             )
+        elif kind is GlobalHeavyOperationKind.AGENT_WORKSPACE_PROMOTION:
+            operation = AgentWorkspacePromotionOperationRepository(session).get(
+                operation_id
+            )
         elif kind in {
             GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
             GlobalHeavyOperationKind.ADDON_REPOSITORY_INSTALLATION,
@@ -974,13 +1086,18 @@ class StaleOperationReconciliationDispatcher:
                 DevelopmentSourceDeploymentOperation,
                 AddonZipInstallationOperation,
                 RepositoryReplacementOperation,
+                AgentWorkspacePromotionOperation,
             ),
         )
-        instance_id = (
-            operation.original_managed_instance_id
-            if isinstance(operation, ManagedInstanceDeleteOperation)
-            else operation.managed_instance_id
-        )
+        instance_id: UUID | None
+        if isinstance(operation, AgentWorkspacePromotionOperation):
+            instance_id = operation.target_instance_id
+        else:
+            instance_id = (
+                operation.original_managed_instance_id
+                if isinstance(operation, ManagedInstanceDeleteOperation)
+                else operation.managed_instance_id
+            )
         if instance_id is None:
             raise CoordinationCorruptionError(
                 "Paired mutation reservation has no live instance identity."
@@ -1172,6 +1289,12 @@ class ManagedInstanceReconciliationService:
                     session
                 ).reconciliation_for_instance(instance_id)
             )
+            records.extend(
+                (ReconciliationOperationKind.AGENT_WORKSPACE_PROMOTION, item)
+                for item in AgentWorkspacePromotionOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
             snapshots = SnapshotRepository(session)
             if (
                 len(records) == 1
@@ -1243,6 +1366,9 @@ class ManagedInstanceReconciliationService:
         elif kind is ReconciliationOperationKind.REPOSITORY_REPLACEMENT:
             assert isinstance(operation, RepositoryReplacementOperation)
             observed = "replacement_destination_requires_read_only_inspection"
+        elif kind is ReconciliationOperationKind.AGENT_WORKSPACE_PROMOTION:
+            assert isinstance(operation, AgentWorkspacePromotionOperation)
+            observed = "canonical_source_requires_read_only_inspection"
         reason = {
             ReconciliationOperationKind.LIFECYCLE: (
                 "Lifecycle state requires operator reconciliation."
@@ -1283,6 +1409,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.REPOSITORY_REPLACEMENT: (
                 "Repository replacement requires operator reconciliation."
             ),
+            ReconciliationOperationKind.AGENT_WORKSPACE_PROMOTION: (
+                "Agent workspace promotion requires operator reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -1299,6 +1428,7 @@ class ManagedInstanceReconciliationService:
                 AddonZipEnablementOperation,
                 AddonZipSmokeTestOperation,
                 RepositoryReplacementOperation,
+                AgentWorkspacePromotionOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(
