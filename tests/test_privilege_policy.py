@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parents[1]
@@ -37,3 +40,49 @@ def test_root_only_phase8_validators_disable_bytecode_before_project_imports() -
         assert source.index("sys.dont_write_bytecode = True") < source.index(
             "from kodi_lab"
         )
+
+
+def test_root_only_phase9_validator_disables_bytecode_before_project_imports() -> None:
+    scripts_dir = PROJECT_ROOT / "scripts"
+    expected = {"validate-phase9-promotion-verification.py"}
+    root_only = {
+        path.name
+        for path in scripts_dir.glob("validate-phase9-*.py")
+        if "os.geteuid() == 0" in path.read_text(encoding="utf-8")
+    }
+
+    assert root_only == expected
+    source = (scripts_dir / next(iter(expected))).read_text(encoding="utf-8")
+    assert source.index("sys.dont_write_bytecode = True") < source.index(
+        "from kodi_lab"
+    )
+
+
+def test_phase9_root_validator_import_leaves_no_project_bytecode(
+    tmp_path: Path,
+) -> None:
+    script = PROJECT_ROOT / "scripts" / "validate-phase9-promotion-verification.py"
+    cache = tmp_path / "pycache"
+    environment = os.environ.copy()
+    environment["PYTHONPYCACHEPREFIX"] = str(cache)
+    command = (
+        f"import runpy; runpy.run_path({str(script)!r}, run_name='phase9_validator')"
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            command,
+        ],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    project_bytecode = [
+        path for path in cache.rglob("*.pyc") if "/kodi_lab/" in path.as_posix()
+    ]
+    assert project_bytecode == []

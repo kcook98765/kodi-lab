@@ -1112,6 +1112,13 @@ caller-selectable.
 
 The ordinary application account must have actual write/search permission on
 the registered source root and affected parents. Registration grants nothing.
+Any DevelopmentSource directory provisioned writable for promotion becomes part
+of the Kodi Lab application trusted-computing base. Registration alone is read
+trust; an administrator separately provisions promotion OS permissions. Kodi
+Lab never chmods or chowns source trees. Compromise of the application service
+account could modify any promotion-enabled source writable by that account, so
+ownership and ACLs must be least-privilege and promotion enabled only where
+intended.
 Execution repeats complete no-follow source validation and workspace identity
 checks, then publishes and verifies an operation-bound private exact backup.
 After a durable application marker consumes approval, fixed paths apply in
@@ -1144,9 +1151,11 @@ plan/operation → target → global → source acquisition order.
 ## Phase 9 promotion-bound Kodi verification
 
 Slice 4 implements D-0209 as a separate durable
-`PromotionVerificationOperation`. Source success automatically queues exactly
-one verification from the private Slice 3 handoff; it never reopens approval or
-rewrites `AgentWorkspacePromotionOperation`. Preflight binds the successful
+`PromotionVerificationOperation`. Source terminal success, handoff publication,
+verification-child creation, exact reservation, and queued coordination commit
+as one database publication boundary. Source success therefore cannot commit
+without its required child. Execution starts afterward and never reopens
+approval or rewrites `AgentWorkspacePromotionOperation`. Preflight binds the successful
 promotion, promoted workspace, attached DevelopmentSource, disposable target,
 RuntimeRevision, immutable container, prior destination proof, promoted
 metadata, and live pre-stop enabled Boolean. Drift ends before target mutation.
@@ -1176,7 +1185,13 @@ Inventory is authoritative for ID, promoted version, supported type, and exact
 enabled preservation. Ten seconds after readiness, the broker correlates at
 most 1 MiB of new data across append or normal `kodi.log` to `kodi.old.log`
 rotation. Correlation ambiguity is `incomplete`. At most twenty sanitized
-512-byte target snippets and 8 KiB total reach Web status. Target-correlated
+512-byte target snippets and 8 KiB total reach Web status. Full bounded raw
+acquisition precedes deterministic obvious-secret redaction, control
+normalization, and output truncation, so truncation cannot expose a token
+fragment that escaped matching. This covers common Bearer, key/token/password,
+URL-userinfo, and obvious token-prefix forms but is not general DLP. Raw bytes
+are transient inside the private broker boundary; retained evidence and normal
+DTO/history surfaces contain only redacted snippets. Target-correlated
 Python/import/dependency/service failures fail verification; unrelated
 DBus/VDPAU/Zeroconf warnings are counted separately. Logs never substitute for
 inventory evidence.
@@ -1229,3 +1244,11 @@ generation, mutation history, promotion plans/operations/journal/handoff,
 verification and bounded log evidence, and private source-promotion backup are
 not workspace bytes and are retained. V1 has no TTL, background or disk-pressure
 pruning, cleanup-all, or automatic cleanup after abandonment or promotion.
+
+Migration `0034_phase9_completion_remediation` makes the four Phase 9 live
+ManagedInstance links (plan, source operation, handoff, and verification)
+nullable while retaining immutable original target UUIDs and the plan's bounded
+target-name snapshot. The centralized instance-deletion finalizer detaches only
+terminal history. Active or reconciliation-required Phase 9 work still blocks
+deletion, and workspace, source, backup, handoff, verification, and log history
+survive target deletion.

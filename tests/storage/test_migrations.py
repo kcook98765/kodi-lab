@@ -3208,3 +3208,146 @@ def test_0033_workspace_cleanup_schema_round_trip_and_populated_guard(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated agent workspace cleanup"):
         command.downgrade(config, "0032_promotion_verification")
+
+
+def test_0034_phase9_retained_target_schema_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0033_agent_workspace_cleanup")
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    for table in (
+        "agent_workspace_promotion_plans",
+        "agent_workspace_promotion_operations",
+        "agent_workspace_promotion_handoffs",
+        "promotion_verification_operations",
+    ):
+        columns = {item["name"]: item for item in inspector.get_columns(table)}
+        assert not columns["original_target_instance_id"]["nullable"]
+        assert columns["target_instance_id"]["nullable"]
+    assert "original_target_name" in {
+        item["name"]
+        for item in inspector.get_columns("agent_workspace_promotion_plans")
+    }
+    engine.dispose()
+    command.downgrade(config, "0033_agent_workspace_cleanup")
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_0034_upgrades_populated_0033_and_guards_detached_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0033_agent_workspace_cleanup")
+    engine = create_database_engine(database_url)
+    timestamp = "2026-09-19T12:00:00.000000Z"
+    instance_id = "89800000-0000-4000-8000-000000000003"
+    revision_id = "89800000-0000-4000-8000-000000000002"
+    source_id = "a9340000-0000-4000-8000-000000000001"
+    workspace_id = "a9340000-0000-4000-8000-000000000002"
+    deployment_id = "a9340000-0000-4000-8000-000000000003"
+    plan_id = "a9340000-0000-4000-8000-000000000004"
+    with engine.begin() as connection:
+        _seed_0014_instance_with_notes(connection, notes="phase9 retained target")
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id,logical_name,source_kind,relative_locator,addon_id,observed_name,"
+                "observed_version,extension_types_json,registered_at,validated_at) "
+                "VALUES (:id,'Source','local_directory','source','plugin.video.source',"
+                "'Source','1.0','[\"xbmc.python.pluginsource\"]',:time,:time)"
+            ),
+            {"id": source_id, "time": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspaces "
+                "(id,development_source_id,source_addon_id,source_logical_name,"
+                "source_observed_name,source_observed_version,state,bytes_state,"
+                "baseline_artifact_id,baseline_manifest_digest,generation,"
+                "current_tree_digest,capture_started_at,captured_at,created_at,"
+                "updated_at) VALUES (:id,:source,'plugin.video.source','Source',"
+                "'Source','1.0','ready','present',:baseline,:digest,0,:digest,:time,"
+                ":time,:time,:time)"
+            ),
+            {
+                "id": workspace_id,
+                "source": source_id,
+                "baseline": "a9340000-0000-4000-8000-000000000005",
+                "digest": "sha256:" + "a" * 64,
+                "time": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO development_source_deployment_operations "
+                "(id,original_managed_instance_id,managed_instance_id,"
+                "development_source_id,source_logical_name,addon_id,"
+                "runtime_revision_id,request_kind,requested_at,state,phase,"
+                "reconciliation_required) VALUES (:id,:instance,:instance,:source,"
+                "'Source','plugin.video.source',:revision,'copy_sync',:time,'queued',"
+                "'acquire',0)"
+            ),
+            {
+                "id": deployment_id,
+                "instance": instance_id,
+                "source": source_id,
+                "revision": revision_id,
+                "time": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspace_promotion_plans "
+                "(id,workspace_id,development_source_id,target_instance_id,"
+                "workspace_generation,workspace_digest,baseline_artifact_id,"
+                "baseline_digest,source_capture_digest,addon_id,current_version,"
+                "promoted_name,promoted_version,target_runtime_revision_id,"
+                "target_container_id,target_deployment_operation_id,"
+                "target_source_digest,target_destination_digest,expected_enabled,"
+                "changed_file_count,review_text_bytes,created_at,reviewable_at,"
+                "expires_at,state) VALUES (:id,:workspace,:source,:instance,0,"
+                ":digest,:baseline,:digest,:digest,'plugin.video.source','1.0',"
+                "'Source','1.1',:revision,:container,:deployment,:digest,:digest,1,"
+                "1,10,:time,:time,:time,'reviewable')"
+            ),
+            {
+                "id": plan_id,
+                "workspace": workspace_id,
+                "source": source_id,
+                "instance": instance_id,
+                "digest": "sha256:" + "a" * 64,
+                "baseline": "a9340000-0000-4000-8000-000000000005",
+                "revision": revision_id,
+                "container": "b" * 64,
+                "deployment": deployment_id,
+                "time": timestamp,
+            },
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        retained = connection.execute(
+            text(
+                "SELECT target_instance_id, original_target_instance_id, "
+                "original_target_name FROM agent_workspace_promotion_plans "
+                "WHERE id=:id"
+            ),
+            {"id": plan_id},
+        ).one()
+        assert retained == (instance_id, instance_id, "delete source")
+        connection.execute(
+            text(
+                "UPDATE agent_workspace_promotion_plans "
+                "SET target_instance_id=NULL WHERE id=:id"
+            ),
+            {"id": plan_id},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="retained identity semantics"):
+        command.downgrade(config, "0033_agent_workspace_cleanup")

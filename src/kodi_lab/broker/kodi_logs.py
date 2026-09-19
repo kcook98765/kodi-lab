@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import io
 import json
+import re
 import secrets
 import tarfile
 from collections.abc import Callable
@@ -41,6 +42,19 @@ MAX_SNIPPETS = 20
 MAX_SNIPPET_BYTES = 512
 MAX_WEB_SNIPPET_BYTES = 8 * 1024
 _CURSOR_KEY = secrets.token_bytes(32)
+_URL_USERINFO = re.compile(
+    r"(?P<scheme>\b[A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]+:[^/\s@]+@"
+)
+_BEARER = re.compile(r"(?i)\bBearer(?P<space>\s+)[A-Za-z0-9._~+/=-]+")
+_SECRET_ASSIGNMENT = re.compile(
+    r"(?i)\b(?P<key>api[_-]?key|token|access_token|auth_token|password|passwd|secret)"
+    r"(?P<separator>\s*[:=]\s*)"
+    r"(?P<value>\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,;)\]}]+)"
+)
+_VENDOR_TOKEN = re.compile(
+    r"(?i)\b(?:github_pat_[A-Za-z0-9_]{10,}|gh[pousr]_[A-Za-z0-9]{10,}|"
+    r"sk-[A-Za-z0-9_-]{10,})\b"
+)
 
 
 class KodiLogWindowError(RuntimeError):
@@ -309,10 +323,26 @@ class KodiLogWindowProvider:
         return classify_kodi_log_window(new_data, authority.addon_id)
 
 
+def _redact_obvious_secrets(line: str) -> str:
+    redacted = _URL_USERINFO.sub(r"\g<scheme>[REDACTED]@", line)
+    redacted = _BEARER.sub(r"Bearer\g<space>[REDACTED]", redacted)
+
+    def assignment(match: re.Match[str]) -> str:
+        value = match.group("value")
+        replacement = "[REDACTED]"
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            replacement = f"{value[0]}[REDACTED]{value[-1]}"
+        return f"{match.group('key')}{match.group('separator')}{replacement}"
+
+    redacted = _SECRET_ASSIGNMENT.sub(assignment, redacted)
+    return _VENDOR_TOKEN.sub("[REDACTED]", redacted)
+
+
 def _sanitize(line: str) -> str:
+    redacted = _redact_obvious_secrets(line)
     clean = "".join(
         character if character >= " " and character != "\x7f" else " "
-        for character in line
+        for character in redacted
     )
     encoded = clean.encode("utf-8", "replace")[:MAX_SNIPPET_BYTES]
     return encoded.decode("utf-8", "ignore")

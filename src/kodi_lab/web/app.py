@@ -1070,6 +1070,7 @@ def create_app(
             data_root=settings.data_root,
             development_root=settings.development_root,
             reconciliation_gate=require_promotion_reconciliation,
+            verification_publisher=promotion_verifications.publish_durable,
             verification_starter=promotion_verifications.queue_and_run,
             enabled_state_reader=read_promotion_enabled_state,
         )

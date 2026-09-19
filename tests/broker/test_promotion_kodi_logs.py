@@ -141,6 +141,84 @@ def test_multiline_traceback_is_correlated_and_snippets_are_bounded() -> None:
     assert all(len(item.encode()) <= 512 for item in result.snippets)
 
 
+@pytest.mark.parametrize(
+    ("secret_form", "literal"),
+    [
+        ("Bearer bearer-token-123", "bearer-token-123"),
+        ("Authorization: Bearer authorization-token-456", "authorization-token-456"),
+        ("api_key=api-value-789", "api-value-789"),
+        ("ToKeN: token-value-abc", "token-value-abc"),
+        ("password='password-value-def'", "password-value-def"),
+        ("secret=secret-value-ghi", "secret-value-ghi"),
+        (
+            "https://audit-user:audit-password@example.invalid/path",
+            "audit-password",
+        ),
+        (
+            "github_pat_abcdefghijklmnopqrstuvwxyz",
+            "github_pat_abcdefghijklmnopqrstuvwxyz",
+        ),
+        ("sk-abcdefghijklmnopqrstuvwxyz", "sk-abcdefghijklmnopqrstuvwxyz"),
+    ],
+)
+def test_obvious_secrets_are_redacted_from_target_snippets(
+    secret_form: str, literal: str
+) -> None:
+    result = classify_kodi_log_window(
+        f"ERROR plugin.video.example ({secret_form}) dependency failed\n".encode(),
+        "plugin.video.example",
+    )
+
+    assert result.classification == "target_errors"
+    assert result.snippets
+    rendered = "\n".join(result.snippets)
+    assert "[REDACTED]" in rendered
+    assert literal not in rendered
+    assert "dependency failed" in rendered
+    assert rendered.endswith(") dependency failed")
+
+
+def test_multiple_long_secrets_are_redacted_before_snippet_truncation() -> None:
+    long_secret = "s" * 2_000
+    result = classify_kodi_log_window(
+        (
+            "ERROR plugin.video.example api_key="
+            + long_secret
+            + " password=second-secret token: third-secret dependency failed\n"
+        ).encode(),
+        "plugin.video.example",
+    )
+
+    rendered = "\n".join(result.snippets)
+    assert rendered.count("[REDACTED]") == 3
+    assert long_secret not in rendered
+    assert "second-secret" not in rendered
+    assert "third-secret" not in rendered
+    assert len(rendered.encode()) <= 512
+
+
+def test_secret_at_truncation_boundary_cannot_leak_a_fragment() -> None:
+    secret = "boundary-secret-" + "z" * 600
+    prefix = "ERROR plugin.video.example " + "x" * 460
+    result = classify_kodi_log_window(
+        f"{prefix} api-key={secret} dependency failed\n".encode(),
+        "plugin.video.example",
+    )
+
+    rendered = "\n".join(result.snippets)
+    assert secret not in rendered
+    assert "boundary-secret" not in rendered
+    assert "[REDACTED]" in rendered
+
+
+def test_ordinary_target_error_text_is_unchanged_by_secret_sanitizer() -> None:
+    line = "ERROR plugin.video.example dependency import failed normally"
+    result = classify_kodi_log_window(f"{line}\n".encode(), "plugin.video.example")
+
+    assert result.snippets == (line,)
+    assert result.classification == "target_errors"
+
+
 def test_post_cursor_scan_ceiling_is_incomplete() -> None:
     before = b"pre-stop\n"
     after = before + b"x" * (MAX_NEW_LOG_BYTES + 1)

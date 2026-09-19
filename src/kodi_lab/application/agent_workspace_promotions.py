@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import secrets
 from collections.abc import Callable
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -100,6 +99,7 @@ class AgentWorkspacePromotionPlanRead(BaseModel):
     source_logical_name: str = Field(max_length=120)
     verification_target_id: UUID
     verification_target_name: str = Field(max_length=256)
+    verification_target_available: bool = True
     addon_id: str = Field(max_length=128)
     current_version: str = Field(max_length=128)
     promoted_version: str = Field(max_length=128)
@@ -121,6 +121,7 @@ class AgentWorkspacePromotionOperationStatus(BaseModel):
     plan_id: UUID
     workspace_id: UUID
     verification_target_id: UUID
+    verification_target_available: bool = True
     state: AgentWorkspacePromotionOperationState
     phase: AgentWorkspacePromotionPhase
     application_started: bool
@@ -176,6 +177,7 @@ class AgentWorkspacePromotionService:
         uuid_factory: Callable[[], UUID] = uuid4,
         reconciliation_gate: Callable[[UUID], None] | None = None,
         failure_injector: Callable[[str], None] = lambda _phase: None,
+        verification_publisher: Callable[[Session, UUID], UUID] | None = None,
         verification_starter: Callable[[UUID], object] | None = None,
         enabled_state_reader: Callable[[UUID, str], bool] | None = None,
     ) -> None:
@@ -186,6 +188,7 @@ class AgentWorkspacePromotionService:
         self._uuid_factory = uuid_factory
         self._reconciliation_gate = reconciliation_gate
         self._failure_injector = failure_injector
+        self._verification_publisher = verification_publisher
         self._verification_starter = verification_starter
         self._enabled_state_reader = enabled_state_reader
 
@@ -552,6 +555,8 @@ class AgentWorkspacePromotionService:
             reviewable_at=None,
             expires_at=None,
             state=AgentWorkspacePromotionPlanState.PREPARING,
+            live_target_instance_id=target_id,
+            original_target_name=binding.name,
         )
         try:
             with self._session_factory.begin() as session:
@@ -661,6 +666,8 @@ class AgentWorkspacePromotionService:
             reviewable_at=None if review.conflicted else now,
             expires_at=expires,
             state=state,
+            live_target_instance_id=target_id,
+            original_target_name=binding.name,
         )
         paths: list[dict[str, object]] = [
             {
@@ -734,7 +741,6 @@ class AgentWorkspacePromotionService:
             or plan.target_instance_id != target_id
             or workspace is None
             or source is None
-            or target is None
         ):
             raise AgentWorkspacePromotionError(
                 "promotion_plan_not_found", "Promotion plan was not found."
@@ -745,8 +751,13 @@ class AgentWorkspacePromotionService:
             state=plan.state,
             workspace_logical_name=workspace.source_logical_name,
             source_logical_name=source.logical_name,
-            verification_target_id=target.id,
-            verification_target_name=target.name,
+            verification_target_id=plan.target_instance_id,
+            verification_target_name=(
+                target.name
+                if target is not None
+                else plan.original_target_name or "Deleted managed instance"
+            ),
+            verification_target_available=target is not None,
             addon_id=plan.addon_id,
             current_version=plan.current_version,
             promoted_version=plan.promoted_version,
@@ -823,6 +834,7 @@ class AgentWorkspacePromotionService:
             state=AgentWorkspacePromotionOperationState.QUEUED,
             phase=AgentWorkspacePromotionPhase.QUEUED,
             requested_at=now,
+            live_target_instance_id=target_id,
         )
         try:
             with self._session_factory.begin() as session:
@@ -863,9 +875,9 @@ class AgentWorkspacePromotionService:
             and completed.state is AgentWorkspacePromotionOperationState.SUCCEEDED
             and self._verification_starter is not None
         ):
-            # Source success is committed and verification never rewrites it.
-            with suppress(Exception):
-                self._verification_starter(operation.id)
+            # The child was durably published with source success. Execution cannot
+            # rewrite the already committed source result.
+            self._verification_starter(operation.id)
         return self.get_operation(target_id, workspace_id, operation.id)
 
     def _acquire(self, operation: AgentWorkspacePromotionOperation) -> _Lease:
@@ -1047,6 +1059,7 @@ class AgentWorkspacePromotionService:
                         expected_name=plan.promoted_name,
                         expected_version=plan.promoted_version,
                         expected_enabled=plan.expected_enabled,
+                        live_target_instance_id=lease.target_id,
                     )
                 )
                 DevelopmentSourceDeploymentRepository(session).mark_source_confidence(
@@ -1069,6 +1082,8 @@ class AgentWorkspacePromotionService:
                         "Promotion success could not be published.",
                     )
                 self._release(session, lease)
+                if self._verification_publisher is not None:
+                    self._verification_publisher(session, lease.operation_id)
 
         try:
             update_phase(AgentWorkspacePromotionPhase.BACKUP)
@@ -1193,6 +1208,7 @@ class AgentWorkspacePromotionService:
             plan_id=operation.plan_id,
             workspace_id=operation.workspace_id,
             verification_target_id=operation.target_instance_id,
+            verification_target_available=operation.live_target_instance_id is not None,
             state=operation.state,
             phase=operation.phase,
             application_started=operation.application_started,

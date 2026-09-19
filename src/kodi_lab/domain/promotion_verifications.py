@@ -96,6 +96,7 @@ class PromotionVerificationOperation:
     failure_code: str | None = None
     lease_token_digest: str | None = None
     lease_expires_at: datetime | None = None
+    live_target_instance_id: UUID | None = None
 
     def __post_init__(self) -> None:
         for field in ("requested_at", "started_at", "completed_at", "lease_expires_at"):

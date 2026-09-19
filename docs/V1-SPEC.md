@@ -512,6 +512,12 @@ Registered dev sources:
 - validate exists/readable; addon.xml validation where straightforward;
 - explicit source/instance attachment and detachment.
 
+Registration supplies read trust only. Any DevelopmentSource directory
+separately provisioned writable for promotion becomes part of the Kodi Lab
+application trusted-computing base. Kodi Lab does not chmod or chown source
+trees; administrators must grant least-privilege service-account ownership or
+ACLs only for sources intentionally enabled for promotion.
+
 The supported v1 local-development materialization workflow is explicit
 copy/sync from an attached registered DevelopmentSource.
 

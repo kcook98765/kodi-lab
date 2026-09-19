@@ -83,6 +83,7 @@ class PromotionVerificationStatus(BaseModel):
     workspace_id: UUID
     target_instance_id: UUID
     target_name: str = Field(max_length=256)
+    target_available: bool = True
     addon_id: str = Field(max_length=128)
     state: PromotionVerificationState
     phase: PromotionVerificationPhase
@@ -145,102 +146,82 @@ class PromotionVerificationService:
 
     def queue_and_run(self, source_promotion_id: UUID) -> PromotionVerificationStatus:
         existing = self._get_for_promotion(source_promotion_id)
-        if existing is not None:
+        if existing is None:
+            try:
+                with self._sessions.begin() as session:
+                    verification_id = self.publish_durable(session, source_promotion_id)
+            except IntegrityError as error:
+                raise PromotionVerificationError(
+                    "promotion_verification_coordination_conflict",
+                    "Target mutation coordination is unavailable.",
+                ) from error
+            existing = self._get_for_promotion(source_promotion_id)
+            if existing is None or existing.id != verification_id:
+                raise PromotionVerificationError(
+                    "promotion_verification_publication_failed",
+                    "Durable verification publication could not be proven.",
+                )
+        if existing.state is not PromotionVerificationState.QUEUED:
             return self.get(existing.id)
         with self._sessions() as session:
-            promotion = AgentWorkspacePromotionOperationRepository(session).get(
-                source_promotion_id
+            handoff = AgentWorkspacePromotionHandoffRepository(session).get(
+                existing.handoff_id
             )
-            plan = (
-                None
-                if promotion is None
-                else AgentWorkspacePromotionPlanRepository(session).get(
-                    promotion.plan_id
+        try:
+            self._failure_injector("starter_begin")
+            if handoff is None:
+                raise PromotionVerificationError(
+                    "promotion_verification_handoff_invalid",
+                    "Successful source-promotion handoff is unavailable.",
                 )
+            self._run(existing.id, handoff.trusted_container_id)
+        except Exception as error:
+            self._fail_queued_start(existing.id, error)
+        return self.get(existing.id)
+
+    def publish_durable(self, session: Session, source_promotion_id: UUID) -> UUID:
+        """Publish and reserve the sole child inside source-success transaction."""
+
+        existing = PromotionVerificationOperationRepository(session).get_for_promotion(
+            source_promotion_id
+        )
+        if existing is not None:
+            return existing.id
+        promotion = AgentWorkspacePromotionOperationRepository(session).get(
+            source_promotion_id
+        )
+        plan = (
+            None
+            if promotion is None
+            else AgentWorkspacePromotionPlanRepository(session).get(promotion.plan_id)
+        )
+        handoff = AgentWorkspacePromotionHandoffRepository(session).get_for_operation(
+            source_promotion_id
+        )
+        source = (
+            None
+            if promotion is None
+            else DevelopmentSourceRepository(session).get(
+                promotion.development_source_id
             )
-            handoff = AgentWorkspacePromotionHandoffRepository(
-                session
-            ).get_for_operation(source_promotion_id)
-            source = (
-                None
-                if handoff is None
-                else DevelopmentSourceRepository(session).get(
-                    handoff.development_source_id
-                )
-            )
-            instance = (
-                None
-                if handoff is None
-                else ManagedInstanceRepository(session).get(handoff.target_instance_id)
-            )
-            attachment = (
-                None
-                if handoff is None
-                else ManagedInstanceDevelopmentSourceRepository(session).get(
-                    handoff.target_instance_id, handoff.development_source_id
-                )
-            )
-            evidence = (
-                None
-                if handoff is None
-                else DevelopmentSourceDeploymentRepository(session).get(
-                    handoff.target_instance_id, handoff.development_source_id
-                )
-            )
+        )
+        instance = (
+            None
+            if promotion is None
+            else ManagedInstanceRepository(session).get(promotion.target_instance_id)
+        )
         if (
             promotion is None
             or plan is None
-            or promotion.state is not AgentWorkspacePromotionOperationState.SUCCEEDED
             or handoff is None
-            or handoff.consumed_at is not None
-            or promotion.plan_id != plan.id
-            or promotion.workspace_id != handoff.workspace_id
-            or promotion.development_source_id != handoff.development_source_id
-            or promotion.target_instance_id != handoff.target_instance_id
-            or plan.workspace_id != handoff.workspace_id
-            or plan.development_source_id != handoff.development_source_id
-            or plan.target_instance_id != handoff.target_instance_id
-            or plan.target_runtime_revision_id != handoff.runtime_revision_id
-            or plan.target_container_id != handoff.trusted_container_id
-            or plan.target_deployment_operation_id
-            != handoff.prior_deployment_operation_id
-            or plan.target_source_digest != handoff.prior_source_digest
-            or plan.target_destination_digest != handoff.prior_destination_digest
-            or handoff.operation_id != promotion.id
-        ):
-            raise PromotionVerificationError(
-                "promotion_verification_handoff_invalid",
-                "Successful source-promotion handoff is unavailable or consumed.",
-            )
-        if (
-            source is None
+            or source is None
             or instance is None
-            or attachment is None
-            or evidence is None
-            or instance.instance_type is not InstanceType.DISPOSABLE
-            or instance.runtime_revision_id != handoff.runtime_revision_id
-            or evidence.runtime_revision_id != handoff.runtime_revision_id
-            or evidence.trusted_container_id != handoff.trusted_container_id
-            or evidence.last_successful_operation_id
-            != handoff.prior_deployment_operation_id
-            or evidence.source_manifest_digest != handoff.prior_source_digest
-            or evidence.verified_destination_digest != handoff.prior_destination_digest
+            or promotion.state is not AgentWorkspacePromotionOperationState.SUCCEEDED
+            or handoff.consumed_at is not None
         ):
             raise PromotionVerificationError(
-                "promotion_verification_preflight_drift",
-                "Selected verification target drifted before mutation.",
-            )
-        if self._reconciliation_gate is not None:
-            self._reconciliation_gate(instance.target_id)
-        if (
-            handoff.expected_addon_id != source.addon_id
-            or handoff.expected_name is None
-            or handoff.expected_version is None
-            or handoff.expected_enabled is None
-        ):
-            raise PromotionVerificationError(
-                "promotion_verification_handoff_incomplete",
-                "Promotion verification handoff lacks bound expected state.",
+                "promotion_verification_publication_invalid",
+                "Successful source promotion cannot publish verification authority.",
             )
         verification_id = self._uuid()
         deployment_id = self._uuid()
@@ -249,69 +230,59 @@ class PromotionVerificationService:
             id=verification_id,
             source_promotion_id=source_promotion_id,
             handoff_id=handoff.id,
-            workspace_id=handoff.workspace_id,
-            development_source_id=handoff.development_source_id,
-            target_instance_id=handoff.target_instance_id,
-            runtime_revision_id=handoff.runtime_revision_id,
+            workspace_id=promotion.workspace_id,
+            development_source_id=promotion.development_source_id,
+            target_instance_id=promotion.target_instance_id,
+            runtime_revision_id=plan.target_runtime_revision_id,
             deployment_operation_id=deployment_id,
             state=PromotionVerificationState.QUEUED,
             phase=PromotionVerificationPhase.QUEUED,
-            addon_id=source.addon_id,
-            expected_name=handoff.expected_name,
-            expected_version=handoff.expected_version,
-            expected_enabled=handoff.expected_enabled,
+            addon_id=plan.addon_id,
+            expected_name=plan.promoted_name,
+            expected_version=plan.promoted_version,
+            expected_enabled=plan.expected_enabled,
             requested_at=now,
+            live_target_instance_id=promotion.target_instance_id,
         )
         deployment = DevelopmentSourceDeploymentOperation(
             id=deployment_id,
-            original_managed_instance_id=instance.target_id,
-            managed_instance_id=instance.target_id,
+            original_managed_instance_id=promotion.target_instance_id,
+            managed_instance_id=promotion.target_instance_id,
             development_source_id=source.id,
             source_logical_name=source.logical_name,
             addon_id=source.addon_id,
-            runtime_revision_id=instance.runtime_revision_id,
+            runtime_revision_id=plan.target_runtime_revision_id,
             request_kind=DevelopmentSourceDeploymentRequestKind.COPY_SYNC,
             requested_at=now,
             state=DevelopmentSourceDeploymentOperationState.QUEUED,
             phase=DevelopmentSourceDeploymentOperationPhase.ACQUIRE,
         )
-        try:
-            with self._sessions.begin() as session:
-                DevelopmentSourceDeploymentOperationRepository(session).create(
-                    deployment
-                )
-                PromotionVerificationOperationRepository(session).create(operation)
-                if not AgentWorkspacePromotionHandoffRepository(
-                    session
-                ).reserve_for_verification(
-                    handoff.id,
-                    verification_operation_id=verification_id,
-                    addon_id=source.addon_id,
-                    expected_name=plan.promoted_name,
-                    expected_version=plan.promoted_version,
-                    expected_enabled=handoff.expected_enabled,
-                ):
-                    raise PromotionVerificationError(
-                        "promotion_verification_handoff_reserved",
-                        "Promotion verification handoff was already reserved "
-                        "or consumed.",
-                    )
-                ManagedInstanceMutationLeaseRepository(session).reserve(
-                    instance.target_id,
-                    kind=ManagedInstanceMutationKind.PROMOTION_VERIFICATION,
-                    operation_id=verification_id,
-                )
-                GlobalHeavyOperationLeaseRepository(session).reserve(
-                    kind=GlobalHeavyOperationKind.PROMOTION_VERIFICATION,
-                    operation_id=verification_id,
-                )
-        except IntegrityError as error:
+        DevelopmentSourceDeploymentOperationRepository(session).create(deployment)
+        PromotionVerificationOperationRepository(session).create(operation)
+        if not AgentWorkspacePromotionHandoffRepository(
+            session
+        ).reserve_for_verification(
+            handoff.id,
+            verification_operation_id=verification_id,
+            addon_id=plan.addon_id,
+            expected_name=plan.promoted_name,
+            expected_version=plan.promoted_version,
+            expected_enabled=plan.expected_enabled,
+        ):
             raise PromotionVerificationError(
-                "promotion_verification_coordination_conflict",
-                "Target mutation coordination is unavailable.",
-            ) from error
-        self._run(verification_id, handoff.trusted_container_id)
-        return self.get(verification_id)
+                "promotion_verification_handoff_reserved",
+                "Promotion verification handoff was already reserved or consumed.",
+            )
+        ManagedInstanceMutationLeaseRepository(session).reserve(
+            promotion.target_instance_id,
+            kind=ManagedInstanceMutationKind.PROMOTION_VERIFICATION,
+            operation_id=verification_id,
+        )
+        GlobalHeavyOperationLeaseRepository(session).reserve(
+            kind=GlobalHeavyOperationKind.PROMOTION_VERIFICATION,
+            operation_id=verification_id,
+        )
+        return verification_id
 
     def _get_for_promotion(
         self, promotion_id: UUID
@@ -319,6 +290,44 @@ class PromotionVerificationService:
         with self._sessions() as session:
             return PromotionVerificationOperationRepository(session).get_for_promotion(
                 promotion_id
+            )
+
+    def _fail_queued_start(self, operation_id: UUID, error: Exception) -> None:
+        code = getattr(error, "code", "promotion_verification_start_failed")
+        now = self._clock()
+        with self._sessions.begin() as session:
+            operation = PromotionVerificationOperationRepository(session).get(
+                operation_id
+            )
+            if (
+                operation is None
+                or operation.state is not PromotionVerificationState.QUEUED
+            ):
+                return
+            if not PromotionVerificationOperationRepository(
+                session
+            ).recover_interrupted(
+                operation_id,
+                state=PromotionVerificationState.FAILED,
+                now=now,
+            ):
+                raise PromotionVerificationError(
+                    "promotion_verification_start_recovery_failed",
+                    "Verification start failure could not be retained.",
+                )
+            PromotionVerificationOperationRepository(session).update(
+                operation_id, failure_code=str(code)[:128]
+            )
+            DevelopmentSourceDeploymentOperationRepository(session).fail_queued(
+                operation.deployment_operation_id,
+                reason=str(code),
+                now=now,
+            )
+            ManagedInstanceMutationLeaseRepository(session).release_for_operation(
+                operation.target_instance_id, operation.id
+            )
+            GlobalHeavyOperationLeaseRepository(session).release_for_operation(
+                operation.id
             )
 
     def get_for_promotion(self, promotion_id: UUID) -> PromotionVerificationStatus:
@@ -382,6 +391,8 @@ class PromotionVerificationService:
         stopped = sync_started = sync_completed = start_dispatched = False
         observation_started = False
         try:
+            if self._reconciliation_gate is not None:
+                self._reconciliation_gate(operation.target_instance_id)
             self._require_bound_preflight(operation_id, container_id)
             self._require_exact_container(
                 operation_id, container_id, ContainerRuntimeState.RUNNING
@@ -649,9 +660,6 @@ class PromotionVerificationService:
             promotion is None
             or plan is None
             or handoff is None
-            or instance is None
-            or attachment is None
-            or evidence is None
             or promotion.state is not AgentWorkspacePromotionOperationState.SUCCEEDED
             or promotion.plan_id != plan.id
             or promotion.workspace_id != operation.workspace_id
@@ -678,6 +686,15 @@ class PromotionVerificationService:
             or handoff.expected_name != operation.expected_name
             or handoff.expected_version != operation.expected_version
             or handoff.expected_enabled is not operation.expected_enabled
+        ):
+            raise PromotionVerificationError(
+                "promotion_verification_handoff_invalid",
+                "Reserved promotion verification handoff is invalid.",
+            )
+        if (
+            instance is None
+            or attachment is None
+            or evidence is None
             or instance.instance_type is not InstanceType.DISPOSABLE
             or instance.runtime_revision_id != operation.runtime_revision_id
             or evidence.runtime_revision_id != operation.runtime_revision_id
@@ -861,10 +878,24 @@ class PromotionVerificationService:
             )
             target = (
                 None
-                if operation is None
-                else TargetRepository(session).get(operation.target_instance_id)
+                if operation is None or operation.live_target_instance_id is None
+                else TargetRepository(session).get(operation.live_target_instance_id)
             )
-        if operation is None or target is None:
+            promotion = (
+                None
+                if operation is None
+                else AgentWorkspacePromotionOperationRepository(session).get(
+                    operation.source_promotion_id
+                )
+            )
+            plan = (
+                None
+                if promotion is None
+                else AgentWorkspacePromotionPlanRepository(session).get(
+                    promotion.plan_id
+                )
+            )
+        if operation is None:
             raise PromotionVerificationError(
                 "promotion_verification_not_found", "Kodi verification was not found."
             )
@@ -873,7 +904,16 @@ class PromotionVerificationService:
             source_promotion_id=operation.source_promotion_id,
             workspace_id=operation.workspace_id,
             target_instance_id=operation.target_instance_id,
-            target_name=target.name,
+            target_name=(
+                target.name
+                if target is not None
+                else (
+                    plan.original_target_name
+                    if plan is not None and plan.original_target_name is not None
+                    else "Deleted managed instance"
+                )
+            ),
+            target_available=target is not None,
             addon_id=operation.addon_id,
             state=operation.state,
             phase=operation.phase,
@@ -910,6 +950,42 @@ class PromotionVerificationService:
                 else PromotionVerificationState.FAILED
             )
             with self._sessions.begin() as session:
+                deployments = DevelopmentSourceDeploymentOperationRepository(session)
+                deployment = deployments.get(operation.deployment_operation_id)
+                if (
+                    deployment is not None
+                    and deployment.state
+                    is DevelopmentSourceDeploymentOperationState.QUEUED
+                ):
+                    deployments.fail_queued(
+                        operation.deployment_operation_id,
+                        reason="promotion_verification_interrupted",
+                        now=self._clock(),
+                    )
+                elif (
+                    deployment is not None
+                    and deployment.state
+                    is DevelopmentSourceDeploymentOperationState.RUNNING
+                    and operation.lease_token_digest is not None
+                ):
+                    deployments.finish(
+                        operation.deployment_operation_id,
+                        token_digest=operation.lease_token_digest,
+                        state=(
+                            DevelopmentSourceDeploymentOperationState.RECONCILIATION_REQUIRED
+                            if uncertain
+                            else DevelopmentSourceDeploymentOperationState.FAILED
+                        ),
+                        result_classification=None,
+                        new_count=None,
+                        changed_count=None,
+                        unchanged_count=None,
+                        destination_only_count=None,
+                        transferred_bytes=None,
+                        failure_reason="promotion_verification_interrupted",
+                        reconciliation_required=uncertain,
+                        now=self._clock(),
+                    )
                 if not PromotionVerificationOperationRepository(
                     session
                 ).recover_interrupted(operation.id, state=state, now=self._clock()):

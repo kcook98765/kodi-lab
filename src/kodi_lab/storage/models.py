@@ -547,6 +547,10 @@ class AgentWorkspacePromotionPlanRow(Base):
             "development_source_id",
             "created_at",
         ),
+        Index(
+            "ix_agent_workspace_promotion_plans_original_target",
+            "original_target_instance_id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -560,11 +564,12 @@ class AgentWorkspacePromotionPlanRow(Base):
         ForeignKey("development_sources.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    target_instance_id: Mapped[str] = mapped_column(
+    original_target_instance_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_instance_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
-        nullable=False,
     )
+    original_target_name: Mapped[str | None] = mapped_column(String(256))
     workspace_generation: Mapped[int] = mapped_column(Integer, nullable=False)
     workspace_digest: Mapped[str] = mapped_column(String(71), nullable=False)
     baseline_artifact_id: Mapped[str] = mapped_column(String(36), nullable=False)
@@ -701,6 +706,10 @@ class AgentWorkspacePromotionOperationRow(Base):
             unique=True,
             sqlite_where=text("state IN ('queued','running')"),
         ),
+        Index(
+            "ix_agent_workspace_promotion_operations_original_target",
+            "original_target_instance_id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -719,10 +728,10 @@ class AgentWorkspacePromotionOperationRow(Base):
         ForeignKey("development_sources.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    target_instance_id: Mapped[str] = mapped_column(
+    original_target_instance_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_instance_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
-        nullable=False,
     )
     state: Mapped[AgentWorkspacePromotionOperationState] = mapped_column(
         Enum(
@@ -811,6 +820,10 @@ class AgentWorkspacePromotionHandoffRow(Base):
             "AND expected_enabled IS NOT NULL)",
             name="promotion_handoff_verification_shape",
         ),
+        Index(
+            "ix_agent_workspace_promotion_handoffs_original_target",
+            "original_target_instance_id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -825,7 +838,8 @@ class AgentWorkspacePromotionHandoffRow(Base):
     development_source_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("development_sources.id", ondelete="RESTRICT")
     )
-    target_instance_id: Mapped[str] = mapped_column(
+    original_target_instance_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_instance_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("managed_instances.target_id", ondelete="RESTRICT")
     )
     runtime_revision_id: Mapped[str] = mapped_column(
@@ -885,6 +899,10 @@ class PromotionVerificationOperationRow(Base):
             "start_dispatched=0 OR sync_completed=1",
             name="promotion_verification_start_order",
         ),
+        Index(
+            "ix_promotion_verification_operations_original_target",
+            "original_target_instance_id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -904,7 +922,8 @@ class PromotionVerificationOperationRow(Base):
     development_source_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("development_sources.id", ondelete="RESTRICT")
     )
-    target_instance_id: Mapped[str] = mapped_column(
+    original_target_instance_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_instance_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("managed_instances.target_id", ondelete="RESTRICT")
     )
     runtime_revision_id: Mapped[str] = mapped_column(

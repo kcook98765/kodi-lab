@@ -786,8 +786,7 @@ Queueing reserves the exact handoff without consumption; only exact sync
 readback and fresh evidence atomically consume it. Reserved failures remain
 non-reusable, including reconciliation-required ambiguity.
 Source success remains immutable across succeeded, failed, incomplete, and
-reconciliation-required verification outcomes. Canonical Phase 9 patch-back is
-complete.
+reconciliation-required verification outcomes.
 
 Slice 5 completes D-0210 and the remaining Phase 9 implementation scope.
 Migration `0033_agent_workspace_cleanup` adds lifecycle timestamps, independent
@@ -800,5 +799,10 @@ no-follow deletion removes only the exact workspace baseline/tree subtree and
 retains all database history, promotion backup, handoff, verification, and log
 evidence. There is no automatic, age, pressure, source, status, or bulk pruning.
 
-**Phase 9 implementation: COMPLETE; formal completion review remains.** MCP
-exposure remains later Phase 11/12 work and Phase 10 has not begun.
+Completion-audit remediation adds migration
+`0034_phase9_completion_remediation`, atomic source-success/verification-child
+publication, retained nullable live-target history, deterministic obvious-secret
+snippet redaction, and direct privilege-policy coverage for the root-only Phase
+9 validator. These findings are remediated, but **Phase 9 is not formally
+COMPLETE until the formal completion review is rerun.** MCP exposure remains
+later Phase 11/12 work and Phase 10 has not begun.

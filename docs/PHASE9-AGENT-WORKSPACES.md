@@ -4,7 +4,9 @@
 
 Slice 1 implements a durable catalog, safe asynchronous creation, a private
 immutable baseline, and bounded read-only inspection. It accepts exactly one
-registered `local_directory` DevelopmentSource UUID. Sources remain read-only.
+registered `local_directory` DevelopmentSource UUID. Registration and ordinary
+workspace use grant read trust only; promotion is the separately permissioned
+exception described below.
 Uploaded ZIPs, repository artifacts, arbitrary directories, aliases, mounts,
 binds, Git repositories/worktrees/clones, runtimes, and instances are not
 eligible inputs.
@@ -179,6 +181,13 @@ parents. Readable-only sources are classified separately and fail closed.
 Registration does not chmod, chown, or grant authority. There is no root helper,
 broker, Git, shell, Docker, or Kodi fallback.
 
+Any DevelopmentSource directory provisioned writable for promotion becomes part
+of the Kodi Lab application trusted-computing base. Promotion requires separate
+administrator OS permission provisioning; Kodi Lab does not `chmod` or `chown`
+source trees. Compromise of the application service account could modify every
+promotion-enabled source writable by that account. Administrators must use
+least-privilege ownership or ACLs and enable promotion only where intended.
+
 Execution repeats workspace and complete source validation. It accepts no
 caller paths: source root and lexical affected path set come from the plan.
 Before first mutation it publishes and verifies a private UUID-derived backup
@@ -224,8 +233,10 @@ filesystem metadata, or raw exceptions.
 
 ## Slice 4 promotion-bound Kodi verification
 
-Source success automatically queues verification and reserves its one
-selected-target handoff to the exact verification UUID. The handoff remains
+Source terminal success, handoff publication, verification-child creation, and
+reservation of its one selected-target handoff to the exact verification UUID
+commit in one database transaction. Fallible drift and handoff preflight begins
+only after that durable publication. The handoff remains
 unconsumed through preflight, cursor, stop, and sync. Only exact sync readback
 and fresh ordinary deployment evidence atomically set both consumption markers;
 deterministic earlier failure and ambiguity remain reserved and non-reusable. A
@@ -243,7 +254,12 @@ incomplete; mutation uncertainty is reconciliation-required. All outcomes
 retain the already succeeded promotion and immutable promoted workspace.
 Web status explicitly separates Source promotion from Kodi verification and
 returns only logical identity, versions, enabled Booleans, classifications,
-counts, and bounded sanitized snippets.
+counts, and bounded sanitized snippets. Sanitization performs deterministic
+obvious-secret redaction before control normalization and truncation. It covers
+Bearer credentials, common token/password assignments, credential-like URL
+userinfo, and obvious common token prefixes; it is not a general DLP guarantee.
+Raw log bytes remain transient inside the fixed private broker boundary and are
+not persisted. Only redacted snippets enter evidence, DTOs, or Web history.
 
 ## Slice 5 abandonment, cleanup, and conservative retention
 
@@ -297,7 +313,8 @@ worker, disk-pressure policy, automatic post-promotion/abandonment cleanup,
 cleanup-all, age/source/status selector, or promotion-backup/log-evidence
 pruning. A later artifact-retention decision must authorize any such policy.
 
-All canonical Phase 9 implementation requirements are now implemented. Formal
-Phase 9 completion review is the remaining milestone; MCP exposure remains
-later Phase 11/12 work. Delete, rename, move, mkdir, binary write, type
-transition, shell, and Git remain absent by design.
+The formal Phase 9 completion-audit blockers have been remediated in code and
+direct regression coverage. Phase 9 is not yet formally COMPLETE: its completion
+review must be rerun against this remediation. MCP exposure remains later Phase
+11/12 work. Delete, rename, move, mkdir, binary write, type transition, shell,
+and Git remain absent by design.

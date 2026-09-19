@@ -322,6 +322,229 @@ def _edit(harness: Harness, *, add: bool = True) -> None:
         )
 
 
+class _NoVerificationMutationBroker:
+    stop_calls = 0
+
+    def managed_container_inventory(self) -> Any:
+        raise AssertionError("container inventory must not run")
+
+    def capture_promotion_kodi_log_cursor(self, **_kwargs: object) -> Any:
+        raise AssertionError("log cursor must not run")
+
+    def stop_managed_container(self, **_kwargs: object) -> None:
+        self.stop_calls += 1
+        raise AssertionError("stop must not run")
+
+    def copy_sync_promoted_development_source(self, **_kwargs: object) -> Any:
+        raise AssertionError("sync must not run")
+
+    def start_managed_container(self, **_kwargs: object) -> None:
+        raise AssertionError("start must not run")
+
+    def read_promotion_kodi_log_window(self, **_kwargs: object) -> Any:
+        raise AssertionError("log window must not run")
+
+
+class _NoVerificationInventory:
+    def get(self, _instance_id: UUID) -> Any:
+        raise AssertionError("Kodi inventory must not run")
+
+
+def _promotion_with_durable_child(
+    harness: Harness,
+    verification: PromotionVerificationService,
+    *,
+    starter: Any,
+) -> AgentWorkspacePromotionService:
+    return AgentWorkspacePromotionService(
+        harness.factory,
+        data_root=harness.data_root,
+        development_root=harness.source.parent,
+        clock=harness.clock,
+        verification_publisher=verification.publish_durable,
+        verification_starter=starter,
+    )
+
+
+def test_starter_begin_failure_is_durable_and_source_success_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    broker = _NoVerificationMutationBroker()
+
+    def fail_start(phase: str) -> None:
+        if phase == "starter_begin":
+            raise RuntimeError("audit injected starter failure")
+
+    verification = PromotionVerificationService(
+        harness.factory,
+        broker,
+        _NoVerificationInventory(),
+        clock=harness.clock,
+        sleep=lambda _seconds: None,
+        failure_injector=fail_start,
+    )
+    promotions = _promotion_with_durable_child(
+        harness, verification, starter=verification.queue_and_run
+    )
+    _edit(harness)
+    plan = promotions.prepare(TARGET_ID, harness.workspace_id)
+
+    source_result = promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+
+    assert source_result.state.value == "succeeded"
+    assert harness.workspaces.get(harness.workspace_id).state.value == "promoted"
+    assert broker.stop_calls == 0
+    with harness.factory() as session:
+        rows = list(session.scalars(select(PromotionVerificationOperationRow)))
+        handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+        assert len(rows) == 1
+        assert rows[0].state.value == "failed"
+        assert rows[0].failure_code == "promotion_verification_start_failed"
+        assert handoff is not None
+        assert handoff.verification_operation_id == rows[0].id
+        assert handoff.consumed_at is None
+    repeated = verification.queue_and_run(source_result.operation_id)
+    assert str(repeated.verification_id) == rows[0].id
+
+
+def test_child_creation_failure_cannot_commit_source_success(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+
+    def fail_publication(_session: Session, _operation_id: UUID) -> UUID:
+        raise RuntimeError("audit injected child creation failure")
+
+    promotions = AgentWorkspacePromotionService(
+        harness.factory,
+        data_root=harness.data_root,
+        development_root=harness.source.parent,
+        clock=harness.clock,
+        verification_publisher=fail_publication,
+        verification_starter=lambda _operation_id: None,
+    )
+    _edit(harness)
+    plan = promotions.prepare(TARGET_ID, harness.workspace_id)
+
+    result = promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+
+    assert result.state.value == "failed"
+    assert harness.workspaces.get(harness.workspace_id).state.value == "ready"
+    assert harness.source.joinpath("main.py").read_text() == "print('old')\n"
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(PromotionVerificationOperationRow)
+            )
+            == 0
+        )
+        source = session.get(
+            AgentWorkspacePromotionOperationRow, str(result.operation_id)
+        )
+        assert source is not None and source.state.value != "succeeded"
+
+
+@pytest.mark.parametrize("failure_kind", ["target_drift", "handoff_invalid"])
+def test_preflight_rejection_is_durable_before_target_stop(
+    tmp_path: Path, failure_kind: str
+) -> None:
+    harness = _harness(tmp_path)
+    broker = _NoVerificationMutationBroker()
+    verification = PromotionVerificationService(
+        harness.factory,
+        broker,
+        _NoVerificationInventory(),
+        clock=harness.clock,
+        sleep=lambda _seconds: None,
+    )
+    promotions = _promotion_with_durable_child(
+        harness, verification, starter=lambda _operation_id: None
+    )
+    _edit(harness)
+    plan = promotions.prepare(TARGET_ID, harness.workspace_id)
+    source_result = promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+    with harness.factory.begin() as session:
+        if failure_kind == "target_drift":
+            session.execute(
+                update(DevelopmentSourceDeploymentRow).values(
+                    verified_destination_digest="sha256:" + "9" * 64
+                )
+            )
+        else:
+            session.execute(
+                update(AgentWorkspacePromotionHandoffRow).values(
+                    trusted_container_id="f" * 64
+                )
+            )
+
+    result = verification.queue_and_run(source_result.operation_id)
+
+    assert result.state.value == "failed"
+    assert result.failure_code == (
+        "promotion_verification_preflight_drift"
+        if failure_kind == "target_drift"
+        else "promotion_verification_handoff_invalid"
+    )
+    assert broker.stop_calls == 0
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(PromotionVerificationOperationRow)
+            )
+            == 1
+        )
+        handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+        source = session.get(
+            AgentWorkspacePromotionOperationRow, str(source_result.operation_id)
+        )
+        assert handoff is not None and handoff.verification_operation_id is not None
+        assert handoff.consumed_at is None
+        assert source is not None and source.state.value == "succeeded"
+
+
+def test_published_child_process_boundary_recovers_exactly_once(tmp_path: Path) -> None:
+    harness = _harness(tmp_path)
+    verification = PromotionVerificationService(
+        harness.factory,
+        _NoVerificationMutationBroker(),
+        _NoVerificationInventory(),
+        clock=harness.clock,
+        sleep=lambda _seconds: None,
+    )
+    promotions = _promotion_with_durable_child(
+        harness, verification, starter=lambda _operation_id: None
+    )
+    _edit(harness)
+    plan = promotions.prepare(TARGET_ID, harness.workspace_id)
+    source_result = promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+
+    assert verification.sweep_startup() == 1
+    assert verification.sweep_startup() == 0
+    result = verification.get_for_promotion(source_result.operation_id)
+    assert result.state.value == "failed"
+    assert result.failure_code == "promotion_verification_interrupted"
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(PromotionVerificationOperationRow)
+            )
+            == 1
+        )
+        handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+        assert handoff is not None
+        assert handoff.verification_operation_id == str(result.verification_id)
+        assert handoff.consumed_at is None
+        assert session.scalar(select(ManagedInstanceMutationLeaseRow)) is None
+        assert session.scalar(select(GlobalHeavyOperationLeaseRow)) is None
+
+
 def test_success_promotes_workspace_stales_evidence_and_publishes_exact_handoff(
     tmp_path: Path,
 ) -> None:

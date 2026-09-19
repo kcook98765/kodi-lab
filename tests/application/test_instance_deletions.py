@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import pytest
@@ -20,7 +20,11 @@ from kodi_lab.application.instance_deletions import (
     DisposableManagedInstanceDeletionService,
     InstanceDeleteBroker,
 )
+from kodi_lab.application.promotion_verifications import PromotionVerificationService
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationRequiredError,
+)
 from kodi_lab.application.snapshot_delete_operations import (
     SnapshotDeleteConflictError,
     SnapshotDeleteOperationCoordinator,
@@ -62,6 +66,10 @@ from kodi_lab.snapshot.storage import delete_snapshot_artifact, snapshot_directo
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    AgentWorkspacePromotionHandoffRow,
+    AgentWorkspacePromotionOperationRow,
+    AgentWorkspacePromotionPlanRow,
+    AgentWorkspaceRow,
     DevelopmentSourceAttachmentOperationRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
@@ -72,6 +80,8 @@ from kodi_lab.storage.models import (
     ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    PromotionVerificationLogEvidenceRow,
+    PromotionVerificationOperationRow,
     ResetOperationRow,
     RuntimeDefinitionRow,
     RuntimeRevisionRow,
@@ -92,6 +102,12 @@ DEFINITION_ID = UUID("95000000-0000-4000-8000-000000000004")
 SNAPSHOT_A = UUID("95000000-0000-4000-8000-000000000010")
 SNAPSHOT_B = UUID("95000000-0000-4000-8000-000000000009")
 SIBLING_SNAPSHOT = UUID("95000000-0000-4000-8000-000000000011")
+WORKSPACE_ID = UUID("95000000-0000-4000-8000-000000000040")
+PLAN_ID = UUID("95000000-0000-4000-8000-000000000041")
+PROMOTION_ID = UUID("95000000-0000-4000-8000-000000000042")
+HANDOFF_ID = UUID("95000000-0000-4000-8000-000000000043")
+VERIFICATION_ID = UUID("95000000-0000-4000-8000-000000000044")
+VERIFICATION_DEPLOYMENT_ID = UUID("95000000-0000-4000-8000-000000000045")
 CONTAINER_ID = "a" * 64
 IMAGE_ID = "sha256:" + "b" * 64
 NOW = datetime(2026, 9, 16, tzinfo=UTC)
@@ -309,6 +325,172 @@ def make_artifacts(data_root: Path) -> dict[UUID, bytes]:
     return result
 
 
+def add_terminal_phase9_history(
+    factory: sessionmaker[Session], *, verification_state: str
+) -> None:
+    consumed = verification_state == "succeeded"
+    with factory.begin() as session:
+        session.add(
+            AgentWorkspaceRow(
+                id=str(WORKSPACE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                source_addon_id="plugin.video.deletion-attachment",
+                source_logical_name="Deletion attachment",
+                source_observed_name="Deletion attachment",
+                source_observed_version="1.0.0",
+                state="promoted",
+                bytes_state="present",
+                baseline_artifact_id="95000000-0000-4000-8000-000000000046",
+                baseline_manifest_digest="sha256:" + "3" * 64,
+                generation=1,
+                current_tree_digest="sha256:" + "4" * 64,
+                capture_started_at=NOW.isoformat(),
+                captured_at=NOW.isoformat(),
+                created_at=NOW.isoformat(),
+                updated_at=NOW.isoformat(),
+                promoted_at=NOW.isoformat(),
+            )
+        )
+        session.add(
+            AgentWorkspacePromotionPlanRow(
+                id=str(PLAN_ID),
+                workspace_id=str(WORKSPACE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                original_target_instance_id=str(INSTANCE_ID),
+                target_instance_id=str(INSTANCE_ID),
+                original_target_name="deletion source",
+                workspace_generation=1,
+                workspace_digest="sha256:" + "4" * 64,
+                baseline_artifact_id="95000000-0000-4000-8000-000000000046",
+                baseline_digest="sha256:" + "3" * 64,
+                source_capture_digest="sha256:" + "5" * 64,
+                addon_id="plugin.video.deletion-attachment",
+                current_version="1.0.0",
+                promoted_name="Deletion attachment",
+                promoted_version="1.0.1",
+                target_runtime_revision_id=str(REVISION_ID),
+                target_container_id=CONTAINER_ID,
+                target_deployment_operation_id=("95000000-0000-4000-8000-000000000032"),
+                target_source_digest="sha256:" + "1" * 64,
+                target_destination_digest="sha256:" + "2" * 64,
+                expected_enabled=True,
+                changed_file_count=1,
+                review_text_bytes=10,
+                created_at=NOW.isoformat(),
+                reviewable_at=NOW.isoformat(),
+                expires_at=NOW.isoformat(),
+                state="consumed",
+                source_operation_id=str(PROMOTION_ID),
+            )
+        )
+        session.flush()
+        session.add(
+            AgentWorkspacePromotionOperationRow(
+                id=str(PROMOTION_ID),
+                plan_id=str(PLAN_ID),
+                workspace_id=str(WORKSPACE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                original_target_instance_id=str(INSTANCE_ID),
+                target_instance_id=str(INSTANCE_ID),
+                state="succeeded",
+                phase="finalize",
+                requested_at=NOW.isoformat(),
+                application_started=True,
+                backup_artifact_id="95000000-0000-4000-8000-000000000047",
+                backup_verified=True,
+                started_at=NOW.isoformat(),
+                completed_at=NOW.isoformat(),
+                reconciliation_required=False,
+            )
+        )
+        session.add(
+            DevelopmentSourceDeploymentOperationRow(
+                id=str(VERIFICATION_DEPLOYMENT_ID),
+                original_managed_instance_id=str(INSTANCE_ID),
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                source_logical_name="Deletion attachment",
+                addon_id="plugin.video.deletion-attachment",
+                runtime_revision_id=str(REVISION_ID),
+                request_kind="copy_sync",
+                requested_at=NOW.isoformat(),
+                started_at=NOW.isoformat(),
+                heartbeat_at=NOW.isoformat(),
+                completed_at=NOW.isoformat(),
+                state="succeeded" if consumed else "failed",
+                phase="finalize",
+                result_classification="synchronized" if consumed else None,
+                reconciliation_required=False,
+            )
+        )
+        session.flush()
+        session.add(
+            AgentWorkspacePromotionHandoffRow(
+                id=str(HANDOFF_ID),
+                operation_id=str(PROMOTION_ID),
+                workspace_id=str(WORKSPACE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                original_target_instance_id=str(INSTANCE_ID),
+                target_instance_id=str(INSTANCE_ID),
+                runtime_revision_id=str(REVISION_ID),
+                trusted_container_id=CONTAINER_ID,
+                prior_deployment_operation_id=("95000000-0000-4000-8000-000000000032"),
+                prior_source_digest="sha256:" + "1" * 64,
+                prior_destination_digest="sha256:" + "2" * 64,
+                created_at=NOW.isoformat(),
+                expected_addon_id="plugin.video.deletion-attachment",
+                expected_name="Deletion attachment",
+                expected_version="1.0.1",
+                expected_enabled=True,
+                verification_operation_id=str(VERIFICATION_ID),
+                consumed_at=NOW.isoformat() if consumed else None,
+            )
+        )
+        session.flush()
+        session.add(
+            PromotionVerificationOperationRow(
+                id=str(VERIFICATION_ID),
+                source_promotion_id=str(PROMOTION_ID),
+                handoff_id=str(HANDOFF_ID),
+                workspace_id=str(WORKSPACE_ID),
+                development_source_id="95000000-0000-4000-8000-000000000030",
+                original_target_instance_id=str(INSTANCE_ID),
+                target_instance_id=str(INSTANCE_ID),
+                runtime_revision_id=str(REVISION_ID),
+                deployment_operation_id=str(VERIFICATION_DEPLOYMENT_ID),
+                state=verification_state,
+                phase="finalize",
+                addon_id="plugin.video.deletion-attachment",
+                expected_name="Deletion attachment",
+                expected_version="1.0.1",
+                expected_enabled=True,
+                sync_result="succeeded" if consumed else "failed",
+                reload_result="succeeded" if consumed else "pending",
+                inventory_result="succeeded" if consumed else "pending",
+                log_result="clean" if consumed else "pending",
+                target_error_count=0,
+                unrelated_warning_count=0,
+                stop_completed=consumed,
+                sync_started=consumed,
+                sync_completed=consumed,
+                start_dispatched=consumed,
+                handoff_consumed=consumed,
+                requested_at=NOW.isoformat(),
+                started_at=NOW.isoformat(),
+                completed_at=NOW.isoformat(),
+                failure_code=(
+                    None if consumed else f"promotion_verification_{verification_state}"
+                ),
+            )
+        )
+        session.add(
+            PromotionVerificationLogEvidenceRow(
+                verification_operation_id=str(VERIFICATION_ID),
+                target_error_snippets_json='["bounded retained snippet"]',
+            )
+        )
+
+
 @dataclass
 class FakeBroker:
     data_root: Path
@@ -481,6 +663,110 @@ def test_preserve_detaches_atomically_and_keeps_bytes_and_exact_notes(
         assert (snapshot_directory(tmp_path, identity) / "state.tar").read_bytes() == (
             expected[identity]
         )
+
+
+@pytest.mark.parametrize("verification_state", ["succeeded", "failed", "incomplete"])
+def test_terminal_phase9_history_survives_instance_deletion(
+    factory: sessionmaker[Session], tmp_path: Path, verification_state: str
+) -> None:
+    make_artifacts(tmp_path)
+    add_terminal_phase9_history(factory, verification_state=verification_state)
+
+    execute(factory, FakeBroker(tmp_path), preserve=True)
+
+    with factory() as session:
+        plan = session.get(AgentWorkspacePromotionPlanRow, str(PLAN_ID))
+        promotion = session.get(AgentWorkspacePromotionOperationRow, str(PROMOTION_ID))
+        handoff = session.get(AgentWorkspacePromotionHandoffRow, str(HANDOFF_ID))
+        verification = session.get(
+            PromotionVerificationOperationRow, str(VERIFICATION_ID)
+        )
+        evidence = session.get(
+            PromotionVerificationLogEvidenceRow, str(VERIFICATION_ID)
+        )
+        workspace = session.get(AgentWorkspaceRow, str(WORKSPACE_ID))
+        assert plan is not None and plan.target_instance_id is None
+        assert plan.original_target_instance_id == str(INSTANCE_ID)
+        assert plan.original_target_name == "deletion source"
+        assert promotion is not None and promotion.target_instance_id is None
+        assert promotion.original_target_instance_id == str(INSTANCE_ID)
+        assert handoff is not None and handoff.target_instance_id is None
+        assert handoff.original_target_instance_id == str(INSTANCE_ID)
+        assert verification is not None and verification.target_instance_id is None
+        assert verification.original_target_instance_id == str(INSTANCE_ID)
+        assert verification.state.value == verification_state
+        assert evidence is not None
+        assert workspace is not None and workspace.state.value == "promoted"
+        assert workspace.bytes_state.value == "present"
+
+    class Inventory:
+        def get(self, _instance_id: UUID) -> object:
+            raise AssertionError("deleted history projection must not query Kodi")
+
+    status = PromotionVerificationService(
+        factory, cast(Any, FakeBroker(tmp_path)), Inventory()
+    ).get(VERIFICATION_ID)
+    assert status.target_instance_id == INSTANCE_ID
+    assert status.target_name == "deletion source"
+    assert not status.target_available
+
+
+@pytest.mark.parametrize(
+    "blocking_state", ["queued", "running", "reconciliation_required"]
+)
+def test_active_or_unresolved_phase9_verification_blocks_instance_deletion(
+    factory: sessionmaker[Session], blocking_state: str
+) -> None:
+    add_terminal_phase9_history(factory, verification_state="succeeded")
+    with factory.begin() as session:
+        if blocking_state in {"queued", "running"}:
+            session.execute(
+                update(PromotionVerificationOperationRow).values(
+                    state=blocking_state,
+                    phase="queued" if blocking_state == "queued" else "preflight",
+                    sync_result="pending",
+                    reload_result="pending",
+                    inventory_result="pending",
+                    log_result="pending",
+                    stop_completed=False,
+                    sync_started=False,
+                    sync_completed=False,
+                    start_dispatched=False,
+                    handoff_consumed=False,
+                    started_at=None if blocking_state == "queued" else NOW.isoformat(),
+                    completed_at=None,
+                    failure_code=None,
+                    lease_token_digest=(
+                        None if blocking_state == "queued" else "a" * 64
+                    ),
+                    lease_expires_at=(
+                        None if blocking_state == "queued" else NOW.isoformat()
+                    ),
+                )
+            )
+            session.execute(
+                update(AgentWorkspacePromotionHandoffRow).values(consumed_at=None)
+            )
+        else:
+            session.execute(
+                update(PromotionVerificationOperationRow).values(
+                    state="reconciliation_required",
+                    failure_code="promotion_verification_reconciliation_required",
+                )
+            )
+
+    with pytest.raises(
+        (
+            ManagedInstanceDeleteConflictError,
+            ManagedInstanceReconciliationRequiredError,
+        )
+    ):
+        ManagedInstanceDeleteOperationCoordinator(factory).queue(
+            INSTANCE_ID, preserve_snapshots=True
+        )
+    with factory() as session:
+        assert ManagedInstanceRepository(session).get(INSTANCE_ID) is not None
+        assert session.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is None
 
 
 def test_delete_is_container_first_artifact_first_deterministic_and_isolated(

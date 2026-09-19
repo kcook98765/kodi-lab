@@ -2653,6 +2653,12 @@ details that it did not specify.
   application account, including every affected existing parent. Missing
   provisioning fails closed. Promotion uses no broker/root helper, Git, shell,
   Docker, or Kodi operation.
+- TCB clarification: any DevelopmentSource directory provisioned writable for
+  promotion is part of the Kodi Lab application trusted-computing base.
+  Registration alone is read trust; administrators separately provision the OS
+  permissions, and Kodi Lab never chmods or chowns the source. Compromise of the
+  application service account could modify every promotion-enabled source it
+  can write, so ownership/ACLs must be least-privilege and intentionally scoped.
 - Backup and apply: before first canonical mutation, a private operation/UUID
   backup records exact modified-file bytes and normalized mode or an addition's
   absence marker, then verifies publication. Fixed server-derived relative
@@ -2673,8 +2679,11 @@ details that it did not specify.
 
 - Status: approved and implemented for Phase 9 Slice 4
 - Decision: successful source apply automatically starts one verification from
-  its private selected-target handoff. Queueing reserves that handoff to the
-  sole verification UUID without consuming it. The operation captures a fixed
+  its private selected-target handoff. Source terminal success, handoff
+  publication, verification-child creation, exact reservation, and queued
+  coordination commit in one database transaction before fallible verification
+  preflight. The sole verification UUID reserves the handoff without consuming
+  it. The operation captures a fixed
   Kodi-log cursor, stops the exact container, performs handoff-bound
   changed/new-only sync, starts the same container, waits for normal readiness,
   proves ID,
@@ -2688,6 +2697,12 @@ details that it did not specify.
   recreate, source rollback, shell, arbitrary JSON-RPC, or generic file read is
   authorized. Ordinary history retains only classifications and counts;
   sanitized bounded target snippets live in a separate private evidence row.
+  Bounded raw acquisition precedes deterministic obvious-secret redaction,
+  control normalization, and truncation. Bearer credentials, common token/key/
+  password assignments, credential-like URL userinfo, and obvious token prefixes
+  are replaced with `[REDACTED]`. This is not general DLP; raw log bytes are
+  transient inside the private broker boundary and never enter normal DTO,
+  history, result, or sanitized evidence storage.
 - Consumption: the bound handoff remains reserved and unconsumed through exact
   preflight, cursor, stop, and sync. Exact sync readback, fresh ordinary
   deployment evidence, `consumed_at`, and the operation consumption marker
@@ -2752,6 +2767,14 @@ details that it did not specify.
   cleanup. List/detail remain path-free. Read, inspect, edit, diff, and promotion
   return `workspace_bytes_cleaned`; cleanup is idempotent and never recreates
   storage.
+- ManagedInstance retention: promotion plan, source operation, exact handoff,
+  and verification each retain an immutable original target UUID while their
+  live ManagedInstance FK is nullable. The plan retains the bounded original
+  target-name snapshot used by safe history projection. Centralized instance
+  deletion detaches only terminal Phase 9 history; active or
+  reconciliation-required Phase 9 work continues to block deletion. No
+  workspace, source, promotion, handoff, verification, log, or backup history is
+  deleted with the live target.
 - Conservative V1 policy: cleanup is one-workspace-at-a-time and manual only.
   There is no TTL, timer, disk-pressure pruning, bulk cleanup, automatic cleanup
   after promotion/abandonment, or backup/log-evidence pruning. Later artifact

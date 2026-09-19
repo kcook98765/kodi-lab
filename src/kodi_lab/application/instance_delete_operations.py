@@ -39,6 +39,9 @@ from kodi_lab.storage.repositories import (
     AddonZipInstallationEvidenceRepository,
     AddonZipInstallationOperationRepository,
     AddonZipSmokeTestOperationRepository,
+    AgentWorkspacePromotionHandoffRepository,
+    AgentWorkspacePromotionOperationRepository,
+    AgentWorkspacePromotionPlanRepository,
     DevelopmentSourceAttachmentOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
@@ -49,6 +52,7 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
+    PromotionVerificationOperationRepository,
     ResetOperationRepository,
     SnapshotCreateOperationRepository,
     SnapshotDeleteOperationRepository,
@@ -240,6 +244,20 @@ class ManagedInstanceDeleteOperationCoordinator:
         if any(item is not None for item in active):
             raise ManagedInstanceDeleteConflictError(
                 "Active instance or Snapshot operation blocks instance deletion."
+            )
+        if (
+            AgentWorkspacePromotionPlanRepository(session).blocking_for_instance(
+                instance_id
+            )
+            or AgentWorkspacePromotionOperationRepository(
+                session
+            ).blocking_for_instance(instance_id)
+            or PromotionVerificationOperationRepository(session).blocking_for_instance(
+                instance_id
+            )
+        ):
+            raise ManagedInstanceDeleteConflictError(
+                "Active or unresolved Phase 9 work blocks instance deletion."
             )
 
     def acquire(self, operation_id: UUID) -> ManagedInstanceDeleteLease | None:
@@ -507,6 +525,18 @@ class ManagedInstanceDeleteOperationCoordinator:
                 lease.managed_instance_id
             )
             AddonZipSmokeTestOperationRepository(session).clear_live_instance(
+                lease.managed_instance_id
+            )
+            AgentWorkspacePromotionPlanRepository(session).clear_live_instance(
+                lease.managed_instance_id
+            )
+            AgentWorkspacePromotionOperationRepository(session).clear_live_instance(
+                lease.managed_instance_id
+            )
+            AgentWorkspacePromotionHandoffRepository(session).clear_live_instance(
+                lease.managed_instance_id
+            )
+            PromotionVerificationOperationRepository(session).clear_live_instance(
                 lease.managed_instance_id
             )
             if not instances.delete(lease.managed_instance_id):

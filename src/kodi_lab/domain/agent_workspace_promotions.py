@@ -86,6 +86,8 @@ class AgentWorkspacePromotionPlan:
     state: AgentWorkspacePromotionPlanState
     source_operation_id: UUID | None = None
     invalidation_reason: str | None = None
+    live_target_instance_id: UUID | None = None
+    original_target_name: str | None = None
 
     def __post_init__(self) -> None:
         if self.workspace_generation < 0:
@@ -119,6 +121,7 @@ class AgentWorkspacePromotionOperation:
     reconciliation_required: bool = False
     lease_token_digest: str | None = None
     lease_expires_at: datetime | None = None
+    live_target_instance_id: UUID | None = None
 
     def __post_init__(self) -> None:
         for field in ("requested_at", "started_at", "completed_at", "lease_expires_at"):
@@ -146,6 +149,7 @@ class AgentWorkspacePromotionHandoff:
     expected_enabled: bool | None = None
     verification_operation_id: UUID | None = None
     consumed_at: datetime | None = None
+    live_target_instance_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if len(self.trusted_container_id) != 64:

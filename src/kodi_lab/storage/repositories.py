@@ -983,7 +983,7 @@ def _agent_workspace_promotion_plan_from_row(
         id=UUID(row.id),
         workspace_id=UUID(row.workspace_id),
         development_source_id=UUID(row.development_source_id),
-        target_instance_id=UUID(row.target_instance_id),
+        target_instance_id=UUID(row.original_target_instance_id),
         workspace_generation=row.workspace_generation,
         workspace_digest=row.workspace_digest,
         baseline_artifact_id=UUID(row.baseline_artifact_id),
@@ -1015,6 +1015,10 @@ def _agent_workspace_promotion_plan_from_row(
         if row.source_operation_id is None
         else UUID(row.source_operation_id),
         invalidation_reason=row.invalidation_reason,
+        live_target_instance_id=(
+            None if row.target_instance_id is None else UUID(row.target_instance_id)
+        ),
+        original_target_name=row.original_target_name,
     )
 
 
@@ -1026,7 +1030,7 @@ def _agent_workspace_promotion_operation_from_row(
         plan_id=UUID(row.plan_id),
         workspace_id=UUID(row.workspace_id),
         development_source_id=UUID(row.development_source_id),
-        target_instance_id=UUID(row.target_instance_id),
+        target_instance_id=UUID(row.original_target_instance_id),
         state=row.state,
         phase=row.phase,
         requested_at=_timestamp_from_text(row.requested_at),
@@ -1047,6 +1051,9 @@ def _agent_workspace_promotion_operation_from_row(
         lease_expires_at=None
         if row.lease_expires_at is None
         else _timestamp_from_text(row.lease_expires_at),
+        live_target_instance_id=(
+            None if row.target_instance_id is None else UUID(row.target_instance_id)
+        ),
     )
 
 
@@ -7415,6 +7422,25 @@ class DevelopmentSourceDeploymentOperationRepository(
         )
         return int(getattr(result, "rowcount", 0)) == 1
 
+    def fail_queued(self, operation_id: UUID, *, reason: str, now: datetime) -> bool:
+        result = self._session.execute(
+            update(DevelopmentSourceDeploymentOperationRow)
+            .where(
+                DevelopmentSourceDeploymentOperationRow.id == str(operation_id),
+                DevelopmentSourceDeploymentOperationRow.state
+                == DevelopmentSourceDeploymentOperationState.QUEUED,
+            )
+            .values(
+                state=DevelopmentSourceDeploymentOperationState.FAILED,
+                phase=DevelopmentSourceDeploymentOperationPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+                heartbeat_at=_timestamp_to_text(now),
+                failure_reason=reason[:256],
+                reconciliation_required=False,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
     def update_phase(
         self,
         operation_id: UUID,
@@ -7566,7 +7592,11 @@ class AgentWorkspacePromotionPlanRepository:
                 id=str(plan.id),
                 workspace_id=str(plan.workspace_id),
                 development_source_id=str(plan.development_source_id),
-                target_instance_id=str(plan.target_instance_id),
+                original_target_instance_id=str(plan.target_instance_id),
+                target_instance_id=str(
+                    plan.live_target_instance_id or plan.target_instance_id
+                ),
+                original_target_name=plan.original_target_name,
                 workspace_generation=plan.workspace_generation,
                 workspace_digest=plan.workspace_digest,
                 baseline_artifact_id=str(plan.baseline_artifact_id),
@@ -7685,6 +7715,41 @@ class AgentWorkspacePromotionPlanRepository:
         )
         return None if row is None else _agent_workspace_promotion_plan_from_row(row)
 
+    def blocking_for_instance(
+        self, instance_id: UUID
+    ) -> list[AgentWorkspacePromotionPlan]:
+        rows = self._session.scalars(
+            select(AgentWorkspacePromotionPlanRow).where(
+                AgentWorkspacePromotionPlanRow.target_instance_id == str(instance_id),
+                AgentWorkspacePromotionPlanRow.state.in_(
+                    (
+                        AgentWorkspacePromotionPlanState.PREPARING,
+                        AgentWorkspacePromotionPlanState.REVIEWABLE,
+                        AgentWorkspacePromotionPlanState.APPROVED_AND_QUEUED,
+                    )
+                ),
+            )
+        )
+        return [_agent_workspace_promotion_plan_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(AgentWorkspacePromotionPlanRow)
+            .where(
+                AgentWorkspacePromotionPlanRow.target_instance_id == str(instance_id),
+                AgentWorkspacePromotionPlanRow.state.in_(
+                    (
+                        AgentWorkspacePromotionPlanState.CONFLICTED,
+                        AgentWorkspacePromotionPlanState.INVALIDATED,
+                        AgentWorkspacePromotionPlanState.EXPIRED,
+                        AgentWorkspacePromotionPlanState.CONSUMED,
+                    )
+                ),
+            )
+            .values(target_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
+
     def expire_due(self, workspace_id: UUID, *, now: datetime) -> int:
         result = self._session.execute(
             update(AgentWorkspacePromotionPlanRow)
@@ -7765,7 +7830,10 @@ class AgentWorkspacePromotionOperationRepository:
                 plan_id=str(operation.plan_id),
                 workspace_id=str(operation.workspace_id),
                 development_source_id=str(operation.development_source_id),
-                target_instance_id=str(operation.target_instance_id),
+                original_target_instance_id=str(operation.target_instance_id),
+                target_instance_id=str(
+                    operation.live_target_instance_id or operation.target_instance_id
+                ),
                 state=operation.state,
                 phase=operation.phase,
                 requested_at=_timestamp_to_text(operation.requested_at),
@@ -7882,6 +7950,41 @@ class AgentWorkspacePromotionOperationRepository:
             .limit(limit)
         )
         return [_agent_workspace_promotion_operation_from_row(row) for row in rows]
+
+    def blocking_for_instance(
+        self, instance_id: UUID
+    ) -> list[AgentWorkspacePromotionOperation]:
+        rows = self._session.scalars(
+            select(AgentWorkspacePromotionOperationRow).where(
+                AgentWorkspacePromotionOperationRow.target_instance_id
+                == str(instance_id),
+                AgentWorkspacePromotionOperationRow.state.in_(
+                    (
+                        AgentWorkspacePromotionOperationState.QUEUED,
+                        AgentWorkspacePromotionOperationState.RUNNING,
+                        AgentWorkspacePromotionOperationState.RECONCILIATION_REQUIRED,
+                    )
+                ),
+            )
+        )
+        return [_agent_workspace_promotion_operation_from_row(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(AgentWorkspacePromotionOperationRow)
+            .where(
+                AgentWorkspacePromotionOperationRow.target_instance_id
+                == str(instance_id),
+                AgentWorkspacePromotionOperationRow.state.in_(
+                    (
+                        AgentWorkspacePromotionOperationState.SUCCEEDED,
+                        AgentWorkspacePromotionOperationState.FAILED,
+                    )
+                ),
+            )
+            .values(target_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
 
     def recover_startup(
         self,
@@ -8100,7 +8203,10 @@ class AgentWorkspacePromotionHandoffRepository:
                 operation_id=str(handoff.operation_id),
                 workspace_id=str(handoff.workspace_id),
                 development_source_id=str(handoff.development_source_id),
-                target_instance_id=str(handoff.target_instance_id),
+                original_target_instance_id=str(handoff.target_instance_id),
+                target_instance_id=str(
+                    handoff.live_target_instance_id or handoff.target_instance_id
+                ),
                 runtime_revision_id=str(handoff.runtime_revision_id),
                 trusted_container_id=handoff.trusted_container_id,
                 prior_deployment_operation_id=str(
@@ -8138,7 +8244,7 @@ class AgentWorkspacePromotionHandoffRepository:
             operation_id=UUID(row.operation_id),
             workspace_id=UUID(row.workspace_id),
             development_source_id=UUID(row.development_source_id),
-            target_instance_id=UUID(row.target_instance_id),
+            target_instance_id=UUID(row.original_target_instance_id),
             runtime_revision_id=UUID(row.runtime_revision_id),
             trusted_container_id=row.trusted_container_id,
             prior_deployment_operation_id=UUID(row.prior_deployment_operation_id),
@@ -8155,6 +8261,9 @@ class AgentWorkspacePromotionHandoffRepository:
             consumed_at=None
             if row.consumed_at is None
             else _timestamp_from_text(row.consumed_at),
+            live_target_instance_id=(
+                None if row.target_instance_id is None else UUID(row.target_instance_id)
+            ),
         )
 
     def get(self, handoff_id: UUID) -> AgentWorkspacePromotionHandoff | None:
@@ -8209,6 +8318,16 @@ class AgentWorkspacePromotionHandoffRepository:
         )
         return int(getattr(result, "rowcount", 0)) == 1
 
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(AgentWorkspacePromotionHandoffRow)
+            .where(
+                AgentWorkspacePromotionHandoffRow.target_instance_id == str(instance_id)
+            )
+            .values(target_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
+
 
 class PromotionVerificationOperationRepository:
     def __init__(self, session: Session) -> None:
@@ -8228,7 +8347,7 @@ class PromotionVerificationOperationRepository:
             handoff_id=UUID(row.handoff_id),
             workspace_id=UUID(row.workspace_id),
             development_source_id=UUID(row.development_source_id),
-            target_instance_id=UUID(row.target_instance_id),
+            target_instance_id=UUID(row.original_target_instance_id),
             runtime_revision_id=UUID(row.runtime_revision_id),
             state=row.state,
             deployment_operation_id=UUID(row.deployment_operation_id),
@@ -8263,6 +8382,9 @@ class PromotionVerificationOperationRepository:
             lease_expires_at=None
             if row.lease_expires_at is None
             else _timestamp_from_text(row.lease_expires_at),
+            live_target_instance_id=(
+                None if row.target_instance_id is None else UUID(row.target_instance_id)
+            ),
         )
 
     def create(self, operation: PromotionVerificationOperation) -> None:
@@ -8273,7 +8395,10 @@ class PromotionVerificationOperationRepository:
                 handoff_id=str(operation.handoff_id),
                 workspace_id=str(operation.workspace_id),
                 development_source_id=str(operation.development_source_id),
-                target_instance_id=str(operation.target_instance_id),
+                original_target_instance_id=str(operation.target_instance_id),
+                target_instance_id=str(
+                    operation.live_target_instance_id or operation.target_instance_id
+                ),
                 runtime_revision_id=str(operation.runtime_revision_id),
                 state=operation.state,
                 deployment_operation_id=str(operation.deployment_operation_id),
@@ -8357,6 +8482,42 @@ class PromotionVerificationOperationRepository:
             )
         )
         return [self._domain(row) for row in rows]
+
+    def blocking_for_instance(
+        self, instance_id: UUID
+    ) -> list[PromotionVerificationOperation]:
+        rows = self._session.scalars(
+            select(PromotionVerificationOperationRow).where(
+                PromotionVerificationOperationRow.target_instance_id
+                == str(instance_id),
+                PromotionVerificationOperationRow.state.in_(
+                    (
+                        PromotionVerificationState.QUEUED,
+                        PromotionVerificationState.RUNNING,
+                        PromotionVerificationState.RECONCILIATION_REQUIRED,
+                    )
+                ),
+            )
+        )
+        return [self._domain(row) for row in rows]
+
+    def clear_live_instance(self, instance_id: UUID) -> int:
+        result = self._session.execute(
+            update(PromotionVerificationOperationRow)
+            .where(
+                PromotionVerificationOperationRow.target_instance_id
+                == str(instance_id),
+                PromotionVerificationOperationRow.state.in_(
+                    (
+                        PromotionVerificationState.SUCCEEDED,
+                        PromotionVerificationState.FAILED,
+                        PromotionVerificationState.INCOMPLETE,
+                    )
+                ),
+            )
+            .values(target_instance_id=None)
+        )
+        return int(getattr(result, "rowcount", 0))
 
     def latest_for_workspace(
         self, workspace_id: UUID
