@@ -1351,3 +1351,40 @@ MCP, token, agent, workspace, general-log, lifecycle, shell, Git, or generic
 Docker/X11/filesystem authority. The mandatory screenshot portion of Phase 10
 is complete; browser remote and the optional mediated interactive display remain
 separate later slices.
+
+## Phase 10 Slice 3A fixed browser remote
+
+Slice 3A implements D-0214, D-0215, and the remote subset of D-0218 for exact
+curated Kodi 21.3 only. The authenticated same-origin, CSRF-protected Web route
+accepts a ManagedInstance UUID and one closed action enum. Browser code never
+contacts Kodi, managed-network addresses, container ports, X11, or VNC and has
+no method, params, player-ID, endpoint, timeout, key, text, path, command, or
+shell authority.
+
+`BrowserRemoteService` proves running/healthy/usable state, no reconciliation
+blocker, a short per-instance `browser_remote` lease, exact revision/profile,
+and unchanged container identity. It builds one fixed bounded JSON-RPC request.
+Navigation maps to nine `Input.*` operations; volume/mute to fixed
+`Application.SetVolume` increment/decrement and `Application.SetMute` toggle.
+Player actions first use fixed `Player.GetActivePlayers`; video, audio, picture
+priority and lowest-ID tie-breaking derive the player entirely server-side.
+
+The control request is attempted once with no retry. Uncertain acknowledgement
+is `remote_action_ambiguous`; Kodi rejection or an invalid operation-specific
+acknowledgement is `remote_kodi_rejected`. Raw responses never escape. The Web
+response contains only invocation/instance UUIDs, action, semantic result,
+completion time, and a separate screenshot-refresh outcome.
+
+Successful navigation immediately reuses `ManagedScreenshotService` while the
+remote lease remains held. The fixed order is mutation lease, remote dispatch,
+screenshot coordinator; screenshot capture never takes the mutation lease.
+Refresh failure preserves the prior cache and remote success. Playback/volume
+does not refresh because canonical V1 requires navigation refresh and capture
+would add latency to rapid media controls.
+
+The UI renders fixed controls only for currently usable exact Kodi 21.3 and
+updates the image without a page reload. A per-session/per-instance in-process
+token bucket enforces 10 actions/second, burst 20, before dispatch. There is no
+migration or durable remote history. Browser remote is implemented/live-proven
+on Kodi 21.3 only pending parity review; Kodi 19.5, 20.5, and 22 Beta 2 remote
+parity and mediated interactive display remain unimplemented.

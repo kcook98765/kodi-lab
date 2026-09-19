@@ -5987,6 +5987,11 @@ class ManagedInstanceMutationLeaseRepository:
         kind: ManagedInstanceMutationKind,
         operation_id: UUID,
     ) -> None:
+        from kodi_lab.application.browser_remote_coordination import (
+            require_no_active_browser_remote,
+        )
+
+        require_no_active_browser_remote(instance_id)
         self._session.add(
             ManagedInstanceMutationLeaseRow(
                 managed_instance_id=str(instance_id),

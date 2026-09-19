@@ -115,6 +115,13 @@ from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceService,
     AgentWorkspaceTreeEntryRead,
 )
+from kodi_lab.application.browser_remote import (
+    BrowserRemoteError,
+    BrowserRemoteRateLimiter,
+    BrowserRemoteResult,
+    BrowserRemoteService,
+    RemoteAdapterFactory,
+)
 from kodi_lab.application.development_source_attachments import (
     AttachedDevelopmentSourceRead,
     DevelopmentSourceAttachmentService,
@@ -324,6 +331,7 @@ from kodi_lab.domain import (
     normalize_development_source_logical_name,
 )
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
+from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
@@ -393,6 +401,14 @@ class EmptyActionRequest(BaseModel):
     """Lifecycle requests deliberately contain no browser authority."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class BrowserRemoteRequest(BaseModel):
+    """One closed semantic action and no Kodi/network/runtime authority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: BrowserRemoteAction
 
 
 class DevelopmentSourceRegistrationRequest(BaseModel):
@@ -680,6 +696,8 @@ class WebApplicationContext:
     agent_workspace_promotions: AgentWorkspacePromotionService
     promotion_verifications: PromotionVerificationService
     screenshots: ManagedScreenshotService
+    browser_remote: BrowserRemoteService
+    browser_remote_rate_limiter: BrowserRemoteRateLimiter
 
 
 def create_app(
@@ -731,6 +749,9 @@ def create_app(
     promotion_verification_service: PromotionVerificationService | None = None,
     agent_workspace_cleanup_service: AgentWorkspaceCleanupService | None = None,
     managed_screenshot_service: ManagedScreenshotService | None = None,
+    browser_remote_service: BrowserRemoteService | None = None,
+    browser_remote_rate_limiter: BrowserRemoteRateLimiter | None = None,
+    browser_remote_adapter_factory: RemoteAdapterFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -771,6 +792,15 @@ def create_app(
         reconciliation,
         data_root=settings.data_root,
     )
+    browser_remote = browser_remote_service or BrowserRemoteService(
+        session_factory,
+        broker,
+        status_service,
+        reconciliation,
+        screenshots,
+        adapter_factory=(browser_remote_adapter_factory or KodiBrowserRemoteAdapter),
+    )
+    remote_rate_limiter = browser_remote_rate_limiter or BrowserRemoteRateLimiter()
     reset_status_service = ResetStatusService(
         session_factory, broker, reset_registry, reset_operations
     )
@@ -1176,6 +1206,8 @@ def create_app(
         agent_workspace_promotions=agent_workspace_promotions,
         promotion_verifications=promotion_verifications,
         screenshots=screenshots,
+        browser_remote=browser_remote,
+        browser_remote_rate_limiter=remote_rate_limiter,
     )
 
     @asynccontextmanager
@@ -1285,6 +1317,22 @@ def create_app(
             "screenshot_unsupported": 409,
             "screenshot_invalid_result": 502,
             "screenshot_capture_unavailable": 503,
+        }.get(error.code, 503)
+        return _json_error(status_code, error.code, error.safe_message)
+
+    @app.exception_handler(BrowserRemoteError)
+    async def browser_remote_error(
+        _request: Request, error: BrowserRemoteError
+    ) -> JSONResponse:
+        status_code = {
+            "visual_rate_limited": 429,
+            "visual_instance_not_running": 409,
+            "visual_kodi_not_ready": 409,
+            "remote_action_unsupported": 409,
+            "remote_action_conflict": 409,
+            "remote_no_active_player": 409,
+            "remote_kodi_rejected": 502,
+            "remote_action_ambiguous": 503,
         }.get(error.code, 503)
         return _json_error(status_code, error.code, error.safe_message)
 
@@ -2019,6 +2067,7 @@ def create_app(
             {
                 "detail": context.instance_detail.get(instance_id),
                 "visual": context.screenshots.get_status(instance_id),
+                "remote_available": context.browser_remote.available(instance_id),
                 "csrf_token": authenticated.csrf_token,
             },
         )
@@ -2822,6 +2871,20 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedScreenshotCaptureResult:
         return context.screenshots.capture(instance_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/remote-actions",
+        response_model=BrowserRemoteResult,
+    )
+    def invoke_browser_remote(
+        instance_id: UUID,
+        body: BrowserRemoteRequest,
+        authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> BrowserRemoteResult:
+        context.browser_remote_rate_limiter.require_allowed(
+            authenticated.csrf_token, instance_id
+        )
+        return context.browser_remote.invoke(instance_id, body.action)
 
     @app.get("/api/instances/{instance_id}/screenshots/latest")
     def get_latest_instance_screenshot(

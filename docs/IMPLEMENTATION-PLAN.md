@@ -862,3 +862,21 @@ optional mediated interactive display remain separate work; D-0219 MCP remains
 Phase 11/12 handoff. Slice 2 adds none of those authorities and adds no generic
 exec, X11, artifact-transfer, Docker, filesystem, lifecycle, log, workspace,
 token, or agent surface.
+
+### Phase 10 Slice 3A completion checkpoint
+
+Fixed semantic browser remote controls are implemented and live-proven on exact
+Kodi 21.3 only. D-0214 defines the 16-value closed enum and fixed internal
+Input/Application/Player mappings. D-0215 defines the short per-instance lease,
+exact identity binding, one-attempt/no-retry semantics, server-derived active
+player, and separate remote/screenshot outcomes. The remote subset of D-0218
+defines bounded semantic audit/errors and a 10 actions/second, burst-20
+Web-session/instance token bucket.
+
+Every successful navigation action immediately reuses the latest-only managed
+screenshot service and updates the browser image without page reload. Playback
+and volume intentionally omit capture because canonical V1 requires
+post-navigation refresh. There is no migration or remote-history table. No
+keyboard/text input, interactive display/noVNC, MCP, tokens, agent authority,
+general logs, or cross-version remote parity is included. Remote parity across
+Kodi 19.5, 20.5, 21.3, and 22 Beta 2 remains a separate review milestone.

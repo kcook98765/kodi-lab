@@ -90,7 +90,10 @@ def test_phase9_root_validator_import_leaves_no_project_bytecode(
 
 def test_root_only_phase10_validators_disable_bytecode_before_project_imports() -> None:
     scripts_dir = PROJECT_ROOT / "scripts"
-    expected = {"validate-phase10-screenshot-parity.py"}
+    expected = {
+        "validate-phase10-browser-remote.py",
+        "validate-phase10-screenshot-parity.py",
+    }
     root_only = {
         path.name
         for path in scripts_dir.glob("validate-phase10-*.py")

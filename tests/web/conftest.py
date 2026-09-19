@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.browser_remote import BrowserRemoteRateLimiter
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.broker.docker_inventory import (
@@ -41,6 +42,7 @@ from kodi_lab.kodi.readiness import (
     ReadinessResult,
     UsabilityState,
 )
+from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import X11_FRAME_MAGIC
 from kodi_lab.snapshot.storage import delete_snapshot_artifact
 from kodi_lab.storage.engine import create_session_factory
@@ -77,6 +79,9 @@ class FakeBroker:
     )
     addon_inventory_error: BaseException | None = None
     screenshot_error: BaseException | None = None
+    screenshot_calls: int = 0
+    remote_calls: list[BrowserRemoteAction] = field(default_factory=list)
+    remote_error: BaseException | None = None
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         if self.inventory_error is not None:
@@ -108,6 +113,7 @@ class FakeBroker:
         expected_runtime_revision_id: str,
         capture_id: str,
     ) -> CaptureManagedKodiScreenshotResult:
+        self.screenshot_calls += 1
         if self.screenshot_error is not None:
             raise self.screenshot_error
         assert self.snapshot_data_root is not None
@@ -309,6 +315,16 @@ def inventory_entry(state: ContainerRuntimeState) -> ManagedContainerInventoryEn
     )
 
 
+class FakeRemoteAdapter:
+    def __init__(self, broker: FakeBroker) -> None:
+        self._broker = broker
+
+    def dispatch(self, action: BrowserRemoteAction, _invocation_id: UUID) -> None:
+        self._broker.remote_calls.append(action)
+        if self._broker.remote_error is not None:
+            raise self._broker.remote_error
+
+
 class ImmediateCoordinator:
     def wait_until_usable(
         self, managed_instance_id: str, **_kwargs: object
@@ -453,6 +469,10 @@ def client(
         addon_inventory_adapter_factory=(
             lambda _observation, _profile: FakeAddonInventoryAdapter(broker)
         ),
+        browser_remote_adapter_factory=(
+            lambda _observation, _profile: FakeRemoteAdapter(broker)
+        ),
+        browser_remote_rate_limiter=BrowserRemoteRateLimiter(clock=lambda: 100.0),
     )
     with TestClient(app, base_url="http://127.0.0.1") as test_client:
         yield test_client

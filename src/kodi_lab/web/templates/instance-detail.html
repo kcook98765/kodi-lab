@@ -13,6 +13,7 @@
     <script src="{{ url_for('static', path='/addon-zip-enable.js') }}" defer></script>
     <script src="{{ url_for('static', path='/addon-zip-smoke.js') }}" defer></script>
     <script src="{{ url_for('static', path='/managed-screenshot.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/browser-remote.js') }}" defer></script>
   </head>
   <body>
     <main>
@@ -55,6 +56,32 @@
         {% if not visual.latest_capture_available %}<p data-screenshot-empty>No screenshot has been captured.</p>{% endif %}
         <button type="button" data-screenshot-refresh{% if not visual.screenshot_available_now %} disabled{% endif %}>Refresh screenshot</button>
         <p data-screenshot-status class="secondary" role="status"{% if not visual.last_error_code %} hidden{% endif %}>{% if visual.last_error_code %}Last refresh failed: {{ visual.last_error_code|replace('_', ' ') }}. The prior valid screenshot, if any, was retained.{% endif %}</p>
+        {% if remote_available %}
+        <section class="browser-remote" data-browser-remote>
+          <h3>Browser remote</h3>
+          <div class="remote-dpad" aria-label="Directional controls">
+            <button type="button" data-remote-action="up">Up</button>
+            <button type="button" data-remote-action="left">Left</button>
+            <button type="button" data-remote-action="select">Select</button>
+            <button type="button" data-remote-action="right">Right</button>
+            <button type="button" data-remote-action="down">Down</button>
+          </div>
+          <div class="remote-buttons">
+            <button type="button" data-remote-action="back">Back</button>
+            <button type="button" data-remote-action="home">Home</button>
+            <button type="button" data-remote-action="context_menu">Context menu</button>
+            <button type="button" data-remote-action="info">Info</button>
+            <button type="button" data-remote-action="previous">Previous</button>
+            <button type="button" data-remote-action="play_pause">Play/Pause</button>
+            <button type="button" data-remote-action="stop">Stop</button>
+            <button type="button" data-remote-action="next">Next</button>
+            <button type="button" data-remote-action="volume_down">Volume down</button>
+            <button type="button" data-remote-action="mute_toggle">Mute</button>
+            <button type="button" data-remote-action="volume_up">Volume up</button>
+          </div>
+          <p data-remote-status class="secondary" role="status" hidden></p>
+        </section>
+        {% endif %}
       </section>
       <section>
         <h2>Notes</h2>

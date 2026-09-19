@@ -2835,6 +2835,40 @@ details that it did not specify.
   never retained as lifecycle history. A populated downgrade is refused because
   dropping metadata could orphan secret-bearing bytes.
 
+## D-0214: Browser remote has one closed semantic vocabulary
+
+- Status: approved and implemented for Phase 10 Slice 3A on exact Kodi 21.3
+- Decision: Web accepts only a ManagedInstance UUID and `up`, `down`, `left`,
+  `right`, `select`, `back`, `home`, `context_menu`, `info`, `play_pause`,
+  `stop`, `previous`, `next`, `volume_up`, `volume_down`, or `mute_toggle`.
+  Unknown actions and extra fields are rejected. No JSON-RPC method/params,
+  player ID, endpoint, port, container/revision, timeout, path, command, shell,
+  keycode, or text crosses the public boundary.
+- Mapping: navigation uses the corresponding fixed `Input.*` method. Volume
+  uses `Application.SetVolume` with server-fixed `increment`/`decrement`; mute
+  uses `Application.SetMute` with `toggle`. Playback uses `Player.PlayPause`,
+  `Player.Stop`, or `Player.GoTo` with fixed `previous`/`next` after one bounded
+  `Player.GetActivePlayers`. These names and params are internal only.
+- Player selection: video precedes audio, then picture; lowest player ID breaks
+  a same-type tie. No active player is `remote_no_active_player`; malformed
+  state is rejected rather than guessed.
+
+## D-0215: Browser remote is coordinated and dispatched at most once
+
+- Status: approved and implemented for Phase 10 Slice 3A on exact Kodi 21.3
+- Coordination: one request-scoped process-local per-instance `browser_remote`
+  guard conflicts with existing durable lifecycle, reset/restore, deletion,
+  reassignment, deployment, install/replacement, and target promotion
+  verification reservations in both acquisition directions. It is not
+  global-heavy, has no durable operation row, and needs no schema migration.
+- Dispatch: running/healthy/usable state, no reconciliation blocker, exact
+  revision/profile, and unchanged container identity are proved before one
+  fixed request. There is no automatic retry. Uncertain acknowledgement is
+  `remote_action_ambiguous` and never claims failure.
+- Refresh order: remote lease, identity proof, one dispatch, existing screenshot
+  service for navigation, then lease release. Refresh failure is separate,
+  preserves the prior cache, and never changes a successful remote result.
+
 ## D-0216: Visual capability is technical state, not added authorization
 
 - Status: approved and implemented for the complete screenshot runtime matrix
@@ -2850,7 +2884,7 @@ details that it did not specify.
   are safe. Container identity, X display, command, network, host/storage path,
   Docker data, and raw failure are private.
 
-## D-0218: Screenshot privacy, errors, audit, and bounds are closed semantics
+## D-0218: Visual privacy, errors, audit, and bounds are closed semantics
 
 - Status: approved and implemented for the complete screenshot subset
 - Privacy/validation: retrieval is authenticated with `image/png`, `no-store`,
@@ -2872,3 +2906,14 @@ details that it did not specify.
   dimensions/byte count. They contain no pixels, path, command, display,
   container identity, or raw error. Slice 1 adds no durable operation row and no
   auto-refresh/history.
+- Remote subset: bounded structured audit adds invocation UUID, closed action,
+  request/completion timestamps, safe remote result, and screenshot-refresh
+  classification. It excludes Kodi payloads, player metadata, endpoints,
+  network/container identity, paths, pixels, and credentials. Remote errors are
+  `managed_instance_not_found`, `visual_instance_not_running`,
+  `visual_kodi_not_ready`, `remote_action_unsupported`,
+  `remote_action_conflict`, `remote_no_active_player`, `remote_kodi_rejected`,
+  and `remote_action_ambiguous`; screenshot errors remain separate.
+- Rate bound: an in-process token bucket keyed by Web session plus instance
+  allows 10 actions/second with burst 20 and returns `visual_rate_limited`
+  before dispatch. Buckets are not persisted.
