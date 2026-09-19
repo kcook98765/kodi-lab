@@ -318,10 +318,37 @@ worker, disk-pressure policy, automatic post-promotion/abandonment cleanup,
 cleanup-all, age/source/status selector, or promotion-backup/log-evidence
 pruning. A later artifact-retention decision must authorize any such policy.
 
-The second formal Phase 9 completion review found two remaining structural
-blockers: an optional verification-publication service dependency and redaction
-after the retained-window cut. Both are now remediated in code and direct
-regression coverage. Phase 9 is not yet formally COMPLETE: one final completion
-review must be rerun against this remediation. MCP exposure remains later Phase
-11/12 work. Delete, rename, move, mkdir, binary write, type transition, shell,
-and Git remain absent by design.
+## Formal completion closeout
+
+**Phase 9 — Agent Working Copy: COMPLETE.** The final formal review used
+implementation HEAD `e25a502597b94ffa46f0710059f9a09cc0d6086b`, Alembic head
+`0034_phase9_completion_remediation`, and 1770 collected tests. It independently
+reproduced the former service-layer and retained-window blocker cases and found
+both closed: source success cannot commit without exactly one durable
+verification child plus exactly one reserved handoff, and the complete bounded
+attributable log buffer is decoded and redacted before control normalization and
+the retained-evidence cut.
+
+The canonical V1 workflow is complete: a registered `local_directory` source
+produces independent Lab-managed baseline and mutable trees; bounded UTF-8
+read/inspect/create/replace/exact-patch operations use generation CAS and full
+recapture; a complete three-way Web review permits unrelated source dirtiness
+but blocks overlap; one 15-minute confirmation binds exact source promotion,
+backup, rollback/reconciliation, and mandatory selected-target verification;
+and explicit abandonment/UUID-only cleanup retains provenance, promotion backup,
+verification, and sanitized log evidence.
+
+The security boundary remains narrow. Registration grants read trust only.
+Administrators separately provision least-privilege non-root source write
+authority, and each promotion-enabled writable source enters the application
+trusted-computing base; Kodi Lab never chmods or chowns it. There is no shell,
+generic container/filesystem, root, Docker, Git, or MCP authority. Raw log bytes
+remain transient, the handoff is single-use, source success is immutable across
+verification failure, and terminal Phase 9 history survives target deletion
+while active or unresolved work blocks deletion.
+
+MCP exposure/wiring and autonomous agent identities remain Phase 11/12 work.
+Git integration and remote Git/PR creation, delete/rename/mkdir editing, binary
+editing, direct workspace deployment, arbitrary test execution, optional
+add-on-data writes, automatic retention/pruning, backup/log-evidence pruning,
+and broader rollback UX are future non-blocking items. Phase 10 has not begun.

@@ -806,6 +806,26 @@ snippet redaction, and direct privilege-policy coverage for the root-only Phase
 9 validator. The second completion review's two remaining blockers are also
 remediated: verification publication is a mandatory service-construction
 dependency with execute-only later dispatch, and redaction now covers the full
-bounded attributable log buffer before its retained-window cut. **Phase 9 is
-not formally COMPLETE until one final completion review is rerun.** MCP
-exposure remains later Phase 11/12 work and Phase 10 has not begun.
+bounded attributable log buffer before its retained-window cut.
+
+**Phase 9 — Agent Working Copy: COMPLETE.** The final formal completion review
+validated implementation HEAD `e25a502597b94ffa46f0710059f9a09cc0d6086b`,
+Alembic head `0034_phase9_completion_remediation`, and 1770 collected tests.
+The completed canonical workflow is registered local source → independent
+Lab-managed working copy → bounded read/inspect/edit/patch → complete
+three-way Web review and one-shot confirmation → exact canonical-source
+promotion with backup/rollback/reconciliation → mandatory durable
+promotion-bound selected-target verification → explicit abandonment and
+UUID-only cleanup with retained history.
+
+Phase 9 adds no shell, generic container/filesystem, root, Docker, Git, or MCP
+authority. Registration remains read trust; source promotion requires separately
+provisioned least-privilege OS write authority and makes that writable source
+part of the application trusted-computing base. Source success cannot commit
+without exactly one durable verification child and reserved single-use handoff,
+and complete bounded attributable log content is redacted before retained-output
+truncation. MCP exposure and autonomous agent identities remain Phase 11/12
+work. Git/remotes/PR creation, delete/rename/mkdir and binary editing, direct
+workspace deployment, arbitrary test execution, optional add-on-data writes,
+automatic retention, backup/log-evidence pruning, and broader rollback UX remain
+future non-blocking work. Phase 10 has not begun.

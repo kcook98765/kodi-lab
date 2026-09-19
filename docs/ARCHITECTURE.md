@@ -1257,3 +1257,13 @@ target-name snapshot. The centralized instance-deletion finalizer detaches only
 terminal history. Active or reconciliation-required Phase 9 work still blocks
 deletion, and workspace, source, backup, handoff, verification, and log history
 survive target deletion.
+
+**Phase 9 — Agent Working Copy: COMPLETE.** The final formal review closed Phase
+9 at implementation HEAD `e25a502597b94ffa46f0710059f9a09cc0d6086b`, Alembic
+head `0034_phase9_completion_remediation`, and 1770 collected tests. Mandatory
+atomic verification publication, full-buffer secret redaction before retained
+truncation, terminal target-history retention, source-promotion TCB disclosure,
+and non-root validator hygiene are part of the completed boundary. MCP/Git
+integration and the broader optional editing, execution, retention, and rollback
+features remain later work rather than Phase 9 requirements. Phase 10
+architecture has not begun.
