@@ -1,9 +1,14 @@
+import os
+import shutil
+import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
+from alembic.util.exc import CommandError
 from sqlalchemy import Connection, String, inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -12,8 +17,87 @@ from kodi_lab.storage.engine import create_database_engine
 pytestmark = pytest.mark.slow
 
 
+class MigrationTemplateStore:
+    """Closed, integrity-checked SQLite templates at exact Alembic revisions."""
+
+    def __init__(
+        self, root: Path, templates: dict[str, Path], *, head_revision: str
+    ) -> None:
+        self.root = root
+        self._templates = templates
+        self._head_revision = head_revision
+
+    def clone(self, revision: str, destination: Path) -> None:
+        exact_revision = self._head_revision if revision == "head" else revision
+        source = self._templates[exact_revision]
+        assert not Path(f"{source}-wal").exists()
+        assert not Path(f"{source}-shm").exists()
+        shutil.copy2(source, destination)
+        with sqlite3.connect(destination) as connection:
+            assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+            assert connection.execute(
+                "SELECT version_num FROM alembic_version"
+            ).fetchone() == (exact_revision,)
+
+
+_active_migration_templates: MigrationTemplateStore | None = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def migration_templates(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> MigrationTemplateStore:
+    """Build every exact revision once by advancing one pristine closed DB."""
+    project_root = Path(__file__).parents[2]
+    root = tmp_path_factory.mktemp("migration-templates")
+    data_root = root / "data"
+    database_dir = data_root / "database"
+    database_dir.mkdir(parents=True)
+    database_path = database_dir / "kodi-lab.db"
+    config = Config(str(project_root / "alembic.ini"))
+    revisions = [
+        revision.revision
+        for revision in reversed(
+            list(ScriptDirectory.from_config(config).walk_revisions())
+        )
+    ]
+    templates: dict[str, Path] = {}
+    previous_data_root = os.environ.get("KODI_LAB_DATA_ROOT")
+    previous_runtime_root = os.environ.pop("KODI_LAB_RUNTIME_ROOT", None)
+    os.environ["KODI_LAB_DATA_ROOT"] = str(data_root)
+    try:
+        for revision in revisions:
+            command.upgrade(config, revision)
+            template = root / f"{revision}.db"
+            with sqlite3.connect(database_path) as connection:
+                assert connection.execute("PRAGMA integrity_check").fetchone() == (
+                    "ok",
+                )
+                assert connection.execute(
+                    "SELECT version_num FROM alembic_version"
+                ).fetchone() == (revision,)
+            assert not Path(f"{database_path}-wal").exists()
+            assert not Path(f"{database_path}-shm").exists()
+            shutil.copy2(database_path, template)
+            templates[revision] = template
+    finally:
+        if previous_data_root is None:
+            os.environ.pop("KODI_LAB_DATA_ROOT", None)
+        else:
+            os.environ["KODI_LAB_DATA_ROOT"] = previous_data_root
+        if previous_runtime_root is not None:
+            os.environ["KODI_LAB_RUNTIME_ROOT"] = previous_runtime_root
+    store = MigrationTemplateStore(root, templates, head_revision=revisions[-1])
+    global _active_migration_templates
+    _active_migration_templates = store
+    return store
+
+
 def migration_setup(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    start_revision: str | None = None,
 ) -> tuple[Config, str]:
     project_root = Path(__file__).parents[2]
     data_root = tmp_path / "data"
@@ -22,14 +106,68 @@ def migration_setup(
     monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(data_root))
     monkeypatch.delenv("KODI_LAB_RUNTIME_ROOT", raising=False)
     config = Config(str(project_root / "alembic.ini"))
-    database_url = f"sqlite:///{data_root / 'database' / 'kodi-lab.db'}"
+    database_path = data_root / "database" / "kodi-lab.db"
+    if start_revision is not None:
+        migration_templates = _active_migration_templates
+        assert migration_templates is not None
+        migration_templates.clone(start_revision, database_path)
+    database_url = f"sqlite:///{database_path}"
     return config, database_url
+
+
+def test_revision_template_clones_are_private_and_pristine(
+    migration_templates: MigrationTemplateStore, tmp_path: Path
+) -> None:
+    first = tmp_path / "first.db"
+    second = tmp_path / "second.db"
+    later = tmp_path / "later.db"
+    migration_templates.clone("head", first)
+    migration_templates.clone("head", second)
+
+    assert first != second
+    with sqlite3.connect(first) as connection:
+        connection.execute("CREATE TABLE private_mutation (value TEXT NOT NULL)")
+    with sqlite3.connect(second) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'private_mutation'"
+        ).fetchone() == (0,)
+
+    migration_templates.clone("head", later)
+    with sqlite3.connect(later) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'private_mutation'"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0035_managed_screenshots",)
+
+
+def test_failed_migration_command_cannot_poison_later_clone(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    migration_templates: MigrationTemplateStore,
+) -> None:
+    config, _database_url = migration_setup(
+        monkeypatch,
+        tmp_path,
+        start_revision="0034_phase9_completion_remediation",
+    )
+    with pytest.raises(CommandError, match="Can't locate revision"):
+        command.upgrade(config, "not_a_revision")
+
+    later = tmp_path / "later.db"
+    migration_templates.clone("0034_phase9_completion_remediation", later)
+    with sqlite3.connect(later) as connection:
+        assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0034_phase9_completion_remediation",)
 
 
 def test_empty_database_upgrades_to_runtime_catalog_head(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision=None)
 
     command.upgrade(config, "head")
 
@@ -134,8 +272,10 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
 def test_0035_managed_screenshot_populated_downgrade_is_guarded(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0034_phase9_completion_remediation"
+    )
+    command.upgrade(config, "0035_managed_screenshots")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         definition_id = str(uuid4())
@@ -209,14 +349,13 @@ def test_0035_managed_screenshot_populated_downgrade_is_guarded(
         connection.execute(text("DELETE FROM managed_screenshots"))
     engine.dispose()
     command.downgrade(config, "0034_phase9_completion_remediation")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0035_managed_screenshots")
 
 
 def test_explicit_0001_upgrades_to_head(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision=None)
     command.upgrade(config, "0001_targets_instances")
 
     engine = create_database_engine(database_url)
@@ -239,36 +378,37 @@ def test_explicit_0001_upgrades_to_head(
 def test_explicit_0002_upgrades_to_artifact_head(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0002_runtime_catalog"
+    )
     command.upgrade(config, "0002_runtime_catalog")
     engine = create_database_engine(database_url)
     assert "runtime_container_artifacts" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0003_runtime_container_artifacts")
     engine = create_database_engine(database_url)
     assert "runtime_container_artifacts" in inspect(engine).get_table_names()
     engine.dispose()
-    command.check(config)
 
 
 def test_0007_upgrades_to_reset_operations_and_empty_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0007_fixture_definitions"
+    )
     command.upgrade(config, "0007_fixture_definitions")
     engine = create_database_engine(database_url)
     assert "reset_operations" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0008_reset_operations")
     engine = create_database_engine(database_url)
     assert "reset_operations" in inspect(engine).get_table_names()
     engine.dispose()
-    command.check(config)
     command.downgrade(config, "0007_fixture_definitions")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0008_reset_operations")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -327,7 +467,9 @@ def test_0007_upgrades_to_reset_operations_and_empty_round_trip(
 def test_0008_upgrades_to_fixture_taxonomy_and_empty_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0008_reset_operations"
+    )
     command.upgrade(config, "0008_reset_operations")
 
     engine = create_database_engine(database_url)
@@ -340,7 +482,7 @@ def test_0008_upgrades_to_fixture_taxonomy_and_empty_round_trip(
     assert before["type"].length == 5
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0009_fixture_content_taxonomy")
     engine = create_database_engine(database_url)
     after = next(
         column
@@ -350,17 +492,17 @@ def test_0008_upgrades_to_fixture_taxonomy_and_empty_round_trip(
     assert isinstance(after["type"], String)
     assert after["type"].length == 16
     engine.dispose()
-    command.check(config)
 
     command.downgrade(config, "0008_reset_operations")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0009_fixture_content_taxonomy")
 
 
 def test_populated_mixed_fixture_assignment_and_reset_survive_0009(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0008_reset_operations"
+    )
     command.upgrade(config, "0008_reset_operations")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-15T00:00:00.000000Z"
@@ -435,7 +577,7 @@ def test_populated_mixed_fixture_assignment_and_reset_survive_0009(
         }
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0009_fixture_content_taxonomy")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         after = {
@@ -451,8 +593,10 @@ def test_populated_mixed_fixture_assignment_and_reset_survive_0009(
 def test_fixture_taxonomy_constraint_accepts_only_mixed_and_movies(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0008_reset_operations"
+    )
+    command.upgrade(config, "0009_fixture_content_taxonomy")
     engine = create_database_engine(database_url)
     statement = text(
         "INSERT INTO fixture_definitions "
@@ -487,8 +631,10 @@ def test_fixture_taxonomy_constraint_accepts_only_mixed_and_movies(
 def test_movies_fixture_refuses_lossy_0009_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0008_reset_operations"
+    )
+    command.upgrade(config, "0009_fixture_content_taxonomy")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -523,19 +669,21 @@ def test_movies_fixture_refuses_lossy_0009_downgrade(
 def test_0009_upgrades_to_tv_taxonomy_and_empty_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, _database_url = migration_setup(monkeypatch, tmp_path)
+    config, _database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0009_fixture_content_taxonomy"
+    )
     command.upgrade(config, "0009_fixture_content_taxonomy")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0010_fixture_tv_taxonomy")
     command.downgrade(config, "0009_fixture_content_taxonomy")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0010_fixture_tv_taxonomy")
 
 
 def test_existing_movies_definition_survives_0010_unchanged(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0009_fixture_content_taxonomy"
+    )
     command.upgrade(config, "0009_fixture_content_taxonomy")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -557,7 +705,7 @@ def test_existing_movies_definition_survives_0010_unchanged(
         ).one()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0010_fixture_tv_taxonomy")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         after = connection.execute(
@@ -573,8 +721,10 @@ def test_existing_movies_definition_survives_0010_unchanged(
 def test_tv_taxonomy_constraint_accepts_only_three_supported_categories(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0009_fixture_content_taxonomy"
+    )
+    command.upgrade(config, "0010_fixture_tv_taxonomy")
     engine = create_database_engine(database_url)
     statement = text(
         "INSERT INTO fixture_definitions "
@@ -609,8 +759,10 @@ def test_tv_taxonomy_constraint_accepts_only_three_supported_categories(
 def test_tv_fixture_refuses_lossy_0010_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0009_fixture_content_taxonomy"
+    )
+    command.upgrade(config, "0010_fixture_tv_taxonomy")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -645,7 +797,9 @@ def test_tv_fixture_refuses_lossy_0010_downgrade(
 def test_0010_upgrades_to_medium_taxonomy_and_empty_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0010_fixture_tv_taxonomy"
+    )
     command.upgrade(config, "0010_fixture_tv_taxonomy")
     engine = create_database_engine(database_url)
     before = next(
@@ -657,7 +811,7 @@ def test_0010_upgrades_to_medium_taxonomy_and_empty_round_trip(
     assert before["type"].length == 5
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0011_fixture_medium_taxonomy")
     engine = create_database_engine(database_url)
     after = next(
         column
@@ -667,17 +821,17 @@ def test_0010_upgrades_to_medium_taxonomy_and_empty_round_trip(
     assert isinstance(after["type"], String)
     assert after["type"].length == 16
     engine.dispose()
-    command.check(config)
     command.downgrade(config, "0010_fixture_tv_taxonomy")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0011_fixture_medium_taxonomy")
 
 
 def test_medium_size_constraint_accepts_only_small_and_medium(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0010_fixture_tv_taxonomy"
+    )
+    command.upgrade(config, "0011_fixture_medium_taxonomy")
     engine = create_database_engine(database_url)
     statement = text(
         "INSERT INTO fixture_definitions "
@@ -712,8 +866,10 @@ def test_medium_size_constraint_accepts_only_small_and_medium(
 def test_medium_fixture_refuses_lossy_0011_downgrade_and_remains_intact(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0010_fixture_tv_taxonomy"
+    )
+    command.upgrade(config, "0011_fixture_medium_taxonomy")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -748,7 +904,9 @@ def test_medium_fixture_refuses_lossy_0011_downgrade_and_remains_intact(
 def test_0011_active_reset_is_seeded_into_phase7_mutation_lease(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0011_fixture_medium_taxonomy"
+    )
     command.upgrade(config, "0011_fixture_medium_taxonomy")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-15T00:00:00.000000Z"
@@ -801,7 +959,7 @@ def test_0011_active_reset_is_seeded_into_phase7_mutation_lease(
         )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0012_disposable_snapshot_creation")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.execute(
@@ -820,8 +978,10 @@ def test_0011_active_reset_is_seeded_into_phase7_mutation_lease(
 def test_populated_phase7_snapshot_state_refuses_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0011_fixture_medium_taxonomy"
+    )
+    command.upgrade(config, "0012_disposable_snapshot_creation")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-15T00:00:00.000000Z"
     with engine.begin() as connection:
@@ -864,12 +1024,10 @@ def test_populated_phase7_snapshot_state_refuses_downgrade(
         connection.execute(
             text(
                 "INSERT INTO snapshots (id, source_managed_instance_id, "
-                "original_source_managed_instance_id, source_binding, "
                 "runtime_revision_id, captured_at, manifest_version, state, "
                 "validation_result) VALUES "
                 "('89500000-0000-4000-8000-000000000004', "
                 "'89500000-0000-4000-8000-000000000003', "
-                "'89500000-0000-4000-8000-000000000003', 'attached', "
                 "'89500000-0000-4000-8000-000000000002', :timestamp, 1, "
                 "'creating', 'pending')"
             ),
@@ -892,7 +1050,9 @@ def test_populated_phase7_snapshot_state_refuses_downgrade(
 def test_populated_snapshot_restore_state_refuses_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0013_disposable_snapshot_restore"
+    )
     command.upgrade(config, "0013_disposable_snapshot_restore")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
@@ -979,7 +1139,9 @@ def test_populated_snapshot_restore_state_refuses_downgrade(
 def test_0014_preserves_history_across_snapshot_delete_and_refuses_lossy_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0013_disposable_snapshot_restore"
+    )
     command.upgrade(config, "0013_disposable_snapshot_restore")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
@@ -1051,7 +1213,7 @@ def test_0014_preserves_history_across_snapshot_delete_and_refuses_lossy_downgra
             )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0014_snapshot_deletion")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         assert not any(
@@ -1113,33 +1275,35 @@ def test_0014_preserves_history_across_snapshot_delete_and_refuses_lossy_downgra
 def test_prior_head_upgrades_to_execution_profile_head(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0003_runtime_container_artifacts"
+    )
     command.upgrade(config, "0003_runtime_container_artifacts")
     engine = create_database_engine(database_url)
     assert "runtime_execution_profiles" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0004_runtime_execution_profiles")
     engine = create_database_engine(database_url)
     assert "runtime_execution_profiles" in inspect(engine).get_table_names()
     engine.dispose()
-    command.check(config)
 
     command.downgrade(config, "0003_runtime_container_artifacts")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0004_runtime_execution_profiles")
 
 
 def test_0004_upgrades_to_web_auth_head_and_empty_state_round_trips(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0004_runtime_execution_profiles"
+    )
     command.upgrade(config, "0004_runtime_execution_profiles")
     engine = create_database_engine(database_url)
     assert "web_admin_credentials" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0005_web_auth_sessions")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {"web_admin_credentials", "web_sessions"}.issubset(
@@ -1149,18 +1313,18 @@ def test_0004_upgrades_to_web_auth_head_and_empty_state_round_trips(
     assert session_foreign_key["referred_table"] == "web_admin_credentials"
     assert session_foreign_key["options"] == {"ondelete": "RESTRICT"}
     engine.dispose()
-    command.check(config)
 
     command.downgrade(config, "0004_runtime_execution_profiles")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0005_web_auth_sessions")
 
 
 def test_populated_web_auth_state_refuses_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0004_runtime_execution_profiles"
+    )
+    command.upgrade(config, "0005_web_auth_sessions")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -1179,7 +1343,9 @@ def test_populated_web_auth_state_refuses_downgrade(
 def test_populated_0001_migration_refuses_ambiguous_legacy_revision(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0001_targets_instances"
+    )
     command.upgrade(config, "0001_targets_instances")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -1212,7 +1378,7 @@ def test_populated_0001_migration_refuses_ambiguous_legacy_revision(
     engine.dispose()
 
     with pytest.raises(RuntimeError, match="predates the runtime catalog"):
-        command.upgrade(config, "head")
+        command.upgrade(config, "0002_runtime_catalog")
 
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
@@ -1228,7 +1394,7 @@ def test_populated_0001_migration_refuses_ambiguous_legacy_revision(
 def test_head_downgrades_to_0001_and_upgrades_again(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision="head")
     command.upgrade(config, "head")
 
     command.downgrade(config, "0001_targets_instances")
@@ -1248,8 +1414,10 @@ def test_head_downgrades_to_0001_and_upgrades_again(
 def test_populated_artifact_mapping_refuses_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0002_runtime_catalog"
+    )
+    command.upgrade(config, "0003_runtime_container_artifacts")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -1297,7 +1465,9 @@ def test_populated_artifact_mapping_refuses_downgrade(
 def test_0005_known_curated_state_upgrades_without_fabricated_validation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0005_web_auth_sessions"
+    )
     command.upgrade(config, "0005_web_auth_sessions")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-15T12:00:00.000000Z"
@@ -1470,8 +1640,10 @@ def test_0005_known_curated_state_upgrades_without_fabricated_validation(
 def test_phase5_history_and_support_policy_refuse_lossy_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0005_web_auth_sessions"
+    )
+    command.upgrade(config, "0006_runtime_matrix_contract")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-15T12:00:00.000000Z"
     with engine.begin() as connection:
@@ -1532,7 +1704,9 @@ def test_phase5_history_and_support_policy_refuse_lossy_downgrade(
 def test_0006_populated_state_upgrades_with_null_fixture_assignment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0006_runtime_matrix_contract"
+    )
     command.upgrade(config, "0006_runtime_matrix_contract")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -1582,7 +1756,7 @@ def test_0006_populated_state_upgrades_with_null_fixture_assignment(
         )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0007_fixture_definitions")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert (
@@ -1592,17 +1766,18 @@ def test_0006_populated_state_upgrades_with_null_fixture_assignment(
             is None
         )
     engine.dispose()
-    command.check(config)
 
 
 def test_fixture_migration_empty_round_trip_and_populated_downgrade_refusal(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0006_runtime_matrix_contract"
+    )
     command.upgrade(config, "0006_runtime_matrix_contract")
-    command.upgrade(config, "head")
+    command.upgrade(config, "0007_fixture_definitions")
     command.downgrade(config, "0006_runtime_matrix_contract")
-    command.upgrade(config, "head")
+    command.upgrade(config, "0007_fixture_definitions")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -1667,7 +1842,9 @@ def _seed_0014_instance_with_notes(connection: Connection, *, notes: str) -> Non
 def test_0015_preserves_bounded_notes_exactly_and_backfills_snapshot_identity(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, notes: str
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
+    )
     command.upgrade(config, "0014_snapshot_deletion")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
@@ -1689,7 +1866,7 @@ def test_0015_preserves_bounded_notes_exactly_and_backfills_snapshot_identity(
         )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0015_instance_deletion")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT notes FROM managed_instances")) == notes
@@ -1711,7 +1888,9 @@ def test_0015_preserves_bounded_notes_exactly_and_backfills_snapshot_identity(
 def test_0015_refuses_oversized_existing_notes_without_rewriting_database(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
+    )
     command.upgrade(config, "0014_snapshot_deletion")
     oversized = "🐍" * 4097
     engine = create_database_engine(database_url)
@@ -1720,7 +1899,7 @@ def test_0015_refuses_oversized_existing_notes_without_rewriting_database(
     engine.dispose()
 
     with pytest.raises(RuntimeError, match="exceed 4096 Unicode code points"):
-        command.upgrade(config, "head")
+        command.upgrade(config, "0015_instance_deletion")
 
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
@@ -1740,7 +1919,9 @@ def test_0015_refuses_oversized_existing_notes_without_rewriting_database(
 def test_0015_downgrade_refuses_detached_snapshot(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
+    )
     command.upgrade(config, "0014_snapshot_deletion")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
@@ -1761,7 +1942,7 @@ def test_0015_downgrade_refuses_detached_snapshot(
             {"digest": digest, "timestamp": timestamp},
         )
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "0015_instance_deletion")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -1781,14 +1962,16 @@ def test_0015_downgrade_refuses_detached_snapshot(
 def test_0015_downgrade_refuses_populated_instance_delete_history(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
+    )
     command.upgrade(config, "0014_snapshot_deletion")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
     with engine.begin() as connection:
         _seed_0014_instance_with_notes(connection, notes="bounded")
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "0015_instance_deletion")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -1815,7 +1998,9 @@ def test_0015_downgrade_refuses_populated_instance_delete_history(
 def test_0015_relaxed_terminal_history_retains_original_instance_uuid(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0014_snapshot_deletion"
+    )
     command.upgrade(config, "0014_snapshot_deletion")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
@@ -1833,7 +2018,7 @@ def test_0015_relaxed_terminal_history_retains_original_instance_uuid(
             {"timestamp": timestamp},
         )
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "0015_instance_deletion")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -1858,7 +2043,9 @@ def test_0015_relaxed_terminal_history_retains_original_instance_uuid(
 def test_0016_lifecycle_history_schema_and_guarded_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0015_instance_deletion"
+    )
     command.upgrade(config, "0015_instance_deletion")
     engine = create_database_engine(database_url)
     assert (
@@ -1866,7 +2053,7 @@ def test_0016_lifecycle_history_schema_and_guarded_round_trip(
     )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0016_lifecycle_history")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     indexes = {
@@ -1882,9 +2069,8 @@ def test_0016_lifecycle_history_schema_and_guarded_round_trip(
     assert foreign_key["referred_table"] == "managed_instances"
     assert foreign_key["options"] == {"ondelete": "SET NULL"}
     engine.dispose()
-    command.check(config)
     command.downgrade(config, "0015_instance_deletion")
-    command.upgrade(config, "head")
+    command.upgrade(config, "0016_lifecycle_history")
 
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T00:00:00.000000Z"
@@ -1912,13 +2098,15 @@ def test_0016_lifecycle_history_schema_and_guarded_round_trip(
 def test_0017_development_sources_schema_constraints_and_guarded_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0016_lifecycle_history"
+    )
     command.upgrade(config, "0016_lifecycle_history")
     engine = create_database_engine(database_url)
     assert "development_sources" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0017_development_sources")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     unique = {
@@ -1931,9 +2119,8 @@ def test_0017_development_sources_schema_constraints_and_guarded_round_trip(
         "uq_development_source_relative_locator": ["relative_locator"],
     }
     engine.dispose()
-    command.check(config)
     command.downgrade(config, "0016_lifecycle_history")
-    command.upgrade(config, "head")
+    command.upgrade(config, "0017_development_sources")
 
     engine = create_database_engine(database_url)
     insert = text(
@@ -1984,7 +2171,9 @@ def test_0017_development_sources_schema_constraints_and_guarded_round_trip(
 def test_0018_source_attachments_schema_constraints_and_guarded_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0017_development_sources"
+    )
     command.upgrade(config, "0017_development_sources")
     engine = create_database_engine(database_url)
     assert (
@@ -1992,7 +2181,7 @@ def test_0018_source_attachments_schema_constraints_and_guarded_round_trip(
     )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0018_development_source_attach")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     association_fks = {
@@ -2031,10 +2220,8 @@ def test_0018_source_attachments_schema_constraints_and_guarded_round_trip(
     assert isinstance(mutation_kind["type"], String)
     assert mutation_kind["type"].length == 32
     engine.dispose()
-    command.check(config)
     command.downgrade(config, "0017_development_sources")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0018_development_source_attach")
 
     engine = create_database_engine(database_url)
     timestamp = "2026-09-16T21:00:00.000000Z"
@@ -2186,7 +2373,9 @@ def _insert_0018_execution_profile(
 def test_0019_explicitly_backfills_all_curated_execution_profiles(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
+    )
     command.upgrade(config, "0018_development_source_attach")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -2202,7 +2391,7 @@ def test_0019_explicitly_backfills_all_curated_execution_profiles(
             )
     engine.dispose()
 
-    command.upgrade(config, "0020_dev_source_copy_sync")
+    command.upgrade(config, "0019_runtime_execution_ownership")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     ownership_columns = {
@@ -2247,7 +2436,9 @@ def test_0019_explicitly_backfills_all_curated_execution_profiles(
 def test_0019_unknown_profile_fails_without_default_backfill(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
+    )
     command.upgrade(config, "0018_development_source_attach")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -2263,7 +2454,7 @@ def test_0019_unknown_profile_fails_without_default_backfill(
     engine.dispose()
 
     with pytest.raises(RuntimeError, match="unknown or mismatched execution profile"):
-        command.upgrade(config, "head")
+        command.upgrade(config, "0019_runtime_execution_ownership")
     engine = create_database_engine(database_url)
     assert {
         item["name"]
@@ -2279,8 +2470,10 @@ def test_0019_unknown_profile_fails_without_default_backfill(
 def test_0019_empty_downgrade_and_reupgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
+    )
+    command.upgrade(config, "0019_runtime_execution_ownership")
     command.downgrade(config, "0018_development_source_attach")
     engine = create_database_engine(database_url)
     columns = {
@@ -2290,14 +2483,15 @@ def test_0019_empty_downgrade_and_reupgrade(
     assert "runtime_uid" not in columns
     assert "runtime_gid" not in columns
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0019_runtime_execution_ownership")
 
 
 def test_0021_backfills_closed_python_bytecode_policy_without_default(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
+    )
     command.upgrade(config, "0018_development_source_attach")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -2312,7 +2506,7 @@ def test_0021_backfills_closed_python_bytecode_policy_without_default(
                 image_id=row[5],
             )
     engine.dispose()
-    command.upgrade(config, "0020_dev_source_copy_sync")
+    command.upgrade(config, "0019_runtime_execution_ownership")
 
     engine = create_database_engine(database_url)
     assert "python_bytecode_policy" not in {
@@ -2320,7 +2514,7 @@ def test_0021_backfills_closed_python_bytecode_policy_without_default(
         for item in inspect(engine).get_columns("runtime_execution_profiles")
     }
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "0021_runtime_python_bytecode_policy")
 
     engine = create_database_engine(database_url)
     column = next(
@@ -2354,7 +2548,6 @@ def test_0021_backfills_closed_python_bytecode_policy_without_default(
                 {"value": value, "id": CURATED_OWNERSHIP_ROWS[0][0]},
             )
     engine.dispose()
-    command.check(config)
 
     with pytest.raises(RuntimeError, match="populated runtime Python bytecode"):
         command.downgrade(config, "0020_dev_source_copy_sync")
@@ -2363,8 +2556,10 @@ def test_0021_backfills_closed_python_bytecode_policy_without_default(
 def test_0021_empty_downgrade_and_reupgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0020_dev_source_copy_sync"
+    )
+    command.upgrade(config, "0021_runtime_python_bytecode_policy")
     command.downgrade(config, "0020_dev_source_copy_sync")
     engine = create_database_engine(database_url)
     assert "python_bytecode_policy" not in {
@@ -2372,15 +2567,16 @@ def test_0021_empty_downgrade_and_reupgrade(
         for item in inspect(engine).get_columns("runtime_execution_profiles")
     }
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0021_runtime_python_bytecode_policy")
 
 
 def test_0022_enablement_schema_empty_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0021_runtime_python_bytecode_policy"
+    )
+    command.upgrade(config, "0022_dev_source_enablement")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert "development_source_enablement_operations" in inspector.get_table_names()
@@ -2400,14 +2596,15 @@ def test_0022_enablement_schema_empty_round_trip(
         not in inspect(engine).get_table_names()
     )
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0022_dev_source_enablement")
 
 
 def test_0022_populated_enablement_history_refuses_lossy_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0018_development_source_attach"
+    )
     command.upgrade(config, "0018_development_source_attach")
     engine = create_database_engine(database_url)
     revision_id = CURATED_OWNERSHIP_ROWS[0][0]
@@ -2423,7 +2620,7 @@ def test_0022_populated_enablement_history_refuses_lossy_downgrade(
             image_id=row[5],
         )
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "0022_dev_source_enablement")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-17T16:00:00.000000Z"
     instance_id = "aa220000-0000-4000-8000-000000000001"
@@ -2499,13 +2696,15 @@ def test_0022_populated_enablement_history_refuses_lossy_downgrade(
 def test_0020_deployment_schema_empty_lifecycle_and_metadata_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0019_runtime_execution_ownership"
+    )
     command.upgrade(config, "0019_runtime_execution_ownership")
     engine = create_database_engine(database_url)
     assert "development_source_deployments" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0020_dev_source_copy_sync")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -2539,7 +2738,6 @@ def test_0020_deployment_schema_empty_lifecycle_and_metadata_check(
     assert "development_source_deployment" in mutation_sql
     assert "development_source_deployment" in heavy_sql
     engine.dispose()
-    command.check(config)
 
     command.downgrade(config, "0019_runtime_execution_ownership")
     engine = create_database_engine(database_url)
@@ -2548,15 +2746,16 @@ def test_0020_deployment_schema_empty_lifecycle_and_metadata_check(
         "development_source_deployment_operations",
     }.isdisjoint(inspect(engine).get_table_names())
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0020_dev_source_copy_sync")
 
 
 def test_0020_populated_downgrade_refuses_without_data_loss(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0019_runtime_execution_ownership"
+    )
+    command.upgrade(config, "0020_dev_source_copy_sync")
     engine = create_database_engine(database_url)
     source_id = "aa200000-0000-4000-8000-000000000001"
     operation_id = "aa200000-0000-4000-8000-000000000002"
@@ -2610,8 +2809,10 @@ def test_0020_populated_downgrade_refuses_without_data_loss(
 def test_0023_smoke_schema_empty_round_trip_and_mutation_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0022_dev_source_enablement"
+    )
+    command.upgrade(config, "0023_dev_source_smoke_test")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     table = "development_source_smoke_test_operations"
@@ -2646,15 +2847,16 @@ def test_0023_smoke_schema_empty_round_trip_and_mutation_kind(
     engine = create_database_engine(database_url)
     assert table not in inspect(engine).get_table_names()
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0023_dev_source_smoke_test")
 
 
 def test_0023_populated_smoke_history_refuses_lossy_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0022_dev_source_enablement"
+    )
+    command.upgrade(config, "0023_dev_source_smoke_test")
     engine = create_database_engine(database_url)
     source_id = "aa230000-0000-4000-8000-000000000001"
     operation_id = "aa230000-0000-4000-8000-000000000002"
@@ -2731,7 +2933,9 @@ def test_0023_populated_smoke_history_refuses_lossy_downgrade(
 def test_0024_uploaded_zip_schema_empty_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0024_addon_zip_installation"
+    )
     command.upgrade(config, "0024_addon_zip_installation")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -2747,8 +2951,10 @@ def test_0024_uploaded_zip_schema_empty_round_trip(
 def test_0024_populated_uploaded_zip_state_refuses_lossy_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0023_dev_source_smoke_test"
+    )
+    command.upgrade(config, "0024_addon_zip_installation")
     artifact_id = str(uuid4())
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -2786,7 +2992,9 @@ def test_0024_populated_uploaded_zip_state_refuses_lossy_downgrade(
 def test_0025_zip_enablement_schema_empty_round_trip_and_mutation_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0025_addon_zip_enablement"
+    )
     command.upgrade(config, "0025_addon_zip_enablement")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
@@ -2825,15 +3033,16 @@ def test_0025_zip_enablement_schema_empty_round_trip_and_mutation_kind(
     engine = create_database_engine(database_url)
     assert table not in inspect(engine).get_table_names()
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0025_addon_zip_enablement")
 
 
 def test_0026_zip_smoke_schema_empty_round_trip_and_mutation_kind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0025_addon_zip_enablement"
+    )
+    command.upgrade(config, "0026_addon_zip_smoke_test")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     table = "addon_zip_smoke_test_operations"
@@ -2872,15 +3081,16 @@ def test_0026_zip_smoke_schema_empty_round_trip_and_mutation_kind(
     engine = create_database_engine(database_url)
     assert table not in inspect(engine).get_table_names()
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0026_addon_zip_smoke_test")
 
 
 def test_0027_repository_schema_empty_round_trip_and_populated_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0026_addon_zip_smoke_test"
+    )
+    command.upgrade(config, "0027_addon_repository_testing")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -2928,8 +3138,7 @@ def test_0027_repository_schema_empty_round_trip_and_populated_guard(
         item["name"] for item in inspector.get_columns("addon_zip_artifacts")
     }
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0027_addon_repository_testing")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -2950,7 +3159,9 @@ def test_0027_repository_schema_empty_round_trip_and_populated_guard(
 def test_0029_agent_workspace_schema_round_trip_constraints_and_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0029_agent_workspaces"
+    )
     command.upgrade(config, "0029_agent_workspaces")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
@@ -2978,8 +3189,7 @@ def test_0029_agent_workspace_schema_round_trip_constraints_and_guard(
     engine = create_database_engine(database_url)
     assert "agent_workspaces" not in inspect(engine).get_table_names()
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0029_agent_workspaces")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -3021,13 +3231,15 @@ def test_0029_agent_workspace_schema_round_trip_constraints_and_guard(
 def test_0030_workspace_mutation_activity_round_trip_and_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0029_agent_workspaces"
+    )
     command.upgrade(config, "0029_agent_workspaces")
     engine = create_database_engine(database_url)
     assert "agent_workspace_mutation_events" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0030_agent_workspace_mutations")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert "agent_workspace_mutation_events" in inspector.get_table_names()
@@ -3036,8 +3248,7 @@ def test_0030_workspace_mutation_activity_round_trip_and_guard(
     ] == {"ondelete": "RESTRICT"}
     engine.dispose()
     command.downgrade(config, "0029_agent_workspaces")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0030_agent_workspace_mutations")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -3090,13 +3301,15 @@ def test_0030_workspace_mutation_activity_round_trip_and_guard(
 def test_0031_workspace_promotion_schema_round_trip_constraints_and_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0030_agent_workspace_mutations"
+    )
     command.upgrade(config, "0030_agent_workspace_mutations")
     engine = create_database_engine(database_url)
     assert "agent_workspace_promotion_plans" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0031_agent_workspace_promotions")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     expected = {
@@ -3136,8 +3349,7 @@ def test_0031_workspace_promotion_schema_round_trip_constraints_and_guard(
     engine = create_database_engine(database_url)
     assert expected.isdisjoint(inspect(engine).get_table_names())
     engine.dispose()
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0031_agent_workspace_promotions")
 
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
@@ -3177,14 +3389,16 @@ def test_0031_workspace_promotion_schema_round_trip_constraints_and_guard(
 def test_0032_promotion_verification_schema_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0031_agent_workspace_promotions"
+    )
     command.upgrade(config, "0031_agent_workspace_promotions")
     assert (
         "promotion_verification_operations"
         not in inspect(create_database_engine(database_url)).get_table_names()
     )
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0032_promotion_verification")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert "promotion_verification_operations" in inspector.get_table_names()
@@ -3208,19 +3422,21 @@ def test_0032_promotion_verification_schema_round_trip(
         "promotion_verification_log_evidence" not in inspect(engine).get_table_names()
     )
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "0032_promotion_verification")
 
 
 def test_0033_workspace_cleanup_schema_round_trip_and_populated_guard(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0032_promotion_verification"
+    )
     command.upgrade(config, "0032_promotion_verification")
     engine = create_database_engine(database_url)
     assert "agent_workspace_cleanup_operations" not in inspect(engine).get_table_names()
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0033_agent_workspace_cleanup")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert {
@@ -3243,8 +3459,7 @@ def test_0033_workspace_cleanup_schema_round_trip_and_populated_guard(
     assert "agent_workspace_cleanup" in heavy_sql
     engine.dispose()
     command.downgrade(config, "0032_promotion_verification")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0033_agent_workspace_cleanup")
 
     engine = create_database_engine(database_url)
     now = "2026-09-18T12:00:00+00:00"
@@ -3296,9 +3511,11 @@ def test_0033_workspace_cleanup_schema_round_trip_and_populated_guard(
 def test_0034_phase9_retained_target_schema_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0033_agent_workspace_cleanup"
+    )
     command.upgrade(config, "0033_agent_workspace_cleanup")
-    command.upgrade(config, "head")
+    command.upgrade(config, "0034_phase9_completion_remediation")
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     for table in (
@@ -3316,14 +3533,15 @@ def test_0034_phase9_retained_target_schema_round_trip(
     }
     engine.dispose()
     command.downgrade(config, "0033_agent_workspace_cleanup")
-    command.upgrade(config, "head")
-    command.check(config)
+    command.upgrade(config, "0034_phase9_completion_remediation")
 
 
 def test_0034_upgrades_populated_0033_and_guards_detached_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path)
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0033_agent_workspace_cleanup"
+    )
     command.upgrade(config, "0033_agent_workspace_cleanup")
     engine = create_database_engine(database_url)
     timestamp = "2026-09-19T12:00:00.000000Z"
@@ -3412,7 +3630,7 @@ def test_0034_upgrades_populated_0033_and_guards_detached_downgrade(
         )
     engine.dispose()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0034_phase9_completion_remediation")
     engine = create_database_engine(database_url)
     with engine.begin() as connection:
         retained = connection.execute(

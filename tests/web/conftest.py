@@ -9,12 +9,14 @@ from typing import Literal
 from uuid import UUID
 
 import pytest
+from argon2 import PasswordHasher as Argon2PasswordHasher
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.browser_remote import BrowserRemoteRateLimiter
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.auth import passwords as password_module
 from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
@@ -450,10 +452,27 @@ def broker(data_root: Path) -> FakeBroker:
 
 @pytest.fixture
 def client(
-    database: sessionmaker[Session], broker: FakeBroker, data_root: Path
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    data_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[TestClient]:
     development_root = data_root.parent / "development-root"
     development_root.mkdir(parents=True)
+    # Web route tests exercise authentication semantics, not Argon2 cost tuning.
+    # Dedicated auth tests continue to instantiate the production-strength KDF.
+    monkeypatch.setattr(
+        password_module,
+        "PasswordHasher",
+        lambda **kwargs: Argon2PasswordHasher(
+            time_cost=1,
+            memory_cost=8,
+            parallelism=1,
+            hash_len=16,
+            salt_len=8,
+            **kwargs,
+        ),
+    )
     auth = WebAuthenticationService(database)
     auth.set_password(PASSWORD)
     app = create_app(

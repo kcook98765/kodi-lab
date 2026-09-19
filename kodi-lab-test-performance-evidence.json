@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "baseline": {
+    "authoritative_check_seconds": 413.22,
+    "pytest_seconds": 396.52,
+    "profiling_pytest_seconds": 392.85,
+    "test_count": 1855,
+    "profiled_category_seconds": {
+      "migration_tests": 207.55,
+      "web_application_auth_tests": 139.36,
+      "broker_tests": 30.49,
+      "storage_domain_tests": 1.98,
+      "other_integration_tests": 7.96
+    }
+  },
+  "optimized": {
+    "authoritative_check_seconds": 201.54,
+    "pytest_seconds": 184.93,
+    "test_count": 1857,
+    "migration_test_items": 64,
+    "migration_test_aggregate_seconds": 20.67
+  },
+  "improvement_percent": {
+    "authoritative_check": 51.23,
+    "pytest": 53.36,
+    "migration_test_aggregate": 90.04
+  },
+  "optimization_categories": [
+    "session-built exact-revision SQLite migration templates",
+    "private closed-file clone per migration test",
+    "local predecessor-to-revision migration transitions",
+    "retained global full-history upgrade and downgrade proofs",
+    "test-only reduced-cost Argon2id for Web route tests"
+  ],
+  "top_20_slowest_after": [
+    "3.86s call tests/test_privilege_policy.py::test_phase9_root_validator_import_leaves_no_project_bytecode",
+    "3.23s call tests/web/test_development_source_deployments.py::test_running_instance_hides_control_and_post_revalidates_stopped_state",
+    "3.11s call tests/storage/test_migrations.py::test_head_downgrades_to_0001_and_upgrades_again",
+    "2.65s call tests/storage/test_migrations.py::test_explicit_0001_upgrades_to_head",
+    "2.55s call tests/storage/test_migrations.py::test_0005_known_curated_state_upgrades_without_fabricated_validation",
+    "2.18s call tests/web/test_runtime_matrix.py::test_matrix_web_surface_has_no_catalog_or_evidence_mutation",
+    "2.12s setup tests/storage/test_migrations.py::test_revision_template_clones_are_private_and_pristine",
+    "1.84s setup tests/web/test_development_sources.py::test_attach_revalidates_source_and_unknown_entities_are_bounded",
+    "1.79s call tests/storage/test_migrations.py::test_empty_database_upgrades_to_runtime_catalog_head",
+    "1.68s call tests/web/test_browser_remote.py::test_two_concurrent_remote_actions_conflict",
+    "1.55s call tests/web/test_addon_zip_enablements.py::test_endpoint_has_only_uuid_authority_and_strict_empty_body",
+    "1.54s setup tests/web/test_app.py::test_restore_post_requires_csrf_origin_and_rejects_extra_authority",
+    "1.48s call tests/storage/test_migrations.py::test_0015_preserves_bounded_notes_exactly_and_backfills_snapshot_identity[bounded-long-parameter]",
+    "1.34s setup tests/web/test_app.py::test_login_cookie_is_opaque_and_hardened",
+    "1.27s call tests/storage/test_migrations.py::test_0034_phase9_retained_target_schema_round_trip",
+    "1.12s call tests/broker/test_provisioning_resolver.py::test_missing_artifact_and_persistent_instance_fail_closed",
+    "0.87s call tests/application/test_runtime_matrix.py::test_curated_matrix_policy_combinations",
+    "0.77s call tests/web/test_runtime_matrix.py::test_trusted_build_setting_is_not_browser_authority",
+    "0.77s setup tests/application/test_instance_deletions.py::test_preserve_removes_stopped_or_running_container_before_detach[stopped-expected_calls0]",
+    "0.75s call tests/application/test_reconciliation.py::test_pruning_retains_active_and_reconciliation_rows_for_every_bounded_type"
+  ]
+}

@@ -42,6 +42,8 @@ selected representative pytest core. `./scripts/check-fast` is the broader
 sub-slice gate and skips only tests marked `slow`. `./scripts/check` remains the
 complete authoritative milestone, pre-commit, and final gate. Passing smoke or
 fast does not substitute for the full gate when a milestone requires it.
+Migration fixture design and performance policy are documented in
+[docs/TEST-PERFORMANCE.md](docs/TEST-PERFORMANCE.md).
 
 For optional local path overrides, copy `.env.example` to `.env` and edit the
 two existing bootstrap paths. A `.env` file is ignored by Git and is not
