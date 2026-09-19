@@ -85,6 +85,10 @@ from kodi_lab.domain import (
     ManagedInstanceMutationKind,
     ManagedInstanceSemanticState,
     ProcessObservationKind,
+    PromotionLogResult,
+    PromotionVerificationPhase,
+    PromotionVerificationStageResult,
+    PromotionVerificationState,
     PythonBytecodePolicy,
     ReadinessProbeKind,
     RepositoryReplacementIncumbentClass,
@@ -448,6 +452,7 @@ class AgentWorkspacePromotionPlanRow(Base):
     )
     target_source_digest: Mapped[str] = mapped_column(String(71), nullable=False)
     target_destination_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    expected_enabled: Mapped[bool | None] = mapped_column(Boolean)
     changed_file_count: Mapped[int] = mapped_column(Integer, nullable=False)
     review_text_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -663,6 +668,15 @@ class AgentWorkspacePromotionHandoffRow(Base):
     """Private exact Slice-4 sync handoff; never current deployment evidence."""
 
     __tablename__ = "agent_workspace_promotion_handoffs"
+    __table_args__ = (
+        CheckConstraint(
+            "(verification_operation_id IS NULL AND consumed_at IS NULL) OR "
+            "(verification_operation_id IS NOT NULL AND expected_addon_id IS NOT NULL "
+            "AND expected_name IS NOT NULL AND expected_version IS NOT NULL "
+            "AND expected_enabled IS NOT NULL)",
+            name="promotion_handoff_verification_shape",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     operation_id: Mapped[str] = mapped_column(
@@ -690,6 +704,174 @@ class AgentWorkspacePromotionHandoffRow(Base):
     prior_source_digest: Mapped[str] = mapped_column(String(71), nullable=False)
     prior_destination_digest: Mapped[str] = mapped_column(String(71), nullable=False)
     created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    expected_addon_id: Mapped[str | None] = mapped_column(String(128))
+    expected_name: Mapped[str | None] = mapped_column(String(256))
+    expected_version: Mapped[str | None] = mapped_column(String(128))
+    expected_enabled: Mapped[bool | None] = mapped_column(Boolean)
+    verification_operation_id: Mapped[str | None] = mapped_column(
+        String(36), unique=True
+    )
+    consumed_at: Mapped[str | None] = mapped_column(String(32))
+
+
+class PromotionVerificationOperationRow(Base):
+    """One durable, single-target post-promotion verification."""
+
+    __tablename__ = "promotion_verification_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 128",
+            name="promotion_verification_failure_bounded",
+        ),
+        CheckConstraint(
+            "lease_token_digest IS NULL OR (length(lease_token_digest)=64 AND "
+            "lease_token_digest NOT GLOB '*[^0-9a-f]*')",
+            name="promotion_verification_lease_digest",
+        ),
+        CheckConstraint(
+            "(state='queued' AND started_at IS NULL AND completed_at IS NULL AND "
+            "lease_token_digest IS NULL AND lease_expires_at IS NULL) OR "
+            "(state='running' AND started_at IS NOT NULL AND completed_at IS NULL "
+            "AND lease_token_digest IS NOT NULL AND lease_expires_at IS NOT NULL) "
+            "OR (state IN ('succeeded','failed','incomplete',"
+            "'reconciliation_required') AND completed_at IS NOT NULL AND "
+            "lease_token_digest IS NULL AND lease_expires_at IS NULL)",
+            name="promotion_verification_state_fields",
+        ),
+        CheckConstraint(
+            "sync_completed=0 OR sync_started=1",
+            name="promotion_verification_sync_order",
+        ),
+        CheckConstraint(
+            "handoff_consumed=sync_completed",
+            name="promotion_verification_consumption_order",
+        ),
+        CheckConstraint(
+            "start_dispatched=0 OR sync_completed=1",
+            name="promotion_verification_start_order",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    source_promotion_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspace_promotion_operations.id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    handoff_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspace_promotion_handoffs.id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_workspaces.id", ondelete="RESTRICT")
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("development_sources.id", ondelete="RESTRICT")
+    )
+    target_instance_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("managed_instances.target_id", ondelete="RESTRICT")
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runtime_revisions.id", ondelete="RESTRICT")
+    )
+    deployment_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_source_deployment_operations.id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    state: Mapped[PromotionVerificationState] = mapped_column(
+        Enum(
+            PromotionVerificationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="promotion_verification_state",
+        )
+    )
+    phase: Mapped[PromotionVerificationPhase] = mapped_column(
+        Enum(
+            PromotionVerificationPhase,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="promotion_verification_phase",
+        )
+    )
+    addon_id: Mapped[str] = mapped_column(String(128))
+    expected_name: Mapped[str] = mapped_column(String(256))
+    expected_version: Mapped[str] = mapped_column(String(128))
+    expected_enabled: Mapped[bool] = mapped_column(Boolean)
+    sync_result: Mapped[PromotionVerificationStageResult] = mapped_column(
+        Enum(
+            PromotionVerificationStageResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="promotion_verification_stage_result",
+        )
+    )
+    reload_result: Mapped[PromotionVerificationStageResult] = mapped_column(
+        Enum(
+            PromotionVerificationStageResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=False,
+            name="promotion_verification_stage_result",
+        )
+    )
+    inventory_result: Mapped[PromotionVerificationStageResult] = mapped_column(
+        Enum(
+            PromotionVerificationStageResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=False,
+            name="promotion_verification_stage_result",
+        )
+    )
+    log_result: Mapped[PromotionLogResult] = mapped_column(
+        Enum(
+            PromotionLogResult,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="promotion_log_result",
+        )
+    )
+    current_version: Mapped[str | None] = mapped_column(String(128))
+    current_enabled: Mapped[bool | None] = mapped_column(Boolean)
+    target_error_count: Mapped[int] = mapped_column(Integer, default=0)
+    unrelated_warning_count: Mapped[int] = mapped_column(Integer, default=0)
+    stop_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    sync_started: Mapped[bool] = mapped_column(Boolean, default=False)
+    sync_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    start_dispatched: Mapped[bool] = mapped_column(Boolean, default=False)
+    handoff_consumed: Mapped[bool] = mapped_column(Boolean, default=False)
+    requested_at: Mapped[str] = mapped_column(String(32))
+    started_at: Mapped[str | None] = mapped_column(String(32))
+    completed_at: Mapped[str | None] = mapped_column(String(32))
+    failure_code: Mapped[str | None] = mapped_column(String(128))
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32))
+
+
+class PromotionVerificationLogEvidenceRow(Base):
+    """Private bounded snippets; deliberately separate from ordinary history."""
+
+    __tablename__ = "promotion_verification_log_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "length(target_error_snippets_json) <= 12288",
+            name="promotion_verification_private_log_bounds",
+        ),
+    )
+
+    verification_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("promotion_verification_operations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    target_error_snippets_json: Mapped[str] = mapped_column(Text, default="[]")
 
 
 class TargetRow(Base):

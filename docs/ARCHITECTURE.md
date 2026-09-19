@@ -1141,8 +1141,51 @@ the promoted workspace state, and promotion coordination kinds. Per-workspace,
 per-source, selected-target, and global-heavy coordination follows a fixed
 plan/operation → target → global → source acquisition order.
 
-This architecture deliberately stops before post-apply Kodi verification.
-Phase 9 canonical patch-back remains incomplete until Slice 4 performs the
-separately bounded stopped copy/sync, start, inventory/provenance verification,
-and approved diagnostic behavior. Later Kodi failure will not automatically
-reverse an already successful canonical source promotion.
+## Phase 9 promotion-bound Kodi verification
+
+Slice 4 implements D-0209 as a separate durable
+`PromotionVerificationOperation`. Source success automatically queues exactly
+one verification from the private Slice 3 handoff; it never reopens approval or
+rewrites `AgentWorkspacePromotionOperation`. Preflight binds the successful
+promotion, promoted workspace, attached DevelopmentSource, disposable target,
+RuntimeRevision, immutable container, prior destination proof, promoted
+metadata, and live pre-stop enabled Boolean. Drift ends before target mutation.
+The catalog `ManagedInstance.runtime_state` is not live Docker authority; the
+exact broker inventory and immutable container precondition are.
+
+Queueing durably reserves the handoff to the sole verification UUID but leaves
+`consumed_at` and the operation's consumption marker unset. The reservation is
+non-reusable across deterministic failure, ambiguity, or recovery. Preflight,
+cursor capture, stop, and the promotion-bound broker sync all require that exact
+reserved-but-unconsumed state.
+
+The operation acquires the target mutation lease and global-heavy lease in the
+existing order. A semantic broker cursor captures only fixed
+`/home/kodi/.kodi/temp/kodi.log` and `kodi.old.log` identity, then the operation
+stops the exact container. A handoff-only broker resolver feeds the existing
+changed/new-only copy core with the prior verified destination proof despite
+the intentional promotion staling transition. Exact sync publishes a new
+ordinary verified deployment row and, in the same database transaction,
+permanently consumes the handoff. Any earlier deterministic failure remains
+reserved and unconsumed; mutation ambiguity remains reserved, unconsumed, and
+reconciliation-required rather than becoming reusable. The same container
+starts and uses normal readiness; no recreate, enable mutation,
+shell, or arbitrary JSON-RPC occurs.
+
+Inventory is authoritative for ID, promoted version, supported type, and exact
+enabled preservation. Ten seconds after readiness, the broker correlates at
+most 1 MiB of new data across append or normal `kodi.log` to `kodi.old.log`
+rotation. Correlation ambiguity is `incomplete`. At most twenty sanitized
+512-byte target snippets and 8 KiB total reach Web status. Target-correlated
+Python/import/dependency/service failures fail verification; unrelated
+DBus/VDPAU/Zeroconf warnings are counted separately. Logs never substitute for
+inventory evidence.
+
+Migration `0032_promotion_verification` stores stage markers, separate sync,
+reload, inventory and log outcomes, single-use handoff binding, bounded counts,
+a separate private bounded-snippet evidence row, and verification coordination
+kinds. Filesystem or lifecycle
+uncertainty after mutation is reconciliation-required and does not retry or
+roll back the already promoted source. Canonical patch-back is complete; Phase
+9 cleanup/abandon/retention remains separate work. MCP exposure remains its
+later Phase 11/12 milestone and is not a Phase 9 completion blocker.

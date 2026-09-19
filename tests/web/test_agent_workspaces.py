@@ -8,7 +8,10 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
+from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
+from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.storage.models import (
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
@@ -17,7 +20,15 @@ from kodi_lab.storage.models import (
 )
 from kodi_lab.storage.repositories import DevelopmentSourceRepository
 
-from .conftest import CONTAINER_ID, INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
+from .conftest import (
+    CONTAINER_ID,
+    INSTANCE_ID,
+    ORIGIN,
+    REVISION_ID,
+    FakeBroker,
+    inventory_entry,
+    login,
+)
 
 SOURCE_ID = UUID("71000000-0000-0000-0000-000000000001")
 DEPLOYMENT_ID = UUID("71000000-0000-0000-0000-000000000002")
@@ -332,6 +343,19 @@ def test_promotion_review_and_approval_are_strict_complete_and_private(
 ) -> None:
     _seed_source(database, data_root)
     _seed_promotion_target(database)
+    broker.addon_inventory_result = KodiAddonInventoryResult(
+        identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"),
+        items=(
+            KodiAddonInventoryRecord(
+                addon_id="plugin.video.workspace",
+                name="Workspace",
+                version="1.0.0",
+                enabled=True,
+                kodi_type="xbmc.python.pluginsource",
+            ),
+        ),
+    )
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
     assert (
         client.get(
             "/api/agent-workspaces/ffffffff-ffff-ffff-ffff-ffffffffffff/"
@@ -419,6 +443,12 @@ def test_promotion_review_and_approval_are_strict_complete_and_private(
     assert "print(&#39;web&#39;)" in page.text
     assert "print(&#39;promoted&#39;)" in page.text
     assert "Kodi verification occurs in the next bounded stage" in page.text
+    assert "Source promotion" in page.text
+    assert "Kodi verification" in page.text
+    assert (
+        "Kodi verification does not change the already-completed source "
+        "promotion result." in page.text
+    )
     assert "<script>not markup</script>" not in page.text
 
     approve_url = f"{plans_url}/{plan_id}/approve-and-execute"
@@ -436,6 +466,16 @@ def test_promotion_review_and_approval_are_strict_complete_and_private(
     assert "container" not in approved.text
     assert "digest" not in approved.text
     assert broker.calls == before_calls
+    verification = client.get(
+        f"/api/instances/{INSTANCE_ID}/agent-workspaces/{workspace_id}/"
+        f"promotion-operations/{operation['operation_id']}/verification"
+    )
+    assert verification.status_code == 200
+    assert verification.json()["state"] == "failed"
+    assert verification.json()["source_result_notice"] == (
+        "Kodi verification does not change the already-completed source "
+        "promotion result."
+    )
     source = data_root.parent / "development-root" / "plugin.video.workspace"
     assert source.joinpath("resources/main.py").read_text() == "print('promoted')\n"
     workspace = client.get(f"/api/agent-workspaces/{workspace_id}").json()

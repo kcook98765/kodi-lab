@@ -141,6 +141,13 @@ from kodi_lab.domain.models import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.domain.promotion_verifications import (
+    PromotionLogResult,
+    PromotionVerificationOperation,
+    PromotionVerificationPhase,
+    PromotionVerificationStageResult,
+    PromotionVerificationState,
+)
 from kodi_lab.domain.repository_replacements import (
     RepositoryReplacementIncumbentClass,
     RepositoryReplacementOperation,
@@ -311,6 +318,11 @@ __all__ = [
     "ManagedInstanceMutationKind",
     "ManagedInstanceSemanticState",
     "ProcessObservationKind",
+    "PromotionLogResult",
+    "PromotionVerificationOperation",
+    "PromotionVerificationPhase",
+    "PromotionVerificationStageResult",
+    "PromotionVerificationState",
     "PythonBytecodePolicy",
     "ReadinessProbeKind",
     "RepositoryReplacementIncumbentClass",

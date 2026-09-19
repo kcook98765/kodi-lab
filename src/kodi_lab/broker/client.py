@@ -70,8 +70,10 @@ from kodi_lab.broker.operations import (
     CapabilitiesResult,
     CaptureManagedInstanceSnapshotParams,
     CaptureManagedInstanceSnapshotResult,
+    CapturePromotionKodiLogCursorResult,
     CopySyncAttachedDevelopmentSourceParams,
     CopySyncAttachedDevelopmentSourceResult,
+    CopySyncPromotedDevelopmentSourceParams,
     DeleteManagedSnapshotArtifactParams,
     DeleteManagedSnapshotArtifactResult,
     DeprovisionManagedContainerParams,
@@ -83,8 +85,11 @@ from kodi_lab.broker.operations import (
     ObserveManagedKodiRuntimeParams,
     ObserveManagedKodiRuntimeResult,
     PingResult,
+    PromotionKodiLogParams,
     ProvisionManagedContainerParams,
     ProvisionManagedContainerResult,
+    ReadPromotionKodiLogWindowParams,
+    ReadPromotionKodiLogWindowResult,
     StartManagedContainerParams,
     StartManagedContainerResult,
     StopManagedContainerParams,
@@ -163,6 +168,68 @@ class BrokerClient:
             EmptyParams(),
             ManagedContainerInventoryResult,
         )
+
+    def capture_promotion_kodi_log_cursor(
+        self,
+        *,
+        verification_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> CapturePromotionKodiLogCursorResult:
+        try:
+            params = PromotionKodiLogParams(
+                verification_id=verification_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "promotion log cursor request failed local validation"
+            ) from error
+        result = self._call(
+            "capture_promotion_kodi_log_cursor",
+            params,
+            CapturePromotionKodiLogCursorResult,
+            response_timeout=30.0,
+        )
+        if (
+            result.verification_id != verification_id
+            or result.managed_instance_id != managed_instance_id
+        ):
+            raise ClientProtocolError("promotion log cursor identity differs")
+        return result
+
+    def read_promotion_kodi_log_window(
+        self,
+        *,
+        verification_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+        cursor: str,
+    ) -> ReadPromotionKodiLogWindowResult:
+        try:
+            params = ReadPromotionKodiLogWindowParams(
+                verification_id=verification_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                cursor=cursor,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "promotion log window request failed local validation"
+            ) from error
+        result = self._call(
+            "read_promotion_kodi_log_window",
+            params,
+            ReadPromotionKodiLogWindowResult,
+            response_timeout=30.0,
+        )
+        if (
+            result.verification_id != verification_id
+            or result.managed_instance_id != managed_instance_id
+        ):
+            raise ClientProtocolError("promotion log window identity differs")
+        return result
 
     def observe_managed_kodi_runtime(
         self, *, managed_instance_id: str, expected_container_id: str
@@ -476,6 +543,36 @@ class BrokerClient:
             raise ClientProtocolError(
                 "development-source deployment result identity differs"
             )
+        return result
+
+    def copy_sync_promoted_development_source(
+        self,
+        *,
+        verification_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> CopySyncAttachedDevelopmentSourceResult:
+        try:
+            params = CopySyncPromotedDevelopmentSourceParams(
+                verification_operation_id=verification_operation_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "promotion-bound sync failed local validation"
+            ) from error
+        result = self._call(
+            "copy_sync_promoted_development_source",
+            params,
+            CopySyncAttachedDevelopmentSourceResult,
+            response_timeout=900.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError("promotion-bound sync result identity differs")
         return result
 
     def verify_attached_development_source_destination(

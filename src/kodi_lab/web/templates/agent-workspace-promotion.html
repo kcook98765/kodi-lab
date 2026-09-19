@@ -8,6 +8,7 @@
   </head>
   <body><main>
     <h1>Exact source promotion review</h1>
+    <h2>Source promotion</h2>
     <dl>
       <dt>Workspace provenance name</dt><dd>{{ plan.workspace_logical_name }}</dd>
       <dt>Canonical source</dt><dd>{{ plan.source_logical_name }}</dd>
@@ -34,6 +35,20 @@
       <p id="promotion-approval-result" role="status"></p>
     </section>
     {% endif %}
+    <section id="kodi-verification" hidden>
+      <h2>Kodi verification</h2>
+      <p>Kodi verification does not change the already-completed source promotion result.</p>
+      <dl>
+        <dt>Target</dt><dd id="verification-target"></dd>
+        <dt>Sync</dt><dd id="verification-sync"></dd>
+        <dt>Reload/readiness</dt><dd id="verification-reload"></dd>
+        <dt>Presence/version</dt><dd id="verification-inventory"></dd>
+        <dt>Enabled preservation</dt><dd id="verification-enabled"></dd>
+        <dt>Log result</dt><dd id="verification-log"></dd>
+        <dt>Unrelated warning count</dt><dd id="verification-warnings"></dd>
+      </dl>
+      <ul id="verification-errors"></ul>
+    </section>
     <p><a href="/agent-workspaces/{{ plan.workspace_id }}">Back to workspace</a></p>
     <script src="{{ url_for('static', path='/agent-workspace-promotion.js') }}" defer></script>
   </main></body>

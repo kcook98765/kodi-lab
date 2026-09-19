@@ -412,6 +412,26 @@ The intended production unit name still collides with the protected legacy
 separate naming/migration decision. Neither that deployment concern nor deferred
 persistent-instance storage weakens the completed disposable broker boundary.
 
+## Promotion-verification Kodi log authority
+
+The broker adds only `capture_promotion_kodi_log_cursor` and
+`read_promotion_kodi_log_window`. Both accept a verification UUID, instance
+UUID, and exact immutable container identity; the read also accepts only the
+opaque broker-generated cursor. Trusted SQLite state independently proves the
+succeeded source promotion, single-use handoff reserved to this verification,
+running verification, exact target/runtime/container, and expected add-on ID.
+Cursor capture occurs while that handoff is unconsumed. Window reading occurs
+only after exact sync has atomically consumed it and published fresh ordinary
+deployment evidence.
+
+The broker resolves only `/home/kodi/.kodi/temp/kodi.log` and
+`/home/kodi/.kodi/temp/kodi.old.log`. There is no path, glob, command, shell,
+offset, limit, or generic archive/read input. Archive bytes, file identities,
+cursor internals, container IDs, and full logs are absent from public DTOs and
+ordinary audit history. Reads are bounded, regular-file-only, correlate append
+or normal rotation, and return incomplete on truncation, recreation ambiguity,
+oversize data, or broker restart cursor loss.
+
 ## Uploaded-ZIP materialization authority
 
 The Phase 8 ZIP broker operations accept only canonical instance, artifact and

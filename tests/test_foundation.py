@@ -143,6 +143,8 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "agent_workspace_promotion_plan_paths",
         "agent_workspace_promotion_plans",
         "agent_workspaces",
+        "promotion_verification_log_evidence",
+        "promotion_verification_operations",
         "development_source_attachment_operations",
         "development_source_deployment_operations",
         "development_source_deployments",

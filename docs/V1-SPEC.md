@@ -558,6 +558,12 @@ Patch-back through web UI:
 7. verify add-on present/enabled;
 8. inspect Kodi log for immediate errors.
 
+The one patch-back confirmation covers both source apply and its bound selected
+target verification. Source apply success is immutable: target sync, reload,
+inventory, or bounded-log failure is reported separately and never triggers an
+automatic source rollback. Verification uses the same exact container,
+preserves enabled state, and has no generic command or filesystem-read surface.
+
 Do not require globally clean source tree, but actual conflicts block apply.
 
 No general container shell.

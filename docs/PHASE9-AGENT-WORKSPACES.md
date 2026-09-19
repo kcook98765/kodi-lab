@@ -1,4 +1,4 @@
-# Phase 9 Slices 1–3 — Protected Agent Workspaces
+# Phase 9 Slices 1–4 — Protected Agent Workspaces
 
 ## Boundary
 
@@ -221,12 +221,28 @@ changed paths, complete review text, bounds, and rollback/staging notices. It
 does not expose absolute/storage/backup paths, internal hashes, container IDs,
 filesystem metadata, or raw exceptions.
 
-**Kodi verification occurs in the next bounded stage and a later Kodi
-validation failure will not automatically undo a successful source promotion.**
+## Slice 4 promotion-bound Kodi verification
 
-Phase 9 canonical patch-back remains incomplete until Slice 4 implements
-D-0209 post-apply Kodi stopped copy/sync, start, inventory/provenance
-verification, and approved diagnostics.
+Source success automatically queues verification and reserves its one
+selected-target handoff to the exact verification UUID. The handoff remains
+unconsumed through preflight, cursor, stop, and sync. Only exact sync readback
+and fresh ordinary deployment evidence atomically set both consumption markers;
+deterministic earlier failure and ambiguity remain reserved and non-reusable. A
+durable verification operation captures a fixed Kodi-log cursor, stops the
+exact container, reuses the low-level changed/new-only sync core, publishes new
+verified deployment evidence after exact readback, starts the same container,
+waits for readiness, checks promoted ID/version/type and enabled preservation,
+then classifies only a bounded post-cursor log window. No second broad approval,
+generic target selector, recreate, enable repair, shell, generic JSON-RPC, or
+caller path/offset/limit exists.
+
+Sync, reload, inventory, and log results are distinct. Target contradiction or
+target-correlated startup errors fail; correlation/observation gaps are
+incomplete; mutation uncertainty is reconciliation-required. All outcomes
+retain the already succeeded promotion and immutable promoted workspace.
+Web status explicitly separates Source promotion from Kodi verification and
+returns only logical identity, versions, enabled Booleans, classifications,
+counts, and bounded sanitized snippets.
 
 ## Remaining Phase 9 work
 
@@ -234,6 +250,8 @@ Canonical read, directory inspection, bounded text write/create/replace, exact
 patch editing, and derived workspace change review are implemented.
 Conflict-aware reviewed promotion, exact source backup/application, promoted
 state, evidence staling, and the private selected-target handoff are implemented.
-Slice 4 Kodi copy/sync/reload/verification and diagnostics, MCP exposure, and
-workspace cleanup/retention mutation remain later work. Delete, rename, move,
-mkdir, binary write, type transition, shell, and Git remain absent by design.
+Promotion-bound Kodi copy/sync/reload/verification and bounded diagnostics are
+implemented, so canonical patch-back is complete. Workspace
+cleanup/abandon/retention mutation is the only remaining Phase 9 blocker. MCP
+exposure remains later Phase 11/12 work. Delete, rename, move, mkdir, binary
+write, type transition, shell, and Git remain absent by design.

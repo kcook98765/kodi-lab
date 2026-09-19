@@ -61,6 +61,7 @@ from kodi_lab.domain import (
     ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
     ManagedInstanceSemanticState,
+    PromotionVerificationOperation,
     RepositoryReplacementOperation,
     RepositoryReplacementOperationState,
     RepositoryReplacementTerminalOutcome,
@@ -104,6 +105,7 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
+    PromotionVerificationOperationRepository,
     RepositoryReplacementOperationRepository,
     RepositoryReplacementPlanRepository,
     ResetOperationRepository,
@@ -146,6 +148,7 @@ class ReconciliationOperationKind(StrEnum):
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
     AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
+    PROMOTION_VERIFICATION = "promotion_verification"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -179,6 +182,7 @@ class ReconciliationAction(StrEnum):
     DEVELOPMENT_SOURCE_ENABLEMENT = "development_source_enablement"
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
     AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
+    PROMOTION_VERIFICATION = "promotion_verification"
 
 
 INSTANCE_MUTATIONS = [
@@ -203,6 +207,7 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.ADDON_REPOSITORY_INSTALLATION,
     ReconciliationAction.REPOSITORY_REPLACEMENT,
     ReconciliationAction.AGENT_WORKSPACE_PROMOTION,
+    ReconciliationAction.PROMOTION_VERIFICATION,
 ]
 
 
@@ -707,6 +712,46 @@ class StaleOperationReconciliationDispatcher:
                 now,
             )
             released += 1
+        elif kind is ManagedInstanceMutationKind.PROMOTION_VERIFICATION:
+            verification = PromotionVerificationOperationRepository(session).get(
+                operation_id
+            )
+            if (
+                verification is None
+                or verification.target_instance_id != instance_id
+                or verification.lease_token_digest != digest
+                or verification.lease_expires_at is None
+                or verification.lease_expires_at > now
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired promotion-verification ownership is inconsistent."
+                )
+            self._require_matching_global(
+                session,
+                GlobalHeavyOperationKind.PROMOTION_VERIFICATION,
+                operation_id,
+                digest,
+                now,
+            )
+            if not PromotionVerificationOperationRepository(
+                session
+            ).mark_stale_reconciliation(operation_id, token_digest=digest, now=now):
+                raise CoordinationCorruptionError(
+                    "Expired promotion-verification history changed."
+                )
+            DevelopmentSourceDeploymentRepository(session).mark_confidence(
+                instance_id,
+                verification.development_source_id,
+                DevelopmentSourceDeploymentConfidence.UNKNOWN,
+            )
+            self._release_global(
+                session,
+                GlobalHeavyOperationKind.PROMOTION_VERIFICATION,
+                operation_id,
+                digest,
+                now,
+            )
+            released += 1
         elif kind is ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
             operation = DevelopmentSourceSmokeTestOperationRepository(session).get(
                 operation_id
@@ -908,6 +953,7 @@ class StaleOperationReconciliationDispatcher:
             | AddonRepositoryRefreshOperation
             | AddonRepositoryFetchOperation
             | RepositoryReplacementOperation
+            | PromotionVerificationOperation
             | None
         )
         if kind is GlobalHeavyOperationKind.AGENT_WORKSPACE_CREATION:
@@ -1066,6 +1112,10 @@ class StaleOperationReconciliationDispatcher:
             operation = AgentWorkspacePromotionOperationRepository(session).get(
                 operation_id
             )
+        elif kind is GlobalHeavyOperationKind.PROMOTION_VERIFICATION:
+            operation = PromotionVerificationOperationRepository(session).get(
+                operation_id
+            )
         elif kind in {
             GlobalHeavyOperationKind.ADDON_ZIP_INSTALLATION,
             GlobalHeavyOperationKind.ADDON_REPOSITORY_INSTALLATION,
@@ -1087,10 +1137,14 @@ class StaleOperationReconciliationDispatcher:
                 AddonZipInstallationOperation,
                 RepositoryReplacementOperation,
                 AgentWorkspacePromotionOperation,
+                PromotionVerificationOperation,
             ),
         )
         instance_id: UUID | None
-        if isinstance(operation, AgentWorkspacePromotionOperation):
+        if isinstance(
+            operation,
+            (AgentWorkspacePromotionOperation, PromotionVerificationOperation),
+        ):
             instance_id = operation.target_instance_id
         else:
             instance_id = (
@@ -1295,6 +1349,12 @@ class ManagedInstanceReconciliationService:
                     session
                 ).reconciliation_for_instance(instance_id)
             )
+            records.extend(
+                (ReconciliationOperationKind.PROMOTION_VERIFICATION, item)
+                for item in PromotionVerificationOperationRepository(
+                    session
+                ).reconciliation_for_instance(instance_id)
+            )
             snapshots = SnapshotRepository(session)
             if (
                 len(records) == 1
@@ -1369,6 +1429,9 @@ class ManagedInstanceReconciliationService:
         elif kind is ReconciliationOperationKind.AGENT_WORKSPACE_PROMOTION:
             assert isinstance(operation, AgentWorkspacePromotionOperation)
             observed = "canonical_source_requires_read_only_inspection"
+        elif kind is ReconciliationOperationKind.PROMOTION_VERIFICATION:
+            assert isinstance(operation, PromotionVerificationOperation)
+            observed = "promotion_target_requires_read_only_inspection"
         reason = {
             ReconciliationOperationKind.LIFECYCLE: (
                 "Lifecycle state requires operator reconciliation."
@@ -1412,6 +1475,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.AGENT_WORKSPACE_PROMOTION: (
                 "Agent workspace promotion requires operator reconciliation."
             ),
+            ReconciliationOperationKind.PROMOTION_VERIFICATION: (
+                "Promotion target verification requires operator reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -1429,6 +1495,7 @@ class ManagedInstanceReconciliationService:
                 AddonZipSmokeTestOperation,
                 RepositoryReplacementOperation,
                 AgentWorkspacePromotionOperation,
+                PromotionVerificationOperation,
             ),
         )
         return ManagedInstanceReconciliationStatus(

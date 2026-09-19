@@ -3,12 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_inventory import AddonInventoryQueryStatus
 from kodi_lab.application.agent_workspace_promotions import (
     AgentWorkspacePromotionConflictError,
     AgentWorkspacePromotionService,
@@ -17,12 +20,20 @@ from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceConflictError,
     AgentWorkspaceService,
 )
+from kodi_lab.application.promotion_verifications import PromotionVerificationService
 from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationService,
     StaleOperationReconciliationDispatcher,
 )
+from kodi_lab.broker.development_sources import (
+    DevelopmentSourceDeploymentStateError,
+    SqliteDevelopmentSourceDeploymentResolver,
+)
+from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
+from kodi_lab.kodi.readiness import UsabilityState
 from kodi_lab.storage import Base
+from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.models import (
     AgentWorkspacePromotionHandoffRow,
     AgentWorkspacePromotionJournalRow,
@@ -38,6 +49,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    PromotionVerificationOperationRow,
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
@@ -79,7 +91,7 @@ class Harness:
 
 def _harness(tmp_path: Path, *, failure_phase: str | None = None) -> Harness:
     tmp_path.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(f"sqlite:///{tmp_path / 'promotions.db'}")
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'promotions.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     development_root = tmp_path / "sources"
@@ -153,7 +165,8 @@ def _harness(tmp_path: Path, *, failure_phase: str | None = None) -> Harness:
                 target_id=str(TARGET_ID),
                 instance_type="disposable",
                 runtime_revision_id=str(REVISION_ID),
-                runtime_state="running",
+                # Catalog state is not the authoritative live Docker state.
+                runtime_state="stopped",
                 start_on_host_boot=False,
             )
         )
@@ -379,11 +392,166 @@ def test_success_promotes_workspace_stales_evidence_and_publishes_exact_handoff(
             )
             == 0
         )
+
+
+def test_success_automatically_supports_bound_same_container_verification(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness)
+    plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    source_result = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+    assert source_result.state.value == "succeeded"
+    resolver = SqliteDevelopmentSourceDeploymentResolver(
+        harness.factory,
+        development_root=harness.source.parent,
+        data_root=harness.data_root,
+    )
+
+    class Inventory:
+        def get(self, _instance_id: UUID) -> Any:
+            return SimpleNamespace(
+                query_status=AddonInventoryQueryStatus.AVAILABLE,
+                items=[
+                    SimpleNamespace(
+                        addon_id="plugin.video.example",
+                        name="Example",
+                        version="1.0.0",
+                        enabled=True,
+                        kodi_type="xbmc.python.pluginsource",
+                    )
+                ],
+            )
+
+    class Broker:
+        state = ContainerRuntimeState.RUNNING
+        stops = 0
+        starts = 0
+
+        @staticmethod
+        def assert_reserved_unconsumed(verification_id: str) -> None:
+            with harness.factory() as session:
+                handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+                operation = session.get(
+                    PromotionVerificationOperationRow, verification_id
+                )
+                assert handoff is not None
+                assert handoff.verification_operation_id == verification_id
+                assert handoff.consumed_at is None
+                assert operation is not None and not operation.handoff_consumed
+
+        def managed_container_inventory(self) -> Any:
+            return SimpleNamespace(
+                containers=[
+                    SimpleNamespace(
+                        managed_instance_id=str(TARGET_ID),
+                        container_id=CONTAINER_ID,
+                        runtime_state=self.state,
+                    )
+                ]
+            )
+
+        def capture_promotion_kodi_log_cursor(self, **kwargs: object) -> Any:
+            self.assert_reserved_unconsumed(str(kwargs["verification_id"]))
+            return SimpleNamespace(cursor="opaque")
+
+        def stop_managed_container(self, **_kwargs: object) -> None:
+            self.stops += 1
+            self.state = ContainerRuntimeState.STOPPED
+
+        def copy_sync_promoted_development_source(self, **kwargs: object) -> Any:
+            self.assert_reserved_unconsumed(str(kwargs["verification_operation_id"]))
+            authority = resolver.resolve_promotion_verification(
+                str(kwargs["verification_operation_id"]),
+                str(kwargs["managed_instance_id"]),
+                str(kwargs["expected_container_id"]),
+            )
+            assert authority.addon_id == "plugin.video.example"
+            return SimpleNamespace(
+                source_manifest_digest="sha256:" + "7" * 64,
+                verified_destination_digest="sha256:" + "8" * 64,
+                container_id=CONTAINER_ID,
+                observed_source_name="Example",
+                observed_source_version="1.0.0",
+                result_classification="synchronized",
+                new_count=1,
+                changed_count=1,
+                unchanged_count=1,
+                destination_only_count=1,
+                transferred_bytes=20,
+            )
+
+        def start_managed_container(self, **_kwargs: object) -> None:
+            self.starts += 1
+            self.state = ContainerRuntimeState.RUNNING
+
+        def read_promotion_kodi_log_window(self, **_kwargs: object) -> Any:
+            return SimpleNamespace(
+                classification="clean",
+                target_error_count=0,
+                unrelated_warning_count=0,
+                snippets=[],
+            )
+
+    broker = Broker()
+    service = PromotionVerificationService(
+        harness.factory,
+        broker,
+        Inventory(),
+        clock=harness.clock,
+        sleep=lambda _seconds: None,
+        readiness_factory=lambda _broker, _profile: SimpleNamespace(
+            wait_until_usable=lambda _instance_id: SimpleNamespace(
+                usability_state=UsabilityState.USABLE
+            )
+        ),
+    )
+    verification = service.queue_and_run(source_result.operation_id)
+
+    assert verification.state.value == "succeeded"
+    assert verification.sync_result.value == "succeeded"
+    assert verification.reload_result.value == "succeeded"
+    assert verification.inventory_result.value == "succeeded"
+    assert verification.log_result.value == "clean"
+    assert broker.stops == broker.starts == 1
+    with harness.factory() as session:
+        source_operation = session.get(
+            AgentWorkspacePromotionOperationRow, str(source_result.operation_id)
+        )
+        retained = session.get(
+            PromotionVerificationOperationRow, str(verification.verification_id)
+        )
+        deployment = session.get(
+            DevelopmentSourceDeploymentRow, (str(TARGET_ID), str(SOURCE_ID))
+        )
+        handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+        assert source_operation is not None
+        assert source_operation.state.value == "succeeded"
+        assert retained is not None and retained.handoff_consumed
+        assert deployment is not None
+        assert deployment.confidence.value == "verified_at_last_operation"
+        assert deployment.source_manifest_digest == "sha256:" + "7" * 64
+        assert handoff is not None and handoff.consumed_at is not None
         assert (
             session.scalar(
                 select(func.count()).select_from(GlobalHeavyOperationLeaseRow)
             )
             == 0
+        )
+    repeated = service.queue_and_run(source_result.operation_id)
+    assert repeated.verification_id == verification.verification_id
+    with pytest.raises(DevelopmentSourceDeploymentStateError):
+        resolver.resolve_promotion_verification(
+            str(verification.verification_id), str(TARGET_ID), CONTAINER_ID
+        )
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(PromotionVerificationOperationRow)
+            )
+            == 1
         )
         assert (
             session.scalar(
@@ -396,6 +564,316 @@ def test_success_promotes_workspace_stales_evidence_and_publishes_exact_handoff(
             TARGET_ID, harness.workspace_id, plan.plan_id
         )
     assert repeat.value.code == "promotion_plan_not_executable"
+
+
+@pytest.mark.parametrize(
+    ("inventory_status", "version", "enabled", "log_result", "expected"),
+    [
+        (AddonInventoryQueryStatus.AVAILABLE, "1.0.0", True, "target_errors", "failed"),
+        (
+            AddonInventoryQueryStatus.AVAILABLE,
+            "1.0.0",
+            True,
+            "incomplete",
+            "incomplete",
+        ),
+        (AddonInventoryQueryStatus.AVAILABLE, "1.0.0", False, "clean", "failed"),
+        (AddonInventoryQueryStatus.AVAILABLE, "9.9.9", True, "clean", "failed"),
+        (AddonInventoryQueryStatus.UNAVAILABLE, None, None, "clean", "incomplete"),
+    ],
+)
+def test_verification_failures_never_change_source_success(
+    tmp_path: Path,
+    inventory_status: AddonInventoryQueryStatus,
+    version: str | None,
+    enabled: bool | None,
+    log_result: str,
+    expected: str,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness)
+    plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    source_result = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+    source_after_promotion = (harness.source / "main.py").read_bytes()
+
+    class Inventory:
+        def get(self, _instance_id: UUID) -> Any:
+            items = []
+            if version is not None and enabled is not None:
+                items.append(
+                    SimpleNamespace(
+                        addon_id="plugin.video.example",
+                        version=version,
+                        enabled=enabled,
+                        kodi_type="xbmc.python.pluginsource",
+                    )
+                )
+            return SimpleNamespace(query_status=inventory_status, items=items)
+
+    class Broker:
+        state = ContainerRuntimeState.RUNNING
+
+        def managed_container_inventory(self) -> Any:
+            return SimpleNamespace(
+                containers=[
+                    SimpleNamespace(
+                        managed_instance_id=str(TARGET_ID),
+                        container_id=CONTAINER_ID,
+                        runtime_state=self.state,
+                    )
+                ]
+            )
+
+        def capture_promotion_kodi_log_cursor(self, **_kwargs: object) -> Any:
+            return SimpleNamespace(cursor="opaque")
+
+        def stop_managed_container(self, **_kwargs: object) -> None:
+            self.state = ContainerRuntimeState.STOPPED
+
+        def copy_sync_promoted_development_source(self, **_kwargs: object) -> Any:
+            return SimpleNamespace(
+                source_manifest_digest="sha256:" + "7" * 64,
+                verified_destination_digest="sha256:" + "8" * 64,
+                container_id=CONTAINER_ID,
+                observed_source_name="Example",
+                observed_source_version="1.0.0",
+                result_classification="synchronized",
+                new_count=0,
+                changed_count=1,
+                unchanged_count=2,
+                destination_only_count=1,
+                transferred_bytes=20,
+            )
+
+        def start_managed_container(self, **_kwargs: object) -> None:
+            self.state = ContainerRuntimeState.RUNNING
+
+        def read_promotion_kodi_log_window(self, **_kwargs: object) -> Any:
+            return SimpleNamespace(
+                classification=log_result,
+                target_error_count=1 if log_result == "target_errors" else 0,
+                unrelated_warning_count=0,
+                snippets=["bounded target error"]
+                if log_result == "target_errors"
+                else [],
+            )
+
+    verification = PromotionVerificationService(
+        harness.factory,
+        Broker(),
+        Inventory(),
+        clock=harness.clock,
+        sleep=lambda _seconds: None,
+        readiness_factory=lambda _broker, _profile: SimpleNamespace(
+            wait_until_usable=lambda _instance_id: SimpleNamespace(
+                usability_state=UsabilityState.USABLE
+            )
+        ),
+    ).queue_and_run(source_result.operation_id)
+    assert verification.state.value == expected
+    assert (harness.source / "main.py").read_bytes() == source_after_promotion
+    with harness.factory() as session:
+        retained = session.get(
+            AgentWorkspacePromotionOperationRow, str(source_result.operation_id)
+        )
+        assert retained is not None and retained.state.value == "succeeded"
+
+
+@pytest.mark.parametrize(
+    ("error_code", "expected_state", "expected_runtime"),
+    [
+        (
+            "promotion_verification_handoff_invalid",
+            "failed",
+            ContainerRuntimeState.RUNNING,
+        ),
+        (
+            "development_source_apply_unverified",
+            "reconciliation_required",
+            ContainerRuntimeState.STOPPED,
+        ),
+    ],
+)
+def test_sync_failure_boundary_restores_only_when_destination_is_certain(
+    tmp_path: Path,
+    error_code: str,
+    expected_state: str,
+    expected_runtime: ContainerRuntimeState,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness)
+    plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    source_result = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+
+    class SyncError(RuntimeError):
+        code = error_code
+
+    class Inventory:
+        def get(self, _instance_id: UUID) -> Any:
+            raise AssertionError("inventory must not run")
+
+    class Broker:
+        state = ContainerRuntimeState.RUNNING
+
+        def managed_container_inventory(self) -> Any:
+            return SimpleNamespace(
+                containers=[
+                    SimpleNamespace(
+                        managed_instance_id=str(TARGET_ID),
+                        container_id=CONTAINER_ID,
+                        runtime_state=self.state,
+                    )
+                ]
+            )
+
+        def capture_promotion_kodi_log_cursor(self, **_kwargs: object) -> Any:
+            return SimpleNamespace(cursor="opaque")
+
+        def stop_managed_container(self, **_kwargs: object) -> None:
+            self.state = ContainerRuntimeState.STOPPED
+
+        def copy_sync_promoted_development_source(self, **kwargs: object) -> Any:
+            verification_id = str(kwargs["verification_operation_id"])
+            with harness.factory() as session:
+                handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+                operation = session.get(
+                    PromotionVerificationOperationRow, verification_id
+                )
+                assert handoff is not None
+                assert handoff.verification_operation_id == verification_id
+                assert handoff.consumed_at is None
+                assert operation is not None and not operation.handoff_consumed
+            raise SyncError
+
+        def start_managed_container(self, **_kwargs: object) -> None:
+            self.state = ContainerRuntimeState.RUNNING
+
+        def read_promotion_kodi_log_window(self, **_kwargs: object) -> Any:
+            raise AssertionError("log read must not run")
+
+    broker = Broker()
+    service = PromotionVerificationService(
+        harness.factory,
+        broker,
+        Inventory(),
+        clock=harness.clock,
+        sleep=lambda _seconds: None,
+    )
+    verification = service.queue_and_run(source_result.operation_id)
+    assert verification.state.value == expected_state
+    assert broker.state is expected_runtime
+    with harness.factory() as session:
+        retained = session.get(
+            AgentWorkspacePromotionOperationRow, str(source_result.operation_id)
+        )
+        verification_row = session.get(
+            PromotionVerificationOperationRow, str(verification.verification_id)
+        )
+        handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+        assert retained is not None and retained.state.value == "succeeded"
+        assert verification_row is not None and not verification_row.handoff_consumed
+        assert handoff is not None
+        assert handoff.verification_operation_id == str(verification.verification_id)
+        assert handoff.consumed_at is None
+    repeated = service.queue_and_run(source_result.operation_id)
+    assert repeated.verification_id == verification.verification_id
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(PromotionVerificationOperationRow)
+            )
+            == 1
+        )
+
+
+def test_pre_sync_failure_stays_reserved_unconsumed_and_non_reusable(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness)
+    plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    source_result = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+
+    class Inventory:
+        def get(self, _instance_id: UUID) -> Any:
+            raise AssertionError("inventory must not run")
+
+    class Broker:
+        def managed_container_inventory(self) -> Any:
+            return SimpleNamespace(
+                containers=[
+                    SimpleNamespace(
+                        managed_instance_id=str(TARGET_ID),
+                        container_id=CONTAINER_ID,
+                        runtime_state=ContainerRuntimeState.RUNNING,
+                    )
+                ]
+            )
+
+        def capture_promotion_kodi_log_cursor(self, **kwargs: object) -> Any:
+            verification_id = str(kwargs["verification_id"])
+            with harness.factory() as session:
+                handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+                operation = session.get(
+                    PromotionVerificationOperationRow, verification_id
+                )
+                assert handoff is not None
+                assert handoff.verification_operation_id == verification_id
+                assert handoff.consumed_at is None
+                assert operation is not None and not operation.handoff_consumed
+            return SimpleNamespace(cursor="opaque")
+
+        def stop_managed_container(self, **_kwargs: object) -> None:
+            raise AssertionError("stop must not run")
+
+        def copy_sync_promoted_development_source(self, **_kwargs: object) -> Any:
+            raise AssertionError("sync must not run")
+
+        def start_managed_container(self, **_kwargs: object) -> None:
+            raise AssertionError("start must not run")
+
+        def read_promotion_kodi_log_window(self, **_kwargs: object) -> Any:
+            raise AssertionError("log read must not run")
+
+    def fail_before_stop(phase: str) -> None:
+        if phase == "before_stop":
+            raise RuntimeError("injected pre-sync failure")
+
+    service = PromotionVerificationService(
+        harness.factory,
+        Broker(),
+        Inventory(),
+        clock=harness.clock,
+        sleep=lambda _seconds: None,
+        failure_injector=fail_before_stop,
+    )
+    verification = service.queue_and_run(source_result.operation_id)
+
+    assert verification.state.value == "failed"
+    with harness.factory() as session:
+        operation = session.get(
+            PromotionVerificationOperationRow, str(verification.verification_id)
+        )
+        handoff = session.scalar(select(AgentWorkspacePromotionHandoffRow))
+        assert operation is not None and not operation.handoff_consumed
+        assert handoff is not None
+        assert handoff.verification_operation_id == str(verification.verification_id)
+        assert handoff.consumed_at is None
+    repeated = service.queue_and_run(source_result.operation_id)
+    assert repeated.verification_id == verification.verification_id
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(PromotionVerificationOperationRow)
+            )
+            == 1
+        )
 
 
 def test_exact_rollback_keeps_workspace_ready_and_consumes_approval(
@@ -501,9 +979,9 @@ def test_expiry_workspace_generation_drift_and_target_drift_fail_closed(
     plan = target.promotions.prepare(TARGET_ID, target.workspace_id)
     with target.factory.begin() as session:
         session.execute(
-            update(ManagedInstanceRow)
-            .where(ManagedInstanceRow.target_id == str(TARGET_ID))
-            .values(runtime_state="stopped")
+            update(TargetRow)
+            .where(TargetRow.id == str(TARGET_ID))
+            .values(connection_state="disconnected")
         )
     with pytest.raises(AgentWorkspacePromotionConflictError) as drift:
         target.promotions.approve_and_execute(

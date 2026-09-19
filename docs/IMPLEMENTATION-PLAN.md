@@ -778,8 +778,14 @@ handoff. Fixed per-workspace, per-source, target, and global-heavy coordination
 protects planning and execution. The Web flow exposes no source/storage paths,
 digests, container identities, filesystem metadata, or generic write controls.
 
-Canonical Phase 9 patch-back remains incomplete. D-0209 is not implemented:
-Slice 4 must consume the private handoff for bounded stopped copy/sync, restart,
-Kodi inventory/provenance verification, and approved diagnostics without
-automatically reversing a successful source promotion. MCP exposure and
-workspace cleanup/retention mutation also remain later work.
+Slice 4 implements D-0209 and the verification subset of D-0210. Migration
+`0032_promotion_verification` adds single-use promotion verification, exact
+same-container stop/sync/start/readiness, fresh deployment evidence, inventory
+presence/version/type/enabled proof, and fixed-path bounded log correlation.
+Queueing reserves the exact handoff without consumption; only exact sync
+readback and fresh evidence atomically consume it. Reserved failures remain
+non-reusable, including reconciliation-required ambiguity.
+Source success remains immutable across succeeded, failed, incomplete, and
+reconciliation-required verification outcomes. Canonical Phase 9 patch-back is
+now complete. Slice 5 workspace cleanup/abandon/retention is the only remaining
+Phase 9 blocker. MCP exposure remains later Phase 11/12 work.

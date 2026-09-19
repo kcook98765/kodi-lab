@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -29,9 +30,9 @@ from kodi_lab.domain import (
     DevelopmentSource,
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceEnablementOperationState,
     GlobalHeavyOperationKind,
     HealthStatus,
-    InstanceRuntimeState,
     InstanceType,
     ManagedInstanceMutationKind,
     TargetAvailability,
@@ -44,6 +45,7 @@ from kodi_lab.storage.repositories import (
     AgentWorkspaceRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
+    DevelopmentSourceEnablementOperationRepository,
     DevelopmentSourcePromotionLeaseRepository,
     DevelopmentSourceRepository,
     GlobalHeavyOperationLeaseRepository,
@@ -145,6 +147,7 @@ class _TargetBinding:
     deployment_operation_id: UUID
     source_digest: str
     destination_digest: str
+    expected_enabled: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +175,8 @@ class AgentWorkspacePromotionService:
         uuid_factory: Callable[[], UUID] = uuid4,
         reconciliation_gate: Callable[[UUID], None] | None = None,
         failure_injector: Callable[[str], None] = lambda _phase: None,
+        verification_starter: Callable[[UUID], object] | None = None,
+        enabled_state_reader: Callable[[UUID, str], bool] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._data_root = data_root
@@ -180,6 +185,8 @@ class AgentWorkspacePromotionService:
         self._uuid_factory = uuid_factory
         self._reconciliation_gate = reconciliation_gate
         self._failure_injector = failure_injector
+        self._verification_starter = verification_starter
+        self._enabled_state_reader = enabled_state_reader
 
     def _workspace_and_source(
         self, workspace_id: UUID
@@ -245,6 +252,9 @@ class AgentWorkspacePromotionService:
             mutation = ManagedInstanceMutationLeaseRepository(session).current(
                 target_id
             )
+            enablements = DevelopmentSourceEnablementOperationRepository(
+                session
+            ).list_for_original_instance(target_id)
         if (
             target is None
             or instance is None
@@ -252,7 +262,6 @@ class AgentWorkspacePromotionService:
             or deployment is None
             or operation is None
             or instance.instance_type is not InstanceType.DISPOSABLE
-            or instance.runtime_state is not InstanceRuntimeState.RUNNING
             or target.availability is not TargetAvailability.AVAILABLE
             or target.health is not HealthStatus.HEALTHY
             or target.connection_state is not ConnectionState.CONNECTED
@@ -276,6 +285,29 @@ class AgentWorkspacePromotionService:
                 "Selected verification target no longer has exact eligible "
                 "deployment state.",
             )
+        enabled = next(
+            (
+                item.result_enabled
+                for item in enablements
+                if item.development_source_id == source_id
+                and item.state is DevelopmentSourceEnablementOperationState.SUCCEEDED
+                and item.result_enabled is not None
+            ),
+            None,
+        )
+        if self._enabled_state_reader is not None:
+            try:
+                enabled = self._enabled_state_reader(target_id, deployment.addon_id)
+            except Exception as error:
+                raise AgentWorkspacePromotionConflictError(
+                    "promotion_target_inventory_unavailable",
+                    "Selected target enabled state could not be proven.",
+                ) from error
+        if enabled is None:
+            raise AgentWorkspacePromotionConflictError(
+                "promotion_target_enabled_unknown",
+                "Selected target enabled state is unknown.",
+            )
         return _TargetBinding(
             target.name,
             instance.runtime_revision_id,
@@ -283,6 +315,7 @@ class AgentWorkspacePromotionService:
             deployment.last_successful_operation_id,
             deployment.source_manifest_digest,
             deployment.verified_destination_digest,
+            enabled,
         )
 
     def eligible_targets(
@@ -506,6 +539,7 @@ class AgentWorkspacePromotionService:
             target_deployment_operation_id=binding.deployment_operation_id,
             target_source_digest=binding.source_digest,
             target_destination_digest=binding.destination_digest,
+            expected_enabled=binding.expected_enabled,
             changed_file_count=1,
             review_text_bytes=0,
             created_at=now,
@@ -602,6 +636,7 @@ class AgentWorkspacePromotionService:
             target_deployment_operation_id=binding.deployment_operation_id,
             target_source_digest=binding.source_digest,
             target_destination_digest=binding.destination_digest,
+            expected_enabled=binding.expected_enabled,
             changed_file_count=len(review.paths),
             review_text_bytes=review.review_text_bytes,
             created_at=now,
@@ -801,6 +836,18 @@ class AgentWorkspacePromotionService:
             ) from error
         lease = self._acquire(operation)
         self._run(lease, plan, paths)
+        with self._session_factory() as session:
+            completed = AgentWorkspacePromotionOperationRepository(session).get(
+                operation.id
+            )
+        if (
+            completed is not None
+            and completed.state is AgentWorkspacePromotionOperationState.SUCCEEDED
+            and self._verification_starter is not None
+        ):
+            # Source success is committed and verification never rewrites it.
+            with suppress(Exception):
+                self._verification_starter(operation.id)
         return self.get_operation(target_id, workspace_id, operation.id)
 
     def _acquire(self, operation: AgentWorkspacePromotionOperation) -> _Lease:
@@ -978,6 +1025,10 @@ class AgentWorkspacePromotionService:
                         prior_source_digest=plan.target_source_digest,
                         prior_destination_digest=plan.target_destination_digest,
                         created_at=now,
+                        expected_addon_id=plan.addon_id,
+                        expected_name=plan.promoted_name,
+                        expected_version=plan.promoted_version,
+                        expected_enabled=plan.expected_enabled,
                     )
                 )
                 DevelopmentSourceDeploymentRepository(session).mark_source_confidence(

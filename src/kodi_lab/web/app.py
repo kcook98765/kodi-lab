@@ -186,6 +186,11 @@ from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
 )
+from kodi_lab.application.promotion_verifications import (
+    PromotionVerificationError,
+    PromotionVerificationService,
+    PromotionVerificationStatus,
+)
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.reconciliation import (
     CoordinationCorruptionError,
@@ -644,6 +649,7 @@ class WebApplicationContext:
     agent_workspaces: AgentWorkspaceService
     agent_workspace_executor: AgentWorkspaceCreationExecutor
     agent_workspace_promotions: AgentWorkspacePromotionService
+    promotion_verifications: PromotionVerificationService
 
 
 def create_app(
@@ -692,6 +698,7 @@ def create_app(
     ) = None,
     agent_workspace_service: AgentWorkspaceService | None = None,
     agent_workspace_promotion_service: AgentWorkspacePromotionService | None = None,
+    promotion_verification_service: PromotionVerificationService | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -991,10 +998,39 @@ def create_app(
     )
     agent_workspace_executor = AgentWorkspaceCreationExecutor(agent_workspaces)
 
+    def require_promotion_verification_reconciliation(instance_id: UUID) -> None:
+        reconciliation.require_allowed(
+            instance_id, ReconciliationAction.PROMOTION_VERIFICATION
+        )
+
+    promotion_verifications = (
+        promotion_verification_service
+        or PromotionVerificationService(
+            session_factory,
+            broker,
+            addon_inventory,
+            reconciliation_gate=require_promotion_verification_reconciliation,
+        )
+    )
+
     def require_promotion_reconciliation(instance_id: UUID) -> None:
         reconciliation.require_allowed(
             instance_id, ReconciliationAction.AGENT_WORKSPACE_PROMOTION
         )
+
+    def read_promotion_enabled_state(instance_id: UUID, addon_id: str) -> bool:
+        inventory = addon_inventory.get(instance_id)
+        item = next(
+            (
+                candidate
+                for candidate in inventory.items
+                if candidate.addon_id == addon_id
+            ),
+            None,
+        )
+        if not inventory.complete or item is None:
+            raise ValueError("target enabled state unavailable")
+        return item.enabled
 
     agent_workspace_promotions = (
         agent_workspace_promotion_service
@@ -1003,6 +1039,8 @@ def create_app(
             data_root=settings.data_root,
             development_root=settings.development_root,
             reconciliation_gate=require_promotion_reconciliation,
+            verification_starter=promotion_verifications.queue_and_run,
+            enabled_state_reader=read_promotion_enabled_state,
         )
     )
     instance_detail = ManagedInstanceDetailService(
@@ -1087,11 +1125,13 @@ def create_app(
         agent_workspaces=agent_workspaces,
         agent_workspace_executor=agent_workspace_executor,
         agent_workspace_promotions=agent_workspace_promotions,
+        promotion_verifications=promotion_verifications,
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         context.agent_workspace_promotions.sweep_startup()
+        context.promotion_verifications.sweep_startup()
         context.stale_dispatcher.sweep_startup()
         context.reset_executor.start()
         context.snapshot_executor.start()
@@ -1227,6 +1267,16 @@ def create_app(
             else 422
         )
         return _json_error(http_status, error.code, error.safe_message)
+
+    @app.exception_handler(PromotionVerificationError)
+    async def promotion_verification_failed(
+        _request: Request, error: PromotionVerificationError
+    ) -> JSONResponse:
+        return _json_error(
+            404 if error.code.endswith("not_found") else 409,
+            error.code,
+            error.safe_message,
+        )
 
     @app.exception_handler(AddonRepositoryNotFoundError)
     async def addon_repository_not_found(
@@ -2409,6 +2459,26 @@ def create_app(
         return context.agent_workspace_promotions.get_operation(
             instance_id, workspace_id, operation_id
         )
+
+    @app.get(
+        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-operations/{operation_id}/verification",
+        response_model=PromotionVerificationStatus,
+    )
+    def get_agent_workspace_promotion_verification(
+        instance_id: UUID,
+        workspace_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> PromotionVerificationStatus:
+        result = context.promotion_verifications.get_for_promotion(operation_id)
+        if (
+            result.target_instance_id != instance_id
+            or result.workspace_id != workspace_id
+        ):
+            raise PromotionVerificationError(
+                "promotion_verification_not_found", "Kodi verification was not found."
+            )
+        return result
 
     @app.get("/api/addon-repositories", response_model=list[AddonRepositorySourceRead])
     def list_addon_repositories(

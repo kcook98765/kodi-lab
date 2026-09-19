@@ -20,16 +20,21 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceDeploymentResult,
     InstanceType,
+    PromotionVerificationPhase,
+    PromotionVerificationState,
     RepositoryReplacementOperationState,
 )
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.repositories import (
     AddonZipInstallationEvidenceRepository,
+    AgentWorkspacePromotionHandoffRepository,
+    AgentWorkspacePromotionOperationRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
     ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceRepository,
+    PromotionVerificationOperationRepository,
     RepositoryReplacementOperationRepository,
     RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
@@ -99,6 +104,15 @@ class DevelopmentSourceDeploymentResolver(Protocol):
         development_source_id: str,
         expected_container_id: str,
     ) -> DevelopmentSourceDestinationVerificationSpec: ...
+
+
+class PromotionDevelopmentSourceDeploymentResolver(Protocol):
+    def resolve_promotion_verification(
+        self,
+        verification_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDeploymentSpec: ...
 
 
 class SqliteDevelopmentSourceDeploymentResolver:
@@ -384,3 +398,114 @@ class SqliteDevelopmentSourceDeploymentResolver:
             raise DevelopmentSourceDeploymentStateError(
                 "Canonical destination-verification state could not be read."
             ) from error
+
+    def resolve_promotion_verification(
+        self,
+        verification_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDeploymentSpec:
+        try:
+            verification_id = UUID(verification_operation_id)
+            instance_id = UUID(managed_instance_id)
+            if (
+                str(verification_id) != verification_operation_id
+                or str(instance_id) != managed_instance_id
+            ):
+                raise ValueError
+        except ValueError as error:
+            raise DevelopmentSourceDeploymentStateError(
+                "Promotion verification identities are not canonical."
+            ) from error
+        if self._development_root is None:
+            raise DevelopmentSourceDeploymentStateError(
+                "Development root is not configured."
+            )
+        with self._session_factory() as session:
+            verification = PromotionVerificationOperationRepository(session).get(
+                verification_id
+            )
+            instance = ManagedInstanceRepository(session).get(instance_id)
+            if verification is None or instance is None:
+                raise DevelopmentSourceDeploymentStateError(
+                    "Promotion verification state is unavailable."
+                )
+            handoff = AgentWorkspacePromotionHandoffRepository(session).get(
+                verification.handoff_id
+            )
+            promotion = AgentWorkspacePromotionOperationRepository(session).get(
+                verification.source_promotion_id
+            )
+            source = DevelopmentSourceRepository(session).get(
+                verification.development_source_id
+            )
+            attachment = ManagedInstanceDevelopmentSourceRepository(session).get(
+                instance_id, verification.development_source_id
+            )
+            evidence = DevelopmentSourceDeploymentRepository(session).get(
+                instance_id, verification.development_source_id
+            )
+            deployment = DevelopmentSourceDeploymentOperationRepository(session).get(
+                verification.deployment_operation_id
+            )
+            profile = RuntimeExecutionProfileRepository(session).get(
+                instance.runtime_revision_id
+            )
+        if (
+            handoff is None
+            or promotion is None
+            or source is None
+            or attachment is None
+            or evidence is None
+            or deployment is None
+            or profile is None
+            or verification.state is not PromotionVerificationState.RUNNING
+            or verification.phase is not PromotionVerificationPhase.SYNC
+            or not verification.stop_completed
+            or not verification.sync_started
+            or verification.sync_completed
+            or verification.handoff_consumed
+            or handoff.verification_operation_id != verification.id
+            or handoff.consumed_at is not None
+            or handoff.operation_id != promotion.id
+            or promotion.state.value != "succeeded"
+            or verification.target_instance_id != instance_id
+            or verification.runtime_revision_id != instance.runtime_revision_id
+            or handoff.runtime_revision_id != instance.runtime_revision_id
+            or handoff.trusted_container_id != expected_container_id
+            or handoff.expected_addon_id != verification.addon_id
+            or handoff.expected_name != verification.expected_name
+            or handoff.expected_version != verification.expected_version
+            or handoff.expected_enabled is not verification.expected_enabled
+            or evidence.source_manifest_digest != handoff.prior_source_digest
+            or evidence.verified_destination_digest != handoff.prior_destination_digest
+            or evidence.last_successful_operation_id
+            != handoff.prior_deployment_operation_id
+            or deployment.state is not DevelopmentSourceDeploymentOperationState.RUNNING
+            or deployment.expected_container_id != expected_container_id
+        ):
+            raise DevelopmentSourceDeploymentStateError(
+                "Promotion verification authority drifted.",
+                code="promotion_verification_handoff_invalid",
+            )
+        return DevelopmentSourceDeploymentSpec(
+            managed_instance_id=managed_instance_id,
+            development_source_id=str(source.id),
+            deployment_operation_id=str(deployment.id),
+            runtime_revision_id=str(instance.runtime_revision_id),
+            runtime_uid=profile.runtime_uid,
+            runtime_gid=profile.runtime_gid,
+            development_root=self._development_root,
+            relative_locator=source.relative_locator,
+            addon_id=source.addon_id,
+            observed_name=verification.expected_name,
+            observed_version=verification.expected_version,
+            staging_root=self._data_root / "development-source-staging",
+            prior_evidence=PriorDevelopmentSourceDeploymentEvidence(
+                source_manifest_digest=handoff.prior_source_digest,
+                verified_destination_digest=handoff.prior_destination_digest,
+                runtime_revision_id=str(handoff.runtime_revision_id),
+                trusted_container_id=handoff.trusted_container_id,
+                confidence=DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION,
+            ),
+        )

@@ -56,6 +56,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "agent_workspace_promotion_plan_paths",
         "agent_workspace_promotion_plans",
         "agent_workspaces",
+        "promotion_verification_log_evidence",
+        "promotion_verification_operations",
         "alembic_version",
         "development_source_attachment_operations",
         "development_source_deployment_operations",
@@ -3085,3 +3087,38 @@ def test_0031_workspace_promotion_schema_round_trip_constraints_and_guard(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated agent workspace promotion"):
         command.downgrade(config, "0030_agent_workspace_mutations")
+
+
+def test_0032_promotion_verification_schema_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "0031_agent_workspace_promotions")
+    assert (
+        "promotion_verification_operations"
+        not in inspect(create_database_engine(database_url)).get_table_names()
+    )
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "promotion_verification_operations" in inspector.get_table_names()
+    assert "promotion_verification_log_evidence" in inspector.get_table_names()
+    mutation_checks = " ".join(
+        str(item["sqltext"])
+        for item in inspector.get_check_constraints("managed_instance_mutation_leases")
+    )
+    heavy_checks = " ".join(
+        str(item["sqltext"])
+        for item in inspector.get_check_constraints("global_heavy_operation_lease")
+    )
+    assert "promotion_verification" in mutation_checks
+    assert "promotion_verification" in heavy_checks
+    assert inspector.get_foreign_keys("promotion_verification_operations")
+
+    command.downgrade(config, "0031_agent_workspace_promotions")
+    assert "promotion_verification_operations" not in inspect(engine).get_table_names()
+    assert (
+        "promotion_verification_log_evidence" not in inspect(engine).get_table_names()
+    )
+    command.upgrade(config, "head")

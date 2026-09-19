@@ -82,6 +82,9 @@ from kodi_lab.domain import (
     ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
     ManagedInstanceSemanticState,
+    PromotionVerificationOperation,
+    PromotionVerificationPhase,
+    PromotionVerificationState,
     RepositoryReplacementOperation,
     RepositoryReplacementOperationPhase,
     RepositoryReplacementOperationState,
@@ -148,6 +151,8 @@ from kodi_lab.storage.models import (
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    PromotionVerificationLogEvidenceRow,
+    PromotionVerificationOperationRow,
     RepositoryReplacementOperationRow,
     RepositoryReplacementPlanRow,
     ResetOperationRow,
@@ -935,6 +940,9 @@ def _agent_workspace_promotion_plan_from_row(
         target_deployment_operation_id=UUID(row.target_deployment_operation_id),
         target_source_digest=row.target_source_digest,
         target_destination_digest=row.target_destination_digest,
+        expected_enabled=(
+            False if row.expected_enabled is None else row.expected_enabled
+        ),
         changed_file_count=row.changed_file_count,
         review_text_bytes=row.review_text_bytes,
         created_at=_timestamp_from_text(row.created_at),
@@ -7215,6 +7223,7 @@ class AgentWorkspacePromotionPlanRepository:
                 target_deployment_operation_id=str(plan.target_deployment_operation_id),
                 target_source_digest=plan.target_source_digest,
                 target_destination_digest=plan.target_destination_digest,
+                expected_enabled=plan.expected_enabled,
                 changed_file_count=plan.changed_file_count,
                 review_text_bytes=plan.review_text_bytes,
                 created_at=_timestamp_to_text(plan.created_at),
@@ -7267,6 +7276,7 @@ class AgentWorkspacePromotionPlanRepository:
                 current_version=plan.current_version,
                 promoted_name=plan.promoted_name,
                 promoted_version=plan.promoted_version,
+                expected_enabled=plan.expected_enabled,
                 changed_file_count=plan.changed_file_count,
                 review_text_bytes=plan.review_text_bytes,
                 reviewable_at=None
@@ -7403,6 +7413,8 @@ class AgentWorkspacePromotionOperationRepository:
                 requested_at=_timestamp_to_text(operation.requested_at),
             )
         )
+        # The journal has no ORM relationship edge; publish its FK parent first.
+        self._session.flush()
         for path in paths:
             self._session.add(
                 AgentWorkspacePromotionJournalRow(
@@ -7712,6 +7724,16 @@ class AgentWorkspacePromotionHandoffRepository:
                 prior_source_digest=handoff.prior_source_digest,
                 prior_destination_digest=handoff.prior_destination_digest,
                 created_at=_timestamp_to_text(handoff.created_at),
+                expected_addon_id=handoff.expected_addon_id,
+                expected_name=handoff.expected_name,
+                expected_version=handoff.expected_version,
+                expected_enabled=handoff.expected_enabled,
+                verification_operation_id=None
+                if handoff.verification_operation_id is None
+                else str(handoff.verification_operation_id),
+                consumed_at=None
+                if handoff.consumed_at is None
+                else _timestamp_to_text(handoff.consumed_at),
             )
         )
         self._session.flush()
@@ -7738,4 +7760,278 @@ class AgentWorkspacePromotionHandoffRepository:
             prior_source_digest=row.prior_source_digest,
             prior_destination_digest=row.prior_destination_digest,
             created_at=_timestamp_from_text(row.created_at),
+            expected_addon_id=row.expected_addon_id,
+            expected_name=row.expected_name,
+            expected_version=row.expected_version,
+            expected_enabled=row.expected_enabled,
+            verification_operation_id=None
+            if row.verification_operation_id is None
+            else UUID(row.verification_operation_id),
+            consumed_at=None
+            if row.consumed_at is None
+            else _timestamp_from_text(row.consumed_at),
         )
+
+    def get(self, handoff_id: UUID) -> AgentWorkspacePromotionHandoff | None:
+        row = self._session.get(AgentWorkspacePromotionHandoffRow, str(handoff_id))
+        if row is None:
+            return None
+        return self.get_for_operation(UUID(row.operation_id))
+
+    def reserve_for_verification(
+        self,
+        handoff_id: UUID,
+        *,
+        verification_operation_id: UUID,
+        addon_id: str,
+        expected_name: str,
+        expected_version: str,
+        expected_enabled: bool,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspacePromotionHandoffRow)
+            .where(
+                AgentWorkspacePromotionHandoffRow.id == str(handoff_id),
+                AgentWorkspacePromotionHandoffRow.verification_operation_id.is_(None),
+                AgentWorkspacePromotionHandoffRow.consumed_at.is_(None),
+            )
+            .values(
+                verification_operation_id=str(verification_operation_id),
+                expected_addon_id=addon_id,
+                expected_name=expected_name,
+                expected_version=expected_version,
+                expected_enabled=expected_enabled,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def consume_reserved(
+        self,
+        handoff_id: UUID,
+        *,
+        verification_operation_id: UUID,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspacePromotionHandoffRow)
+            .where(
+                AgentWorkspacePromotionHandoffRow.id == str(handoff_id),
+                AgentWorkspacePromotionHandoffRow.verification_operation_id
+                == str(verification_operation_id),
+                AgentWorkspacePromotionHandoffRow.consumed_at.is_(None),
+            )
+            .values(consumed_at=_timestamp_to_text(now))
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+
+class PromotionVerificationOperationRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def _domain(
+        self,
+        row: PromotionVerificationOperationRow,
+    ) -> PromotionVerificationOperation:
+        evidence = self._session.get(PromotionVerificationLogEvidenceRow, row.id)
+        snippets = (
+            [] if evidence is None else json.loads(evidence.target_error_snippets_json)
+        )
+        return PromotionVerificationOperation(
+            id=UUID(row.id),
+            source_promotion_id=UUID(row.source_promotion_id),
+            handoff_id=UUID(row.handoff_id),
+            workspace_id=UUID(row.workspace_id),
+            development_source_id=UUID(row.development_source_id),
+            target_instance_id=UUID(row.target_instance_id),
+            runtime_revision_id=UUID(row.runtime_revision_id),
+            state=row.state,
+            deployment_operation_id=UUID(row.deployment_operation_id),
+            phase=row.phase,
+            addon_id=row.addon_id,
+            expected_name=row.expected_name,
+            expected_version=row.expected_version,
+            expected_enabled=row.expected_enabled,
+            requested_at=_timestamp_from_text(row.requested_at),
+            sync_result=row.sync_result,
+            reload_result=row.reload_result,
+            inventory_result=row.inventory_result,
+            log_result=row.log_result,
+            current_version=row.current_version,
+            current_enabled=row.current_enabled,
+            target_error_count=row.target_error_count,
+            unrelated_warning_count=row.unrelated_warning_count,
+            target_error_snippets=tuple(snippets),
+            stop_completed=row.stop_completed,
+            sync_started=row.sync_started,
+            sync_completed=row.sync_completed,
+            start_dispatched=row.start_dispatched,
+            handoff_consumed=row.handoff_consumed,
+            started_at=None
+            if row.started_at is None
+            else _timestamp_from_text(row.started_at),
+            completed_at=None
+            if row.completed_at is None
+            else _timestamp_from_text(row.completed_at),
+            failure_code=row.failure_code,
+            lease_token_digest=row.lease_token_digest,
+            lease_expires_at=None
+            if row.lease_expires_at is None
+            else _timestamp_from_text(row.lease_expires_at),
+        )
+
+    def create(self, operation: PromotionVerificationOperation) -> None:
+        self._session.add(
+            PromotionVerificationOperationRow(
+                id=str(operation.id),
+                source_promotion_id=str(operation.source_promotion_id),
+                handoff_id=str(operation.handoff_id),
+                workspace_id=str(operation.workspace_id),
+                development_source_id=str(operation.development_source_id),
+                target_instance_id=str(operation.target_instance_id),
+                runtime_revision_id=str(operation.runtime_revision_id),
+                state=operation.state,
+                deployment_operation_id=str(operation.deployment_operation_id),
+                phase=operation.phase,
+                addon_id=operation.addon_id,
+                expected_name=operation.expected_name,
+                expected_version=operation.expected_version,
+                expected_enabled=operation.expected_enabled,
+                sync_result=operation.sync_result,
+                reload_result=operation.reload_result,
+                inventory_result=operation.inventory_result,
+                log_result=operation.log_result,
+                current_version=operation.current_version,
+                current_enabled=operation.current_enabled,
+                target_error_count=operation.target_error_count,
+                unrelated_warning_count=operation.unrelated_warning_count,
+                stop_completed=operation.stop_completed,
+                sync_started=operation.sync_started,
+                sync_completed=operation.sync_completed,
+                start_dispatched=operation.start_dispatched,
+                handoff_consumed=operation.handoff_consumed,
+                requested_at=_timestamp_to_text(operation.requested_at),
+            )
+        )
+        self._session.flush()
+
+    def get(self, operation_id: UUID) -> PromotionVerificationOperation | None:
+        row = self._session.get(PromotionVerificationOperationRow, str(operation_id))
+        return None if row is None else self._domain(row)
+
+    def get_for_promotion(
+        self, promotion_id: UUID
+    ) -> PromotionVerificationOperation | None:
+        row = self._session.scalar(
+            select(PromotionVerificationOperationRow).where(
+                PromotionVerificationOperationRow.source_promotion_id
+                == str(promotion_id)
+            )
+        )
+        return None if row is None else self._domain(row)
+
+    def reconciliation_for_instance(
+        self, instance_id: UUID
+    ) -> list[PromotionVerificationOperation]:
+        rows = self._session.scalars(
+            select(PromotionVerificationOperationRow).where(
+                PromotionVerificationOperationRow.target_instance_id
+                == str(instance_id),
+                PromotionVerificationOperationRow.state
+                == PromotionVerificationState.RECONCILIATION_REQUIRED,
+            )
+        )
+        return [self._domain(row) for row in rows]
+
+    def list_active(self) -> list[PromotionVerificationOperation]:
+        rows = self._session.scalars(
+            select(PromotionVerificationOperationRow).where(
+                PromotionVerificationOperationRow.state.in_(
+                    (
+                        PromotionVerificationState.QUEUED,
+                        PromotionVerificationState.RUNNING,
+                    )
+                )
+            )
+        )
+        return [self._domain(row) for row in rows]
+
+    def recover_interrupted(
+        self,
+        operation_id: UUID,
+        *,
+        state: PromotionVerificationState,
+        now: datetime,
+    ) -> bool:
+        result = self._session.execute(
+            update(PromotionVerificationOperationRow)
+            .where(
+                PromotionVerificationOperationRow.id == str(operation_id),
+                PromotionVerificationOperationRow.state.in_(
+                    (
+                        PromotionVerificationState.QUEUED,
+                        PromotionVerificationState.RUNNING,
+                    )
+                ),
+            )
+            .values(
+                state=state,
+                phase=PromotionVerificationPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+                failure_code="promotion_verification_interrupted",
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def update(self, operation_id: UUID, **values: object) -> bool:
+        converted = dict(values)
+        if "target_error_snippets" in converted:
+            snippets_json = json.dumps(converted.pop("target_error_snippets"))
+            evidence = self._session.get(
+                PromotionVerificationLogEvidenceRow, str(operation_id)
+            )
+            if evidence is None:
+                self._session.add(
+                    PromotionVerificationLogEvidenceRow(
+                        verification_operation_id=str(operation_id),
+                        target_error_snippets_json=snippets_json,
+                    )
+                )
+            else:
+                evidence.target_error_snippets_json = snippets_json
+        for key in ("started_at", "completed_at", "lease_expires_at"):
+            timestamp = converted.get(key)
+            if isinstance(timestamp, datetime):
+                converted[key] = _timestamp_to_text(timestamp)
+        result = self._session.execute(
+            update(PromotionVerificationOperationRow)
+            .where(PromotionVerificationOperationRow.id == str(operation_id))
+            .values(**converted)
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
+
+    def mark_stale_reconciliation(
+        self, operation_id: UUID, *, token_digest: str, now: datetime
+    ) -> bool:
+        result = self._session.execute(
+            update(PromotionVerificationOperationRow)
+            .where(
+                PromotionVerificationOperationRow.id == str(operation_id),
+                PromotionVerificationOperationRow.state
+                == PromotionVerificationState.RUNNING,
+                PromotionVerificationOperationRow.lease_token_digest == token_digest,
+                PromotionVerificationOperationRow.lease_expires_at
+                <= _timestamp_to_text(now),
+            )
+            .values(
+                state=PromotionVerificationState.RECONCILIATION_REQUIRED,
+                phase=PromotionVerificationPhase.FINALIZE,
+                completed_at=_timestamp_to_text(now),
+                failure_code="promotion_verification_interrupted",
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1

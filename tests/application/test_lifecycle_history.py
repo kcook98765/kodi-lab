@@ -277,6 +277,7 @@ def test_stale_lifecycle_with_transitional_observation_blocks_all_mutations(
         "addon_repository_installation",
         "repository_replacement",
         "agent_workspace_promotion",
+        "promotion_verification",
     }
 
 

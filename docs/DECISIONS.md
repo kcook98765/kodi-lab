@@ -2669,18 +2669,36 @@ details that it did not specify.
   reconciliation-required. Startup never adopts apparent success or retries an
   interrupted application.
 
-## D-0209: Post-promotion Kodi verification remains a separate bounded stage
+## D-0209: Post-promotion Kodi verification is a separate bounded stage
 
-- Status: approved architecture; not implemented in Phase 9 Slice 3
-- Boundary: Slice 3 performs no stop, copy/sync, start, inventory verification,
-  log read, broker call, Docker action, or Kodi action. A later Kodi validation
-  failure will not automatically undo a successful canonical source promotion.
-  Slice 4 remains required before canonical Phase 9 patch-back is complete.
+- Status: approved and implemented for Phase 9 Slice 4
+- Decision: successful source apply automatically starts one verification from
+  its private selected-target handoff. Queueing reserves that handoff to the
+  sole verification UUID without consuming it. The operation captures a fixed
+  Kodi-log cursor, stops the exact container, performs handoff-bound
+  changed/new-only sync, starts the same container, waits for normal readiness,
+  proves ID,
+  promoted version, supported type and enabled preservation from inventory,
+  then reads a fixed ten-second, 1 MiB post-cursor log window.
+- Results: sync, reload/readiness, inventory, and log outcomes remain separate.
+  Verification succeeds only with exact sync/reload/inventory, complete log
+  correlation, and no target error. Deterministic contradiction fails;
+  unavailable non-contradictory observation is incomplete; post-mutation
+  uncertainty requires reconciliation. No retry, enable repair, container
+  recreate, source rollback, shell, arbitrary JSON-RPC, or generic file read is
+  authorized. Ordinary history retains only classifications and counts;
+  sanitized bounded target snippets live in a separate private evidence row.
+- Consumption: the bound handoff remains reserved and unconsumed through exact
+  preflight, cursor, stop, and sync. Exact sync readback, fresh ordinary
+  deployment evidence, `consumed_at`, and the operation consumption marker
+  commit atomically. A deterministic earlier failure remains reserved and
+  unconsumed; ambiguity is reconciliation-required and the durable reservation
+  prevents reuse.
 
 ## D-0210: Promotion state and evidence cross the source boundary explicitly
 
-- Status: Slice 3 subset approved and implemented; Slice 4 verification remains
-  unimplemented
+- Status: Slice 3 source subset and Slice 4 verification subset implemented;
+  cleanup/retention remains deferred
 - Decision: successful source application makes the workspace durably
   `promoted` and immutable, retains its history, preserves DevelopmentSource
   UUID/add-on ID, and makes every prior deployment-confidence row for that
@@ -2695,3 +2713,11 @@ details that it did not specify.
   deployment, attachment, lifecycle, reassignment, and deletion work. Complete
   rollback leaves the workspace ready; unresolved source state makes it
   reconciliation-required.
+- Verification subset: one handoff owns one target, is reserved to one
+  verification operation, and is consumed exactly once only with exact sync
+  evidence publication. Reserved failures and ambiguities cannot be reused.
+  Target and global-heavy leases exclude lifecycle, reset, Snapshot, reassignment,
+  deletion, attachment, ordinary deployment, enable/smoke, ZIP/repository and
+  replacement work. Exact sync restores ordinary verified deployment evidence;
+  verification history never changes the succeeded source operation or
+  promoted immutable workspace.

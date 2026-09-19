@@ -17,6 +17,7 @@ from kodi_lab.broker.addon_zips import (
 from kodi_lab.broker.development_sources import (
     DevelopmentSourceDeploymentResolver,
     DevelopmentSourceDeploymentStateError,
+    PromotionDevelopmentSourceDeploymentResolver,
     SqliteDevelopmentSourceDeploymentResolver,
 )
 from kodi_lab.broker.docker_inventory import (
@@ -88,6 +89,12 @@ from kodi_lab.broker.fixtures import (
     AssignedFixtureResolver,
     SqliteAssignedFixtureResolver,
 )
+from kodi_lab.broker.kodi_logs import (
+    KodiLogAuthorityResolver,
+    KodiLogWindowError,
+    KodiLogWindowProvider,
+    SqliteKodiLogAuthorityResolver,
+)
 from kodi_lab.broker.protocol import (
     PROTOCOL_VERSION,
     Request,
@@ -118,6 +125,44 @@ from kodi_lab.snapshot.storage import SnapshotArtifactDeletionError
 
 class EmptyParams(StrictModel):
     """An operation that accepts no caller-controlled parameters."""
+
+
+class PromotionKodiLogParams(StrictModel):
+    verification_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("verification_id", "managed_instance_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class CapturePromotionKodiLogCursorResult(StrictModel):
+    verification_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    cursor: str = Field(min_length=1, max_length=4096)
+
+
+class ReadPromotionKodiLogWindowParams(PromotionKodiLogParams):
+    cursor: str = Field(min_length=1, max_length=4096)
+
+
+class ReadPromotionKodiLogWindowResult(StrictModel):
+    verification_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    complete: bool
+    classification: Literal[
+        "clean", "target_errors", "unrelated_warnings", "incomplete"
+    ]
+    target_error_count: int = Field(ge=0, le=1_000_000)
+    unrelated_warning_count: int = Field(ge=0, le=1_000_000)
+    snippets: list[str] = Field(max_length=20)
+    scanned_bytes: int = Field(ge=0, le=1024 * 1024)
 
 
 class PingResult(StrictModel):
@@ -643,6 +688,21 @@ class CopySyncAttachedDevelopmentSourceParams(StrictModel):
         return value
 
 
+class CopySyncPromotedDevelopmentSourceParams(StrictModel):
+    verification_operation_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("verification_operation_id", "managed_instance_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 class CopySyncAttachedDevelopmentSourceResult(StrictModel):
     """Aggregate copy/sync proof with no path, member, or ownership fields."""
 
@@ -1095,6 +1155,8 @@ def build_foundation_registry(
     ) = None,
     addon_zip_installation_resolver: SqliteAddonZipInstallationResolver | None = None,
     addon_zip_installation_provider: AddonZipInstallationProvider | None = None,
+    kodi_log_resolver: KodiLogAuthorityResolver | None = None,
+    kodi_log_provider: KodiLogWindowProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -1154,6 +1216,8 @@ def build_foundation_registry(
     zip_provider = addon_zip_installation_provider or cast(
         AddonZipInstallationProvider, provider
     )
+    log_resolver = kodi_log_resolver or SqliteKodiLogAuthorityResolver.production()
+    log_provider = kodi_log_provider or KodiLogWindowProvider()
     registry.register(
         name="ping",
         params_model=EmptyParams,
@@ -1177,6 +1241,90 @@ def build_foundation_registry(
         params_model=EmptyParams,
         result_model=CapabilitiesResult,
         handler=capabilities,
+    )
+
+    def capture_promotion_kodi_log_cursor(
+        params: PromotionKodiLogParams,
+    ) -> CapturePromotionKodiLogCursorResult:
+        try:
+            authority = log_resolver.resolve(
+                params.verification_id,
+                params.managed_instance_id,
+                params.expected_container_id,
+            )
+            cursor = log_provider.capture(authority)
+        except KodiLogWindowError as error:
+            raise OperationError(
+                error.code,
+                error.safe_message,
+                audit_fields={
+                    "broker_verification_id": params.verification_id,
+                    "broker_managed_instance_id": params.managed_instance_id,
+                },
+            ) from error
+        return CapturePromotionKodiLogCursorResult(
+            verification_id=params.verification_id,
+            managed_instance_id=params.managed_instance_id,
+            cursor=cursor,
+        )
+
+    registry.register(
+        name="capture_promotion_kodi_log_cursor",
+        params_model=PromotionKodiLogParams,
+        result_model=CapturePromotionKodiLogCursorResult,
+        handler=capture_promotion_kodi_log_cursor,
+        audit_builder=lambda result: {
+            "broker_verification_id": result.verification_id,
+            "broker_managed_instance_id": result.managed_instance_id,
+        },
+    )
+
+    def read_promotion_kodi_log_window(
+        params: ReadPromotionKodiLogWindowParams,
+    ) -> ReadPromotionKodiLogWindowResult:
+        try:
+            authority = log_resolver.resolve(
+                params.verification_id,
+                params.managed_instance_id,
+                params.expected_container_id,
+            )
+            window = log_provider.read(authority, params.cursor)
+        except KodiLogWindowError as error:
+            raise OperationError(
+                error.code,
+                error.safe_message,
+                audit_fields={
+                    "broker_verification_id": params.verification_id,
+                    "broker_managed_instance_id": params.managed_instance_id,
+                },
+            ) from error
+        return ReadPromotionKodiLogWindowResult(
+            verification_id=params.verification_id,
+            managed_instance_id=params.managed_instance_id,
+            complete=window.complete,
+            classification=cast(
+                Literal["clean", "target_errors", "unrelated_warnings", "incomplete"],
+                window.classification,
+            ),
+            target_error_count=window.target_error_count,
+            unrelated_warning_count=window.unrelated_warning_count,
+            snippets=list(window.snippets),
+            scanned_bytes=window.scanned_bytes,
+        )
+
+    registry.register(
+        name="read_promotion_kodi_log_window",
+        params_model=ReadPromotionKodiLogWindowParams,
+        result_model=ReadPromotionKodiLogWindowResult,
+        handler=read_promotion_kodi_log_window,
+        audit_builder=lambda result: {
+            "broker_verification_id": result.verification_id,
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_log_classification": result.classification,
+            "broker_log_target_error_count": result.target_error_count,
+            "broker_log_unrelated_warning_count": result.unrelated_warning_count,
+            "broker_log_scanned_bytes": result.scanned_bytes,
+        },
     )
 
     def managed_container_inventory(
@@ -2319,6 +2467,80 @@ def build_foundation_registry(
             "broker_deployment_unchanged_count": result.unchanged_count,
             "broker_deployment_destination_only_count": (result.destination_only_count),
             "broker_deployment_transferred_bytes": result.transferred_bytes,
+        },
+    )
+
+    def copy_sync_promoted_development_source(
+        params: CopySyncPromotedDevelopmentSourceParams,
+    ) -> CopySyncAttachedDevelopmentSourceResult:
+        audit_fields: dict[str, object] = {
+            "broker_verification_id": params.verification_operation_id,
+            "broker_managed_instance_id": params.managed_instance_id,
+        }
+        try:
+            promotion_resolver = cast(
+                PromotionDevelopmentSourceDeploymentResolver, deployment_resolver
+            )
+            spec = promotion_resolver.resolve_promotion_verification(
+                params.verification_operation_id,
+                params.managed_instance_id,
+                params.expected_container_id,
+            )
+            outcome = deployment_provider.copy_sync_attached_development_source(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except DevelopmentSourceDeploymentStateError as error:
+            raise OperationError(
+                error.code,
+                "Promotion-bound sync authority is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDevelopmentSourceDeploymentError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        except (
+            ManagedContainerNotFoundError,
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            ContainerMustBeStoppedError,
+            RuntimeRevisionPreconditionError,
+            DockerDaemonUnavailableError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+        ) as error:
+            raise OperationError(
+                "promotion_verification_sync_failed",
+                "Promotion-bound sync could not be completed safely.",
+                audit_fields=audit_fields,
+            ) from error
+        return CopySyncAttachedDevelopmentSourceResult(
+            managed_instance_id=outcome.managed_instance_id,
+            development_source_id=outcome.development_source_id,
+            deployment_operation_id=outcome.deployment_operation_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            result_classification=outcome.result_classification,
+            source_manifest_digest=outcome.source_manifest_digest,
+            verified_destination_digest=outcome.verified_destination_digest,
+            observed_source_name=outcome.observed_source_name,
+            observed_source_version=outcome.observed_source_version,
+            new_count=outcome.new_count,
+            changed_count=outcome.changed_count,
+            unchanged_count=outcome.unchanged_count,
+            destination_only_count=outcome.destination_only_count,
+            transferred_bytes=outcome.transferred_bytes,
+        )
+
+    registry.register(
+        name="copy_sync_promoted_development_source",
+        params_model=CopySyncPromotedDevelopmentSourceParams,
+        result_model=CopySyncAttachedDevelopmentSourceResult,
+        handler=copy_sync_promoted_development_source,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_deployment_operation_id": result.deployment_operation_id,
+            "broker_deployment_result": result.result_classification,
         },
     )
 

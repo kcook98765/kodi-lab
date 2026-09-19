@@ -77,6 +77,7 @@ class AgentWorkspacePromotionPlan:
     target_deployment_operation_id: UUID
     target_source_digest: str
     target_destination_digest: str
+    expected_enabled: bool
     changed_file_count: int
     review_text_bytes: int
     created_at: datetime
@@ -139,8 +140,15 @@ class AgentWorkspacePromotionHandoff:
     prior_source_digest: str
     prior_destination_digest: str
     created_at: datetime
+    expected_addon_id: str | None = None
+    expected_name: str | None = None
+    expected_version: str | None = None
+    expected_enabled: bool | None = None
+    verification_operation_id: UUID | None = None
+    consumed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if len(self.trusted_container_id) != 64:
             raise ValueError("handoff container identity is invalid")
         object.__setattr__(self, "created_at", _utc(self.created_at, "created_at"))
+        object.__setattr__(self, "consumed_at", _utc(self.consumed_at, "consumed_at"))
