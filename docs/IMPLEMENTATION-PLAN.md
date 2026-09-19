@@ -930,3 +930,16 @@ display path. It is **implementation-complete pending formal review**. Optional
 future items—3-second auto-refresh, keyboard/full-text, additional-runtime
 display parity, VNC/noVNC, higher-FPS video, and MCP—are not Phase 10 completion
 requirements and remain unimplemented.
+
+### Phase 10 formal-review resource-accounting remediation
+
+The two resource-accounting defects found by the formal completion review are
+remediated without changing Phase 10 authority or protocol. Browser-remote rate
+buckets now have monotonic 15-minute idle expiry, explicit logout retirement,
+and a hard 4,096-bucket ceiling that rejects a new key before dispatch when no
+expired bucket can be safely removed. Live-display registry capacity is now
+cleanup-protected from acquisition through WebSocket acceptance and stream
+teardown; acceptance failure releases both instance and global capacity and
+does not emit a successful-start audit event. There is no migration. Phase 10
+remains implementation-complete pending a rerun of the formal completion
+review; this remediation does not declare Phase 10 complete.

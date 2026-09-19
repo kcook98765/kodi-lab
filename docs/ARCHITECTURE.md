@@ -1385,7 +1385,10 @@ would add latency to rapid media controls.
 The UI renders fixed controls only for a currently usable exact curated revision
 and updates the image without a page reload. A per-session/per-instance
 in-process token bucket enforces 10 actions/second, burst 20, before dispatch.
-There is no migration or durable remote history.
+Buckets use monotonic activity, opportunistic 15-minute idle expiry, explicit
+logout retirement, and a hard 4,096-bucket ceiling. A new key is rejected before
+dispatch when the ceiling is full of non-idle buckets, so active enforcement is
+not weakened. There is no migration or durable remote history.
 
 Controlled sequential live validation proved the common mapping on Kodi 19.5,
 20.5, 21.3, and 22 Beta 2. All 16 actions were accepted with no version-specific
@@ -1417,7 +1420,10 @@ enforces a 15-minute hard lifetime, and provides cancellation. Central mutation
 reservation signals cancellation before lifecycle, reset/restore, deletion,
 runtime reassignment, deployment/install/replacement, or promotion verification
 proceeds. Display never holds a durable mutation lease and never causes a
-lifecycle operation to wait.
+lifecycle operation to wait. Once registry capacity is acquired, WebSocket
+acceptance and every later exit share one cleanup scope; acceptance failure,
+setup failure, normal close, stream failure, and cancellation release the slot
+exactly once. Session-start audit is deferred until acceptance succeeds.
 
 The display backend calls the existing `capture_managed_kodi_screenshot`
 operation. `ManagedScreenshotService` now has one shared private capture path

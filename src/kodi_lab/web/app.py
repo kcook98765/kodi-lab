@@ -1873,6 +1873,7 @@ def create_app(
         csrf_token = csrf_value if isinstance(csrf_value, str) else None
         if not context.auth.csrf_matches(authenticated, csrf_token):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        context.browser_remote_rate_limiter.retire_session(authenticated.csrf_token)
         context.auth.logout(request.cookies.get(settings.web_session_cookie_name))
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie(
@@ -2905,9 +2906,11 @@ def create_app(
             await websocket.close(code=4409, reason=error.code)
             return
 
-        await websocket.accept()
-        end_reason = "display_unavailable"
+        end_reason = "display_accept_failed"
         try:
+            await websocket.accept()
+            context.live_display.mark_established(display_session)
+            end_reason = "display_unavailable"
             while True:
                 if context.auth.resolve(token) is None:
                     raise LiveDisplayError(

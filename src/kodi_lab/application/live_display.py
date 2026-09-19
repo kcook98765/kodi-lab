@@ -62,6 +62,7 @@ class LiveDisplaySession:
     cancelled: Event = field(default_factory=Event)
     frame_count: int = 0
     aggregate_bytes: int = 0
+    established: bool = False
     closed: bool = False
 
 
@@ -160,18 +161,21 @@ class ManagedLiveDisplayService:
             started_monotonic=self._monotonic(),
         )
         self._registry.acquire(session)
+        return session
+
+    def mark_established(self, session: LiveDisplaySession) -> None:
+        session.established = True
         LOGGER.info(
             "managed live display started",
             extra={
                 "display_session_id": str(session.session_id),
-                "managed_instance_id": str(instance_id),
+                "managed_instance_id": str(session.instance_id),
                 "interface": "web",
                 "actor": "local_admin",
                 "started_at": session.started_at.isoformat(),
                 "result": "started",
             },
         )
-        return session
 
     def active_session_id(self, instance_id: UUID) -> UUID | None:
         return self._registry.session_id(instance_id)
@@ -233,6 +237,7 @@ class ManagedLiveDisplayService:
                 "started_at": session.started_at.isoformat(),
                 "ended_at": ended_at.isoformat(),
                 "result": reason,
+                "established": session.established,
                 "frame_count": session.frame_count,
                 "aggregate_byte_count": session.aggregate_bytes,
             },

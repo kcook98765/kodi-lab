@@ -16,6 +16,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from kodi_lab.application.live_display import (
     LIVE_DISPLAY_REGISTRY,
+    LOGGER,
     LiveDisplayError,
     LiveDisplaySessionRegistry,
     ManagedLiveDisplayService,
@@ -180,6 +181,51 @@ def test_same_instance_conflict_and_failed_handshake_do_not_consume_slot(
         assert_denied(client, 4409, headers=authenticated_headers(client))
     with connect(client) as reopened:
         assert reopened.receive_bytes().startswith(PNG_SIGNATURE)
+
+
+def test_accept_failure_releases_instance_and_global_capacity(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    csrf = login(client)
+    make_visual_ready(client, csrf)
+    original_accept = WebSocket.accept
+    accept_attempted = threading.Event()
+    audit_events: list[tuple[str, dict[str, Any]]] = []
+
+    def record_audit(message: str, *, extra: dict[str, Any]) -> None:
+        audit_events.append((message, extra))
+
+    async def failed_accept(_websocket: WebSocket, **_kwargs: Any) -> None:
+        assert LIVE_DISPLAY_REGISTRY.active_count() == 1
+        accept_attempted.set()
+        raise RuntimeError("injected websocket accept failure")
+
+    monkeypatch.setattr(LOGGER, "info", record_audit)
+    monkeypatch.setattr(WebSocket, "accept", failed_accept)
+    with (
+        pytest.raises(RuntimeError, match="injected websocket accept failure"),
+        connect(client),
+    ):
+        pass
+
+    assert accept_attempted.is_set()
+    assert LIVE_DISPLAY_REGISTRY.active_count() == 0
+    assert not any(
+        message == "managed live display started" for message, _ in audit_events
+    )
+    ended = [
+        extra
+        for message, extra in audit_events
+        if message == "managed live display ended"
+    ]
+    assert len(ended) == 1
+    assert ended[0]["established"] is False
+
+    monkeypatch.setattr(WebSocket, "accept", original_accept)
+    with connect(client) as reopened:
+        assert reopened.receive_bytes().startswith(PNG_SIGNATURE)
+    assert LIVE_DISPLAY_REGISTRY.active_count() == 0
 
 
 def test_logout_terminates_stream_before_another_frame(client: TestClient) -> None:

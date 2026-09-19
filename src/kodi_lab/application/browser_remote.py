@@ -331,17 +331,25 @@ class _Bucket:
 
 
 class BrowserRemoteRateLimiter:
-    """In-process token bucket: ten actions/second with a burst of twenty."""
+    """Bounded in-process token buckets for browser-remote actions."""
 
     def __init__(
         self,
         *,
         rate: float = 10.0,
         burst: int = 20,
+        idle_ttl_seconds: float = 15 * 60.0,
+        max_buckets: int = 4_096,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        if idle_ttl_seconds <= 0:
+            raise ValueError("idle_ttl_seconds must be positive")
+        if max_buckets <= 0:
+            raise ValueError("max_buckets must be positive")
         self._rate = rate
         self._burst = burst
+        self._idle_ttl_seconds = idle_ttl_seconds
+        self._max_buckets = max_buckets
         self._clock = clock
         self._buckets: dict[tuple[str, UUID], _Bucket] = {}
         self._lock = Lock()
@@ -350,17 +358,48 @@ class BrowserRemoteRateLimiter:
         now = self._clock()
         key = (session_key, instance_id)
         with self._lock:
+            self._evict_expired(now)
             bucket = self._buckets.get(key)
             if bucket is None:
+                if len(self._buckets) >= self._max_buckets:
+                    raise BrowserRemoteError(
+                        "visual_rate_limited",
+                        "Browser remote action capacity is reached.",
+                    )
                 bucket = _Bucket(float(self._burst), now)
                 self._buckets[key] = bucket
             bucket.tokens = min(
                 float(self._burst),
                 bucket.tokens + max(0.0, now - bucket.updated_at) * self._rate,
             )
-            bucket.updated_at = now
+            bucket.updated_at = max(bucket.updated_at, now)
             if bucket.tokens < 1.0:
                 raise BrowserRemoteError(
                     "visual_rate_limited", "Browser remote action rate is exceeded."
                 )
             bucket.tokens -= 1.0
+
+    def retire_session(self, session_key: str) -> int:
+        """Forget all bounded token buckets for an explicitly ended Web session."""
+
+        with self._lock:
+            keys = [key for key in self._buckets if key[0] == session_key]
+            for key in keys:
+                del self._buckets[key]
+            return len(keys)
+
+    def bucket_count(self) -> int:
+        """Expose bounded process-local accounting for diagnostics and tests."""
+
+        with self._lock:
+            return len(self._buckets)
+
+    def _evict_expired(self, now: float) -> None:
+        expired = [
+            key
+            for key, bucket in self._buckets.items()
+            if now >= bucket.updated_at
+            and now - bucket.updated_at >= self._idle_ttl_seconds
+        ]
+        for key in expired:
+            del self._buckets[key]

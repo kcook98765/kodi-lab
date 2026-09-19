@@ -2912,8 +2912,11 @@ details that it did not specify.
   is strictly sequential, so queued-frame capacity is zero. Slow capture or
   send lowers delivered rate and never creates catch-up work. One session per
   instance, two globally, and a 15-minute hard lifetime are process-local
-  limits. A server-generated display-session UUID is correlation metadata, not
-  a credential.
+  limits. Capacity acquisition, WebSocket acceptance, streaming, and teardown
+  share one exception-safe cleanup scope, so an acceptance or later failure
+  releases the acquired instance/global slot exactly once. A successful-start
+  audit event is emitted only after WebSocket acceptance. A server-generated
+  display-session UUID is correlation metadata, not a credential.
 - Lifecycle and identity: the session binds instance, exact RuntimeRevision,
   exact profile, and managed container identity. Running/healthy/usable state,
   reconciliation, session validity, support, and identity are revalidated for
@@ -2962,7 +2965,11 @@ details that it did not specify.
   and `remote_action_ambiguous`; screenshot errors remain separate.
 - Rate bound: an in-process token bucket keyed by Web session plus instance
   allows 10 actions/second with burst 20 and returns `visual_rate_limited`
-  before dispatch. Buckets are not persisted.
+  before dispatch. Monotonic last activity drives opportunistic 15-minute idle
+  expiry, explicit logout retires the session's buckets, and a hard ceiling of
+  4,096 buckets bounds cardinality. At capacity, expired buckets are removed;
+  if no safe idle eviction is available, a new key is rejected before dispatch
+  rather than evicting a hot bucket. Buckets are not persisted.
 - Display subset: the path-free projection adds `display_supported`,
   `display_available_now`, and `display_backend=live_screenshot_stream` only for
   the exact Kodi 21.3 profile. Stable display classifications are
