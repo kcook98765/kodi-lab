@@ -2837,7 +2837,7 @@ details that it did not specify.
 
 ## D-0214: Browser remote has one closed semantic vocabulary
 
-- Status: approved and implemented for Phase 10 Slice 3A on exact Kodi 21.3
+- Status: approved and implemented across all four exact curated Kodi revisions
 - Decision: Web accepts only a ManagedInstance UUID and `up`, `down`, `left`,
   `right`, `select`, `back`, `home`, `context_menu`, `info`, `play_pause`,
   `stop`, `previous`, `next`, `volume_up`, `volume_down`, or `mute_toggle`.
@@ -2855,7 +2855,7 @@ details that it did not specify.
 
 ## D-0215: Browser remote is coordinated and dispatched at most once
 
-- Status: approved and implemented for Phase 10 Slice 3A on exact Kodi 21.3
+- Status: approved and implemented across all four exact curated Kodi revisions
 - Coordination: one request-scoped process-local per-instance `browser_remote`
   guard conflicts with existing durable lifecycle, reset/restore, deletion,
   reassignment, deployment, install/replacement, and target promotion
@@ -2886,7 +2886,8 @@ details that it did not specify.
 
 ## D-0218: Visual privacy, errors, audit, and bounds are closed semantics
 
-- Status: approved and implemented for the complete screenshot subset
+- Status: approved and implemented for screenshots and browser remote across the
+  four exact curated Kodi revisions; interactive display remains unimplemented
 - Privacy/validation: retrieval is authenticated with `image/png`, `no-store`,
   `nosniff`, same-origin CSP, and inline disposition. Strict validation requires
   the PNG signature, exact chunks/checksums, complete decompression, no trailing

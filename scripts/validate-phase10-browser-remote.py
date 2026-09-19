@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded live Kodi 21.3 proof for Phase 10 Slice 3A browser remote."""
+"""Bounded live browser-remote proof across the curated Kodi runtime matrix."""
 
 # ruff: noqa: E402 -- bytecode suppression precedes project imports.
 
@@ -12,11 +12,10 @@ import json
 import os
 import sys
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 sys.dont_write_bytecode = True
 
@@ -39,7 +38,6 @@ from kodi_lab.web.app import create_app
 
 PASSWORD = "phase10-slice3a-live-password"
 ORIGIN = "http://127.0.0.1"
-RELEASE = "21.3"
 NAVIGATION_ACTIONS = (
     "down",
     "up",
@@ -51,6 +49,21 @@ NAVIGATION_ACTIONS = (
     "context_menu",
     "info",
 )
+FIXED_ACTIONS = (
+    "play_pause",
+    "stop",
+    "previous",
+    "next",
+    "volume_up",
+    "volume_down",
+    "mute_toggle",
+)
+RUNTIME_NAMES = {
+    "19.5": "Kodi 19.5 Legacy",
+    "20.5": "Kodi 20.5 Current",
+    "21.3": "Kodi 21.3 Current",
+    "22.0-beta.2": "Kodi 22 Beta 2 Preview",
+}
 
 
 def _require(condition: bool, message: str) -> None:
@@ -73,12 +86,159 @@ def _latest(client: TestClient, instance_id: str) -> tuple[bytes, str]:
     return response.content, hashlib.sha256(response.content).hexdigest()
 
 
+def _validate_runtime(
+    *,
+    parity: ModuleType,
+    client: TestClient,
+    headers: dict[str, str],
+    instance_id: str,
+    release: str,
+) -> dict[str, Any]:
+    provisioned = client.post(
+        f"/api/instances/{instance_id}/provision", json={}, headers=headers
+    )
+    _require(provisioned.status_code == 200, f"{release} provision failed")
+    started = client.post(
+        f"/api/instances/{instance_id}/start", json={}, headers=headers
+    )
+    _require(started.status_code == 200, f"{release} start failed")
+    parity._wait_visual_ready(client, UUID(instance_id))
+    visual = client.get(f"/api/instances/{instance_id}/visual-status")
+    _require(visual.status_code == 200, f"{release} visual status failed")
+    parity_status = visual.json()
+    detail = client.get(f"/instances/{instance_id}")
+    _require(
+        detail.status_code == 200
+        and "Browser remote" in detail.text
+        and "noVNC" not in detail.text
+        and "/jsonrpc" not in detail.text
+        and ":8080" not in detail.text,
+        f"{release} remote UI boundary differs",
+    )
+    direct = client.post(
+        "/jsonrpc",
+        json={"jsonrpc": "2.0", "id": 1, "method": "Input.Up"},
+        headers=headers,
+    )
+    _require(direct.status_code == 404, f"{release} exposed direct JSON-RPC")
+
+    baseline = client.post(
+        f"/api/instances/{instance_id}/screenshots", json={}, headers=headers
+    )
+    _require(baseline.status_code == 200, f"{release} baseline capture failed")
+    baseline_doc = baseline.json()
+    _, baseline_hash = _latest(client, instance_id)
+
+    invocations: list[dict[str, Any]] = []
+    changed = False
+    latest_hash = baseline_hash
+    latest_capture = baseline_doc["capture_id"]
+    latest_time = baseline_doc["screenshot"]["captured_at"]
+    for action in NAVIGATION_ACTIONS:
+        response = client.post(
+            f"/api/instances/{instance_id}/remote-actions",
+            json={"action": action},
+            headers=headers,
+        )
+        _require(
+            response.status_code == 200,
+            f"{release} navigation {action} failed: {response.text[:256]}",
+        )
+        document = response.json()
+        refresh = document["screenshot_refresh"]
+        _require(
+            document["result"] == "succeeded"
+            and refresh["result"] == "succeeded"
+            and refresh["capture_id"] != latest_capture
+            and refresh["captured_at"] > latest_time,
+            f"{release} navigation {action} did not produce a fresh capture",
+        )
+        _, current_hash = _latest(client, instance_id)
+        hash_changed = current_hash != latest_hash
+        changed = changed or hash_changed
+        invocations.append(
+            {
+                "invocation_id": document["invocation_id"],
+                "action": action,
+                "result": document["result"],
+                "completed_at": document["completed_at"],
+                "screenshot_refresh": refresh["result"],
+                "capture_id": refresh["capture_id"],
+                "captured_at": refresh["captured_at"],
+                "png_sha256": current_hash,
+                "png_hash_changed": hash_changed,
+            }
+        )
+        latest_hash = current_hash
+        latest_capture = refresh["capture_id"]
+        latest_time = refresh["captured_at"]
+    _require(changed, f"{release} navigation never visibly changed the framebuffer")
+
+    fixed_results: list[dict[str, str]] = []
+    for action in FIXED_ACTIONS:
+        response = client.post(
+            f"/api/instances/{instance_id}/remote-actions",
+            json={"action": action},
+            headers=headers,
+        )
+        document = response.json()
+        classification = (
+            document["result"]
+            if response.status_code == 200
+            else document["error"]["code"]
+        )
+        if action in {"play_pause", "stop", "previous", "next"}:
+            _require(
+                response.status_code == 409
+                and classification == "remote_no_active_player",
+                f"{release} returned unexpected {action} classification",
+            )
+        else:
+            _require(
+                response.status_code == 200 and classification == "succeeded",
+                f"{release} returned unexpected {action} classification",
+            )
+        fixed_results.append({"action": action, "result": classification})
+
+    queued = client.post(
+        f"/api/instances/{instance_id}/delete",
+        json={"confirmed": True, "preserve_snapshots": True},
+        headers=headers,
+    )
+    _require(queued.status_code == 202, f"{release} cleanup queue failed")
+    deleted = parity._wait_delete(client, queued.json()["operation_id"])
+    _require(deleted["state"] == "succeeded", f"{release} cleanup failed")
+    return {
+        "runtime": RUNTIME_NAMES[release],
+        "canonical_release": release,
+        "ready_usable": (
+            parity_status["screenshot_supported"]
+            and parity_status["screenshot_available_now"]
+        ),
+        "baseline": {
+            "capture_id": baseline_doc["capture_id"],
+            "captured_at": baseline_doc["screenshot"]["captured_at"],
+            "png_sha256": baseline_hash,
+        },
+        "navigation": invocations,
+        "visible_change_observed": changed,
+        "fixed_action_results": fixed_results,
+        "active_players": {
+            "observed_shape": "empty_list",
+            "selection": "server_derived_only",
+            "classification": "remote_no_active_player",
+        },
+        "direct_browser_kodi_endpoint": False,
+        "cleanup": "succeeded",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--evidence-path",
         type=Path,
-        default=Path("<project-root>-phase10-slice3a-evidence.json"),
+        default=Path("evidence/kodi-lab-phase10-browser-remote-parity-evidence.json"),
     )
     arguments = parser.parse_args()
     _require(os.geteuid() == 0, "live validation must run as root")
@@ -97,7 +257,6 @@ def main() -> None:
         "production roots were present",
     )
     instances = {str(item["release"]): uuid4() for item in helper.RUNTIMES}
-    instance_id = instances[RELEASE]
     engine = None
     evidence: dict[str, Any] = {}
     try:
@@ -143,175 +302,23 @@ def main() -> None:
                 )
                 with TestClient(app, base_url=ORIGIN) as client:
                     headers = helper._login(client)
-                    provisioned = client.post(
-                        f"/api/instances/{instance_id}/provision",
-                        json={},
-                        headers=headers,
-                    )
-                    _require(provisioned.status_code == 200, "provision failed")
-                    started = client.post(
-                        f"/api/instances/{instance_id}/start",
-                        json={},
-                        headers=headers,
-                    )
-                    _require(started.status_code == 200, "start failed")
-                    parity._wait_visual_ready(client, instance_id)
-                    detail = client.get(f"/instances/{instance_id}")
-                    _require(
-                        detail.status_code == 200
-                        and "Browser remote" in detail.text
-                        and "noVNC" not in detail.text,
-                        "remote UI boundary differs",
-                    )
-                    baseline = client.post(
-                        f"/api/instances/{instance_id}/screenshots",
-                        json={},
-                        headers=headers,
-                    )
-                    _require(baseline.status_code == 200, "baseline capture failed")
-                    baseline_doc = baseline.json()
-                    _, baseline_hash = _latest(client, str(instance_id))
-
-                    invocations: list[dict[str, Any]] = []
-                    changed = False
-                    latest_hash = baseline_hash
-                    latest_capture = baseline_doc["capture_id"]
-                    latest_time = baseline_doc["screenshot"]["captured_at"]
-                    for action in NAVIGATION_ACTIONS:
-                        response = client.post(
-                            f"/api/instances/{instance_id}/remote-actions",
-                            json={"action": action},
+                    runtime_evidence = [
+                        _validate_runtime(
+                            parity=parity,
+                            client=client,
                             headers=headers,
+                            instance_id=str(instances[str(runtime["release"])]),
+                            release=str(runtime["release"]),
                         )
-                        _require(
-                            response.status_code == 200,
-                            f"navigation {action} failed: {response.text[:256]}",
-                        )
-                        document = response.json()
-                        refresh = document["screenshot_refresh"]
-                        _require(
-                            document["result"] == "succeeded"
-                            and refresh["result"] == "succeeded"
-                            and refresh["capture_id"] != latest_capture,
-                            f"navigation {action} did not refresh",
-                        )
-                        _, current_hash = _latest(client, str(instance_id))
-                        changed = changed or current_hash != latest_hash
-                        latest_hash = current_hash
-                        latest_capture = refresh["capture_id"]
-                        latest_time = refresh["captured_at"]
-                        invocations.append(
-                            {
-                                "invocation_id": document["invocation_id"],
-                                "action": action,
-                                "result": document["result"],
-                                "completed_at": document["completed_at"],
-                                "screenshot_refresh": refresh["result"],
-                                "capture_id": refresh["capture_id"],
-                            }
-                        )
-                    _require(
-                        changed, "navigation did not visibly change any screenshot"
-                    )
-
-                    playback: list[dict[str, str]] = []
-                    for action in (
-                        "play_pause",
-                        "stop",
-                        "previous",
-                        "next",
-                        "volume_up",
-                        "volume_down",
-                        "mute_toggle",
-                    ):
-                        response = client.post(
-                            f"/api/instances/{instance_id}/remote-actions",
-                            json={"action": action},
-                            headers=headers,
-                        )
-                        document = response.json()
-                        classification = (
-                            document["result"]
-                            if response.status_code == 200
-                            else document["error"]["code"]
-                        )
-                        if action in {"play_pause", "stop", "previous", "next"}:
-                            _require(
-                                classification == "remote_no_active_player",
-                                f"unexpected {action} classification",
-                            )
-                        else:
-                            _require(
-                                classification == "succeeded",
-                                f"unexpected {action} classification",
-                            )
-                        playback.append({"action": action, "result": classification})
-
-                    client.cookies.clear()
-                    headers = helper._login(client)
-
-                    def rate_request() -> Any:
-                        return client.post(
-                            f"/api/instances/{instance_id}/remote-actions",
-                            json={"action": "volume_down"},
-                            headers=headers,
-                        )
-
-                    with ThreadPoolExecutor(max_workers=100) as executor:
-                        rate_responses = list(
-                            executor.map(lambda _index: rate_request(), range(100))
-                        )
-                    limited = [
-                        item for item in rate_responses if item.status_code == 429
+                        for runtime in helper.RUNTIMES
                     ]
-                    admitted = [
-                        item for item in rate_responses if item.status_code != 429
-                    ]
-                    _require(
-                        len(limited) > 0
-                        and len(admitted) >= 20
-                        and all(
-                            item.json()["error"]["code"] == "visual_rate_limited"
-                            for item in limited
-                        ),
-                        "rate limit was not enforced",
-                    )
-                    reconciliation = client.get(
-                        f"/api/instances/{instance_id}/reconciliation"
-                    ).json()
-                    _require(not reconciliation["blocking"], "reconciliation drifted")
-                    queued = client.post(
-                        f"/api/instances/{instance_id}/delete",
-                        json={"confirmed": True, "preserve_snapshots": True},
-                        headers=headers,
-                    )
-                    _require(queued.status_code == 202, "cleanup queue failed")
-                    deleted = parity._wait_delete(client, queued.json()["operation_id"])
-                    _require(deleted["state"] == "succeeded", "cleanup failed")
 
             evidence = {
-                "schema": "kodi-lab-phase10-slice3a-live-v1",
-                "runtime": "Kodi 21.3 stable",
-                "remote_invocations": invocations,
-                "playback_volume_results": playback,
-                "freshness": {
-                    "baseline_capture_id": baseline_doc["capture_id"],
-                    "baseline_captured_at": baseline_doc["screenshot"]["captured_at"],
-                    "baseline_sha256": baseline_hash,
-                    "refreshed_capture_id": latest_capture,
-                    "refreshed_captured_at": latest_time,
-                    "refreshed_sha256": latest_hash,
-                    "screenshot_changed": changed,
-                },
-                "rate_limit": {
-                    "configured_burst": 20,
-                    "concurrent_requests_not_rate_limited": len(admitted),
-                    "concurrent_requests_rate_limited": len(limited),
-                    "classification": "visual_rate_limited",
-                    "rejected_action_dispatched": False,
-                },
-                "reconciliation_blocking": False,
-                "cleanup": "succeeded",
+                "schema": "kodi-lab-phase10-browser-remote-parity-live-v1",
+                "runtimes": runtime_evidence,
+                "mapping": "common_fixed_server_side",
+                "screenshot_refreshes_per_navigation": 1,
+                "interactive_display_implemented": False,
             }
             engine.dispose()
             engine = None

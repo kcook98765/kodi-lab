@@ -1352,14 +1352,14 @@ Docker/X11/filesystem authority. The mandatory screenshot portion of Phase 10
 is complete; browser remote and the optional mediated interactive display remain
 separate later slices.
 
-## Phase 10 Slice 3A fixed browser remote
+## Phase 10 Slice 3 fixed browser remote
 
-Slice 3A implements D-0214, D-0215, and the remote subset of D-0218 for exact
-curated Kodi 21.3 only. The authenticated same-origin, CSRF-protected Web route
-accepts a ManagedInstance UUID and one closed action enum. Browser code never
-contacts Kodi, managed-network addresses, container ports, X11, or VNC and has
-no method, params, player-ID, endpoint, timeout, key, text, path, command, or
-shell authority.
+Slice 3 implements D-0214, D-0215, and the remote subset of D-0218 for the four
+exact curated Kodi revisions. The authenticated same-origin, CSRF-protected Web
+route accepts a ManagedInstance UUID and one closed action enum. Browser code
+never contacts Kodi, managed-network addresses, container ports, X11, or VNC
+and has no method, params, player-ID, endpoint, timeout, key, text, path,
+command, or shell authority.
 
 `BrowserRemoteService` proves running/healthy/usable state, no reconciliation
 blocker, a short per-instance `browser_remote` lease, exact revision/profile,
@@ -1382,9 +1382,17 @@ Refresh failure preserves the prior cache and remote success. Playback/volume
 does not refresh because canonical V1 requires navigation refresh and capture
 would add latency to rapid media controls.
 
-The UI renders fixed controls only for currently usable exact Kodi 21.3 and
-updates the image without a page reload. A per-session/per-instance in-process
-token bucket enforces 10 actions/second, burst 20, before dispatch. There is no
-migration or durable remote history. Browser remote is implemented/live-proven
-on Kodi 21.3 only pending parity review; Kodi 19.5, 20.5, and 22 Beta 2 remote
-parity and mediated interactive display remain unimplemented.
+The UI renders fixed controls only for a currently usable exact curated revision
+and updates the image without a page reload. A per-session/per-instance
+in-process token bucket enforces 10 actions/second, burst 20, before dispatch.
+There is no migration or durable remote history.
+
+Controlled sequential live validation proved the common mapping on Kodi 19.5,
+20.5, 21.3, and 22 Beta 2. All 16 actions were accepted with no version-specific
+mapping: the nine navigation actions succeeded and each caused exactly one fresh
+screenshot UUID and timestamp; volume and mute succeeded; and all four
+player-relative actions returned `remote_no_active_player` for the intentionally
+idle fixture. PNG hashes changed for visible navigation transitions without OCR.
+Each disposable instance was deleted, the managed network was left empty,
+production roots remained absent, and protected fingerprints were unchanged.
+Mediated interactive display remains unimplemented.

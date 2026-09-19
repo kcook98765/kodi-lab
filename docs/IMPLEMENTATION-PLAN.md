@@ -880,3 +880,21 @@ post-navigation refresh. There is no migration or remote-history table. No
 keyboard/text input, interactive display/noVNC, MCP, tokens, agent authority,
 general logs, or cross-version remote parity is included. Remote parity across
 Kodi 19.5, 20.5, 21.3, and 22 Beta 2 remains a separate review milestone.
+
+### Phase 10 browser-remote parity completion checkpoint
+
+The existing closed browser remote is now enabled and live-validated on the
+four exact curated revisions: Kodi 19.5, 20.5, 21.3, and 22 Beta 2. Every action
+uses the same server-owned JSON-RPC mapping on all four; no runtime-specific
+mapping was required. `Player.GetActivePlayers` returned the expected empty
+list for the idle fixture on every runtime, producing the bounded
+`remote_no_active_player` result without caller-selected player authority.
+
+Each successful navigation action produced exactly one new screenshot capture
+UUID with a newer timestamp. Hash comparisons proved visible framebuffer changes
+where navigation changed the UI, without OCR. Volume and mute succeeded, direct
+browser-to-Kodi JSON-RPC remained absent, and disposable cleanup and protected
+isolation passed for every runtime. There is no migration. D-0214, D-0215, and
+the browser-remote portion of D-0218 are complete across the curated matrix.
+D-0217 mediated interactive display remains unimplemented and is not started by
+this checkpoint.

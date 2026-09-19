@@ -12,7 +12,14 @@ from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
 from kodi_lab.domain import RuntimeExecutionProfile
 from kodi_lab.kodi.readiness import MAX_JSONRPC_RESPONSE_BYTES
 
-REMOTE_RUNTIME_REVISION_ID = UUID("3a000000-0000-4000-8000-000000000006")
+REMOTE_RUNTIME_REVISION_IDS = frozenset(
+    {
+        UUID("51950000-0000-4000-8000-000000000005"),
+        UUID("52000000-0000-4000-8000-000000000005"),
+        UUID("3a000000-0000-4000-8000-000000000006"),
+        UUID("52200000-0000-4000-8000-000000000005"),
+    }
+)
 REMOTE_TIMEOUT_SECONDS = 3.0
 
 

@@ -15,6 +15,7 @@ from kodi_lab.domain import (
     RuntimeKind,
 )
 from kodi_lab.kodi.remote import (
+    REMOTE_RUNTIME_REVISION_IDS,
     BrowserRemoteAction,
     KodiBrowserRemoteAdapter,
     RemoteActionAmbiguousError,
@@ -24,7 +25,13 @@ from kodi_lab.kodi.remote import (
 )
 
 INVOCATION_ID = UUID("00000000-0000-4000-8000-000000000501")
-REVISION_ID = UUID("3a000000-0000-4000-8000-000000000006")
+RUNTIME_PROFILES = (
+    ("51950000-0000-4000-8000-000000000005", "19.5", "stable", None),
+    ("52000000-0000-4000-8000-000000000005", "20.5", "stable", None),
+    ("3a000000-0000-4000-8000-000000000006", "21.3", "stable", None),
+    ("52200000-0000-4000-8000-000000000005", "22.0", "beta", 2),
+)
+REVISION_ID = UUID(RUNTIME_PROFILES[2][0])
 
 
 @dataclass
@@ -58,10 +65,15 @@ class RecordingTransport:
         ).encode()
 
 
-def adapter(transport: RecordingTransport) -> KodiBrowserRemoteAdapter:
+def adapter(
+    transport: RecordingTransport,
+    runtime_profile: tuple[str, str, str, int | None] = RUNTIME_PROFILES[2],
+) -> KodiBrowserRemoteAdapter:
+    revision, version, tag, ordinal = runtime_profile
+    revision_id = UUID(revision)
     observation = ObserveManagedKodiRuntimeResult(
         managed_instance_id="00000000-0000-4000-8000-000000000101",
-        runtime_revision_id=str(REVISION_ID),
+        runtime_revision_id=str(revision_id),
         container_id="a" * 64,
         runtime_state=ContainerRuntimeState.RUNNING,
         process_state=KodiProcessState.RUNNING,
@@ -69,15 +81,15 @@ def adapter(transport: RecordingTransport) -> KodiBrowserRemoteAdapter:
         jsonrpc_port=8080,
     )
     profile = RuntimeExecutionProfile(
-        runtime_revision_id=REVISION_ID,
+        runtime_revision_id=revision_id,
         runtime_kind=RuntimeKind.KODI,
         runtime_uid=1000,
         runtime_gid=1000,
         python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
         expected_application_name="Kodi",
-        expected_kodi_version="21.3",
-        expected_version_tag="stable",
-        expected_prerelease_ordinal=None,
+        expected_kodi_version=version,
+        expected_version_tag=tag,
+        expected_prerelease_ordinal=ordinal,
         jsonrpc_port=8080,
         jsonrpc_path="/jsonrpc",
         process_observation=ProcessObservationKind.DOCKER_HEALTHCHECK,
@@ -93,43 +105,53 @@ def adapter(transport: RecordingTransport) -> KodiBrowserRemoteAdapter:
 def test_every_closed_action_uses_only_its_fixed_mapping(
     action: BrowserRemoteAction,
 ) -> None:
-    transport = RecordingTransport()
-    adapter(transport).dispatch(action, INVOCATION_ID)
-    action_request = transport.requests[-1]
-    method, mapping = fixed_request_mapping()[action]
-    assert action_request["method"] == method
-    assert set(action_request) <= {"jsonrpc", "id", "method", "params"}
-    if mapping is None:
-        assert "params" not in action_request
-    elif mapping == "derived_playerid":
-        assert action_request["params"] == {"playerid": 1}
-    elif mapping == "derived_playerid_previous":
-        assert action_request["params"] == {"playerid": 1, "to": "previous"}
-    elif mapping == "derived_playerid_next":
-        assert action_request["params"] == {"playerid": 1, "to": "next"}
-    else:
-        assert action_request["params"] == mapping
+    assert {
+        UUID(profile[0]) for profile in RUNTIME_PROFILES
+    } == REMOTE_RUNTIME_REVISION_IDS
+    for runtime_profile in RUNTIME_PROFILES:
+        transport = RecordingTransport()
+        adapter(transport, runtime_profile).dispatch(action, INVOCATION_ID)
+        action_request = transport.requests[-1]
+        method, mapping = fixed_request_mapping()[action]
+        assert action_request["method"] == method
+        assert set(action_request) <= {"jsonrpc", "id", "method", "params"}
+        if mapping is None:
+            assert "params" not in action_request
+        elif mapping == "derived_playerid":
+            assert action_request["params"] == {"playerid": 1}
+        elif mapping == "derived_playerid_previous":
+            assert action_request["params"] == {"playerid": 1, "to": "previous"}
+        elif mapping == "derived_playerid_next":
+            assert action_request["params"] == {"playerid": 1, "to": "next"}
+        else:
+            assert action_request["params"] == mapping
 
 
 def test_player_selection_is_server_derived_and_deterministic() -> None:
-    transport = RecordingTransport(
-        active_players=[
-            {"playerid": 0, "type": "audio"},
-            {"playerid": 1, "type": "video"},
-            {"playerid": 2, "type": "picture"},
-        ]
-    )
-    adapter(transport).dispatch(BrowserRemoteAction.STOP, INVOCATION_ID)
-    assert transport.requests[-1]["params"] == {"playerid": 1}
+    for runtime_profile in RUNTIME_PROFILES:
+        transport = RecordingTransport(
+            active_players=[
+                {"playerid": 0, "type": "audio"},
+                {"playerid": 1, "type": "video"},
+                {"playerid": 2, "type": "picture"},
+            ]
+        )
+        adapter(transport, runtime_profile).dispatch(
+            BrowserRemoteAction.STOP, INVOCATION_ID
+        )
+        assert transport.requests[-1]["params"] == {"playerid": 1}
 
 
 def test_no_active_player_sends_no_control_action() -> None:
-    transport = RecordingTransport(active_players=[])
-    with pytest.raises(RemoteNoActivePlayerError):
-        adapter(transport).dispatch(BrowserRemoteAction.PLAY_PAUSE, INVOCATION_ID)
-    assert [item["method"] for item in transport.requests] == [
-        "Player.GetActivePlayers"
-    ]
+    for runtime_profile in RUNTIME_PROFILES:
+        transport = RecordingTransport(active_players=[])
+        with pytest.raises(RemoteNoActivePlayerError):
+            adapter(transport, runtime_profile).dispatch(
+                BrowserRemoteAction.PLAY_PAUSE, INVOCATION_ID
+            )
+        assert [item["method"] for item in transport.requests] == [
+            "Player.GetActivePlayers"
+        ]
 
 
 def test_kodi_rejection_and_ambiguous_timeout_never_retry() -> None:

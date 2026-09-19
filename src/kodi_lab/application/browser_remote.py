@@ -1,4 +1,4 @@
-"""Narrow Web-admin browser remote service for exact managed Kodi 21.3."""
+"""Narrow Web-admin browser remote for the exact curated Kodi runtimes."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ from kodi_lab.broker.operations import (
 from kodi_lab.domain import RuntimeExecutionProfile
 from kodi_lab.kodi.remote import (
     NAVIGATION_ACTIONS,
-    REMOTE_RUNTIME_REVISION_ID,
+    REMOTE_RUNTIME_REVISION_IDS,
     BrowserRemoteAction,
     KodiBrowserRemoteAdapter,
     RemoteActionAmbiguousError,
@@ -121,7 +121,7 @@ class BrowserRemoteService:
     def available(self, instance_id: UUID) -> bool:
         runtime = self._status.get(instance_id)
         return (
-            runtime.runtime_revision_id == REMOTE_RUNTIME_REVISION_ID
+            runtime.runtime_revision_id in REMOTE_RUNTIME_REVISION_IDS
             and runtime.container_state is ContainerRuntimeState.RUNNING
             and runtime.process_state is KodiProcessState.RUNNING
             and runtime.usability_state is SemanticUsabilityState.USABLE
@@ -166,7 +166,7 @@ class BrowserRemoteService:
         requested_at: datetime,
     ) -> BrowserRemoteResult:
         runtime = self._status.get(instance_id)
-        if runtime.runtime_revision_id != REMOTE_RUNTIME_REVISION_ID:
+        if runtime.runtime_revision_id not in REMOTE_RUNTIME_REVISION_IDS:
             raise BrowserRemoteError(
                 "remote_action_unsupported",
                 "Browser remote is not supported for this runtime revision.",
