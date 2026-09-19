@@ -157,6 +157,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "fixture_definitions",
         "global_heavy_operation_lease",
         "managed_instances",
+        "managed_screenshots",
         "managed_instance_delete_operations",
         "managed_instance_addon_repository_sources",
         "managed_instance_development_sources",

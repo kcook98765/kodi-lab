@@ -828,4 +828,21 @@ truncation. MCP exposure and autonomous agent identities remain Phase 11/12
 work. Git/remotes/PR creation, delete/rename/mkdir and binary editing, direct
 workspace deployment, arbitrary test execution, optional add-on-data writes,
 automatic retention, backup/log-evidence pruning, and broader rollback UX remain
-future non-blocking work. Phase 10 has not begun.
+future non-blocking work. Phase 10 begins below with Slice 1 only.
+
+Phase 10 is **Browser remote/display**. Slice 1 implements only managed
+screenshot capture for exact Kodi 21.3 stable under D-0211, D-0212, D-0213,
+D-0216, and the screenshot subset of D-0218. It adds fixed broker-owned Xvfb
+capture with a private UUID-derived artifact handoff, unprivileged strict
+fixed-RGB-to-PNG conversion, migration `0035_managed_screenshots`, a durable
+latest-only private cache with failed-refresh retention, authenticated Web APIs,
+and manual instance-detail presentation. Capture is synchronous, one per
+instance and four globally, with exact pre/post lifecycle identity checks.
+
+This slice does not implement D-0214/D-0215 remote behavior, D-0217 interactive
+display, or D-0219 MCP handoff. It also adds no browser remote, navigation or
+player action, auto-refresh, keyboard/text input, noVNC/VNC, WebSocket/display
+port, tokens, client/session identity, agent/workspace authority, source
+promotion change, general log access, lifecycle command, shell, Git, or generic
+Docker/filesystem/process surface. Screenshot parity for Kodi 19.5, 20.5, and
+22 Beta 2 remains a later Phase 10 slice.

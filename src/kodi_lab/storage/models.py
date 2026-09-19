@@ -1138,6 +1138,55 @@ class ManagedInstanceRow(Base):
     )
 
 
+class ManagedScreenshotRow(Base):
+    """Latest-only private screenshot metadata for one live instance."""
+
+    __tablename__ = "managed_screenshots"
+    __table_args__ = (
+        UniqueConstraint("capture_id", name="uq_managed_screenshot_capture"),
+        CheckConstraint("mime_type = 'image/png'", name="managed_screenshot_png_only"),
+        CheckConstraint(
+            "width BETWEEN 1 AND 4096 AND height BETWEEN 1 AND 2160",
+            name="managed_screenshot_dimensions_bounded",
+        ),
+        CheckConstraint(
+            "byte_size BETWEEN 1 AND 8388608",
+            name="managed_screenshot_size_bounded",
+        ),
+        CheckConstraint(
+            "length(captured_at) BETWEEN 20 AND 32 AND "
+            "length(last_attempt_at) BETWEEN 20 AND 32",
+            name="managed_screenshot_timestamps_bounded",
+        ),
+        CheckConstraint(
+            "last_error_code IS NULL OR length(last_error_code) BETWEEN 1 AND 64",
+            name="managed_screenshot_error_bounded",
+        ),
+        CheckConstraint(
+            "(capture_id IS NULL AND captured_at IS NULL AND mime_type IS NULL "
+            "AND width IS NULL AND height IS NULL AND byte_size IS NULL) OR "
+            "(capture_id IS NOT NULL AND captured_at IS NOT NULL "
+            "AND mime_type IS NOT NULL AND width IS NOT NULL "
+            "AND height IS NOT NULL AND byte_size IS NOT NULL)",
+            name="managed_screenshot_current_complete",
+        ),
+    )
+
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    capture_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    captured_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    byte_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_attempt_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 class ManagedInstanceDevelopmentSourceRow(Base):
     """Mode-neutral durable association between an instance and source."""
 

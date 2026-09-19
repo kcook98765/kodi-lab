@@ -71,6 +71,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "fixture_definitions",
         "global_heavy_operation_lease",
         "managed_instances",
+        "managed_screenshots",
         "managed_instance_delete_operations",
         "managed_instance_addon_repository_sources",
         "managed_instance_development_sources",
@@ -127,6 +128,88 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     ]
     engine.dispose()
 
+    command.check(config)
+
+
+def test_0035_managed_screenshot_populated_downgrade_is_guarded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        definition_id = str(uuid4())
+        revision_id = str(uuid4())
+        instance_id = str(uuid4())
+        capture_id = str(uuid4())
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id, slug, kodi_version, support_tier) VALUES "
+                "(:id, :slug, '21.3', 'current')"
+            ),
+            {"id": definition_id, "slug": f"screenshots-{definition_id}"},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_revisions "
+                "(id, runtime_definition_id, revision_number, source_kind, "
+                "source_reference, content_digest, manifest_reference, "
+                "manifest_digest, built_at, approval_state, "
+                "approved_at, requires_trusted_build_confirmation) VALUES "
+                "(:id, :definition, 1, 'test', 'test', :digest, 'test', "
+                ":digest, '2026-09-19T00:00:00Z', 'approved', "
+                "'2026-09-19T00:00:00Z', 0)"
+            ),
+            {
+                "id": revision_id,
+                "definition": definition_id,
+                "digest": "sha256:" + "a" * 64,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO targets "
+                "(id, name, target_type, kodi_version, availability, health, "
+                "connection_state) VALUES "
+                "(:id, 'screenshot', 'managed', '21.3', 'available', "
+                "'healthy', 'connected')"
+            ),
+            {"id": instance_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances "
+                "(target_id, instance_type, runtime_revision_id, runtime_state, "
+                "start_on_host_boot) VALUES "
+                "(:id, 'disposable', :revision, 'stopped', 0)"
+            ),
+            {"id": instance_id, "revision": revision_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_screenshots "
+                "(managed_instance_id, capture_id, captured_at, mime_type, width, "
+                "height, byte_size, last_attempt_at, last_error_code) VALUES "
+                "(:instance, :capture, :at, 'image/png', 1280, 720, 1024, :at, NULL)"
+            ),
+            {
+                "instance": instance_id,
+                "capture": capture_id,
+                "at": "2026-09-19T00:00:00.000000Z",
+            },
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated managed screenshot"):
+        command.downgrade(config, "0034_phase9_completion_remediation")
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM managed_screenshots"))
+    engine.dispose()
+    command.downgrade(config, "0034_phase9_completion_remediation")
+    command.upgrade(config, "head")
     command.check(config)
 
 

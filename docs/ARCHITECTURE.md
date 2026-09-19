@@ -1265,5 +1265,50 @@ atomic verification publication, full-buffer secret redaction before retained
 truncation, terminal target-history retention, source-promotion TCB disclosure,
 and non-root validator hygiene are part of the completed boundary. MCP/Git
 integration and the broader optional editing, execution, retention, and rollback
-features remain later work rather than Phase 9 requirements. Phase 10
-architecture has not begun.
+features remain later work rather than Phase 9 requirements. Phase 10 begins
+below with the architecture-reviewed screenshot-only Slice 1 boundary.
+
+## Phase 10 Slice 1 managed screenshots
+
+Phase 10 is canonically **Browser remote/display**, but Slice 1 implements only
+the mandatory screenshot foundation for exact Kodi 21.3 stable. The Web
+administrator supplies one ManagedInstance UUID. Application status requires
+the pinned release, exact healthy running container, usable Kodi readiness, and
+absence of a reconciliation blocker. Capability remains distinct from this
+momentary eligibility; capture never provisions or starts an instance.
+
+The broker operation `capture_managed_kodi_screenshot` accepts only the
+server-bound instance, expected container, expected RuntimeRevision, and capture
+UUID. The pinned image's `x11-utils` package does not contain `xwd`, so its
+implementation is a fixed isolated Python X11 `GetImage` operation against the
+Xvfb `:99` root window.
+Raw framebuffer data is too large for the 65,536-byte framed JSON protocol, so
+the broker writes it to a capture-UUID-derived private staging file and returns
+only path-free semantic metadata. Pre/post selection verifies exact labels,
+revision, identity, running state, and Docker health. No generic exec or
+caller-controlled process/path/display/format/timeout is present.
+
+The unprivileged application parses only the expected bounded 1280x720 RGB
+layout, converts it with the Python standard library, and validates a canonical
+RGB8 PNG end to end. Slice-1 geometry is exactly 1280x720; PNG output is capped
+at 8 MiB. The latest PNG is atomically placed in the private screenshot cache.
+Migration `0035_managed_screenshots` persists only one current binding per live
+instance plus last-attempt classification. Successful replacement publishes the
+new binding before removing the old bytes. Failure never changes current
+capture metadata or bytes. Missing bytes become safe unavailability without
+automatic recreation.
+
+Authenticated APIs provide visual status, CSRF/same-origin protected manual
+capture, and authenticated latest-image delivery with `image/png`, `no-store`,
+and `nosniff`. The instance detail page shows capability, availability, image,
+UTC timestamp/server-derived age, dimensions, byte size, a manual Refresh
+button, and bounded failure state. There is no automatic refresh. Centralized
+instance deletion removes cache bytes and metadata; screenshots do not become
+history. Bounded structured audit events retain only semantic identities,
+timestamps, outcome, dimensions, and byte count.
+
+Per-instance exclusion and a four-capture global semaphore bound observational
+work. Lifecycle identity is revalidated immediately before publication. Slice 1
+adds no durable operation handle, remote control, input, interactive display,
+MCP, agent identity/authority, general logs, workspace exposure, source
+promotion, Git, shell, or Docker surface.

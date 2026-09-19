@@ -20,6 +20,7 @@ from kodi_lab.broker.docker_inventory import (
     KodiProcessState,
 )
 from kodi_lab.broker.operations import (
+    CaptureManagedKodiScreenshotResult,
     CopySyncAttachedDevelopmentSourceResult,
     DeleteManagedSnapshotArtifactResult,
     DeprovisionManagedContainerResult,
@@ -73,6 +74,7 @@ class FakeBroker:
         )
     )
     addon_inventory_error: BaseException | None = None
+    screenshot_error: BaseException | None = None
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         if self.inventory_error is not None:
@@ -94,6 +96,38 @@ class FakeBroker:
             process_state=self.process_state,
             ipv4_address="10.250.0.10",
             jsonrpc_port=8080,
+        )
+
+    def capture_managed_kodi_screenshot(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_revision_id: str,
+        capture_id: str,
+    ) -> CaptureManagedKodiScreenshotResult:
+        if self.screenshot_error is not None:
+            raise self.screenshot_error
+        assert self.snapshot_data_root is not None
+        assert managed_instance_id == str(INSTANCE_ID)
+        assert expected_container_id == CONTAINER_ID
+        assert expected_runtime_revision_id == str(REVISION_ID)
+        raw = b"P6\n1280 720\n255\n" + (bytes((0x11, 0x22, 0x33)) * 1280 * 720)
+        path = (
+            self.snapshot_data_root
+            / "screenshots"
+            / "staging"
+            / capture_id
+            / "frame.raw"
+        )
+        path.write_bytes(raw)
+        return CaptureManagedKodiScreenshotResult(
+            managed_instance_id=managed_instance_id,
+            runtime_revision_id=expected_runtime_revision_id,
+            container_id=expected_container_id,
+            capture_id=capture_id,
+            backend="x11_get_image",
+            raw_byte_size=len(raw),
         )
 
     def provision_managed_container(

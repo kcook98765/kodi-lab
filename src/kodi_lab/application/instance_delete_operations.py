@@ -33,6 +33,7 @@ from kodi_lab.domain import (
     SnapshotState,
 )
 from kodi_lab.snapshot.storage import snapshot_artifact_presence
+from kodi_lab.storage.models import ManagedScreenshotRow
 from kodi_lab.storage.repositories import (
     AddonRepositoryAttachmentOperationRepository,
     AddonZipEnablementOperationRepository,
@@ -539,6 +540,12 @@ class ManagedInstanceDeleteOperationCoordinator:
             PromotionVerificationOperationRepository(session).clear_live_instance(
                 lease.managed_instance_id
             )
+            screenshot = session.get(
+                ManagedScreenshotRow, str(lease.managed_instance_id)
+            )
+            if screenshot is not None:
+                session.delete(screenshot)
+                session.flush()
             if not instances.delete(lease.managed_instance_id):
                 raise ManagedInstanceDeleteLeaseLostError(
                     "Managed instance metadata could not be deleted."

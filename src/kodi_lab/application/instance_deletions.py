@@ -36,6 +36,10 @@ from kodi_lab.domain import (
     ManagedInstanceDeleteOperationPhase,
     ManagedInstanceDeletePriorState,
 )
+from kodi_lab.kodi.screenshots import (
+    ScreenshotArtifactError,
+    remove_instance_screenshot_cache,
+)
 from kodi_lab.snapshot.storage import snapshot_artifact_presence
 from kodi_lab.storage.repositories import SnapshotRepository
 
@@ -173,6 +177,7 @@ class DisposableManagedInstanceDeletionService:
             self._coordinator.update_phase(
                 self._lease, ManagedInstanceDeleteOperationPhase.DELETING_METADATA
             )
+            self._delete_screenshot_cache()
             self._coordinator.finish_success(self._lease)
             return
 
@@ -184,7 +189,18 @@ class DisposableManagedInstanceDeletionService:
         self._coordinator.update_phase(
             self._lease, ManagedInstanceDeleteOperationPhase.DELETING_METADATA
         )
+        self._delete_screenshot_cache()
         self._coordinator.finish_success(self._lease)
+
+    def _delete_screenshot_cache(self) -> None:
+        try:
+            remove_instance_screenshot_cache(
+                self._data_root, self._lease.managed_instance_id
+            )
+        except ScreenshotArtifactError as error:
+            raise ManagedInstanceDeletionError(
+                "Screenshot cache identity is unsafe; deletion cannot continue."
+            ) from error
 
     def _delete_snapshots(self) -> None:
         self._coordinator.update_phase(

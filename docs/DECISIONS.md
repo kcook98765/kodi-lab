@@ -2784,3 +2784,84 @@ details that it did not specify.
   There is no TTL, timer, disk-pressure pruning, bulk cleanup, automatic cleanup
   after promotion/abandonment, or backup/log-evidence pruning. Later artifact
   retention work must approve any such deletion separately.
+
+## D-0211: Phase 10 visual access begins as Web-administrator-only authority
+
+- Status: approved and implemented for Phase 10 Slice 1 screenshot capture only
+- Decision: authenticated local Web administrators may inspect screenshot
+  capability, request one manual capture, and retrieve the latest private PNG
+  for a ManagedInstance UUID. Capture POST requires the existing same-origin
+  and CSRF controls; image retrieval requires the authenticated session and is
+  never a static/public artifact URL.
+- Boundary: Slice 1 adds no MCP, agent, token/client identity, browser remote,
+  JSON-RPC input, keyboard/text input, interactive display, noVNC/VNC,
+  WebSocket, lifecycle, log, workspace, or source-promotion authority.
+
+## D-0212: Screenshot capture is one fixed semantic broker operation
+
+- Status: approved and implemented for Phase 10 Slice 1 / Kodi 21.3
+- Decision: `capture_managed_kodi_screenshot` accepts only canonical instance,
+  expected immutable container, expected RuntimeRevision, and server-generated
+  capture UUID identities. Trusted persistence fixes exact Kodi 21.3 stable
+  eligibility. Because the pinned image has no `xwd` executable, the broker
+  invokes one fixed isolated Python X11 `GetImage` program against `:99` with a
+  five-second deadline; there is no caller-selected command, executable, argv, path, display,
+  format, converter, timeout, Docker object, address, or port parameter.
+- Artifact handoff: raw fixed RGB bytes never enter framed broker JSON. The broker
+  writes a bounded mode-0600 file at the capture-UUID-derived private staging
+  location, returns only safe semantic identities/backend/byte count, and
+  removes partial output on failure. It proves the exact managed label,
+  container, revision, running state, and healthy state before and after
+  capture. The unprivileged application performs strict fixed-format conversion
+  and PNG validation.
+
+## D-0213: Managed screenshots use a private durable latest-only cache
+
+- Status: approved and implemented for Phase 10 Slice 1
+- Decision: SQLite table `managed_screenshots` contains at most one current
+  binding per live ManagedInstance plus the last refresh outcome. PNG bytes live
+  under the application data root and paths never enter DTOs. Publication is
+  private new capture, complete RGB conversion and PNG validation, identity
+  revalidation, atomic file publication, metadata replacement, then safe
+  superseded-file removal.
+- Failure/deletion: a failed refresh changes only bounded last-attempt error
+  state and preserves the prior capture UUID, timestamp, metadata, and bytes.
+  Missing cache bytes project safe unavailability and are not recreated.
+  Central instance deletion removes screenshot bytes before its metadata
+  transaction and explicitly deletes the row; the FK also cascades. Pixels are
+  never retained as lifecycle history. A populated downgrade is refused because
+  dropping metadata could orphan secret-bearing bytes.
+
+## D-0216: Visual capability is technical state, not added authorization
+
+- Status: approved and implemented for Phase 10 Slice 1 screenshot subset
+- Decision: the path-free projection separates `screenshot_supported` from
+  `screenshot_available_now` and current-cache presence. Slice 1 support is
+  exact Kodi 21.3 stable; availability additionally requires the exact running,
+  healthy, usable managed runtime and no blocking reconciliation state. A
+  stopped or absent runtime is never started or created for capture.
+- Projection: current capture UUID, UTC timestamp, server-derived age,
+  dimensions, fixed MIME, byte count, and bounded last-attempt classification
+  are safe. Container identity, X display, command, network, host/storage path,
+  Docker data, and raw failure are private.
+
+## D-0218: Screenshot privacy, errors, audit, and bounds are closed semantics
+
+- Status: approved and implemented for Phase 10 Slice 1 screenshot subset
+- Privacy/validation: retrieval is authenticated with `image/png`, `no-store`,
+  `nosniff`, same-origin CSP, and inline disposition. Strict validation requires
+  the PNG signature, exact chunks/checksums, complete decompression, no trailing
+  bytes, positive bounded dimensions, exact 1280x720 Slice-1 geometry, RGB8,
+  and at most 8 MiB. There is no OCR, public URL, generic log, or pixel audit.
+- Coordination/errors: process-local coordination permits one capture per
+  instance and at most four globally. Stable Web errors include
+  `managed_instance_not_found`, `visual_instance_not_running`,
+  `visual_kodi_not_ready`, `screenshot_unsupported`,
+  `screenshot_capture_in_progress`, `screenshot_capture_unavailable`,
+  `screenshot_invalid_result`, and `visual_rate_limited`. No raw
+  broker/Docker/X11/process detail escapes.
+- Audit: bounded structured events contain capture/instance UUID, Web/local-admin
+  markers, request/completion timestamps, result classification, and successful
+  dimensions/byte count. They contain no pixels, path, command, display,
+  container identity, or raw error. Slice 1 adds no durable operation row and no
+  auto-refresh/history.

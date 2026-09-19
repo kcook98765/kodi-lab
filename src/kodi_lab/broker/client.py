@@ -70,6 +70,8 @@ from kodi_lab.broker.operations import (
     CapabilitiesResult,
     CaptureManagedInstanceSnapshotParams,
     CaptureManagedInstanceSnapshotResult,
+    CaptureManagedKodiScreenshotParams,
+    CaptureManagedKodiScreenshotResult,
     CapturePromotionKodiLogCursorResult,
     CopySyncAttachedDevelopmentSourceParams,
     CopySyncAttachedDevelopmentSourceResult,
@@ -254,6 +256,44 @@ class BrokerClient:
         ):
             raise ClientProtocolError(
                 "managed Kodi observation identity does not match the request"
+            )
+        return result
+
+    def capture_managed_kodi_screenshot(
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        expected_runtime_revision_id: str,
+        capture_id: str,
+    ) -> CaptureManagedKodiScreenshotResult:
+        """Capture only the fixed Xvfb framebuffer into private broker staging."""
+
+        try:
+            params = CaptureManagedKodiScreenshotParams(
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+                expected_runtime_revision_id=expected_runtime_revision_id,
+                capture_id=capture_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "managed screenshot capture failed local validation"
+            ) from error
+        result = self._call(
+            "capture_managed_kodi_screenshot",
+            params,
+            CaptureManagedKodiScreenshotResult,
+            response_timeout=10.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+            or result.runtime_revision_id != expected_runtime_revision_id
+            or result.capture_id != capture_id
+        ):
+            raise ClientProtocolError(
+                "managed screenshot result identity does not match the request"
             )
         return result
 

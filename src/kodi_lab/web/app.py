@@ -246,6 +246,12 @@ from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
 )
+from kodi_lab.application.screenshots import (
+    ManagedScreenshotCaptureResult,
+    ManagedScreenshotService,
+    ManagedScreenshotStatus,
+    ScreenshotServiceError,
+)
 from kodi_lab.application.snapshot_delete_operations import (
     SnapshotDeleteConflictError,
     SnapshotDeleteNotFoundError,
@@ -673,6 +679,7 @@ class WebApplicationContext:
     agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
     agent_workspace_promotions: AgentWorkspacePromotionService
     promotion_verifications: PromotionVerificationService
+    screenshots: ManagedScreenshotService
 
 
 def create_app(
@@ -723,6 +730,7 @@ def create_app(
     agent_workspace_promotion_service: AgentWorkspacePromotionService | None = None,
     promotion_verification_service: PromotionVerificationService | None = None,
     agent_workspace_cleanup_service: AgentWorkspaceCleanupService | None = None,
+    managed_screenshot_service: ManagedScreenshotService | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -755,6 +763,13 @@ def create_app(
     )
     status_service = ManagedRuntimeStatusService(
         session_factory, broker, task_registry, reconciliation
+    )
+    screenshots = managed_screenshot_service or ManagedScreenshotService(
+        session_factory,
+        broker,
+        status_service,
+        reconciliation,
+        data_root=settings.data_root,
     )
     reset_status_service = ResetStatusService(
         session_factory, broker, reset_registry, reset_operations
@@ -1160,6 +1175,7 @@ def create_app(
         agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
         agent_workspace_promotions=agent_workspace_promotions,
         promotion_verifications=promotion_verifications,
+        screenshots=screenshots,
     )
 
     @asynccontextmanager
@@ -1256,6 +1272,21 @@ def create_app(
         return _json_error(
             404, "managed_instance_not_found", "Managed instance not found."
         )
+
+    @app.exception_handler(ScreenshotServiceError)
+    async def screenshot_error(
+        _request: Request, error: ScreenshotServiceError
+    ) -> JSONResponse:
+        status_code = {
+            "screenshot_capture_in_progress": 409,
+            "visual_rate_limited": 429,
+            "visual_instance_not_running": 409,
+            "visual_kodi_not_ready": 409,
+            "screenshot_unsupported": 409,
+            "screenshot_invalid_result": 502,
+            "screenshot_capture_unavailable": 503,
+        }.get(error.code, 503)
+        return _json_error(status_code, error.code, error.safe_message)
 
     @app.exception_handler(TargetNotFoundError)
     async def target_not_found(
@@ -1987,6 +2018,7 @@ def create_app(
             "instance-detail.html",
             {
                 "detail": context.instance_detail.get(instance_id),
+                "visual": context.screenshots.get_status(instance_id),
                 "csrf_token": authenticated.csrf_token,
             },
         )
@@ -2769,6 +2801,42 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> ManagedRuntimeStatus:
         return context.status.get(instance_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/visual-status",
+        response_model=ManagedScreenshotStatus,
+    )
+    def get_instance_visual_status(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ManagedScreenshotStatus:
+        return context.screenshots.get_status(instance_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/screenshots",
+        response_model=ManagedScreenshotCaptureResult,
+    )
+    def capture_instance_screenshot(
+        instance_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedScreenshotCaptureResult:
+        return context.screenshots.capture(instance_id)
+
+    @app.get("/api/instances/{instance_id}/screenshots/latest")
+    def get_latest_instance_screenshot(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return Response(
+            content=context.screenshots.latest_png(instance_id),
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": "inline",
+            },
+        )
 
     @app.get(
         "/api/instances/{instance_id}/addons",

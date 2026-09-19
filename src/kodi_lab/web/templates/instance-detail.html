@@ -12,6 +12,7 @@
     <script src="{{ url_for('static', path='/development-source-smoke.js') }}" defer></script>
     <script src="{{ url_for('static', path='/addon-zip-enable.js') }}" defer></script>
     <script src="{{ url_for('static', path='/addon-zip-smoke.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/managed-screenshot.js') }}" defer></script>
   </head>
   <body>
     <main>
@@ -36,6 +37,25 @@
         {% if detail.reconciliation.operation_uuid %}<p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ detail.reconciliation.operation_uuid }}">View the exact history item</a></p>{% endif %}
       </section>
       {% endif %}
+      <section id="visual-access" data-instance-id="{{ detail.runtime.managed_instance_id }}">
+        <h2>Screenshot</h2>
+        <dl>
+          <dt>Capability</dt><dd>{{ 'Supported' if visual.screenshot_supported else 'Not supported in this slice' }}</dd>
+          <dt>Available now</dt><dd>{{ 'Yes' if visual.screenshot_available_now else 'No' }}</dd>
+          {% if visual.latest_capture_available %}
+          <dt>Captured</dt><dd data-screenshot-captured-at>{{ visual.captured_at }} ({{ visual.age_seconds }} seconds ago)</dd>
+          <dt>Dimensions</dt><dd data-screenshot-dimensions>{{ visual.width }}×{{ visual.height }}</dd>
+          <dt>Size</dt><dd data-screenshot-size>{{ visual.byte_size }} bytes</dd>
+          {% endif %}
+        </dl>
+        <p data-screenshot-metadata class="secondary">{% if visual.latest_capture_available %}Captured {{ visual.captured_at }} ({{ visual.age_seconds }} seconds ago) · {{ visual.width }}×{{ visual.height }} · {{ visual.byte_size }} bytes{% else %}No current screenshot metadata.{% endif %}</p>
+        <div data-screenshot-image-container{% if not visual.latest_capture_available %} hidden{% endif %}>
+          <img class="managed-screenshot" data-screenshot-image src="/api/instances/{{ detail.runtime.managed_instance_id }}/screenshots/latest" alt="Latest Kodi screenshot">
+        </div>
+        {% if not visual.latest_capture_available %}<p data-screenshot-empty>No screenshot has been captured.</p>{% endif %}
+        <button type="button" data-screenshot-refresh{% if not visual.screenshot_available_now %} disabled{% endif %}>Refresh screenshot</button>
+        <p data-screenshot-status class="secondary" role="status"{% if not visual.last_error_code %} hidden{% endif %}>{% if visual.last_error_code %}Last refresh failed: {{ visual.last_error_code|replace('_', ' ') }}. The prior valid screenshot, if any, was retained.{% endif %}</p>
+      </section>
       <section>
         <h2>Notes</h2>
         {% if detail.notes is none %}<p>No notes.</p>{% elif detail.notes == '' %}<p>Notes are empty.</p>{% else %}<pre class="instance-notes">{{ detail.notes }}</pre>{% endif %}

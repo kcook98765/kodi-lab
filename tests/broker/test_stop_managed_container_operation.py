@@ -259,6 +259,7 @@ def test_capabilities_contains_exact_bounded_operation_set() -> None:
         "broker_info",
         "capabilities",
         "capture_managed_instance_snapshot",
+        "capture_managed_kodi_screenshot",
         "capture_promotion_kodi_log_cursor",
         "copy_sync_attached_development_source",
         "copy_sync_promoted_development_source",

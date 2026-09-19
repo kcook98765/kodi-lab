@@ -110,6 +110,16 @@ from kodi_lab.broker.provisioning import (
     SqliteProvisioningResolver,
     SqliteRuntimeObservationResolver,
 )
+from kodi_lab.broker.screenshots import (
+    DockerManagedScreenshotCaptureProvider,
+    ManagedScreenshotCaptureProvider,
+    ScreenshotCaptureError,
+    ScreenshotCaptureIdentityError,
+    ScreenshotCaptureResolver,
+    ScreenshotCaptureStateError,
+    ScreenshotCaptureUnsupportedError,
+    SqliteScreenshotCaptureResolver,
+)
 from kodi_lab.broker.snapshots import (
     LocalSnapshotArtifactDeletionProvider,
     SnapshotArtifactDeletionProvider,
@@ -294,6 +304,44 @@ class ObserveManagedKodiRuntimeResult(StrictModel):
         if self.jsonrpc_port != 8080:
             raise ValueError("managed Kodi JSON-RPC port must be 8080")
         return self
+
+
+class CaptureManagedKodiScreenshotParams(StrictModel):
+    """Only server-bound identities select the one fixed screenshot operation."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+    expected_runtime_revision_id: str = Field(min_length=36, max_length=36)
+    capture_id: str = Field(min_length=36, max_length=36)
+
+    @field_validator(
+        "managed_instance_id", "expected_runtime_revision_id", "capture_id"
+    )
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class CaptureManagedKodiScreenshotResult(StrictModel):
+    """Path-free bounded proof of a private raw screenshot artifact."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    runtime_revision_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    capture_id: str = Field(min_length=36, max_length=36)
+    backend: Literal["x11_get_image"]
+    raw_byte_size: int = Field(ge=1, le=8 * 1024 * 1024)
+
+    @field_validator("managed_instance_id", "runtime_revision_id", "capture_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
 
 
 class ProvisionManagedContainerParams(StrictModel):
@@ -1139,6 +1187,8 @@ def build_foundation_registry(
     revision_resolver: ManagedInstanceRevisionResolver | None = None,
     runtime_observation_resolver: RuntimeObservationResolver | None = None,
     runtime_observation_provider: ManagedKodiRuntimeObservationProvider | None = None,
+    screenshot_capture_resolver: ScreenshotCaptureResolver | None = None,
+    screenshot_capture_provider: ManagedScreenshotCaptureProvider | None = None,
     assigned_fixture_resolver: AssignedFixtureResolver | None = None,
     assigned_fixture_provider: AssignedFixtureApplicationProvider | None = None,
     snapshot_capture_resolver: SnapshotCaptureResolver | None = None,
@@ -1177,6 +1227,12 @@ def build_foundation_registry(
     )
     observation_provider = runtime_observation_provider or cast(
         ManagedKodiRuntimeObservationProvider, provider
+    )
+    screenshot_resolver = (
+        screenshot_capture_resolver or SqliteScreenshotCaptureResolver.production()
+    )
+    screenshot_provider = (
+        screenshot_capture_provider or DockerManagedScreenshotCaptureProvider()
     )
     fixture_resolver = (
         assigned_fixture_resolver or SqliteAssignedFixtureResolver.production()
@@ -1476,6 +1532,69 @@ def build_foundation_registry(
             "broker_managed_instance_id": result.managed_instance_id,
             "broker_resulting_runtime_state": result.runtime_state.value,
             "broker_kodi_process_state": result.process_state.value,
+        },
+    )
+
+    def capture_managed_kodi_screenshot(
+        params: CaptureManagedKodiScreenshotParams,
+    ) -> CaptureManagedKodiScreenshotResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_capture_id": params.capture_id,
+        }
+        try:
+            spec = screenshot_resolver.resolve(
+                params.managed_instance_id,
+                params.expected_runtime_revision_id,
+                params.capture_id,
+            )
+            outcome = screenshot_provider.capture_managed_kodi_screenshot(
+                spec=spec,
+                expected_container_id=params.expected_container_id,
+            )
+        except ScreenshotCaptureUnsupportedError as error:
+            raise OperationError(
+                "screenshot_unsupported",
+                "The managed runtime does not support screenshot capture.",
+                audit_fields=audit_fields,
+            ) from error
+        except ScreenshotCaptureStateError as error:
+            raise OperationError(
+                "screenshot_capture_unavailable",
+                "Canonical screenshot capture state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except ScreenshotCaptureIdentityError as error:
+            raise OperationError(
+                "screenshot_runtime_identity_changed",
+                "The managed runtime identity changed during screenshot capture.",
+                audit_fields=audit_fields,
+            ) from error
+        except ScreenshotCaptureError as error:
+            raise OperationError(
+                "screenshot_capture_failed",
+                "The fixed screenshot backend could not complete capture.",
+                audit_fields=audit_fields,
+            ) from error
+        return CaptureManagedKodiScreenshotResult(
+            managed_instance_id=outcome.managed_instance_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            capture_id=outcome.capture_id,
+            backend="x11_get_image",
+            raw_byte_size=outcome.raw_byte_size,
+        )
+
+    registry.register(
+        name="capture_managed_kodi_screenshot",
+        params_model=CaptureManagedKodiScreenshotParams,
+        result_model=CaptureManagedKodiScreenshotResult,
+        handler=capture_managed_kodi_screenshot,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_capture_id": result.capture_id,
+            "broker_screenshot_backend": result.backend,
+            "broker_screenshot_raw_bytes": result.raw_byte_size,
         },
     )
 
