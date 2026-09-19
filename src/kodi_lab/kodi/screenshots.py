@@ -21,6 +21,38 @@ MAX_WIDTH = 4096
 MAX_HEIGHT = 2160
 MAX_PNG_BYTES = 8 * 1024 * 1024
 MAX_RAW_CAPTURE_BYTES = 8 * 1024 * 1024
+X11_FRAME_MAGIC = b"KLSX11V1"
+_X11_FRAME_HEADER = struct.Struct(">8s12I")
+SUPPORTED_SCREENSHOT_RUNTIME_PROFILES = {
+    "51950000-0000-4000-8000-000000000005": (
+        "19.5",
+        "Kodi",
+        "19.5",
+        "stable",
+        None,
+    ),
+    "52000000-0000-4000-8000-000000000005": (
+        "20.5",
+        "Kodi",
+        "20.5",
+        "stable",
+        None,
+    ),
+    "3a000000-0000-4000-8000-000000000006": (
+        "21.3",
+        "Kodi",
+        "21.3",
+        "stable",
+        None,
+    ),
+    "52200000-0000-4000-8000-000000000005": (
+        "22.0-beta.2",
+        "Kodi",
+        "22.0",
+        "beta",
+        2,
+    ),
+}
 _XWD_HEADER_WORDS = 25
 _XWD_HEADER_SIZE = _XWD_HEADER_WORDS * 4
 
@@ -34,6 +66,54 @@ class ValidatedPng:
     width: int
     height: int
     byte_size: int
+
+
+@dataclass(frozen=True, slots=True)
+class X11FrameLayout:
+    width: int
+    height: int
+    depth: int
+    bits_per_pixel: int
+    image_byte_order: int
+    scanline_pad: int
+    bytes_per_line: int
+    visual_class: int
+    bits_per_rgb: int
+    red_mask: int
+    green_mask: int
+    blue_mask: int
+
+    @property
+    def classification(self) -> str:
+        order = "lsb" if self.image_byte_order == 0 else "msb"
+        return f"truecolor24-bpp32-{order}-rgb888"
+
+
+@dataclass(frozen=True, slots=True)
+class PngPixelStatistics:
+    rgb_min: int
+    rgb_max: int
+    has_pixel_variation: bool
+
+
+def is_supported_screenshot_runtime(
+    *,
+    runtime_revision_id: str,
+    canonical_release: str,
+    expected_application_name: str,
+    expected_kodi_version: str,
+    expected_version_tag: str,
+    expected_prerelease_ordinal: int | None,
+) -> bool:
+    """Match one exact curated runtime profile, never a broad version rule."""
+
+    return SUPPORTED_SCREENSHOT_RUNTIME_PROFILES.get(runtime_revision_id) == (
+        canonical_release,
+        expected_application_name,
+        expected_kodi_version,
+        expected_version_tag,
+        expected_prerelease_ordinal,
+    )
 
 
 def screenshot_root(data_root: Path) -> Path:
@@ -239,6 +319,101 @@ def xwd_to_png(payload: bytes) -> bytes:
     return result
 
 
+def inspect_x11_frame(payload: bytes) -> X11FrameLayout:
+    """Validate the closed raw X11 frame envelope and return its safe layout."""
+
+    if not _X11_FRAME_HEADER.size < len(payload) <= MAX_RAW_CAPTURE_BYTES:
+        raise ScreenshotArtifactError("X11 frame size is invalid.")
+    try:
+        (
+            magic,
+            width,
+            height,
+            depth,
+            bits_per_pixel,
+            image_byte_order,
+            scanline_pad,
+            bytes_per_line,
+            visual_class,
+            bits_per_rgb,
+            red_mask,
+            green_mask,
+            blue_mask,
+        ) = _X11_FRAME_HEADER.unpack_from(payload)
+    except struct.error as error:
+        raise ScreenshotArtifactError("X11 frame header is truncated.") from error
+    layout = X11FrameLayout(
+        width=width,
+        height=height,
+        depth=depth,
+        bits_per_pixel=bits_per_pixel,
+        image_byte_order=image_byte_order,
+        scanline_pad=scanline_pad,
+        bytes_per_line=bytes_per_line,
+        visual_class=visual_class,
+        bits_per_rgb=bits_per_rgb,
+        red_mask=red_mask,
+        green_mask=green_mask,
+        blue_mask=blue_mask,
+    )
+    if magic != X11_FRAME_MAGIC:
+        raise ScreenshotArtifactError("X11 frame signature is invalid.")
+    if (width, height) != (EXPECTED_WIDTH, EXPECTED_HEIGHT):
+        raise ScreenshotArtifactError("X11 frame geometry is unsupported.")
+    if (
+        depth != 24
+        or bits_per_pixel != 32
+        or image_byte_order not in {0, 1}
+        or scanline_pad != 32
+        or bytes_per_line != width * 4
+        or visual_class != 4
+        or bits_per_rgb != 8
+        or red_mask != 0x00FF0000
+        or green_mask != 0x0000FF00
+        or blue_mask != 0x000000FF
+    ):
+        raise ScreenshotArtifactError("X11 frame visual format is unsupported.")
+    if len(payload) != _X11_FRAME_HEADER.size + (bytes_per_line * height):
+        raise ScreenshotArtifactError("X11 frame payload length is inconsistent.")
+    return layout
+
+
+def x11_frame_to_png(payload: bytes) -> bytes:
+    """Convert one validated server-observed X11 TrueColor frame to RGB8 PNG."""
+
+    layout = inspect_x11_frame(payload)
+    pixels = memoryview(payload)[_X11_FRAME_HEADER.size :]
+    raw = bytearray()
+    for row_number in range(layout.height):
+        raw.append(0)
+        start = row_number * layout.bytes_per_line
+        row = pixels[start : start + layout.bytes_per_line]
+        if layout.image_byte_order == 0:
+            raw.extend(
+                channel
+                for offset in range(0, layout.bytes_per_line, 4)
+                for channel in (row[offset + 2], row[offset + 1], row[offset])
+            )
+        else:
+            raw.extend(
+                channel
+                for offset in range(0, layout.bytes_per_line, 4)
+                for channel in (row[offset + 1], row[offset + 2], row[offset + 3])
+            )
+    png = bytearray(PNG_SIGNATURE)
+    png.extend(
+        _png_chunk(
+            b"IHDR",
+            struct.pack(">IIBBBBB", layout.width, layout.height, 8, 2, 0, 0, 0),
+        )
+    )
+    png.extend(_png_chunk(b"IDAT", zlib.compress(bytes(raw), level=6)))
+    png.extend(_png_chunk(b"IEND", b""))
+    result = bytes(png)
+    validate_png(result)
+    return result
+
+
 def ppm_to_png(payload: bytes) -> bytes:
     """Convert only the fixed 1280x720 RGB result of the X11 capture primitive."""
 
@@ -317,6 +492,43 @@ def validate_png(payload: bytes) -> ValidatedPng:
     if any(decoded[offset] != 0 for offset in range(0, len(decoded), row_size)):
         raise ScreenshotArtifactError("PNG filter is unsupported.")
     return ValidatedPng(width=width, height=height, byte_size=len(payload))
+
+
+def png_pixel_statistics(payload: bytes) -> PngPixelStatistics:
+    """Return bounded plausibility statistics without retaining screenshot pixels."""
+
+    validate_png(payload)
+    offset = len(PNG_SIGNATURE)
+    compressed = b""
+    while offset < len(payload):
+        length = struct.unpack(">I", payload[offset : offset + 4])[0]
+        kind = payload[offset + 4 : offset + 8]
+        data = payload[offset + 8 : offset + 8 + length]
+        if kind == b"IDAT":
+            compressed = data
+            break
+        offset += 12 + length
+    decoded = zlib.decompress(compressed)
+    row_size = 1 + (EXPECTED_WIDTH * 3)
+    first_pixel = bytes(decoded[1:4])
+    varied = False
+    rgb_min = 255
+    rgb_max = 0
+    for row_start in range(0, len(decoded), row_size):
+        row = memoryview(decoded)[row_start + 1 : row_start + row_size]
+        if row:
+            rgb_min = min(rgb_min, min(row))
+            rgb_max = max(rgb_max, max(row))
+        if not varied:
+            varied = any(
+                bytes(row[index : index + 3]) != first_pixel
+                for index in range(0, len(row), 3)
+            )
+    return PngPixelStatistics(
+        rgb_min=rgb_min,
+        rgb_max=rgb_max,
+        has_pixel_variation=varied,
+    )
 
 
 def _png_chunk(kind: bytes, data: bytes) -> bytes:

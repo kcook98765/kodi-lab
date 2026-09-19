@@ -24,7 +24,11 @@ from kodi_lab.broker.docker_inventory import (
 )
 from kodi_lab.broker.provisioning import RUNTIME_REVISION_LABEL_KEY
 from kodi_lab.config import Settings
-from kodi_lab.kodi.screenshots import MAX_RAW_CAPTURE_BYTES, raw_capture_path
+from kodi_lab.kodi.screenshots import (
+    MAX_RAW_CAPTURE_BYTES,
+    is_supported_screenshot_runtime,
+    raw_capture_path,
+)
 from kodi_lab.storage.engine import create_database_engine
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
@@ -52,27 +56,76 @@ s.sendall(struct.pack('<BBHHHHH', ord('l'), 0, 11, 0, 0, 0, 0))
 setup = exact(s, 8)
 status, _reason, _major, _minor, words = struct.unpack('<BBHHH', setup)
 body = exact(s, words * 4)
-if status != 1 or len(body) < 40 or body[22] != 0:
+if status != 1 or len(body) < 40:
     raise SystemExit(22)
 vendor_length = struct.unpack_from('<H', body, 16)[0]
 root_count, format_count = body[20], body[21]
-offset = 32 + ((vendor_length + 3) & ~3) + (format_count * 8)
-if root_count < 1 or offset + 40 > len(body):
+image_byte_order = body[22]
+formats_offset = 32 + ((vendor_length + 3) & ~3)
+screen_offset = formats_offset + (format_count * 8)
+if root_count < 1 or screen_offset + 40 > len(body):
     raise SystemExit(23)
-root = struct.unpack_from('<I', body, offset)[0]
-width, height = struct.unpack_from('<HH', body, offset + 20)
+root = struct.unpack_from('<I', body, screen_offset)[0]
+width, height = struct.unpack_from('<HH', body, screen_offset + 20)
+root_visual = struct.unpack_from('<I', body, screen_offset + 32)[0]
+root_depth = body[screen_offset + 38]
+depth_count = body[screen_offset + 39]
 if (width, height) != (1280, 720):
     raise SystemExit(24)
+bits_per_pixel = scanline_pad = None
+for index in range(format_count):
+    item = formats_offset + (index * 8)
+    if item + 8 > len(body):
+        raise SystemExit(23)
+    depth, bpp, pad = body[item], body[item + 1], body[item + 2]
+    if depth == root_depth:
+        bits_per_pixel, scanline_pad = bpp, pad
+visual_class = bits_per_rgb = None
+red_mask = green_mask = blue_mask = None
+depth_offset = screen_offset + 40
+for _ in range(depth_count):
+    if depth_offset + 8 > len(body):
+        raise SystemExit(23)
+    depth = body[depth_offset]
+    visual_count = struct.unpack_from('<H', body, depth_offset + 2)[0]
+    visual_offset = depth_offset + 8
+    for index in range(visual_count):
+        item = visual_offset + (index * 24)
+        if item + 24 > len(body):
+            raise SystemExit(23)
+        visual_id = struct.unpack_from('<I', body, item)[0]
+        if depth == root_depth and visual_id == root_visual:
+            visual_class = body[item + 4]
+            bits_per_rgb = body[item + 5]
+            red_mask, green_mask, blue_mask = struct.unpack_from('<III', body, item + 8)
+    depth_offset = visual_offset + (visual_count * 24)
+if not (
+    root_depth == 24
+    and bits_per_pixel == 32
+    and image_byte_order in (0, 1)
+    and scanline_pad == 32
+    and visual_class == 4
+    and bits_per_rgb == 8
+    and red_mask == 0x00ff0000
+    and green_mask == 0x0000ff00
+    and blue_mask == 0x000000ff
+):
+    raise SystemExit(26)
+bytes_per_line = (
+    (width * bits_per_pixel + scanline_pad - 1) // scanline_pad
+) * (scanline_pad // 8)
 s.sendall(struct.pack('<BBHIhhHHI', 73, 2, 5, root, 0, 0, width, height, 0xffffffff))
 reply = exact(s, 32)
 kind, depth, _sequence, length, _visual = struct.unpack_from('<BBHII', reply)
-if kind != 1 or depth != 24 or length * 4 != width * height * 4:
+if kind != 1 or depth != root_depth or length * 4 != bytes_per_line * height:
     raise SystemExit(25)
 pixels = exact(s, length * 4)
-rgb = bytearray(width * height * 3)
-rgb[0::3], rgb[1::3], rgb[2::3] = pixels[2::4], pixels[1::4], pixels[0::4]
-sys.stdout.buffer.write(b'P6\n1280 720\n255\n')
-sys.stdout.buffer.write(rgb)
+sys.stdout.buffer.write(struct.pack(
+    '>8s12I', b'KLSX11V1', width, height, root_depth, bits_per_pixel,
+    image_byte_order, scanline_pad, bytes_per_line, visual_class, bits_per_rgb,
+    red_mask, green_mask, blue_mask,
+))
+sys.stdout.buffer.write(pixels)
 """.strip()
 FIXED_SCREENSHOT_COMMAND = (
     "/usr/bin/python3",
@@ -193,14 +246,16 @@ class SqliteScreenshotCaptureResolver:
                     raise ScreenshotCaptureStateError(
                         "Managed screenshot runtime profile is unavailable."
                     )
-                if (
-                    definition.kodi_version != "21.3"
-                    or profile.expected_application_name != "Kodi"
-                    or profile.expected_kodi_version != "21.3"
-                    or profile.expected_version_tag != "stable"
+                if not is_supported_screenshot_runtime(
+                    runtime_revision_id=str(revision_id),
+                    canonical_release=definition.kodi_version,
+                    expected_application_name=profile.expected_application_name,
+                    expected_kodi_version=profile.expected_kodi_version,
+                    expected_version_tag=profile.expected_version_tag,
+                    expected_prerelease_ordinal=(profile.expected_prerelease_ordinal),
                 ):
                     raise ScreenshotCaptureUnsupportedError(
-                        "This runtime does not support Slice 1 screenshots."
+                        "This runtime revision does not support screenshots."
                     )
             stage = raw_capture_path(self._data_root, capture_uuid).parent
             stage_metadata = stage.lstat()

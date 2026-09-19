@@ -7,10 +7,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.screenshots import ManagedScreenshotService
 from kodi_lab.broker.errors import BrokerUnavailableError
+from kodi_lab.domain import RuntimeSupportTier
 from kodi_lab.kodi.screenshots import PNG_SIGNATURE
-from kodi_lab.storage.models import ManagedScreenshotRow
+from kodi_lab.storage.models import (
+    ManagedScreenshotRow,
+    RuntimeDefinitionRow,
+    RuntimeExecutionProfileRow,
+)
 
-from .conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
+from .conftest import DEFINITION_ID, INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
 
 
 def make_visual_ready(client: TestClient, csrf: str) -> None:
@@ -28,6 +33,25 @@ def make_visual_ready(client: TestClient, csrf: str) -> None:
             return
         time.sleep(0.01)
     raise AssertionError("visual status did not become ready")
+
+
+def test_visual_capability_rejects_nearby_unvalidated_profile(
+    client: TestClient, database: sessionmaker[Session]
+) -> None:
+    with database.begin() as session:
+        definition = session.get(RuntimeDefinitionRow, str(DEFINITION_ID))
+        profile = session.get(RuntimeExecutionProfileRow, str(REVISION_ID))
+        assert definition is not None and profile is not None
+        definition.kodi_version = "22.0-beta.1"
+        definition.support_tier = RuntimeSupportTier.PREVIEW
+        profile.expected_kodi_version = "22.0"
+        profile.expected_version_tag = "beta"
+        profile.expected_prerelease_ordinal = 1
+
+    login(client)
+    response = client.get(f"/api/instances/{INSTANCE_ID}/visual-status")
+    assert response.status_code == 200
+    assert response.json()["screenshot_supported"] is False
 
 
 def test_visual_routes_require_authenticated_admin_and_capture_requires_csrf(

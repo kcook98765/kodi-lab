@@ -86,3 +86,20 @@ def test_phase9_root_validator_import_leaves_no_project_bytecode(
         path for path in cache.rglob("*.pyc") if "/kodi_lab/" in path.as_posix()
     ]
     assert project_bytecode == []
+
+
+def test_root_only_phase10_validators_disable_bytecode_before_project_imports() -> None:
+    scripts_dir = PROJECT_ROOT / "scripts"
+    expected = {"validate-phase10-screenshot-parity.py"}
+    root_only = {
+        path.name
+        for path in scripts_dir.glob("validate-phase10-*.py")
+        if "os.geteuid() == 0" in path.read_text(encoding="utf-8")
+    }
+
+    assert root_only == expected
+    for name in sorted(expected):
+        source = (scripts_dir / name).read_text(encoding="utf-8")
+        assert source.index("sys.dont_write_bytecode = True") < source.index(
+            "from kodi_lab"
+        )

@@ -844,5 +844,21 @@ display, or D-0219 MCP handoff. It also adds no browser remote, navigation or
 player action, auto-refresh, keyboard/text input, noVNC/VNC, WebSocket/display
 port, tokens, client/session identity, agent/workspace authority, source
 promotion change, general log access, lifecycle command, shell, Git, or generic
-Docker/filesystem/process surface. Screenshot parity for Kodi 19.5, 20.5, and
-22 Beta 2 remains a later Phase 10 slice.
+Docker/filesystem/process surface.
+
+Phase 10 Slice 2 completes managed screenshot parity across the exact current
+curated revisions for Kodi 19.5 Legacy, 20.5 Current, 21.3 Current, and 22 Beta
+2 Preview. `ManagedScreenshotService`, the broker operation, Web routes, UI,
+latest-only cache, deletion behavior and migration `0035_managed_screenshots`
+remain common. The internal raw artifact now carries bounded server-observed X11
+layout metadata; conversion admits only the closed 1280x720 TrueColor depth-24,
+32-bpp, 32-bit-padded RGB888 representation. All four pinned images live-proved
+that same LSB-first representation, valid non-uniform PNG output, authenticated
+delivery and atomic replacement. Kodi 20.5 also proved failed-refresh retention.
+
+No migration or new public API was required. The mandatory screenshot portion
+of canonical Phase 10 is complete. D-0214/D-0215 browser remote and D-0217
+optional mediated interactive display remain separate work; D-0219 MCP remains
+Phase 11/12 handoff. Slice 2 adds none of those authorities and adds no generic
+exec, X11, artifact-transfer, Docker, filesystem, lifecycle, log, workspace,
+token, or agent surface.

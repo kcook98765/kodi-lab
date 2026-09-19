@@ -1312,3 +1312,42 @@ work. Lifecycle identity is revalidated immediately before publication. Slice 1
 adds no durable operation handle, remote control, input, interactive display,
 MCP, agent identity/authority, general logs, workspace exposure, source
 promotion, Git, shell, or Docker surface.
+
+## Phase 10 Slice 2 managed screenshot runtime parity
+
+Slice 2 completes the mandatory common screenshot abstraction across the four
+current curated RuntimeRevisions: Kodi 19.5 revision
+`51950000-0000-4000-8000-000000000005`, Kodi 20.5 revision
+`52000000-0000-4000-8000-000000000005`, Kodi 21.3 revision
+`3a000000-0000-4000-8000-000000000006`, and Kodi 22 Beta 2 revision
+`52200000-0000-4000-8000-000000000005`. Capability resolution loads the exact
+pinned revision and its immutable execution profile, then matches that closed
+set. A version string, nearby revision, or lookalike profile is insufficient.
+
+All four pinned images use the fixed non-network Xvfb `:99` root at 1280x720x24.
+The broker-owned X11 program now reads the server setup's root depth, pixmap
+format, image byte order, scanline padding, root visual class, bits-per-RGB and
+channel masks. It accepts only TrueColor depth 24, 32 bits per pixel, 32-bit
+scanline padding, RGB888 masks and a fully consistent row length. It writes a
+private versioned raw-frame envelope containing those observed fields plus the
+bounded framebuffer bytes. The unprivileged application independently parses
+that envelope, supports the closed LSB/MSB byte-order variants, and creates the
+same canonical RGB8 PNG. Unknown geometry or layout fails closed rather than
+being guessed or rescaled.
+
+Controlled sequential live validation proved all four exact revisions expose
+the same 1280x720, LSB-first, TrueColor 24/32-bpp RGB888 layout. Each produced a
+strictly valid, non-uniform initialized PNG, authenticated delivery, and atomic
+latest-only replacement. Kodi 20.5 additionally proved that an injected refresh
+failure retains the prior UUID, timestamp, metadata and bytes. No permitted
+preexisting deterministic UI mutation exists, so freshness validation used two
+independent captures without adding browser-remote authority; identical hashes
+are expected for an unchanged static framebuffer.
+
+There is no schema change: migration `0035_managed_screenshots`, cache,
+coordination, deletion, Web routes and UI remain runtime-neutral. Slice 2 adds
+no remote action, auto-refresh, interactive display, noVNC/VNC, keyboard input,
+MCP, token, agent, workspace, general-log, lifecycle, shell, Git, or generic
+Docker/X11/filesystem authority. The mandatory screenshot portion of Phase 10
+is complete; browser remote and the optional mediated interactive display remain
+separate later slices.

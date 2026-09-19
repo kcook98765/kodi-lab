@@ -451,22 +451,30 @@ post-write readback must match every expected type, mode, digest and profile
 UID/GID with no unexpected member. ZIP metadata never supplies runtime
 ownership or modes, and neither operation invokes Kodi's native installer.
 
-## Phase 10 Slice 1 screenshot operation
+## Phase 10 managed screenshot operation
 
-`capture_managed_kodi_screenshot` is the sole visual operation added by Slice 1.
+`capture_managed_kodi_screenshot` is the sole visual operation through Slice 2.
 Its strict request contains only canonical ManagedInstance UUID, expected
 64-hex managed container identity, expected RuntimeRevision UUID, and
 server-generated capture UUID. Trusted local persistence independently resolves
-the exact Kodi 21.3 stable profile and UUID-derived staging location.
+the UUID-derived staging location and one of the four exact current curated
+RuntimeRevision/profile identities for Kodi 19.5, 20.5, 21.3, or 22 Beta 2.
+Version strings or nearby RuntimeRevisions cannot establish capability.
 
 The pinned image does not contain an `xwd` executable. The Docker adapter
 therefore executes only one literal `/usr/bin/python3 -I -c <fixed-program>`
 argument vector. That broker-owned program performs X11 `GetImage` against the
-fixed Xvfb `:99` root window and emits one bounded RGB frame. Request schemas reject command, executable,
-argv, path, display, format, converter, timeout, Docker object, network address,
-and port fields. The selected container must have the exact Kodi Lab ownership
-and revision labels and be running and healthy both before and after capture.
-The raw RGB file is capped, private, mode 0600, removed on broker failure, and
-never transported in framed JSON. Broker results and audit fields contain only
-semantic UUIDs, the `x11_get_image` classification, and bounded byte count; they
-contain no artifact path, X display, command, container internals, or raw error.
+fixed Xvfb `:99` root and reads the server setup's root depth, pixmap format,
+image byte order, scanline padding, visual class, RGB precision and channel
+masks. Only the closed 1280x720 TrueColor depth-24, 32-bpp, 32-bit-padded RGB888
+layout is admitted. A versioned private envelope carries those observed fields
+and raw pixels to the unprivileged decoder; unfamiliar formats fail rather than
+being guessed. Request schemas reject command, executable, argv, path, display,
+format, converter, timeout, Docker object, network address, and port fields.
+
+The selected container must have the exact Kodi Lab ownership and revision
+labels and be running and healthy both before and after capture. The raw frame
+is capped, private, mode 0600, removed on broker failure, and never transported
+in framed JSON. Broker results and audit fields contain only semantic UUIDs, the
+`x11_get_image` classification, and bounded byte count; they contain no artifact
+path, X display, command, container internals, visual metadata, or raw error.

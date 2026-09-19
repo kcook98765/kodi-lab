@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import struct
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +41,7 @@ from kodi_lab.kodi.readiness import (
     ReadinessResult,
     UsabilityState,
 )
+from kodi_lab.kodi.screenshots import X11_FRAME_MAGIC
 from kodi_lab.snapshot.storage import delete_snapshot_artifact
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
@@ -53,8 +55,8 @@ from kodi_lab.storage.models import (
 from kodi_lab.web.app import create_app
 
 INSTANCE_ID = UUID("00000000-0000-4000-8000-000000000101")
-DEFINITION_ID = UUID("00000000-0000-4000-8000-000000000102")
-REVISION_ID = UUID("00000000-0000-4000-8000-000000000103")
+DEFINITION_ID = UUID("3a000000-0000-4000-8000-000000000001")
+REVISION_ID = UUID("3a000000-0000-4000-8000-000000000006")
 CONTAINER_ID = "a" * 64
 IMAGE_ID = "sha256:" + ("b" * 64)
 PASSWORD = "correct horse battery staple"
@@ -112,7 +114,22 @@ class FakeBroker:
         assert managed_instance_id == str(INSTANCE_ID)
         assert expected_container_id == CONTAINER_ID
         assert expected_runtime_revision_id == str(REVISION_ID)
-        raw = b"P6\n1280 720\n255\n" + (bytes((0x11, 0x22, 0x33)) * 1280 * 720)
+        raw = struct.pack(
+            ">8s12I",
+            X11_FRAME_MAGIC,
+            1280,
+            720,
+            24,
+            32,
+            0,
+            32,
+            1280 * 4,
+            4,
+            8,
+            0x00FF0000,
+            0x0000FF00,
+            0x000000FF,
+        ) + (bytes((0x33, 0x22, 0x11, 0)) * 1280 * 720)
         path = (
             self.snapshot_data_root
             / "screenshots"

@@ -32,15 +32,21 @@ from kodi_lab.kodi.screenshots import (
     PNG_MIME_TYPE,
     ScreenshotArtifactError,
     cleanup_capture_stage,
-    ppm_to_png,
+    is_supported_screenshot_runtime,
     prepare_capture_stage,
     publish_png,
     raw_capture_path,
     read_published_png,
     remove_published_png,
     validate_png,
+    x11_frame_to_png,
 )
-from kodi_lab.storage.models import ManagedScreenshotRow
+from kodi_lab.storage.models import (
+    ManagedScreenshotRow,
+    RuntimeDefinitionRow,
+    RuntimeExecutionProfileRow,
+    RuntimeRevisionRow,
+)
 
 LOGGER = logging.getLogger("kodi_lab.screenshot.audit")
 
@@ -140,8 +146,9 @@ class ManagedScreenshotService:
 
     def get_status(self, instance_id: UUID) -> ManagedScreenshotStatus:
         runtime = self._status.get(instance_id)
+        supported = self._runtime_supported(runtime.runtime_revision_id)
         available_now = (
-            runtime.kodi_version == "21.3"
+            supported
             and runtime.container_state is ContainerRuntimeState.RUNNING
             and runtime.process_state is KodiProcessState.RUNNING
             and runtime.usability_state is SemanticUsabilityState.USABLE
@@ -149,17 +156,17 @@ class ManagedScreenshotService:
         )
         with self._session_factory() as session:
             row = session.get(ManagedScreenshotRow, str(instance_id))
-            return self._project(instance_id, runtime.kodi_version, available_now, row)
+            return self._project(instance_id, supported, available_now, row)
 
     def capture(self, instance_id: UUID) -> ManagedScreenshotCaptureResult:
         capture_id = uuid4()
         requested_at = datetime.now(UTC)
         runtime = self._status.get(instance_id)
-        if runtime.kodi_version != "21.3":
+        if not self._runtime_supported(runtime.runtime_revision_id):
             self._record_failure(instance_id, requested_at, "screenshot_unsupported")
             raise ScreenshotServiceError(
                 "screenshot_unsupported",
-                "Screenshot capture is not supported for this runtime in Slice 1.",
+                "Screenshot capture is not supported for this runtime revision.",
             )
         if runtime.container_state is not ContainerRuntimeState.RUNNING:
             self._record_failure(
@@ -216,7 +223,7 @@ class ManagedScreenshotService:
                 raise ScreenshotArtifactError(
                     "Screenshot broker returned an unsupported backend."
                 )
-            png = ppm_to_png(raw)
+            png = x11_frame_to_png(raw)
             validated = validate_png(png)
             self._revalidate_container(instance_id, container_id)
             old_capture_id = self._current_capture_id(instance_id)
@@ -327,14 +334,14 @@ class ManagedScreenshotService:
     def _project(
         self,
         instance_id: UUID,
-        kodi_version: str,
+        supported: bool,
         available_now: bool,
         row: ManagedScreenshotRow | None,
     ) -> ManagedScreenshotStatus:
         if row is None:
             return ManagedScreenshotStatus(
                 managed_instance_id=instance_id,
-                screenshot_supported=kodi_version == "21.3",
+                screenshot_supported=supported,
                 screenshot_available_now=available_now,
                 latest_capture_available=False,
             )
@@ -356,7 +363,7 @@ class ManagedScreenshotService:
             age = max(0, int((datetime.now(UTC) - captured_at).total_seconds()))
         return ManagedScreenshotStatus(
             managed_instance_id=instance_id,
-            screenshot_supported=kodi_version == "21.3",
+            screenshot_supported=supported,
             screenshot_available_now=available_now,
             latest_capture_available=latest,
             capture_id=capture_id if latest else None,
@@ -369,6 +376,26 @@ class ManagedScreenshotService:
             last_attempt_at=self._timestamp_from_text(row.last_attempt_at),
             last_error_code=row.last_error_code,
         )
+
+    def _runtime_supported(self, runtime_revision_id: UUID) -> bool:
+        with self._session_factory() as session:
+            revision = session.get(RuntimeRevisionRow, str(runtime_revision_id))
+            profile = session.get(RuntimeExecutionProfileRow, str(runtime_revision_id))
+            if revision is None or profile is None:
+                return False
+            definition = session.get(
+                RuntimeDefinitionRow, revision.runtime_definition_id
+            )
+            if definition is None:
+                return False
+            return is_supported_screenshot_runtime(
+                runtime_revision_id=str(runtime_revision_id),
+                canonical_release=definition.kodi_version,
+                expected_application_name=profile.expected_application_name,
+                expected_kodi_version=profile.expected_kodi_version,
+                expected_version_tag=profile.expected_version_tag,
+                expected_prerelease_ordinal=profile.expected_prerelease_ordinal,
+            )
 
     def _current_capture_id(self, instance_id: UUID) -> UUID | None:
         with self._session_factory() as session:
