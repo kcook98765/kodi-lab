@@ -943,3 +943,28 @@ teardown; acceptance failure releases both instance and global capacity and
 does not emit a successful-start audit event. There is no migration. Phase 10
 remains implementation-complete pending a rerun of the formal completion
 review; this remediation does not declare Phase 10 complete.
+
+### Phase 10 formal completion checkpoint
+
+**Phase 10 — Browser remote/display: COMPLETE.** The independent closeout audit
+validated implementation checkpoint
+`9821463b22c1d03a619571455f24e22853c0134e`, Alembic head
+`0035_managed_screenshots`, and 1884 collected tests. It independently
+revalidated the bounded remote limiter and exception-safe display capacity,
+including many-key cardinality pressure and actual WebSocket accept failure.
+
+The completed V1 scope is four-runtime managed screenshot parity, four-runtime
+closed semantic browser-remote parity, and an explicit view-only mediated live
+display for exact curated Kodi 21.3. Authentication, CSRF/same-origin and trusted
+Host checks, strict request schemas, server-built JSON-RPC, at-most-once remote
+dispatch, lifecycle-winning coordination, exact runtime/container binding,
+session revalidation, zero-frame-queue backpressure, private ephemeral frame
+handling, and bounded audit/privacy semantics remain part of the completed
+boundary. No display-session, browser-remote, or Phase 11 schema was added.
+
+Approximately three-second screenshot auto-refresh, keyboard/full-text input,
+additional-runtime live-display parity, VNC/noVNC, and higher-frame-rate video
+remain optional future work. Phase 11 MCP architecture may begin only as a new
+separately reviewed milestone; Phase 10 introduced no MCP transport, token,
+client/agent identity, session-default target, schema/tool, or workspace
+exposure.

@@ -2983,3 +2983,22 @@ details that it did not specify.
   result/end reason, frame count, and aggregate bytes. Frames, pixels, per-frame
   hashes, endpoints, paths, container identities, credentials, and raw errors
   are excluded. No display-session table, frame table, or migration exists.
+
+## Phase 10 formal completion note
+
+The final independent closeout audit declared **Phase 10 — Browser
+remote/display: COMPLETE** against the current canonical V1 specification. The
+implementation checkpoint before documentation closeout is
+`9821463b22c1d03a619571455f24e22853c0134e`; the schema remains at the single
+Alembic head `0035_managed_screenshots`; and collection is 1884 tests. The
+earlier `pending formal review` status wording above records the implementation
+checkpoint at which D-0217 was approved; this note records the later formal
+review result without rewriting D-0211 through D-0218.
+
+Closeout revalidated four-runtime screenshot and closed browser-remote parity,
+exact Kodi 21.3 view-only live display, the bounded 10-actions/second burst-20
+remote limiter with 15-minute idle expiry and a 4,096-bucket ceiling, and
+exception-safe display capacity across WebSocket acceptance failure. Optional
+auto-refresh, keyboard/full-text, additional-runtime display parity, VNC/noVNC,
+and higher-frame-rate video remain future work. Phase 10 adds no MCP or agent
+authority.

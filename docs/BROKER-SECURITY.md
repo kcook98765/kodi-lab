@@ -453,7 +453,8 @@ ownership or modes, and neither operation invokes Kodi's native installer.
 
 ## Phase 10 managed screenshot operation
 
-`capture_managed_kodi_screenshot` is the sole visual operation through Slice 2.
+`capture_managed_kodi_screenshot` is the sole broker visual operation through
+the completed Phase 10 boundary.
 Its strict request contains only canonical ManagedInstance UUID, expected
 64-hex managed container identity, expected RuntimeRevision UUID, and
 server-generated capture UUID. Trusted local persistence independently resolves
@@ -478,3 +479,10 @@ is capped, private, mode 0600, removed on broker failure, and never transported
 in framed JSON. Broker results and audit fields contain only semantic UUIDs, the
 `x11_get_image` classification, and bounded byte count; they contain no artifact
 path, X display, command, container internals, visual metadata, or raw error.
+
+The exact Kodi 21.3 view-only live display reuses this operation unchanged. It
+adds no broker method, VNC/noVNC endpoint, browser/container connection, input
+channel, caller-selected path/display/command/format/rate/timeout, or generic
+execution authority. The unprivileged application consumes each private raw
+artifact through the same strict decoder and validator, removes staging, and
+keeps the resulting display PNG in memory only.

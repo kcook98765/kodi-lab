@@ -1458,3 +1458,29 @@ runtime rebuild, MCP/token/agent authority, general log surface, higher-rate
 video, or display parity beyond Kodi 21.3. With four-runtime screenshots,
 four-runtime semantic remote, and this mediated display path implemented, the
 required V1 Phase 10 scope is implementation-complete pending formal review.
+
+## Phase 10 formal completion
+
+**Phase 10 — Browser remote/display: COMPLETE.** The final formal completion
+review closed Phase 10 at implementation checkpoint
+`9821463b22c1d03a619571455f24e22853c0134e`, Alembic head
+`0035_managed_screenshots`, and 1884 collected tests. Managed screenshots and
+the closed semantic browser remote are live-proven across Kodi 19.5, 20.5,
+21.3, and 22 Beta 2. Exact curated Kodi 21.3 additionally provides the required
+explicit, view-only, same-origin mediated live-display path.
+
+The completed boundary includes a monotonic 15-minute idle TTL and hard
+4,096-entry ceiling for session-plus-instance remote rate buckets, plus
+exception-safe display capacity from acquisition through WebSocket acceptance
+and teardown. The browser cannot reach Kodi JSON-RPC, X11, VNC, or a container
+display directly; cannot choose Kodi methods, parameters, players, screenshot
+commands, paths, display backends, rates, formats, or timeouts; and cannot send
+keyboard, pointer, text, or control messages over the display WebSocket. Live
+frames are validated PNG bytes held only in memory after private raw staging is
+removed, and they neither queue nor alter the durable latest-screenshot cache.
+
+Optional future visual features remain non-blocking: approximately three-second
+screenshot auto-refresh, keyboard/full-text input, live-display parity for
+additional runtimes, VNC/noVNC, and higher-frame-rate video. MCP transport,
+tokens, client/agent identity, target selection, schemas/tools, and workspace
+exposure remain Phase 11/12 work and were not introduced by Phase 10.
