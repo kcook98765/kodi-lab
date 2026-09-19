@@ -2884,10 +2884,55 @@ details that it did not specify.
   are safe. Container identity, X display, command, network, host/storage path,
   Docker data, and raw failure are private.
 
+## D-0217: Interactive display is one bounded view-only screenshot stream
+
+- Status: approved and implemented for exact curated Kodi 21.3; Phase 10
+  implementation is complete pending formal review
+- Decision: authenticated local Web administrators may explicitly open one
+  same-origin WebSocket for a ManagedInstance UUID. The server sends only
+  strictly validated binary PNG frames at a hard maximum of one frame per
+  second. Support is limited to RuntimeRevision
+  `3a000000-0000-4000-8000-000000000006` and its exact immutable Kodi 21.3
+  profile. Every other runtime is `display_unsupported`; screenshot support on
+  the four-runtime matrix does not imply display support.
+- Backend: the application reuses `capture_managed_kodi_screenshot` and the
+  existing raw-frame decoder, PNG encoder, and strict PNG validator. Stream
+  capture deletes its private raw staging artifact after every attempt and
+  returns validated PNG bytes in memory. It performs no screenshot metadata
+  write, durable PNG publication, latest-cache replacement, frame history, or
+  per-frame audit. There is no new broker operation or schema.
+- Authority: handshake requires the existing opaque local-admin session,
+  trusted Host, exact Origin, no query string, and only a UUID route value.
+  Authentication is re-resolved at least once per frame interval. There is no
+  bearer URL, stream token, caller-selected rate, format, backend, timeout,
+  path, endpoint, X display, or container identity. Browser data messages are
+  protocol violations; keyboard, pointer, text, JSON, and control commands are
+  never interpreted. All input remains on D-0214's semantic HTTP remote.
+- Bounds: capture, validation, one bounded two-second send, then monotonic wait
+  is strictly sequential, so queued-frame capacity is zero. Slow capture or
+  send lowers delivered rate and never creates catch-up work. One session per
+  instance, two globally, and a 15-minute hard lifetime are process-local
+  limits. A server-generated display-session UUID is correlation metadata, not
+  a credential.
+- Lifecycle and identity: the session binds instance, exact RuntimeRevision,
+  exact profile, and managed container identity. Running/healthy/usable state,
+  reconciliation, session validity, support, and identity are revalidated for
+  every frame. Durable mutation reservation signals process-local display
+  cancellation and proceeds without waiting; an in-flight capture can produce
+  no frame after failed post-capture revalidation. A replacement runtime is
+  never adopted automatically.
+- Presentation: the latest durable screenshot remains the default. Live display
+  starts only from an explicit button, replaces the image visually, is marked
+  `Live · up to 1 fps`, and has an explicit Stop. Close or error restores the
+  latest durable screenshot when present. The frame is non-interactive and the
+  semantic remote remains visible and independent. There is no VNC/noVNC,
+  keyboard, pointer, full-text, video, image rebuild, or additional-runtime
+  parity in this decision.
+
 ## D-0218: Visual privacy, errors, audit, and bounds are closed semantics
 
 - Status: approved and implemented for screenshots and browser remote across the
-  four exact curated Kodi revisions; interactive display remains unimplemented
+  four exact curated Kodi revisions and live display on exact Kodi 21.3
 - Privacy/validation: retrieval is authenticated with `image/png`, `no-store`,
   `nosniff`, same-origin CSP, and inline disposition. Strict validation requires
   the PNG signature, exact chunks/checksums, complete decompression, no trailing
@@ -2918,3 +2963,16 @@ details that it did not specify.
 - Rate bound: an in-process token bucket keyed by Web session plus instance
   allows 10 actions/second with burst 20 and returns `visual_rate_limited`
   before dispatch. Buckets are not persisted.
+- Display subset: the path-free projection adds `display_supported`,
+  `display_available_now`, and `display_backend=live_screenshot_stream` only for
+  the exact Kodi 21.3 profile. Stable display classifications are
+  `managed_instance_not_found`, `display_unsupported`, `display_unavailable`,
+  `display_instance_not_running`, `display_kodi_not_ready`, `display_conflict`,
+  `display_rate_limited`, `display_session_expired`, and
+  `display_backend_failed`. Raw X11, Docker, broker, socket, decoder, filesystem,
+  network, endpoint, path, and container detail never escapes.
+- Display audit is session-level only: bounded start/end events contain the
+  display-session and instance UUIDs, Web/local-admin markers, timestamps, safe
+  result/end reason, frame count, and aggregate bytes. Frames, pixels, per-frame
+  hashes, endpoints, paths, container identities, credentials, and raw errors
+  are excluded. No display-session table, frame table, or migration exists.

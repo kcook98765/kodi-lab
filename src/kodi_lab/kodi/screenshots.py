@@ -53,6 +53,15 @@ SUPPORTED_SCREENSHOT_RUNTIME_PROFILES = {
         2,
     ),
 }
+SUPPORTED_LIVE_DISPLAY_RUNTIME_PROFILES = {
+    "3a000000-0000-4000-8000-000000000006": (
+        "21.3",
+        "Kodi",
+        "21.3",
+        "stable",
+        None,
+    ),
+}
 _XWD_HEADER_WORDS = 25
 _XWD_HEADER_SIZE = _XWD_HEADER_WORDS * 4
 
@@ -108,6 +117,26 @@ def is_supported_screenshot_runtime(
     """Match one exact curated runtime profile, never a broad version rule."""
 
     return SUPPORTED_SCREENSHOT_RUNTIME_PROFILES.get(runtime_revision_id) == (
+        canonical_release,
+        expected_application_name,
+        expected_kodi_version,
+        expected_version_tag,
+        expected_prerelease_ordinal,
+    )
+
+
+def is_supported_live_display_runtime(
+    *,
+    runtime_revision_id: str,
+    canonical_release: str,
+    expected_application_name: str,
+    expected_kodi_version: str,
+    expected_version_tag: str,
+    expected_prerelease_ordinal: int | None,
+) -> bool:
+    """Match only the exact curated Kodi 21.3 display profile."""
+
+    return SUPPORTED_LIVE_DISPLAY_RUNTIME_PROFILES.get(runtime_revision_id) == (
         canonical_release,
         expected_application_name,
         expected_kodi_version,

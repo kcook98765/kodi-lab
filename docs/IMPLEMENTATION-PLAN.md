@@ -898,3 +898,35 @@ isolation passed for every runtime. There is no migration. D-0214, D-0215, and
 the browser-remote portion of D-0218 are complete across the curated matrix.
 D-0217 mediated interactive display remains unimplemented and is not started by
 this checkpoint.
+
+### Phase 10 Slice 4 implementation-complete checkpoint
+
+Exact curated Kodi 21.3 now has one authenticated same-origin view-only live
+display under D-0217 and the display subset of D-0218. The browser explicitly
+opens a WebSocket that receives validated binary PNG only, at no more than one
+frame per second. There is one stream per instance, two globally, a 15-minute
+hard lifetime, a two-second send bound, and zero queued frames. Session and
+runtime identity are revalidated every interval; process-local cancellation
+lets lifecycle and other conflicting mutations proceed immediately.
+
+The stream reuses `capture_managed_kodi_screenshot` and the common application
+raw-frame decode, PNG encode, and validation path. Ephemeral frames are returned
+in memory after raw staging cleanup and never create or update screenshot
+metadata, publish a durable PNG, replace the latest cache, or emit per-frame
+audit. Manual screenshots and post-navigation durable refresh remain unchanged.
+The visual projection adds only `display_supported`, `display_available_now`,
+and `display_backend`; all non-21.3 runtimes are `display_unsupported`.
+
+The UI defaults to the latest screenshot, starts live display only explicitly,
+keeps the semantic HTTP remote visible, and restores the durable screenshot on
+close. Client messages are rejected and the frame has no keyboard or pointer
+authority. There is no migration, new broker operation, VNC/noVNC, image/runtime
+rebuild, MCP, token, agent authority, general logs, higher-FPS video, or
+additional-runtime display parity.
+
+The required V1 Phase 10 implementation now consists of four-runtime managed
+screenshots, four-runtime semantic browser remote, and one mediated interactive
+display path. It is **implementation-complete pending formal review**. Optional
+future items—3-second auto-refresh, keyboard/full-text, additional-runtime
+display parity, VNC/noVNC, higher-FPS video, and MCP—are not Phase 10 completion
+requirements and remain unimplemented.

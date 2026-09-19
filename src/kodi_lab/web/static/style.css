@@ -27,4 +27,5 @@ dd { margin: 0; }
 .matrix-table tr[data-availability="unavailable"], .matrix-table tr[data-availability="historical_only"] { border-left: .3rem solid #888; }
 .secondary { opacity: .75; }
 .instance-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
-.managed-screenshot { display: block; width: min(100%, 1280px); height: auto; border: 1px solid #9ca3af; background: #111827; }
+.managed-screenshot { display: block; width: min(100%, 1280px); height: auto; border: 1px solid #9ca3af; background: #111827; pointer-events: none; user-select: none; }
+.live-display { margin-top: 1rem; }

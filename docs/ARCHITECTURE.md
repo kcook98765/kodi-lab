@@ -1396,3 +1396,59 @@ idle fixture. PNG hashes changed for visible navigation transitions without OCR.
 Each disposable instance was deleted, the managed network was left empty,
 production roots remained absent, and protected fingerprints were unchanged.
 Mediated interactive display remains unimplemented.
+
+## Phase 10 Slice 4 mediated Kodi 21.3 live display
+
+Slice 4 implements D-0217 and the display subset of D-0218 as one authenticated,
+same-origin, view-only WebSocket carrying validated binary PNG frames. Capability
+matches only exact RuntimeRevision `3a000000-0000-4000-8000-000000000006` and
+its immutable Kodi 21.3 stable execution profile. Other curated runtimes return
+`display_unsupported` even though their manual screenshot and semantic remote
+capabilities remain complete. The visual projection exposes only
+`display_supported`, `display_available_now`, and
+`display_backend=live_screenshot_stream`.
+
+`ManagedLiveDisplayService` binds the instance, revision, profile, and exact
+managed container identity. It requires running, healthy, usable,
+unreconciled state and revalidates those facts plus the authenticated server
+session once per frame interval. A process-local registry admits one stream per
+instance and two globally, assigns a non-credential display-session UUID,
+enforces a 15-minute hard lifetime, and provides cancellation. Central mutation
+reservation signals cancellation before lifecycle, reset/restore, deletion,
+runtime reassignment, deployment/install/replacement, or promotion verification
+proceeds. Display never holds a durable mutation lease and never causes a
+lifecycle operation to wait.
+
+The display backend calls the existing `capture_managed_kodi_screenshot`
+operation. `ManagedScreenshotService` now has one shared private capture path
+that performs the broker handoff, reads the UUID-derived raw artifact, uses the
+same X11 decoder and PNG encoder, strictly validates the 1280×720 RGB8 PNG, and
+revalidates container identity. Durable manual refresh publishes that result as
+before. Ephemeral display capture instead returns the validated bytes in memory
+and always removes raw staging. It creates no screenshot row, durable PNG,
+cache replacement, frame history, or per-frame audit event.
+
+The WebSocket accepts no query options or credentials and no browser messages.
+Only binary PNG travels server-to-browser. Capture, validation, one send with a
+two-second timeout, and monotonic scheduling are sequential: at most one frame
+is in flight, queued-frame capacity is zero, rate is at most one frame/second,
+and slow work reduces the effective rate without catch-up. Logout, password
+change, idle/absolute expiry, session deletion, reconciliation, lifecycle
+cancellation, support/profile change, container replacement, or runtime
+unavailability terminates the exact stream without retry or adoption.
+
+The instance page continues to default to the independent latest durable
+screenshot. Live display starts only by explicit action, is labeled
+`Live · up to 1 fps`, leaves the existing semantic remote visible, and restores
+the latest screenshot on stop/error. The frame has no keyboard focus, click, or
+pointer behavior. Remote actions continue through the existing authenticated
+HTTP route; navigation keeps its one durable post-action screenshot refresh and
+later live frames reflect the changed Kodi framebuffer.
+
+Session-level audit records only bounded UUIDs, Web/local-admin markers,
+timestamps, safe end reason, frame count, and aggregate bytes. There is no
+migration, new broker operation, VNC/noVNC, keyboard/pointer/text input, image or
+runtime rebuild, MCP/token/agent authority, general log surface, higher-rate
+video, or display parity beyond Kodi 21.3. With four-runtime screenshots,
+four-runtime semantic remote, and this mediated display path implemented, the
+required V1 Phase 10 scope is implementation-complete pending formal review.

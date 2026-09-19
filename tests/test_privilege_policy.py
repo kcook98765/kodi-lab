@@ -92,6 +92,7 @@ def test_root_only_phase10_validators_disable_bytecode_before_project_imports() 
     scripts_dir = PROJECT_ROOT / "scripts"
     expected = {
         "validate-phase10-browser-remote.py",
+        "validate-phase10-live-display.py",
         "validate-phase10-screenshot-parity.py",
     }
     root_only = {

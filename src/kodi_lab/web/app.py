@@ -5,16 +5,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import (
+    Body,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -195,6 +206,11 @@ from kodi_lab.application.instance_history import (
 from kodi_lab.application.lifecycle_operations import (
     LifecycleOperationConflictError,
     ManagedInstanceLifecycleOperationCoordinator,
+)
+from kodi_lab.application.live_display import (
+    LiveDisplayError,
+    LiveDisplayFrameSkipped,
+    ManagedLiveDisplayService,
 )
 from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
@@ -698,6 +714,7 @@ class WebApplicationContext:
     screenshots: ManagedScreenshotService
     browser_remote: BrowserRemoteService
     browser_remote_rate_limiter: BrowserRemoteRateLimiter
+    live_display: ManagedLiveDisplayService
 
 
 def create_app(
@@ -752,6 +769,7 @@ def create_app(
     browser_remote_service: BrowserRemoteService | None = None,
     browser_remote_rate_limiter: BrowserRemoteRateLimiter | None = None,
     browser_remote_adapter_factory: RemoteAdapterFactory | None = None,
+    managed_live_display_service: ManagedLiveDisplayService | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -801,6 +819,9 @@ def create_app(
         adapter_factory=(browser_remote_adapter_factory or KodiBrowserRemoteAdapter),
     )
     remote_rate_limiter = browser_remote_rate_limiter or BrowserRemoteRateLimiter()
+    live_display = managed_live_display_service or ManagedLiveDisplayService(
+        broker, status_service, reconciliation, screenshots
+    )
     reset_status_service = ResetStatusService(
         session_factory, broker, reset_registry, reset_operations
     )
@@ -1208,6 +1229,7 @@ def create_app(
         screenshots=screenshots,
         browser_remote=browser_remote,
         browser_remote_rate_limiter=remote_rate_limiter,
+        live_display=live_display,
     )
 
     @asynccontextmanager
@@ -1274,7 +1296,8 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+            "img-src 'self' blob:; connect-src 'self'; object-src 'none'; "
+            "base-uri 'none'; frame-ancestors 'none'"
         )
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -2861,6 +2884,92 @@ def create_app(
     ) -> ManagedScreenshotStatus:
         return context.screenshots.get_status(instance_id)
 
+    @app.websocket("/api/instances/{instance_id}/display")
+    async def stream_instance_display(websocket: WebSocket, instance_id: UUID) -> None:
+        token = websocket.cookies.get(settings.web_session_cookie_name)
+        if context.auth.resolve(token) is None:
+            await websocket.close(code=4401, reason="display_session_expired")
+            return
+        if websocket.scope.get("query_string", b""):
+            await websocket.close(code=4403, reason="display_unavailable")
+            return
+        if not _websocket_same_origin(websocket):
+            await websocket.close(code=4403, reason="display_unavailable")
+            return
+        try:
+            display_session = context.live_display.begin(instance_id)
+        except ManagedInstanceNotFoundError:
+            await websocket.close(code=4404, reason="managed_instance_not_found")
+            return
+        except LiveDisplayError as error:
+            await websocket.close(code=4409, reason=error.code)
+            return
+
+        await websocket.accept()
+        end_reason = "display_unavailable"
+        try:
+            while True:
+                if context.auth.resolve(token) is None:
+                    raise LiveDisplayError(
+                        "display_session_expired",
+                        "The authenticated Web session is no longer valid.",
+                    )
+                capture_started = asyncio.get_running_loop().time()
+                try:
+                    frame = await asyncio.to_thread(
+                        context.live_display.capture, display_session
+                    )
+                except LiveDisplayFrameSkipped:
+                    try:
+                        message = await asyncio.wait_for(
+                            websocket.receive(), timeout=1.0
+                        )
+                    except TimeoutError:
+                        continue
+                    if message["type"] == "websocket.disconnect":
+                        end_reason = "display_stopped"
+                        break
+                    raise LiveDisplayError(
+                        "display_unavailable",
+                        "Browser data messages are not accepted on live display.",
+                    ) from None
+                if context.auth.resolve(token) is None:
+                    raise LiveDisplayError(
+                        "display_session_expired",
+                        "The authenticated Web session is no longer valid.",
+                    )
+                try:
+                    await asyncio.wait_for(websocket.send_bytes(frame.png), timeout=2.0)
+                except TimeoutError as error:
+                    raise LiveDisplayError(
+                        "display_backend_failed",
+                        "The browser did not accept the frame in time.",
+                    ) from error
+                context.live_display.record_delivery(display_session, frame.byte_size)
+                delay = max(
+                    0.05,
+                    capture_started + 1.0 - asyncio.get_running_loop().time(),
+                )
+                try:
+                    message = await asyncio.wait_for(websocket.receive(), timeout=delay)
+                except TimeoutError:
+                    continue
+                if message["type"] == "websocket.disconnect":
+                    end_reason = "display_stopped"
+                    break
+                raise LiveDisplayError(
+                    "display_unavailable",
+                    "Browser data messages are not accepted on live display.",
+                )
+        except LiveDisplayError as error:
+            end_reason = error.code
+            with suppress(RuntimeError, WebSocketDisconnect):
+                await websocket.close(code=1008, reason=error.code)
+        except WebSocketDisconnect:
+            end_reason = "display_stopped"
+        finally:
+            context.live_display.end(display_session, end_reason)
+
     @app.post(
         "/api/instances/{instance_id}/screenshots",
         response_model=ManagedScreenshotCaptureResult,
@@ -3514,6 +3623,21 @@ def _require_same_origin(request: Request) -> None:
     parsed = urlsplit(referer)
     if (parsed.scheme.lower(), parsed.netloc.lower()) != expected:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+
+def _websocket_same_origin(websocket: WebSocket) -> bool:
+    origin = websocket.headers.get("origin")
+    if origin is None:
+        return False
+    parsed = urlsplit(origin)
+    expected_scheme = "https" if websocket.url.scheme == "wss" else "http"
+    return (
+        parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+        and parsed.scheme.lower() == expected_scheme
+        and parsed.netloc.lower() == websocket.url.netloc.lower()
+    )
 
 
 def _selection_bool(value: Literal["false", "true"]) -> bool:

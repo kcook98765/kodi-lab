@@ -14,6 +14,7 @@
     <script src="{{ url_for('static', path='/addon-zip-smoke.js') }}" defer></script>
     <script src="{{ url_for('static', path='/managed-screenshot.js') }}" defer></script>
     <script src="{{ url_for('static', path='/browser-remote.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/live-display.js') }}" defer></script>
   </head>
   <body>
     <main>
@@ -51,11 +52,19 @@
         </dl>
         <p data-screenshot-metadata class="secondary">{% if visual.latest_capture_available %}Captured {{ visual.captured_at }} ({{ visual.age_seconds }} seconds ago) · {{ visual.width }}×{{ visual.height }} · {{ visual.byte_size }} bytes{% else %}No current screenshot metadata.{% endif %}</p>
         <div data-screenshot-image-container{% if not visual.latest_capture_available %} hidden{% endif %}>
-          <img class="managed-screenshot" data-screenshot-image src="/api/instances/{{ detail.runtime.managed_instance_id }}/screenshots/latest" alt="Latest Kodi screenshot">
+          <img class="managed-screenshot" data-screenshot-image src="/api/instances/{{ detail.runtime.managed_instance_id }}/screenshots/latest" alt="Latest Kodi screenshot" draggable="false">
         </div>
         {% if not visual.latest_capture_available %}<p data-screenshot-empty>No screenshot has been captured.</p>{% endif %}
         <button type="button" data-screenshot-refresh{% if not visual.screenshot_available_now %} disabled{% endif %}>Refresh screenshot</button>
         <p data-screenshot-status class="secondary" role="status"{% if not visual.last_error_code %} hidden{% endif %}>{% if visual.last_error_code %}Last refresh failed: {{ visual.last_error_code|replace('_', ' ') }}. The prior valid screenshot, if any, was retained.{% endif %}</p>
+        <section class="live-display" data-live-display data-display-supported="{{ 'true' if visual.display_supported else 'false' }}" data-display-available="{{ 'true' if visual.display_available_now else 'false' }}">
+          <h3>Live display</h3>
+          <p class="secondary">{% if visual.display_supported %}View-only mediated display for exact Kodi 21.3. All input remains on the semantic browser remote.{% else %}display_unsupported{% endif %}</p>
+          <button type="button" data-live-start{% if not visual.display_available_now %} disabled{% endif %}>Live display</button>
+          <button type="button" data-live-stop hidden>Stop</button>
+          <p data-live-label class="secondary" hidden>Live · up to 1 fps</p>
+          <p data-live-status class="secondary" role="status" hidden></p>
+        </section>
         {% if remote_available %}
         <section class="browser-remote" data-browser-remote>
           <h3>Browser remote</h3>

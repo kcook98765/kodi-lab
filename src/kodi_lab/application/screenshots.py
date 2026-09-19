@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
@@ -32,6 +33,7 @@ from kodi_lab.kodi.screenshots import (
     PNG_MIME_TYPE,
     ScreenshotArtifactError,
     cleanup_capture_stage,
+    is_supported_live_display_runtime,
     is_supported_screenshot_runtime,
     prepare_capture_stage,
     publish_png,
@@ -64,6 +66,9 @@ class ManagedScreenshotStatus(BaseModel):
     managed_instance_id: UUID
     screenshot_supported: bool
     screenshot_available_now: bool
+    display_supported: bool
+    display_available_now: bool
+    display_backend: str | None = Field(default=None, max_length=64)
     latest_capture_available: bool
     capture_id: UUID | None = None
     captured_at: datetime | None = None
@@ -81,6 +86,18 @@ class ManagedScreenshotCaptureResult(BaseModel):
 
     capture_id: UUID
     screenshot: ManagedScreenshotStatus
+
+
+@dataclass(frozen=True, slots=True)
+class EphemeralPngFrame:
+    """Validated private frame bytes that have never entered the durable cache."""
+
+    png: bytes
+    width: int
+    height: int
+    byte_size: int
+    container_id: str
+    runtime_revision_id: UUID
 
 
 class _ScreenshotBroker(Protocol):
@@ -147,6 +164,7 @@ class ManagedScreenshotService:
     def get_status(self, instance_id: UUID) -> ManagedScreenshotStatus:
         runtime = self._status.get(instance_id)
         supported = self._runtime_supported(runtime.runtime_revision_id)
+        display_supported = self._display_runtime_supported(runtime.runtime_revision_id)
         available_now = (
             supported
             and runtime.container_state is ContainerRuntimeState.RUNNING
@@ -156,7 +174,14 @@ class ManagedScreenshotService:
         )
         with self._session_factory() as session:
             row = session.get(ManagedScreenshotRow, str(instance_id))
-            return self._project(instance_id, supported, available_now, row)
+            return self._project(
+                instance_id,
+                supported,
+                available_now,
+                display_supported,
+                display_supported and available_now,
+                row,
+            )
 
     def capture(self, instance_id: UUID) -> ManagedScreenshotCaptureResult:
         capture_id = uuid4()
@@ -193,45 +218,21 @@ class ManagedScreenshotService:
             )
 
         self._coordinator.acquire(instance_id)
-        stage_prepared = False
         published = False
         try:
             container_id = self._eligible_container(instance_id)
-            prepare_capture_stage(self._data_root, capture_id)
-            stage_prepared = True
-            outcome = self._broker.capture_managed_kodi_screenshot(
-                managed_instance_id=str(instance_id),
-                expected_container_id=container_id,
-                expected_runtime_revision_id=str(runtime.runtime_revision_id),
-                capture_id=str(capture_id),
+            frame = self._capture_validated_frame(
+                instance_id=instance_id,
+                runtime_revision_id=runtime.runtime_revision_id,
+                container_id=container_id,
+                capture_id=capture_id,
             )
-            if (
-                outcome.capture_id != str(capture_id)
-                or outcome.container_id != container_id
-                or outcome.runtime_revision_id != str(runtime.runtime_revision_id)
-            ):
-                raise ScreenshotServiceError(
-                    "screenshot_capture_unavailable",
-                    "Screenshot runtime identity changed during capture.",
-                )
-            raw = raw_capture_path(self._data_root, capture_id).read_bytes()
-            if len(raw) != outcome.raw_byte_size:
-                raise ScreenshotArtifactError(
-                    "Screenshot raw artifact size differs from broker result."
-                )
-            if outcome.backend != "x11_get_image":
-                raise ScreenshotArtifactError(
-                    "Screenshot broker returned an unsupported backend."
-                )
-            png = x11_frame_to_png(raw)
-            validated = validate_png(png)
-            self._revalidate_container(instance_id, container_id)
             old_capture_id = self._current_capture_id(instance_id)
             publish_png(
                 data_root=self._data_root,
                 instance_id=instance_id,
                 capture_id=capture_id,
-                png=png,
+                png=frame.png,
             )
             published = True
             captured_at = datetime.now(UTC)
@@ -239,9 +240,9 @@ class ManagedScreenshotService:
                 instance_id=instance_id,
                 capture_id=capture_id,
                 captured_at=captured_at,
-                width=validated.width,
-                height=validated.height,
-                byte_size=validated.byte_size,
+                width=frame.width,
+                height=frame.height,
+                byte_size=frame.byte_size,
             )
             if old_capture_id is not None and old_capture_id != capture_id:
                 remove_published_png(self._data_root, instance_id, old_capture_id)
@@ -259,9 +260,9 @@ class ManagedScreenshotService:
                     "requested_at": requested_at.isoformat(),
                     "completed_at": captured_at.isoformat(),
                     "result": "succeeded",
-                    "byte_count": validated.byte_size,
-                    "width": validated.width,
-                    "height": validated.height,
+                    "byte_count": frame.byte_size,
+                    "width": frame.width,
+                    "height": frame.height,
                 },
             )
             return result
@@ -281,9 +282,83 @@ class ManagedScreenshotService:
         finally:
             if published and self._current_capture_id(instance_id) != capture_id:
                 remove_published_png(self._data_root, instance_id, capture_id)
-            if stage_prepared:
-                cleanup_capture_stage(self._data_root, capture_id)
             self._coordinator.release(instance_id)
+
+    def capture_ephemeral(
+        self,
+        instance_id: UUID,
+        *,
+        expected_runtime_revision_id: UUID,
+        expected_container_id: str,
+    ) -> EphemeralPngFrame:
+        """Capture one validated frame without cache publication, metadata, or audit."""
+
+        self._coordinator.acquire(instance_id)
+        try:
+            return self._capture_validated_frame(
+                instance_id=instance_id,
+                runtime_revision_id=expected_runtime_revision_id,
+                container_id=expected_container_id,
+                capture_id=uuid4(),
+            )
+        finally:
+            self._coordinator.release(instance_id)
+
+    def _capture_validated_frame(
+        self,
+        *,
+        instance_id: UUID,
+        runtime_revision_id: UUID,
+        container_id: str,
+        capture_id: UUID,
+    ) -> EphemeralPngFrame:
+        prepared = False
+        try:
+            if self._eligible_container(instance_id) != container_id:
+                raise ScreenshotServiceError(
+                    "screenshot_capture_unavailable",
+                    "Managed runtime identity changed before capture.",
+                )
+            prepare_capture_stage(self._data_root, capture_id)
+            prepared = True
+            outcome = self._broker.capture_managed_kodi_screenshot(
+                managed_instance_id=str(instance_id),
+                expected_container_id=container_id,
+                expected_runtime_revision_id=str(runtime_revision_id),
+                capture_id=str(capture_id),
+            )
+            if (
+                outcome.capture_id != str(capture_id)
+                or outcome.container_id != container_id
+                or outcome.runtime_revision_id != str(runtime_revision_id)
+            ):
+                raise ScreenshotServiceError(
+                    "screenshot_capture_unavailable",
+                    "Screenshot runtime identity changed during capture.",
+                )
+            raw = raw_capture_path(self._data_root, capture_id).read_bytes()
+            if len(raw) != outcome.raw_byte_size:
+                raise ScreenshotArtifactError(
+                    "Screenshot raw artifact size differs from broker result."
+                )
+            if outcome.backend != "x11_get_image":
+                raise ScreenshotArtifactError(
+                    "Screenshot broker returned an unsupported backend."
+                )
+            png = x11_frame_to_png(raw)
+            validated = validate_png(png)
+            self._revalidate_container(instance_id, container_id)
+            return EphemeralPngFrame(
+                png=png,
+                width=validated.width,
+                height=validated.height,
+                byte_size=validated.byte_size,
+                container_id=container_id,
+                runtime_revision_id=runtime_revision_id,
+            )
+        finally:
+            if prepared:
+                cleanup_capture_stage(self._data_root, capture_id)
 
     def latest_png(self, instance_id: UUID) -> bytes:
         self._status.get(instance_id)
@@ -336,6 +411,8 @@ class ManagedScreenshotService:
         instance_id: UUID,
         supported: bool,
         available_now: bool,
+        display_supported: bool,
+        display_available_now: bool,
         row: ManagedScreenshotRow | None,
     ) -> ManagedScreenshotStatus:
         if row is None:
@@ -343,6 +420,11 @@ class ManagedScreenshotService:
                 managed_instance_id=instance_id,
                 screenshot_supported=supported,
                 screenshot_available_now=available_now,
+                display_supported=display_supported,
+                display_available_now=display_available_now,
+                display_backend=(
+                    "live_screenshot_stream" if display_supported else None
+                ),
                 latest_capture_available=False,
             )
         capture_id = None if row.capture_id is None else UUID(row.capture_id)
@@ -365,6 +447,9 @@ class ManagedScreenshotService:
             managed_instance_id=instance_id,
             screenshot_supported=supported,
             screenshot_available_now=available_now,
+            display_supported=display_supported,
+            display_available_now=display_available_now,
+            display_backend="live_screenshot_stream" if display_supported else None,
             latest_capture_available=latest,
             capture_id=capture_id if latest else None,
             captured_at=captured_at if latest else None,
@@ -389,6 +474,26 @@ class ManagedScreenshotService:
             if definition is None:
                 return False
             return is_supported_screenshot_runtime(
+                runtime_revision_id=str(runtime_revision_id),
+                canonical_release=definition.kodi_version,
+                expected_application_name=profile.expected_application_name,
+                expected_kodi_version=profile.expected_kodi_version,
+                expected_version_tag=profile.expected_version_tag,
+                expected_prerelease_ordinal=profile.expected_prerelease_ordinal,
+            )
+
+    def _display_runtime_supported(self, runtime_revision_id: UUID) -> bool:
+        with self._session_factory() as session:
+            revision = session.get(RuntimeRevisionRow, str(runtime_revision_id))
+            profile = session.get(RuntimeExecutionProfileRow, str(runtime_revision_id))
+            if revision is None or profile is None:
+                return False
+            definition = session.get(
+                RuntimeDefinitionRow, revision.runtime_definition_id
+            )
+            if definition is None:
+                return False
+            return is_supported_live_display_runtime(
                 runtime_revision_id=str(runtime_revision_id),
                 canonical_release=definition.kodi_version,
                 expected_application_name=profile.expected_application_name,

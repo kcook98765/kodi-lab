@@ -5990,7 +5990,9 @@ class ManagedInstanceMutationLeaseRepository:
         from kodi_lab.application.browser_remote_coordination import (
             require_no_active_browser_remote,
         )
+        from kodi_lab.application.live_display import cancel_active_live_display
 
+        cancel_active_live_display(instance_id)
         require_no_active_browser_remote(instance_id)
         self._session.add(
             ManagedInstanceMutationLeaseRow(
