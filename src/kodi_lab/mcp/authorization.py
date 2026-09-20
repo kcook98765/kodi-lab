@@ -24,6 +24,7 @@ from kodi_lab.domain import (
     AgentWorkspaceState,
     DevelopmentSource,
     DevelopmentSourceKind,
+    InstanceType,
 )
 from kodi_lab.kodi.remote import REMOTE_RUNTIME_REVISION_IDS
 from kodi_lab.mcp.registry import (
@@ -85,9 +86,16 @@ class InternalManagedTargetAuthorityProvider:
     def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
         capabilities = {"managed_runtime_status", "addon_inventory"}
         states: set[str] = set()
-        if self._session_factory is not None and self._screenshots is not None:
+        instance = None
+        if self._session_factory is not None:
             with self._session_factory() as session:
                 instance = session.get(ManagedInstanceRow, str(target_id))
+            if (
+                instance is not None
+                and instance.instance_type is InstanceType.DISPOSABLE
+            ):
+                capabilities.update({"workspace_deployment", "workspace_execution"})
+        if instance is not None and self._screenshots is not None:
             if instance is not None and self._screenshots.supports_runtime_revision(
                 UUID(instance.runtime_revision_id)
             ):
@@ -358,6 +366,77 @@ class McpAuthorizationService:
         if "ready" in definition.required_states and (
             workspace.state is not AgentWorkspaceState.READY
         ):
+            raise McpAuthorizationError("workspace_not_ready")
+        return workspace
+
+    def authorize_workspace_target(
+        self,
+        principal: McpPrincipal,
+        tool_name: str,
+        workspace_id: UUID,
+        target_id: UUID,
+    ) -> AgentWorkspace:
+        """Intersect exact workspace ownership/source authority with target policy."""
+
+        definition = self._definition(tool_name)
+        if definition.resolved_scope is not ToolScope.WORKSPACE_TARGET:
+            raise McpAuthorizationError("permission_denied")
+        with self._session_factory() as session:
+            client = self._require_client_permission(session, principal, definition)
+            binding = session.get(McpAgentWorkspaceBindingRow, str(workspace_id))
+            source_grant = (
+                None
+                if binding is None
+                else session.get(
+                    McpClientDevelopmentSourceGrantRow,
+                    {
+                        "client_id": str(principal.client_id),
+                        "development_source_id": binding.development_source_id,
+                    },
+                )
+            )
+            workspace = AgentWorkspaceRepository(session).get(workspace_id)
+            target_grant = session.get(
+                McpClientTargetGrantRow,
+                {"client_id": str(principal.client_id), "target_id": str(target_id)},
+            )
+            instance = session.get(ManagedInstanceRow, str(target_id))
+            assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+            target_permissions = (
+                frozenset()
+                if assignment is None
+                else self._permissions(session, assignment.preset_id)
+            )
+            if (
+                binding is None
+                or binding.client_id != str(principal.client_id)
+                or source_grant is None
+                or workspace is None
+                or str(workspace.development_source_id) != binding.development_source_id
+            ):
+                raise McpAuthorizationError("workspace_not_found_or_not_authorized")
+            if target_grant is None or instance is None or assignment is None:
+                raise McpAuthorizationError("target_not_found_or_not_authorized")
+            client_permissions = self._permissions(session, client.preset_id)
+            if not definition.permissions.issubset(
+                client_permissions.intersection(target_permissions)
+            ):
+                raise McpAuthorizationError("deployment_not_allowed")
+        technical = self._targets.resolve(target_id)
+        if technical.target_class not in definition.allowed_target_classes:
+            raise McpAuthorizationError("deployment_not_allowed")
+        if not definition.required_capabilities.issubset(technical.capabilities):
+            raise McpAuthorizationError("deployment_not_allowed")
+        if not definition.required_states.issubset(technical.current_states):
+            missing = definition.required_states.difference(technical.current_states)
+            if "running" in missing:
+                raise McpAuthorizationError("target_not_running")
+            if "ready" in missing:
+                raise McpAuthorizationError("target_not_ready")
+            raise McpAuthorizationError("target_reconciliation_required")
+        if workspace.bytes_state is AgentWorkspaceBytesState.CLEANED:
+            raise McpAuthorizationError("workspace_bytes_cleaned")
+        if workspace.state is not AgentWorkspaceState.READY:
             raise McpAuthorizationError("workspace_not_ready")
         return workspace
 

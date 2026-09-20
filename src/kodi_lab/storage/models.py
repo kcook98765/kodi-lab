@@ -4402,12 +4402,22 @@ class McpDevelopmentRequestRow(Base):
         CheckConstraint(
             "length(id) = 36 AND length(client_id) = 36 AND "
             "length(request_id) = 36 AND length(development_source_id) = 36 AND "
-            "length(workspace_id) = 36 AND length(creation_operation_id) = 36",
+            "length(workspace_id) = 36 AND "
+            "(creation_operation_id IS NULL OR length(creation_operation_id) = 36) "
+            "AND (operation_id IS NULL OR length(operation_id) = 36)",
             name="mcp_development_request_uuid_lengths",
         ),
         CheckConstraint(
-            "operation_kind = 'workspace_create'",
+            "operation_kind IN "
+            "('workspace_create','workspace_deploy','workspace_execute')",
             name="mcp_development_request_operation_closed",
+        ),
+        CheckConstraint(
+            "(operation_kind = 'workspace_create' AND "
+            "creation_operation_id IS NOT NULL AND operation_id IS NULL) OR "
+            "(operation_kind IN ('workspace_deploy','workspace_execute') AND "
+            "creation_operation_id IS NULL AND operation_id IS NOT NULL)",
+            name="mcp_development_request_operation_shape",
         ),
         CheckConstraint(
             "state = 'allocated'",
@@ -4449,14 +4459,296 @@ class McpDevelopmentRequestRow(Base):
         ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    creation_operation_id: Mapped[str] = mapped_column(
+    creation_operation_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("agent_workspace_creation_operations.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
+    operation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class McpWorkspaceValidationRow(Base):
+    """Latest successful closed structural validation for one workspace."""
+
+    __tablename__ = "mcp_workspace_validations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id) = 36 AND length(workspace_id) = 36 AND "
+            "length(development_source_id) = 36",
+            name="mcp_workspace_validation_uuid_lengths",
+        ),
+        CheckConstraint(
+            "generation >= 0", name="mcp_workspace_validation_generation_nonnegative"
+        ),
+        CheckConstraint(
+            "classification = 'passed'",
+            name="mcp_workspace_validation_classification_closed",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128 AND "
+            "length(extension_types_json) BETWEEN 2 AND 4096",
+            name="mcp_workspace_validation_identity_bounded",
+        ),
+        CheckConstraint(
+            "length(validated_at) = 27",
+            name="mcp_workspace_validation_timestamp_format",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    classification: Mapped[str] = mapped_column(String(16), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    extension_types_json: Mapped[str] = mapped_column(Text, nullable=False)
+    validated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class McpWorkspaceDeploymentOperationRow(Base):
+    """Path-free exact-generation workspace deployment evidence."""
+
+    __tablename__ = "mcp_workspace_deployment_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND length(client_id)=36 AND length(request_id)=36 "
+            "AND length(workspace_id)=36 AND length(development_source_id)=36 "
+            "AND length(target_id)=36 AND length(runtime_revision_id)=36",
+            name="mcp_workspace_deployment_uuid_lengths",
+        ),
+        CheckConstraint(
+            "generation >= 0", name="mcp_workspace_deployment_generation_nonnegative"
+        ),
+        CheckConstraint(
+            "state IN ('pending','running','succeeded','failed',"
+            "'ambiguous','reconciliation_required')",
+            name="mcp_workspace_deployment_state_closed",
+        ),
+        CheckConstraint(
+            "phase IN ('claimed','preflight','stop','sync','start','readiness',"
+            "'inventory','finalize')",
+            name="mcp_workspace_deployment_phase_closed",
+        ),
+        CheckConstraint(
+            "inventory_classification IN ('not_checked','matched','failed','unknown')",
+            name="mcp_workspace_deployment_inventory_closed",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128",
+            name="mcp_workspace_deployment_identity_bounded",
+        ),
+        CheckConstraint(
+            "failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 128",
+            name="mcp_workspace_deployment_failure_bounded",
+        ),
+        CheckConstraint(
+            "(source_manifest_digest IS NULL OR "
+            "(length(source_manifest_digest)=71 AND "
+            "substr(source_manifest_digest,1,7)='sha256:')) AND "
+            "(verified_destination_digest IS NULL OR "
+            "(length(verified_destination_digest)=71 AND "
+            "substr(verified_destination_digest,1,7)='sha256:'))",
+            name="mcp_workspace_deployment_digests_valid",
+        ),
+        CheckConstraint(
+            "length(requested_at)=27 AND "
+            "(started_at IS NULL OR length(started_at)=27) AND "
+            "(completed_at IS NULL OR length(completed_at)=27)",
+            name="mcp_workspace_deployment_timestamps_format",
+        ),
+        CheckConstraint(
+            "(state='pending' AND started_at IS NULL AND completed_at IS NULL) OR "
+            "(state='running' AND started_at IS NOT NULL AND completed_at IS NULL) OR "
+            "(state IN ('succeeded','failed','ambiguous','reconciliation_required') "
+            "AND started_at IS NOT NULL AND completed_at IS NOT NULL)",
+            name="mcp_workspace_deployment_state_timestamps",
+        ),
+        CheckConstraint(
+            "(sync_started=0 OR mutation_started=1) AND "
+            "(sync_completed=0 OR sync_started=1) AND "
+            "(target_started=0 OR sync_completed=1)",
+            name="mcp_workspace_deployment_markers_ordered",
+        ),
+        CheckConstraint(
+            "state<>'succeeded' OR (sync_completed=1 AND target_started=1 AND "
+            "inventory_classification='matched' AND addon_enabled IS NOT NULL AND "
+            "result_classification IS NOT NULL AND source_manifest_digest IS NOT NULL "
+            "AND verified_destination_digest IS NOT NULL AND failure_code IS NULL)",
+            name="mcp_workspace_deployment_success_complete",
+        ),
+        UniqueConstraint(
+            "client_id", "request_id", name="uq_mcp_workspace_deployment_request"
+        ),
+        Index(
+            "ix_mcp_workspace_deployment_workspace_requested",
+            "workspace_id",
+            "requested_at",
+        ),
+        Index(
+            "ix_mcp_workspace_deployment_target_requested",
+            "target_id",
+            "requested_at",
+        ),
+        Index(
+            "uq_mcp_workspace_deployment_active_client",
+            "client_id",
+            unique=True,
+            sqlite_where=text("state IN ('pending','running')"),
+        ),
+        Index(
+            "uq_mcp_workspace_deployment_active_workspace",
+            "workspace_id",
+            unique=True,
+            sqlite_where=text("state IN ('pending','running')"),
+        ),
+        Index(
+            "uq_mcp_workspace_deployment_active_target",
+            "target_id",
+            unique=True,
+            sqlite_where=text("state IN ('pending','running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    development_source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    mutation_started: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    target_stopped: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    sync_started: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    sync_completed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    target_started: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    inventory_classification: Mapped[str] = mapped_column(String(16), nullable=False)
+    addon_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    result_classification: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_manifest_digest: Mapped[str | None] = mapped_column(String(71))
+    verified_destination_digest: Mapped[str | None] = mapped_column(String(71))
+    failure_code: Mapped[str | None] = mapped_column(String(128))
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(27))
+    completed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class McpWorkspaceExecutionOperationRow(Base):
+    """At-most-once fixed workspace smoke execution evidence."""
+
+    __tablename__ = "mcp_workspace_execution_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND length(client_id)=36 AND length(request_id)=36 "
+            "AND length(workspace_id)=36 AND length(development_source_id)=36 "
+            "AND length(target_id)=36 AND length(deployment_id)=36",
+            name="mcp_workspace_execution_uuid_lengths",
+        ),
+        CheckConstraint(
+            "generation >= 0", name="mcp_workspace_execution_generation_nonnegative"
+        ),
+        CheckConstraint(
+            "state IN ('pending','running','succeeded','failed',"
+            "'ambiguous','reconciliation_required')",
+            name="mcp_workspace_execution_state_closed",
+        ),
+        CheckConstraint(
+            "phase IN ('claimed','preflight','verify_pre','invoke','verify_post',"
+            "'finalize')",
+            name="mcp_workspace_execution_phase_closed",
+        ),
+        CheckConstraint(
+            "execution_classification IN ('not_attempted','directory_result',"
+            "'jsonrpc_error','timeout','ambiguous')",
+            name="mcp_workspace_execution_classification_closed",
+        ),
+        CheckConstraint(
+            "item_count IS NULL OR item_count BETWEEN 0 AND 1",
+            name="mcp_workspace_execution_item_count_bounded",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128",
+            name="mcp_workspace_execution_identity_bounded",
+        ),
+        CheckConstraint(
+            "failure_code IS NULL OR length(failure_code) BETWEEN 1 AND 128",
+            name="mcp_workspace_execution_failure_bounded",
+        ),
+        CheckConstraint(
+            "length(requested_at)=27 AND "
+            "(started_at IS NULL OR length(started_at)=27) AND "
+            "(completed_at IS NULL OR length(completed_at)=27)",
+            name="mcp_workspace_execution_timestamps_format",
+        ),
+        CheckConstraint(
+            "(state='pending' AND started_at IS NULL AND completed_at IS NULL) OR "
+            "(state='running' AND started_at IS NOT NULL AND completed_at IS NULL) OR "
+            "(state IN ('succeeded','failed','ambiguous','reconciliation_required') "
+            "AND started_at IS NOT NULL AND completed_at IS NOT NULL)",
+            name="mcp_workspace_execution_state_timestamps",
+        ),
+        CheckConstraint(
+            "state<>'succeeded' OR (invocation_dispatched=1 AND "
+            "execution_classification='directory_result' AND "
+            "result_classification IS NOT NULL AND failure_code IS NULL)",
+            name="mcp_workspace_execution_success_complete",
+        ),
+        UniqueConstraint(
+            "client_id", "request_id", name="uq_mcp_workspace_execution_request"
+        ),
+        Index(
+            "ix_mcp_workspace_execution_workspace_requested",
+            "workspace_id",
+            "requested_at",
+        ),
+        Index(
+            "uq_mcp_workspace_execution_active_target",
+            "target_id",
+            unique=True,
+            sqlite_where=text("state IN ('pending','running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    development_source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    deployment_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    invocation_dispatched: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    execution_classification: Mapped[str] = mapped_column(String(32), nullable=False)
+    item_count: Mapped[int | None] = mapped_column(Integer)
+    result_classification: Mapped[str | None] = mapped_column(String(64))
+    failure_code: Mapped[str | None] = mapped_column(String(128))
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(27))
+    completed_at: Mapped[str | None] = mapped_column(String(27))
 
 
 class McpTargetPresetAssignmentRow(Base):

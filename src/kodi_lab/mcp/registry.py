@@ -22,6 +22,8 @@ class ToolRateClass(StrEnum):
     DEVELOPMENT_CREATE = "development_create"
     DEVELOPMENT_EDIT = "development_edit"
     DEVELOPMENT_VALIDATE = "development_validate"
+    DEVELOPMENT_DEPLOY = "development_deploy"
+    DEVELOPMENT_EXECUTE = "development_execute"
 
 
 class ToolScope(StrEnum):
@@ -29,6 +31,7 @@ class ToolScope(StrEnum):
     TARGET = "target"
     DEVELOPMENT_SOURCE = "development_source"
     WORKSPACE = "workspace"
+    WORKSPACE_TARGET = "workspace_target"
 
 
 class TargetClass(StrEnum):
@@ -126,6 +129,8 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "target.control",
                 "workspace.inspect",
                 "workspace.edit",
+                "workspace.deploy",
+                "development.execute",
             }
         )
     )
@@ -255,6 +260,38 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             production_eligible=False,
             target_scope_required=False,
             scope=ToolScope.WORKSPACE,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="workspace_deploy",
+            schema_revision=1,
+            permissions=frozenset({"workspace.deploy"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"workspace_deployment"}),
+            required_states=frozenset({"running", "ready", "reconciled"}),
+            rate_class=ToolRateClass.DEVELOPMENT_DEPLOY,
+            adapter="agent_workspace.deploy_exact_generation",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE_TARGET,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="workspace_execute",
+            schema_revision=1,
+            permissions=frozenset({"development.execute"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"workspace_execution"}),
+            required_states=frozenset({"running", "ready", "reconciled"}),
+            rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
+            adapter="agent_workspace.execute_fixed_smoke",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE_TARGET,
         )
     )
     registry.register(

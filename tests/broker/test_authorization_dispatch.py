@@ -66,6 +66,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
         "capture_managed_kodi_screenshot",
         "capture_promotion_kodi_log_cursor",
         "copy_sync_attached_development_source",
+        "copy_sync_mcp_workspace",
         "copy_sync_promoted_development_source",
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
@@ -81,6 +82,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
         "verify_addon_zip_enablement_destination",
         "verify_addon_zip_smoke_destination",
         "verify_attached_development_source_destination",
+        "verify_mcp_workspace_destination",
     )
     assert registry.dispatch(request("ping")) == PingResult(
         status="healthy", protocol_version=1
@@ -98,6 +100,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
             "capture_managed_kodi_screenshot",
             "capture_promotion_kodi_log_cursor",
             "copy_sync_attached_development_source",
+            "copy_sync_mcp_workspace",
             "copy_sync_promoted_development_source",
             "delete_managed_snapshot_artifact",
             "deprovision_managed_container",
@@ -113,6 +116,7 @@ def test_foundation_registry_contains_exact_operation_set() -> None:
             "verify_addon_zip_enablement_destination",
             "verify_addon_zip_smoke_destination",
             "verify_attached_development_source_destination",
+            "verify_mcp_workspace_destination",
         ],
         protocol_version=1,
     )

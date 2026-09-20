@@ -75,6 +75,7 @@ from kodi_lab.broker.operations import (
     CapturePromotionKodiLogCursorResult,
     CopySyncAttachedDevelopmentSourceParams,
     CopySyncAttachedDevelopmentSourceResult,
+    CopySyncMcpWorkspaceParams,
     CopySyncPromotedDevelopmentSourceParams,
     DeleteManagedSnapshotArtifactParams,
     DeleteManagedSnapshotArtifactResult,
@@ -102,6 +103,7 @@ from kodi_lab.broker.operations import (
     VerifyAddonZipSmokeDestinationResult,
     VerifyAttachedDevelopmentSourceDestinationParams,
     VerifyAttachedDevelopmentSourceDestinationResult,
+    VerifyMcpWorkspaceDestinationParams,
 )
 from kodi_lab.broker.protocol import (
     PROTOCOL_VERSION,
@@ -615,6 +617,41 @@ class BrokerClient:
             raise ClientProtocolError("promotion-bound sync result identity differs")
         return result
 
+    def copy_sync_mcp_workspace(
+        self,
+        *,
+        managed_instance_id: str,
+        workspace_id: str,
+        expected_generation: int,
+        expected_container_id: str,
+        deployment_operation_id: str,
+    ) -> CopySyncAttachedDevelopmentSourceResult:
+        try:
+            params = CopySyncMcpWorkspaceParams(
+                managed_instance_id=managed_instance_id,
+                workspace_id=workspace_id,
+                expected_generation=expected_generation,
+                expected_container_id=expected_container_id,
+                deployment_operation_id=deployment_operation_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "workspace deployment failed local validation"
+            ) from error
+        result = self._call(
+            "copy_sync_mcp_workspace",
+            params,
+            CopySyncAttachedDevelopmentSourceResult,
+            response_timeout=900.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.deployment_operation_id != deployment_operation_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError("workspace deployment result identity differs")
+        return result
+
     def verify_attached_development_source_destination(
         self,
         *,
@@ -648,6 +685,38 @@ class BrokerClient:
         ):
             raise ClientProtocolError(
                 "development-source destination verification identity differs"
+            )
+        return result
+
+    def verify_mcp_workspace_destination(
+        self,
+        *,
+        deployment_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> VerifyAttachedDevelopmentSourceDestinationResult:
+        try:
+            params = VerifyMcpWorkspaceDestinationParams(
+                deployment_operation_id=deployment_operation_id,
+                managed_instance_id=managed_instance_id,
+                expected_container_id=expected_container_id,
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "workspace destination verification failed local validation"
+            ) from error
+        result = self._call(
+            "verify_mcp_workspace_destination",
+            params,
+            VerifyAttachedDevelopmentSourceDestinationResult,
+            response_timeout=120.0,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.container_id != expected_container_id
+        ):
+            raise ClientProtocolError(
+                "workspace destination verification identity differs"
             )
         return result
 
@@ -1135,6 +1204,16 @@ class BrokerClient:
                     DevelopmentSourceDeploymentClientError
                 ),
                 "development_source_staging_unavailable": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "workspace_deployment_state_invalid": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "workspace_deployment_failed": (DevelopmentSourceDeploymentClientError),
+                "workspace_generation_conflict": (
+                    DevelopmentSourceDeploymentClientError
+                ),
+                "workspace_destination_verification_failed": (
                     DevelopmentSourceDeploymentClientError
                 ),
             }

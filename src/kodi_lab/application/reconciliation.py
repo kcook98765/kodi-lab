@@ -10,6 +10,7 @@ from typing import Protocol, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.lifecycle_status import (
@@ -81,6 +82,8 @@ from kodi_lab.snapshot.storage import snapshot_artifact_presence
 from kodi_lab.storage.models import (
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceMutationLeaseRow,
+    McpWorkspaceDeploymentOperationRow,
+    McpWorkspaceExecutionOperationRow,
 )
 from kodi_lab.storage.repositories import (
     AddonRepositoryFetchOperationRepository,
@@ -149,6 +152,8 @@ class ReconciliationOperationKind(StrEnum):
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
     AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
     PROMOTION_VERIFICATION = "promotion_verification"
+    MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
+    MCP_WORKSPACE_EXECUTION = "mcp_workspace_execution"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
     SNAPSHOT_CREATE = "snapshot_create"
@@ -183,6 +188,8 @@ class ReconciliationAction(StrEnum):
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
     AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
     PROMOTION_VERIFICATION = "promotion_verification"
+    MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
+    MCP_WORKSPACE_EXECUTION = "mcp_workspace_execution"
 
 
 INSTANCE_MUTATIONS = [
@@ -208,6 +215,8 @@ INSTANCE_MUTATIONS = [
     ReconciliationAction.REPOSITORY_REPLACEMENT,
     ReconciliationAction.AGENT_WORKSPACE_PROMOTION,
     ReconciliationAction.PROMOTION_VERIFICATION,
+    ReconciliationAction.MCP_WORKSPACE_DEPLOYMENT,
+    ReconciliationAction.MCP_WORKSPACE_EXECUTION,
 ]
 
 
@@ -264,6 +273,12 @@ class _ObservationBroker(Protocol):
 def _timestamp(value: str | None) -> datetime | None:
     return (
         None if value is None else datetime.fromisoformat(value.replace("Z", "+00:00"))
+    )
+
+
+def _timestamp_text(value: datetime) -> str:
+    return (
+        value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
     )
 
 
@@ -752,6 +767,81 @@ class StaleOperationReconciliationDispatcher:
                 now,
             )
             released += 1
+        elif kind is ManagedInstanceMutationKind.MCP_WORKSPACE_DEPLOYMENT:
+            workspace_deployment = session.get(
+                McpWorkspaceDeploymentOperationRow, str(operation_id)
+            )
+            if (
+                workspace_deployment is None
+                or workspace_deployment.target_id != str(instance_id)
+                or workspace_deployment.state != "running"
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired MCP workspace-deployment ownership is inconsistent."
+                )
+            self._require_matching_global(
+                session,
+                GlobalHeavyOperationKind.MCP_WORKSPACE_DEPLOYMENT,
+                operation_id,
+                digest,
+                now,
+            )
+            workspace_deployment.state = (
+                "reconciliation_required"
+                if workspace_deployment.mutation_started
+                else "failed"
+            )
+            workspace_deployment.phase = "finalize"
+            workspace_deployment.failure_code = (
+                "deployment_ambiguous"
+                if workspace_deployment.mutation_started
+                else "deployment_interrupted"
+            )
+            workspace_deployment.completed_at = _timestamp_text(now)
+            if (
+                workspace_deployment.sync_started
+                and not workspace_deployment.sync_completed
+            ):
+                DevelopmentSourceDeploymentRepository(session).mark_confidence(
+                    instance_id,
+                    UUID(workspace_deployment.development_source_id),
+                    DevelopmentSourceDeploymentConfidence.UNKNOWN,
+                )
+            self._release_global(
+                session,
+                GlobalHeavyOperationKind.MCP_WORKSPACE_DEPLOYMENT,
+                operation_id,
+                digest,
+                now,
+            )
+            released += 1
+        elif kind is ManagedInstanceMutationKind.MCP_WORKSPACE_EXECUTION:
+            workspace_execution = session.get(
+                McpWorkspaceExecutionOperationRow, str(operation_id)
+            )
+            if (
+                workspace_execution is None
+                or workspace_execution.target_id != str(instance_id)
+                or workspace_execution.state != "running"
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired MCP workspace-execution ownership is inconsistent."
+                )
+            workspace_execution.state = (
+                "ambiguous" if workspace_execution.invocation_dispatched else "failed"
+            )
+            workspace_execution.phase = "finalize"
+            workspace_execution.failure_code = (
+                "execution_ambiguous"
+                if workspace_execution.invocation_dispatched
+                else "execution_interrupted"
+            )
+            workspace_execution.execution_classification = (
+                "ambiguous"
+                if workspace_execution.invocation_dispatched
+                else "not_attempted"
+            )
+            workspace_execution.completed_at = _timestamp_text(now)
         elif kind is ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
             operation = DevelopmentSourceSmokeTestOperationRepository(session).get(
                 operation_id
@@ -1355,6 +1445,28 @@ class ManagedInstanceReconciliationService:
                     session
                 ).reconciliation_for_instance(instance_id)
             )
+            records.extend(
+                (ReconciliationOperationKind.MCP_WORKSPACE_DEPLOYMENT, item)
+                for item in session.scalars(
+                    select(McpWorkspaceDeploymentOperationRow).where(
+                        McpWorkspaceDeploymentOperationRow.target_id
+                        == str(instance_id),
+                        McpWorkspaceDeploymentOperationRow.state
+                        == "reconciliation_required",
+                    )
+                )
+            )
+            records.extend(
+                (ReconciliationOperationKind.MCP_WORKSPACE_EXECUTION, item)
+                for item in session.scalars(
+                    select(McpWorkspaceExecutionOperationRow).where(
+                        McpWorkspaceExecutionOperationRow.target_id == str(instance_id),
+                        McpWorkspaceExecutionOperationRow.state.in_(
+                            ("ambiguous", "reconciliation_required")
+                        ),
+                    )
+                )
+            )
             snapshots = SnapshotRepository(session)
             if (
                 len(records) == 1
@@ -1432,6 +1544,10 @@ class ManagedInstanceReconciliationService:
         elif kind is ReconciliationOperationKind.PROMOTION_VERIFICATION:
             assert isinstance(operation, PromotionVerificationOperation)
             observed = "promotion_target_requires_read_only_inspection"
+        elif kind is ReconciliationOperationKind.MCP_WORKSPACE_DEPLOYMENT:
+            observed = "workspace_deployment_requires_read_only_inspection"
+        elif kind is ReconciliationOperationKind.MCP_WORKSPACE_EXECUTION:
+            observed = "workspace_execution_result_is_ambiguous"
         reason = {
             ReconciliationOperationKind.LIFECYCLE: (
                 "Lifecycle state requires operator reconciliation."
@@ -1478,6 +1594,12 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.PROMOTION_VERIFICATION: (
                 "Promotion target verification requires operator reconciliation."
             ),
+            ReconciliationOperationKind.MCP_WORKSPACE_DEPLOYMENT: (
+                "MCP workspace deployment requires operator reconciliation."
+            ),
+            ReconciliationOperationKind.MCP_WORKSPACE_EXECUTION: (
+                "MCP workspace execution requires operator reconciliation."
+            ),
         }[kind]
         assert isinstance(
             operation,
@@ -1496,19 +1618,54 @@ class ManagedInstanceReconciliationService:
                 RepositoryReplacementOperation,
                 AgentWorkspacePromotionOperation,
                 PromotionVerificationOperation,
+                McpWorkspaceDeploymentOperationRow,
+                McpWorkspaceExecutionOperationRow,
             ),
+        )
+        state_value = (
+            operation.state
+            if isinstance(
+                operation,
+                (
+                    McpWorkspaceDeploymentOperationRow,
+                    McpWorkspaceExecutionOperationRow,
+                ),
+            )
+            else operation.state.value
+        )
+        phase_value = (
+            operation.phase
+            if isinstance(
+                operation,
+                (
+                    McpWorkspaceDeploymentOperationRow,
+                    McpWorkspaceExecutionOperationRow,
+                ),
+            )
+            else (
+                operation.kind.value
+                if isinstance(operation, ManagedInstanceLifecycleOperation)
+                else operation.phase.value
+            )
+        )
+        operation_uuid = UUID(str(operation.id))
+        requested_at = (
+            _timestamp(operation.requested_at)
+            if isinstance(operation.requested_at, str)
+            else operation.requested_at
+        )
+        started_at = (
+            _timestamp(operation.started_at)
+            if isinstance(operation.started_at, str)
+            else operation.started_at
         )
         return ManagedInstanceReconciliationStatus(
             required=True,
             blocking=blocking,
             operation_kind=kind,
-            operation_uuid=operation.id,
-            operation_state=operation.state.value,
-            last_phase=(
-                operation.kind.value
-                if isinstance(operation, ManagedInstanceLifecycleOperation)
-                else operation.phase.value
-            ),
+            operation_uuid=operation_uuid,
+            operation_state=state_value,
+            last_phase=phase_value,
             safe_reason=reason,
             observed_state=observed,
             blocked_actions=(
@@ -1522,13 +1679,15 @@ class ManagedInstanceReconciliationService:
                 in {
                     ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST,
                     ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST,
+                    ReconciliationOperationKind.MCP_WORKSPACE_DEPLOYMENT,
+                    ReconciliationOperationKind.MCP_WORKSPACE_EXECUTION,
                 }
                 else INSTANCE_MUTATIONS
                 if blocking
                 else []
             ),
-            requested_at=operation.requested_at,
-            started_at=operation.started_at,
+            requested_at=requested_at,
+            started_at=started_at,
         )
 
     def _classify_smoke(

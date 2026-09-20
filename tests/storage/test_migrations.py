@@ -140,7 +140,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0041_mcp_workspace_validation_retention",)
+        ).fetchone() == ("0042_mcp_workspace_deployment_execution",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -222,6 +222,9 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_remote_action_receipts",
         "mcp_security_events",
         "mcp_target_preset_assignments",
+        "mcp_workspace_deployment_operations",
+        "mcp_workspace_execution_operations",
+        "mcp_workspace_validations",
         "managed_instance_delete_operations",
         "managed_instance_addon_repository_sources",
         "managed_instance_development_sources",
@@ -4379,3 +4382,97 @@ def test_0041_workspace_retention_timestamp_and_guarded_downgrade(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated MCP workspace retention"):
         command.downgrade(config, "0040_mcp_workspace_mutation")
+
+
+def test_0042_workspace_deployment_execution_presets_and_guarded_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch,
+        tmp_path,
+        start_revision="0041_mcp_workspace_validation_retention",
+    )
+    custom_id = str(uuid4())
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO mcp_presets (id,display_name,builtin,assignable) "
+                "VALUES (:id,'Pre-Slice-4 snapshot',0,1)"
+            ),
+            {"id": custom_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_preset_permissions (preset_id,permission) "
+                "VALUES (:id,'workspace.edit')"
+            ),
+            {"id": custom_id},
+        )
+    engine.dispose()
+
+    command.upgrade(config, "0042_mcp_workspace_deployment_execution")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        seeded = [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "SELECT preset_id,permission FROM mcp_preset_permissions "
+                    "WHERE permission IN ('workspace.deploy','development.execute') "
+                    "ORDER BY preset_id,permission"
+                )
+            )
+        ]
+        assert seeded == [
+            ("11000000-0000-4000-8000-000000000001", "development.execute"),
+            ("11000000-0000-4000-8000-000000000001", "workspace.deploy"),
+            ("11000000-0000-4000-8000-000000000003", "development.execute"),
+            ("11000000-0000-4000-8000-000000000003", "workspace.deploy"),
+        ]
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "SELECT permission FROM mcp_preset_permissions "
+                    "WHERE preset_id=:id ORDER BY permission"
+                ),
+                {"id": custom_id},
+            )
+        ] == [("workspace.edit",)]
+        tables = {
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND "
+                    "name LIKE 'mcp_workspace_%'"
+                )
+            )
+        }
+        assert {
+            "mcp_workspace_validations",
+            "mcp_workspace_deployment_operations",
+            "mcp_workspace_execution_operations",
+        }.issubset(tables)
+        connection.execute(
+            text(
+                "INSERT INTO mcp_preset_permissions (preset_id,permission) "
+                "VALUES (:id,'workspace.deploy')"
+            ),
+            {"id": custom_id},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated MCP Slice 4"):
+        command.downgrade(config, "0041_mcp_workspace_validation_retention")
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "DELETE FROM mcp_preset_permissions "
+                "WHERE preset_id=:id AND permission='workspace.deploy'"
+            ),
+            {"id": custom_id},
+        )
+    engine.dispose()
+    command.downgrade(config, "0041_mcp_workspace_validation_retention")

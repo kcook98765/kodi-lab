@@ -751,6 +751,25 @@ class CopySyncPromotedDevelopmentSourceParams(StrictModel):
         return value
 
 
+class CopySyncMcpWorkspaceParams(StrictModel):
+    """Only semantic identities for one exact-generation workspace sync."""
+
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    workspace_id: str = Field(min_length=36, max_length=36)
+    expected_generation: int = Field(ge=0)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+    deployment_operation_id: str = Field(min_length=36, max_length=36)
+
+    @field_validator("managed_instance_id", "workspace_id", "deployment_operation_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
 class CopySyncAttachedDevelopmentSourceResult(StrictModel):
     """Aggregate copy/sync proof with no path, member, or ownership fields."""
 
@@ -797,6 +816,21 @@ class VerifyAttachedDevelopmentSourceDestinationParams(StrictModel):
     )
 
     @field_validator("managed_instance_id", "development_source_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be a canonical UUID string")
+        return value
+
+
+class VerifyMcpWorkspaceDestinationParams(StrictModel):
+    deployment_operation_id: str = Field(min_length=36, max_length=36)
+    managed_instance_id: str = Field(min_length=36, max_length=36)
+    expected_container_id: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+    @field_validator("deployment_operation_id", "managed_instance_id")
     @classmethod
     def _canonical_uuid(cls, value: str) -> str:
         if not is_canonical_uuid(value):
@@ -2663,6 +2697,86 @@ def build_foundation_registry(
         },
     )
 
+    def copy_sync_mcp_workspace(
+        params: CopySyncMcpWorkspaceParams,
+    ) -> CopySyncAttachedDevelopmentSourceResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_workspace_id": params.workspace_id,
+            "broker_deployment_operation_id": params.deployment_operation_id,
+            "broker_workspace_generation": params.expected_generation,
+        }
+        try:
+            spec = deployment_resolver.resolve_workspace_deployment(
+                params.managed_instance_id,
+                params.workspace_id,
+                params.expected_generation,
+                params.deployment_operation_id,
+                params.expected_container_id,
+            )
+            outcome = deployment_provider.copy_sync_attached_development_source(
+                spec=spec, expected_container_id=params.expected_container_id
+            )
+        except DevelopmentSourceDeploymentStateError as error:
+            raise OperationError(
+                error.code,
+                "Canonical workspace deployment state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDevelopmentSourceDeploymentError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        except ContainerMustBeStoppedError as error:
+            raise OperationError(
+                "container_must_be_stopped",
+                "Workspace deployment requires the exact stopped target.",
+                audit_fields=audit_fields,
+            ) from error
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            DockerDaemonUnavailableError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            RuntimeRevisionPreconditionError,
+        ) as error:
+            raise OperationError(
+                "workspace_deployment_failed",
+                "Workspace deployment could not be completed safely.",
+                audit_fields=audit_fields,
+            ) from error
+        return CopySyncAttachedDevelopmentSourceResult(
+            managed_instance_id=outcome.managed_instance_id,
+            development_source_id=outcome.development_source_id,
+            deployment_operation_id=outcome.deployment_operation_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            result_classification=outcome.result_classification,
+            source_manifest_digest=outcome.source_manifest_digest,
+            verified_destination_digest=outcome.verified_destination_digest,
+            observed_source_name=outcome.observed_source_name,
+            observed_source_version=outcome.observed_source_version,
+            new_count=outcome.new_count,
+            changed_count=outcome.changed_count,
+            unchanged_count=outcome.unchanged_count,
+            destination_only_count=outcome.destination_only_count,
+            transferred_bytes=outcome.transferred_bytes,
+        )
+
+    registry.register(
+        name="copy_sync_mcp_workspace",
+        params_model=CopySyncMcpWorkspaceParams,
+        result_model=CopySyncAttachedDevelopmentSourceResult,
+        handler=copy_sync_mcp_workspace,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_deployment_operation_id": result.deployment_operation_id,
+            "broker_deployment_result": result.result_classification,
+        },
+    )
+
     def verify_attached_development_source_destination(
         params: VerifyAttachedDevelopmentSourceDestinationParams,
     ) -> VerifyAttachedDevelopmentSourceDestinationResult:
@@ -2737,6 +2851,71 @@ def build_foundation_registry(
         audit_builder=lambda result: {
             "broker_managed_instance_id": result.managed_instance_id,
             "broker_development_source_id": result.development_source_id,
+            "broker_destination_matched": result.matched,
+        },
+    )
+
+    def verify_mcp_workspace_destination(
+        params: VerifyMcpWorkspaceDestinationParams,
+    ) -> VerifyAttachedDevelopmentSourceDestinationResult:
+        audit_fields: dict[str, object] = {
+            "broker_managed_instance_id": params.managed_instance_id,
+            "broker_deployment_operation_id": params.deployment_operation_id,
+        }
+        try:
+            spec = deployment_resolver.resolve_workspace_destination_verification(
+                params.deployment_operation_id,
+                params.managed_instance_id,
+                params.expected_container_id,
+            )
+            outcome = (
+                deployment_provider.verify_attached_development_source_destination(
+                    spec=spec, expected_container_id=params.expected_container_id
+                )
+            )
+        except DevelopmentSourceDeploymentStateError as error:
+            raise OperationError(
+                error.code,
+                "Workspace destination evidence is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except DockerDevelopmentSourceDeploymentError as error:
+            raise OperationError(
+                error.code, error.safe_message, audit_fields=audit_fields
+            ) from error
+        except (
+            AmbiguousManagedContainerError,
+            ContainerIdentityPreconditionError,
+            DockerDaemonUnavailableError,
+            DockerInventoryReadError,
+            InvalidManagedContainerMetadataError,
+            ManagedContainerNotFoundError,
+            ManagedRuntimeNotRunningError,
+            RuntimeRevisionPreconditionError,
+        ) as error:
+            raise OperationError(
+                "workspace_destination_verification_failed",
+                "Workspace destination could not be safely verified.",
+                audit_fields=audit_fields,
+            ) from error
+        return VerifyAttachedDevelopmentSourceDestinationResult(
+            managed_instance_id=outcome.managed_instance_id,
+            development_source_id=outcome.development_source_id,
+            runtime_revision_id=outcome.runtime_revision_id,
+            container_id=outcome.container_id,
+            addon_id=outcome.addon_id,
+            addon_version=outcome.addon_version,
+            matched=True,
+            video_plugin_descriptor_eligible=(outcome.video_plugin_descriptor_eligible),
+        )
+
+    registry.register(
+        name="verify_mcp_workspace_destination",
+        params_model=VerifyMcpWorkspaceDestinationParams,
+        result_model=VerifyAttachedDevelopmentSourceDestinationResult,
+        handler=verify_mcp_workspace_destination,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
             "broker_destination_matched": result.matched,
         },
     )

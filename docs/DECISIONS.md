@@ -3500,3 +3500,85 @@ authority.
   There is no legacy stdio, deployment, add-on execution, promotion request,
   external/production target, broker, Docker, shell, Git or arbitrary command
   authority. Phase 12 remains partial.
+
+## D-0261: Slice 4 adds exactly two permissions and two tools
+- Status: accepted for Phase 12 Slice 4.
+- Decision: add `workspace.deploy` and `development.execute` only to the
+  Add-on Development and Full Lab Control built-ins. Existing custom presets
+  remain immutable snapshots; Read-only Inspection and Production Remote Kodi
+  remain unchanged. Add only `workspace_deploy` and `workspace_execute`, making
+  the exact lexical production catalog fourteen tools. Promotion authority is
+  not added.
+
+## D-0262: Successful exact-generation validation is a deployment precondition
+- Status: accepted for Phase 12 Slice 4.
+- Decision: retain one latest successful structural-validation evidence row per
+  workspace: workspace/source UUIDs, generation, parsed add-on ID/version,
+  bounded extension classification and validation time. Deployment requires
+  this evidence to match the current exact generation and approved source/add-on
+  identity. Editing advances generation and therefore invalidates eligibility
+  without deleting history or inventing a validation-history subsystem.
+
+## D-0263: Workspace deployment is one transport-neutral closed service
+- Status: accepted for Phase 12 Slice 4.
+- Decision: the MCP handler supplies only request, workspace, generation and
+  target UUIDs. A new application service owns exact workspace/source checks,
+  matching DevelopmentSource attachment, internal-disposable target policy,
+  canonical baseline or safe prior-workspace evidence, lifecycle coordination,
+  stopped-only overwrite/add copy, readiness, inventory verification and
+  semantic publication. Paths, container identity, sync flags, package format,
+  restart choice and commands remain server-derived and are never MCP input.
+
+## D-0264: Deployment ambiguity is durable and never redispatched
+- Status: accepted for Phase 12 Slice 4.
+- Decision: persist the request and operation before the first target mutation,
+  then mark stop/sync/start/readiness/inventory phases. Completed duplicates
+  return stored evidence; changed parameters conflict. An unresolved request
+  after the mutation marker returns `deployment_ambiguous`, is restart-swept to
+  reconciliation-required, is never automatically retried, and attempts to
+  leave the target stopped. Sync uncertainty also makes canonical source
+  deployment confidence unknown. Web administrator reconciliation remains the
+  recovery plane.
+
+## D-0265: Deployment replay and concurrency reuse existing coordination
+- Status: accepted for Phase 12 Slice 4.
+- Decision: extend `mcp_development_requests`; identity remains durable client
+  UUID plus request UUID plus operation kind. Enforce one active deployment per
+  client, workspace and target, the managed-target lease, workspace lock and
+  global-heavy lease. The deployment admission interval is one client/target
+  pair per five minutes with bounded idle-retired keys. There is no MCP Task or
+  second replay mechanism.
+
+## D-0266: Execution is only the fixed copied Python video-plugin smoke
+- Status: accepted for Phase 12 Slice 4.
+- Decision: `workspace_execute` has the same four UUID/generation inputs and
+  requires an exact successful deployment for the current workspace,
+  generation and target. The server derives add-on ID/version, requires enabled
+  exact inventory and destination provenance, admits only the sole copied
+  `xbmc.python.pluginsource` video entry point under suppress-bytecode policy,
+  and invokes the fixed bounded `Files.GetDirectory` smoke adapter. Services,
+  scripts, repositories, binary add-ons, skins and other types return
+  `execution_unsupported`; no arbitrary add-on, URL, parameters or JSON-RPC is
+  accepted.
+
+## D-0267: Execution is conservative at-most-once across restart and protocol
+- Status: accepted for Phase 12 Slice 4.
+- Decision: persist the claim before dispatch and the invocation marker before
+  calling Kodi, without holding a database transaction across Kodi. Completed
+  duplicates return the stored bounded classification/count; mismatch
+  conflicts. Timeout, lost response, crash after the marker or unverifiable
+  post-provenance is `execution_ambiguous` and never redispatched. One active
+  execution per target and one client admission per minute are enforced with
+  bounded fake-clock-testable state.
+
+## D-0268: Evidence, retention and protocols remain bounded
+- Status: accepted for Phase 12 Slice 4.
+- Decision: deployment/execution rows retain semantic UUIDs, generation,
+  add-on identity/version, phases, bounded classifications/counts and times,
+  never paths, container IDs, raw Kodi, directory entries, logs or content.
+  Current deployment and unresolved operation evidence blocks automatic byte
+  cleanup. Workspace status and existing Web administration project only the
+  latest bounded validation/deployment/execution state. Modern HTTP, modern
+  stdio and bounded legacy HTTP share the same service and durable replay
+  namespace. Promotion request, human approval integration and formal Phase 12
+  closeout remain later work; Phase 12 remains partial.

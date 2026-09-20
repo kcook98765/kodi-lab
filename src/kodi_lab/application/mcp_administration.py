@@ -16,6 +16,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.mcp_workspace_development import (
+    McpWorkspaceDevelopmentService,
+)
 from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionService
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
@@ -45,6 +48,8 @@ _DEVELOPMENT_PERMISSIONS = (
     "target.control",
     "workspace.edit",
     "workspace.inspect",
+    "workspace.deploy",
+    "development.execute",
 )
 
 _BUILTINS = (
@@ -112,6 +117,14 @@ class McpWorkspaceBindingRead(BaseModel):
     retention_classification: str = "active"
     retention_deadline_at: datetime | None = None
     automatic_cleanup_blocked: bool = False
+    latest_deployment_id: UUID | None = None
+    latest_deployment_target_id: UUID | None = None
+    latest_deployment_generation: int | None = Field(default=None, ge=0)
+    latest_deployment_state: str | None = None
+    latest_execution_id: UUID | None = None
+    latest_execution_target_id: UUID | None = None
+    latest_execution_generation: int | None = Field(default=None, ge=0)
+    latest_execution_state: str | None = None
 
 
 class McpEligibleWorkspaceRead(BaseModel):
@@ -204,11 +217,13 @@ class McpAdministrationService:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         token_bytes: Callable[[int], bytes] = secrets.token_bytes,
         retention: McpWorkspaceRetentionService | None = None,
+        development: McpWorkspaceDevelopmentService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
         self._token_bytes = token_bytes
         self._retention = retention
+        self._development = development
         self.ensure_builtin_presets()
 
     def ensure_builtin_presets(self) -> None:
@@ -913,6 +928,11 @@ class McpAdministrationService:
             if self._retention is None
             else self._retention.projection(UUID(row.workspace_id))
         )
+        development = (
+            None
+            if self._development is None
+            else self._development.projection(UUID(row.workspace_id))
+        )
         return McpWorkspaceBindingRead(
             workspace_id=UUID(row.workspace_id),
             client_id=UUID(row.client_id),
@@ -930,6 +950,30 @@ class McpAdministrationService:
             ),
             automatic_cleanup_blocked=(
                 False if projection is None else projection.automatic_cleanup_blocked
+            ),
+            latest_deployment_id=(
+                None if development is None else development.deployment_id
+            ),
+            latest_deployment_target_id=(
+                None if development is None else development.deployment_target_id
+            ),
+            latest_deployment_generation=(
+                None if development is None else development.deployment_generation
+            ),
+            latest_deployment_state=(
+                None if development is None else development.deployment_state
+            ),
+            latest_execution_id=(
+                None if development is None else development.execution_id
+            ),
+            latest_execution_target_id=(
+                None if development is None else development.execution_target_id
+            ),
+            latest_execution_generation=(
+                None if development is None else development.execution_generation
+            ),
+            latest_execution_state=(
+                None if development is None else development.execution_state
             ),
         )
 

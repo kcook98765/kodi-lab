@@ -1583,6 +1583,14 @@ class DockerManagedContainerAdapter:
                 spec.relative_locator,
                 stage_root=source_stage,
             )
+            if (
+                spec.expected_source_digest is not None
+                and first.digest != spec.expected_source_digest
+            ):
+                raise DockerDevelopmentSourceDeploymentError(
+                    "workspace_generation_conflict",
+                    "Workspace bytes differ from the validated exact generation.",
+                )
             addon_xml = source_stage / "addon.xml"
             try:
                 observed = parse_captured_addon_xml(

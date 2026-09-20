@@ -2,20 +2,21 @@
 
 Phase 12 is **PARTIAL**. Slice 1 established Web-approved DevelopmentSource
 grants, exact MCP workspace ownership, and bounded inspection. Slice 2 added
-replay-safe creation and generation-bound UTF-8 editing. Slice 3 adds only
-closed exact-generation structural validation plus system-owned bounded
-retention. It adds no deployment, execution, promotion request, source
-registration, external/production target, shell, Git, Docker, raw filesystem,
-arbitrary testing, or arbitrary command authority.
+replay-safe creation and generation-bound UTF-8 editing. Slice 3 added closed
+exact-generation structural validation plus system-owned bounded retention.
+Slice 4 adds exact internal-disposable deployment and one fixed smoke execution
+shape. It adds no promotion request, source registration, external/production
+target, shell, Git, Docker, raw filesystem, arbitrary testing, arbitrary
+add-on invocation, raw JSON-RPC or arbitrary command authority.
 
 ## Authority model
 
-`workspace.inspect` and `workspace.edit` are present only in the built-in Add-on
-Development and Full Lab Control presets. Read-only Inspection remains separate
-from source-code mutation. Production Remote Kodi remains empty and
-unassignable. Existing custom presets are immutable snapshots and do not inherit
-`workspace.edit`; a new clone of either widened built-in receives its current
-permission set.
+`workspace.inspect`, `workspace.edit`, `workspace.deploy` and
+`development.execute` are present only in the built-in Add-on Development and
+Full Lab Control presets. Read-only Inspection remains separate from source-code
+mutation. Production Remote Kodi remains empty and unassignable. Existing
+custom presets are immutable snapshots and do not inherit later permissions; a
+new clone of either widened built-in receives its current permission set.
 
 Web administrators manage exact
 `(mcp_client_uuid, development_source_uuid)` grants. There is no wildcard or
@@ -156,11 +157,14 @@ fail with bounded semantic errors and never repair or adopt bytes.
 Success returns semantic UUIDs, exact observed generation and time, parsed
 identity, counts/classifications, promotability, and at most 64 deterministic
 relative changed paths with `truncated`. It contains no content, XML, digest,
-locator, backing path or raw parser/OS error and remains below 48 KiB. A stale
+locator, backing path or raw parser/OS error and remains below 48 KiB. Slice 3
+initially kept this evidence synchronous; Slice 4 persists only the latest
+successful exact-generation validation needed for safe deployment. A stale
 generation is `workspace_generation_conflict`; the server does not retry at a
 newer generation. Admission permits one validation/client, one/workspace and
 two globally, with no durable or unbounded limiter keys. Validation is a
-read-only/observational MCP effect and stores no latest-validation table.
+read-only/observational MCP effect. Slice 4 stores one latest successful row
+only as deployment eligibility evidence, not a validation-history system.
 
 ## Bounded workspace retention
 
@@ -253,6 +257,82 @@ file editor. MCP cannot self-grant, manually bind an existing workspace,
 unbind, transfer/share, or register a source; `workspace_create` alone creates
 its atomic `mcp_created` binding.
 
-Remaining Phase 12 capabilities are internal deployment, fixed execution, and
-promotion request/human-approval integration. None is implied by
-`workspace.inspect`, `workspace.edit`, or Full Lab Control.
+## Slice 4 exact-generation deployment and fixed execution
+
+Migration `0042_mcp_workspace_deployment_execution` seeds exactly
+`workspace.deploy` and `development.execute` into Add-on Development and Full
+Lab Control, extends the existing development request-key operation enum, and
+adds latest validation plus path-free deployment/execution evidence. Custom
+preset snapshots, Read-only Inspection and Production Remote Kodi are not
+broadened.
+
+`workspace_deploy` and `workspace_execute` each accept exactly `request_id`,
+`workspace_id`, `expected_generation`, and `target_id`. The authority
+intersection requires an enabled client, the respective permission, exact
+workspace owner binding, current source grant, exact target grant and target
+policy, and an internal managed disposable target. Production and external
+targets are ineligible. No schema accepts a path, add-on ID, lifecycle option,
+copy/install mode, container identity, command, package, JSON-RPC method or
+timeout.
+
+Deployment requires the current byte-present ready workspace and successful
+structural-validation evidence for the same source and generation. The add-on
+ID must equal both the workspace source snapshot and current registered
+DevelopmentSource ID. A later edit increments generation and makes the evidence
+ineligible by generation mismatch. Deployment also requires the matching
+DevelopmentSource attachment and either exact current canonical copy evidence
+for the runtime/container or safe prior exact workspace evidence anchored to
+that current container identity.
+
+The transport-neutral service claims durable replay and operation rows before
+mutation, takes one/client, one/workspace, one/target, target-mutation,
+workspace and global-heavy coordination, then performs fixed stop, stopped-only
+overwrite/add copy, start, readiness and exact enabled inventory ID/version
+readback.
+The broker derives workspace storage and destination from UUID-owned state and
+reuses the Phase 8 copy primitive; destination-only unrelated members are not
+deleted. Successful evidence contains only semantic identities, generation,
+add-on identity/version, bounded copy and inventory classifications and times.
+
+Mutation uncertainty is never retried. A crash or unknown outcome after the
+marker is `deployment_ambiguous` and reconciliation-required, with best-effort
+stopped containment. Unknown sync also invalidates canonical deployment
+confidence. Exact completed duplicates return stored evidence; changed
+workspace/generation/target conflicts. Startup reconciliation closes
+pending/running records without invoking broker or Kodi. Deployment is admitted
+once per client/target pair per five minutes through a bounded fake-clock-tested
+map.
+
+Execution never deploys. It requires a successful exact deployment for the same
+current workspace, generation and target, ready target state, matching enabled
+ID/version inventory and fresh destination provenance. The server parses the
+workspace descriptor, permits only one copied Python video-plugin entry point,
+requires the suppress-bytecode runtime policy and invokes the existing fixed
+`Files.GetDirectory` smoke shape. All other add-on types return
+`execution_unsupported`. Output is only semantic execution classification and
+a bounded 0-or-1 item count; raw Kodi documents and directory metadata are
+discarded.
+
+The execution claim commits before Kodi and the dispatch marker commits before
+the one invocation. Completed duplicates replay stored evidence across modern
+HTTP, modern stdio and legacy HTTP. Timeout, ambiguous transport, crash after
+dispatch or failed post-provenance verification remains
+`execution_ambiguous`; it is never invoked again. One execution per target and
+one request per client per minute are admitted with bounded coordination.
+
+Current deployment evidence and pending/ambiguous/reconciliation-required
+deployment or execution rows block automatic workspace cleanup. Old-generation
+evidence remains historical but cannot authorize the new generation. Existing
+`workspace_status` and Web binding administration show bounded latest
+validation, deployment and execution UUID/state/generation/target. Web gains no
+MCP trigger, force control or generic reconciliation route.
+
+The production catalog is exactly fourteen lexical tools. Slice 4 adds no
+promotion request, human approval action, production/external target,
+repository publication, arbitrary add-on execution, arbitrary JSON-RPC, test
+runner, shell, Git or Docker authority. Phase 12 remains **PARTIAL**.
+
+Remaining Phase 12 capabilities are promotion request, Web human-review and
+approval integration, and formal Phase 12 closeout. None is implied by
+`workspace.inspect`, `workspace.edit`, `workspace.deploy`,
+`development.execute`, or Full Lab Control.

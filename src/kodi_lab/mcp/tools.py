@@ -34,6 +34,12 @@ from kodi_lab.application.mcp_remote_actions import (
     McpRemoteActionReceiptService,
     McpRemoteActionResult,
 )
+from kodi_lab.application.mcp_workspace_development import (
+    McpWorkspaceDevelopmentError,
+    McpWorkspaceDevelopmentService,
+    WorkspaceDeploymentResult,
+    WorkspaceExecutionResult,
+)
 from kodi_lab.application.mcp_workspace_mutations import (
     McpWorkspaceCreationService,
     McpWorkspaceMutationError,
@@ -176,6 +182,17 @@ class WorkspaceSummary(BaseModel):
     retention_classification: str
     retention_deadline_at: datetime | None = None
     automatic_cleanup_blocked: StrictBool
+    latest_validation_id: UUID | None = None
+    latest_validation_state: str | None = None
+    latest_validation_generation: int | None = Field(default=None, ge=0)
+    latest_deployment_id: UUID | None = None
+    latest_deployment_state: str | None = None
+    latest_deployment_generation: int | None = Field(default=None, ge=0)
+    latest_deployment_target_id: UUID | None = None
+    latest_execution_id: UUID | None = None
+    latest_execution_state: str | None = None
+    latest_execution_generation: int | None = Field(default=None, ge=0)
+    latest_execution_target_id: UUID | None = None
 
 
 class WorkspaceStatusResult(BaseModel):
@@ -302,6 +319,17 @@ class WorkspaceValidateInput(BaseModel):
     expected_generation: int = Field(ge=0)
 
 
+class WorkspaceTargetOperationInput(BaseModel):
+    """The exact closed input shared by deployment and fixed execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    workspace_id: UUID
+    expected_generation: int = Field(ge=0)
+    target_id: UUID
+
+
 class WorkspaceValidatedPath(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -348,6 +376,7 @@ class McpTargetToolService:
         workspaces: AgentWorkspaceService | None = None,
         workspace_creation: McpWorkspaceCreationService | None = None,
         workspace_retention: McpWorkspaceRetentionService | None = None,
+        workspace_development: McpWorkspaceDevelopmentService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -358,6 +387,7 @@ class McpTargetToolService:
         self._workspaces = workspaces
         self._workspace_creation = workspace_creation
         self._workspace_retention = workspace_retention
+        self._workspace_development = workspace_development
         self._active_edit_lock = threading.Lock()
         self._active_edits: set[UUID] = set()
         self._validation_lock = threading.Lock()
@@ -516,6 +546,64 @@ class McpTargetToolService:
             changed_paths=paths,
             truncated=len(paths) < len(observed.changes),
         )
+        if self._workspace_development is not None:
+            self._workspace_development.record_validation(
+                workspace_id=result.workspace_id,
+                source_id=result.source_id,
+                generation=result.observed_generation,
+                addon_id=result.addon_id,
+                addon_version=result.addon_version,
+                extension_types=result.extension_types,
+                validated_at=result.validated_at,
+            )
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_deploy(
+        self, principal: McpPrincipal, operation: WorkspaceTargetOperationInput
+    ) -> WorkspaceDeploymentResult:
+        self._authorization.authorize_workspace_target(
+            principal,
+            "workspace_deploy",
+            operation.workspace_id,
+            operation.target_id,
+        )
+        if self._workspace_development is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._workspace_development.deploy(
+                client_id=principal.client_id,
+                request_id=operation.request_id,
+                workspace_id=operation.workspace_id,
+                expected_generation=operation.expected_generation,
+                target_id=operation.target_id,
+            )
+        except McpWorkspaceDevelopmentError as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_execute(
+        self, principal: McpPrincipal, operation: WorkspaceTargetOperationInput
+    ) -> WorkspaceExecutionResult:
+        self._authorization.authorize_workspace_target(
+            principal,
+            "workspace_execute",
+            operation.workspace_id,
+            operation.target_id,
+        )
+        if self._workspace_development is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._workspace_development.execute(
+                client_id=principal.client_id,
+                request_id=operation.request_id,
+                workspace_id=operation.workspace_id,
+                expected_generation=operation.expected_generation,
+                target_id=operation.target_id,
+            )
+        except McpWorkspaceDevelopmentError as error:
+            raise McpAuthorizationError(error.code) from error
         self._require_development_bounded(result)
         return result
 
@@ -962,6 +1050,11 @@ class McpTargetToolService:
             if self._workspace_retention is None
             else self._workspace_retention.projection(workspace.id)
         )
+        development = (
+            None
+            if self._workspace_development is None
+            else self._workspace_development.projection(workspace.id)
+        )
         return WorkspaceSummary(
             workspace_id=workspace.id,
             source_id=workspace.development_source_id,
@@ -991,6 +1084,39 @@ class McpTargetToolService:
             ),
             automatic_cleanup_blocked=(
                 False if projection is None else projection.automatic_cleanup_blocked
+            ),
+            latest_validation_id=(
+                None if development is None else development.validation_id
+            ),
+            latest_validation_state=(
+                None if development is None else development.validation_state
+            ),
+            latest_validation_generation=(
+                None if development is None else development.validation_generation
+            ),
+            latest_deployment_id=(
+                None if development is None else development.deployment_id
+            ),
+            latest_deployment_state=(
+                None if development is None else development.deployment_state
+            ),
+            latest_deployment_generation=(
+                None if development is None else development.deployment_generation
+            ),
+            latest_deployment_target_id=(
+                None if development is None else development.deployment_target_id
+            ),
+            latest_execution_id=(
+                None if development is None else development.execution_id
+            ),
+            latest_execution_state=(
+                None if development is None else development.execution_state
+            ),
+            latest_execution_generation=(
+                None if development is None else development.execution_generation
+            ),
+            latest_execution_target_id=(
+                None if development is None else development.execution_target_id
             ),
         )
 

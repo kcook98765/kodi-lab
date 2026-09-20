@@ -73,8 +73,9 @@ client configuration details.
 
 The current production catalog is exactly `addon_list`,
 `development_source_list`, `remote_action`, `screenshot_capture`, `target_list`,
-`target_status`, `workspace_create`, `workspace_edit`, `workspace_read`,
-`workspace_status`, `workspace_tree`, and `workspace_validate`.
+`target_status`, `workspace_create`, `workspace_deploy`, `workspace_edit`,
+`workspace_execute`, `workspace_read`, `workspace_status`, `workspace_tree`, and
+`workspace_validate`.
 Screenshots are returned as native MCP `image/png` content through either
 transport; stdio does not write a temporary image or bypass the HTTP authority.
 
@@ -87,9 +88,14 @@ generation-bound UTF-8 create/replace/exact-patch over existing Phase 9 paths.
 it accepts no command, test selector, script, environment, or timeout. MCP-owned
 terminal bytes retain seven days, while ready workspaces of disabled clients
 quarantine for 30 days before safe abandonment and the same seven-day grace.
-Active-client ready and reconciliation-required workspaces never age-delete.
-MCP has no abandon, cleanup, or delete tool, and there is no deployment,
-execution, promotion, shell, Git, Docker, or caller-selected storage path.
+Active-client ready, currently deployed and reconciliation-required workspaces
+never age-delete. Exact-generation deployment requires `workspace.deploy`,
+same-generation successful validation, exact ownership/source/target grants and
+an internal disposable target. `development.execute` invokes only the fixed
+copied Python video-plugin smoke shape from exact deployment evidence. Both are
+request-ID replay-safe across HTTP/stdio and expose no paths, lifecycle options,
+add-on selection or raw JSON-RPC. MCP has no abandon, cleanup, promotion,
+general execution, shell, Git, Docker, or caller-selected storage path.
 
 Exact legacy `2025-11-25` clients may use authenticated Streamable HTTP at
 `/mcp`. Compatibility is stateless and bounded: there is no session/default
@@ -110,7 +116,8 @@ with Alembic head `0038_mcp_remote_control` and 1,928 collected tests.
 Phase 12 is **PARTIAL**. Web administrators may grant one
 registered DevelopmentSource to an MCP client and bind one eligible existing
 AgentWorkspace. MCP can list granted source metadata and inspect only its exact
-bound, still-granted workspaces. Slices 2–3 add owned creation/editing, closed
-structural validation, and system retention without granting MCP cleanup. It
-still cannot deploy, execute, request promotion, self-grant, or self-bind. See
+bound, still-granted workspaces. Slices 2–4 add owned creation/editing, closed
+structural validation, system retention, exact internal disposable deployment
+and fixed smoke execution without granting MCP cleanup or generic Kodi
+authority. It still cannot request promotion, self-grant, or self-bind. See
 [`docs/PHASE12-MCP-DEVELOPMENT.md`](docs/PHASE12-MCP-DEVELOPMENT.md).

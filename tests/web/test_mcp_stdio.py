@@ -11,8 +11,9 @@ import threading
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import httpx2
@@ -32,6 +33,10 @@ from kodi_lab.application.mcp_administration import (
     FULL_LAB_CONTROL_PRESET_ID,
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
+)
+from kodi_lab.application.mcp_workspace_development import (
+    WorkspaceDeploymentResult,
+    WorkspaceExecutionResult,
 )
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import PNG_SIGNATURE, validate_png
@@ -422,7 +427,9 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
                     "target_list",
                     "target_status",
                     "workspace_create",
+                    "workspace_deploy",
                     "workspace_edit",
+                    "workspace_execute",
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
@@ -519,7 +526,9 @@ def test_development_inspection_is_identical_over_modern_http_and_stdio(
                     "target_list",
                     "target_status",
                     "workspace_create",
+                    "workspace_deploy",
                     "workspace_edit",
+                    "workspace_execute",
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
@@ -725,3 +734,131 @@ def test_stdio_process_missing_token_and_eof_are_clean_and_secret_free() -> None
     assert process.stderr is not None
     stderr = process.stderr.read()
     assert secret.encode() not in stderr
+
+
+def test_workspace_deploy_execute_replay_is_shared_across_stdio_and_http(
+    client: TestClient,
+) -> None:
+    _make_target_ready(client)
+    context = cast(FastAPI, client.app).state.kodi_lab
+    source_root = context.settings.development_root / "plugin.video.mcp.stdio.slice4"
+    source_root.mkdir(parents=True)
+    (source_root / "addon.xml").write_text(
+        '<addon id="plugin.video.mcp.stdio.slice4" name="Slice 4" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="main.py">'
+        "<provides>video</provides></extension></addon>\n",
+        encoding="utf-8",
+    )
+    (source_root / "main.py").write_text("pass\n", encoding="utf-8")
+    source = context.development_source_administration.register_source(
+        logical_name="MCP stdio Slice 4 source",
+        relative_locator="plugin.video.mcp.stdio.slice4",
+    )
+    queued = context.agent_workspaces.queue_creation(source.id)
+    lease = context.agent_workspaces.acquire(queued.operation_id)
+    assert lease is not None
+    context.agent_workspaces.run(lease)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Slice 4 stdio replay",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.grant_development_source(mcp_client.id, source.id)
+    administration.bind_workspace(mcp_client.id, queued.workspace_id)
+    administration.assign_target_preset(INSTANCE_ID, FULL_LAB_CONTROL_PRESET_ID)
+    administration.grant_target(mcp_client.id, INSTANCE_ID)
+    issued = administration.issue_credential(mcp_client.id)
+    deployment_calls = 0
+    execution_calls = 0
+    deployments: dict[UUID, WorkspaceDeploymentResult] = {}
+    executions: dict[UUID, WorkspaceExecutionResult] = {}
+
+    def deploy(**kwargs: Any) -> WorkspaceDeploymentResult:
+        nonlocal deployment_calls
+        request_id = cast(UUID, kwargs["request_id"])
+        if request_id not in deployments:
+            deployment_calls += 1
+            deployments[request_id] = WorkspaceDeploymentResult(
+                request_id=request_id,
+                deployment_id=uuid4(),
+                workspace_id=queued.workspace_id,
+                source_id=source.id,
+                target_id=INSTANCE_ID,
+                generation=0,
+                addon_id="plugin.video.mcp.stdio.slice4",
+                addon_version="1.0.0",
+                state="succeeded",
+                result_classification="synchronized",
+                inventory_classification="matched",
+                addon_enabled=True,
+                started_at=datetime(2026, 9, 20, 18, 0, tzinfo=UTC),
+                completed_at=datetime(2026, 9, 20, 18, 0, 1, tzinfo=UTC),
+            )
+        return deployments[request_id]
+
+    def execute(**kwargs: Any) -> WorkspaceExecutionResult:
+        nonlocal execution_calls
+        request_id = cast(UUID, kwargs["request_id"])
+        if request_id not in executions:
+            execution_calls += 1
+            executions[request_id] = WorkspaceExecutionResult(
+                request_id=request_id,
+                execution_id=uuid4(),
+                deployment_id=next(iter(deployments.values())).deployment_id,
+                workspace_id=queued.workspace_id,
+                source_id=source.id,
+                target_id=INSTANCE_ID,
+                generation=0,
+                addon_id="plugin.video.mcp.stdio.slice4",
+                addon_version="1.0.0",
+                state="succeeded",
+                execution_classification="directory_result",
+                result_classification="smoke_passed",
+                item_count=1,
+                started_at=datetime(2026, 9, 20, 18, 1, tzinfo=UTC),
+                completed_at=datetime(2026, 9, 20, 18, 1, 1, tzinfo=UTC),
+            )
+        return executions[request_id]
+
+    context.mcp_workspace_development.deploy = deploy
+    context.mcp_workspace_development.execute = execute
+    with _live_loopback_server(client.app) as (endpoint, _capture):
+
+        async def exercise() -> None:
+            parameters = StdioServerParameters(
+                command=str(STDIO_EXECUTABLE),
+                env={
+                    TOKEN_ENVIRONMENT_VARIABLE: issued.token,
+                    ENDPOINT_ENVIRONMENT_VARIABLE: endpoint,
+                },
+                cwd=Path.cwd(),
+            )
+            async with (
+                _direct_client(endpoint, issued.token) as direct,
+                Client(parameters, mode="auto", cache=None) as stdio,
+            ):
+                arguments = {
+                    "request_id": str(uuid4()),
+                    "workspace_id": str(queued.workspace_id),
+                    "expected_generation": 0,
+                    "target_id": str(INSTANCE_ID),
+                }
+                first = await stdio.call_tool("workspace_deploy", arguments)
+                replay = await direct.call_tool("workspace_deploy", arguments)
+                assert not first.is_error and not replay.is_error
+                assert first.structured_content == replay.structured_content
+                execution_arguments = {**arguments, "request_id": str(uuid4())}
+                executed = await stdio.call_tool(
+                    "workspace_execute", execution_arguments
+                )
+                execution_replay = await direct.call_tool(
+                    "workspace_execute", execution_arguments
+                )
+                assert not executed.is_error and not execution_replay.is_error
+                assert (
+                    executed.structured_content == execution_replay.structured_content
+                )
+
+        asyncio.run(exercise())
+    assert deployment_calls == 1
+    assert execution_calls == 1

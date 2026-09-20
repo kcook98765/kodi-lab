@@ -283,16 +283,20 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
     )
     permissions = {item.id: item.permissions for item in presets}
     assert permissions[ADDON_DEVELOPMENT_PRESET_ID] == (
+        "development.execute",
         "target.control",
         "target.inspect",
         "target.visual",
+        "workspace.deploy",
         "workspace.edit",
         "workspace.inspect",
     )
     assert permissions[FULL_LAB_CONTROL_PRESET_ID] == (
+        "development.execute",
         "target.control",
         "target.inspect",
         "target.visual",
+        "workspace.deploy",
         "workspace.edit",
         "workspace.inspect",
     )
@@ -331,9 +335,11 @@ def test_custom_presets_are_bounded_builtin_permission_snapshots(
         template_preset_id=ADDON_DEVELOPMENT_PRESET_ID,
     )
     assert development_snapshot.permissions == (
+        "development.execute",
         "target.control",
         "target.inspect",
         "target.visual",
+        "workspace.deploy",
         "workspace.edit",
         "workspace.inspect",
     )
@@ -702,7 +708,9 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         "target_list",
         "target_status",
         "workspace_create",
+        "workspace_deploy",
         "workspace_edit",
+        "workspace_execute",
         "workspace_read",
         "workspace_status",
         "workspace_tree",
@@ -734,6 +742,16 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     assert (
         registry.require("workspace_edit").rate_class is ToolRateClass.DEVELOPMENT_EDIT
     )
+    deployment = registry.require("workspace_deploy")
+    assert deployment.permissions == frozenset({"workspace.deploy"})
+    assert deployment.rate_class is ToolRateClass.DEVELOPMENT_DEPLOY
+    assert deployment.required_capabilities == frozenset({"workspace_deployment"})
+    assert deployment.required_states == frozenset({"running", "ready", "reconciled"})
+    execution = registry.require("workspace_execute")
+    assert execution.permissions == frozenset({"development.execute"})
+    assert execution.rate_class is ToolRateClass.DEVELOPMENT_EXECUTE
+    assert execution.required_capabilities == frozenset({"workspace_execution"})
+    assert not deployment.production_eligible and not execution.production_eligible
 
 
 def test_authorization_enforces_registry_scope_classification(

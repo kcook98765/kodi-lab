@@ -1254,7 +1254,43 @@ not age-delete. Every opportunistic sweep is capped at 32 inspections, two
 transitions and two queued cleanups and shares workspace coordination with edit
 and validation. MCP gains no lifecycle or cleanup tool.
 
-Modern HTTP, modern stdio and legacy HTTP share the exact twelve-tool catalog
-and validation schema. Phase 12 remains **PARTIAL**: exact internal deployment,
+At this Slice 3 checkpoint, modern HTTP, modern stdio and legacy HTTP shared the
+exact twelve-tool catalog and validation schema. Exact internal deployment,
 fixed add-on execution, promotion request and Web human-approval integration
-remain later slices.
+remained later slices.
+
+## Phase 12 Slice 4 checkpoint
+
+Alembic `0042_mcp_workspace_deployment_execution` adds exactly
+`workspace.deploy` and `development.execute` to Add-on Development and Full Lab
+Control, latest exact-generation validation evidence, path-free deployment and
+execution operations, and deploy/execute kinds in the existing development
+request map. Existing custom presets, read-only and production presets remain
+unchanged.
+
+`workspace_deploy` accepts only request/workspace/generation/target UUIDs and
+requires exact ownership, current source and target grants/policy, latest
+successful validation of the same generation, stable add-on ID, matching
+DevelopmentSource attachment, internal disposable target class and canonical
+baseline or safe prior exact workspace evidence. A transport-neutral service
+owns target/workspace/global coordination and the fixed stop, overwrite/add
+copy, start, readiness, inventory-verification and evidence choreography.
+
+`workspace_execute` accepts the same closed input and requires a successful
+exact current deployment. It derives add-on ID/version and invokes only the
+existing fixed copied Python video-plugin `Files.GetDirectory` smoke shape.
+Other add-on types are unsupported; it accepts no add-on, URL, action,
+parameters, timeout or raw JSON-RPC input.
+
+Both operations commit their durable request before mutation/dispatch. Exact
+duplicates replay across modern HTTP, modern stdio and bounded legacy HTTP;
+conflicting parameters fail and uncertain post-marker requests never
+redispatch. Deployment uses one active client/workspace/target plus
+global-heavy coordination and a five-minute client/target interval. Execution
+uses one active target and a one-minute client interval. Current deployment and
+unresolved evidence blocks retention; workspace status and existing Web
+administration project bounded latest state.
+
+The catalog is exactly fourteen tools. Phase 12 remains **PARTIAL**: promotion
+request, Web human-review/approval integration and formal completion review are
+not implemented.

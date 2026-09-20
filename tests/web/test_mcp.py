@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import time
+from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -24,6 +25,10 @@ from kodi_lab.application.mcp_administration import (
     FULL_LAB_CONTROL_PRESET_ID,
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
+)
+from kodi_lab.application.mcp_workspace_development import (
+    WorkspaceDeploymentResult,
+    WorkspaceExecutionResult,
 )
 from kodi_lab.broker.errors import BrokerUnavailableError
 from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
@@ -368,7 +373,9 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                     "target_list",
                     "target_status",
                     "workspace_create",
+                    "workspace_deploy",
                     "workspace_edit",
+                    "workspace_execute",
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
@@ -697,7 +704,9 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "target_list",
         "target_status",
         "workspace_create",
+        "workspace_deploy",
         "workspace_edit",
+        "workspace_execute",
         "workspace_read",
         "workspace_status",
         "workspace_tree",
@@ -1709,3 +1718,188 @@ def test_workspace_edit_rate_class_is_two_per_second_with_burst_four(
     assert limiter.allow("client") is False
     now[0] += 0.5
     assert limiter.allow("client") is True
+
+
+def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
+    client: TestClient,
+) -> None:
+    _make_target_ready(client)
+    context = cast(FastAPI, client.app).state.kodi_lab
+    source_root = context.settings.development_root / "plugin.video.mcp.slice4"
+    source_root.mkdir(parents=True)
+    (source_root / "addon.xml").write_text(
+        '<addon id="plugin.video.mcp.slice4" name="Slice 4" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="main.py">'
+        "<provides>video</provides></extension></addon>\n",
+        encoding="utf-8",
+    )
+    (source_root / "main.py").write_text("pass\n", encoding="utf-8")
+    source = context.development_source_administration.register_source(
+        logical_name="MCP Slice 4 source",
+        relative_locator="plugin.video.mcp.slice4",
+    )
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Slice 4 protocol replay",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.grant_development_source(mcp_client.id, source.id)
+    administration.assign_target_preset(INSTANCE_ID, FULL_LAB_CONTROL_PRESET_ID)
+    administration.grant_target(mcp_client.id, INSTANCE_ID)
+    token = administration.issue_credential(mcp_client.id).token
+    created = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "workspace_create",
+            "arguments": {
+                "request_id": str(uuid4()),
+                "source_id": str(source.id),
+            },
+        },
+    ).json()["result"]["structuredContent"]
+    workspace_id = UUID(created["workspace_id"])
+    operation_id = UUID(created["creation_operation_id"])
+    deadline = time.monotonic() + 5
+    while context.agent_workspaces.creation_status(operation_id).state != "succeeded":
+        if time.monotonic() >= deadline:
+            raise AssertionError("workspace creation did not complete")
+        time.sleep(0.01)
+
+    tools = _post(client, token, "tools/list").json()["result"]["tools"]
+    for name in ("workspace_deploy", "workspace_execute"):
+        schema = next(item for item in tools if item["name"] == name)["inputSchema"]
+        assert set(schema["properties"]) == {
+            "request_id",
+            "workspace_id",
+            "expected_generation",
+            "target_id",
+        }
+        assert set(schema["required"]) == set(schema["properties"])
+        assert schema["additionalProperties"] is False
+
+    deployment_calls = 0
+    execution_calls = 0
+    deployments: dict[UUID, WorkspaceDeploymentResult] = {}
+    executions: dict[UUID, WorkspaceExecutionResult] = {}
+
+    def deploy(**kwargs: Any) -> WorkspaceDeploymentResult:
+        nonlocal deployment_calls
+        request_id = cast(UUID, kwargs["request_id"])
+        if request_id not in deployments:
+            deployment_calls += 1
+            deployments[request_id] = WorkspaceDeploymentResult(
+                request_id=request_id,
+                deployment_id=uuid4(),
+                workspace_id=workspace_id,
+                source_id=source.id,
+                target_id=INSTANCE_ID,
+                generation=0,
+                addon_id="plugin.video.mcp.slice4",
+                addon_version="1.0.0",
+                state="succeeded",
+                result_classification="synchronized",
+                inventory_classification="matched",
+                addon_enabled=True,
+                started_at=datetime(2026, 9, 20, 18, 0, tzinfo=UTC),
+                completed_at=datetime(2026, 9, 20, 18, 0, 1, tzinfo=UTC),
+            )
+        return deployments[request_id]
+
+    def execute(**kwargs: Any) -> WorkspaceExecutionResult:
+        nonlocal execution_calls
+        request_id = cast(UUID, kwargs["request_id"])
+        if request_id not in executions:
+            execution_calls += 1
+            executions[request_id] = WorkspaceExecutionResult(
+                request_id=request_id,
+                execution_id=uuid4(),
+                deployment_id=next(iter(deployments.values())).deployment_id,
+                workspace_id=workspace_id,
+                source_id=source.id,
+                target_id=INSTANCE_ID,
+                generation=0,
+                addon_id="plugin.video.mcp.slice4",
+                addon_version="1.0.0",
+                state="succeeded",
+                execution_classification="directory_result",
+                result_classification="smoke_passed",
+                item_count=1,
+                started_at=datetime(2026, 9, 20, 18, 1, tzinfo=UTC),
+                completed_at=datetime(2026, 9, 20, 18, 1, 1, tzinfo=UTC),
+            )
+        return executions[request_id]
+
+    context.mcp_workspace_development.deploy = deploy
+    context.mcp_workspace_development.execute = execute
+    arguments = {
+        "request_id": str(uuid4()),
+        "workspace_id": str(workspace_id),
+        "expected_generation": 0,
+        "target_id": str(INSTANCE_ID),
+    }
+    modern_deploy = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_deploy", "arguments": arguments},
+    ).json()["result"]
+    legacy_deploy = _legacy_post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_deploy", "arguments": arguments},
+    ).json()["result"]
+    assert modern_deploy["structuredContent"] == legacy_deploy["structuredContent"]
+    assert deployment_calls == 1
+
+    other_client = administration.create_client(
+        display_name="Slice 4 isolated client",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.grant_development_source(other_client.id, source.id)
+    administration.grant_target(other_client.id, INSTANCE_ID)
+    other_token = administration.issue_credential(other_client.id).token
+    isolated = _post(
+        client,
+        other_token,
+        "tools/call",
+        params={"name": "workspace_deploy", "arguments": arguments},
+    ).json()["result"]
+    assert isolated["structuredContent"] == {
+        "error": "workspace_not_found_or_not_authorized"
+    }
+    assert deployment_calls == 1
+
+    execute_arguments = {**arguments, "request_id": str(uuid4())}
+    modern_execute = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_execute", "arguments": execute_arguments},
+    ).json()["result"]
+    legacy_execute = _legacy_post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_execute", "arguments": execute_arguments},
+    ).json()["result"]
+    assert modern_execute["structuredContent"] == legacy_execute["structuredContent"]
+    assert execution_calls == 1
+
+    reverse_arguments = {**arguments, "request_id": str(uuid4())}
+    legacy_first = _legacy_post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_execute", "arguments": reverse_arguments},
+    ).json()["result"]
+    modern_replay = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_execute", "arguments": reverse_arguments},
+    ).json()["result"]
+    assert legacy_first["structuredContent"] == modern_replay["structuredContent"]
+    assert execution_calls == 2

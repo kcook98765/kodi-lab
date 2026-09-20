@@ -594,3 +594,31 @@ Retention is application policy and exposes no MCP tool. The bounded sweep
 performs metadata decisions and queues only the existing typed Phase 9 cleanup
 service, whose UUID-derived no-follow identity/deletion protections remain
 authoritative. It adds no direct directory removal and no broker involvement.
+
+## Phase 12 Slice 4 workspace deployment boundary
+
+Slice 4 adds exactly two fixed broker operations for the new application
+service: `copy_sync_mcp_workspace` and
+`verify_mcp_workspace_destination`. MCP never calls the broker and cannot name
+these operations. The unprivileged application passes only server-persisted
+managed-instance, workspace, exact generation and deployment-operation UUIDs
+plus the already observed exact container precondition.
+
+The privileged resolver re-derives workspace storage, source identity, attached
+destination, runtime UID/GID, current container anchoring and prior copy
+evidence from trusted database/configuration state. It requires a running
+deployment row in the exact sync phase, ready present workspace bytes, stable
+add-on identity and generation, matching internal disposable target/source and
+the current runtime revision. The Docker adapter then reuses the existing
+stopped-only overwrite/add copy engine and manifest readback. Caller-supplied
+paths, destinations, ownership, modes, delete flags, commands, package formats,
+container identities, lifecycle options and arbitrary Docker operations remain
+unrepresentable.
+
+The verification operation accepts only deployment-operation, target and exact
+observed-container preconditions and returns bounded identity/version/match and
+video-plugin eligibility. It returns no path, digest, member list, raw XML or
+container identifier beyond the pre-existing ephemeral broker result needed by
+the application boundary; the durable Slice 4 evidence deliberately does not
+persist container IDs. Execution itself remains unprivileged fixed Kodi
+JSON-RPC and adds no broker operation.

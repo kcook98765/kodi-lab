@@ -193,6 +193,7 @@ def test_capabilities_reports_exact_semantic_operations() -> None:
         "capture_managed_kodi_screenshot",
         "capture_promotion_kodi_log_cursor",
         "copy_sync_attached_development_source",
+        "copy_sync_mcp_workspace",
         "copy_sync_promoted_development_source",
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
@@ -208,6 +209,7 @@ def test_capabilities_reports_exact_semantic_operations() -> None:
         "verify_addon_zip_enablement_destination",
         "verify_addon_zip_smoke_destination",
         "verify_attached_development_source_destination",
+        "verify_mcp_workspace_destination",
     ]
     assert provider.calls == 0
 
@@ -306,6 +308,7 @@ def test_registry_has_no_generic_docker_or_execution_operation() -> None:
         "capture_managed_kodi_screenshot",
         "capture_promotion_kodi_log_cursor",
         "copy_sync_attached_development_source",
+        "copy_sync_mcp_workspace",
         "copy_sync_promoted_development_source",
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
@@ -321,6 +324,7 @@ def test_registry_has_no_generic_docker_or_execution_operation() -> None:
         "verify_addon_zip_enablement_destination",
         "verify_addon_zip_smoke_destination",
         "verify_attached_development_source_destination",
+        "verify_mcp_workspace_destination",
     )
     assert not {"docker", "execute", "shell", "command", "raw"}.intersection(names)
 

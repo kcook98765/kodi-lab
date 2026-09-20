@@ -156,3 +156,13 @@ clears its durable quarantine clock. Existing UUID-specific abandonment and
 confirmed cleanup routes remain the only manual controls. There is no force
 cleanup, ignore-state, cleanup-all, MCP cleanup, path, command or policy-timing
 input.
+
+Phase 12 Slice 4 adds only read-only semantic visibility to the existing MCP
+client/workspace-binding administration: latest deployment and execution UUID,
+target UUID, exact generation and bounded state, including ambiguity or
+reconciliation-required classification. It accepts no new Web request field and
+adds no deploy, execute, retry, reconcile, force, lifecycle or cleanup button.
+Existing session authentication, Trusted Host, same-origin and CSRF controls
+remain the sole Web administration boundary. Recovery continues through
+existing UUID-specific target/workspace administration; no path, add-on ID,
+container, broker operation, raw Kodi response or log is rendered.

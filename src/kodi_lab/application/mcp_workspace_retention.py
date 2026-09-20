@@ -82,6 +82,7 @@ class McpWorkspaceRetentionService:
         max_inspected: int = RETENTION_MAX_INSPECTED,
         max_transitions: int = RETENTION_MAX_TRANSITIONS,
         max_cleanups: int = RETENTION_MAX_CLEANUPS,
+        development_blocker: Callable[[UUID, int], str | None] | None = None,
     ) -> None:
         if min(max_inspected, max_transitions, max_cleanups) < 1:
             raise ValueError("retention sweep bounds must be positive")
@@ -94,6 +95,7 @@ class McpWorkspaceRetentionService:
         self._max_inspected = max_inspected
         self._max_transitions = max_transitions
         self._max_cleanups = max_cleanups
+        self._development_blocker = development_blocker
         self._lock = threading.Lock()
         self._last_sweep: datetime | None = None
         self._cursor: str | None = None
@@ -147,6 +149,18 @@ class McpWorkspaceRetentionService:
             return McpWorkspaceRetentionProjection(
                 owning_client_enabled=client.enabled,
                 classification="manual_attention_required",
+                deadline_at=None,
+                automatic_cleanup_blocked=True,
+            )
+        development_blocker = (
+            None
+            if self._development_blocker is None
+            else self._development_blocker(UUID(workspace.id), workspace.generation)
+        )
+        if development_blocker is not None:
+            return McpWorkspaceRetentionProjection(
+                owning_client_enabled=client.enabled,
+                classification=development_blocker,
                 deadline_at=None,
                 automatic_cleanup_blocked=True,
             )

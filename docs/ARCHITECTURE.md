@@ -1889,9 +1889,11 @@ external target or production target authority. Phase 12 remains **PARTIAL**.
 
 ## Phase 12 Slice 3 structural validation and workspace retention
 
-Migration `0041_mcp_workspace_validation_retention` adds only durable
+At the Slice 3 checkpoint, migration
+`0041_mcp_workspace_validation_retention` added only durable
 `mcp_clients.disabled_at` timing and content-free system retention audit events.
-Validation evidence is synchronous and deliberately not persisted.
+Validation evidence was synchronous and deliberately not persisted in that
+slice; Slice 4 later adds the minimal latest successful eligibility row.
 `workspace_validate` requires `workspace.inspect`, exact ownership, the current
 source grant, byte-present ready state, and exact `expected_generation`; no
 target grant participates. Its schema has only workspace UUID and generation.
@@ -1925,3 +1927,52 @@ bindings, history and 30-day request-ID retention remain. The exact twelve-tool
 lexical catalog is shared by modern HTTP, modern stdio and legacy HTTP. Phase 12
 remains **PARTIAL**: deployment, fixed execution and promotion request/human
 approval integration are not implemented.
+
+## Phase 12 Slice 4 exact-generation target development loop
+
+Migration `0042_mcp_workspace_deployment_execution` extends the ordinary MCP
+authority database with two permissions, latest successful workspace validation
+evidence, semantic deployment/execution operations and two operation kinds in
+the existing client request map. The data model deliberately contains no host
+or container path, raw response, log, directory entry, file content or
+container identifier.
+
+The application service, not the transport, is the deployment authority. It
+intersects current workspace/source identity with an exact internal disposable
+target and its matching DevelopmentSource attachment. Eligibility requires
+same-generation structural validation and either a verified canonical source
+copy for the exact runtime/container or a prior successful workspace copy that
+is still anchored to that canonical container evidence. Exact add-on ID is
+stable; generation never floats.
+
+Deployment reserves managed-target, workspace and global-heavy coordination,
+then calls only two narrow broker semantics: copy the exact persisted workspace
+generation to the server-derived attached-source destination, and verify that
+completed workspace deployment's destination provenance. The existing Phase 8
+copy engine retains stopped-only, no-follow, ownership, manifest and
+overwrite/add behavior; no deletion of destination-only members occurs. MCP
+cannot select either broker operation or any argument beneath the four semantic
+tool inputs.
+
+The fixed choreography is claim, recheck, mutation marker, stop, sync marker,
+copy/readback, start, readiness, enabled inventory ID/version check and terminal
+evidence. Unknown state after mutation is durable reconciliation-required and
+best-effort stopped; it is not automatically replayed. Sync uncertainty marks
+canonical source-copy confidence unknown, while a verified workspace overlay
+makes that source confidence stale.
+
+Execution composes only from successful deployment evidence. Fresh ready
+runtime, enabled exact ID/version inventory and exact destination provenance are
+checked before the existing copied Python video-plugin smoke adapter performs
+one fixed directory invocation. A dispatch marker supplies conservative
+at-most-once restart behavior. Results expose classification and at most one
+item count, not media metadata or raw JSON.
+
+Modern HTTP, modern stdio and bounded legacy HTTP enter one authorization,
+service and replay namespace. Current deployment or unresolved operations block
+automatic workspace cleanup. Existing workspace status and Web client binding
+views show bounded latest validation/deployment/execution state, while Web
+retains recovery authority. The exact fourteen-tool catalog still has no
+promotion request, general test runner, repository publication, production or
+external development target, generic add-on execution, raw JSON-RPC, shell,
+Git or Docker surface.

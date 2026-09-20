@@ -38,6 +38,7 @@ INSTANCE_ID = str(UUID(int=101))
 SOURCE_ID = str(UUID(int=102))
 OPERATION_ID = str(UUID(int=103))
 REVISION_ID = str(UUID(int=104))
+WORKSPACE_ID = str(UUID(int=105))
 CONTAINER_ID = "a" * 64
 
 
@@ -67,6 +68,8 @@ class FakeResolver:
         self.error = error
         self.calls: list[tuple[str, str, str, str]] = []
         self.verification_calls: list[tuple[str, str, str]] = []
+        self.workspace_calls: list[tuple[str, str, int, str, str]] = []
+        self.workspace_verification_calls: list[tuple[str, str, str]] = []
 
     def resolve(
         self,
@@ -99,6 +102,46 @@ class FakeResolver:
         return DevelopmentSourceDestinationVerificationSpec(
             managed_instance_id=managed_instance_id,
             development_source_id=development_source_id,
+            runtime_revision_id=REVISION_ID,
+            runtime_uid=2468,
+            runtime_gid=1357,
+            addon_id="plugin.video.example",
+            addon_version="1.0.0",
+            verified_destination_digest="sha256:" + "2" * 64,
+            trusted_container_id=expected_container_id,
+        )
+
+    def resolve_workspace_deployment(
+        self,
+        managed_instance_id: str,
+        workspace_id: str,
+        expected_generation: int,
+        deployment_operation_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDeploymentSpec:
+        self.workspace_calls.append(
+            (
+                managed_instance_id,
+                workspace_id,
+                expected_generation,
+                deployment_operation_id,
+                expected_container_id,
+            )
+        )
+        return self.spec
+
+    def resolve_workspace_destination_verification(
+        self,
+        deployment_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDestinationVerificationSpec:
+        self.workspace_verification_calls.append(
+            (deployment_operation_id, managed_instance_id, expected_container_id)
+        )
+        return DevelopmentSourceDestinationVerificationSpec(
+            managed_instance_id=managed_instance_id,
+            development_source_id=SOURCE_ID,
             runtime_revision_id=REVISION_ID,
             runtime_uid=2468,
             runtime_gid=1357,
@@ -189,6 +232,26 @@ def _verify_call(
     )
 
 
+def _workspace_call(client: BrokerClient) -> CopySyncAttachedDevelopmentSourceResult:
+    return client.copy_sync_mcp_workspace(
+        managed_instance_id=INSTANCE_ID,
+        workspace_id=WORKSPACE_ID,
+        expected_generation=7,
+        expected_container_id=CONTAINER_ID,
+        deployment_operation_id=OPERATION_ID,
+    )
+
+
+def _workspace_verify_call(
+    client: BrokerClient,
+) -> VerifyAttachedDevelopmentSourceDestinationResult:
+    return client.verify_mcp_workspace_destination(
+        deployment_operation_id=OPERATION_ID,
+        managed_instance_id=INSTANCE_ID,
+        expected_container_id=CONTAINER_ID,
+    )
+
+
 def _raw(
     path: Path,
     params: object,
@@ -252,6 +315,52 @@ def test_destination_verification_protocol_accepts_semantic_identities_only(
         "uid",
         "gid",
     } & set(result.model_dump())
+
+
+def test_workspace_protocol_accepts_only_semantic_exact_generation_authority(
+    tmp_path: Path, socket_config: SocketPathConfig, run_broker: Any
+) -> None:
+    resolver = FakeResolver(_spec(tmp_path))
+    provider = FakeProvider()
+    with run_broker(socket_config, registry=_registry(provider, resolver)):
+        client = BrokerClient(socket_config.socket_path)
+        deployed = _workspace_call(client)
+        verified = _workspace_verify_call(client)
+    assert deployed.deployment_operation_id == OPERATION_ID
+    assert verified.matched
+    assert resolver.workspace_calls == [
+        (INSTANCE_ID, WORKSPACE_ID, 7, OPERATION_ID, CONTAINER_ID)
+    ]
+    assert resolver.workspace_verification_calls == [
+        (OPERATION_ID, INSTANCE_ID, CONTAINER_ID)
+    ]
+    assert len(provider.calls) == len(provider.verification_calls) == 1
+
+
+def test_workspace_protocol_rejects_paths_commands_and_lifecycle_options(
+    tmp_path: Path, socket_config: SocketPathConfig, run_broker: Any
+) -> None:
+    resolver = FakeResolver(_spec(tmp_path))
+    provider = FakeProvider()
+    params = {
+        "managed_instance_id": INSTANCE_ID,
+        "workspace_id": WORKSPACE_ID,
+        "expected_generation": 7,
+        "expected_container_id": CONTAINER_ID,
+        "deployment_operation_id": OPERATION_ID,
+        "destination": "/home/kodi/.kodi/addons",
+        "command": ["rsync", "--delete"],
+        "restart": True,
+    }
+    with run_broker(socket_config, registry=_registry(provider, resolver)):
+        response = _raw(
+            socket_config.socket_path,
+            params,
+            operation="copy_sync_mcp_workspace",
+        )
+    assert response["error"]["code"] == "invalid_params"  # type: ignore[index]
+    assert resolver.workspace_calls == []
+    assert provider.calls == []
 
 
 def test_destination_verification_protocol_rejects_path_and_digest_authority(

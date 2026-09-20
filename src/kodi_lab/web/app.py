@@ -228,6 +228,9 @@ from kodi_lab.application.mcp_administration import (
     McpWorkspaceBindingRead,
 )
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionReceiptService
+from kodi_lab.application.mcp_workspace_development import (
+    McpWorkspaceDevelopmentService,
+)
 from kodi_lab.application.mcp_workspace_mutations import McpWorkspaceCreationService
 from kodi_lab.application.mcp_workspace_retention import (
     McpWorkspaceRetentionService,
@@ -775,6 +778,7 @@ class WebApplicationContext:
     agent_workspace_cleanups: AgentWorkspaceCleanupService
     agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
     mcp_workspace_retention: McpWorkspaceRetentionService
+    mcp_workspace_development: McpWorkspaceDevelopmentService
     agent_workspace_promotions: AgentWorkspacePromotionService
     promotion_verifications: PromotionVerificationService
     screenshots: ManagedScreenshotService
@@ -908,18 +912,28 @@ def create_app(
     agent_workspace_cleanup_executor = AgentWorkspaceCleanupExecutor(
         agent_workspace_cleanups
     )
+    mcp_workspace_development = McpWorkspaceDevelopmentService(
+        session_factory,
+        broker,
+        addon_inventory,
+        agent_workspaces,
+        data_root=settings.data_root,
+    )
     mcp_workspace_retention = McpWorkspaceRetentionService(
         session_factory,
         agent_workspaces,
         agent_workspace_cleanups,
         agent_workspace_cleanup_executor.submit,
         data_root=settings.data_root,
+        development_blocker=mcp_workspace_development.retention_blocker,
     )
     mcp_workspace_creation = McpWorkspaceCreationService(
         session_factory, agent_workspaces, agent_workspace_executor.submit
     )
     mcp_administration = McpAdministrationService(
-        session_factory, retention=mcp_workspace_retention
+        session_factory,
+        retention=mcp_workspace_retention,
+        development=mcp_workspace_development,
     )
     mcp_registry = build_mcp_tool_registry()
     mcp_authorization = McpAuthorizationService(
@@ -946,6 +960,7 @@ def create_app(
             agent_workspaces,
             mcp_workspace_creation,
             mcp_workspace_retention,
+            mcp_workspace_development,
         ),
     )
     live_display = managed_live_display_service or ManagedLiveDisplayService(
@@ -1336,6 +1351,7 @@ def create_app(
         agent_workspace_cleanups=agent_workspace_cleanups,
         agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
         mcp_workspace_retention=mcp_workspace_retention,
+        mcp_workspace_development=mcp_workspace_development,
         agent_workspace_promotions=agent_workspace_promotions,
         promotion_verifications=promotion_verifications,
         screenshots=screenshots,
@@ -1350,6 +1366,7 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         context.agent_workspace_promotions.sweep_startup()
         context.promotion_verifications.sweep_startup()
+        context.mcp_workspace_development.sweep_startup()
         context.stale_dispatcher.sweep_startup()
         context.reset_executor.start()
         context.snapshot_executor.start()

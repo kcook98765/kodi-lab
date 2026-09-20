@@ -134,6 +134,8 @@ class ManagedInstanceMutationKind(StrEnum):
     REPOSITORY_REPLACEMENT = "repository_replacement"
     AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
     PROMOTION_VERIFICATION = "promotion_verification"
+    MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
+    MCP_WORKSPACE_EXECUTION = "mcp_workspace_execution"
 
 
 class GlobalHeavyOperationKind(StrEnum):
@@ -152,6 +154,7 @@ class GlobalHeavyOperationKind(StrEnum):
     AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
     PROMOTION_VERIFICATION = "promotion_verification"
     AGENT_WORKSPACE_CLEANUP = "agent_workspace_cleanup"
+    MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
 
 
 def normalize_snapshot_label(value: str | None) -> str | None:

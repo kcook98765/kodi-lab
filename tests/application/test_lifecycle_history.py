@@ -278,6 +278,8 @@ def test_stale_lifecycle_with_transitional_observation_blocks_all_mutations(
         "repository_replacement",
         "agent_workspace_promotion",
         "promotion_verification",
+        "mcp_workspace_deployment",
+        "mcp_workspace_execution",
     }
 
 

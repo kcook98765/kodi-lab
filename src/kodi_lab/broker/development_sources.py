@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
+import sqlalchemy as sa
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -25,10 +27,12 @@ from kodi_lab.domain import (
     RepositoryReplacementOperationState,
 )
 from kodi_lab.storage.engine import create_database_engine
+from kodi_lab.storage.models import McpWorkspaceDeploymentOperationRow
 from kodi_lab.storage.repositories import (
     AddonZipInstallationEvidenceRepository,
     AgentWorkspacePromotionHandoffRepository,
     AgentWorkspacePromotionOperationRepository,
+    AgentWorkspaceRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
     DevelopmentSourceRepository,
@@ -74,6 +78,7 @@ class DevelopmentSourceDeploymentSpec:
     observed_version: str
     staging_root: Path
     prior_evidence: PriorDevelopmentSourceDeploymentEvidence | None
+    expected_source_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +107,22 @@ class DevelopmentSourceDeploymentResolver(Protocol):
         self,
         managed_instance_id: str,
         development_source_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDestinationVerificationSpec: ...
+
+    def resolve_workspace_deployment(
+        self,
+        managed_instance_id: str,
+        workspace_id: str,
+        expected_generation: int,
+        deployment_operation_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDeploymentSpec: ...
+
+    def resolve_workspace_destination_verification(
+        self,
+        deployment_operation_id: str,
+        managed_instance_id: str,
         expected_container_id: str,
     ) -> DevelopmentSourceDestinationVerificationSpec: ...
 
@@ -303,6 +324,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
                     observed_version=source.observed_version,
                     staging_root=self._data_root / "development-source-staging",
                     prior_evidence=prior,
+                    expected_source_digest=None,
                 )
         except DevelopmentSourceDeploymentStateError:
             raise
@@ -508,4 +530,225 @@ class SqliteDevelopmentSourceDeploymentResolver:
                 trusted_container_id=handoff.trusted_container_id,
                 confidence=DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION,
             ),
+            expected_source_digest=None,
+        )
+
+    def resolve_workspace_deployment(
+        self,
+        managed_instance_id: str,
+        workspace_id: str,
+        expected_generation: int,
+        deployment_operation_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDeploymentSpec:
+        try:
+            instance_id = UUID(managed_instance_id)
+            workspace_uuid = UUID(workspace_id)
+            operation_id = UUID(deployment_operation_id)
+            if (
+                str(instance_id) != managed_instance_id
+                or str(workspace_uuid) != workspace_id
+                or str(operation_id) != deployment_operation_id
+                or expected_generation < 0
+                or len(expected_container_id) != 64
+            ):
+                raise ValueError
+        except ValueError as error:
+            raise DevelopmentSourceDeploymentStateError(
+                "Workspace deployment identities are not canonical."
+            ) from error
+        try:
+            with self._session_factory() as session:
+                instance = ManagedInstanceRepository(session).get(instance_id)
+                workspace = AgentWorkspaceRepository(session).get(workspace_uuid)
+                operation = session.get(
+                    McpWorkspaceDeploymentOperationRow, deployment_operation_id
+                )
+                source = (
+                    None
+                    if workspace is None
+                    else DevelopmentSourceRepository(session).get(
+                        workspace.development_source_id
+                    )
+                )
+                attachment = (
+                    None
+                    if workspace is None
+                    else ManagedInstanceDevelopmentSourceRepository(session).get(
+                        instance_id, workspace.development_source_id
+                    )
+                )
+                profile = (
+                    None
+                    if instance is None
+                    else RuntimeExecutionProfileRepository(session).get(
+                        instance.runtime_revision_id
+                    )
+                )
+                baseline = (
+                    None
+                    if workspace is None
+                    else DevelopmentSourceDeploymentRepository(session).get(
+                        instance_id, workspace.development_source_id
+                    )
+                )
+                prior_workspace = (
+                    None
+                    if workspace is None
+                    else session.scalar(
+                        select(McpWorkspaceDeploymentOperationRow)
+                        .where(
+                            McpWorkspaceDeploymentOperationRow.id
+                            != deployment_operation_id,
+                            McpWorkspaceDeploymentOperationRow.workspace_id
+                            == workspace_id,
+                            McpWorkspaceDeploymentOperationRow.target_id
+                            == managed_instance_id,
+                            McpWorkspaceDeploymentOperationRow.development_source_id
+                            == str(workspace.development_source_id),
+                            McpWorkspaceDeploymentOperationRow.state == "succeeded",
+                            McpWorkspaceDeploymentOperationRow.runtime_revision_id
+                            == str(instance.runtime_revision_id)
+                            if instance is not None
+                            else sa.false(),
+                        )
+                        .order_by(
+                            McpWorkspaceDeploymentOperationRow.completed_at.desc()
+                        )
+                    )
+                )
+            if (
+                instance is None
+                or workspace is None
+                or source is None
+                or attachment is None
+                or profile is None
+                or operation is None
+                or instance.instance_type is not InstanceType.DISPOSABLE
+                or workspace.state.value != "ready"
+                or workspace.bytes_state.value != "present"
+                or workspace.generation != expected_generation
+                or workspace.current_tree_digest is None
+                or workspace.source_addon_id != source.addon_id
+                or operation.state != "running"
+                or operation.phase != "sync"
+                or not operation.mutation_started
+                or not operation.target_stopped
+                or not operation.sync_started
+                or operation.sync_completed
+                or operation.workspace_id != workspace_id
+                or operation.target_id != managed_instance_id
+                or operation.generation != expected_generation
+                or operation.runtime_revision_id != str(instance.runtime_revision_id)
+                or operation.addon_id != source.addon_id
+            ):
+                raise DevelopmentSourceDeploymentStateError(
+                    "Workspace deployment authority drifted.",
+                    code="workspace_deployment_state_invalid",
+                )
+            prior: PriorDevelopmentSourceDeploymentEvidence | None = None
+            if prior_workspace is not None:
+                if (
+                    prior_workspace.source_manifest_digest is None
+                    or prior_workspace.verified_destination_digest is None
+                    or baseline is None
+                    or baseline.runtime_revision_id != instance.runtime_revision_id
+                    or baseline.trusted_container_id != expected_container_id
+                ):
+                    raise DevelopmentSourceDeploymentStateError(
+                        "Prior workspace deployment evidence is incomplete."
+                    )
+                prior = PriorDevelopmentSourceDeploymentEvidence(
+                    source_manifest_digest=prior_workspace.source_manifest_digest,
+                    verified_destination_digest=prior_workspace.verified_destination_digest,
+                    runtime_revision_id=str(instance.runtime_revision_id),
+                    trusted_container_id=expected_container_id,
+                    confidence=(
+                        DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+                    ),
+                )
+            elif baseline is not None:
+                prior = PriorDevelopmentSourceDeploymentEvidence(
+                    source_manifest_digest=baseline.source_manifest_digest,
+                    verified_destination_digest=baseline.verified_destination_digest,
+                    runtime_revision_id=str(baseline.runtime_revision_id),
+                    trusted_container_id=baseline.trusted_container_id,
+                    confidence=baseline.confidence,
+                )
+            return DevelopmentSourceDeploymentSpec(
+                managed_instance_id=managed_instance_id,
+                development_source_id=str(source.id),
+                deployment_operation_id=deployment_operation_id,
+                runtime_revision_id=str(instance.runtime_revision_id),
+                runtime_uid=profile.runtime_uid,
+                runtime_gid=profile.runtime_gid,
+                development_root=self._data_root / "agent-workspaces" / workspace_id,
+                relative_locator="tree",
+                addon_id=source.addon_id,
+                observed_name=source.observed_name,
+                observed_version=operation.addon_version,
+                staging_root=self._data_root / "development-source-staging",
+                prior_evidence=prior,
+                expected_source_digest=workspace.current_tree_digest,
+            )
+        except DevelopmentSourceDeploymentStateError:
+            raise
+        except (SQLAlchemyError, ValueError) as error:
+            raise DevelopmentSourceDeploymentStateError(
+                "Canonical workspace deployment state could not be read."
+            ) from error
+
+    def resolve_workspace_destination_verification(
+        self,
+        deployment_operation_id: str,
+        managed_instance_id: str,
+        expected_container_id: str,
+    ) -> DevelopmentSourceDestinationVerificationSpec:
+        try:
+            operation_id = UUID(deployment_operation_id)
+            instance_id = UUID(managed_instance_id)
+            if (
+                str(operation_id) != deployment_operation_id
+                or str(instance_id) != managed_instance_id
+            ):
+                raise ValueError
+        except ValueError as error:
+            raise DevelopmentSourceDeploymentStateError(
+                "Workspace destination verification identities are invalid."
+            ) from error
+        with self._session_factory() as session:
+            operation = session.get(
+                McpWorkspaceDeploymentOperationRow, deployment_operation_id
+            )
+            instance = ManagedInstanceRepository(session).get(instance_id)
+            profile = (
+                None
+                if instance is None
+                else RuntimeExecutionProfileRepository(session).get(
+                    instance.runtime_revision_id
+                )
+            )
+        if (
+            operation is None
+            or instance is None
+            or profile is None
+            or operation.state != "succeeded"
+            or operation.target_id != managed_instance_id
+            or operation.runtime_revision_id != str(instance.runtime_revision_id)
+            or operation.verified_destination_digest is None
+        ):
+            raise DevelopmentSourceDeploymentStateError(
+                "Completed workspace deployment evidence is unavailable.",
+                code="workspace_deployment_state_invalid",
+            )
+        return DevelopmentSourceDestinationVerificationSpec(
+            managed_instance_id=managed_instance_id,
+            development_source_id=operation.development_source_id,
+            runtime_revision_id=operation.runtime_revision_id,
+            runtime_uid=profile.runtime_uid,
+            runtime_gid=profile.runtime_gid,
+            addon_id=operation.addon_id,
+            addon_version=operation.addon_version,
+            verified_destination_digest=operation.verified_destination_digest,
+            trusted_container_id=expected_container_id,
         )

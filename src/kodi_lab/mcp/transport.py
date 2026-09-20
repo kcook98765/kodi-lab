@@ -45,6 +45,10 @@ from kodi_lab.application.mcp_administration import (
     McpPrincipal,
 )
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
+from kodi_lab.application.mcp_workspace_development import (
+    WorkspaceDeploymentResult,
+    WorkspaceExecutionResult,
+)
 from kodi_lab.application.mcp_workspace_mutations import WorkspaceCreateResult
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
@@ -62,6 +66,7 @@ from kodi_lab.mcp.tools import (
     WorkspaceEditResult,
     WorkspaceReadResult,
     WorkspaceStatusResult,
+    WorkspaceTargetOperationInput,
     WorkspaceTreeResult,
     WorkspaceValidateInput,
     WorkspaceValidateResult,
@@ -644,6 +649,12 @@ def build_mcp_http_transport(
         idempotent_hint=False,
         open_world_hint=False,
     )
+    execution_annotations = ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=True,
+    )
     development_limiter = development_read_limiter or BoundedTokenBucketLimiter(
         rate=10.0,
         burst=20,
@@ -755,6 +766,31 @@ def build_mcp_http_transport(
             annotations=edit_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "workspace_deploy": Tool(
+            name="workspace_deploy",
+            title="Deploy an exact workspace generation",
+            description=(
+                "Deploy one validated exact workspace generation to an authorized "
+                "internal disposable target using the closed stop/sync/start workflow."
+            ),
+            input_schema=WorkspaceTargetOperationInput.model_json_schema(),
+            output_schema=WorkspaceDeploymentResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "workspace_execute": Tool(
+            name="workspace_execute",
+            title="Execute the fixed workspace smoke workflow",
+            description=(
+                "Invoke only the server-owned bounded Python video-plugin smoke "
+                "shape for an exact completed deployment. Plugin code may use the "
+                "target's existing network access."
+            ),
+            input_schema=WorkspaceTargetOperationInput.model_json_schema(),
+            output_schema=WorkspaceExecutionResult.model_json_schema(),
+            annotations=execution_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_tree": Tool(
             name="workspace_tree",
             title="List one workspace directory",
@@ -822,6 +858,8 @@ def build_mcp_http_transport(
                 | WorkspaceStatusResult
                 | WorkspaceTreeResult
                 | WorkspaceValidateResult
+                | WorkspaceDeploymentResult
+                | WorkspaceExecutionResult
             )
             if params.name in {
                 "development_source_list",
@@ -943,6 +981,24 @@ def build_mcp_http_transport(
                 workspace_id = parsed_validation.workspace_id
                 result = await asyncio.to_thread(
                     tools.workspace_validate, principal, parsed_validation
+                )
+                source_id = result.source_id
+            elif params.name == "workspace_deploy":
+                parsed_deploy = WorkspaceTargetOperationInput.model_validate(arguments)
+                workspace_id = parsed_deploy.workspace_id
+                target_id = parsed_deploy.target_id
+                result = await asyncio.to_thread(
+                    tools.workspace_deploy, principal, parsed_deploy
+                )
+                source_id = result.source_id
+            elif params.name == "workspace_execute":
+                parsed_execution = WorkspaceTargetOperationInput.model_validate(
+                    arguments
+                )
+                workspace_id = parsed_execution.workspace_id
+                target_id = parsed_execution.target_id
+                result = await asyncio.to_thread(
+                    tools.workspace_execute, principal, parsed_execution
                 )
                 source_id = result.source_id
             else:
