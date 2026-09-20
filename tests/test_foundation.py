@@ -168,6 +168,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "mcp_credentials",
         "mcp_presets",
         "mcp_preset_permissions",
+        "mcp_remote_action_receipts",
         "mcp_security_events",
         "mcp_target_preset_assignments",
         "reset_operations",

@@ -18,12 +18,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_administration import (
+    FULL_LAB_CONTROL_PRESET_ID,
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
 )
 from kodi_lab.broker.errors import BrokerUnavailableError
 from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
+from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import PNG_SIGNATURE, validate_png
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
@@ -456,6 +458,96 @@ def test_discovery_filters_visual_permission_without_bypassing_target_policy(
         "target_list",
         "target_status",
     ]
+
+
+def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    _make_target_ready(client)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Control client", preset_id=FULL_LAB_CONTROL_PRESET_ID
+    )
+    administration.assign_target_preset(INSTANCE_ID, FULL_LAB_CONTROL_PRESET_ID)
+    administration.grant_target(mcp_client.id, INSTANCE_ID)
+    issued = administration.issue_credential(mcp_client.id)
+
+    tools = _post(client, issued.token, "tools/list").json()["result"]["tools"]
+    assert [item["name"] for item in tools] == [
+        "addon_list",
+        "remote_action",
+        "screenshot_capture",
+        "target_list",
+        "target_status",
+    ]
+    remote = next(item for item in tools if item["name"] == "remote_action")
+    assert set(remote["inputSchema"]["properties"]) == {
+        "request_id",
+        "target_id",
+        "action",
+    }
+    assert set(remote["inputSchema"]["required"]) == {
+        "request_id",
+        "target_id",
+        "action",
+    }
+    assert remote["annotations"] == {
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+        "readOnlyHint": False,
+    }
+
+    request_id = str(uuid4())
+    arguments = {
+        "request_id": request_id,
+        "target_id": str(INSTANCE_ID),
+        "action": "left",
+    }
+    first = _post(
+        client,
+        issued.token,
+        "tools/call",
+        params={"name": "remote_action", "arguments": arguments},
+    ).json()["result"]
+    replay = _post(
+        client,
+        issued.token,
+        "tools/call",
+        params={"name": "remote_action", "arguments": arguments},
+    ).json()["result"]
+    assert first["isError"] is False and replay == first
+    assert first["structuredContent"]["request_id"] == request_id
+    assert first["structuredContent"]["action"] == "left"
+    assert first["structuredContent"]["outcome"] == "succeeded"
+    assert first["structuredContent"]["screenshot_refresh"]["result"] == ("succeeded")
+    assert broker.remote_calls == [BrowserRemoteAction.LEFT]
+    assert broker.screenshot_calls == 1
+
+    conflict = _post(
+        client,
+        issued.token,
+        "tools/call",
+        params={
+            "name": "remote_action",
+            "arguments": arguments | {"action": "right"},
+        },
+    ).json()["result"]
+    assert conflict["isError"] is True
+    assert conflict["structuredContent"] == {"error": "request_id_conflict"}
+    assert broker.remote_calls == [BrowserRemoteAction.LEFT]
+
+    administration.set_client_enabled(mcp_client.id, False)
+    denied = _post(
+        client,
+        issued.token,
+        "tools/call",
+        params={
+            "name": "remote_action",
+            "arguments": arguments | {"request_id": str(uuid4())},
+        },
+    )
+    assert denied.status_code == 401
 
 
 def test_mcp_raw_protocol_and_authentication_fail_closed(

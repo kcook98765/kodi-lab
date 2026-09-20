@@ -133,6 +133,7 @@ from kodi_lab.application.browser_remote import (
     BrowserRemoteRateLimiter,
     BrowserRemoteResult,
     BrowserRemoteService,
+    RemoteActorContext,
     RemoteAdapterFactory,
 )
 from kodi_lab.application.development_source_attachments import (
@@ -224,6 +225,7 @@ from kodi_lab.application.mcp_administration import (
     McpPresetRead,
     McpTargetPolicyRead,
 )
+from kodi_lab.application.mcp_remote_actions import McpRemoteActionReceiptService
 from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
@@ -867,6 +869,18 @@ def create_app(
         broker,
         adapter_factory=addon_inventory_adapter_factory,
     )
+    browser_remote = browser_remote_service or BrowserRemoteService(
+        session_factory,
+        broker,
+        status_service,
+        reconciliation,
+        screenshots,
+        adapter_factory=(browser_remote_adapter_factory or KodiBrowserRemoteAdapter),
+    )
+    remote_rate_limiter = browser_remote_rate_limiter or BrowserRemoteRateLimiter()
+    remote_receipts = McpRemoteActionReceiptService(
+        session_factory, browser_remote, remote_rate_limiter
+    )
     mcp_administration = McpAdministrationService(session_factory)
     mcp_registry = build_mcp_tool_registry()
     mcp_authorization = McpAuthorizationService(
@@ -876,6 +890,7 @@ def create_app(
             session_factory,
             reconciliation=reconciliation,
             screenshots=screenshots,
+            status=status_service,
         ),
     )
     mcp_transport = build_mcp_http_transport(
@@ -888,17 +903,9 @@ def create_app(
             status_service,
             addon_inventory,
             screenshots,
+            remote_receipts,
         ),
     )
-    browser_remote = browser_remote_service or BrowserRemoteService(
-        session_factory,
-        broker,
-        status_service,
-        reconciliation,
-        screenshots,
-        adapter_factory=(browser_remote_adapter_factory or KodiBrowserRemoteAdapter),
-    )
-    remote_rate_limiter = browser_remote_rate_limiter or BrowserRemoteRateLimiter()
     live_display = managed_live_display_service or ManagedLiveDisplayService(
         broker, status_service, reconciliation, screenshots
     )
@@ -3251,7 +3258,9 @@ def create_app(
         context.browser_remote_rate_limiter.require_allowed(
             authenticated.csrf_token, instance_id
         )
-        return context.browser_remote.invoke(instance_id, body.action)
+        return context.browser_remote.invoke(
+            instance_id, body.action, actor=RemoteActorContext.web_local_admin()
+        )
 
     @app.get("/api/instances/{instance_id}/screenshots/latest")
     def get_latest_instance_screenshot(

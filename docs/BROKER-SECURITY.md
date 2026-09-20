@@ -525,3 +525,16 @@ publication, failed-refresh retention, per-instance exclusion and the global
 four-capture bound. Neither direct HTTP nor stdio gains a broker client or
 filesystem path. Image bytes/base64, hashes, cache names, paths and broker
 identifiers are excluded from MCP request audit logs.
+
+Phase 11 Slice 4 adds no broker operation or broker caller authority.
+`remote_action` first passes the ordinary MCP authority intersection and a
+durable application-owned replay receipt, then calls the existing
+`BrowserRemoteService`. That service continues to obtain only the fixed bounded
+managed-runtime observation and constructs the closed Phase 10 Kodi requests in
+the unprivileged process. MCP cannot select a broker method, Docker object,
+endpoint, JSON-RPC method/parameters, player ID, path, command, or retry.
+
+The receipt is not broker protocol state and contains no broker request ID,
+container/network identity, endpoint, raw Kodi document, or screenshot bytes.
+It adds application-level replay protection across HTTP and stdio while the
+underlying remote adapter retains its single-attempt transport semantics.

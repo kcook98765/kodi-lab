@@ -29,9 +29,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kodi_lab.application.mcp_administration import (
+    FULL_LAB_CONTROL_PRESET_ID,
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
 )
+from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import PNG_SIGNATURE, validate_png
 from kodi_lab.mcp.stdio_proxy import (
     ENDPOINT_ENVIRONMENT_VARIABLE,
@@ -381,6 +383,79 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
     assert "initialize" not in capture.methods
     assert "notifications/initialized" not in capture.methods
     assert all("mcp-session-id" not in headers for headers in capture.request_headers)
+
+
+def test_remote_action_replay_is_shared_across_http_and_stdio(
+    client: TestClient,
+    broker: FakeBroker,
+) -> None:
+    _make_target_ready(client)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Cross-transport control",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.assign_target_preset(INSTANCE_ID, FULL_LAB_CONTROL_PRESET_ID)
+    administration.grant_target(mcp_client.id, INSTANCE_ID)
+    issued = administration.issue_credential(mcp_client.id)
+
+    with _live_loopback_server(client.app) as (endpoint, _capture):
+
+        async def exercise() -> None:
+            parameters = StdioServerParameters(
+                command=str(STDIO_EXECUTABLE),
+                env={
+                    TOKEN_ENVIRONMENT_VARIABLE: issued.token,
+                    ENDPOINT_ENVIRONMENT_VARIABLE: endpoint,
+                },
+                cwd=Path.cwd(),
+            )
+            async with (
+                _direct_client(endpoint, issued.token) as direct,
+                Client(parameters, mode="auto", cache=None) as stdio,
+            ):
+                assert [item.name for item in (await direct.list_tools()).tools] == [
+                    "addon_list",
+                    "remote_action",
+                    "screenshot_capture",
+                    "target_list",
+                    "target_status",
+                ]
+                http_request = str(uuid4())
+                arguments = {
+                    "request_id": http_request,
+                    "target_id": str(INSTANCE_ID),
+                    "action": "volume_up",
+                }
+                first = await direct.call_tool("remote_action", arguments)
+                replay = await stdio.call_tool("remote_action", arguments)
+                assert not first.is_error and not replay.is_error
+                assert first.structured_content == replay.structured_content
+                assert broker.remote_calls == [BrowserRemoteAction.VOLUME_UP]
+
+                stdio_request = str(uuid4())
+                reverse_arguments = {
+                    "request_id": stdio_request,
+                    "target_id": str(INSTANCE_ID),
+                    "action": "volume_down",
+                }
+                reverse_first = await stdio.call_tool(
+                    "remote_action", reverse_arguments
+                )
+                reverse_replay = await direct.call_tool(
+                    "remote_action", reverse_arguments
+                )
+                assert not reverse_first.is_error and not reverse_replay.is_error
+                assert (
+                    reverse_first.structured_content
+                    == reverse_replay.structured_content
+                )
+                assert broker.remote_calls == [
+                    BrowserRemoteAction.VOLUME_UP,
+                    BrowserRemoteAction.VOLUME_DOWN,
+                ]
+
+        asyncio.run(exercise())
 
 
 def test_stdio_process_missing_token_and_eof_are_clean_and_secret_free() -> None:

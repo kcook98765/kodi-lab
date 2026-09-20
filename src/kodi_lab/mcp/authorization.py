@@ -12,7 +12,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_administration import McpPrincipal
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
+from kodi_lab.application.runtime_status import (
+    ManagedRuntimeStatusService,
+    SemanticUsabilityState,
+)
 from kodi_lab.application.screenshots import ManagedScreenshotService
+from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
+from kodi_lab.kodi.remote import REMOTE_RUNTIME_REVISION_IDS
 from kodi_lab.mcp.registry import McpToolDefinition, McpToolRegistry, TargetClass
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
@@ -51,10 +57,12 @@ class InternalManagedTargetAuthorityProvider:
         *,
         reconciliation: ManagedInstanceReconciliationService | None = None,
         screenshots: ManagedScreenshotService | None = None,
+        status: ManagedRuntimeStatusService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._reconciliation = reconciliation
         self._screenshots = screenshots
+        self._status = status
 
     def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
         capabilities = {"managed_runtime_status", "addon_inventory"}
@@ -66,6 +74,20 @@ class InternalManagedTargetAuthorityProvider:
                 UUID(instance.runtime_revision_id)
             ):
                 capabilities.add("managed_screenshot")
+            if (
+                instance is not None
+                and UUID(instance.runtime_revision_id) in REMOTE_RUNTIME_REVISION_IDS
+            ):
+                capabilities.add("semantic_remote")
+        if self._status is not None:
+            runtime = self._status.get(target_id)
+            if runtime.container_state is ContainerRuntimeState.RUNNING:
+                states.add("running")
+            if (
+                runtime.process_state is KodiProcessState.RUNNING
+                and runtime.usability_state is SemanticUsabilityState.USABLE
+            ):
+                states.add("ready")
         if (
             self._reconciliation is not None
             and not self._reconciliation.status(target_id).blocking

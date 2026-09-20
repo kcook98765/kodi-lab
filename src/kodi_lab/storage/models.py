@@ -4371,3 +4371,80 @@ class McpSecurityEventRow(Base):
     target_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     preset_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class McpRemoteActionReceiptRow(Base):
+    """Durable client-scoped replay barrier for one semantic remote action."""
+
+    __tablename__ = "mcp_remote_action_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(client_id) = 36 AND length(credential_id) = 36 "
+            "AND length(target_id) = 36 AND length(request_id) = 36",
+            name="mcp_remote_receipt_uuid_lengths",
+        ),
+        CheckConstraint(
+            "action IN ('up','down','left','right','select','back','home',"
+            "'context_menu','info','play_pause','stop','previous','next',"
+            "'volume_up','volume_down','mute_toggle')",
+            name="mcp_remote_receipt_action_closed",
+        ),
+        CheckConstraint(
+            "state IN ('pending','completed','ambiguous')",
+            name="mcp_remote_receipt_state_closed",
+        ),
+        CheckConstraint(
+            "length(created_at) = 27 AND "
+            "(completed_at IS NULL OR length(completed_at) = 27)",
+            name="mcp_remote_receipt_timestamp_format",
+        ),
+        CheckConstraint(
+            "(state = 'pending' AND final_result IS NULL AND completed_at IS NULL "
+            "AND screenshot_refresh_result IS NULL) OR "
+            "(state IN ('completed','ambiguous') AND final_result IS NOT NULL "
+            "AND completed_at IS NOT NULL AND screenshot_refresh_result IS NOT NULL)",
+            name="mcp_remote_receipt_terminal_consistent",
+        ),
+        CheckConstraint(
+            "final_result IS NULL OR (length(final_result) BETWEEN 1 AND 64 "
+            "AND final_result = lower(final_result) "
+            "AND final_result = trim(final_result))",
+            name="mcp_remote_receipt_result_bounded",
+        ),
+        CheckConstraint(
+            "screenshot_refresh_result IS NULL OR "
+            "(length(screenshot_refresh_result) BETWEEN 1 AND 64 "
+            "AND screenshot_refresh_result = lower(screenshot_refresh_result) "
+            "AND screenshot_refresh_result = trim(screenshot_refresh_result))",
+            name="mcp_remote_receipt_refresh_bounded",
+        ),
+        CheckConstraint(
+            "(screenshot_capture_id IS NULL AND screenshot_captured_at IS NULL) OR "
+            "(length(screenshot_capture_id) = 36 "
+            "AND length(screenshot_captured_at) = 27)",
+            name="mcp_remote_receipt_refresh_metadata_paired",
+        ),
+        UniqueConstraint(
+            "client_id", "request_id", name="uq_mcp_remote_receipt_client_request"
+        ),
+        Index("ix_mcp_remote_receipt_client_created", "client_id", "created_at"),
+        Index("ix_mcp_remote_receipt_created", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    credential_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    final_result: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    screenshot_refresh_result: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    screenshot_capture_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    screenshot_captured_at: Mapped[str | None] = mapped_column(
+        String(27), nullable=True
+    )

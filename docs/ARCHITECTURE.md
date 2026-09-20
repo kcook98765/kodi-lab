@@ -1646,3 +1646,71 @@ rows and refuses if an assigned client or target policy would lose visual
 authority. Phase 11 remains partial: semantic remote control and durable action
 receipts, custom presets, the compatibility decision, final client/conformance
 matrix and formal closeout remain.
+
+## Phase 11 Slice 4 replay-safe semantic remote control
+
+The production registry now contains exactly lexical `addon_list`,
+`remote_action`, `screenshot_capture`, `target_list`, and `target_status`.
+`remote_action` is target-scoped, mutating, internal-lab-only, not
+production-eligible, and requires `target.control`, exact grant and target
+policy, the exact curated semantic-remote capability, running/ready state, and
+no reconciliation blocker. Discovery remains target-independent: only clients
+whose current preset contains `target.control` see the tool.
+
+The strict input is exactly client-generated UUID `request_id`, explicit
+`target_id`, and the existing `BrowserRemoteAction` enum. The MCP layer does not
+define a second action vocabulary or accept Kodi methods, parameters, players,
+endpoints, text, keys, paths, or timeouts. `BrowserRemoteService` now accepts a
+server-created `RemoteActorContext` for Web local administrator or durable MCP
+client UUID. Request JSON cannot provide actor identity. The service still owns
+runtime proof, mutation coordination, fixed mappings, server-derived active
+player selection, one-dispatch/no-retry transport behavior, and exactly one
+durable screenshot refresh after a successful navigation action.
+
+Migration `0038_mcp_remote_control` adds `target.control` only to Add-on
+Development and Full Lab Control. Read-only Inspection retains inspection and
+visual authority only. Production Remote Kodi remains empty and unassignable.
+The migration also creates `mcp_remote_action_receipts`, whose UUID primary key
+is the invocation identity and whose durable uniqueness is `(client_id,
+request_id)`. It stores client, credential-at-first-attempt, target, request,
+closed action, timestamps, `pending|completed|ambiguous`, a bounded safe result,
+and bounded screenshot-refresh UUID/time/classification. It has deliberately no
+client, credential, or target foreign key: deletion preserves replay history,
+and a new target UUID cannot inherit old authority. It stores no token, prompt,
+arbitrary text, raw Kodi document, pixel/path, endpoint, container, network, or
+transport state.
+
+Every call first re-evaluates current authentication and the complete target
+authority intersection. A new key is committed `pending` in a short SQLite
+transaction before rate admission and before Kodi work. The transaction ends;
+the shared 10 actions/second, burst-20 limiter then uses server-derived MCP
+client plus target. A second short transaction records the terminal semantic
+result. No SQLite transaction spans broker, Kodi, network, coordination, or
+screenshot work. A completed exact duplicate returns its stored result without
+rate consumption, screenshot refresh, or Kodi dispatch. A pending or ambiguous
+duplicate returns `remote_action_ambiguous`; parameter mismatch returns
+`request_id_conflict`. Credential rotation does not open a new namespace because
+the durable client UUID is primary replay identity.
+
+The crash window is intentionally fail-closed. If the process stops after the
+receipt commit and before terminal publication, restart observes `pending` and
+never dispatches again. Stable pre-dispatch and acknowledged remote errors are
+stored as completed classifications and replayed; uncertain dispatch is stored
+ambiguous. An unexpected result-publication failure leaves `pending`. Concurrent
+claimants are serialized by the database uniqueness constraint: exactly one may
+enter rate admission and the remote service.
+
+Receipts are retained for 30 days. Opportunistic claim-time cleanup removes rows
+older than that fixed window; request IDs may be reused only after expiry. A
+hard ceiling of 10,000 rows per client and 100,000 globally rejects new work as
+`remote_action_receipt_capacity` rather than dispatching without protection.
+There is no cleanup daemon and neither MCP nor Web exposes receipt deletion or a
+manual replay button.
+
+HTTP and stdio share the same `/mcp` authority, database, client namespace, and
+receipt service. Direct deterministic proof covers response-loss replay,
+pending/ambiguous restart, concurrent identical and conflicting requests, and
+both HTTP-first/stdio-duplicate and stdio-first/HTTP-duplicate directions with
+explicit adapter dispatch counts. Phase 11 remains **PARTIAL**: custom presets,
+the `2025-11-25` compatibility decision/implementation, final client and
+conformance matrix, and formal closeout remain.

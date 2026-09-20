@@ -44,6 +44,8 @@ from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpPrincipal,
 )
+from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
+from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION, McpToolRegistry
@@ -186,6 +188,14 @@ class _ScreenshotCaptureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_id: UUID
+
+
+class _RemoteActionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    target_id: UUID
+    action: BrowserRemoteAction
 
 
 class ModernMcpAuthMiddleware:
@@ -454,6 +464,12 @@ def build_mcp_http_transport(
         idempotent_hint=False,
         open_world_hint=False,
     )
+    control_annotations = ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
     inventory = {
         "addon_list": Tool(
             name="addon_list",
@@ -475,6 +491,18 @@ def build_mcp_http_transport(
             input_schema=_ScreenshotCaptureInput.model_json_schema(),
             output_schema=ScreenshotCaptureMetadata.model_json_schema(),
             annotations=capture_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "remote_action": Tool(
+            name="remote_action",
+            title="Control Kodi with one semantic action",
+            description=(
+                "Dispatch one replay-safe semantic remote action to an authorized "
+                "internal target."
+            ),
+            input_schema=_RemoteActionInput.model_json_schema(),
+            output_schema=McpRemoteActionResult.model_json_schema(),
+            annotations=control_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
         "target_list": Tool(
@@ -520,6 +548,7 @@ def build_mcp_http_transport(
             arguments = params.arguments or {}
             result: (
                 AddonListResult
+                | McpRemoteActionResult
                 | ScreenshotToolResult
                 | TargetListResult
                 | TargetStatusResult
@@ -533,6 +562,16 @@ def build_mcp_http_transport(
                     target_id=target_id,
                     cursor=parsed_addons.cursor,
                     limit=parsed_addons.limit,
+                )
+            elif params.name == "remote_action":
+                parsed_remote = _RemoteActionInput.model_validate(arguments)
+                target_id = parsed_remote.target_id
+                result = await asyncio.to_thread(
+                    tools.remote_action,
+                    principal,
+                    target_id=target_id,
+                    request_id=parsed_remote.request_id,
+                    action=parsed_remote.action,
                 )
             elif params.name == "screenshot_capture":
                 parsed_screenshot = _ScreenshotCaptureInput.model_validate(arguments)

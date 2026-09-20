@@ -3192,3 +3192,48 @@ authority.
   `target.inspect`; Production Remote Kodi remains empty and unassignable.
   Downgrade refuses when assigned authority would be lost. `target.control`
   remains reserved for the remote-action slice.
+
+## D-0234: MCP semantic remote control uses durable client-scoped replay receipts
+
+- Status: approved and implemented for Phase 11 Slice 4
+- Tool and authority: production adds only lexical `remote_action`, classified
+  mutating/control, internal-lab-only and not production-eligible. Its strict
+  input is client UUID `request_id`, explicit target UUID, and D-0214's existing
+  16-value `BrowserRemoteAction`. It requires `target.control`; migration
+  `0038_mcp_remote_control` seeds that permission only for Add-on Development
+  and Full Lab Control. Read-only Inspection gains nothing and Production Remote
+  Kodi remains empty/unassignable.
+- Service ownership: MCP wraps the existing D-0215 `BrowserRemoteService` rather
+  than copying mappings, active-player selection, mutation coordination,
+  screenshot refresh or no-retry transport behavior. A server-created actor
+  context supplies either Web local administrator or MCP client UUID; request
+  data cannot name an actor.
+- Replay identity and transaction boundary: `(client_id, request_id)` is unique.
+  Credential UUID is recorded but credential rotation does not create a new
+  namespace. Current authentication and target authority are recomputed before
+  every new or duplicate attempt. A short transaction commits `pending` before
+  rate admission or Kodi dispatch; the network call occurs with no database
+  transaction; a separate short transaction publishes terminal state.
+- State machine: an exact completed duplicate returns the stored semantic result
+  without rate consumption or dispatch. Pending/uncertain replay returns
+  `remote_action_ambiguous`; changed target/action returns
+  `request_id_conflict`. Dispatch uncertainty is durable `ambiguous`. A crash or
+  result-write failure leaves `pending`, which is also never redispatched.
+  Database uniqueness decides concurrent claims, so process-local locks are not
+  the replay boundary.
+- Rate/order: only the winner for a new receipt enters the existing shared 10/s,
+  burst-20 limiter, keyed by server-derived MCP client plus target. A stable rate
+  rejection completes the receipt as `rate_limited`; its duplicate is replayed
+  without consuming another token.
+- History/privacy: receipts have no cascading target/client/credential FK and
+  therefore survive target deletion. They retain only UUIDs, the closed action,
+  timestamps, state, bounded result, and bounded refresh classification/capture
+  metadata. Tokens, arbitrary text, raw JSON-RPC, screenshot bytes/paths,
+  endpoints and runtime/container/network data are excluded. A new target UUID
+  inherits no authority; reuse of the same client request ID still conflicts by
+  design.
+- Bounds: claim-time cleanup retains 30 days, after which request IDs may be
+  reused. Hard limits are 10,000 receipts/client and 100,000 globally; saturation
+  refuses new protected work. There is no daemon, MCP/Web delete surface, manual
+  replay action, lifecycle authority, external target, or production-control
+  policy in this decision.

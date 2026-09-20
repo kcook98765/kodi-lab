@@ -34,13 +34,14 @@ DEFAULT_TOKEN_LIFETIME = timedelta(hours=24)
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
 
 _OBSERVATION_PERMISSIONS = ("target.inspect", "target.visual")
+_DEVELOPMENT_PERMISSIONS = (*_OBSERVATION_PERMISSIONS, "target.control")
 
 _BUILTINS = (
     (
         ADDON_DEVELOPMENT_PRESET_ID,
         "Add-on Development",
         True,
-        _OBSERVATION_PERMISSIONS,
+        _DEVELOPMENT_PERMISSIONS,
     ),
     (
         READ_ONLY_INSPECTION_PRESET_ID,
@@ -52,7 +53,7 @@ _BUILTINS = (
         FULL_LAB_CONTROL_PRESET_ID,
         "Full Lab Control",
         True,
-        _OBSERVATION_PERMISSIONS,
+        _DEVELOPMENT_PERMISSIONS,
     ),
     (PRODUCTION_REMOTE_KODI_PRESET_ID, "Production Remote Kodi", False, ()),
 )

@@ -19,6 +19,11 @@ from kodi_lab.application.addon_inventory import (
 )
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.mcp_administration import McpPrincipal
+from kodi_lab.application.mcp_remote_actions import (
+    McpRemoteActionReceiptError,
+    McpRemoteActionReceiptService,
+    McpRemoteActionResult,
+)
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -27,6 +32,7 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotService,
     ScreenshotServiceError,
 )
+from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION
@@ -118,12 +124,38 @@ class McpTargetToolService:
         status: ManagedRuntimeStatusService,
         addon_inventory: ManagedInstanceAddonInventoryService,
         screenshots: ManagedScreenshotService,
+        remote_actions: McpRemoteActionReceiptService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
         self._status = status
         self._addon_inventory = addon_inventory
         self._screenshots = screenshots
+        self._remote_actions = remote_actions
+
+    def remote_action(
+        self,
+        principal: McpPrincipal,
+        *,
+        target_id: UUID,
+        request_id: UUID,
+        action: BrowserRemoteAction,
+    ) -> McpRemoteActionResult:
+        self._authorization.authorize_target(principal, "remote_action", target_id)
+        if self._remote_actions is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._remote_actions.invoke(
+                client_id=principal.client_id,
+                credential_id=principal.credential_id,
+                target_id=target_id,
+                request_id=request_id,
+                action=action,
+            )
+        except McpRemoteActionReceiptError as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_bounded(result)
+        return result
 
     def addon_list(
         self,

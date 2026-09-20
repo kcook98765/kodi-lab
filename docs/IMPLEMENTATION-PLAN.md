@@ -1080,3 +1080,39 @@ HTTP header validation. The runner's image scenario is fixture-specific and
 expects a non-production `test_image_content` tool; Kodi Lab instead verifies
 the production screenshot tool with the pinned official SDK across direct HTTP
 and the canonical stdio subprocess.
+
+## Phase 11 Slice 4 checkpoint
+
+Phase 11 Slice 4 adds only replay-safe semantic remote control. Production
+inventory is exactly lexical `addon_list`, `remote_action`,
+`screenshot_capture`, `target_list`, and `target_status`. `remote_action` accepts
+only UUID `request_id`, explicit `target_id`, and the existing closed 16-action
+enum. It is registry-classified mutating, requires `target.control`, admits only
+internal managed targets with exact semantic-remote capability and current
+running/ready/reconciled state, and is not production-eligible.
+
+Migration `0038_mcp_remote_control` adds `target.control` to Add-on Development
+and Full Lab Control only and creates the durable action-receipt table. Read-only
+Inspection is unchanged; Production Remote Kodi remains empty/unassignable.
+Receipts are unique by durable client UUID plus request UUID, record credential
+UUID only for first-attempt audit, survive target deletion without cascading,
+and contain only bounded semantic state/result/refresh metadata. Retention is 30
+days with claim-time cleanup, a 10,000/client ceiling and a 100,000 global
+ceiling.
+
+Authorization precedes both new claims and duplicate reads. A new `pending`
+receipt commits before the existing shared remote limiter and before one call to
+the refactored actor-aware `BrowserRemoteService`; completion publishes in a
+separate transaction. Exact completed duplicates bypass the limiter and return
+stored results. Pending or uncertain duplicates return
+`remote_action_ambiguous`; parameter mismatch returns `request_id_conflict`.
+Process restart and concurrent claim tests prove no memory-only assumption.
+Direct HTTP/stdio tests prove both replay directions with explicit one-dispatch
+counts. Navigation retains one durable refresh, playback retains server-derived
+active-player behavior, and raw JSON-RPC remains absent.
+
+Phase 11 remains **PARTIAL**. Slice 4 adds no lifecycle, snapshot, raw JSON-RPC,
+settings, add-on execution, library/music, external/production target,
+diagnostic, Phase 12, legacy protocol, or custom-preset capability. Remaining
+gates are custom presets, decision and any approved implementation for
+`2025-11-25`, the final client/conformance matrix, and formal closeout.

@@ -16,6 +16,8 @@ from starlette.testclient import TestClient
 from starlette.types import Receive, Scope, Send
 
 from kodi_lab.application.mcp_administration import (
+    ADDON_DEVELOPMENT_PRESET_ID,
+    FULL_LAB_CONTROL_PRESET_ID,
     PRODUCTION_REMOTE_KODI_PRESET_ID,
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationError,
@@ -38,6 +40,7 @@ from kodi_lab.mcp.registry import (
     TargetClass,
     ToolEffect,
     ToolRateClass,
+    build_mcp_tool_registry,
 )
 from kodi_lab.mcp.transport import (
     BoundedConcurrencyLimiter,
@@ -278,9 +281,20 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
     production = next(
         item for item in presets if item.id == PRODUCTION_REMOTE_KODI_PRESET_ID
     )
-    active = [item for item in presets if item.id != PRODUCTION_REMOTE_KODI_PRESET_ID]
-    assert all(
-        item.permissions == ("target.inspect", "target.visual") for item in active
+    permissions = {item.id: item.permissions for item in presets}
+    assert permissions[ADDON_DEVELOPMENT_PRESET_ID] == (
+        "target.control",
+        "target.inspect",
+        "target.visual",
+    )
+    assert permissions[FULL_LAB_CONTROL_PRESET_ID] == (
+        "target.control",
+        "target.inspect",
+        "target.visual",
+    )
+    assert permissions[READ_ONLY_INSPECTION_PRESET_ID] == (
+        "target.inspect",
+        "target.visual",
     )
     assert production.permissions == ()
     assert not production.assignable
@@ -456,7 +470,6 @@ def test_registry_supports_future_permissions_target_classes_and_capabilities(
     assert registry.names() == ("a_future", "reconciled_future", "z_future")
     with pytest.raises(McpRegistryError, match="invalid_or_unknown_tool_metadata"):
         registry.register(_definition("unknown", "target.settings.read"))
-
     clock = MutableClock()
     administration = McpAdministrationService(
         mcp_database, clock=clock.utc, token_bytes=TokenSource()
@@ -520,6 +533,23 @@ def test_registry_supports_future_permissions_target_classes_and_capabilities(
     with pytest.raises(McpAuthorizationError, match="target_reconciliation_required"):
         missing_state.invoke_target(principal, "reconciled_future", TARGET_ID, adapter)
     assert not invoked
+
+
+def test_production_registry_marks_remote_action_as_internal_mutating_control() -> None:
+    registry = build_mcp_tool_registry()
+    remote = registry.require("remote_action")
+    assert registry.names() == (
+        "addon_list",
+        "remote_action",
+        "screenshot_capture",
+        "target_list",
+        "target_status",
+    )
+    assert remote.permissions == frozenset({"target.control"})
+    assert remote.effect is ToolEffect.MUTATING
+    assert remote.rate_class is ToolRateClass.REMOTE_CONTROL
+    assert remote.allowed_target_classes == frozenset({TargetClass.INTERNAL_LAB})
+    assert not remote.production_eligible
 
 
 def test_authorization_enforces_registry_scope_classification(

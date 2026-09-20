@@ -139,7 +139,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0037_mcp_observation_permissions",)
+        ).fetchone() == ("0038_mcp_remote_control",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -215,6 +215,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_credentials",
         "mcp_presets",
         "mcp_preset_permissions",
+        "mcp_remote_action_receipts",
         "mcp_security_events",
         "mcp_target_preset_assignments",
         "managed_instance_delete_operations",
@@ -487,6 +488,105 @@ def test_0037_seeds_visual_permission_and_guards_authority_downgrade(
             == 3
         )
     engine.dispose()
+
+
+def test_0038_seeds_control_and_guards_history_safe_remote_receipts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0037_mcp_observation_permissions"
+    )
+    command.upgrade(config, "0038_mcp_remote_control")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        item["name"] for item in inspector.get_indexes("mcp_remote_action_receipts")
+    } == {
+        "ix_mcp_remote_receipt_client_created",
+        "ix_mcp_remote_receipt_created",
+    }
+    assert inspector.get_foreign_keys("mcp_remote_action_receipts") == []
+    with engine.begin() as connection:
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "SELECT permission, COUNT(*) FROM mcp_preset_permissions "
+                    "GROUP BY permission ORDER BY permission"
+                )
+            )
+        ] == [
+            ("target.control", 2),
+            ("target.inspect", 3),
+            ("target.visual", 3),
+        ]
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE preset_id = '11000000-0000-4000-8000-000000000002' "
+                    "AND permission = 'target.control'"
+                )
+            )
+            == 0
+        )
+        receipt = {
+            "id": str(uuid4()),
+            "client": str(uuid4()),
+            "credential": str(uuid4()),
+            "target": str(uuid4()),
+            "request": str(uuid4()),
+            "at": "2026-09-19T00:00:00.000000Z",
+        }
+        connection.execute(
+            text(
+                "INSERT INTO mcp_remote_action_receipts "
+                "(id, client_id, credential_id, target_id, request_id, action, "
+                "created_at, state, final_result, completed_at, "
+                "screenshot_refresh_result, screenshot_capture_id, "
+                "screenshot_captured_at) VALUES "
+                "(:id, :client, :credential, :target, :request, 'left', :at, "
+                "'pending', NULL, NULL, NULL, NULL, NULL)"
+            ),
+            receipt,
+        )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO mcp_remote_action_receipts "
+                    "(id, client_id, credential_id, target_id, request_id, action, "
+                    "created_at, state, final_result, completed_at, "
+                    "screenshot_refresh_result, screenshot_capture_id, "
+                    "screenshot_captured_at) VALUES "
+                    "(:other, :client, :credential, :target, :request, 'right', :at, "
+                    "'pending', NULL, NULL, NULL, NULL, NULL)"
+                ),
+                receipt | {"other": str(uuid4())},
+            )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="remote-control authority or receipts"):
+        command.downgrade(config, "0037_mcp_observation_permissions")
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM mcp_remote_action_receipts"))
+    engine.dispose()
+    command.downgrade(config, "0037_mcp_observation_permissions")
+    engine = create_database_engine(database_url)
+    assert "mcp_remote_action_receipts" not in inspect(engine).get_table_names()
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE permission = 'target.control'"
+                )
+            )
+            == 0
+        )
+    engine.dispose()
+    command.upgrade(config, "0038_mcp_remote_control")
 
 
 def test_explicit_0001_upgrades_to_head(

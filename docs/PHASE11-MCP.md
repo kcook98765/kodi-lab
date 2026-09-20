@@ -63,8 +63,8 @@ internals.
 
 ## Slice 3 observation tools
 
-Production tools are exactly lexical `addon_list`, `screenshot_capture`,
-`target_list`, and `target_status`.
+Production tools are exactly lexical `addon_list`, `remote_action`,
+`screenshot_capture`, `target_list`, and `target_status`.
 
 `addon_list` requires `target.inspect` and an exact authorized target. It reuses
 the transport-neutral managed add-on inventory service, defaults to 50 records,
@@ -87,7 +87,33 @@ empty and unassignable. A client with only `target.inspect` discovers
 reveals `screenshot_capture`. Discovery does not replace invocation-time exact
 grant, target policy, target-class, capability or state checks.
 
-Legacy `2025-11-25`, remote control/action receipts, raw JSON-RPC, lifecycle,
+## Slice 4 replay-safe remote control
+
+`remote_action` requires `target.control` and exactly `request_id` UUID,
+`target_id`, and the existing closed semantic action enum. Add-on Development
+and Full Lab Control contain `target.control`; Read-only Inspection does not.
+Production Remote Kodi remains empty/unassignable. Discovery uses current client
+preset permission, while every invocation and duplicate replay rechecks current
+credential/client state, exact grant, target policy, internal target class,
+semantic-remote capability and running/ready/reconciled state.
+
+The tool wraps the existing actor-aware `BrowserRemoteService`. Kodi mappings,
+active-player choice, mutation coordination, one-dispatch/no-retry transport,
+remote limiter, and navigation screenshot refresh remain service-owned. HTTP and
+stdio therefore share exactly the same durable client/request namespace.
+
+Migration `0038_mcp_remote_control` persists one receipt before dispatch, unique
+by `(client_id, request_id)`. Exact completed replay returns stored semantic
+output without rate consumption, Kodi dispatch, or screenshot refresh. Pending
+or uncertain replay returns `remote_action_ambiguous`; a target/action mismatch
+returns `request_id_conflict`. Credential rotation retains the client namespace.
+Receipts survive target deletion, retain no foreign runtime or transport detail,
+expire after 30 days through opportunistic cleanup, and are capped at 10,000 per
+client and 100,000 globally. Saturation returns
+`remote_action_receipt_capacity`; clients and Web administrators cannot delete
+or manually replay receipts.
+
+Legacy `2025-11-25`, raw JSON-RPC, lifecycle,
 snapshots, settings mutation, library/music queries, add-on execution, logs,
 diagnostics, external targets, custom-preset administration and Phase 12
 workflows remain excluded.

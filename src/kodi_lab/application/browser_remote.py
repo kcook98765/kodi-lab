@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from threading import Lock
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -53,6 +54,45 @@ from kodi_lab.kodi.remote import (
 from kodi_lab.storage.repositories import RuntimeExecutionProfileRepository
 
 LOGGER = logging.getLogger("kodi_lab.browser_remote.audit")
+
+
+class RemoteActorCategory(StrEnum):
+    WEB_LOCAL_ADMIN = "web_local_admin"
+    MCP_CLIENT = "mcp_client"
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteActorContext:
+    """Server-created remote actor identity; never accepted from request data."""
+
+    category: RemoteActorCategory
+    client_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if (self.category is RemoteActorCategory.MCP_CLIENT) != (
+            self.client_id is not None
+        ):
+            raise ValueError("remote actor identity does not match its category")
+
+    @classmethod
+    def web_local_admin(cls) -> RemoteActorContext:
+        return cls(RemoteActorCategory.WEB_LOCAL_ADMIN)
+
+    @classmethod
+    def mcp_client(cls, client_id: UUID) -> RemoteActorContext:
+        return cls(RemoteActorCategory.MCP_CLIENT, client_id)
+
+    @property
+    def audit_interface(self) -> str:
+        return "mcp" if self.client_id is not None else "web"
+
+    @property
+    def audit_actor(self) -> str:
+        return str(self.client_id) if self.client_id is not None else "local_admin"
+
+    @property
+    def rate_key(self) -> str:
+        return f"mcp:{self.client_id}" if self.client_id is not None else "web"
 
 
 class BrowserRemoteError(RuntimeError):
@@ -129,12 +169,20 @@ class BrowserRemoteService:
         )
 
     def invoke(
-        self, instance_id: UUID, action: BrowserRemoteAction
+        self,
+        instance_id: UUID,
+        action: BrowserRemoteAction,
+        *,
+        actor: RemoteActorContext | None = None,
+        invocation_id: UUID | None = None,
     ) -> BrowserRemoteResult:
-        invocation_id = uuid4()
+        actor = actor or RemoteActorContext.web_local_admin()
+        invocation_id = invocation_id or uuid4()
         requested_at = self._clock()
         try:
-            return self._invoke(instance_id, action, invocation_id, requested_at)
+            return self._invoke(
+                instance_id, action, invocation_id, requested_at, actor=actor
+            )
         except (BrowserRemoteError, ManagedInstanceNotFoundError) as error:
             completed_at = self._clock()
             result_code = (
@@ -146,8 +194,8 @@ class BrowserRemoteService:
                 "browser remote action failed",
                 extra={
                     "invocation_id": str(invocation_id),
-                    "interface": "web",
-                    "actor": "local_admin",
+                    "interface": actor.audit_interface,
+                    "actor": actor.audit_actor,
                     "managed_instance_id": str(instance_id),
                     "action": action.value,
                     "requested_at": requested_at.isoformat(),
@@ -164,6 +212,8 @@ class BrowserRemoteService:
         action: BrowserRemoteAction,
         invocation_id: UUID,
         requested_at: datetime,
+        *,
+        actor: RemoteActorContext,
     ) -> BrowserRemoteResult:
         runtime = self._status.get(instance_id)
         if runtime.runtime_revision_id not in REMOTE_RUNTIME_REVISION_IDS:
@@ -271,8 +321,8 @@ class BrowserRemoteService:
             "browser remote action completed",
             extra={
                 "invocation_id": str(invocation_id),
-                "interface": "web",
-                "actor": "local_admin",
+                "interface": actor.audit_interface,
+                "actor": actor.audit_actor,
                 "managed_instance_id": str(instance_id),
                 "action": action.value,
                 "requested_at": requested_at.isoformat(),

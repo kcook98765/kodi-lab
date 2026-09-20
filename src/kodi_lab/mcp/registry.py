@@ -17,6 +17,7 @@ class ToolRateClass(StrEnum):
     READ_LIGHT = "read_light"
     READ_BOUNDED = "read_bounded"
     VISUAL_CAPTURE = "visual_capture"
+    REMOTE_CONTROL = "remote_control"
 
 
 class TargetClass(StrEnum):
@@ -90,7 +91,24 @@ class McpToolRegistry:
 
 def build_mcp_tool_registry() -> McpToolRegistry:
     registry = McpToolRegistry(
-        known_permissions=frozenset({"target.inspect", "target.visual"})
+        known_permissions=frozenset(
+            {"target.inspect", "target.visual", "target.control"}
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="remote_action",
+            schema_revision=1,
+            permissions=frozenset({"target.control"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"semantic_remote"}),
+            required_states=frozenset({"running", "ready", "reconciled"}),
+            rate_class=ToolRateClass.REMOTE_CONTROL,
+            adapter="managed_remote.invoke_replay_safe",
+            production_eligible=False,
+            target_scope_required=True,
+        )
     )
     registry.register(
         McpToolDefinition(
