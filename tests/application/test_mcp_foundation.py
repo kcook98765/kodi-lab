@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import hmac
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -171,6 +172,12 @@ def test_tokens_are_256_bit_verifier_only_expiring_and_show_once(
     authentication = McpAuthenticationService(mcp_database, clock=clock.utc)
     assert authentication.authenticate(issued.token) is not None
     assert compared and compared[-1][0] == compared[-1][1]
+    compared.clear()
+    assert authentication.authenticate("A" * 43) is None
+    invalid_digest = hashlib.sha256(
+        base64.urlsafe_b64decode("A" * 43 + "=")
+    ).hexdigest()
+    assert compared == [("0" * 64, invalid_digest)]
 
     with mcp_database() as session:
         row = session.get(McpCredentialRow, str(issued.credential.id))
@@ -388,6 +395,43 @@ def test_registry_supports_future_permissions_target_classes_and_capabilities(
     with pytest.raises(McpAuthorizationError, match="target_reconciliation_required"):
         missing_state.invoke_target(principal, "reconciled_future", TARGET_ID, adapter)
     assert not invoked
+
+
+def test_authorization_enforces_registry_scope_classification(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    registry = McpToolRegistry(known_permissions=frozenset({"target.inspect"}))
+    registry.register(_definition("scoped", "target.inspect"))
+    registry.register(
+        McpToolDefinition(
+            name="global",
+            schema_revision=1,
+            permissions=frozenset({"target.inspect"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset(),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.READ_LIGHT,
+            adapter="test.global",
+            production_eligible=False,
+            target_scope_required=False,
+        )
+    )
+    administration = McpAdministrationService(mcp_database, token_bytes=TokenSource())
+    client = administration.create_client(
+        display_name="Scope client", preset_id=READ_ONLY_INSPECTION_PRESET_ID
+    )
+    administration.assign_target_preset(TARGET_ID, READ_ONLY_INSPECTION_PRESET_ID)
+    administration.grant_target(client.id, TARGET_ID)
+    principal = McpAuthenticationService(mcp_database).authenticate(
+        administration.issue_credential(client.id).token
+    )
+    assert principal is not None
+    authorization = McpAuthorizationService(mcp_database, registry)
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        authorization.invoke_unscoped(principal, "scoped", lambda: None)
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        authorization.invoke_target(principal, "global", TARGET_ID, lambda: None)
 
 
 def test_preset_policy_intersection_fails_closed(

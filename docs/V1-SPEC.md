@@ -696,8 +696,8 @@ MCP is first-class v1, but focused on target use/development.
 
 Transports:
 - modern Streamable HTTP, with primary protocol `2026-07-28`;
-- a later thin authenticated stdio adapter over the same identity and
-  authorization services.
+- canonical stdio through a thin authenticated loopback proxy to that same
+  HTTP authority.
 
 Client:
 - authenticate every independent HTTP request with a durable MCP bearer
@@ -745,10 +745,10 @@ Flat explicit names preferred:
 
 MCP tool/API schema has separate explicit version.
 
-Phase 11 Slice 1 sets that Kodi Lab schema version to `1` and exposes only
-`target_list` and `target_status`. Stdio, screenshots, remote control, raw
-JSON-RPC, lifecycle, diagnostics, external targets, and the richer semantic
-catalog remain later slices/phases.
+Phase 11 Slice 2 retains Kodi Lab schema version `1` and exposes only
+`target_list` and `target_status` over both HTTP and stdio. Screenshots, remote
+control, raw JSON-RPC, lifecycle, diagnostics, external targets, and the richer
+semantic catalog remain later slices/phases.
 
 ## 32. MCP baseline/presets
 

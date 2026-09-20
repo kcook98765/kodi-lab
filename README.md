@@ -52,3 +52,21 @@ required in production; the same variables may be supplied by the environment.
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the complete local foundation
 check and [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) for the
 phased scope.
+
+## MCP stdio
+
+Phase 11's canonical stdio command is a thin proxy to the running loopback MCP
+HTTP authority:
+
+```console
+KODI_LAB_MCP_TOKEN='<token shown once by Web administration>' kodi-lab-mcp-stdio
+```
+
+Generic stdio-capable clients should configure command
+`kodi-lab-mcp-stdio`, set `KODI_LAB_MCP_TOKEN` in the child environment, and
+place no token in argv. The default authority is
+`http://127.0.0.1:8100/mcp`. Development/tests may set `KODI_LAB_MCP_URL`, but
+only an exact plain-HTTP loopback `/mcp` URL is accepted. Every target-scoped
+tool still requires an explicit `target_id`; stdio creates no selected target or
+session. See [`docs/PHASE11-MCP.md`](docs/PHASE11-MCP.md) for security and
+client configuration details.

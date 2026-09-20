@@ -463,6 +463,9 @@ def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
     assert "token_digest" not in detail_text
     assert "token_digest" not in page_text
     assert "Non-expiring" in page_text
+    assert "kodi-lab-mcp-stdio" in page_text
+    assert "KODI_LAB_MCP_TOKEN" in page_text
+    assert token not in page_text
     with database() as session:
         persisted = session.scalar(
             select(McpCredentialRow).where(McpCredentialRow.client_id == client_id)

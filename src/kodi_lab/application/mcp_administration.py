@@ -631,7 +631,9 @@ class McpAuthenticationService:
             row = session.scalar(
                 select(McpCredentialRow).where(McpCredentialRow.token_digest == digest)
             )
-            if row is None or not hmac.compare_digest(row.token_digest, digest):
+            persisted_digest = "0" * 64 if row is None else row.token_digest
+            digest_matches = hmac.compare_digest(persisted_digest, digest)
+            if row is None or not digest_matches:
                 return None
             client = session.get(McpClientRow, row.client_id)
             if (

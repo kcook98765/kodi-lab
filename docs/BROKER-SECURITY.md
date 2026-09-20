@@ -502,3 +502,10 @@ application process. They cannot authorize a broker operation directly.
 Future MCP tools must first use an independently approved Kodi Lab application
 service; adding registry metadata alone never creates broker, Docker, shell,
 path, or raw JSON-RPC authority.
+
+Phase 11 Slice 2's `kodi-lab-mcp-stdio` process does not change this boundary.
+It forwards bounded modern MCP requests to authenticated loopback HTTP and does
+not import or connect to the broker, Docker, Kodi, persistence, repositories,
+or application services. Possession of the executable without a bearer grants
+nothing. Possession of a bearer grants only that durable client's authority as
+recomputed by `/mcp` on each request.

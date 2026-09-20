@@ -99,7 +99,7 @@ class McpTargetToolService:
             if cursor_id is not None and str(target_id) <= str(cursor_id):
                 continue
             try:
-                self._authorization.authorize_target(
+                self._authorization.authorize_target_eligibility(
                     principal, "target_list", target_id
                 )
             except McpAuthorizationError:

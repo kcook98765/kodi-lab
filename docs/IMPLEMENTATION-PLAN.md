@@ -1007,3 +1007,38 @@ authenticated wrapper in `scripts/phase11_mcp_conformance_app.py`. The runner's
 fixture-only sampling/subscription probes and unimplemented prompts, resources,
 media, MRTR, OAuth-client, and later tool-catalog scenarios are explicit
 exclusions, not Phase 11 conformance claims.
+
+## Phase 11 Slice 2 checkpoint
+
+Phase 11 Slice 2 independently revalidated the Slice 1 modern protocol,
+credential lifecycle, exact grants/privacy, preset intersection, static registry,
+future target migration path, and bounded admission. Narrow remediation makes
+unknown well-formed credentials execute the constant-time digest comparison
+primitive against a dummy verifier and makes common authorization enforce the
+registry's target/global scope classification.
+
+Installed `kodi-lab-mcp-stdio` is the canonical second transport. It is a thin
+unprivileged `2026-07-28` stdio-to-loopback-HTTP proxy: every request reaches
+the existing `/mcp` endpoint with the bearer from `KODI_LAB_MCP_TOKEN`. It has
+no database/service construction, tool registry, local authentication or
+authorization, grant/target cache, session/default target, durable state,
+daemon, broker, Docker, Kodi, or filesystem authority. An optional endpoint
+override is limited to exact plain-HTTP loopback `/mcp`, with redirects off.
+Frames retain the 64 KiB request bound and local concurrency/queueing are small
+and backpressured. EOF cancels outstanding work.
+
+Pinned official SDK interoperability now covers direct HTTP and stdio for
+`server/discover`, identical `tools/list`, `target_list`, and `target_status`,
+including equivalent unknown/unauthorized decisions and next-request grant,
+disable, expiry, and revoke behavior. The official conformance runner remains
+direct-HTTP-oriented; stdio proxy conformance is demonstrated by the official
+SDK plus raw modern wire assertions rather than a claim that the runner models
+the proxy topology.
+
+There is no migration; Alembic remains `0036_mcp_core_foundation`. Production
+inventory remains exactly `target_list` and `target_status`. Custom-preset
+creation remains deferred and must be resolved before Phase 11 completion; the
+Production Remote Kodi preset remains inactive/unassignable. Phase 11 remains
+**PARTIAL**: add-on inventory, native MCP screenshots, semantic remote control,
+durable replay/action receipts, any separately approved `2025-11-25`
+compatibility, final client/conformance matrix, and closeout remain.

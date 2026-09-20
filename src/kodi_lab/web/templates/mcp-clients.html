@@ -24,6 +24,10 @@
         <code data-token></code>
         <p>Copy it now. Kodi Lab persists only its SHA-256 verifier.</p>
       </section>
+      <section>
+        <h2>Stdio client configuration</h2>
+        <p>Use command <code>kodi-lab-mcp-stdio</code> and provide the issued token through the protected <code>KODI_LAB_MCP_TOKEN</code> environment variable. Never place the token in command arguments. Target selection remains explicit in each target-scoped tool call.</p>
+      </section>
       {% for client in clients %}
       <article data-client-id="{{ client.id }}">
         <h2>{{ client.display_name }}</h2>

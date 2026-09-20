@@ -1550,3 +1550,49 @@ in the application package. Only Slice-1-relevant stateless, tool-list, cache,
 header-routing, and DNS-rebinding checks are in scope. Fixture-only sampling,
 subscription, prompt/resource, media-content, MRTR, OAuth-client, and later
 catalog scenarios are reported as exclusions rather than implemented.
+
+## Phase 11 Slice 2 canonical stdio proxy
+
+Canonical stdio is installed as `kodi-lab-mcp-stdio`. It is an unprivileged,
+ephemeral protocol adapter, not a second MCP server or authority implementation:
+
+```text
+MCP client -> stdio adapter -> authenticated loopback HTTP POST /mcp
+           -> existing authentication -> authorization -> registry -> service
+```
+
+The adapter imports no Kodi Lab persistence, repository, application service,
+broker, Docker, Kodi, or tool-definition module. It reads the same durable MCP
+bearer from `KODI_LAB_MCP_TOKEN`, attaches it to every HTTP request, and neither
+decodes authority from the token nor caches authentication or authorization.
+The optional `KODI_LAB_MCP_URL` development override remains exact HTTP
+loopback `/mcp`; remote forwarding, redirects, URL credentials, query tokens,
+and arbitrary paths are rejected.
+
+The public stdio wire is also exactly `2026-07-28`. Requests preserve their
+modern envelope and are given only the matching HTTP routing headers needed by
+the pinned SDK. There is no initialize/initialized exchange, legacy fallback,
+`Mcp-Session-Id`, GET stream, selected/default target, or transport session.
+Official pinned clients prove `server/discover`, `tools/list`, `target_list`,
+and `target_status` through the subprocess path. HTTP remains the source of all
+tool schemas, ordering, bounded tool results, and authorization errors.
+
+Input framing is newline-delimited and bounded to the HTTP 64 KiB request
+limit before JSON parsing. Four request workers consume an eight-item
+backpressured queue and correlate replies by JSON-RPC ID. This small process
+safety bound does not replace HTTP per-client/global admission. EOF cancels the
+task group and active HTTP calls; no daemon, child, durable state, or background
+process survives.
+
+The server does not claim a distinct `mcp_stdio_proxy` audit classification:
+there is no authenticated server-derived channel for it in this topology, and
+a caller header would be spoofable. Existing server audit remains permission
+neutral. Transport type does not imply internal-lab, external-development, or
+external-production target class.
+
+The independent Slice 1 review also made unknown well-formed credentials run
+the constant-time digest comparison primitive against a dummy verifier and
+enforced registry target/global scope metadata in common authorization. No
+migration was added. Custom-preset creation remains deferred and is still a
+Phase 11 completion requirement; the built-in Production Remote Kodi preset
+remains unassignable and empty. Phase 11 remains partial.

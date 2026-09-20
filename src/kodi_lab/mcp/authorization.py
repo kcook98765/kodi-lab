@@ -71,6 +71,8 @@ class McpAuthorizationService:
         self, principal: McpPrincipal, tool_name: str
     ) -> McpToolDefinition:
         definition = self._definition(tool_name)
+        if definition.target_scope_required:
+            raise McpAuthorizationError("permission_denied")
         permissions = self._client_permissions(principal.client_id)
         if not definition.permissions.issubset(permissions):
             raise McpAuthorizationError("permission_denied")
@@ -80,6 +82,26 @@ class McpAuthorizationService:
         self, principal: McpPrincipal, tool_name: str, target_id: UUID
     ) -> McpToolDefinition:
         definition = self._definition(tool_name)
+        if not definition.target_scope_required:
+            raise McpAuthorizationError("permission_denied")
+        return self._authorize_target_definition(principal, definition, target_id)
+
+    def authorize_target_eligibility(
+        self, principal: McpPrincipal, tool_name: str, target_id: UUID
+    ) -> McpToolDefinition:
+        """Apply target policy when an unscoped listing projects candidates."""
+
+        definition = self._definition(tool_name)
+        if definition.target_scope_required:
+            raise McpAuthorizationError("permission_denied")
+        return self._authorize_target_definition(principal, definition, target_id)
+
+    def _authorize_target_definition(
+        self,
+        principal: McpPrincipal,
+        definition: McpToolDefinition,
+        target_id: UUID,
+    ) -> McpToolDefinition:
         with self._session_factory() as session:
             client = session.get(McpClientRow, str(principal.client_id))
             if client is None or not client.enabled:

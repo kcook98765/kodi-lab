@@ -3112,3 +3112,44 @@ authority.
   then add explicit production-safe policies. Client, credential, preset,
   permission, transport, registry, and authorization identities remain intact;
   target class alone is never permission.
+
+## D-0230: Canonical MCP stdio is an authenticated loopback HTTP proxy
+
+- Status: approved; Phase 11 Slice 2 implemented
+- Decision: installed command `kodi-lab-mcp-stdio` accepts modern
+  `2026-07-28` newline-delimited MCP on stdin/stdout and proxies each request to
+  the existing loopback `/mcp` authority. It does not instantiate the Kodi Lab
+  database, repositories, services, tool registry, authentication, target
+  resolution, authorization, or error adapters. The HTTP boundary remains the
+  sole authority and receives `Authorization: Bearer` on every request.
+- Credential and endpoint: the bearer is accepted only from
+  `KODI_LAB_MCP_TOKEN`. It is never accepted on argv, in the endpoint, in an MCP
+  payload, or from a Kodi Lab-created config file. The default endpoint is
+  `http://127.0.0.1:8100/mcp`; optional `KODI_LAB_MCP_URL` is restricted to
+  plain HTTP, exact loopback host `127.0.0.1` or `localhost`, exact `/mcp`, and
+  no userinfo, query, or fragment. Redirects are disabled.
+- State and bounds: the process creates no session/default target, credential
+  verifier, grant cache, or durable state. It forwards no `Mcp-Session-Id` and
+  rejects any such response. Input frames retain the HTTP 64 KiB bound. Four
+  workers and an eight-entry backpressured queue bound process-local memory;
+  the HTTP admission boundary remains authoritative. EOF cancels the task group
+  and outstanding HTTP work; the adapter never daemonizes.
+- Protocol and privacy: no initialize/initialized or legacy fallback is
+  introduced. Stable bounded errors omit token, traceback, endpoint, and HTTP
+  library detail. Environment variables remain visible to sufficiently
+  privileged same-user/root processes; that caveat does not justify plaintext
+  credential files.
+- Audit: no caller-supplied transport label is sent. Server audit therefore
+  records the authenticated HTTP authority path without claiming a safely
+  distinguished stdio origin. Transport never changes permission or target
+  trust class.
+
+## D-0231: Slice 2 hardens credential comparison and registry scope enforcement
+
+- Status: approved; Phase 11 Slice 2 remediation implemented
+- Decision: structurally valid unknown bearer credentials execute the same
+  constant-time SHA-256 digest comparison primitive against a fixed dummy
+  verifier before generic rejection. Registry `target_scope_required` metadata
+  is enforced by both common authorization entrypoints, preventing a scoped
+  tool from using the global path or a global tool from using the target path.
+  These changes add no permission, tool, target class, or migration.
