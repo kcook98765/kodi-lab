@@ -3310,3 +3310,63 @@ authority.
 - Later phases: AgentWorkspace and DevelopmentSource mutation, deployment and
   promotion, external targets, production approval policy, broad diagnostics,
   and later Kodi tools remain outside Phase 11.
+
+## D-0238: Phase 12 begins with authorization and read-only inspection
+- Status: accepted for Phase 12 Slice 1.
+- Decision: preserve Phase 11 and add only `workspace.inspect`, exact source
+  grants, exact workspace ownership, and four bounded read-only tools. No
+  development mutation is implied.
+
+## D-0239: Source access is an exact Web-admin-managed grant
+- Status: accepted for Phase 12 Slice 1.
+- Decision: persist only `(mcp_client_uuid, development_source_uuid)`. There is
+  no wildcard. Registration and locator authority stay Web-only, grant changes
+  apply on the next request, and ungranted UUIDs are not discoverable.
+
+## D-0240: MCP workspace ownership is one exact durable binding
+- Status: accepted for Phase 12 Slice 1.
+- Decision: one binding owns a workspace for one MCP client and exact source. A
+  composite foreign key enforces source consistency. Origin is closed to
+  `web_admin|mcp_created`; only `web_admin` is created in this slice.
+
+## D-0241: Grant and binding authority remain independent
+- Status: accepted for Phase 12 Slice 1.
+- Decision: access requires enabled client, `workspace.inspect`, current exact
+  grant, exact binding, matching source, and safe operation state. Revocation
+  retains binding/bytes; restoration may restore access. Credential lifecycle
+  never changes client ownership.
+
+## D-0242: Development reads reuse Phase 9 services and paths
+- Status: accepted for Phase 12 Slice 1.
+- Decision: MCP never derives storage. Status uses durable state; tree/read use
+  the existing normalized relative-path, descriptor-relative no-follow service.
+  Reconciliation-required status remains visible while tree/read fail closed.
+  Linux case and NFC/NFD distinctions are not normalized.
+
+## D-0243: Development inspection is compact and bounded
+- Status: accepted for Phase 12 Slice 1.
+- Decision: source list is path-free metadata; status is owned-and-granted
+  state; tree is one directory and at most 200 entries; read is one strict UTF-8
+  segment over a 2 MiB file maximum. Structured development results are below
+  48 KiB.
+
+## D-0244: Development inspection privacy is semantic
+- Status: accepted for Phase 12 Slice 1.
+- Decision: absence, another owner, missing/revoked grant, and source mismatch
+  share `workspace_not_found_or_not_authorized`. Audit retains semantic UUIDs,
+  tool, outcome, and times, but no content, hash, locator, path, tree dump,
+  arbitrary argument, or raw error.
+
+## D-0245: Web administration alone grants and binds Slice 1 authority
+- Status: accepted for Phase 12 Slice 1.
+- Decision: Web may grant/revoke, list eligible workspaces, bind one existing
+  workspace, and inspect bindings under existing authentication, Host, Origin,
+  and CSRF controls. MCP cannot self-grant, self-bind, transfer, share, register,
+  create, or unbind.
+
+## D-0246: Development reads share bounded admission and transport behavior
+- Status: accepted for Phase 12 Slice 1.
+- Decision: four tools share one client-keyed 10/second burst-20 bounded rate
+  class inside existing admission and behave identically through modern HTTP,
+  modern stdio, and legacy HTTP. The catalog is exactly nine lexical tools.
+  Phase 12 remains partial.

@@ -139,7 +139,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0038_mcp_remote_control",)
+        ).fetchone() == ("0039_mcp_development_inspection",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -212,6 +212,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "managed_screenshots",
         "mcp_clients",
         "mcp_client_target_grants",
+        "mcp_client_development_source_grants",
+        "mcp_agent_workspace_bindings",
         "mcp_credentials",
         "mcp_presets",
         "mcp_preset_permissions",
@@ -490,7 +492,254 @@ def test_0037_seeds_visual_permission_and_guards_authority_downgrade(
     engine.dispose()
 
 
-def test_0038_seeds_control_and_guards_history_safe_remote_receipts(
+def test_0039_development_inspection_constraints_and_guarded_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0038_mcp_remote_control"
+    )
+    custom_preset_id = str(uuid4())
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO mcp_presets "
+                "(id, display_name, builtin, assignable) "
+                "VALUES (:id, 'Pre-0039 snapshot', 0, 1)"
+            ),
+            {"id": custom_preset_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_preset_permissions (preset_id, permission) "
+                "VALUES (:id, 'target.inspect')"
+            ),
+            {"id": custom_preset_id},
+        )
+    engine.dispose()
+    command.upgrade(config, "0039_mcp_development_inspection")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        "mcp_client_development_source_grants",
+        "mcp_agent_workspace_bindings",
+    } <= set(inspector.get_table_names())
+    assert {
+        "development_source_id",
+        "workspace_id",
+    } <= {item["name"] for item in inspector.get_columns("mcp_security_events")}
+    client_id = str(uuid4())
+    source_id = str(uuid4())
+    other_source_id = str(uuid4())
+    workspace_id = str(uuid4())
+    timestamp = "2026-09-20T00:00:00.000000Z"
+    digest = "sha256:" + "a" * 64
+    with engine.begin() as connection:
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "SELECT preset_id, permission FROM mcp_preset_permissions "
+                    "WHERE permission = 'workspace.inspect' ORDER BY preset_id"
+                )
+            )
+        ] == [
+            ("11000000-0000-4000-8000-000000000001", "workspace.inspect"),
+            ("11000000-0000-4000-8000-000000000003", "workspace.inspect"),
+        ]
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE preset_id = :id AND permission = 'workspace.inspect'"
+                ),
+                {"id": custom_preset_id},
+            )
+            == 0
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients "
+                "(id, display_name, enabled, preset_id, created_at, last_used_at) "
+                "VALUES (:id, 'Development client', 1, "
+                "'11000000-0000-4000-8000-000000000003', :at, NULL)"
+            ),
+            {"id": client_id, "at": timestamp},
+        )
+        for current, locator, addon in (
+            (source_id, "plugin.video.one", "plugin.video.one"),
+            (other_source_id, "plugin.video.two", "plugin.video.two"),
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO development_sources "
+                    "(id, logical_name, source_kind, relative_locator, addon_id, "
+                    "observed_name, observed_version, extension_types_json, "
+                    "registered_at, validated_at) VALUES "
+                    "(:id, :name, 'local_directory', :locator, :addon, 'Example', "
+                    "'1.0.0', '[\"xbmc.python.pluginsource\"]', :at, :at)"
+                ),
+                {
+                    "id": current,
+                    "name": f"Source {addon}",
+                    "locator": locator,
+                    "addon": addon,
+                    "at": timestamp,
+                },
+            )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspaces "
+                "(id, development_source_id, source_addon_id, "
+                "source_logical_name, source_observed_name, "
+                "source_observed_version, state, baseline_artifact_id, "
+                "baseline_manifest_digest, generation, current_tree_digest, "
+                "capture_started_at, captured_at, created_at, updated_at, "
+                "bytes_state, promoted_at, abandoned_at, cleaned_at) VALUES "
+                "(:id, :source, 'plugin.video.one', 'Source one', 'Example', "
+                "'1.0.0', 'ready', :baseline, :digest, 0, :digest, :at, :at, "
+                ":at, :at, 'present', NULL, NULL, NULL)"
+            ),
+            {
+                "id": workspace_id,
+                "source": source_id,
+                "baseline": str(uuid4()),
+                "digest": digest,
+                "at": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_client_development_source_grants "
+                "(client_id, development_source_id, created_at) "
+                "VALUES (:client, :source, :at)"
+            ),
+            {"client": client_id, "source": source_id, "at": timestamp},
+        )
+        for invalid_client, invalid_source in (
+            (str(uuid4()), source_id),
+            (client_id, str(uuid4())),
+        ):
+            with pytest.raises(IntegrityError):
+                connection.execute(
+                    text(
+                        "INSERT INTO mcp_client_development_source_grants "
+                        "(client_id, development_source_id, created_at) "
+                        "VALUES (:client, :source, :at)"
+                    ),
+                    {
+                        "client": invalid_client,
+                        "source": invalid_source,
+                        "at": timestamp,
+                    },
+                )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO mcp_client_development_source_grants "
+                    "(client_id, development_source_id, created_at) "
+                    "VALUES (:client, :source, :at)"
+                ),
+                {"client": client_id, "source": source_id, "at": timestamp},
+            )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO mcp_agent_workspace_bindings "
+                    "(workspace_id, client_id, development_source_id, "
+                    "binding_origin, created_at) VALUES "
+                    "(:workspace, :client, :source, 'web_admin', :at)"
+                ),
+                {
+                    "workspace": workspace_id,
+                    "client": client_id,
+                    "source": other_source_id,
+                    "at": timestamp,
+                },
+            )
+        for invalid_workspace, invalid_client in (
+            (str(uuid4()), client_id),
+            (workspace_id, str(uuid4())),
+        ):
+            with pytest.raises(IntegrityError):
+                connection.execute(
+                    text(
+                        "INSERT INTO mcp_agent_workspace_bindings "
+                        "(workspace_id, client_id, development_source_id, "
+                        "binding_origin, created_at) VALUES "
+                        "(:workspace, :client, :source, 'web_admin', :at)"
+                    ),
+                    {
+                        "workspace": invalid_workspace,
+                        "client": invalid_client,
+                        "source": source_id,
+                        "at": timestamp,
+                    },
+                )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_agent_workspace_bindings "
+                "(workspace_id, client_id, development_source_id, "
+                "binding_origin, created_at) VALUES "
+                "(:workspace, :client, :source, 'web_admin', :at)"
+            ),
+            {
+                "workspace": workspace_id,
+                "client": client_id,
+                "source": source_id,
+                "at": timestamp,
+            },
+        )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO mcp_agent_workspace_bindings "
+                    "(workspace_id, client_id, development_source_id, "
+                    "binding_origin, created_at) VALUES "
+                    "(:workspace, :client, :source, 'mcp_created', :at)"
+                ),
+                {
+                    "workspace": workspace_id,
+                    "client": client_id,
+                    "source": source_id,
+                    "at": timestamp,
+                },
+            )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="development inspection authority"):
+        command.downgrade(config, "0038_mcp_remote_control")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM mcp_agent_workspace_bindings"))
+        connection.execute(text("DELETE FROM mcp_client_development_source_grants"))
+        connection.execute(
+            text("DELETE FROM mcp_clients WHERE id = :id"), {"id": client_id}
+        )
+    engine.dispose()
+    command.downgrade(config, "0038_mcp_remote_control")
+    engine = create_database_engine(database_url)
+    assert {
+        "mcp_client_development_source_grants",
+        "mcp_agent_workspace_bindings",
+    }.isdisjoint(inspect(engine).get_table_names())
+    engine.dispose()
+    command.upgrade(config, "0039_mcp_development_inspection")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE permission = 'workspace.inspect'"
+                )
+            )
+            == 2
+        )
+    engine.dispose()
+
+
+def test_0038_remote_receipt_constraints_and_downgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config, database_url = migration_setup(

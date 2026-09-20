@@ -18,14 +18,31 @@ from kodi_lab.application.runtime_status import (
 )
 from kodi_lab.application.screenshots import ManagedScreenshotService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
+from kodi_lab.domain import (
+    AgentWorkspace,
+    AgentWorkspaceBytesState,
+    AgentWorkspaceState,
+    DevelopmentSource,
+)
 from kodi_lab.kodi.remote import REMOTE_RUNTIME_REVISION_IDS
-from kodi_lab.mcp.registry import McpToolDefinition, McpToolRegistry, TargetClass
+from kodi_lab.mcp.registry import (
+    McpToolDefinition,
+    McpToolRegistry,
+    TargetClass,
+    ToolScope,
+)
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
+    McpAgentWorkspaceBindingRow,
+    McpClientDevelopmentSourceGrantRow,
     McpClientRow,
     McpClientTargetGrantRow,
     McpPresetPermissionRow,
     McpTargetPresetAssignmentRow,
+)
+from kodi_lab.storage.repositories import (
+    AgentWorkspaceRepository,
+    DevelopmentSourceRepository,
 )
 
 _ResultT = TypeVar("_ResultT")
@@ -120,7 +137,7 @@ class McpAuthorizationService:
         self, principal: McpPrincipal, tool_name: str
     ) -> McpToolDefinition:
         definition = self._definition(tool_name)
-        if definition.target_scope_required:
+        if definition.resolved_scope is not ToolScope.GLOBAL:
             raise McpAuthorizationError("permission_denied")
         permissions = self._client_permissions(principal.client_id)
         if not definition.permissions.issubset(permissions):
@@ -131,7 +148,7 @@ class McpAuthorizationService:
         self, principal: McpPrincipal, tool_name: str, target_id: UUID
     ) -> McpToolDefinition:
         definition = self._definition(tool_name)
-        if not definition.target_scope_required:
+        if definition.resolved_scope is not ToolScope.TARGET:
             raise McpAuthorizationError("permission_denied")
         return self._authorize_target_definition(principal, definition, target_id)
 
@@ -141,7 +158,7 @@ class McpAuthorizationService:
         """Apply target policy when an unscoped listing projects candidates."""
 
         definition = self._definition(tool_name)
-        if definition.target_scope_required:
+        if definition.resolved_scope is not ToolScope.GLOBAL:
             raise McpAuthorizationError("permission_denied")
         return self._authorize_target_definition(principal, definition, target_id)
 
@@ -189,6 +206,151 @@ class McpAuthorizationService:
                 raise McpAuthorizationError("target_reconciliation_required")
             raise McpAuthorizationError("permission_denied")
         return definition
+
+    def granted_development_sources(
+        self,
+        principal: McpPrincipal,
+        tool_name: str,
+        *,
+        cursor: UUID | None,
+        limit: int,
+    ) -> tuple[tuple[DevelopmentSource, ...], bool]:
+        """Resolve one bounded page through current client permission and grants."""
+
+        definition = self._definition(tool_name)
+        if definition.resolved_scope is not ToolScope.DEVELOPMENT_SOURCE:
+            raise McpAuthorizationError("permission_denied")
+        with self._session_factory() as session:
+            self._require_client_permission(session, principal, definition)
+            statement = (
+                select(McpClientDevelopmentSourceGrantRow.development_source_id)
+                .where(
+                    McpClientDevelopmentSourceGrantRow.client_id
+                    == str(principal.client_id)
+                )
+                .order_by(McpClientDevelopmentSourceGrantRow.development_source_id)
+                .limit(limit + 1)
+            )
+            if cursor is not None:
+                statement = statement.where(
+                    McpClientDevelopmentSourceGrantRow.development_source_id
+                    > str(cursor)
+                )
+            ids = session.scalars(statement).all()
+            repository = DevelopmentSourceRepository(session)
+            sources = tuple(repository.get(UUID(value)) for value in ids[:limit])
+        if any(source is None for source in sources):
+            raise McpAuthorizationError("source_not_found_or_not_authorized")
+        return tuple(source for source in sources if source is not None), len(
+            ids
+        ) > limit
+
+    def owned_workspaces(
+        self,
+        principal: McpPrincipal,
+        tool_name: str,
+        *,
+        cursor: UUID | None,
+        limit: int,
+    ) -> tuple[tuple[AgentWorkspace, ...], bool]:
+        """List only exact bindings whose source grant remains current."""
+
+        definition = self._definition(tool_name)
+        if definition.resolved_scope is not ToolScope.WORKSPACE:
+            raise McpAuthorizationError("permission_denied")
+        with self._session_factory() as session:
+            self._require_client_permission(session, principal, definition)
+            statement = (
+                select(McpAgentWorkspaceBindingRow.workspace_id)
+                .join(
+                    McpClientDevelopmentSourceGrantRow,
+                    (
+                        McpClientDevelopmentSourceGrantRow.client_id
+                        == McpAgentWorkspaceBindingRow.client_id
+                    )
+                    & (
+                        McpClientDevelopmentSourceGrantRow.development_source_id
+                        == McpAgentWorkspaceBindingRow.development_source_id
+                    ),
+                )
+                .where(
+                    McpAgentWorkspaceBindingRow.client_id == str(principal.client_id)
+                )
+                .order_by(McpAgentWorkspaceBindingRow.workspace_id)
+                .limit(limit + 1)
+            )
+            if cursor is not None:
+                statement = statement.where(
+                    McpAgentWorkspaceBindingRow.workspace_id > str(cursor)
+                )
+            ids = session.scalars(statement).all()
+            repository = AgentWorkspaceRepository(session)
+            workspaces = tuple(repository.get(UUID(value)) for value in ids[:limit])
+        if any(workspace is None for workspace in workspaces):
+            raise McpAuthorizationError("workspace_not_found_or_not_authorized")
+        return (
+            tuple(workspace for workspace in workspaces if workspace is not None),
+            len(ids) > limit,
+        )
+
+    def authorize_workspace(
+        self,
+        principal: McpPrincipal,
+        tool_name: str,
+        workspace_id: UUID,
+    ) -> AgentWorkspace:
+        """Resolve the permission/grant/binding/source/state intersection once."""
+
+        definition = self._definition(tool_name)
+        if definition.resolved_scope is not ToolScope.WORKSPACE:
+            raise McpAuthorizationError("permission_denied")
+        with self._session_factory() as session:
+            self._require_client_permission(session, principal, definition)
+            binding = session.get(McpAgentWorkspaceBindingRow, str(workspace_id))
+            if binding is None or binding.client_id != str(principal.client_id):
+                raise McpAuthorizationError("workspace_not_found_or_not_authorized")
+            grant = session.get(
+                McpClientDevelopmentSourceGrantRow,
+                {
+                    "client_id": str(principal.client_id),
+                    "development_source_id": binding.development_source_id,
+                },
+            )
+            workspace = AgentWorkspaceRepository(session).get(workspace_id)
+            if (
+                grant is None
+                or workspace is None
+                or str(workspace.development_source_id) != binding.development_source_id
+            ):
+                raise McpAuthorizationError("workspace_not_found_or_not_authorized")
+        if "present" in definition.required_states and (
+            workspace.bytes_state is AgentWorkspaceBytesState.CLEANED
+        ):
+            raise McpAuthorizationError("workspace_bytes_cleaned")
+        if "ready" in definition.required_states and (
+            workspace.state is not AgentWorkspaceState.READY
+        ):
+            raise McpAuthorizationError("workspace_not_ready")
+        return workspace
+
+    def _require_client_permission(
+        self,
+        session: Session,
+        principal: McpPrincipal,
+        definition: McpToolDefinition,
+    ) -> McpClientRow:
+        client = session.get(McpClientRow, str(principal.client_id))
+        if client is None or not client.enabled:
+            raise McpAuthorizationError("permission_denied")
+        permissions = self._permissions(session, client.preset_id)
+        if not definition.permissions.issubset(permissions):
+            raise McpAuthorizationError("permission_denied")
+        if (
+            TargetClass.INTERNAL_LAB not in definition.allowed_target_classes
+            or definition.production_eligible
+        ):
+            raise McpAuthorizationError("permission_denied")
+        return client
 
     def invoke_unscoped(
         self,

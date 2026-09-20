@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +18,12 @@ from kodi_lab.application.addon_inventory import (
     AddonInventoryUnavailableReason,
     KodiAddonProvenanceClassification,
     ManagedInstanceAddonInventoryService,
+)
+from kodi_lab.application.agent_workspaces import (
+    AgentWorkspaceConflictError,
+    AgentWorkspaceNotFoundError,
+    AgentWorkspaceRead,
+    AgentWorkspaceService,
 )
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.mcp_administration import McpPrincipal
@@ -32,13 +40,17 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotService,
     ScreenshotServiceError,
 )
+from kodi_lab.domain import AgentWorkspace
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION
 from kodi_lab.storage.models import ManagedInstanceRow
+from kodi_lab.workspace import AgentWorkspaceStorageError
 
 MAX_MCP_RESPONSE_BYTES = 64 * 1024
+MAX_MCP_DEVELOPMENT_RESPONSE_BYTES = 48 * 1024
+MAX_MCP_DEVELOPMENT_TEXT_BYTES = 44 * 1024
 
 
 class AddonSummary(BaseModel):
@@ -116,6 +128,88 @@ class TargetStatusResult(BaseModel):
     target: TargetSummary
 
 
+class DevelopmentSourceSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_id: UUID
+    logical_name: str = Field(max_length=120)
+    source_type: str = Field(max_length=32)
+    addon_id: str = Field(max_length=128)
+    addon_name: str = Field(max_length=256)
+    version: str = Field(max_length=128)
+    extension_types: tuple[str, ...] = Field(max_length=64)
+    registration_observed_at: datetime
+    availability: str = "registration_observed"
+
+
+class DevelopmentSourceListResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    sources: tuple[DevelopmentSourceSummary, ...] = Field(max_length=100)
+    next_cursor: str | None = Field(default=None, max_length=36)
+
+
+class WorkspaceSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    workspace_id: UUID
+    source_id: UUID
+    lifecycle_state: str
+    bytes_state: str
+    generation: int = Field(ge=0)
+    creation_state: str
+    created_at: datetime
+    updated_at: datetime | None
+    latest_promotion_state: str | None = None
+    latest_verification_state: str | None = None
+
+
+class WorkspaceStatusResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    workspaces: tuple[WorkspaceSummary, ...] = Field(max_length=100)
+    next_cursor: str | None = Field(default=None, max_length=36)
+
+
+class WorkspaceTreeEntrySummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(max_length=512)
+    entry_type: str = Field(pattern="^(file|directory)$")
+    byte_size: int | None = Field(default=None, ge=0)
+
+
+class WorkspaceTreeResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    workspace_id: UUID
+    source_id: UUID
+    directory: str = Field(max_length=512)
+    observed_generation: int = Field(ge=0)
+    entries: tuple[WorkspaceTreeEntrySummary, ...] = Field(max_length=200)
+    next_cursor: str | None = Field(default=None, max_length=512)
+
+
+class WorkspaceReadResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    workspace_id: UUID
+    source_id: UUID
+    path: str = Field(max_length=512)
+    text: str
+    observed_generation: int = Field(ge=0)
+    sha256: str = Field(pattern="^[0-9a-f]{64}$")
+    start_line: int = Field(ge=1)
+    returned_line_count: int = Field(ge=0, le=2000)
+    next_line: int | None = Field(default=None, ge=1)
+    total_file_bytes: int = Field(ge=0, le=2 * 1024 * 1024)
+    truncated: StrictBool
+
+
 class McpTargetToolService:
     def __init__(
         self,
@@ -125,6 +219,7 @@ class McpTargetToolService:
         addon_inventory: ManagedInstanceAddonInventoryService,
         screenshots: ManagedScreenshotService,
         remote_actions: McpRemoteActionReceiptService | None = None,
+        workspaces: AgentWorkspaceService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -132,6 +227,193 @@ class McpTargetToolService:
         self._addon_inventory = addon_inventory
         self._screenshots = screenshots
         self._remote_actions = remote_actions
+        self._workspaces = workspaces
+
+    def development_source_list(
+        self,
+        principal: McpPrincipal,
+        *,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> DevelopmentSourceListResult:
+        if limit < 1 or limit > 100:
+            raise McpAuthorizationError("permission_denied")
+        cursor_id = self._uuid_cursor(cursor)
+        sources, has_more = self._authorization.granted_development_sources(
+            principal,
+            "development_source_list",
+            cursor=cursor_id,
+            limit=limit,
+        )
+        result = DevelopmentSourceListResult(
+            sources=tuple(
+                DevelopmentSourceSummary(
+                    source_id=source.id,
+                    logical_name=source.logical_name,
+                    source_type=source.source_kind.value,
+                    addon_id=source.addon_id,
+                    addon_name=source.observed_name,
+                    version=source.observed_version,
+                    extension_types=source.extension_types,
+                    registration_observed_at=source.validated_at,
+                )
+                for source in sources
+            ),
+            next_cursor=str(sources[-1].id) if has_more and sources else None,
+        )
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_status(
+        self,
+        principal: McpPrincipal,
+        *,
+        workspace_id: UUID | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> WorkspaceStatusResult:
+        service = self._workspace_service()
+        if (
+            limit < 1
+            or limit > 100
+            or (workspace_id is not None and cursor is not None)
+        ):
+            raise McpAuthorizationError("permission_denied")
+        has_more = False
+        authorized: tuple[AgentWorkspace, ...]
+        if workspace_id is not None:
+            authorized = (
+                self._authorization.authorize_workspace(
+                    principal, "workspace_status", workspace_id
+                ),
+            )
+        else:
+            authorized, has_more = self._authorization.owned_workspaces(
+                principal,
+                "workspace_status",
+                cursor=self._uuid_cursor(cursor),
+                limit=limit,
+            )
+        summaries = tuple(
+            self._workspace_summary(service.get(workspace.id), workspace.updated_at)
+            for workspace in authorized
+        )
+        result = WorkspaceStatusResult(
+            workspaces=summaries,
+            next_cursor=(str(authorized[-1].id) if has_more and authorized else None),
+        )
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_tree(
+        self,
+        principal: McpPrincipal,
+        *,
+        workspace_id: UUID,
+        relative_path: str = "",
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> WorkspaceTreeResult:
+        service = self._workspace_service()
+        if limit < 1 or limit > 200:
+            raise McpAuthorizationError("permission_denied")
+        workspace = self._authorization.authorize_workspace(
+            principal, "workspace_tree", workspace_id
+        )
+        try:
+            items = service.inspect_directory(workspace_id, relative_path)
+        except (
+            AgentWorkspaceConflictError,
+            AgentWorkspaceNotFoundError,
+            AgentWorkspaceStorageError,
+        ) as error:
+            raise McpAuthorizationError(self._workspace_error(error)) from error
+        cursor_name = self._decode_tree_cursor(cursor)
+        eligible = [
+            item
+            for item in items
+            if cursor_name is None
+            or item.name.encode("utf-8") > cursor_name.encode("utf-8")
+        ]
+        selected = eligible[:limit]
+        prefix = f"{relative_path}/" if relative_path else ""
+        result = WorkspaceTreeResult(
+            workspace_id=workspace.id,
+            source_id=workspace.development_source_id,
+            directory=relative_path,
+            observed_generation=workspace.generation,
+            entries=tuple(
+                WorkspaceTreeEntrySummary(
+                    path=f"{prefix}{item.name}",
+                    entry_type=item.entry_type,
+                    byte_size=item.size,
+                )
+                for item in selected
+            ),
+            next_cursor=(
+                self._encode_tree_cursor(selected[-1].name)
+                if len(eligible) > limit and selected
+                else None
+            ),
+        )
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_read(
+        self,
+        principal: McpPrincipal,
+        *,
+        workspace_id: UUID,
+        relative_path: str,
+        start_line: int = 1,
+        max_lines: int = 200,
+    ) -> WorkspaceReadResult:
+        service = self._workspace_service()
+        if start_line < 1 or max_lines < 1 or max_lines > 2000:
+            raise McpAuthorizationError("permission_denied")
+        workspace = self._authorization.authorize_workspace(
+            principal, "workspace_read", workspace_id
+        )
+        try:
+            read = service.read_file(workspace_id, relative_path)
+        except (
+            AgentWorkspaceConflictError,
+            AgentWorkspaceNotFoundError,
+            AgentWorkspaceStorageError,
+        ) as error:
+            raise McpAuthorizationError(self._workspace_error(error)) from error
+        payload = read.content.encode("utf-8")
+        lines = read.content.splitlines(keepends=True)
+        offset = start_line - 1
+        candidates = lines[offset : offset + max_lines]
+        selected: list[str] = []
+        selected_bytes = 0
+        for line in candidates:
+            line_bytes = len(line.encode("utf-8"))
+            if selected_bytes + line_bytes > MAX_MCP_DEVELOPMENT_TEXT_BYTES:
+                break
+            selected.append(line)
+            selected_bytes += line_bytes
+        if candidates and not selected:
+            raise McpAuthorizationError("response_too_large")
+        next_line = (
+            start_line + len(selected) if offset + len(selected) < len(lines) else None
+        )
+        result = WorkspaceReadResult(
+            workspace_id=workspace.id,
+            source_id=workspace.development_source_id,
+            path=relative_path,
+            text="".join(selected),
+            observed_generation=workspace.generation,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            start_line=start_line,
+            returned_line_count=len(selected),
+            next_line=next_line,
+            total_file_bytes=len(payload),
+            truncated=start_line > 1 or next_line is not None,
+        )
+        self._require_development_bounded(result)
+        return result
 
     def remote_action(
         self,
@@ -377,6 +659,99 @@ class McpTargetToolService:
         except KeyError as error:
             raise McpAuthorizationError("target_not_found_or_not_authorized") from error
 
+    def _workspace_service(self) -> AgentWorkspaceService:
+        if self._workspaces is None:
+            raise McpAuthorizationError("capability_unavailable")
+        return self._workspaces
+
+    @staticmethod
+    def _workspace_summary(
+        workspace: AgentWorkspaceRead, updated_at: datetime
+    ) -> WorkspaceSummary:
+        return WorkspaceSummary(
+            workspace_id=workspace.id,
+            source_id=workspace.development_source_id,
+            lifecycle_state=workspace.state.value,
+            bytes_state=workspace.bytes_state.value,
+            generation=workspace.generation,
+            creation_state=(
+                "ready" if workspace.captured_at is not None else "pending"
+            ),
+            created_at=workspace.created_at,
+            updated_at=updated_at,
+            latest_promotion_state=(
+                None
+                if workspace.promotion_outcome is None
+                else workspace.promotion_outcome.value
+            ),
+            latest_verification_state=(
+                None
+                if workspace.verification_outcome is None
+                else workspace.verification_outcome.value
+            ),
+        )
+
+    @staticmethod
+    def _uuid_cursor(cursor: str | None) -> UUID | None:
+        if cursor is None:
+            return None
+        try:
+            parsed = UUID(cursor)
+        except (ValueError, AttributeError) as error:
+            raise McpAuthorizationError("permission_denied") from error
+        if str(parsed) != cursor:
+            raise McpAuthorizationError("permission_denied")
+        return parsed
+
+    @staticmethod
+    def _encode_tree_cursor(name: str) -> str:
+        return (
+            base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii").rstrip("=")
+        )
+
+    @staticmethod
+    def _decode_tree_cursor(cursor: str | None) -> str | None:
+        if cursor is None:
+            return None
+        if not cursor or len(cursor) > 512:
+            raise McpAuthorizationError("path_not_allowed")
+        try:
+            payload = base64.b64decode(
+                cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True
+            )
+            name = payload.decode("utf-8", "strict")
+        except (ValueError, UnicodeDecodeError) as error:
+            raise McpAuthorizationError("path_not_allowed") from error
+        if not name or "/" in name or "\\" in name or "\x00" in name:
+            raise McpAuthorizationError("path_not_allowed")
+        return name
+
+    @staticmethod
+    def _workspace_error(error: Exception) -> str:
+        code = getattr(error, "code", "")
+        if code in {"workspace_bytes_cleaned"}:
+            return "workspace_bytes_cleaned"
+        if code in {"agent_workspace_not_ready", "workspace_reconciliation_blocked"}:
+            return "workspace_not_ready"
+        if code in {
+            "agent_workspace_path_invalid",
+            "agent_workspace_path_unavailable",
+        }:
+            return "path_not_allowed"
+        if code in {
+            "agent_workspace_entry_unsafe",
+            "agent_workspace_file_unsafe",
+            "agent_workspace_file_not_text",
+        }:
+            return "unsupported_file_type"
+        if code == "agent_workspace_file_too_large":
+            return "file_too_large"
+        if code == "agent_workspace_directory_too_large":
+            return "response_too_large"
+        if code == "agent_workspace_not_found":
+            return "workspace_integrity_changed"
+        return "workspace_integrity_changed"
+
     @staticmethod
     def _summary_from_status(
         status: ManagedRuntimeStatus, profile: str
@@ -400,6 +775,14 @@ class McpTargetToolService:
             result.model_dump(mode="json"), separators=(",", ":")
         ).encode()
         if len(encoded) > MAX_MCP_RESPONSE_BYTES:
+            raise McpAuthorizationError("response_too_large")
+
+    @staticmethod
+    def _require_development_bounded(result: BaseModel) -> None:
+        encoded = json.dumps(
+            result.model_dump(mode="json"), separators=(",", ":")
+        ).encode("utf-8")
+        if len(encoded) > MAX_MCP_DEVELOPMENT_RESPONSE_BYTES:
             raise McpAuthorizationError("response_too_large")
 
     @staticmethod

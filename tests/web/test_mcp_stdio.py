@@ -416,10 +416,14 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
             ):
                 assert [item.name for item in (await direct.list_tools()).tools] == [
                     "addon_list",
+                    "development_source_list",
                     "remote_action",
                     "screenshot_capture",
                     "target_list",
                     "target_status",
+                    "workspace_read",
+                    "workspace_status",
+                    "workspace_tree",
                 ]
                 http_request = str(uuid4())
                 arguments = {
@@ -454,6 +458,92 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
                     BrowserRemoteAction.VOLUME_UP,
                     BrowserRemoteAction.VOLUME_DOWN,
                 ]
+
+        asyncio.run(exercise())
+
+
+def test_development_inspection_is_identical_over_modern_http_and_stdio(
+    client: TestClient,
+) -> None:
+    app = cast(FastAPI, client.app)
+    context = app.state.kodi_lab
+    source_root = context.settings.development_root / "plugin.video.stdio.inspect"
+    source_root.mkdir()
+    (source_root / "addon.xml").write_text(
+        '<addon id="plugin.video.stdio.inspect" name="Stdio" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="main.py" />'
+        "</addon>\n",
+        encoding="utf-8",
+    )
+    (source_root / "main.py").write_text("one\ntwo\n", encoding="utf-8")
+    source = context.development_source_administration.register_source(
+        logical_name="Stdio inspection source",
+        relative_locator="plugin.video.stdio.inspect",
+    )
+    queued = context.agent_workspaces.queue_creation(source.id)
+    lease = context.agent_workspaces.acquire(queued.operation_id)
+    assert lease is not None
+    context.agent_workspaces.run(lease)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Stdio workspace inspection",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.grant_development_source(mcp_client.id, source.id)
+    administration.bind_workspace(mcp_client.id, queued.workspace_id)
+    issued = administration.issue_credential(mcp_client.id)
+
+    with _live_loopback_server(client.app) as (endpoint, _capture):
+
+        async def exercise() -> None:
+            parameters = StdioServerParameters(
+                command=str(STDIO_EXECUTABLE),
+                env={
+                    TOKEN_ENVIRONMENT_VARIABLE: issued.token,
+                    ENDPOINT_ENVIRONMENT_VARIABLE: endpoint,
+                },
+                cwd=Path.cwd(),
+            )
+            async with (
+                _direct_client(endpoint, issued.token) as direct,
+                Client(parameters, mode="auto", cache=None) as stdio,
+            ):
+                assert [item.name for item in (await stdio.list_tools()).tools] == [
+                    "addon_list",
+                    "development_source_list",
+                    "remote_action",
+                    "screenshot_capture",
+                    "target_list",
+                    "target_status",
+                    "workspace_read",
+                    "workspace_status",
+                    "workspace_tree",
+                ]
+                calls: tuple[tuple[str, dict[str, str]], ...] = (
+                    ("development_source_list", {}),
+                    (
+                        "workspace_status",
+                        {"workspace_id": str(queued.workspace_id)},
+                    ),
+                    ("workspace_tree", {"workspace_id": str(queued.workspace_id)}),
+                    (
+                        "workspace_read",
+                        {
+                            "workspace_id": str(queued.workspace_id),
+                            "relative_path": "main.py",
+                        },
+                    ),
+                )
+                for name, arguments in calls:
+                    http_result, stdio_result = await asyncio.gather(
+                        direct.call_tool(name, arguments),
+                        stdio.call_tool(name, arguments),
+                    )
+                    assert not http_result.is_error and not stdio_result.is_error
+                    assert (
+                        http_result.structured_content
+                        == stdio_result.structured_content
+                    )
 
         asyncio.run(exercise())
 

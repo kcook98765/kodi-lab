@@ -17,6 +17,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.storage.models import (
+    AgentWorkspaceRow,
+    DevelopmentSourceRow,
+    McpAgentWorkspaceBindingRow,
+    McpClientDevelopmentSourceGrantRow,
     McpClientRow,
     McpClientTargetGrantRow,
     McpCredentialRow,
@@ -35,7 +39,11 @@ DEFAULT_TOKEN_LIFETIME = timedelta(hours=24)
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
 
 _OBSERVATION_PERMISSIONS = ("target.inspect", "target.visual")
-_DEVELOPMENT_PERMISSIONS = (*_OBSERVATION_PERMISSIONS, "target.control")
+_DEVELOPMENT_PERMISSIONS = (
+    *_OBSERVATION_PERMISSIONS,
+    "target.control",
+    "workspace.inspect",
+)
 
 _BUILTINS = (
     (
@@ -90,6 +98,28 @@ class McpCredentialRead(BaseModel):
     status: str
 
 
+class McpWorkspaceBindingRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    workspace_id: UUID
+    client_id: UUID
+    development_source_id: UUID
+    binding_origin: str = Field(pattern="^(web_admin|mcp_created)$")
+    created_at: datetime
+
+
+class McpEligibleWorkspaceRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    workspace_id: UUID
+    development_source_id: UUID
+    source_logical_name: str = Field(max_length=120)
+    state: str
+    bytes_state: str
+    generation: int = Field(ge=0)
+    created_at: datetime
+
+
 class McpClientRead(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -101,6 +131,8 @@ class McpClientRead(BaseModel):
     last_used_at: datetime | None
     credentials: tuple[McpCredentialRead, ...]
     target_grants: tuple[UUID, ...]
+    development_source_grants: tuple[UUID, ...]
+    workspace_bindings: tuple[McpWorkspaceBindingRead, ...]
 
 
 class McpIssuedCredential(BaseModel):
@@ -138,6 +170,12 @@ def _from_text(value: str | None) -> datetime | None:
     return (
         None if value is None else datetime.fromisoformat(value.replace("Z", "+00:00"))
     )
+
+
+def _from_required_text(value: str) -> datetime:
+    parsed = _from_text(value)
+    assert parsed is not None
+    return parsed
 
 
 def _status(row: McpCredentialRow, now: datetime) -> str:
@@ -489,6 +527,161 @@ class McpAdministrationService:
                 )
         return self.get_client(client_id)
 
+    def grant_development_source(
+        self, client_id: UUID, source_id: UUID
+    ) -> McpClientRead:
+        """Grant one exact registered source; no wildcard form exists."""
+
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            self._require_client(session, client_id)
+            if session.get(DevelopmentSourceRow, str(source_id)) is None:
+                raise McpAdministrationError("development_source_not_found")
+            key = {
+                "client_id": str(client_id),
+                "development_source_id": str(source_id),
+            }
+            if session.get(McpClientDevelopmentSourceGrantRow, key) is not None:
+                raise McpAdministrationError("mcp_development_source_already_granted")
+            session.add(
+                McpClientDevelopmentSourceGrantRow(**key, created_at=_to_text(now))
+            )
+            self._event(
+                session,
+                "development_source_granted",
+                now,
+                client_id=client_id,
+                development_source_id=source_id,
+            )
+        return self.get_client(client_id)
+
+    def remove_development_source_grant(
+        self, client_id: UUID, source_id: UUID
+    ) -> McpClientRead:
+        """Revoke source authority without deleting durable workspace bindings."""
+
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            self._require_client(session, client_id)
+            key = {
+                "client_id": str(client_id),
+                "development_source_id": str(source_id),
+            }
+            grant = session.get(McpClientDevelopmentSourceGrantRow, key)
+            if grant is not None:
+                session.delete(grant)
+                self._event(
+                    session,
+                    "development_source_grant_removed",
+                    now,
+                    client_id=client_id,
+                    development_source_id=source_id,
+                )
+        return self.get_client(client_id)
+
+    def list_eligible_unbound_workspaces(
+        self, client_id: UUID
+    ) -> list[McpEligibleWorkspaceRead]:
+        """List only ready, byte-present, granted-source workspaces with no owner."""
+
+        with self._session_factory() as session:
+            self._require_client(session, client_id)
+            rows = session.execute(
+                select(AgentWorkspaceRow, DevelopmentSourceRow.logical_name)
+                .join(
+                    McpClientDevelopmentSourceGrantRow,
+                    McpClientDevelopmentSourceGrantRow.development_source_id
+                    == AgentWorkspaceRow.development_source_id,
+                )
+                .join(
+                    DevelopmentSourceRow,
+                    DevelopmentSourceRow.id == AgentWorkspaceRow.development_source_id,
+                )
+                .outerjoin(
+                    McpAgentWorkspaceBindingRow,
+                    McpAgentWorkspaceBindingRow.workspace_id == AgentWorkspaceRow.id,
+                )
+                .where(
+                    McpClientDevelopmentSourceGrantRow.client_id == str(client_id),
+                    McpAgentWorkspaceBindingRow.workspace_id.is_(None),
+                    AgentWorkspaceRow.state == "ready",
+                    AgentWorkspaceRow.bytes_state == "present",
+                )
+                .order_by(AgentWorkspaceRow.created_at, AgentWorkspaceRow.id)
+                .limit(1001)
+            ).all()
+        if len(rows) > 1000:
+            raise McpAdministrationError("mcp_workspace_result_too_large")
+        return [
+            McpEligibleWorkspaceRead(
+                workspace_id=UUID(workspace.id),
+                development_source_id=UUID(workspace.development_source_id),
+                source_logical_name=logical_name,
+                state=workspace.state.value,
+                bytes_state=workspace.bytes_state.value,
+                generation=workspace.generation,
+                created_at=_from_required_text(workspace.created_at),
+            )
+            for workspace, logical_name in rows
+        ]
+
+    def bind_workspace(
+        self, client_id: UUID, workspace_id: UUID
+    ) -> McpWorkspaceBindingRead:
+        """Bind one eligible existing workspace; ownership cannot be transferred."""
+
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            self._require_client(session, client_id)
+            workspace = session.get(AgentWorkspaceRow, str(workspace_id))
+            if workspace is None:
+                raise McpAdministrationError("agent_workspace_not_found")
+            if session.get(McpAgentWorkspaceBindingRow, str(workspace_id)) is not None:
+                raise McpAdministrationError("mcp_workspace_already_bound")
+            grant = session.get(
+                McpClientDevelopmentSourceGrantRow,
+                {
+                    "client_id": str(client_id),
+                    "development_source_id": workspace.development_source_id,
+                },
+            )
+            if (
+                grant is None
+                or workspace.state.value != "ready"
+                or workspace.bytes_state.value != "present"
+            ):
+                raise McpAdministrationError("mcp_workspace_not_eligible")
+            row = McpAgentWorkspaceBindingRow(
+                workspace_id=str(workspace_id),
+                client_id=str(client_id),
+                development_source_id=workspace.development_source_id,
+                binding_origin="web_admin",
+                created_at=_to_text(now),
+            )
+            session.add(row)
+            self._event(
+                session,
+                "workspace_bound",
+                now,
+                client_id=client_id,
+                development_source_id=UUID(workspace.development_source_id),
+                workspace_id=workspace_id,
+            )
+        return self._binding_read(row)
+
+    def list_workspace_bindings(self, client_id: UUID) -> list[McpWorkspaceBindingRead]:
+        with self._session_factory() as session:
+            self._require_client(session, client_id)
+            rows = session.scalars(
+                select(McpAgentWorkspaceBindingRow)
+                .where(McpAgentWorkspaceBindingRow.client_id == str(client_id))
+                .order_by(McpAgentWorkspaceBindingRow.workspace_id)
+                .limit(1001)
+            ).all()
+        if len(rows) > 1000:
+            raise McpAdministrationError("mcp_workspace_result_too_large")
+        return [self._binding_read(row) for row in rows]
+
     def assign_target_preset(
         self, target_id: UUID, preset_id: UUID
     ) -> McpTargetPolicyRead:
@@ -657,6 +850,22 @@ class McpAdministrationService:
                 .order_by(McpClientTargetGrantRow.target_id)
             ).all()
         )
+        source_grants = tuple(
+            UUID(value)
+            for value in session.scalars(
+                select(McpClientDevelopmentSourceGrantRow.development_source_id)
+                .where(McpClientDevelopmentSourceGrantRow.client_id == row.id)
+                .order_by(McpClientDevelopmentSourceGrantRow.development_source_id)
+            ).all()
+        )
+        bindings = tuple(
+            self._binding_read(item)
+            for item in session.scalars(
+                select(McpAgentWorkspaceBindingRow)
+                .where(McpAgentWorkspaceBindingRow.client_id == row.id)
+                .order_by(McpAgentWorkspaceBindingRow.workspace_id)
+            ).all()
+        )
         created_at = _from_text(row.created_at)
         assert created_at is not None
         return McpClientRead(
@@ -668,6 +877,18 @@ class McpAdministrationService:
             last_used_at=_from_text(row.last_used_at),
             credentials=tuple(self._credential_read(item, now) for item in credentials),
             target_grants=grants,
+            development_source_grants=source_grants,
+            workspace_bindings=bindings,
+        )
+
+    @staticmethod
+    def _binding_read(row: McpAgentWorkspaceBindingRow) -> McpWorkspaceBindingRead:
+        return McpWorkspaceBindingRead(
+            workspace_id=UUID(row.workspace_id),
+            client_id=UUID(row.client_id),
+            development_source_id=UUID(row.development_source_id),
+            binding_origin=row.binding_origin,
+            created_at=_from_required_text(row.created_at),
         )
 
     @staticmethod
@@ -694,6 +915,8 @@ class McpAdministrationService:
         credential_id: UUID | None = None,
         target_id: UUID | None = None,
         preset_id: UUID | None = None,
+        development_source_id: UUID | None = None,
+        workspace_id: UUID | None = None,
     ) -> None:
         session.add(
             McpSecurityEventRow(
@@ -704,6 +927,12 @@ class McpAdministrationService:
                 credential_id=(None if credential_id is None else str(credential_id)),
                 target_id=None if target_id is None else str(target_id),
                 preset_id=None if preset_id is None else str(preset_id),
+                development_source_id=(
+                    None
+                    if development_source_id is None
+                    else str(development_source_id)
+                ),
+                workspace_id=None if workspace_id is None else str(workspace_id),
                 occurred_at=_to_text(now),
             )
         )

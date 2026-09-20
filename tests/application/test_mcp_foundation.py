@@ -286,11 +286,13 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
         "target.control",
         "target.inspect",
         "target.visual",
+        "workspace.inspect",
     )
     assert permissions[FULL_LAB_CONTROL_PRESET_ID] == (
         "target.control",
         "target.inspect",
         "target.visual",
+        "workspace.inspect",
     )
     assert permissions[READ_ONLY_INSPECTION_PRESET_ID] == (
         "target.inspect",
@@ -322,6 +324,16 @@ def test_custom_presets_are_bounded_builtin_permission_snapshots(
         FULL_LAB_CONTROL_PRESET_ID,
         PRODUCTION_REMOTE_KODI_PRESET_ID,
     }
+    development_snapshot = administration.create_custom_preset(
+        display_name="Development snapshot",
+        template_preset_id=ADDON_DEVELOPMENT_PRESET_ID,
+    )
+    assert development_snapshot.permissions == (
+        "target.control",
+        "target.inspect",
+        "target.visual",
+        "workspace.inspect",
+    )
 
     client = administration.create_client(
         display_name="Custom preset client", preset_id=custom.id
@@ -645,16 +657,30 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     remote = registry.require("remote_action")
     assert registry.names() == (
         "addon_list",
+        "development_source_list",
         "remote_action",
         "screenshot_capture",
         "target_list",
         "target_status",
+        "workspace_read",
+        "workspace_status",
+        "workspace_tree",
     )
     assert remote.permissions == frozenset({"target.control"})
     assert remote.effect is ToolEffect.MUTATING
     assert remote.rate_class is ToolRateClass.REMOTE_CONTROL
     assert remote.allowed_target_classes == frozenset({TargetClass.INTERNAL_LAB})
     assert not remote.production_eligible
+    for name in (
+        "development_source_list",
+        "workspace_read",
+        "workspace_status",
+        "workspace_tree",
+    ):
+        development = registry.require(name)
+        assert development.rate_class is ToolRateClass.DEVELOPMENT_READ
+        assert development.effect is ToolEffect.READ_ONLY
+        assert not development.production_eligible
 
 
 def test_authorization_enforces_registry_scope_classification(

@@ -1797,3 +1797,36 @@ Codex CLI `0.154.0` remains outside the supported two-revision boundary;
 OpenCode `1.14.39` has only retained legacy-HTTP connection and authorized
 discovery evidence. Phase 12 workflows, external and production target support,
 broad diagnostics, and later Kodi tools remain later-phase work.
+
+## Phase 12 Slice 1 MCP development inspection foundation
+
+Phase 12 begins additively without changing the completed Phase 11 protocol,
+transport, bearer, preset, admission, registry, replay, or five-tool behavior.
+Migration `0039_mcp_development_inspection` adds `workspace.inspect` only to
+Add-on Development and Full Lab Control, exact client-to-DevelopmentSource
+grants, and single-owner client-to-AgentWorkspace bindings. Existing custom
+presets remain snapshots. Read-only Inspection and Production Remote Kodi do not
+gain source-code access.
+
+The common authorization service resolves current client permission, exact
+source grant, exact owner binding, and binding/workspace source consistency
+before a development adapter runs. Revocation therefore denies an otherwise
+durable binding on the next request; restoring the grant restores access when
+the other conditions remain valid. Credential rotation preserves client
+ownership and client disable denies access without deleting binding or bytes.
+
+Four service-backed read-only tools extend the static registry:
+`development_source_list`, `workspace_status`, `workspace_tree`, and
+`workspace_read`. Source discovery projects persisted path-free registration
+metadata without traversal. Status is durable-state-only. Tree/read call the
+authoritative Phase 9 service and inherit exact path, descriptor-relative
+no-follow, single-link regular-file, UTF-8, 2 MiB file, and integrity-state
+rules. Development results are below 48 KiB; tree is non-recursive and at most
+200 entries.
+
+The tools share a bounded 10 request/second, burst-20 client-keyed rate class
+beneath existing MCP request/concurrency admission and work identically over
+modern HTTP, modern stdio, and legacy HTTP. Audit is content-free. The catalog
+is now exactly nine lexical tools. Phase 12 remains **PARTIAL**: creation,
+editing/CAS, validation, quota/retention, deployment, execution, and promotion
+request remain later slices.

@@ -1181,3 +1181,25 @@ a V1 gate; OpenCode `1.14.39` retains only its proven legacy-HTTP connection and
 authorized discovery claim. Phase 12 editing/deployment/promotion, Phase 13–14
 external and production targets, Phase 15 diagnostics, and later Kodi tool
 expansion remain future milestones.
+
+## Phase 12 Slice 1 checkpoint
+
+Alembic `0039_mcp_development_inspection` seeds `workspace.inspect` for Add-on
+Development and Full Lab Control, preserves old custom preset snapshots, and
+adds exact client/source grants plus one-owner workspace bindings with
+database-enforced source consistency and guarded downgrade.
+
+Web administration owns source grant/revoke and eligible existing-workspace
+binding. MCP owns none of those mutations. The common resolver requires enabled
+client, current permission, current exact source grant, exact owner binding,
+matching workspace source, and operation-compatible state.
+`development_source_list`, `workspace_status`, `workspace_tree`, and
+`workspace_read` reuse persisted catalog metadata and Phase 9 services, use
+compact paginated schemas, 48 KiB development results, and the bounded
+10/second burst-20 read class. Modern HTTP, modern stdio, and legacy HTTP share
+the same nine-tool lexical catalog and behavior.
+
+Phase 12 remains **PARTIAL**. Slice 1 has no workspace creation,
+create/replace/patch editing or CAS, validation, quota/retention mutation,
+deployment, execution, promotion request, source registration/deletion,
+external/production targets, shell, Git, Docker, or raw filesystem authority.

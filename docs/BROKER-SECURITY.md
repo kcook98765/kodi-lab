@@ -548,3 +548,17 @@ admission, registry, authorization, service, and receipt boundaries as modern
 traffic and never creates a broker session or cached authority. The broker
 cannot observe or trust protocol revision, `Mcp-Session-Id`, client metadata, or
 caller-declared transport classification.
+
+## Phase 12 Slice 1 development inspection boundary
+
+Slice 1 adds no broker operation and no broker caller authority. Development
+source discovery reads only path-free persisted registration observations.
+Workspace status/tree/read pass through the unprivileged Phase 9
+`AgentWorkspaceService`; MCP cannot name a data root, source locator, host path,
+broker method, Docker object, container, command, or shell.
+
+The Phase 9 service alone derives the UUID workspace root and performs
+descriptor-relative no-follow traversal. Only byte-present ready workspace
+trees and single-link regular UTF-8 files are readable. `O_NONBLOCK` prevents an
+injected FIFO from blocking file open, and descriptor identity is rechecked
+after open. No workspace bytes cross the broker boundary.

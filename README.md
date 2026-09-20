@@ -71,10 +71,11 @@ tool still requires an explicit `target_id`; stdio creates no selected target or
 session. See [`docs/PHASE11-MCP.md`](docs/PHASE11-MCP.md) for security and
 client configuration details.
 
-The current production catalog is exactly `addon_list`, `remote_action`,
-`screenshot_capture`, `target_list`, and `target_status`. Screenshots are
-returned as native MCP `image/png` content through either transport; stdio does
-not write a temporary image or bypass the HTTP authority.
+The current production catalog is exactly `addon_list`,
+`development_source_list`, `remote_action`, `screenshot_capture`, `target_list`,
+`target_status`, `workspace_read`, `workspace_status`, and `workspace_tree`.
+Screenshots are returned as native MCP `image/png` content through either
+transport; stdio does not write a temporary image or bypass the HTTP authority.
 
 Exact legacy `2025-11-25` clients may use authenticated Streamable HTTP at
 `/mcp`. Compatibility is stateless and bounded: there is no session/default
@@ -91,3 +92,10 @@ deletion, and future built-in permissions do not silently broaden an existing
 clone. **Phase 11 — MCP core is COMPLETE.** Its independently reviewed
 implementation checkpoint is `3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`,
 with Alembic head `0038_mcp_remote_control` and 1,928 collected tests.
+
+Phase 12 Slice 1 is read-only and **PARTIAL**. Web administrators may grant one
+registered DevelopmentSource to an MCP client and bind one eligible existing
+AgentWorkspace. MCP can list granted source metadata and inspect only its exact
+bound, still-granted workspaces. It cannot create, edit, validate, deploy,
+execute, promote, clean up, self-grant, or self-bind. See
+[`docs/PHASE12-MCP-DEVELOPMENT.md`](docs/PHASE12-MCP-DEVELOPMENT.md).

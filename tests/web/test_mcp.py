@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import time
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -360,10 +361,14 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                 ]
                 assert [item.name for item in modern_tools.tools] == [
                     "addon_list",
+                    "development_source_list",
                     "remote_action",
                     "screenshot_capture",
                     "target_list",
                     "target_status",
+                    "workspace_read",
+                    "workspace_status",
+                    "workspace_tree",
                 ]
 
                 request_id = str(uuid4())
@@ -682,10 +687,14 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
     tools = _post(client, issued.token, "tools/list").json()["result"]["tools"]
     assert [item["name"] for item in tools] == [
         "addon_list",
+        "development_source_list",
         "remote_action",
         "screenshot_capture",
         "target_list",
         "target_status",
+        "workspace_read",
+        "workspace_status",
+        "workspace_tree",
     ]
     remote = next(item for item in tools if item["name"] == "remote_action")
     assert set(remote["inputSchema"]["properties"]) == {
@@ -1248,6 +1257,118 @@ def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
         ).status_code
         == 401
     )
+
+
+def test_web_admin_source_grant_and_existing_workspace_binding(
+    client: TestClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = cast(FastAPI, client.app)
+    context = app.state.kodi_lab
+    source_root = context.settings.development_root / "plugin.video.mcp.inspect"
+    source_root.mkdir()
+    (source_root / "addon.xml").write_text(
+        '<addon id="plugin.video.mcp.inspect" name="MCP Inspect" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="main.py" />'
+        "</addon>\n",
+        encoding="utf-8",
+    )
+    (source_root / "main.py").write_text("print('safe')\n", encoding="utf-8")
+    source = context.development_source_administration.register_source(
+        logical_name="MCP inspection source",
+        relative_locator="plugin.video.mcp.inspect",
+    )
+    queued = context.agent_workspaces.queue_creation(source.id)
+    lease = context.agent_workspaces.acquire(queued.operation_id)
+    assert lease is not None
+    context.agent_workspaces.run(lease)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Workspace Web admin",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+
+    grant_url = f"/api/mcp/clients/{mcp_client.id}/development-sources/{source.id}"
+    assert (
+        client.get(f"/api/mcp/clients/{mcp_client.id}/development-sources").status_code
+        == 401
+    )
+    csrf = login(client)
+    assert client.post(grant_url, headers=ORIGIN).status_code == 403
+    mutation_headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    granted = client.post(grant_url, headers=mutation_headers)
+    assert granted.status_code == 200
+    assert granted.json()["development_source_grants"] == [str(source.id)]
+    eligible = client.get(f"/api/mcp/clients/{mcp_client.id}/workspaces/eligible")
+    assert eligible.status_code == 200
+    assert [item["workspace_id"] for item in eligible.json()] == [
+        str(queued.workspace_id)
+    ]
+    bind_url = (
+        f"/api/mcp/clients/{mcp_client.id}/workspaces/{queued.workspace_id}/binding"
+    )
+    bound = client.post(bind_url, headers=mutation_headers)
+    assert bound.status_code == 201
+    assert bound.json()["binding_origin"] == "web_admin"
+    token = administration.issue_credential(mcp_client.id).token
+    cast(Any, context.mcp_transport.development_read_limiter)._clock = lambda: 100.0
+    caplog.set_level(logging.INFO, logger="kodi_lab.mcp")
+    tool_calls: tuple[tuple[str, dict[str, str]], ...] = (
+        ("development_source_list", {}),
+        ("workspace_status", {"workspace_id": str(queued.workspace_id)}),
+        ("workspace_tree", {"workspace_id": str(queued.workspace_id)}),
+        (
+            "workspace_read",
+            {
+                "workspace_id": str(queued.workspace_id),
+                "relative_path": "main.py",
+            },
+        ),
+    )
+    for index, (tool_name, arguments) in enumerate(tool_calls, start=1):
+        params = {"name": tool_name, "arguments": arguments}
+        modern = _post(
+            client, token, "tools/call", params=params, request_id=100 + index
+        )
+        legacy = _legacy_post(
+            client, token, "tools/call", params=params, request_id=200 + index
+        )
+        assert modern.status_code == legacy.status_code == 200
+        modern_result = modern.json()["result"]
+        legacy_result = legacy.json()["result"]
+        assert modern_result["isError"] is False
+        assert modern_result["structuredContent"] == legacy_result["structuredContent"]
+    for request_id in range(12):
+        admitted = _post(
+            client,
+            token,
+            "tools/call",
+            params={"name": "development_source_list", "arguments": {}},
+            request_id=300 + request_id,
+        ).json()["result"]
+        assert admitted["isError"] is False
+    limited = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "development_source_list", "arguments": {}},
+        request_id=399,
+    ).json()["result"]
+    assert limited["structuredContent"] == {"error": "rate_limited"}
+    assert "print('safe')" not in caplog.text
+    assert "main.py" not in caplog.text
+    assert str(context.settings.development_root) not in caplog.text
+    page = client.get("/mcp-clients")
+    assert str(queued.workspace_id) in page.text
+    assert str(context.settings.development_root) not in page.text
+
+    revoked = client.delete(grant_url, headers=mutation_headers)
+    assert revoked.status_code == 200
+    assert revoked.json()["development_source_grants"] == []
+    bindings = client.get(f"/api/mcp/clients/{mcp_client.id}/workspace-bindings")
+    assert [item["workspace_id"] for item in bindings.json()] == [
+        str(queued.workspace_id)
+    ]
 
 
 def test_target_authority_recomputes_grants_and_preserves_uuid_privacy(

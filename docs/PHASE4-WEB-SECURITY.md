@@ -126,3 +126,14 @@ Legacy MCP support adds no Web compatibility toggle, client protocol preference,
 cookie authentication, or protocol-specific privilege. Exact `2025-11-25` HTTP
 requests still require the durable MCP bearer on every request and never use the
 Web administrator session.
+
+Phase 12 Slice 1 extends the existing MCP administration page/API with exact
+DevelopmentSource grant/revoke and existing-workspace binding. GET may list one
+client's grants, eligible ready/byte-present unbound workspaces, and current
+bindings. POST/DELETE mutations require the same authenticated Web session,
+same-origin validation, Trusted Host enforcement, and CSRF token as every other
+administrator mutation. Request authority is UUID-only: no route accepts a
+source locator, host path, binding origin, target client, transfer/share flag,
+workspace bytes, or MCP self-service credential. There is no unbind/transfer,
+workspace creation, or source registration through these MCP administration
+routes.

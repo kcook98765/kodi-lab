@@ -18,6 +18,14 @@ class ToolRateClass(StrEnum):
     READ_BOUNDED = "read_bounded"
     VISUAL_CAPTURE = "visual_capture"
     REMOTE_CONTROL = "remote_control"
+    DEVELOPMENT_READ = "development_read"
+
+
+class ToolScope(StrEnum):
+    GLOBAL = "global"
+    TARGET = "target"
+    DEVELOPMENT_SOURCE = "development_source"
+    WORKSPACE = "workspace"
 
 
 class TargetClass(StrEnum):
@@ -39,6 +47,15 @@ class McpToolDefinition:
     adapter: str
     production_eligible: bool
     target_scope_required: bool
+    scope: ToolScope = ToolScope.GLOBAL
+
+    @property
+    def resolved_scope(self) -> ToolScope:
+        # Retain construction compatibility for the Phase 11 boolean while all
+        # new definitions declare their richer scope explicitly.
+        if self.target_scope_required:
+            return ToolScope.TARGET
+        return self.scope
 
 
 class McpRegistryError(ValueError):
@@ -63,6 +80,14 @@ class McpToolRegistry:
             or not definition.allowed_target_classes
             or not definition.adapter
             or definition.name in self._tools
+            or (
+                definition.scope is ToolScope.TARGET
+                and not definition.target_scope_required
+            )
+            or (
+                definition.target_scope_required
+                and definition.scope not in {ToolScope.GLOBAL, ToolScope.TARGET}
+            )
         ):
             raise McpRegistryError("invalid_or_unknown_tool_metadata")
         self._tools[definition.name] = definition
@@ -92,7 +117,12 @@ class McpToolRegistry:
 def build_mcp_tool_registry() -> McpToolRegistry:
     registry = McpToolRegistry(
         known_permissions=frozenset(
-            {"target.inspect", "target.visual", "target.control"}
+            {
+                "target.inspect",
+                "target.visual",
+                "target.control",
+                "workspace.inspect",
+            }
         )
     )
     registry.register(
@@ -108,6 +138,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             adapter="managed_remote.invoke_replay_safe",
             production_eligible=False,
             target_scope_required=True,
+            scope=ToolScope.TARGET,
         )
     )
     registry.register(
@@ -123,6 +154,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             adapter="managed_addon_inventory.list",
             production_eligible=False,
             target_scope_required=True,
+            scope=ToolScope.TARGET,
         )
     )
     registry.register(
@@ -138,6 +170,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             adapter="managed_screenshot.capture",
             production_eligible=False,
             target_scope_required=True,
+            scope=ToolScope.TARGET,
         )
     )
     registry.register(
@@ -153,6 +186,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             adapter="managed_runtime_status.list",
             production_eligible=False,
             target_scope_required=False,
+            scope=ToolScope.GLOBAL,
         )
     )
     registry.register(
@@ -168,6 +202,52 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             adapter="managed_runtime_status.get",
             production_eligible=False,
             target_scope_required=True,
+            scope=ToolScope.TARGET,
         )
     )
+    registry.register(
+        McpToolDefinition(
+            name="development_source_list",
+            schema_revision=1,
+            permissions=frozenset({"workspace.inspect"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"registered_development_source"}),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.DEVELOPMENT_READ,
+            adapter="development_source.list_granted",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.DEVELOPMENT_SOURCE,
+        )
+    )
+    for name, adapter, states in (
+        (
+            "workspace_read",
+            "agent_workspace.read_text",
+            frozenset({"ready", "present"}),
+        ),
+        ("workspace_status", "agent_workspace.status", frozenset()),
+        (
+            "workspace_tree",
+            "agent_workspace.inspect_directory",
+            frozenset({"ready", "present"}),
+        ),
+    ):
+        registry.register(
+            McpToolDefinition(
+                name=name,
+                schema_revision=1,
+                permissions=frozenset({"workspace.inspect"}),
+                effect=ToolEffect.READ_ONLY,
+                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+                required_capabilities=frozenset({"agent_workspace"}),
+                required_states=states,
+                rate_class=ToolRateClass.DEVELOPMENT_READ,
+                adapter=adapter,
+                production_eligible=False,
+                target_scope_required=False,
+                scope=ToolScope.WORKSPACE,
+            )
+        )
     return registry

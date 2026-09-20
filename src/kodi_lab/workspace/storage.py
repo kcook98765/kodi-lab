@@ -34,7 +34,7 @@ MAX_DIRECTORY_ENTRIES = 2_000
 MAX_CHANGE_PREVIEW_BYTES = 16 * 1024
 
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
-_FILE_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+_FILE_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
 
 
 class AgentWorkspaceStorageError(RuntimeError):
@@ -417,6 +417,12 @@ def create_workspace_storage(
 def normalize_workspace_relative_path(
     value: str, *, allow_root: bool
 ) -> tuple[str, ...]:
+    try:
+        encoded_value = value.encode("utf-8", "strict")
+    except (AttributeError, UnicodeEncodeError) as error:
+        raise AgentWorkspaceStorageError(
+            "agent_workspace_path_invalid", "Workspace path is invalid."
+        ) from error
     if value == "" and allow_root:
         return ()
     if (
@@ -424,7 +430,7 @@ def normalize_workspace_relative_path(
         or value.startswith("/")
         or "\\" in value
         or "\x00" in value
-        or len(value.encode("utf-8")) > 512
+        or len(encoded_value) > 512
     ):
         raise AgentWorkspaceStorageError(
             "agent_workspace_path_invalid", "Workspace path is invalid."
@@ -437,7 +443,7 @@ def normalize_workspace_relative_path(
     for part in parts:
         if (
             part in {"", ".", ".."}
-            or len(part.encode("utf-8")) > 255
+            or len(part.encode("utf-8", "strict")) > 255
             or any(unicodedata.category(character) == "Cc" for character in part)
         ):
             raise AgentWorkspaceStorageError(
@@ -453,13 +459,41 @@ def _open_workspace_path(
     try:
         fd = os.open(root, _DIRECTORY_FLAGS)
         for index, part in enumerate(parts):
-            flags = (
-                _DIRECTORY_FLAGS if index < len(parts) - 1 or directory else _FILE_FLAGS
-            )
+            opens_directory = index < len(parts) - 1 or directory
+            before = os.stat(part, dir_fd=fd, follow_symlinks=False)
+            if opens_directory:
+                if not stat.S_ISDIR(before.st_mode) or stat.S_ISLNK(before.st_mode):
+                    raise AgentWorkspaceStorageError(
+                        "agent_workspace_path_unavailable",
+                        "Workspace path is unavailable or unsafe.",
+                    )
+                flags = _DIRECTORY_FLAGS
+            else:
+                if stat.S_ISLNK(before.st_mode):
+                    raise AgentWorkspaceStorageError(
+                        "agent_workspace_path_unavailable",
+                        "Workspace path is unavailable or unsafe.",
+                    )
+                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                    raise AgentWorkspaceStorageError(
+                        "agent_workspace_file_unsafe", "Workspace file is unsafe."
+                    )
+                flags = _FILE_FLAGS
             next_fd = os.open(part, flags, dir_fd=fd)
+            opened = os.fstat(next_fd)
+            if opened.st_dev != before.st_dev or opened.st_ino != before.st_ino:
+                os.close(next_fd)
+                raise AgentWorkspaceStorageError(
+                    "agent_workspace_path_unavailable",
+                    "Workspace path is unavailable or unsafe.",
+                )
             os.close(fd)
             fd = next_fd
         return fd
+    except AgentWorkspaceStorageError:
+        with suppress(OSError, UnboundLocalError):
+            os.close(fd)
+        raise
     except OSError as error:
         with suppress(OSError, UnboundLocalError):
             os.close(fd)

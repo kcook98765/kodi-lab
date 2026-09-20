@@ -51,11 +51,15 @@ from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationSe
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION, McpToolRegistry
 from kodi_lab.mcp.tools import (
     AddonListResult,
+    DevelopmentSourceListResult,
     McpTargetToolService,
     ScreenshotCaptureMetadata,
     ScreenshotToolResult,
     TargetListResult,
     TargetStatusResult,
+    WorkspaceReadResult,
+    WorkspaceStatusResult,
+    WorkspaceTreeResult,
 )
 
 MCP_PROTOCOL_VERSION = "2026-07-28"
@@ -204,6 +208,39 @@ class _RemoteActionInput(BaseModel):
     request_id: UUID
     target_id: UUID
     action: BrowserRemoteAction
+
+
+class _DevelopmentSourceListInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cursor: str | None = Field(default=None, min_length=36, max_length=36)
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class _WorkspaceStatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID | None = None
+    cursor: str | None = Field(default=None, min_length=36, max_length=36)
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class _WorkspaceTreeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    relative_path: str = Field(default="", max_length=512)
+    cursor: str | None = Field(default=None, min_length=1, max_length=512)
+    limit: int = Field(default=100, ge=1, le=200)
+
+
+class _WorkspaceReadInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    relative_path: str = Field(min_length=1, max_length=512)
+    start_line: int = Field(default=1, ge=1)
+    max_lines: int = Field(default=200, ge=1, le=2000)
 
 
 class ModernMcpAuthMiddleware:
@@ -555,6 +592,7 @@ class ModernMcpAuthMiddleware:
 class McpHttpTransport:
     app: ASGIApp
     server: Server[dict[str, Any]]
+    development_read_limiter: BoundedTokenBucketLimiter
 
 
 def build_mcp_http_transport(
@@ -566,6 +604,7 @@ def build_mcp_http_transport(
     failed_auth_limiter: BoundedTokenBucketLimiter | None = None,
     authenticated_limiter: BoundedTokenBucketLimiter | None = None,
     concurrency_limiter: BoundedConcurrencyLimiter | None = None,
+    development_read_limiter: BoundedTokenBucketLimiter | None = None,
 ) -> McpHttpTransport:
     read_annotations = ToolAnnotations(
         read_only_hint=True,
@@ -584,6 +623,12 @@ def build_mcp_http_transport(
         destructive_hint=False,
         idempotent_hint=True,
         open_world_hint=False,
+    )
+    development_limiter = development_read_limiter or BoundedTokenBucketLimiter(
+        rate=10.0,
+        burst=20,
+        maximum_buckets=1024,
+        idle_seconds=15 * 60,
     )
     inventory = {
         "addon_list": Tool(
@@ -642,6 +687,44 @@ def build_mcp_http_transport(
             annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "development_source_list": Tool(
+            name="development_source_list",
+            title="List granted development sources",
+            description="List bounded metadata for Web-approved development sources.",
+            input_schema=_DevelopmentSourceListInput.model_json_schema(),
+            output_schema=DevelopmentSourceListResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "workspace_status": Tool(
+            name="workspace_status",
+            title="Inspect owned workspace status",
+            description="Inspect one or list bounded MCP-owned workspace statuses.",
+            input_schema=_WorkspaceStatusInput.model_json_schema(),
+            output_schema=WorkspaceStatusResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "workspace_tree": Tool(
+            name="workspace_tree",
+            title="List one workspace directory",
+            description=(
+                "List one bounded non-recursive directory in an owned workspace."
+            ),
+            input_schema=_WorkspaceTreeInput.model_json_schema(),
+            output_schema=WorkspaceTreeResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "workspace_read": Tool(
+            name="workspace_read",
+            title="Read workspace UTF-8 text",
+            description="Read one bounded UTF-8 line segment from an owned workspace.",
+            input_schema=_WorkspaceReadInput.model_json_schema(),
+            output_schema=WorkspaceReadResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
     }
 
     async def list_tools(
@@ -659,6 +742,9 @@ def build_mcp_http_transport(
         principal = _principal_context.get()
         started = _timestamp()
         target_id: UUID | None = None
+        source_id: UUID | None = None
+        workspace_id: UUID | None = None
+        relative_path: str | None = None
         try:
             arguments = params.arguments or {}
             result: (
@@ -667,7 +753,18 @@ def build_mcp_http_transport(
                 | ScreenshotToolResult
                 | TargetListResult
                 | TargetStatusResult
+                | DevelopmentSourceListResult
+                | WorkspaceReadResult
+                | WorkspaceStatusResult
+                | WorkspaceTreeResult
             )
+            if params.name in {
+                "development_source_list",
+                "workspace_read",
+                "workspace_status",
+                "workspace_tree",
+            } and not development_limiter.allow(str(principal.client_id)):
+                raise McpAuthorizationError("rate_limited")
             if params.name == "addon_list":
                 parsed_addons = _AddonListInput.model_validate(arguments)
                 target_id = parsed_addons.target_id
@@ -707,6 +804,52 @@ def build_mcp_http_transport(
                 parsed_status = _TargetStatusInput.model_validate(arguments)
                 target_id = parsed_status.target_id
                 result = tools.target_status(principal, target_id=target_id)
+            elif params.name == "development_source_list":
+                parsed_sources = _DevelopmentSourceListInput.model_validate(arguments)
+                result = tools.development_source_list(
+                    principal,
+                    cursor=parsed_sources.cursor,
+                    limit=parsed_sources.limit,
+                )
+            elif params.name == "workspace_status":
+                parsed_workspace_status = _WorkspaceStatusInput.model_validate(
+                    arguments
+                )
+                workspace_id = parsed_workspace_status.workspace_id
+                result = tools.workspace_status(
+                    principal,
+                    workspace_id=workspace_id,
+                    cursor=parsed_workspace_status.cursor,
+                    limit=parsed_workspace_status.limit,
+                )
+                if workspace_id is not None and result.workspaces:
+                    source_id = result.workspaces[0].source_id
+            elif params.name == "workspace_tree":
+                parsed_tree = _WorkspaceTreeInput.model_validate(arguments)
+                workspace_id = parsed_tree.workspace_id
+                relative_path = parsed_tree.relative_path
+                result = await asyncio.to_thread(
+                    tools.workspace_tree,
+                    principal,
+                    workspace_id=workspace_id,
+                    relative_path=relative_path,
+                    cursor=parsed_tree.cursor,
+                    limit=parsed_tree.limit,
+                )
+                source_id = result.source_id
+            elif params.name == "workspace_read":
+                parsed_read = _WorkspaceReadInput.model_validate(arguments)
+                workspace_id = parsed_read.workspace_id
+                relative_path = parsed_read.relative_path
+                result = await asyncio.to_thread(
+                    tools.workspace_read,
+                    principal,
+                    workspace_id=workspace_id,
+                    relative_path=relative_path,
+                    start_line=parsed_read.start_line,
+                    max_lines=parsed_read.max_lines,
+                )
+                source_id = result.source_id
             else:
                 raise McpAuthorizationError("permission_denied")
         except ValidationError:
@@ -720,20 +863,44 @@ def build_mcp_http_transport(
                     outcome = "response_too_large"
                 else:
                     content = result.metadata.model_dump(mode="json")
-                    _audit(principal, params.name, target_id, started, "success")
+                    _audit(
+                        principal,
+                        params.name,
+                        target_id,
+                        started,
+                        "success",
+                        source_id=source_id,
+                        workspace_id=workspace_id,
+                    )
                     return CallToolResult(
                         content=[ImageContent(data=encoded, mime_type=PNG_MIME_TYPE)],
                         structured_content=content,
                         is_error=False,
                     )
-                _audit(principal, params.name, target_id, started, outcome)
+                _audit(
+                    principal,
+                    params.name,
+                    target_id,
+                    started,
+                    outcome,
+                    source_id=source_id,
+                    workspace_id=workspace_id,
+                )
                 return CallToolResult(
                     content=[TextContent(text=outcome)],
                     structured_content={"error": outcome},
                     is_error=True,
                 )
             content = result.model_dump(mode="json")
-            _audit(principal, params.name, target_id, started, "success")
+            _audit(
+                principal,
+                params.name,
+                target_id,
+                started,
+                "success",
+                source_id=source_id,
+                workspace_id=workspace_id,
+            )
             return CallToolResult(
                 content=[
                     TextContent(
@@ -743,7 +910,15 @@ def build_mcp_http_transport(
                 structured_content=content,
                 is_error=False,
             )
-        _audit(principal, params.name, target_id, started, outcome)
+        _audit(
+            principal,
+            params.name,
+            target_id,
+            started,
+            outcome,
+            source_id=source_id,
+            workspace_id=workspace_id,
+        )
         return CallToolResult(
             content=[TextContent(text=outcome)],
             structured_content={"error": outcome},
@@ -791,7 +966,11 @@ def build_mcp_http_transport(
         authenticated=authenticated_limiter,
         concurrency=concurrency_limiter,
     )
-    return McpHttpTransport(app=protected, server=server)
+    return McpHttpTransport(
+        app=protected,
+        server=server,
+        development_read_limiter=development_limiter,
+    )
 
 
 def _audit(
@@ -800,14 +979,20 @@ def _audit(
     target_id: UUID | None,
     started_at: str,
     outcome: str,
+    *,
+    source_id: UUID | None = None,
+    workspace_id: UUID | None = None,
 ) -> None:
     logger.info(
         "mcp_request client_id=%s credential_id=%s tool=%s target_id=%s "
+        "source_id=%s workspace_id=%s "
         "started_at=%s completed_at=%s outcome=%s",
         principal.client_id,
         principal.credential_id,
         tool_name,
         target_id,
+        source_id,
+        workspace_id,
         started_at,
         _timestamp(),
         outcome,

@@ -221,9 +221,11 @@ from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpClientRead,
     McpCredentialRead,
+    McpEligibleWorkspaceRead,
     McpIssuedCredential,
     McpPresetRead,
     McpTargetPolicyRead,
+    McpWorkspaceBindingRead,
 )
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionReceiptService
 from kodi_lab.application.mutations import (
@@ -888,6 +890,11 @@ def create_app(
     remote_receipts = McpRemoteActionReceiptService(
         session_factory, browser_remote, remote_rate_limiter
     )
+    agent_workspaces = agent_workspace_service or AgentWorkspaceService(
+        session_factory,
+        data_root=settings.data_root,
+        development_root=settings.development_root,
+    )
     mcp_administration = McpAdministrationService(session_factory)
     mcp_registry = build_mcp_tool_registry()
     mcp_authorization = McpAuthorizationService(
@@ -911,6 +918,7 @@ def create_app(
             addon_inventory,
             screenshots,
             remote_receipts,
+            agent_workspaces,
         ),
     )
     live_display = managed_live_display_service or ManagedLiveDisplayService(
@@ -1169,11 +1177,6 @@ def create_app(
     )
     repository_replacement_executor = RepositoryReplacementExecutor(
         repository_replacements, repository_replacement_factory
-    )
-    agent_workspaces = agent_workspace_service or AgentWorkspaceService(
-        session_factory,
-        data_root=settings.data_root,
-        development_root=settings.development_root,
     )
     agent_workspace_executor = AgentWorkspaceCreationExecutor(agent_workspaces)
     agent_workspace_cleanups = (
@@ -2035,6 +2038,17 @@ def create_app(
                 "clients": context.mcp_administration.list_clients(),
                 "presets": context.mcp_administration.list_presets(),
                 "targets": context.mcp_administration.list_target_policies(),
+                "development_sources": (
+                    context.development_source_administration.list_sources()
+                ),
+                "eligible_workspaces": {
+                    client.id: (
+                        context.mcp_administration.list_eligible_unbound_workspaces(
+                            client.id
+                        )
+                    )
+                    for client in context.mcp_administration.list_clients()
+                },
             },
         )
 
@@ -2624,6 +2638,74 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> McpClientRead:
         return context.mcp_administration.remove_target_grant(client_id, target_id)
+
+    @app.get(
+        "/api/mcp/clients/{client_id}/development-sources",
+        response_model=list[UUID],
+    )
+    def list_mcp_development_source_grants(
+        client_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[UUID]:
+        return list(
+            context.mcp_administration.get_client(client_id).development_source_grants
+        )
+
+    @app.post(
+        "/api/mcp/clients/{client_id}/development-sources/{source_id}",
+        response_model=McpClientRead,
+    )
+    def grant_mcp_development_source(
+        client_id: UUID,
+        source_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.grant_development_source(client_id, source_id)
+
+    @app.delete(
+        "/api/mcp/clients/{client_id}/development-sources/{source_id}",
+        response_model=McpClientRead,
+    )
+    def revoke_mcp_development_source(
+        client_id: UUID,
+        source_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.remove_development_source_grant(
+            client_id, source_id
+        )
+
+    @app.get(
+        "/api/mcp/clients/{client_id}/workspaces/eligible",
+        response_model=list[McpEligibleWorkspaceRead],
+    )
+    def list_mcp_eligible_workspaces(
+        client_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[McpEligibleWorkspaceRead]:
+        return context.mcp_administration.list_eligible_unbound_workspaces(client_id)
+
+    @app.get(
+        "/api/mcp/clients/{client_id}/workspace-bindings",
+        response_model=list[McpWorkspaceBindingRead],
+    )
+    def list_mcp_workspace_bindings(
+        client_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[McpWorkspaceBindingRead]:
+        return context.mcp_administration.list_workspace_bindings(client_id)
+
+    @app.post(
+        "/api/mcp/clients/{client_id}/workspaces/{workspace_id}/binding",
+        response_model=McpWorkspaceBindingRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def bind_mcp_workspace(
+        client_id: UUID,
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpWorkspaceBindingRead:
+        return context.mcp_administration.bind_workspace(client_id, workspace_id)
 
     @app.get("/api/mcp/target-policies", response_model=list[McpTargetPolicyRead])
     def list_mcp_target_policies(

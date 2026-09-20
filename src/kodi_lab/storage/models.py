@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -208,6 +209,9 @@ class AgentWorkspaceRow(Base):
 
     __tablename__ = "agent_workspaces"
     __table_args__ = (
+        UniqueConstraint(
+            "id", "development_source_id", name="uq_agent_workspace_id_source"
+        ),
         CheckConstraint(
             "generation >= 0", name="agent_workspace_generation_nonnegative"
         ),
@@ -4322,6 +4326,67 @@ class McpClientTargetGrantRow(Base):
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
+class McpClientDevelopmentSourceGrantRow(Base):
+    """Exact MCP client-to-DevelopmentSource grant; never a wildcard."""
+
+    __tablename__ = "mcp_client_development_source_grants"
+    __table_args__ = (
+        CheckConstraint(
+            "length(created_at) = 27", name="mcp_source_grant_timestamp_format"
+        ),
+        Index("ix_mcp_source_grant_source", "development_source_id"),
+    )
+
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="CASCADE"), primary_key=True
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class McpAgentWorkspaceBindingRow(Base):
+    """One durable MCP owner binding for an exact protected workspace."""
+
+    __tablename__ = "mcp_agent_workspace_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "binding_origin IN ('web_admin','mcp_created')",
+            name="mcp_workspace_binding_origin_closed",
+        ),
+        CheckConstraint(
+            "length(created_at) = 27",
+            name="mcp_workspace_binding_timestamp_format",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "development_source_id"],
+            ["agent_workspaces.id", "agent_workspaces.development_source_id"],
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_mcp_workspace_binding_client_source",
+            "client_id",
+            "development_source_id",
+            "workspace_id",
+        ),
+    )
+
+    workspace_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="CASCADE"), nullable=False
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    binding_origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class McpTargetPresetAssignmentRow(Base):
     """Current target-side policy assignment for an internal managed target."""
 
@@ -4369,6 +4434,8 @@ class McpSecurityEventRow(Base):
     client_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     credential_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     target_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    development_source_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     preset_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
