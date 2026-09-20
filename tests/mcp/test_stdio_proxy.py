@@ -20,6 +20,7 @@ from kodi_lab.mcp.stdio_proxy import (
     load_configuration,
     validate_endpoint,
 )
+from kodi_lab.mcp.transport import MCP_MAX_IMAGE_BASE64_BYTES
 
 META = {
     "io.modelcontextprotocol/protocolVersion": "2026-07-28",
@@ -107,7 +108,7 @@ def test_stdio_rejects_session_notifications_and_bounds_adapter_failures() -> No
     assert _parse_request(initialized) is None
     assert STDIO_MAX_IN_FLIGHT == 4
     assert STDIO_QUEUE_CAPACITY == 8
-    assert MAX_HTTP_RESPONSE_BODY == 128 * 1024
+    assert 10 * 1024 * 1024 <= MAX_HTTP_RESPONSE_BODY < 11 * 1024 * 1024
 
     def unavailable(_request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("sensitive loopback details")
@@ -130,3 +131,51 @@ def test_stdio_rejects_session_notifications_and_bounds_adapter_failures() -> No
     assert b"Kodi Lab MCP authority is unavailable" in response
     assert b"never-reflect-this" not in response
     assert b"sensitive loopback details" not in response
+
+
+def test_proxy_accepts_large_image_envelope_and_rejects_response_over_bound() -> None:
+    assert MAX_HTTP_RESPONSE_BODY == MCP_MAX_IMAGE_BASE64_BYTES + (64 * 1024)
+    image_data = "A" * (256 * 1024)
+    maximum = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "result": {
+                "content": [
+                    {"type": "image", "data": image_data, "mimeType": "image/png"}
+                ],
+                "structuredContent": {
+                    "target_id": "00000000-0000-4000-8000-000000000001"
+                },
+                "isError": False,
+            },
+        },
+        separators=(",", ":"),
+    ).encode()
+    assert 128 * 1024 < len(maximum) <= MAX_HTTP_RESPONSE_BODY
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        body = (
+            maximum
+            if request.headers["mcp-method"] == "tools/call"
+            else (b"x" * (MAX_HTTP_RESPONSE_BODY + 1))
+        )
+        return httpx2.Response(200, content=body)
+
+    async def exercise(method: str) -> bytes:
+        async with httpx2.AsyncClient(
+            transport=httpx2.MockTransport(handler)
+        ) as client:
+            parsed = _parse_request(_request(method))
+            assert not isinstance(parsed, bytes) and parsed is not None
+            return await _proxy_request(
+                parsed,
+                configuration=StdioProxyConfiguration(
+                    token="secret-token", endpoint=DEFAULT_MCP_ENDPOINT
+                ),
+                http_client=client,
+            )
+
+    assert asyncio.run(exercise("tools/call")) == maximum
+    oversized = asyncio.run(exercise("tools/list"))
+    assert b"authority rejected" in oversized

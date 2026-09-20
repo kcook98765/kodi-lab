@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import time
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp_types import ImageContent
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -19,14 +21,21 @@ from kodi_lab.application.mcp_administration import (
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
 )
+from kodi_lab.broker.errors import BrokerUnavailableError
+from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
+from kodi_lab.kodi.readiness import KodiApplicationIdentity
+from kodi_lab.kodi.screenshots import PNG_SIGNATURE, validate_png
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
+    ManagedScreenshotRow,
     McpCredentialRow,
+    McpPresetPermissionRow,
+    McpPresetRow,
     McpSecurityEventRow,
     TargetRow,
 )
 
-from .conftest import INSTANCE_ID, ORIGIN, REVISION_ID, login
+from .conftest import INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
 
 PROTOCOL = "2026-07-28"
 META = {
@@ -91,6 +100,31 @@ def _post(
     )
 
 
+def _make_target_ready(client: TestClient) -> None:
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    assert (
+        client.post(
+            f"/api/instances/{INSTANCE_ID}/provision", json={}, headers=headers
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/instances/{INSTANCE_ID}/start", json={}, headers=headers
+        ).status_code
+        == 200
+    )
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if client.get(f"/api/instances/{INSTANCE_ID}/visual-status").json()[
+            "screenshot_available_now"
+        ]:
+            return
+        time.sleep(0.01)
+    raise AssertionError("managed target did not become ready")
+
+
 def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
     client: TestClient,
 ) -> None:
@@ -109,8 +143,21 @@ def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
     assert listed_result["ttlMs"] == 0
     assert listed_result["cacheScope"] == "private"
     tools = listed_result["tools"]
-    assert [item["name"] for item in tools] == ["target_list", "target_status"]
+    assert [item["name"] for item in tools] == [
+        "addon_list",
+        "screenshot_capture",
+        "target_list",
+        "target_status",
+    ]
     assert all(item["_meta"]["kodiLabMcpSchemaVersion"] == 1 for item in tools)
+    schemas = {item["name"]: item["inputSchema"] for item in tools}
+    assert set(schemas["addon_list"]["properties"]) == {
+        "target_id",
+        "cursor",
+        "limit",
+    }
+    assert set(schemas["screenshot_capture"]["properties"]) == {"target_id"}
+    assert schemas["screenshot_capture"]["required"] == ["target_id"]
 
     target_list = _post(
         client,
@@ -141,6 +188,19 @@ def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
     assert status_content["target"]["target_id"] == str(INSTANCE_ID)
     assert "container_id" not in str(status_content)
     assert "jsonrpc_port" not in str(status_content)
+
+    for tool_name in ("addon_list", "screenshot_capture"):
+        unavailable = _post(
+            client,
+            token,
+            "tools/call",
+            params={
+                "name": tool_name,
+                "arguments": {"target_id": str(INSTANCE_ID)},
+            },
+        ).json()["result"]
+        assert unavailable["isError"] is True
+        assert unavailable["structuredContent"] == {"error": "target_not_running"}
 
 
 def test_pinned_official_sdk_uses_only_modern_stateless_requests(
@@ -178,6 +238,8 @@ def test_pinned_official_sdk_uses_only_modern_stateless_requests(
                 assert official.session.protocol_version == PROTOCOL
                 listed = await official.list_tools()
                 assert [tool.name for tool in listed.tools] == [
+                    "addon_list",
+                    "screenshot_capture",
                     "target_list",
                     "target_status",
                 ]
@@ -198,6 +260,202 @@ def test_pinned_official_sdk_uses_only_modern_stateless_requests(
     ]
     assert "initialize" not in methods
     assert "notifications/initialized" not in methods
+
+
+def test_observation_tools_are_bounded_native_and_retain_latest_on_failure(
+    client: TestClient,
+    broker: FakeBroker,
+    database: sessionmaker[Session],
+) -> None:
+    broker.addon_inventory_result = KodiAddonInventoryResult(
+        identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"),
+        items=(
+            KodiAddonInventoryRecord(
+                "z.disabled", "Zulu", "2.0", False, "xbmc.service"
+            ),
+            KodiAddonInventoryRecord(
+                "a.enabled",
+                "Alpha",
+                "1.0",
+                True,
+                "xbmc.python.pluginsource",
+            ),
+        ),
+    )
+    _make_target_ready(client)
+    _client_id, token = _authority(client)
+
+    first_page = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "addon_list",
+            "arguments": {"target_id": str(INSTANCE_ID), "limit": 1},
+        },
+    ).json()["result"]
+    assert not first_page["isError"]
+    first_inventory = first_page["structuredContent"]
+    assert first_inventory["total_count"] == 2
+    assert [item["addon_id"] for item in first_inventory["addons"]] == ["a.enabled"]
+    assert first_inventory["next_cursor"] == "a.enabled"
+    assert set(first_inventory["addons"][0]) == {
+        "addon_id",
+        "name",
+        "version",
+        "addon_type",
+        "enabled",
+        "provenance",
+        "provenance_status",
+    }
+    second_inventory = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "addon_list",
+            "arguments": {
+                "target_id": str(INSTANCE_ID),
+                "limit": 1,
+                "cursor": first_inventory["next_cursor"],
+            },
+        },
+    ).json()["result"]["structuredContent"]
+    assert [item["addon_id"] for item in second_inventory["addons"]] == ["z.disabled"]
+    assert second_inventory["next_cursor"] is None
+    assert "path" not in json.dumps(second_inventory).lower()
+
+    broker.addon_inventory_result = KodiAddonInventoryResult(
+        identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"),
+        items=tuple(
+            KodiAddonInventoryRecord(
+                f"plugin.video.{index:03d}." + ("i" * 100),
+                "n" * 256,
+                "v" * 128,
+                True,
+                "t" * 128,
+            )
+            for index in range(100)
+        ),
+    )
+    oversized_inventory = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "addon_list",
+            "arguments": {"target_id": str(INSTANCE_ID), "limit": 100},
+        },
+    ).json()["result"]
+    assert oversized_inventory["isError"] is True
+    assert oversized_inventory["structuredContent"] == {"error": "response_too_large"}
+
+    screenshot = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "screenshot_capture",
+            "arguments": {"target_id": str(INSTANCE_ID)},
+        },
+    ).json()["result"]
+    assert not screenshot["isError"]
+    assert len(screenshot["content"]) == 1
+    image = ImageContent.model_validate(screenshot["content"][0])
+    assert image.mime_type == "image/png"
+    png = base64.b64decode(image.data, validate=True)
+    validated = validate_png(png)
+    metadata = screenshot["structuredContent"]
+    assert png.startswith(PNG_SIGNATURE)
+    assert (validated.width, validated.height) == (
+        metadata["width"],
+        metadata["height"],
+    )
+    assert validated.byte_size == metadata["byte_size"]
+    assert metadata["target_id"] == str(INSTANCE_ID)
+    assert "path" not in json.dumps(screenshot).lower()
+    with database() as session:
+        latest = session.get(ManagedScreenshotRow, str(INSTANCE_ID))
+        assert latest is not None
+        retained_capture = latest.capture_id
+        assert retained_capture == metadata["capture_id"]
+
+    broker.screenshot_error = BrokerUnavailableError("private screenshot failure")
+    failed = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "screenshot_capture",
+            "arguments": {"target_id": str(INSTANCE_ID)},
+        },
+    ).json()["result"]
+    assert failed["isError"] is True
+    assert failed["structuredContent"] == {"error": "screenshot_capture_unavailable"}
+    with database() as session:
+        retained = session.get(ManagedScreenshotRow, str(INSTANCE_ID))
+        assert retained is not None and retained.capture_id == retained_capture
+
+
+def test_discovery_filters_visual_permission_without_bypassing_target_policy(
+    client: TestClient, database: sessionmaker[Session]
+) -> None:
+    administration = _administration(client)
+    inspect_only_id = uuid4()
+    with database.begin() as session:
+        session.add(
+            McpPresetRow(
+                id=str(inspect_only_id),
+                display_name="Test inspect only",
+                builtin=False,
+                assignable=True,
+            )
+        )
+        session.add(
+            McpPresetPermissionRow(
+                preset_id=str(inspect_only_id), permission="target.inspect"
+            )
+        )
+    mcp_client = administration.create_client(
+        display_name="Inspect only", preset_id=inspect_only_id
+    )
+    administration.assign_target_preset(INSTANCE_ID, READ_ONLY_INSPECTION_PRESET_ID)
+    administration.grant_target(mcp_client.id, INSTANCE_ID)
+    token = administration.issue_credential(mcp_client.id).token
+
+    inspect_names = [
+        item["name"]
+        for item in _post(client, token, "tools/list").json()["result"]["tools"]
+    ]
+    assert inspect_names == ["addon_list", "target_list", "target_status"]
+    denied = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "screenshot_capture",
+            "arguments": {"target_id": str(INSTANCE_ID)},
+        },
+    ).json()["result"]
+    assert denied["isError"] is True
+    assert denied["structuredContent"] == {"error": "permission_denied"}
+
+    with database.begin() as session:
+        session.add(
+            McpPresetPermissionRow(
+                preset_id=str(inspect_only_id), permission="target.visual"
+            )
+        )
+    expanded_names = [
+        item["name"]
+        for item in _post(client, token, "tools/list").json()["result"]["tools"]
+    ]
+    assert expanded_names == [
+        "addon_list",
+        "screenshot_capture",
+        "target_list",
+        "target_status",
+    ]
 
 
 def test_mcp_raw_protocol_and_authentication_fail_closed(

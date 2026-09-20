@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import socket
@@ -23,6 +24,7 @@ from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPError
+from mcp_types import ImageContent
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -30,13 +32,14 @@ from kodi_lab.application.mcp_administration import (
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
 )
+from kodi_lab.kodi.screenshots import PNG_SIGNATURE, validate_png
 from kodi_lab.mcp.stdio_proxy import (
     ENDPOINT_ENVIRONMENT_VARIABLE,
     TOKEN_ENVIRONMENT_VARIABLE,
 )
 from kodi_lab.storage.models import McpCredentialRow, McpPresetRow
 
-from .conftest import INSTANCE_ID
+from .conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
 
 STDIO_EXECUTABLE = Path(sys.executable).with_name("kodi-lab-mcp-stdio")
 
@@ -124,6 +127,30 @@ def _administration(client: TestClient) -> McpAdministrationService:
     return cast(McpAdministrationService, app.state.kodi_lab.mcp_administration)
 
 
+def _make_target_ready(client: TestClient) -> None:
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    assert (
+        client.post(
+            f"/api/instances/{INSTANCE_ID}/provision", json={}, headers=headers
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/instances/{INSTANCE_ID}/start", json={}, headers=headers
+        ).status_code
+        == 200
+    )
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        status = client.get(f"/api/instances/{INSTANCE_ID}/visual-status").json()
+        if status["screenshot_available_now"]:
+            return
+        time.sleep(0.01)
+    raise AssertionError("managed target did not become ready")
+
+
 @asynccontextmanager
 async def _direct_client(endpoint: str, token: str) -> AsyncIterator[Client]:
     async with httpx2.AsyncClient(
@@ -137,8 +164,11 @@ async def _direct_client(endpoint: str, token: str) -> AsyncIterator[Client]:
 
 
 def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
-    client: TestClient, database: sessionmaker[Session]
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
 ) -> None:
+    _make_target_ready(client)
     administration = _administration(client)
     mcp_client = administration.create_client(
         display_name="Stdio equivalence",
@@ -170,6 +200,8 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
                     item.model_dump() for item in stdio_tools.tools
                 ]
                 assert [item.name for item in stdio_tools.tools] == [
+                    "addon_list",
+                    "screenshot_capture",
                     "target_list",
                     "target_status",
                 ]
@@ -185,6 +217,44 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
                 )
                 assert http_status.structured_content == stdio_status.structured_content
                 assert not stdio_status.is_error
+
+                http_addons, stdio_addons = await asyncio.gather(
+                    direct.call_tool("addon_list", {"target_id": str(INSTANCE_ID)}),
+                    stdio.call_tool("addon_list", {"target_id": str(INSTANCE_ID)}),
+                )
+                assert http_addons.structured_content == stdio_addons.structured_content
+                assert not stdio_addons.is_error
+
+                http_screenshot = await direct.call_tool(
+                    "screenshot_capture", {"target_id": str(INSTANCE_ID)}
+                )
+                stdio_screenshot = await stdio.call_tool(
+                    "screenshot_capture", {"target_id": str(INSTANCE_ID)}
+                )
+                assert not http_screenshot.is_error and not stdio_screenshot.is_error
+                assert (
+                    len(http_screenshot.content) == len(stdio_screenshot.content) == 1
+                )
+                http_image = http_screenshot.content[0]
+                stdio_image = stdio_screenshot.content[0]
+                assert isinstance(http_image, ImageContent)
+                assert isinstance(stdio_image, ImageContent)
+                assert http_image.mime_type == stdio_image.mime_type == "image/png"
+                http_png = base64.b64decode(http_image.data, validate=True)
+                stdio_png = base64.b64decode(stdio_image.data, validate=True)
+                assert http_png == stdio_png
+                assert http_png.startswith(PNG_SIGNATURE)
+                validated = validate_png(http_png)
+                for result in (http_screenshot, stdio_screenshot):
+                    metadata = cast(dict[str, object], result.structured_content)
+                    assert metadata["target_id"] == str(INSTANCE_ID)
+                    assert metadata["mime_type"] == "image/png"
+                    assert (metadata["width"], metadata["height"]) == (
+                        validated.width,
+                        validated.height,
+                    )
+                    assert metadata["byte_size"] == validated.byte_size
+                assert broker.screenshot_calls == 2
 
                 unknown = str(uuid4())
                 http_unknown, stdio_unknown = await asyncio.gather(
@@ -259,6 +329,8 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
                     await stdio.list_tools()
                 administration.set_client_enabled(mcp_client.id, True)
                 assert [item.name for item in (await stdio.list_tools()).tools] == [
+                    "addon_list",
+                    "screenshot_capture",
                     "target_list",
                     "target_status",
                 ]

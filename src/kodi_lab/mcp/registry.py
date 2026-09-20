@@ -15,6 +15,8 @@ class ToolEffect(StrEnum):
 
 class ToolRateClass(StrEnum):
     READ_LIGHT = "read_light"
+    READ_BOUNDED = "read_bounded"
+    VISUAL_CAPTURE = "visual_capture"
 
 
 class TargetClass(StrEnum):
@@ -87,7 +89,39 @@ class McpToolRegistry:
 
 
 def build_mcp_tool_registry() -> McpToolRegistry:
-    registry = McpToolRegistry(known_permissions=frozenset({"target.inspect"}))
+    registry = McpToolRegistry(
+        known_permissions=frozenset({"target.inspect", "target.visual"})
+    )
+    registry.register(
+        McpToolDefinition(
+            name="addon_list",
+            schema_revision=1,
+            permissions=frozenset({"target.inspect"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"addon_inventory"}),
+            required_states=frozenset({"reconciled"}),
+            rate_class=ToolRateClass.READ_BOUNDED,
+            adapter="managed_addon_inventory.list",
+            production_eligible=False,
+            target_scope_required=True,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="screenshot_capture",
+            schema_revision=1,
+            permissions=frozenset({"target.visual"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"managed_screenshot"}),
+            required_states=frozenset({"reconciled"}),
+            rate_class=ToolRateClass.VISUAL_CAPTURE,
+            adapter="managed_screenshot.capture",
+            production_eligible=False,
+            target_scope_required=True,
+        )
+    )
     registry.register(
         McpToolDefinition(
             name="target_list",

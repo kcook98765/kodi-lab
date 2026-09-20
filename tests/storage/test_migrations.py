@@ -139,7 +139,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0036_mcp_core_foundation",)
+        ).fetchone() == ("0037_mcp_observation_permissions",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -409,6 +409,84 @@ def test_0036_mcp_foundation_seeds_builtins_and_guards_populated_downgrade(
     engine.dispose()
     command.downgrade(config, "0035_managed_screenshots")
     command.upgrade(config, "0036_mcp_core_foundation")
+
+
+def test_0037_seeds_visual_permission_and_guards_authority_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0036_mcp_core_foundation"
+    )
+    command.upgrade(config, "0037_mcp_observation_permissions")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        permission_rows = connection.execute(
+            text(
+                "SELECT permission, COUNT(*) FROM mcp_preset_permissions "
+                "GROUP BY permission ORDER BY permission"
+            )
+        ).fetchall()
+        assert [tuple(row) for row in permission_rows] == [
+            ("target.inspect", 3),
+            ("target.visual", 3),
+        ]
+        production_visual = connection.scalar(
+            text(
+                "SELECT COUNT(*) FROM mcp_preset_permissions "
+                "WHERE preset_id = '11000000-0000-4000-8000-000000000004' "
+                "AND permission = 'target.visual'"
+            )
+        )
+        assert production_visual == 0
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients "
+                "(id, display_name, enabled, preset_id, created_at, last_used_at) "
+                "VALUES (:id, 'visual authority', 1, :preset, :at, NULL)"
+            ),
+            {
+                "id": str(uuid4()),
+                "preset": "11000000-0000-4000-8000-000000000002",
+                "at": "2026-09-19T00:00:00.000000Z",
+            },
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="observation authority"):
+        command.downgrade(config, "0036_mcp_core_foundation")
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM mcp_clients"))
+    engine.dispose()
+    command.downgrade(config, "0036_mcp_core_foundation")
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE permission = 'target.visual'"
+                )
+            )
+            == 0
+        )
+    engine.dispose()
+    command.upgrade(config, "0037_mcp_observation_permissions")
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE permission = 'target.visual'"
+                )
+            )
+            == 3
+        )
+    engine.dispose()
 
 
 def test_explicit_0001_upgrades_to_head(

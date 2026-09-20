@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextvars
 import json
 import logging
@@ -22,6 +23,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
+    ImageContent,
     ListToolsResult,
     PaginatedRequestParams,
     TextContent,
@@ -42,16 +44,21 @@ from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpPrincipal,
 )
+from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION, McpToolRegistry
 from kodi_lab.mcp.tools import (
+    AddonListResult,
     McpTargetToolService,
+    ScreenshotCaptureMetadata,
+    ScreenshotToolResult,
     TargetListResult,
     TargetStatusResult,
 )
 
 MCP_PROTOCOL_VERSION = "2026-07-28"
 MCP_MAX_REQUEST_BODY = 64 * 1024
+MCP_MAX_IMAGE_BASE64_BYTES = 4 * ((MAX_PNG_BYTES + 2) // 3)
 MCP_SERVER_VERSION = "0.0.0"
 _MCP_METHODS = frozenset({"server/discover", "tools/list", "tools/call"})
 
@@ -162,6 +169,20 @@ class _TargetListInput(BaseModel):
 
 
 class _TargetStatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_id: UUID
+
+
+class _AddonListInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_id: UUID
+    cursor: str | None = Field(default=None, min_length=1, max_length=128)
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class _ScreenshotCaptureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_id: UUID
@@ -421,13 +442,41 @@ def build_mcp_http_transport(
     authenticated_limiter: BoundedTokenBucketLimiter | None = None,
     concurrency_limiter: BoundedConcurrencyLimiter | None = None,
 ) -> McpHttpTransport:
-    annotations = ToolAnnotations(
+    read_annotations = ToolAnnotations(
         read_only_hint=True,
         destructive_hint=False,
         idempotent_hint=True,
         open_world_hint=False,
     )
+    capture_annotations = ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=False,
+    )
     inventory = {
+        "addon_list": Tool(
+            name="addon_list",
+            title="List installed Kodi add-ons",
+            description=(
+                "List one authorized target's bounded semantic add-on inventory."
+            ),
+            input_schema=_AddonListInput.model_json_schema(),
+            output_schema=AddonListResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "screenshot_capture": Tool(
+            name="screenshot_capture",
+            title="Capture a Kodi screenshot",
+            description=(
+                "Capture one authorized target and return native PNG image content."
+            ),
+            input_schema=_ScreenshotCaptureInput.model_json_schema(),
+            output_schema=ScreenshotCaptureMetadata.model_json_schema(),
+            annotations=capture_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "target_list": Tool(
             name="target_list",
             title="List authorized Kodi targets",
@@ -436,7 +485,7 @@ def build_mcp_http_transport(
             ),
             input_schema=_TargetListInput.model_json_schema(),
             output_schema=TargetListResult.model_json_schema(),
-            annotations=annotations,
+            annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
         "target_status": Tool(
@@ -447,7 +496,7 @@ def build_mcp_http_transport(
             ),
             input_schema=_TargetStatusInput.model_json_schema(),
             output_schema=TargetStatusResult.model_json_schema(),
-            annotations=annotations,
+            annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
     }
@@ -469,8 +518,31 @@ def build_mcp_http_transport(
         target_id: UUID | None = None
         try:
             arguments = params.arguments or {}
-            result: TargetListResult | TargetStatusResult
-            if params.name == "target_list":
+            result: (
+                AddonListResult
+                | ScreenshotToolResult
+                | TargetListResult
+                | TargetStatusResult
+            )
+            if params.name == "addon_list":
+                parsed_addons = _AddonListInput.model_validate(arguments)
+                target_id = parsed_addons.target_id
+                result = await asyncio.to_thread(
+                    tools.addon_list,
+                    principal,
+                    target_id=target_id,
+                    cursor=parsed_addons.cursor,
+                    limit=parsed_addons.limit,
+                )
+            elif params.name == "screenshot_capture":
+                parsed_screenshot = _ScreenshotCaptureInput.model_validate(arguments)
+                target_id = parsed_screenshot.target_id
+                result = await asyncio.to_thread(
+                    tools.screenshot_capture,
+                    principal,
+                    target_id=target_id,
+                )
+            elif params.name == "target_list":
                 parsed_list = _TargetListInput.model_validate(arguments)
                 result = tools.target_list(
                     principal,
@@ -488,6 +560,24 @@ def build_mcp_http_transport(
         except McpAuthorizationError as error:
             outcome = error.code
         else:
+            if isinstance(result, ScreenshotToolResult):
+                encoded = base64.b64encode(result.png).decode("ascii")
+                if len(encoded) > MCP_MAX_IMAGE_BASE64_BYTES:
+                    outcome = "response_too_large"
+                else:
+                    content = result.metadata.model_dump(mode="json")
+                    _audit(principal, params.name, target_id, started, "success")
+                    return CallToolResult(
+                        content=[ImageContent(data=encoded, mime_type=PNG_MIME_TYPE)],
+                        structured_content=content,
+                        is_error=False,
+                    )
+                _audit(principal, params.name, target_id, started, outcome)
+                return CallToolResult(
+                    content=[TextContent(text=outcome)],
+                    structured_content={"error": outcome},
+                    is_error=True,
+                )
             content = result.model_dump(mode="json")
             _audit(principal, params.name, target_id, started, "success")
             return CallToolResult(

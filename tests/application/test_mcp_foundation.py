@@ -23,7 +23,10 @@ from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpPrincipal,
 )
+from kodi_lab.application.screenshots import ManagedScreenshotService
+from kodi_lab.kodi.screenshots import SUPPORTED_SCREENSHOT_RUNTIME_PROFILES
 from kodi_lab.mcp.authorization import (
+    InternalManagedTargetAuthorityProvider,
     McpAuthorizationError,
     McpAuthorizationService,
     TargetTechnicalAuthority,
@@ -51,6 +54,7 @@ from kodi_lab.storage.models import (
     McpPresetRow,
     McpSecurityEventRow,
     RuntimeDefinitionRow,
+    RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
     TargetRow,
 )
@@ -274,12 +278,133 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
     production = next(
         item for item in presets if item.id == PRODUCTION_REMOTE_KODI_PRESET_ID
     )
+    active = [item for item in presets if item.id != PRODUCTION_REMOTE_KODI_PRESET_ID]
+    assert all(
+        item.permissions == ("target.inspect", "target.visual") for item in active
+    )
     assert production.permissions == ()
     assert not production.assignable
     with pytest.raises(McpAdministrationError, match="mcp_preset_not_assignable"):
         administration.create_client(
             display_name="Production", preset_id=PRODUCTION_REMOTE_KODI_PRESET_ID
         )
+
+
+def test_builtin_permission_drift_fails_closed(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    McpAdministrationService(mcp_database)
+    with mcp_database.begin() as session:
+        row = session.get(
+            McpPresetPermissionRow,
+            {
+                "preset_id": str(READ_ONLY_INSPECTION_PRESET_ID),
+                "permission": "target.visual",
+            },
+        )
+        assert row is not None
+        session.delete(row)
+    with pytest.raises(RuntimeError, match="permissions have drifted"):
+        McpAdministrationService(mcp_database)
+
+
+def test_mcp_projects_screenshot_capability_for_all_four_curated_profiles(
+    mcp_database: sessionmaker[Session], tmp_path: Path
+) -> None:
+    target_ids: list[UUID] = []
+    with mcp_database.begin() as session:
+        for index, (revision_id, profile) in enumerate(
+            SUPPORTED_SCREENSHOT_RUNTIME_PROFILES.items(), start=1
+        ):
+            canonical, application, version, tag, ordinal = profile
+            definition_id = UUID(f"13000000-0000-4000-8000-{index:012d}")
+            target_id = UUID(f"14000000-0000-4000-8000-{index:012d}")
+            target_ids.append(target_id)
+            session.add(
+                RuntimeDefinitionRow(
+                    id=str(definition_id),
+                    slug=f"mcp-screenshot-{index}",
+                    kodi_version=canonical,
+                )
+            )
+            session.flush()
+            session.add(
+                RuntimeRevisionRow(
+                    id=revision_id,
+                    runtime_definition_id=str(definition_id),
+                    revision_number=1,
+                    source_kind="test",
+                    source_reference="test",
+                    content_digest="sha256:" + (str(index) * 64),
+                    manifest_reference="test",
+                    manifest_digest="sha256:" + (str(index) * 64),
+                    built_at="2026-09-19T00:00:00.000000Z",
+                    build_log_reference=None,
+                    approval_state="approved",
+                    approved_at="2026-09-19T00:00:00.000000Z",
+                    approval_note=None,
+                    requires_trusted_build_confirmation=False,
+                    trusted_build_confirmed_at=None,
+                )
+            )
+            session.flush()
+            session.add(
+                RuntimeExecutionProfileRow(
+                    runtime_revision_id=revision_id,
+                    runtime_kind="kodi",
+                    runtime_uid=1000,
+                    runtime_gid=1000,
+                    python_bytecode_policy="interpreter_default",
+                    expected_application_name=application,
+                    expected_kodi_version=version,
+                    expected_version_tag=tag,
+                    expected_prerelease_ordinal=ordinal,
+                    jsonrpc_port=8080,
+                    jsonrpc_path="/jsonrpc",
+                    process_observation="docker_healthcheck",
+                    readiness_probe="kodi_jsonrpc",
+                    readiness_timeout_seconds=90,
+                    poll_interval_seconds=1.0,
+                    http_timeout_seconds=3.0,
+                )
+            )
+            session.add(
+                TargetRow(
+                    id=str(target_id),
+                    name=f"Screenshot target {index}",
+                    target_type="managed",
+                    kodi_version=canonical,
+                    availability="available",
+                    health="healthy",
+                    connection_state="connected",
+                )
+            )
+            session.flush()
+            session.add(
+                ManagedInstanceRow(
+                    target_id=str(target_id),
+                    instance_type="disposable",
+                    runtime_revision_id=revision_id,
+                    runtime_state="stopped",
+                    start_on_host_boot=False,
+                    notes=None,
+                )
+            )
+
+    screenshots = ManagedScreenshotService(
+        mcp_database,
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        data_root=tmp_path,
+    )
+    provider = InternalManagedTargetAuthorityProvider(
+        mcp_database, screenshots=screenshots
+    )
+    assert all(
+        "managed_screenshot" in provider.resolve(target_id).capabilities
+        for target_id in target_ids
+    )
 
 
 class FixedTargetAuthority:

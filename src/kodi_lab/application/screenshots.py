@@ -89,6 +89,14 @@ class ManagedScreenshotCaptureResult(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
+class ManagedScreenshotImageCaptureResult:
+    """One durable capture plus its exact validated in-memory PNG."""
+
+    capture: ManagedScreenshotCaptureResult
+    png: bytes
+
+
+@dataclass(frozen=True, slots=True)
 class EphemeralPngFrame:
     """Validated private frame bytes that have never entered the durable cache."""
 
@@ -183,7 +191,22 @@ class ManagedScreenshotService:
                 row,
             )
 
+    def supports_runtime_revision(self, runtime_revision_id: UUID) -> bool:
+        """Project the exact curated screenshot capability without capturing."""
+
+        return self._runtime_supported(runtime_revision_id)
+
     def capture(self, instance_id: UUID) -> ManagedScreenshotCaptureResult:
+        return self._capture(instance_id, interface="web", actor="local_admin").capture
+
+    def capture_image(self, instance_id: UUID) -> ManagedScreenshotImageCaptureResult:
+        """Capture durably and return the exact validated PNG that was published."""
+
+        return self._capture(instance_id, interface="mcp", actor="mcp_client")
+
+    def _capture(
+        self, instance_id: UUID, *, interface: str, actor: str
+    ) -> ManagedScreenshotImageCaptureResult:
         capture_id = uuid4()
         requested_at = datetime.now(UTC)
         runtime = self._status.get(instance_id)
@@ -255,8 +278,8 @@ class ManagedScreenshotService:
                 extra={
                     "capture_id": str(capture_id),
                     "managed_instance_id": str(instance_id),
-                    "interface": "web",
-                    "actor": "local_admin",
+                    "interface": interface,
+                    "actor": actor,
                     "requested_at": requested_at.isoformat(),
                     "completed_at": captured_at.isoformat(),
                     "result": "succeeded",
@@ -265,17 +288,31 @@ class ManagedScreenshotService:
                     "height": frame.height,
                 },
             )
-            return result
+            return ManagedScreenshotImageCaptureResult(capture=result, png=frame.png)
         except ManagedInstanceNotFoundError:
             raise
         except ScreenshotServiceError as error:
             self._record_failure(instance_id, requested_at, error.code)
-            self._audit_failure(instance_id, capture_id, requested_at, error.code)
+            self._audit_failure(
+                instance_id,
+                capture_id,
+                requested_at,
+                error.code,
+                interface=interface,
+                actor=actor,
+            )
             raise
         except (ClientError, ScreenshotArtifactError, OSError) as error:
             code = self._safe_failure_code(error)
             self._record_failure(instance_id, requested_at, code)
-            self._audit_failure(instance_id, capture_id, requested_at, code)
+            self._audit_failure(
+                instance_id,
+                capture_id,
+                requested_at,
+                code,
+                interface=interface,
+                actor=actor,
+            )
             raise ScreenshotServiceError(
                 code, "Screenshot refresh could not be completed safely."
             ) from error
@@ -574,15 +611,21 @@ class ManagedScreenshotService:
 
     @staticmethod
     def _audit_failure(
-        instance_id: UUID, capture_id: UUID, requested_at: datetime, code: str
+        instance_id: UUID,
+        capture_id: UUID,
+        requested_at: datetime,
+        code: str,
+        *,
+        interface: str,
+        actor: str,
     ) -> None:
         LOGGER.warning(
             "managed screenshot capture failed",
             extra={
                 "capture_id": str(capture_id),
                 "managed_instance_id": str(instance_id),
-                "interface": "web",
-                "actor": "local_admin",
+                "interface": interface,
+                "actor": actor,
                 "requested_at": requested_at.isoformat(),
                 "completed_at": datetime.now(UTC).isoformat(),
                 "result": code,

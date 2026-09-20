@@ -43,7 +43,11 @@ There is no initialize/initialized exchange, legacy fallback,
 stream, daemonization, or durable adapter state. Stdin EOF cancels active work
 and ends the process. Input frames are bounded to 64 KiB before JSON parsing;
 four workers and an eight-item backpressured queue bound local work while the
-HTTP server retains authoritative admission.
+HTTP server retains authoritative admission. HTTP responses are read
+incrementally to the exact 8 MiB PNG base64 maximum plus a fixed 64 KiB
+JSON/metadata allowance. Stdout is serialized and awaited, so a client that
+stops reading applies pipe backpressure instead of creating an unbounded output
+queue.
 
 The adapter executable alone grants no authority. A process must possess a
 valid bearer, and that bearer grants only its durable MCP client's current
@@ -57,7 +61,41 @@ transport classification never changes permission in this slice. Stable
 adapter errors omit bearer values, tracebacks, HTTP library detail, and endpoint
 internals.
 
-Production tools remain exactly `target_list` and `target_status`. Legacy
-`2025-11-25`, add-on inventory, screenshots, remote control, raw JSON-RPC,
-lifecycle, snapshots, logs, diagnostics, external targets, and Phase 12
+## Slice 3 observation tools
+
+Production tools are exactly lexical `addon_list`, `screenshot_capture`,
+`target_list`, and `target_status`.
+
+`addon_list` requires `target.inspect` and an exact authorized target. It reuses
+the transport-neutral managed add-on inventory service, defaults to 50 records,
+caps at 100, and returns only bounded semantic add-on fields. It returns no path,
+install directory, repository URL, cache location, raw Kodi result or internal
+database identity.
+
+`screenshot_capture` requires `target.visual`, an exact authorized target, exact
+curated screenshot capability and reconciled acceptable runtime state. It makes
+at most one call to the existing durable screenshot service and returns official
+MCP native `ImageContent` with `mimeType=image/png` plus compact structured
+metadata. The 8 MiB validated PNG ceiling is unchanged. The same latest cache,
+failed-refresh retention, one-per-instance exclusion and four-global-capture
+bound apply to Web, HTTP MCP and stdio MCP.
+
+Built-in Add-on Development, Read-only Inspection and Full Lab Control presets
+contain both `target.inspect` and `target.visual`. Production Remote Kodi remains
+empty and unassignable. A client with only `target.inspect` discovers
+`addon_list`, `target_list` and `target_status`; `target.visual` additionally
+reveals `screenshot_capture`. Discovery does not replace invocation-time exact
+grant, target policy, target-class, capability or state checks.
+
+Legacy `2025-11-25`, remote control/action receipts, raw JSON-RPC, lifecycle,
+snapshots, settings mutation, library/music queries, add-on execution, logs,
+diagnostics, external targets, custom-preset administration and Phase 12
 workflows remain excluded.
+
+The applicable official runner subsets remain `tools-list`,
+`dns-rebinding-protection`, and `http-header-validation`. Its canned
+`tools-call-image` scenario requires a diagnostic fixture named
+`test_image_content`, which is intentionally not added to the closed production
+catalog. Native image behavior is instead exercised through the pinned official
+SDK over both direct HTTP and the canonical stdio subprocess, including exact
+MIME, PNG signature, decoded dimensions, byte bound and structured metadata.

@@ -745,9 +745,12 @@ Flat explicit names preferred:
 
 MCP tool/API schema has separate explicit version.
 
-Phase 11 Slice 2 retains Kodi Lab schema version `1` and exposes only
-`target_list` and `target_status` over both HTTP and stdio. Screenshots, remote
-control, raw JSON-RPC, lifecycle, diagnostics, external targets, and the richer
+Phase 11 Slice 3 retains Kodi Lab schema version `1` and exposes exactly
+`addon_list`, `screenshot_capture`, `target_list`, and `target_status` over both
+HTTP and stdio. Add-on inventory is bounded and path-free. Screenshot capture
+returns native `image/png` MCP content plus compact semantic metadata while
+updating the existing durable latest-screenshot cache. Remote control, action
+receipts, raw JSON-RPC, lifecycle, diagnostics, external targets, and the richer
 semantic catalog remain later slices/phases.
 
 ## 32. MCP baseline/presets

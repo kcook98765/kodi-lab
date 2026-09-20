@@ -1042,3 +1042,41 @@ Production Remote Kodi preset remains inactive/unassignable. Phase 11 remains
 **PARTIAL**: add-on inventory, native MCP screenshots, semantic remote control,
 durable replay/action receipts, any separately approved `2025-11-25`
 compatibility, final client/conformance matrix, and closeout remain.
+
+## Phase 11 Slice 3 checkpoint
+
+Phase 11 Slice 3 adds only read-only target observation. Production inventory is
+exactly lexical `addon_list`, `screenshot_capture`, `target_list`, and
+`target_status` over the existing modern HTTP authority and canonical stdio
+proxy. The new tools use the common registry and authorize-then-invoke boundary;
+there is no handler-local authentication, grant logic or alternate stdio
+service path.
+
+`addon_list` reuses `ManagedInstanceAddonInventoryService`, defaults to 50 and
+caps at 100, preserves stable add-on-ID ordering, and returns bounded semantic
+identity/type/enabled/provenance fields only. `screenshot_capture` reuses the
+durable `ManagedScreenshotService` and fixed broker primitive, returns official
+native `image/png` content plus compact metadata, and updates the same latest
+cache. Failed capture retains the previous cache; the per-instance and global
+four-capture limits remain service-owned and no retry is added.
+
+Migration `0037_mcp_observation_permissions` adds `target.visual` to Add-on
+Development, Read-only Inspection and Full Lab Control. Production Remote Kodi
+remains empty/unassignable and `target.control` remains reserved. The stdio
+proxy's former 128 KiB HTTP-response ceiling is replaced by an incrementally
+enforced 8 MiB-PNG base64 envelope plus 64 KiB overhead; its four workers,
+eight-item request queue and stdout backpressure remain bounded.
+
+Phase 11 remains **PARTIAL**. Slice 3 adds no remote action, playback or GUI
+mutation, replay receipt, custom-preset administration, legacy `2025-11-25`
+compatibility, lifecycle, snapshot, settings, library/music query, add-on
+execution, logs/diagnostics, external target or Phase 12 workflow. The remaining
+Phase 11 gates are semantic remote control with durable replay safety, custom
+presets/compatibility resolution, final client/conformance matrix and formal
+closeout.
+
+Applicable official runner coverage remains tool listing, DNS rebinding and
+HTTP header validation. The runner's image scenario is fixture-specific and
+expects a non-production `test_image_content` tool; Kodi Lab instead verifies
+the production screenshot tool with the pinned official SDK across direct HTTP
+and the canonical stdio subprocess.

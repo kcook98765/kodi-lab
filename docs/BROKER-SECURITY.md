@@ -509,3 +509,19 @@ not import or connect to the broker, Docker, Kodi, persistence, repositories,
 or application services. Possession of the executable without a bearer grants
 nothing. Possession of a bearer grants only that durable client's authority as
 recomputed by `/mcp` on each request.
+
+Phase 11 Slice 3 adds no broker operation. `addon_list` reaches Kodi only through
+the existing `ManagedInstanceAddonInventoryService` and its fixed read-only
+inventory adapter. `screenshot_capture` reaches the broker only through the
+existing `ManagedScreenshotService` and exact
+`capture_managed_kodi_screenshot` primitive described above. MCP cannot select
+an X11 display, backend, command, path, format, quality, dimensions, timeout or
+cache location. Registry capability metadata and `target.visual` permission do
+not directly authorize a broker call.
+
+The exact validated PNG returned to MCP is the successful durable capture's
+in-memory result. The service still owns private raw staging, atomic latest-cache
+publication, failed-refresh retention, per-instance exclusion and the global
+four-capture bound. Neither direct HTTP nor stdio gains a broker client or
+filesystem path. Image bytes/base64, hashes, cache names, paths and broker
+identifiers are excluded from MCP request audit logs.

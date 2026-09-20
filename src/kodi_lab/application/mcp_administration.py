@@ -33,15 +33,27 @@ PRODUCTION_REMOTE_KODI_PRESET_ID = UUID("11000000-0000-4000-8000-000000000004")
 DEFAULT_TOKEN_LIFETIME = timedelta(hours=24)
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
 
+_OBSERVATION_PERMISSIONS = ("target.inspect", "target.visual")
+
 _BUILTINS = (
-    (ADDON_DEVELOPMENT_PRESET_ID, "Add-on Development", True, ("target.inspect",)),
+    (
+        ADDON_DEVELOPMENT_PRESET_ID,
+        "Add-on Development",
+        True,
+        _OBSERVATION_PERMISSIONS,
+    ),
     (
         READ_ONLY_INSPECTION_PRESET_ID,
         "Read-only Inspection",
         True,
-        ("target.inspect",),
+        _OBSERVATION_PERMISSIONS,
     ),
-    (FULL_LAB_CONTROL_PRESET_ID, "Full Lab Control", True, ("target.inspect",)),
+    (
+        FULL_LAB_CONTROL_PRESET_ID,
+        "Full Lab Control",
+        True,
+        _OBSERVATION_PERMISSIONS,
+    ),
     (PRODUCTION_REMOTE_KODI_PRESET_ID, "Production Remote Kodi", False, ()),
 )
 

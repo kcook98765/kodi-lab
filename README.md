@@ -70,3 +70,8 @@ only an exact plain-HTTP loopback `/mcp` URL is accepted. Every target-scoped
 tool still requires an explicit `target_id`; stdio creates no selected target or
 session. See [`docs/PHASE11-MCP.md`](docs/PHASE11-MCP.md) for security and
 client configuration details.
+
+The current production catalog is exactly `addon_list`, `screenshot_capture`,
+`target_list`, and `target_status`. Screenshots are returned as native MCP
+`image/png` content through either transport; stdio does not write a temporary
+image or bypass the HTTP authority.

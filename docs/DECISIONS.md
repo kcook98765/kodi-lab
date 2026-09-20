@@ -3153,3 +3153,42 @@ authority.
   is enforced by both common authorization entrypoints, preventing a scoped
   tool from using the global path or a global tool from using the target path.
   These changes add no permission, tool, target class, or migration.
+
+## D-0232: Slice 3 adds two service-backed read-only observation tools
+
+- Status: approved and implemented for Phase 11 Slice 3
+- Decision: the complete production catalog becomes lexical `addon_list`,
+  `screenshot_capture`, `target_list`, and `target_status`. `addon_list` requires
+  `target.inspect`, uses `ManagedInstanceAddonInventoryService`, defaults to 50
+  records, caps at 100, orders by stable semantic add-on ID and exposes no path,
+  URL, raw Kodi result or internal identity. `screenshot_capture` requires
+  `target.visual` and uses `ManagedScreenshotService` plus the existing fixed
+  broker primitive. Neither adapter creates a new Kodi, broker, filesystem,
+  authentication or authorization path.
+- Authority: both definitions retain exact target scope, internal-lab class,
+  server-owned capability/state metadata, read-only effect and semantic rate
+  class. The common authority intersection remains mandatory. Unknown and
+  unauthorized targets stay indistinguishable. Screenshot capability is
+  projected from the exact curated Phase 10 runtime profiles, not from Kodi
+  version text or the Kodi 21.3 live-display subset.
+
+## D-0233: Native screenshot results retain the durable capture and bounded stdio
+
+- Status: approved and implemented for Phase 11 Slice 3
+- Decision: one screenshot tool call makes at most one existing durable capture
+  attempt. The service returns the exact validated PNG object used for atomic
+  latest-cache publication together with the durable result, avoiding a racy
+  reread of a later `latest` capture. MCP uses official SDK `ImageContent` with
+  exact `image/png` plus compact structured metadata. Failed capture preserves
+  the previous cache, and no MCP-specific image copy, URL or temp-file transport
+  is created.
+- Bounds: the existing PNG ceiling stays 8 MiB. The 64 KiB request limit is not
+  reused as a response limit. Stdio reads at most the maximum base64 expansion
+  plus 64 KiB JSON/metadata overhead, serializes awaited stdout writes, and
+  retains four workers plus the eight-item backpressured inbound queue. Image,
+  base64, hash and path data are absent from MCP audit records.
+- Presets/migration: `0037_mcp_observation_permissions` adds `target.visual` to
+  Add-on Development, Read-only Inspection and Full Lab Control. All retain
+  `target.inspect`; Production Remote Kodi remains empty and unassignable.
+  Downgrade refuses when assigned authority would be lost. `target.control`
+  remains reserved for the remote-action slice.

@@ -23,14 +23,18 @@ from mcp_types import (
 )
 from pydantic import ValidationError
 
-from kodi_lab.mcp.transport import MCP_MAX_REQUEST_BODY, MCP_PROTOCOL_VERSION
+from kodi_lab.mcp.transport import (
+    MCP_MAX_IMAGE_BASE64_BYTES,
+    MCP_MAX_REQUEST_BODY,
+    MCP_PROTOCOL_VERSION,
+)
 
 TOKEN_ENVIRONMENT_VARIABLE = "KODI_LAB_MCP_TOKEN"
 ENDPOINT_ENVIRONMENT_VARIABLE = "KODI_LAB_MCP_URL"
 DEFAULT_MCP_ENDPOINT = "http://127.0.0.1:8100/mcp"
 STDIO_MAX_IN_FLIGHT = 4
 STDIO_QUEUE_CAPACITY = 8
-MAX_HTTP_RESPONSE_BODY = 128 * 1024
+MAX_HTTP_RESPONSE_BODY = MCP_MAX_IMAGE_BASE64_BYTES + (64 * 1024)
 
 _MISSING_TOKEN = "Kodi Lab MCP credential is missing or malformed."
 _INVALID_ENDPOINT = "Kodi Lab MCP endpoint configuration is invalid."
@@ -132,7 +136,8 @@ async def serve_stdio_proxy(
 
     async def write_response(payload: bytes) -> None:
         async with write_lock:
-            await stdout.write(payload + b"\n")
+            await stdout.write(payload)
+            await stdout.write(b"\n")
             await stdout.flush()
 
     async def read_requests(task_group: anyio.abc.TaskGroup) -> None:
@@ -238,27 +243,35 @@ async def _proxy_request(
     if request.tool_name is not None:
         headers["Mcp-Name"] = request.tool_name
     try:
-        response = await http_client.post(
+        async with http_client.stream(
+            "POST",
             configuration.endpoint,
             headers=headers,
             content=request.body,
-        )
+        ) as response:
+            if response.headers.get("mcp-session-id") is not None:
+                return _error_response(
+                    request.request_id, INTERNAL_ERROR, _AUTHORITY_REJECTED
+                )
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                if len(body) + len(chunk) > MAX_HTTP_RESPONSE_BODY:
+                    return _error_response(
+                        request.request_id, INTERNAL_ERROR, _AUTHORITY_REJECTED
+                    )
+                body.extend(chunk)
     except httpx2.HTTPError:
         return _error_response(
             request.request_id, CONNECTION_CLOSED, _AUTHORITY_UNAVAILABLE
         )
-    if (
-        response.headers.get("mcp-session-id") is not None
-        or len(response.content) > MAX_HTTP_RESPONSE_BODY
-    ):
-        return _error_response(request.request_id, INTERNAL_ERROR, _AUTHORITY_REJECTED)
+    content = bytes(body)
     try:
-        reply = jsonrpc_message_adapter.validate_json(response.content, by_name=False)
+        reply = jsonrpc_message_adapter.validate_json(content, by_name=False)
     except ValidationError:
         return _error_response(request.request_id, INTERNAL_ERROR, _AUTHORITY_REJECTED)
     if getattr(reply, "id", object()) != request.request_id:
         return _error_response(request.request_id, INTERNAL_ERROR, _AUTHORITY_REJECTED)
-    return response.content
+    return content
 
 
 def _error_response(request_id: RequestId | None, code: int, message: str) -> bytes:

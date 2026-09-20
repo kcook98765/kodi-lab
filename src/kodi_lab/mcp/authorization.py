@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_administration import McpPrincipal
+from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
+from kodi_lab.application.screenshots import ManagedScreenshotService
 from kodi_lab.mcp.registry import McpToolDefinition, McpToolRegistry, TargetClass
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
@@ -43,11 +45,36 @@ class TargetAuthorityProvider(Protocol):
 class InternalManagedTargetAuthorityProvider:
     """Current Phase 11 resolver; later target adapters supply other classes."""
 
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session] | None = None,
+        *,
+        reconciliation: ManagedInstanceReconciliationService | None = None,
+        screenshots: ManagedScreenshotService | None = None,
+    ) -> None:
+        self._session_factory = session_factory
+        self._reconciliation = reconciliation
+        self._screenshots = screenshots
+
     def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
+        capabilities = {"managed_runtime_status", "addon_inventory"}
+        states: set[str] = set()
+        if self._session_factory is not None and self._screenshots is not None:
+            with self._session_factory() as session:
+                instance = session.get(ManagedInstanceRow, str(target_id))
+            if instance is not None and self._screenshots.supports_runtime_revision(
+                UUID(instance.runtime_revision_id)
+            ):
+                capabilities.add("managed_screenshot")
+        if (
+            self._reconciliation is not None
+            and not self._reconciliation.status(target_id).blocking
+        ):
+            states.add("reconciled")
         return TargetTechnicalAuthority(
             target_class=TargetClass.INTERNAL_LAB,
-            capabilities=frozenset({"managed_runtime_status"}),
-            current_states=frozenset(),
+            capabilities=frozenset(capabilities),
+            current_states=frozenset(states),
         )
 
 

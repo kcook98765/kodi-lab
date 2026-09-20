@@ -360,7 +360,10 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
-from kodi_lab.mcp.authorization import McpAuthorizationService
+from kodi_lab.mcp.authorization import (
+    InternalManagedTargetAuthorityProvider,
+    McpAuthorizationService,
+)
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
@@ -852,21 +855,40 @@ def create_app(
     status_service = ManagedRuntimeStatusService(
         session_factory, broker, task_registry, reconciliation
     )
-    mcp_administration = McpAdministrationService(session_factory)
-    mcp_registry = build_mcp_tool_registry()
-    mcp_authorization = McpAuthorizationService(session_factory, mcp_registry)
-    mcp_transport = build_mcp_http_transport(
-        authentication=McpAuthenticationService(session_factory),
-        authorization=mcp_authorization,
-        registry=mcp_registry,
-        tools=McpTargetToolService(session_factory, mcp_authorization, status_service),
-    )
     screenshots = managed_screenshot_service or ManagedScreenshotService(
         session_factory,
         broker,
         status_service,
         reconciliation,
         data_root=settings.data_root,
+    )
+    addon_inventory = ManagedInstanceAddonInventoryService(
+        session_factory,
+        broker,
+        adapter_factory=addon_inventory_adapter_factory,
+    )
+    mcp_administration = McpAdministrationService(session_factory)
+    mcp_registry = build_mcp_tool_registry()
+    mcp_authorization = McpAuthorizationService(
+        session_factory,
+        mcp_registry,
+        targets=InternalManagedTargetAuthorityProvider(
+            session_factory,
+            reconciliation=reconciliation,
+            screenshots=screenshots,
+        ),
+    )
+    mcp_transport = build_mcp_http_transport(
+        authentication=McpAuthenticationService(session_factory),
+        authorization=mcp_authorization,
+        registry=mcp_registry,
+        tools=McpTargetToolService(
+            session_factory,
+            mcp_authorization,
+            status_service,
+            addon_inventory,
+            screenshots,
+        ),
     )
     browser_remote = browser_remote_service or BrowserRemoteService(
         session_factory,
@@ -979,11 +1001,6 @@ def create_app(
                 reconciliation=reconciliation,
             ),
         )
-    )
-    addon_inventory = ManagedInstanceAddonInventoryService(
-        session_factory,
-        broker,
-        adapter_factory=addon_inventory_adapter_factory,
     )
     development_source_deployment_operations = (
         DevelopmentSourceDeploymentOperationCoordinator(

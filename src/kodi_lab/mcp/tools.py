@@ -3,23 +3,79 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_inventory import (
+    AddonInventoryQueryStatus,
+    AddonInventoryUnavailableReason,
+    KodiAddonProvenanceClassification,
+    ManagedInstanceAddonInventoryService,
+)
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.mcp_administration import McpPrincipal
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
 )
+from kodi_lab.application.screenshots import (
+    ManagedScreenshotService,
+    ScreenshotServiceError,
+)
+from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION
 from kodi_lab.storage.models import ManagedInstanceRow
 
 MAX_MCP_RESPONSE_BYTES = 64 * 1024
+
+
+class AddonSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    addon_id: str = Field(max_length=128)
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=128)
+    addon_type: str = Field(max_length=128)
+    enabled: StrictBool
+    provenance: str | None = Field(default=None, max_length=64)
+    provenance_status: str | None = Field(default=None, max_length=32)
+
+
+class AddonListResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    target_id: UUID
+    kodi_version: str = Field(max_length=32)
+    complete: StrictBool = True
+    total_count: int = Field(ge=0, le=2_048)
+    addons: tuple[AddonSummary, ...] = Field(max_length=100)
+    next_cursor: str | None = Field(default=None, max_length=128)
+
+
+class ScreenshotCaptureMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    target_id: UUID
+    capture_id: UUID
+    captured_at: datetime
+    width: int = Field(ge=1, le=4096)
+    height: int = Field(ge=1, le=2160)
+    mime_type: str = Field(max_length=16)
+    byte_size: int = Field(ge=1, le=MAX_PNG_BYTES)
+
+
+@dataclass(frozen=True, slots=True)
+class ScreenshotToolResult:
+    metadata: ScreenshotCaptureMetadata
+    png: bytes
 
 
 class TargetSummary(BaseModel):
@@ -60,10 +116,128 @@ class McpTargetToolService:
         session_factory: sessionmaker[Session],
         authorization: McpAuthorizationService,
         status: ManagedRuntimeStatusService,
+        addon_inventory: ManagedInstanceAddonInventoryService,
+        screenshots: ManagedScreenshotService,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
         self._status = status
+        self._addon_inventory = addon_inventory
+        self._screenshots = screenshots
+
+    def addon_list(
+        self,
+        principal: McpPrincipal,
+        *,
+        target_id: UUID,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> AddonListResult:
+        return self._authorization.invoke_target(
+            principal,
+            "addon_list",
+            target_id,
+            lambda: self._addon_list_authorized(target_id, cursor=cursor, limit=limit),
+        )
+
+    def _addon_list_authorized(
+        self, target_id: UUID, *, cursor: str | None, limit: int
+    ) -> AddonListResult:
+        if (
+            limit < 1
+            or limit > 100
+            or cursor == ""
+            or (cursor is not None and len(cursor) > 128)
+        ):
+            raise McpAuthorizationError("permission_denied")
+        try:
+            inventory = self._addon_inventory.get(target_id)
+        except ManagedInstanceNotFoundError as error:
+            raise McpAuthorizationError("target_not_found_or_not_authorized") from error
+        if inventory.query_status is not AddonInventoryQueryStatus.AVAILABLE:
+            raise McpAuthorizationError(
+                self._inventory_error(inventory.unavailable_reason)
+            )
+        ordered = sorted(inventory.items, key=lambda item: item.addon_id)
+        eligible = [
+            item for item in ordered if cursor is None or item.addon_id > cursor
+        ]
+        selected = eligible[:limit]
+        addons = tuple(
+            AddonSummary(
+                addon_id=item.addon_id,
+                name=item.name,
+                version=item.version,
+                addon_type=item.kodi_type,
+                enabled=item.enabled,
+                provenance=(
+                    None
+                    if item.provenance.classification
+                    is KodiAddonProvenanceClassification.UNKNOWN
+                    else item.provenance.classification.value
+                ),
+                provenance_status=(
+                    None
+                    if item.provenance.classification
+                    is KodiAddonProvenanceClassification.UNKNOWN
+                    else item.provenance.evidence_status.value
+                ),
+            )
+            for item in selected
+        )
+        result = AddonListResult(
+            target_id=target_id,
+            kodi_version=inventory.kodi_release,
+            total_count=len(ordered),
+            addons=addons,
+            next_cursor=(
+                selected[-1].addon_id if len(eligible) > limit and selected else None
+            ),
+        )
+        self._require_bounded(result)
+        return result
+
+    def screenshot_capture(
+        self, principal: McpPrincipal, *, target_id: UUID
+    ) -> ScreenshotToolResult:
+        return self._authorization.invoke_target(
+            principal,
+            "screenshot_capture",
+            target_id,
+            lambda: self._screenshot_capture_authorized(target_id),
+        )
+
+    def _screenshot_capture_authorized(self, target_id: UUID) -> ScreenshotToolResult:
+        try:
+            result = self._screenshots.capture_image(target_id)
+        except ManagedInstanceNotFoundError as error:
+            raise McpAuthorizationError("target_not_found_or_not_authorized") from error
+        except ScreenshotServiceError as error:
+            raise McpAuthorizationError(self._screenshot_error(error.code)) from error
+        status = result.capture.screenshot
+        if (
+            status.capture_id != result.capture.capture_id
+            or status.captured_at is None
+            or status.width is None
+            or status.height is None
+            or status.mime_type != PNG_MIME_TYPE
+            or status.byte_size != len(result.png)
+            or not result.png.startswith(PNG_SIGNATURE)
+        ):
+            raise McpAuthorizationError("screenshot_capture_unavailable")
+        if len(result.png) > MAX_PNG_BYTES:
+            raise McpAuthorizationError("response_too_large")
+        metadata = ScreenshotCaptureMetadata(
+            target_id=target_id,
+            capture_id=result.capture.capture_id,
+            captured_at=status.captured_at,
+            width=status.width,
+            height=status.height,
+            mime_type=PNG_MIME_TYPE,
+            byte_size=len(result.png),
+        )
+        self._require_bounded(metadata)
+        return ScreenshotToolResult(metadata=metadata, png=result.png)
 
     def target_list(
         self,
@@ -195,3 +369,40 @@ class McpTargetToolService:
         ).encode()
         if len(encoded) > MAX_MCP_RESPONSE_BYTES:
             raise McpAuthorizationError("response_too_large")
+
+    @staticmethod
+    def _inventory_error(
+        reason: AddonInventoryUnavailableReason | None,
+    ) -> str:
+        if reason in {
+            AddonInventoryUnavailableReason.INSTANCE_NOT_PROVISIONED,
+            AddonInventoryUnavailableReason.KODI_NOT_RUNNING,
+        }:
+            return "target_not_running"
+        if reason in {
+            AddonInventoryUnavailableReason.KODI_NOT_READY,
+            AddonInventoryUnavailableReason.JSONRPC_UNAVAILABLE,
+        }:
+            return "target_not_ready"
+        if reason is AddonInventoryUnavailableReason.INVENTORY_LIMIT_EXCEEDED:
+            return "response_too_large"
+        return "inventory_unavailable"
+
+    @staticmethod
+    def _screenshot_error(code: str) -> str:
+        return {
+            "screenshot_unsupported": "capability_unavailable",
+            "visual_instance_not_running": "target_not_running",
+            "visual_kodi_not_ready": "target_not_ready",
+        }.get(
+            code,
+            code
+            if code
+            in {
+                "screenshot_capture_in_progress",
+                "visual_rate_limited",
+                "screenshot_capture_unavailable",
+                "screenshot_invalid_result",
+            }
+            else "screenshot_capture_unavailable",
+        )

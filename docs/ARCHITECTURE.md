@@ -1596,3 +1596,53 @@ enforced registry target/global scope metadata in common authorization. No
 migration was added. Custom-preset creation remains deferred and is still a
 Phase 11 completion requirement; the built-in Production Remote Kodi preset
 remains unassignable and empty. Phase 11 remains partial.
+
+## Phase 11 Slice 3 read-only target observation
+
+The production registry now contains exactly lexical `addon_list`,
+`screenshot_capture`, `target_list`, and `target_status`. Both new tools pass
+through the same durable bearer, enabled-client, preset, exact grant, target
+policy, static registry, target-class, capability and reconciliation-state
+intersection. Discovery remains target-independent: `target.inspect` reveals
+the inventory and target tools, while `target.visual` additionally reveals
+screenshots. Grants, target policy, exact runtime capability and state remain
+invocation-time authority.
+
+`addon_list` calls `ManagedInstanceAddonInventoryService`; the MCP adapter does
+not construct Kodi JSON-RPC. It exposes only bounded add-on ID, name, version,
+Kodi type, enabled state and trustworthy service-derived provenance class/status.
+It defaults to 50 items, caps at 100, preserves deterministic service ordering,
+uses the public semantic add-on ID as its cursor, and rejects a structured page
+over 64 KiB with `response_too_large`. Paths, install directories, repository
+URLs, package caches, raw Kodi documents, internal IDs and provenance inference
+from paths remain absent.
+
+`screenshot_capture` calls `ManagedScreenshotService.capture_image`, which is
+the existing durable Phase 10 capture path: one capture attempt, the same exact
+curated four-runtime capability check, per-instance exclusion, four-capture
+global bound, private raw staging, strict PNG validation, atomic latest-cache
+publication and old-cache removal. The added result form retains an in-memory
+reference to the exact validated PNG published by that successful capture; it
+does not reread a racy latest pointer or make an MCP-specific copy. Failure
+retains the prior latest screenshot. MCP returns official SDK `ImageContent`
+with exact `image/png` plus target/capture UUID, capture time, dimensions, MIME
+type and byte size. No image, base64, hash, URL, path or broker identity enters
+MCP audit output.
+
+The 64 KiB bound remains an inbound request and ordinary structured-result
+bound, not an image-response bound. Validated PNG bytes remain capped at 8 MiB;
+the stdio proxy admits only the corresponding base64 maximum plus a fixed 64 KiB
+JSON/metadata envelope (11,250,348 bytes). It incrementally reads the HTTP
+response to that cap, keeps four active workers and an eight-request
+backpressured input queue, serializes stdout writes behind a lock, and waits for
+pipe backpressure. There is no unbounded response queue, temp image file, token
+exposure or stdio-side screenshot authority.
+
+Migration `0037_mcp_observation_permissions` adds `target.visual` to Add-on
+Development, Read-only Inspection and Full Lab Control. All three retain
+`target.inspect`; `target.control` is not yet recognized. Production Remote Kodi
+remains empty and unassignable. Downgrade removes only the three deterministic
+rows and refuses if an assigned client or target policy would lose visual
+authority. Phase 11 remains partial: semantic remote control and durable action
+receipts, custom presets, the compatibility decision, final client/conformance
+matrix and formal closeout remain.
