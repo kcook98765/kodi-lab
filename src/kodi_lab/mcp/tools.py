@@ -29,6 +29,11 @@ from kodi_lab.application.agent_workspaces import (
 )
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.application.mcp_administration import McpPrincipal
+from kodi_lab.application.mcp_promotion_requests import (
+    McpPromotionRequestError,
+    McpPromotionRequestService,
+    PromotionRequestResult,
+)
 from kodi_lab.application.mcp_remote_actions import (
     McpRemoteActionReceiptError,
     McpRemoteActionReceiptService,
@@ -193,6 +198,13 @@ class WorkspaceSummary(BaseModel):
     latest_execution_state: str | None = None
     latest_execution_generation: int | None = Field(default=None, ge=0)
     latest_execution_target_id: UUID | None = None
+    latest_promotion_plan_id: UUID | None = None
+    latest_promotion_review_state: str | None = None
+    latest_promotion_operation_id: UUID | None = None
+    latest_promotion_operation_state: str | None = None
+    latest_promotion_verification_id: UUID | None = None
+    latest_promotion_verification_state: str | None = None
+    latest_promotion_final_classification: str | None = None
 
 
 class WorkspaceStatusResult(BaseModel):
@@ -377,6 +389,7 @@ class McpTargetToolService:
         workspace_creation: McpWorkspaceCreationService | None = None,
         workspace_retention: McpWorkspaceRetentionService | None = None,
         workspace_development: McpWorkspaceDevelopmentService | None = None,
+        promotion_requests: McpPromotionRequestService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -388,6 +401,7 @@ class McpTargetToolService:
         self._workspace_creation = workspace_creation
         self._workspace_retention = workspace_retention
         self._workspace_development = workspace_development
+        self._promotion_requests = promotion_requests
         self._active_edit_lock = threading.Lock()
         self._active_edits: set[UUID] = set()
         self._validation_lock = threading.Lock()
@@ -414,6 +428,30 @@ class McpTargetToolService:
                 source_id=source_id,
             )
         except McpWorkspaceMutationError as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_development_bounded(result)
+        return result
+
+    def promotion_request(
+        self, principal: McpPrincipal, operation: WorkspaceTargetOperationInput
+    ) -> PromotionRequestResult:
+        self._authorization.authorize_workspace_target(
+            principal,
+            "promotion_request",
+            operation.workspace_id,
+            operation.target_id,
+        )
+        if self._promotion_requests is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._promotion_requests.request(
+                client_id=principal.client_id,
+                request_id=operation.request_id,
+                workspace_id=operation.workspace_id,
+                expected_generation=operation.expected_generation,
+                target_id=operation.target_id,
+            )
+        except McpPromotionRequestError as error:
             raise McpAuthorizationError(error.code) from error
         self._require_development_bounded(result)
         return result
@@ -1055,6 +1093,11 @@ class McpTargetToolService:
             if self._workspace_development is None
             else self._workspace_development.projection(workspace.id)
         )
+        promotion = (
+            None
+            if self._promotion_requests is None
+            else self._promotion_requests.projection(workspace.id)
+        )
         return WorkspaceSummary(
             workspace_id=workspace.id,
             source_id=workspace.development_source_id,
@@ -1117,6 +1160,25 @@ class McpTargetToolService:
             ),
             latest_execution_target_id=(
                 None if development is None else development.execution_target_id
+            ),
+            latest_promotion_plan_id=(None if promotion is None else promotion.plan_id),
+            latest_promotion_review_state=(
+                None if promotion is None else promotion.review_state
+            ),
+            latest_promotion_operation_id=(
+                None if promotion is None else promotion.promotion_operation_id
+            ),
+            latest_promotion_operation_state=(
+                None if promotion is None else promotion.promotion_operation_state
+            ),
+            latest_promotion_verification_id=(
+                None if promotion is None else promotion.verification_id
+            ),
+            latest_promotion_verification_state=(
+                None if promotion is None else promotion.verification_state
+            ),
+            latest_promotion_final_classification=(
+                None if promotion is None else promotion.final_classification
             ),
         )
 

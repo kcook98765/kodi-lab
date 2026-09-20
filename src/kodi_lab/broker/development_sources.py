@@ -27,11 +27,15 @@ from kodi_lab.domain import (
     RepositoryReplacementOperationState,
 )
 from kodi_lab.storage.engine import create_database_engine
-from kodi_lab.storage.models import McpWorkspaceDeploymentOperationRow
+from kodi_lab.storage.models import (
+    McpWorkspaceDeploymentOperationRow,
+    McpWorkspaceExecutionOperationRow,
+)
 from kodi_lab.storage.repositories import (
     AddonZipInstallationEvidenceRepository,
     AgentWorkspacePromotionHandoffRepository,
     AgentWorkspacePromotionOperationRepository,
+    AgentWorkspacePromotionPlanRepository,
     AgentWorkspaceRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
@@ -458,6 +462,13 @@ class SqliteDevelopmentSourceDeploymentResolver:
             promotion = AgentWorkspacePromotionOperationRepository(session).get(
                 verification.source_promotion_id
             )
+            plan = (
+                None
+                if promotion is None
+                else AgentWorkspacePromotionPlanRepository(session).get(
+                    promotion.plan_id
+                )
+            )
             source = DevelopmentSourceRepository(session).get(
                 verification.development_source_id
             )
@@ -473,9 +484,63 @@ class SqliteDevelopmentSourceDeploymentResolver:
             profile = RuntimeExecutionProfileRepository(session).get(
                 instance.runtime_revision_id
             )
+            mcp_deployment = (
+                None
+                if plan is None or plan.originating_mcp_deployment_id is None
+                else session.get(
+                    McpWorkspaceDeploymentOperationRow,
+                    str(plan.originating_mcp_deployment_id),
+                )
+            )
+            mcp_execution = (
+                None
+                if plan is None or plan.originating_mcp_execution_id is None
+                else session.get(
+                    McpWorkspaceExecutionOperationRow,
+                    str(plan.originating_mcp_execution_id),
+                )
+            )
+        canonical_anchor_valid = (
+            evidence is not None
+            and evidence.last_successful_operation_id
+            == (None if handoff is None else handoff.prior_deployment_operation_id)
+        )
+        if plan is None or plan.originating_mcp_client_id is None:
+            prior_evidence_valid = canonical_anchor_valid and (
+                handoff is not None
+                and evidence is not None
+                and evidence.source_manifest_digest == handoff.prior_source_digest
+                and evidence.verified_destination_digest
+                == handoff.prior_destination_digest
+            )
+        else:
+            prior_evidence_valid = canonical_anchor_valid and (
+                handoff is not None
+                and mcp_deployment is not None
+                and mcp_execution is not None
+                and mcp_deployment.client_id == str(plan.originating_mcp_client_id)
+                and mcp_deployment.workspace_id == str(verification.workspace_id)
+                and mcp_deployment.development_source_id
+                == str(verification.development_source_id)
+                and mcp_deployment.target_id == str(instance_id)
+                and mcp_deployment.generation == plan.workspace_generation
+                and mcp_deployment.state == "succeeded"
+                and mcp_deployment.source_manifest_digest == handoff.prior_source_digest
+                and mcp_deployment.verified_destination_digest
+                == handoff.prior_destination_digest
+                and mcp_execution.client_id == str(plan.originating_mcp_client_id)
+                and mcp_execution.deployment_id == mcp_deployment.id
+                and mcp_execution.workspace_id == str(verification.workspace_id)
+                and mcp_execution.development_source_id
+                == str(verification.development_source_id)
+                and mcp_execution.target_id == str(instance_id)
+                and mcp_execution.generation == plan.workspace_generation
+                and mcp_execution.state == "succeeded"
+            )
         if (
             handoff is None
             or promotion is None
+            or plan is None
             or source is None
             or attachment is None
             or evidence is None
@@ -499,10 +564,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
             or handoff.expected_name != verification.expected_name
             or handoff.expected_version != verification.expected_version
             or handoff.expected_enabled is not verification.expected_enabled
-            or evidence.source_manifest_digest != handoff.prior_source_digest
-            or evidence.verified_destination_digest != handoff.prior_destination_digest
-            or evidence.last_successful_operation_id
-            != handoff.prior_deployment_operation_id
+            or not prior_evidence_valid
             or deployment.state is not DevelopmentSourceDeploymentOperationState.RUNNING
             or deployment.expected_container_id != expected_container_id
         ):

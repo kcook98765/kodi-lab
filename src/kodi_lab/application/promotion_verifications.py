@@ -37,6 +37,10 @@ from kodi_lab.domain import (
     PromotionVerificationState,
 )
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator, UsabilityState
+from kodi_lab.storage.models import (
+    McpWorkspaceDeploymentOperationRow,
+    McpWorkspaceExecutionOperationRow,
+)
 from kodi_lab.storage.repositories import (
     AgentWorkspacePromotionHandoffRepository,
     AgentWorkspacePromotionOperationRepository,
@@ -645,6 +649,22 @@ class PromotionVerificationService:
             evidence = DevelopmentSourceDeploymentRepository(session).get(
                 operation.target_instance_id, operation.development_source_id
             )
+            mcp_deployment = (
+                None
+                if plan is None or plan.originating_mcp_deployment_id is None
+                else session.get(
+                    McpWorkspaceDeploymentOperationRow,
+                    str(plan.originating_mcp_deployment_id),
+                )
+            )
+            mcp_execution = (
+                None
+                if plan is None or plan.originating_mcp_execution_id is None
+                else session.get(
+                    McpWorkspaceExecutionOperationRow,
+                    str(plan.originating_mcp_execution_id),
+                )
+            )
         if (
             promotion is None
             or plan is None
@@ -680,19 +700,46 @@ class PromotionVerificationService:
                 "promotion_verification_handoff_invalid",
                 "Reserved promotion verification handoff is invalid.",
             )
-        if (
-            instance is None
-            or attachment is None
-            or evidence is None
-            or instance.instance_type is not InstanceType.DISPOSABLE
-            or instance.runtime_revision_id != operation.runtime_revision_id
-            or evidence.runtime_revision_id != operation.runtime_revision_id
-            or evidence.trusted_container_id != container_id
-            or evidence.last_successful_operation_id
-            != handoff.prior_deployment_operation_id
-            or evidence.source_manifest_digest != handoff.prior_source_digest
-            or evidence.verified_destination_digest != handoff.prior_destination_digest
-        ):
+        canonical_anchor_valid = (
+            instance is not None
+            and attachment is not None
+            and evidence is not None
+            and instance.instance_type is InstanceType.DISPOSABLE
+            and instance.runtime_revision_id == operation.runtime_revision_id
+            and evidence.runtime_revision_id == operation.runtime_revision_id
+            and evidence.trusted_container_id == container_id
+            and evidence.last_successful_operation_id
+            == handoff.prior_deployment_operation_id
+        )
+        if plan.originating_mcp_client_id is None:
+            prior_evidence_valid = canonical_anchor_valid and (
+                evidence is not None
+                and evidence.source_manifest_digest == handoff.prior_source_digest
+                and evidence.verified_destination_digest
+                == handoff.prior_destination_digest
+            )
+        else:
+            prior_evidence_valid = canonical_anchor_valid and (
+                mcp_deployment is not None
+                and mcp_execution is not None
+                and mcp_deployment.client_id == str(plan.originating_mcp_client_id)
+                and mcp_deployment.workspace_id == str(operation.workspace_id)
+                and mcp_deployment.development_source_id
+                == str(operation.development_source_id)
+                and mcp_deployment.target_id == str(operation.target_instance_id)
+                and mcp_deployment.generation == plan.workspace_generation
+                and mcp_deployment.state == "succeeded"
+                and mcp_deployment.source_manifest_digest == handoff.prior_source_digest
+                and mcp_deployment.verified_destination_digest
+                == handoff.prior_destination_digest
+                and mcp_execution.client_id == str(plan.originating_mcp_client_id)
+                and mcp_execution.deployment_id == mcp_deployment.id
+                and mcp_execution.workspace_id == str(operation.workspace_id)
+                and mcp_execution.target_id == str(operation.target_instance_id)
+                and mcp_execution.generation == plan.workspace_generation
+                and mcp_execution.state == "succeeded"
+            )
+        if not prior_evidence_valid:
             raise PromotionVerificationError(
                 "promotion_verification_preflight_drift",
                 "Selected verification target drifted before mutation.",

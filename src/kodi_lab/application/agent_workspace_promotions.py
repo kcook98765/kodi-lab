@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -37,7 +38,13 @@ from kodi_lab.domain import (
     ManagedInstanceMutationKind,
     TargetAvailability,
 )
-from kodi_lab.storage.models import AgentWorkspacePromotionPlanPathRow
+from kodi_lab.storage.models import (
+    AgentWorkspacePromotionPlanPathRow,
+    McpClientRow,
+    McpWorkspaceDeploymentOperationRow,
+    McpWorkspaceExecutionOperationRow,
+    McpWorkspaceValidationRow,
+)
 from kodi_lab.storage.repositories import (
     AgentWorkspacePromotionHandoffRepository,
     AgentWorkspacePromotionOperationRepository,
@@ -94,6 +101,8 @@ class AgentWorkspacePromotionPlanRead(BaseModel):
 
     plan_id: UUID
     workspace_id: UUID
+    source_id: UUID
+    workspace_generation: int = Field(ge=0)
     state: AgentWorkspacePromotionPlanState
     workspace_logical_name: str = Field(max_length=120)
     source_logical_name: str = Field(max_length=120)
@@ -105,6 +114,17 @@ class AgentWorkspacePromotionPlanRead(BaseModel):
     promoted_version: str = Field(max_length=128)
     source_write_permission: str
     changed_file_count: int = Field(ge=1, le=100)
+    added_file_count: int = Field(ge=0, le=100)
+    modified_file_count: int = Field(ge=0, le=100)
+    originating_actor: str = Field(max_length=32)
+    originating_mcp_client_id: UUID | None = None
+    originating_mcp_client_name: str | None = Field(default=None, max_length=120)
+    identity_classification: str = Field(max_length=64)
+    validation_classification: str = Field(max_length=64)
+    deployment_classification: str = Field(max_length=64)
+    execution_classification: str = Field(max_length=64)
+    source_conflict_classification: str = Field(max_length=64)
+    web_review_required: bool = True
     review_text_bytes: int = Field(ge=0, le=4 * 1024 * 1024)
     review_file_limit: int = 100
     review_text_limit_bytes: int = 4 * 1024 * 1024
@@ -150,6 +170,14 @@ class _TargetBinding:
     source_digest: str
     destination_digest: str
     expected_enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class McpPromotionOrigin:
+    client_id: UUID
+    request_id: UUID
+    deployment_id: UUID
+    execution_id: UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,12 +268,16 @@ class AgentWorkspacePromotionService:
         target_id: UUID,
         source_id: UUID,
         *,
+        workspace_id: UUID | None = None,
+        generation: int | None = None,
+        mcp_origin: McpPromotionOrigin | None = None,
         permit_reserved_operation: UUID | None = None,
     ) -> _TargetBinding:
         if self._reconciliation_gate is not None:
             self._reconciliation_gate(target_id)
         with self._session_factory() as session:
             target = TargetRepository(session).get(target_id)
+            source = DevelopmentSourceRepository(session).get(source_id)
             instance = ManagedInstanceRepository(session).get(target_id)
             attachment = ManagedInstanceDevelopmentSourceRepository(session).get(
                 target_id, source_id
@@ -266,6 +298,45 @@ class AgentWorkspacePromotionService:
             enablements = DevelopmentSourceEnablementOperationRepository(
                 session
             ).list_for_original_instance(target_id)
+            mcp_deployment = (
+                None
+                if mcp_origin is None
+                else session.get(
+                    McpWorkspaceDeploymentOperationRow, str(mcp_origin.deployment_id)
+                )
+            )
+            mcp_execution = (
+                None
+                if mcp_origin is None
+                else session.get(
+                    McpWorkspaceExecutionOperationRow, str(mcp_origin.execution_id)
+                )
+            )
+        exact_mcp_evidence = mcp_origin is not None and (
+            workspace_id is not None
+            and generation is not None
+            and mcp_deployment is not None
+            and mcp_execution is not None
+            and mcp_deployment.client_id == str(mcp_origin.client_id)
+            and mcp_deployment.workspace_id == str(workspace_id)
+            and mcp_deployment.development_source_id == str(source_id)
+            and mcp_deployment.target_id == str(target_id)
+            and mcp_deployment.generation == generation
+            and mcp_deployment.state == "succeeded"
+            and source is not None
+            and mcp_deployment.addon_id == source.addon_id
+            and mcp_deployment.source_manifest_digest is not None
+            and mcp_deployment.verified_destination_digest is not None
+            and mcp_execution.client_id == str(mcp_origin.client_id)
+            and mcp_execution.workspace_id == str(workspace_id)
+            and mcp_execution.development_source_id == str(source_id)
+            and mcp_execution.target_id == str(target_id)
+            and mcp_execution.generation == generation
+            and mcp_execution.deployment_id == str(mcp_origin.deployment_id)
+            and mcp_execution.state == "succeeded"
+            and mcp_execution.addon_id == mcp_deployment.addon_id
+            and mcp_execution.addon_version == mcp_deployment.addon_version
+        )
         if (
             target is None
             or instance is None
@@ -276,8 +347,12 @@ class AgentWorkspacePromotionService:
             or target.availability is not TargetAvailability.AVAILABLE
             or target.health is not HealthStatus.HEALTHY
             or target.connection_state is not ConnectionState.CONNECTED
-            or deployment.confidence
-            is not DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+            or (
+                mcp_origin is None
+                and deployment.confidence
+                is not DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+            )
+            or (mcp_origin is not None and not exact_mcp_evidence)
             or deployment.runtime_revision_id != instance.runtime_revision_id
             or operation.state
             is not DevelopmentSourceDeploymentOperationState.SUCCEEDED
@@ -319,13 +394,26 @@ class AgentWorkspacePromotionService:
                 "promotion_target_enabled_unknown",
                 "Selected target enabled state is unknown.",
             )
+        canonical_source_digest = deployment.source_manifest_digest
+        canonical_destination_digest = deployment.verified_destination_digest
+        assert canonical_source_digest is not None
+        assert canonical_destination_digest is not None
+        selected_source_digest = canonical_source_digest
+        selected_destination_digest = canonical_destination_digest
+        if mcp_deployment is not None:
+            mcp_source_digest = mcp_deployment.source_manifest_digest
+            mcp_destination_digest = mcp_deployment.verified_destination_digest
+            assert mcp_source_digest is not None
+            assert mcp_destination_digest is not None
+            selected_source_digest = mcp_source_digest
+            selected_destination_digest = mcp_destination_digest
         return _TargetBinding(
             target.name,
             instance.runtime_revision_id,
             deployment.trusted_container_id,
             deployment.last_successful_operation_id,
-            deployment.source_manifest_digest,
-            deployment.verified_destination_digest,
+            selected_source_digest,
+            selected_destination_digest,
             enabled,
         )
 
@@ -505,7 +593,12 @@ class AgentWorkspacePromotionService:
         return recovered
 
     def prepare(
-        self, target_id: UUID, workspace_id: UUID
+        self,
+        target_id: UUID,
+        workspace_id: UUID,
+        *,
+        mcp_origin: McpPromotionOrigin | None = None,
+        request_claim: Callable[[Session, UUID], None] | None = None,
     ) -> AgentWorkspacePromotionPlanRead:
         if self._development_root is None:
             raise AgentWorkspacePromotionConflictError(
@@ -521,7 +614,13 @@ class AgentWorkspacePromotionService:
                     "promotion_plan_active",
                     "Workspace already has an active promotion plan.",
                 )
-        binding = self._target_binding(target_id, source.id)
+        binding = self._target_binding(
+            target_id,
+            source.id,
+            workspace_id=workspace.id,
+            generation=workspace.generation,
+            mcp_origin=mcp_origin,
+        )
         if (
             workspace.baseline_manifest_digest is None
             or workspace.current_tree_digest is None
@@ -559,6 +658,18 @@ class AgentWorkspacePromotionService:
             state=AgentWorkspacePromotionPlanState.PREPARING,
             live_target_instance_id=target_id,
             original_target_name=binding.name,
+            originating_mcp_client_id=(
+                None if mcp_origin is None else mcp_origin.client_id
+            ),
+            originating_mcp_request_id=(
+                None if mcp_origin is None else mcp_origin.request_id
+            ),
+            originating_mcp_deployment_id=(
+                None if mcp_origin is None else mcp_origin.deployment_id
+            ),
+            originating_mcp_execution_id=(
+                None if mcp_origin is None else mcp_origin.execution_id
+            ),
         )
         try:
             with self._session_factory.begin() as session:
@@ -575,6 +686,8 @@ class AgentWorkspacePromotionService:
                         "Only a stable ready workspace may be promoted.",
                     )
                 AgentWorkspacePromotionPlanRepository(session).create(preparing, [])
+                if request_claim is not None:
+                    request_claim(session, plan_id)
                 heavy = GlobalHeavyOperationLeaseRepository(session)
                 heavy.reserve(
                     kind=GlobalHeavyOperationKind.AGENT_WORKSPACE_PROMOTION,
@@ -670,6 +783,18 @@ class AgentWorkspacePromotionService:
             state=state,
             live_target_instance_id=target_id,
             original_target_name=binding.name,
+            originating_mcp_client_id=(
+                None if mcp_origin is None else mcp_origin.client_id
+            ),
+            originating_mcp_request_id=(
+                None if mcp_origin is None else mcp_origin.request_id
+            ),
+            originating_mcp_deployment_id=(
+                None if mcp_origin is None else mcp_origin.deployment_id
+            ),
+            originating_mcp_execution_id=(
+                None if mcp_origin is None else mcp_origin.execution_id
+            ),
         )
         paths: list[dict[str, object]] = [
             {
@@ -737,6 +862,38 @@ class AgentWorkspacePromotionService:
                 )
             )
             target = TargetRepository(session).get(target_id)
+            client = (
+                None
+                if plan is None or plan.originating_mcp_client_id is None
+                else session.get(McpClientRow, str(plan.originating_mcp_client_id))
+            )
+            validation = (
+                None
+                if plan is None or plan.originating_mcp_client_id is None
+                else session.scalar(
+                    select(McpWorkspaceValidationRow).where(
+                        McpWorkspaceValidationRow.workspace_id == str(workspace_id),
+                        McpWorkspaceValidationRow.generation
+                        == plan.workspace_generation,
+                    )
+                )
+            )
+            deployment = (
+                None
+                if plan is None or plan.originating_mcp_deployment_id is None
+                else session.get(
+                    McpWorkspaceDeploymentOperationRow,
+                    str(plan.originating_mcp_deployment_id),
+                )
+            )
+            execution = (
+                None
+                if plan is None or plan.originating_mcp_execution_id is None
+                else session.get(
+                    McpWorkspaceExecutionOperationRow,
+                    str(plan.originating_mcp_execution_id),
+                )
+            )
         if (
             plan is None
             or plan.workspace_id != workspace_id
@@ -750,6 +907,8 @@ class AgentWorkspacePromotionService:
         return AgentWorkspacePromotionPlanRead(
             plan_id=plan.id,
             workspace_id=workspace.id,
+            source_id=plan.development_source_id,
+            workspace_generation=plan.workspace_generation,
             state=plan.state,
             workspace_logical_name=workspace.source_logical_name,
             source_logical_name=source.logical_name,
@@ -765,6 +924,50 @@ class AgentWorkspacePromotionService:
             promoted_version=plan.promoted_version,
             source_write_permission="promotion_enabled",
             changed_file_count=plan.changed_file_count,
+            added_file_count=sum(
+                item.change_kind is AgentWorkspacePromotionChangeKind.ADD
+                for item in paths
+            ),
+            modified_file_count=sum(
+                item.change_kind is AgentWorkspacePromotionChangeKind.MODIFY
+                for item in paths
+            ),
+            originating_actor=(
+                "web_administrator"
+                if plan.originating_mcp_client_id is None
+                else "mcp_client"
+            ),
+            originating_mcp_client_id=plan.originating_mcp_client_id,
+            originating_mcp_client_name=(
+                None if client is None else client.display_name
+            ),
+            identity_classification="addon_identity_stable",
+            validation_classification=(
+                "not_applicable"
+                if plan.originating_mcp_client_id is None
+                else "passed"
+                if validation is not None and validation.classification == "passed"
+                else "evidence_unavailable"
+            ),
+            deployment_classification=(
+                "canonical_source_verified"
+                if plan.originating_mcp_client_id is None
+                else "succeeded"
+                if deployment is not None and deployment.state == "succeeded"
+                else "evidence_unavailable"
+            ),
+            execution_classification=(
+                "not_required_for_web_preparation"
+                if plan.originating_mcp_client_id is None
+                else "succeeded"
+                if execution is not None and execution.state == "succeeded"
+                else "evidence_unavailable"
+            ),
+            source_conflict_classification=(
+                "conflicted"
+                if plan.state is AgentWorkspacePromotionPlanState.CONFLICTED
+                else "clear_at_preparation"
+            ),
             review_text_bytes=plan.review_text_bytes,
             expires_at=plan.expires_at,
             changes=[
@@ -793,6 +996,49 @@ class AgentWorkspacePromotionService:
             ),
         )
 
+    @staticmethod
+    def _mcp_origin(plan: AgentWorkspacePromotionPlan) -> McpPromotionOrigin | None:
+        if plan.originating_mcp_client_id is None:
+            return None
+        assert plan.originating_mcp_request_id is not None
+        assert plan.originating_mcp_deployment_id is not None
+        assert plan.originating_mcp_execution_id is not None
+        return McpPromotionOrigin(
+            client_id=plan.originating_mcp_client_id,
+            request_id=plan.originating_mcp_request_id,
+            deployment_id=plan.originating_mcp_deployment_id,
+            execution_id=plan.originating_mcp_execution_id,
+        )
+
+    def active_plan(self, workspace_id: UUID) -> AgentWorkspacePromotionPlanRead | None:
+        with self._session_factory.begin() as session:
+            plan = AgentWorkspacePromotionPlanRepository(session).active_for_workspace(
+                workspace_id, now=self._clock()
+            )
+        if plan is None:
+            return None
+        return self.get_plan(plan.target_instance_id, workspace_id, plan.id)
+
+    def reject(
+        self, target_id: UUID, workspace_id: UUID, plan_id: UUID
+    ) -> AgentWorkspacePromotionPlanRead:
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            plans = AgentWorkspacePromotionPlanRepository(session)
+            plans.expire_due(workspace_id, now=now)
+            plan = plans.get(plan_id)
+            if (
+                plan is None
+                or plan.workspace_id != workspace_id
+                or plan.target_instance_id != target_id
+                or not plans.reject_reviewable(plan_id, "web_admin_rejected")
+            ):
+                raise AgentWorkspacePromotionConflictError(
+                    "promotion_plan_not_rejectable",
+                    "Promotion plan is expired, invalidated, or already used.",
+                )
+        return self.get_plan(target_id, workspace_id, plan_id)
+
     def approve_and_execute(
         self, target_id: UUID, workspace_id: UUID, plan_id: UUID
     ) -> AgentWorkspacePromotionOperationStatus:
@@ -814,7 +1060,14 @@ class AgentWorkspacePromotionService:
                 "promotion_plan_not_executable",
                 "Promotion plan is expired, conflicted, invalidated, or already used.",
             )
-        binding = self._target_binding(target_id, plan.development_source_id)
+        origin = self._mcp_origin(plan)
+        binding = self._target_binding(
+            target_id,
+            plan.development_source_id,
+            workspace_id=plan.workspace_id,
+            generation=plan.workspace_generation,
+            mcp_origin=origin,
+        )
         if (
             binding.runtime_revision_id != plan.target_runtime_revision_id
             or binding.container_id != plan.target_container_id
@@ -1021,6 +1274,9 @@ class AgentWorkspacePromotionService:
             binding = self._target_binding(
                 lease.target_id,
                 lease.source_id,
+                workspace_id=plan.workspace_id,
+                generation=plan.workspace_generation,
+                mcp_origin=self._mcp_origin(plan),
                 permit_reserved_operation=lease.operation_id,
             )
             if (

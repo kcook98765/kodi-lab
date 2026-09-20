@@ -50,6 +50,7 @@ _DEVELOPMENT_PERMISSIONS = (
     "workspace.inspect",
     "workspace.deploy",
     "development.execute",
+    "development.request_promotion",
 )
 
 _BUILTINS = (

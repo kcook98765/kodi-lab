@@ -421,12 +421,24 @@ class McpAuthorizationService:
             if not definition.permissions.issubset(
                 client_permissions.intersection(target_permissions)
             ):
-                raise McpAuthorizationError("deployment_not_allowed")
+                raise McpAuthorizationError(
+                    "promotion_not_allowed"
+                    if tool_name == "promotion_request"
+                    else "deployment_not_allowed"
+                )
         technical = self._targets.resolve(target_id)
         if technical.target_class not in definition.allowed_target_classes:
-            raise McpAuthorizationError("deployment_not_allowed")
+            raise McpAuthorizationError(
+                "promotion_not_allowed"
+                if tool_name == "promotion_request"
+                else "deployment_not_allowed"
+            )
         if not definition.required_capabilities.issubset(technical.capabilities):
-            raise McpAuthorizationError("deployment_not_allowed")
+            raise McpAuthorizationError(
+                "promotion_not_allowed"
+                if tool_name == "promotion_request"
+                else "deployment_not_allowed"
+            )
         if not definition.required_states.issubset(technical.current_states):
             missing = definition.required_states.difference(technical.current_states)
             if "running" in missing:

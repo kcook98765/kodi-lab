@@ -57,4 +57,20 @@ if (approval) {
       errors.appendChild(item);
     }
   });
+  document.getElementById("reject-promotion").addEventListener("click", async () => {
+    const response = await fetch(`/api/instances/${approval.dataset.instanceId}/agent-workspaces/${approval.dataset.workspaceId}/promotion-plans/${approval.dataset.planId}/reject`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": approval.dataset.csrf},
+      body: JSON.stringify({confirmed: true}),
+    });
+    const payload = await response.json();
+    const result = document.getElementById("promotion-approval-result");
+    if (!response.ok) {
+      result.textContent = payload.error?.message || "Promotion rejection failed.";
+      return;
+    }
+    result.textContent = `Promotion plan ${payload.state}.`;
+    document.getElementById("approve-promotion").disabled = true;
+    document.getElementById("reject-promotion").disabled = true;
+  });
 }

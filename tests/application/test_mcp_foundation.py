@@ -284,6 +284,7 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
     permissions = {item.id: item.permissions for item in presets}
     assert permissions[ADDON_DEVELOPMENT_PRESET_ID] == (
         "development.execute",
+        "development.request_promotion",
         "target.control",
         "target.inspect",
         "target.visual",
@@ -293,6 +294,7 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
     )
     assert permissions[FULL_LAB_CONTROL_PRESET_ID] == (
         "development.execute",
+        "development.request_promotion",
         "target.control",
         "target.inspect",
         "target.visual",
@@ -336,6 +338,7 @@ def test_custom_presets_are_bounded_builtin_permission_snapshots(
     )
     assert development_snapshot.permissions == (
         "development.execute",
+        "development.request_promotion",
         "target.control",
         "target.inspect",
         "target.visual",
@@ -703,6 +706,7 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     assert registry.names() == (
         "addon_list",
         "development_source_list",
+        "promotion_request",
         "remote_action",
         "screenshot_capture",
         "target_list",
@@ -752,6 +756,15 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     assert execution.rate_class is ToolRateClass.DEVELOPMENT_EXECUTE
     assert execution.required_capabilities == frozenset({"workspace_execution"})
     assert not deployment.production_eligible and not execution.production_eligible
+    promotion = registry.require("promotion_request")
+    assert promotion.permissions == frozenset({"development.request_promotion"})
+    assert promotion.rate_class is ToolRateClass.DEVELOPMENT_PROMOTION_REQUEST
+    assert promotion.required_capabilities == frozenset(
+        {"workspace_deployment", "workspace_execution"}
+    )
+    assert promotion.effect is ToolEffect.MUTATING
+    assert not promotion.production_eligible
+    assert "promotion_approve" not in registry.names()
 
 
 def test_authorization_enforces_registry_scope_classification(

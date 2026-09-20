@@ -88,6 +88,10 @@ class AgentWorkspacePromotionPlan:
     invalidation_reason: str | None = None
     live_target_instance_id: UUID | None = None
     original_target_name: str | None = None
+    originating_mcp_client_id: UUID | None = None
+    originating_mcp_request_id: UUID | None = None
+    originating_mcp_deployment_id: UUID | None = None
+    originating_mcp_execution_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.workspace_generation < 0:
@@ -98,6 +102,16 @@ class AgentWorkspacePromotionPlan:
             raise ValueError("promotion review byte count is invalid")
         if len(self.target_container_id) != 64:
             raise ValueError("promotion target container identity is invalid")
+        origin = (
+            self.originating_mcp_client_id,
+            self.originating_mcp_request_id,
+            self.originating_mcp_deployment_id,
+            self.originating_mcp_execution_id,
+        )
+        if any(item is not None for item in origin) and not all(
+            item is not None for item in origin
+        ):
+            raise ValueError("promotion MCP origin must be complete")
         for field in ("created_at", "reviewable_at", "expires_at"):
             object.__setattr__(self, field, _utc(getattr(self, field), field))
 

@@ -1019,6 +1019,26 @@ def _agent_workspace_promotion_plan_from_row(
             None if row.target_instance_id is None else UUID(row.target_instance_id)
         ),
         original_target_name=row.original_target_name,
+        originating_mcp_client_id=(
+            None
+            if row.originating_mcp_client_id is None
+            else UUID(row.originating_mcp_client_id)
+        ),
+        originating_mcp_request_id=(
+            None
+            if row.originating_mcp_request_id is None
+            else UUID(row.originating_mcp_request_id)
+        ),
+        originating_mcp_deployment_id=(
+            None
+            if row.originating_mcp_deployment_id is None
+            else UUID(row.originating_mcp_deployment_id)
+        ),
+        originating_mcp_execution_id=(
+            None
+            if row.originating_mcp_execution_id is None
+            else UUID(row.originating_mcp_execution_id)
+        ),
     )
 
 
@@ -7633,6 +7653,26 @@ class AgentWorkspacePromotionPlanRepository:
                 if plan.source_operation_id is None
                 else str(plan.source_operation_id),
                 invalidation_reason=plan.invalidation_reason,
+                originating_mcp_client_id=(
+                    None
+                    if plan.originating_mcp_client_id is None
+                    else str(plan.originating_mcp_client_id)
+                ),
+                originating_mcp_request_id=(
+                    None
+                    if plan.originating_mcp_request_id is None
+                    else str(plan.originating_mcp_request_id)
+                ),
+                originating_mcp_deployment_id=(
+                    None
+                    if plan.originating_mcp_deployment_id is None
+                    else str(plan.originating_mcp_deployment_id)
+                ),
+                originating_mcp_execution_id=(
+                    None
+                    if plan.originating_mcp_execution_id is None
+                    else str(plan.originating_mcp_execution_id)
+                ),
             )
         )
         for path in paths:
@@ -7718,6 +7758,19 @@ class AgentWorkspacePromotionPlanRepository:
                         AgentWorkspacePromotionPlanState.APPROVED_AND_QUEUED,
                     )
                 ),
+            )
+        )
+        return None if row is None else _agent_workspace_promotion_plan_from_row(row)
+
+    def get_for_mcp_request(
+        self, client_id: UUID, request_id: UUID
+    ) -> AgentWorkspacePromotionPlan | None:
+        row = self._session.scalar(
+            select(AgentWorkspacePromotionPlanRow).where(
+                AgentWorkspacePromotionPlanRow.originating_mcp_client_id
+                == str(client_id),
+                AgentWorkspacePromotionPlanRow.originating_mcp_request_id
+                == str(request_id),
             )
         )
         return None if row is None else _agent_workspace_promotion_plan_from_row(row)
@@ -7820,6 +7873,22 @@ class AgentWorkspacePromotionPlanRepository:
                 invalidation_reason=reason[:128],
             )
         )
+
+    def reject_reviewable(self, plan_id: UUID, reason: str) -> bool:
+        result = self._session.execute(
+            update(AgentWorkspacePromotionPlanRow)
+            .where(
+                AgentWorkspacePromotionPlanRow.id == str(plan_id),
+                AgentWorkspacePromotionPlanRow.state
+                == AgentWorkspacePromotionPlanState.REVIEWABLE,
+                AgentWorkspacePromotionPlanRow.source_operation_id.is_(None),
+            )
+            .values(
+                state=AgentWorkspacePromotionPlanState.INVALIDATED,
+                invalidation_reason=reason[:128],
+            )
+        )
+        return int(getattr(result, "rowcount", 0)) == 1
 
 
 class AgentWorkspacePromotionOperationRepository:

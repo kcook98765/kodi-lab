@@ -538,6 +538,17 @@ class AgentWorkspacePromotionPlanRow(Base):
             "length(invalidation_reason) BETWEEN 1 AND 128",
             name="workspace_promotion_invalidation_bounded",
         ),
+        CheckConstraint(
+            "(originating_mcp_client_id IS NULL AND "
+            "originating_mcp_request_id IS NULL AND "
+            "originating_mcp_deployment_id IS NULL AND "
+            "originating_mcp_execution_id IS NULL) OR "
+            "(length(originating_mcp_client_id)=36 AND "
+            "length(originating_mcp_request_id)=36 AND "
+            "length(originating_mcp_deployment_id)=36 AND "
+            "length(originating_mcp_execution_id)=36)",
+            name="workspace_promotion_mcp_origin_complete",
+        ),
         Index(
             "uq_workspace_promotion_active_workspace",
             "workspace_id",
@@ -554,6 +565,13 @@ class AgentWorkspacePromotionPlanRow(Base):
         Index(
             "ix_agent_workspace_promotion_plans_original_target",
             "original_target_instance_id",
+        ),
+        Index(
+            "uq_workspace_promotion_mcp_request",
+            "originating_mcp_client_id",
+            "originating_mcp_request_id",
+            unique=True,
+            sqlite_where=text("originating_mcp_client_id IS NOT NULL"),
         ),
     )
 
@@ -614,6 +632,18 @@ class AgentWorkspacePromotionPlanRow(Base):
     )
     source_operation_id: Mapped[str | None] = mapped_column(String(36), unique=True)
     invalidation_reason: Mapped[str | None] = mapped_column(String(128))
+    originating_mcp_client_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="RESTRICT")
+    )
+    originating_mcp_request_id: Mapped[str | None] = mapped_column(String(36))
+    originating_mcp_deployment_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mcp_workspace_deployment_operations.id", ondelete="RESTRICT"),
+    )
+    originating_mcp_execution_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("mcp_workspace_execution_operations.id", ondelete="RESTRICT"),
+    )
 
 
 class AgentWorkspacePromotionPlanPathRow(Base):
@@ -4409,13 +4439,15 @@ class McpDevelopmentRequestRow(Base):
         ),
         CheckConstraint(
             "operation_kind IN "
-            "('workspace_create','workspace_deploy','workspace_execute')",
+            "('workspace_create','workspace_deploy','workspace_execute',"
+            "'promotion_request')",
             name="mcp_development_request_operation_closed",
         ),
         CheckConstraint(
             "(operation_kind = 'workspace_create' AND "
             "creation_operation_id IS NOT NULL AND operation_id IS NULL) OR "
-            "(operation_kind IN ('workspace_deploy','workspace_execute') AND "
+            "(operation_kind IN "
+            "('workspace_deploy','workspace_execute','promotion_request') AND "
             "creation_operation_id IS NULL AND operation_id IS NOT NULL)",
             name="mcp_development_request_operation_shape",
         ),

@@ -140,7 +140,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0042_mcp_workspace_deployment_execution",)
+        ).fetchone() == ("0043_mcp_promotion_request",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -4476,3 +4476,118 @@ def test_0042_workspace_deployment_execution_presets_and_guarded_downgrade(
         )
     engine.dispose()
     command.downgrade(config, "0041_mcp_workspace_validation_retention")
+
+
+def test_0043_promotion_request_reuses_plans_and_preserves_custom_snapshots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch,
+        tmp_path,
+        start_revision="0042_mcp_workspace_deployment_execution",
+    )
+    custom_id = str(uuid4())
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO mcp_presets (id,display_name,builtin,assignable) "
+                "VALUES (:id,'Pre-Slice-5 snapshot',0,1)"
+            ),
+            {"id": custom_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_preset_permissions (preset_id,permission) "
+                "VALUES (:id,'development.execute')"
+            ),
+            {"id": custom_id},
+        )
+    engine.dispose()
+
+    command.upgrade(config, "0043_mcp_promotion_request")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "mcp_promotion_plans" not in inspector.get_table_names()
+    assert {
+        "originating_mcp_client_id",
+        "originating_mcp_request_id",
+        "originating_mcp_deployment_id",
+        "originating_mcp_execution_id",
+    }.issubset(
+        {
+            item["name"]
+            for item in inspector.get_columns("agent_workspace_promotion_plans")
+        }
+    )
+    assert any(
+        item["name"] == "workspace_promotion_mcp_origin_complete"
+        for item in inspector.get_check_constraints("agent_workspace_promotion_plans")
+    )
+    assert any(
+        item["name"] == "uq_workspace_promotion_mcp_request" and item["unique"]
+        for item in inspector.get_indexes("agent_workspace_promotion_plans")
+    )
+    with engine.begin() as connection:
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "SELECT preset_id,permission FROM mcp_preset_permissions "
+                    "WHERE permission='development.request_promotion' "
+                    "ORDER BY preset_id"
+                )
+            )
+        ] == [
+            (
+                "11000000-0000-4000-8000-000000000001",
+                "development.request_promotion",
+            ),
+            (
+                "11000000-0000-4000-8000-000000000003",
+                "development.request_promotion",
+            ),
+        ]
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "SELECT permission FROM mcp_preset_permissions "
+                    "WHERE preset_id=:id ORDER BY permission"
+                ),
+                {"id": custom_id},
+            )
+        ] == [("development.execute",)]
+    engine.dispose()
+
+    command.downgrade(config, "0042_mcp_workspace_deployment_execution")
+    engine = create_database_engine(database_url)
+    assert "originating_mcp_client_id" not in {
+        item["name"]
+        for item in inspect(engine).get_columns("agent_workspace_promotion_plans")
+    }
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE permission='development.request_promotion'"
+                )
+            ).scalar_one()
+            == 0
+        )
+    engine.dispose()
+
+    command.upgrade(config, "0043_mcp_promotion_request")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO mcp_preset_permissions (preset_id,permission) "
+                "VALUES (:id,'development.request_promotion')"
+            ),
+            {"id": custom_id},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated MCP Slice 5"):
+        command.downgrade(config, "0042_mcp_workspace_deployment_execution")

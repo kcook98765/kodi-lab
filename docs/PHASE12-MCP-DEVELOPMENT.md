@@ -1,18 +1,19 @@
 # Phase 12 MCP development workflows
 
-Phase 12 is **PARTIAL**. Slice 1 established Web-approved DevelopmentSource
+Phase 12 is **IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**. Slice 1 established Web-approved DevelopmentSource
 grants, exact MCP workspace ownership, and bounded inspection. Slice 2 added
 replay-safe creation and generation-bound UTF-8 editing. Slice 3 added closed
 exact-generation structural validation plus system-owned bounded retention.
-Slice 4 adds exact internal-disposable deployment and one fixed smoke execution
-shape. It adds no promotion request, source registration, external/production
+Slice 4 added exact internal-disposable deployment and one fixed smoke execution
+shape. Slice 5 adds replay-safe promotion-plan preparation and Web-only human
+review/approval over the Phase 9 workflow. It adds no source registration, external/production
 target, shell, Git, Docker, raw filesystem, arbitrary testing, arbitrary
 add-on invocation, raw JSON-RPC or arbitrary command authority.
 
 ## Authority model
 
-`workspace.inspect`, `workspace.edit`, `workspace.deploy` and
-`development.execute` are present only in the built-in Add-on Development and
+`workspace.inspect`, `workspace.edit`, `workspace.deploy`,
+`development.execute` and `development.request_promotion` are present only in the built-in Add-on Development and
 Full Lab Control presets. Read-only Inspection remains separate from source-code
 mutation. Production Remote Kodi remains empty and unassignable. Existing
 custom presets are immutable snapshots and do not inherit later permissions; a
@@ -327,12 +328,71 @@ evidence remains historical but cannot authorize the new generation. Existing
 validation, deployment and execution UUID/state/generation/target. Web gains no
 MCP trigger, force control or generic reconciliation route.
 
-The production catalog is exactly fourteen lexical tools. Slice 4 adds no
-promotion request, human approval action, production/external target,
-repository publication, arbitrary add-on execution, arbitrary JSON-RPC, test
-runner, shell, Git or Docker authority. Phase 12 remains **PARTIAL**.
+## Slice 5 replay-safe promotion request and Web human gate
 
-Remaining Phase 12 capabilities are promotion request, Web human-review and
-approval integration, and formal Phase 12 closeout. None is implied by
-`workspace.inspect`, `workspace.edit`, `workspace.deploy`,
-`development.execute`, or Full Lab Control.
+Migration `0043_mcp_promotion_request` seeds exactly
+`development.request_promotion` into Add-on Development and Full Lab Control,
+adds `promotion_request` to the existing development request map, and records a
+complete optional MCP origin on the existing Phase 9 promotion plan. It creates
+no MCP promotion-plan table. Existing custom snapshots, Read-only Inspection
+and Production Remote Kodi remain unchanged.
+
+`promotion_request` accepts exactly `request_id`, `workspace_id`,
+`expected_generation` and `target_id`. It contains no summary, changed-file
+list, source path, approval, apply or force field. Discovery requires the new
+permission; invocation additionally requires enabled client, exact owner,
+current source and target grants, internal disposable target policy, ready
+present bytes, same-generation successful structural validation, successful
+exact workspace deployment and successful fixed execution. Execution evidence
+is mandatory for this MCP path. Source/workspace/add-on identity, source and
+candidate versions and complete added/modified/total counts are server-derived.
+
+Preparation calls the Phase 9 promotion service. Its complete change
+derivation, source preimage, conflict detection, expiry, active-plan uniqueness,
+backup, atomic apply, rollback, handoff and verification orchestration are not
+duplicated. MCP output is semantic and bounded: request/plan/workspace/source/
+target UUIDs, generation, review state, counts, candidate version, expiry,
+Web-review-required and safe readiness/conflict classifications. It contains no
+path, diff, file content, log, locator or backup detail. Web continues to render
+the existing exact review diff.
+
+The request map and preparing plan commit atomically. Exact duplicate requests
+return the same plan and current state. Changed workspace/generation/target is
+`request_id_conflict`; a durable mapping whose plan remains preparing is
+`promotion_request_ambiguous` and never creates another plan. One active plan
+per workspace, Phase 9 expiry and new-request-ID-after-expiry rules apply. Edits
+cannot silently retarget an old plan. Active plan mappings are retained past
+the ordinary 30-day prune horizon. New preparations are limited to two per
+client per ten minutes with at most 1,024 active limiter keys.
+
+Only the Web administrator may approve or reject. Both actions require the
+existing authenticated session, Trusted Host, same-origin, CSRF and literal
+confirmation controls. A valid MCP bearer cannot invoke them, and there is no
+`promotion_approve` tool. The review shows origin client, source/workspace/
+target/generation, add-on identity/version, server-derived changes,
+validation/deployment/execution status, expiry and source conflict state.
+
+Client disable or source/target grant revocation immediately blocks further
+MCP calls and semantic status access but retains the plan and audit history. It
+does not automatically decide the human review. Web may inspect/reject and may
+approve only when the independent Phase 9 plan, exact evidence, target anchor
+and source conflict recheck remain safe; current MCP authority is not a proxy
+for human authority.
+
+Approval follows the canonical Phase 9 sequence: exact conflict recheck,
+backup, atomic source apply, target synchronization/reload, inventory,
+readiness/log verification, durable verification child and source-success
+publication. MCP preparation never means canonical promotion success. If
+source apply succeeds and mandatory verification later fails or is incomplete,
+source success remains immutable while `workspace_status` reports
+`source_promoted_verification_failed` or
+`source_promoted_verification_incomplete`. Pending plans and required promotion/
+verification work block workspace byte cleanup.
+
+The exact lexical production catalog is fifteen tools and adds only
+`promotion_request`. Modern `2026-07-28` HTTP, modern stdio and bounded legacy
+`2025-11-25` HTTP share one authorization, service and replay namespace. There
+is no legacy stdio, MCP approval/rejection, repository/Git/GitHub publication,
+shell, arbitrary command, generic execution, external target or production
+target. A separate formal completion review remains; this implementation task
+does not declare Phase 12 formally complete.

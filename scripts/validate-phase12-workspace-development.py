@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one isolated real-Kodi proof for Phase 12 workspace development."""
+"""Run one isolated Kodi 21.3 proof for Phase 12 promotion request."""
 
 # ruff: noqa: E402 -- bytecode suppression must precede project imports.
 
@@ -44,6 +44,10 @@ from kodi_lab.broker.development_sources import (
     SqliteDevelopmentSourceDeploymentResolver,
 )
 from kodi_lab.broker.docker_inventory import DockerManagedContainerAdapter
+from kodi_lab.broker.kodi_logs import (
+    KodiLogWindowProvider,
+    SqliteKodiLogAuthorityResolver,
+)
 from kodi_lab.broker.operations import build_foundation_registry
 from kodi_lab.broker.provisioning import (
     SqliteManagedInstanceRevisionResolver,
@@ -59,8 +63,17 @@ from kodi_lab.mcp.stdio_proxy import (
 )
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.models import (
+    AgentWorkspacePromotionHandoffRow,
+    AgentWorkspacePromotionOperationRow,
+    AgentWorkspacePromotionPlanRow,
+    DevelopmentSourceDeploymentRow,
+    ManagedInstanceDevelopmentSourceRow,
+    ManagedInstanceRow,
+    McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
+    PromotionVerificationOperationRow,
+    TargetRow,
 )
 from kodi_lab.web.app import create_app
 
@@ -235,12 +248,173 @@ def _content(result: dict[str, Any]) -> dict[str, Any]:
     return cast(dict[str, Any], value)
 
 
+def _verification_debug(sessions: Any, verification_id: str) -> dict[str, bool]:
+    """Return path- and digest-free preflight equalities for live-proof failure."""
+
+    with sessions() as session:
+        verification = session.get(PromotionVerificationOperationRow, verification_id)
+        promotion = (
+            None
+            if verification is None
+            else session.get(
+                AgentWorkspacePromotionOperationRow,
+                verification.source_promotion_id,
+            )
+        )
+        plan = (
+            None
+            if promotion is None
+            else session.get(AgentWorkspacePromotionPlanRow, promotion.plan_id)
+        )
+        handoff = (
+            None
+            if promotion is None
+            else session.scalar(
+                select(AgentWorkspacePromotionHandoffRow).where(
+                    AgentWorkspacePromotionHandoffRow.operation_id == promotion.id
+                )
+            )
+        )
+        evidence = (
+            None
+            if verification is None
+            else session.get(
+                DevelopmentSourceDeploymentRow,
+                {
+                    "managed_instance_id": verification.target_instance_id,
+                    "development_source_id": verification.development_source_id,
+                },
+            )
+        )
+        instance = (
+            None
+            if verification is None
+            else session.get(ManagedInstanceRow, verification.target_instance_id)
+        )
+        attachment = (
+            None
+            if verification is None
+            else session.get(
+                ManagedInstanceDevelopmentSourceRow,
+                {
+                    "managed_instance_id": verification.target_instance_id,
+                    "development_source_id": verification.development_source_id,
+                },
+            )
+        )
+        deployment = (
+            None
+            if plan is None or plan.originating_mcp_deployment_id is None
+            else session.get(
+                McpWorkspaceDeploymentOperationRow,
+                plan.originating_mcp_deployment_id,
+            )
+        )
+        execution = (
+            None
+            if plan is None or plan.originating_mcp_execution_id is None
+            else session.get(
+                McpWorkspaceExecutionOperationRow,
+                plan.originating_mcp_execution_id,
+            )
+        )
+    present = all(
+        item is not None
+        for item in (
+            verification,
+            promotion,
+            plan,
+            handoff,
+            evidence,
+            instance,
+            attachment,
+            deployment,
+            execution,
+        )
+    )
+    if not present:
+        return {"all_rows_present": False}
+    assert verification is not None
+    assert promotion is not None
+    assert plan is not None
+    assert handoff is not None
+    assert evidence is not None
+    assert instance is not None
+    assert attachment is not None
+    assert deployment is not None
+    assert execution is not None
+    return {
+        "all_rows_present": True,
+        "plan_handoff_operation_match": plan.target_deployment_operation_id
+        == handoff.prior_deployment_operation_id,
+        "plan_handoff_source_match": plan.target_source_digest
+        == handoff.prior_source_digest,
+        "plan_handoff_destination_match": plan.target_destination_digest
+        == handoff.prior_destination_digest,
+        "canonical_operation_anchor_match": evidence.last_successful_operation_id
+        == handoff.prior_deployment_operation_id,
+        "canonical_container_anchor_match": evidence.trusted_container_id
+        == plan.target_container_id,
+        "instance_is_disposable": instance.instance_type.value == "disposable",
+        "instance_runtime_match": instance.runtime_revision_id
+        == verification.runtime_revision_id,
+        "mcp_source_match": deployment.source_manifest_digest
+        == handoff.prior_source_digest,
+        "mcp_destination_match": deployment.verified_destination_digest
+        == handoff.prior_destination_digest,
+        "mcp_execution_deployment_match": execution.deployment_id == deployment.id,
+        "mcp_generation_match": deployment.generation
+        == execution.generation
+        == plan.workspace_generation,
+        "mcp_client_match": deployment.client_id
+        == execution.client_id
+        == plan.originating_mcp_client_id,
+        "mcp_states_succeeded": deployment.state == execution.state == "succeeded",
+        "verification_links_match": handoff.verification_operation_id
+        == verification.id,
+        "promotion_state_succeeded": promotion.state.value == "succeeded",
+        "promotion_plan_match": promotion.plan_id == plan.id,
+        "promotion_workspace_match": promotion.workspace_id
+        == verification.workspace_id
+        == plan.workspace_id
+        == handoff.workspace_id,
+        "promotion_source_match": promotion.development_source_id
+        == verification.development_source_id
+        == plan.development_source_id
+        == handoff.development_source_id,
+        "promotion_target_match": promotion.target_instance_id
+        == verification.target_instance_id
+        == plan.target_instance_id
+        == handoff.target_instance_id,
+        "runtime_match": plan.target_runtime_revision_id
+        == verification.runtime_revision_id
+        == handoff.runtime_revision_id
+        == evidence.runtime_revision_id,
+        "handoff_operation_match": handoff.operation_id == promotion.id,
+        "handoff_unconsumed": handoff.consumed_at is None,
+        "mcp_workspace_match": deployment.workspace_id
+        == execution.workspace_id
+        == verification.workspace_id,
+        "mcp_source_identity_match": deployment.development_source_id
+        == execution.development_source_id
+        == verification.development_source_id,
+        "mcp_target_match": deployment.target_id
+        == execution.target_id
+        == verification.target_instance_id,
+        "mcp_addon_match": deployment.addon_id == execution.addon_id,
+        "expected_identity_match": handoff.expected_addon_id == verification.addon_id
+        and handoff.expected_name == verification.expected_name
+        and handoff.expected_version == verification.expected_version
+        and handoff.expected_enabled is verification.expected_enabled,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--evidence-path",
         type=Path,
-        default=Path("<project-root>-phase12-workspace-evidence.json"),
+        default=Path("evidence/kodi-lab-phase12-promotion-evidence.json"),
     )
     arguments = parser.parse_args()
     _require(os.geteuid() == 0, "live validation must run as root")
@@ -265,7 +439,7 @@ def main() -> None:
     evidence: dict[str, Any] = {}
     try:
         with tempfile.TemporaryDirectory(
-            prefix="kodi-lab-phase12-workspace-", dir="/var/tmp"
+            prefix="kodi-lab-phase12-promotion-", dir="/var/tmp"
         ) as temporary:
             root = Path(temporary)
             development_root = root / "development"
@@ -283,6 +457,17 @@ def main() -> None:
             engine = create_database_engine(settings.database_url)
             sessions = create_session_factory(engine)
             helpers._seed(sessions, instances)
+            with sessions.begin() as session:
+                session.query(TargetRow).filter(
+                    TargetRow.id.in_([str(item) for item in instances.values()])
+                ).update(
+                    {
+                        "availability": "available",
+                        "health": "healthy",
+                        "connection_state": "connected",
+                    },
+                    synchronize_session=False,
+                )
             validator = DevelopmentSourceValidator(development_root)
             source = DevelopmentSourceAdministrationService(
                 sessions, validator
@@ -307,6 +492,8 @@ def main() -> None:
                 runtime_observation_provider=adapter,
                 development_source_deployment_resolver=resolver,
                 development_source_deployment_provider=adapter,
+                kodi_log_resolver=SqliteKodiLogAuthorityResolver(sessions),
+                kodi_log_provider=KodiLogWindowProvider(),
             )
             with helpers._broker_server(root, registry) as raw_broker:
                 broker = _CountingBroker(raw_broker)
@@ -567,49 +754,174 @@ def main() -> None:
                         "fixed smoke did not return bounded success",
                     )
 
-                    second_edit = _content(
+                    promotion_request_id = uuid4()
+                    promotion_arguments = {
+                        "request_id": str(promotion_request_id),
+                        "workspace_id": str(workspace_id),
+                        "expected_generation": 1,
+                        "target_id": str(target_id),
+                    }
+                    requested = _content(
                         _mcp_post(
                             client,
                             token,
                             PROTOCOL,
                             "tools/call",
                             params={
-                                "name": "workspace_edit",
-                                "arguments": {
-                                    "workspace_id": str(workspace_id),
-                                    "expected_generation": 1,
-                                    "operation": "create",
-                                    "relative_path": "generation-two.txt",
-                                    "content": "generation two\n",
-                                },
+                                "name": "promotion_request",
+                                "arguments": promotion_arguments,
                             },
                             request_id=8,
                         )
                     )
-                    _require(
-                        second_edit["new_generation"] == 2,
-                        "second edit generation was wrong",
+                    replayed_request = _content(
+                        _mcp_post(
+                            client,
+                            token,
+                            LEGACY_PROTOCOL,
+                            "tools/call",
+                            params={
+                                "name": "promotion_request",
+                                "arguments": promotion_arguments,
+                            },
+                            request_id=9,
+                        )
                     )
-                    blocked = _mcp_post(
+                    _require(
+                        requested == replayed_request,
+                        "promotion request replay differed",
+                    )
+                    plan_id = requested["promotion_plan_id"]
+                    plan_base = (
+                        f"/api/instances/{target_id}/agent-workspaces/"
+                        f"{workspace_id}/promotion-plans/{plan_id}"
+                    )
+                    review = client.get(plan_base)
+                    _require(
+                        review.status_code == 200,
+                        f"Web plan review unavailable: {review.text[:256]}",
+                    )
+                    reviewed = review.json()
+                    _require(
+                        reviewed["originating_actor"] == "mcp_client"
+                        and reviewed["originating_mcp_client_id"] == str(principal.id)
+                        and reviewed["validation_classification"] == "passed"
+                        and reviewed["deployment_classification"] == "succeeded"
+                        and reviewed["execution_classification"] == "succeeded",
+                        "Web review did not show exact MCP evidence",
+                    )
+                    mcp_approval = client.post(
+                        f"{plan_base}/approve-and-execute",
+                        json={"confirmed": True},
+                        headers={
+                            "Origin": ORIGIN,
+                            "Authorization": f"Bearer {token}",
+                            "Cookie": "",
+                        },
+                    )
+                    _require(
+                        mcp_approval.status_code == 401,
+                        "MCP bearer entered Web approval",
+                    )
+                    approved = client.post(
+                        f"{plan_base}/approve-and-execute",
+                        json={"confirmed": True},
+                        headers=headers,
+                    )
+                    _require(
+                        approved.status_code == 200,
+                        f"Web approval failed: {approved.text[:256]}",
+                    )
+                    promotion = approved.json()
+                    _require(
+                        promotion["state"] == "succeeded"
+                        and promotion["handoff_published"] is True,
+                        "canonical source promotion did not succeed",
+                    )
+                    verification_url = (
+                        f"/api/instances/{target_id}/agent-workspaces/"
+                        f"{workspace_id}/promotion-operations/"
+                        f"{promotion['operation_id']}/verification"
+                    )
+                    verification: dict[str, Any] | None = None
+                    verification_deadline = time.monotonic() + 90
+                    while time.monotonic() < verification_deadline:
+                        response = client.get(verification_url)
+                        _require(
+                            response.status_code == 200,
+                            "verification status unavailable",
+                        )
+                        verification = response.json()
+                        if verification["state"] not in {"queued", "running"}:
+                            break
+                        time.sleep(0.1)
+                    if (
+                        verification is not None
+                        and verification["state"] != "succeeded"
+                    ):
+                        print(
+                            json.dumps(
+                                {
+                                    "verification_preflight_debug": _verification_debug(
+                                        sessions, verification["verification_id"]
+                                    )
+                                },
+                                sort_keys=True,
+                            ),
+                            file=sys.stderr,
+                        )
+                    _require(
+                        verification is not None
+                        and verification["state"] == "succeeded",
+                        f"mandatory verification did not succeed: {verification!r}",
+                    )
+                    source_body = (
+                        development_root / ADDON_ID / "default.py"
+                    ).read_text(encoding="utf-8")
+                    _require(
+                        "bounded-live-item" in source_body,
+                        "temporary canonical source was not promoted",
+                    )
+                    status = _content(
+                        _mcp_post(
+                            client,
+                            token,
+                            PROTOCOL,
+                            "tools/call",
+                            params={
+                                "name": "workspace_status",
+                                "arguments": {"workspace_id": str(workspace_id)},
+                            },
+                            request_id=10,
+                        )
+                    )
+                    _require(
+                        len(status["workspaces"]) == 1,
+                        "workspace status did not return the exact workspace",
+                    )
+                    summary = status["workspaces"][0]
+                    _require(
+                        summary["latest_promotion_plan_id"] == plan_id
+                        and summary["latest_promotion_operation_id"]
+                        == promotion["operation_id"]
+                        and summary["latest_promotion_verification_id"]
+                        == verification["verification_id"]
+                        and summary["latest_promotion_final_classification"]
+                        == "source_promoted_and_verified",
+                        "workspace status did not project final promotion",
+                    )
+                    tools = _mcp_post(
                         client,
                         token,
                         PROTOCOL,
-                        "tools/call",
-                        params={
-                            "name": "workspace_execute",
-                            "arguments": {
-                                **execute_arguments,
-                                "request_id": str(uuid4()),
-                                "expected_generation": 2,
-                            },
-                        },
-                        request_id=9,
+                        "tools/list",
+                        request_id=11,
                     )
+                    tool_names = [item["name"] for item in tools["tools"]]
                     _require(
-                        blocked.get("isError") is True
-                        and blocked.get("structuredContent")
-                        == {"error": "execution_not_deployed"},
-                        f"new generation was not blocked: {blocked!r}",
+                        "promotion_request" in tool_names
+                        and "promotion_approve" not in tool_names,
+                        "catalog promotion boundary was wrong",
                     )
                     with sessions() as session:
                         deployment_rows = session.scalar(
@@ -622,37 +934,64 @@ def main() -> None:
                                 McpWorkspaceExecutionOperationRow
                             )
                         )
+                        plan_rows = session.scalar(
+                            select(func.count()).select_from(
+                                AgentWorkspacePromotionPlanRow
+                            )
+                        )
+                        request_rows = session.scalar(
+                            select(func.count())
+                            .select_from(McpDevelopmentRequestRow)
+                            .where(
+                                McpDevelopmentRequestRow.operation_kind
+                                == "promotion_request"
+                            )
+                        )
+                        verification_rows = session.scalar(
+                            select(func.count()).select_from(
+                                PromotionVerificationOperationRow
+                            )
+                        )
                         migration_head = session.scalar(
                             text("SELECT version_num FROM alembic_version")
                         )
+                    _require(deployment_rows == 1, "deployment replay duplicated state")
+                    _require(execution_rows == 1, "execution replay duplicated state")
+                    _require(plan_rows == 1, "promotion replay duplicated the plan")
+                    _require(
+                        request_rows == 1, "promotion replay duplicated the request"
+                    )
+                    _require(
+                        verification_rows == 1,
+                        "promotion did not create exactly one verification child",
+                    )
+                    _require(
+                        migration_head == "0043_mcp_promotion_request",
+                        "unexpected migration head",
+                    )
                     evidence = {
-                        "schema": "kodi-lab-phase12-workspace-development-live-v1",
-                        "migration_head": migration_head,
-                        "runtime": "Kodi 21.3",
-                        "target_class": "internal_managed_disposable",
-                        "workspace_generation_deployed": 1,
-                        "validation_classification": "passed",
-                        "deployment": {
-                            "operation_uuid": deployed["deployment_id"],
-                            "state": deployed["state"],
-                            "result_classification": deployed["result_classification"],
-                            "modern_http_first": True,
-                            "legacy_http_duplicate": True,
-                            "actual_sync_count": broker.workspace_sync_count,
-                            "durable_row_count": deployment_rows,
+                        "schema": "kodi-lab-phase12-promotion-live-v1",
+                        "workspace_uuid": str(workspace_id),
+                        "source_uuid": str(source.id),
+                        "target_uuid": str(target_id),
+                        "client_uuid": str(principal.id),
+                        "request_uuid": str(promotion_request_id),
+                        "generation": 1,
+                        "plan_uuid": plan_id,
+                        "plan_state_at_review": reviewed["state"],
+                        "request_replay_counts": {
+                            "modern_http": 1,
+                            "legacy_http_duplicate": 1,
+                            "durable_request_rows": request_rows,
+                            "durable_plan_rows": plan_rows,
                         },
-                        "execution": {
-                            "operation_uuid": executed["execution_id"],
-                            "state": executed["state"],
-                            "result_classification": executed["result_classification"],
-                            "item_count": executed["item_count"],
-                            "modern_stdio_first": True,
-                            "modern_http_duplicate": True,
-                            "actual_dispatch_count": smoke_dispatch_count[0],
-                            "durable_row_count": execution_rows,
-                        },
-                        "edit_after_deploy_new_generation_blocked": True,
-                        "raw_listing_persisted_or_returned": False,
+                        "approval_actor_classification": "web_administrator",
+                        "mcp_approval_refused": True,
+                        "promotion_operation_uuid": promotion["operation_id"],
+                        "verification_operation_uuid": verification["verification_id"],
+                        "final_semantic_outcome": summary[
+                            "latest_promotion_final_classification"
+                        ],
                     }
             engine.dispose()
     finally:
@@ -666,7 +1005,7 @@ def main() -> None:
         if protected_before[key] != protected_after.get(key)
     )
     _require(not changed, f"protected categories changed: {changed!r}")
-    evidence["protected_isolation"] = {
+    evidence["cleanup_status"] = {
         "fingerprints_unchanged": True,
         "production_roots_absent": True,
         "temporary_managed_resources_removed": True,

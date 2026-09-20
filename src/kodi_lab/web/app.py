@@ -227,6 +227,7 @@ from kodi_lab.application.mcp_administration import (
     McpTargetPolicyRead,
     McpWorkspaceBindingRead,
 )
+from kodi_lab.application.mcp_promotion_requests import McpPromotionRequestService
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionReceiptService
 from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentService,
@@ -779,6 +780,7 @@ class WebApplicationContext:
     agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
     mcp_workspace_retention: McpWorkspaceRetentionService
     mcp_workspace_development: McpWorkspaceDevelopmentService
+    mcp_promotion_requests: McpPromotionRequestService
     agent_workspace_promotions: AgentWorkspacePromotionService
     promotion_verifications: PromotionVerificationService
     screenshots: ManagedScreenshotService
@@ -944,23 +946,6 @@ def create_app(
             reconciliation=reconciliation,
             screenshots=screenshots,
             status=status_service,
-        ),
-    )
-    mcp_transport = build_mcp_http_transport(
-        authentication=McpAuthenticationService(session_factory),
-        authorization=mcp_authorization,
-        registry=mcp_registry,
-        tools=McpTargetToolService(
-            session_factory,
-            mcp_authorization,
-            status_service,
-            addon_inventory,
-            screenshots,
-            remote_receipts,
-            agent_workspaces,
-            mcp_workspace_creation,
-            mcp_workspace_retention,
-            mcp_workspace_development,
         ),
     )
     live_display = managed_live_display_service or ManagedLiveDisplayService(
@@ -1267,6 +1252,27 @@ def create_app(
             enabled_state_reader=read_promotion_enabled_state,
         )
     )
+    mcp_promotion_requests = McpPromotionRequestService(
+        session_factory, agent_workspace_promotions
+    )
+    mcp_transport = build_mcp_http_transport(
+        authentication=McpAuthenticationService(session_factory),
+        authorization=mcp_authorization,
+        registry=mcp_registry,
+        tools=McpTargetToolService(
+            session_factory,
+            mcp_authorization,
+            status_service,
+            addon_inventory,
+            screenshots,
+            remote_receipts,
+            agent_workspaces,
+            mcp_workspace_creation,
+            mcp_workspace_retention,
+            mcp_workspace_development,
+            mcp_promotion_requests,
+        ),
+    )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
         status_service,
@@ -1352,6 +1358,7 @@ def create_app(
         agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
         mcp_workspace_retention=mcp_workspace_retention,
         mcp_workspace_development=mcp_workspace_development,
+        mcp_promotion_requests=mcp_promotion_requests,
         agent_workspace_promotions=agent_workspace_promotions,
         promotion_verifications=promotion_verifications,
         screenshots=screenshots,
@@ -2191,6 +2198,9 @@ def create_app(
                     context.agent_workspace_promotions.eligible_targets(workspace_id)
                     if workspace.state.value == "ready"
                     else []
+                ),
+                "promotion_plan": context.agent_workspace_promotions.active_plan(
+                    workspace_id
                 ),
                 "csrf_token": authenticated.csrf_token,
             },
@@ -3046,6 +3056,22 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> AgentWorkspacePromotionOperationStatus:
         return context.agent_workspace_promotions.approve_and_execute(
+            instance_id, workspace_id, plan_id
+        )
+
+    @app.post(
+        "/api/instances/{instance_id}/agent-workspaces/{workspace_id}/promotion-plans/{plan_id}/reject",
+        response_model=AgentWorkspacePromotionPlanRead,
+        status_code=status.HTTP_200_OK,
+    )
+    def reject_agent_workspace_promotion(
+        instance_id: UUID,
+        workspace_id: UUID,
+        plan_id: UUID,
+        _body: AgentWorkspacePromotionConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> AgentWorkspacePromotionPlanRead:
+        return context.agent_workspace_promotions.reject(
             instance_id, workspace_id, plan_id
         )
 

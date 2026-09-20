@@ -1976,3 +1976,57 @@ retains recovery authority. The exact fourteen-tool catalog still has no
 promotion request, general test runner, repository publication, production or
 external development target, generic add-on execution, raw JSON-RPC, shell,
 Git or Docker surface.
+
+## Phase 12 Slice 5 replay-safe promotion request and human review
+
+Migration `0043_mcp_promotion_request` adds only
+`development.request_promotion`, the `promotion_request` operation kind, and a
+bounded optional MCP-origin link on the existing Phase 9 promotion plan. It
+creates no second plan, apply, replay or verification table. Add-on Development
+and Full Lab Control gain the permission; existing custom snapshots and the
+read-only/production presets do not.
+
+The tool accepts exactly request, workspace, expected-generation and target
+UUIDs. Current authorization intersects enabled client, permission, exact
+workspace owner, current source and target grants, internal-disposable target
+policy and ready/reconciled target state. Preparation then requires present
+ready bytes, exact successful structural validation, exact successful workspace
+deployment and exact successful fixed execution for that generation/target.
+Source, add-on identity/version and the complete changed-file summary are
+server-derived.
+
+The adapter calls the Phase 9 `AgentWorkspacePromotionService.prepare`
+boundary. That service remains authoritative for complete change derivation,
+conflict detection, source capture, expiry and active-plan uniqueness. The
+request map and preparing plan commit together. Exact cross-transport replay
+returns the same plan/current state; changed parameters conflict. A durable
+mapping whose plan remains in the post-claim preparing state is ambiguous and
+never causes another preparation. Active-plan request mappings survive the
+ordinary 30-day pruning horizon.
+
+MCP receives only semantic UUIDs, generation, counts, candidate version,
+review/expiry and readiness/conflict classifications. Existing Web review
+renders the complete exact diff and now identifies the originating client plus
+validation/deployment/execution evidence. Approval and confirmed rejection are
+session-authenticated, same-origin, CSRF-protected Web administrator actions;
+MCP bearer authentication is not accepted there and the MCP registry has no
+approval tool.
+
+Client disable or source/target grant revocation immediately removes subsequent
+MCP authority and status visibility without erasing the plan. It does not make
+the human decision. Web may still inspect/reject and may approve only after the
+ordinary exact Phase 9 source/workspace/target/evidence and source-conflict
+recheck. The existing backup, atomic apply, rollback, target synchronization,
+durable handoff and mandatory verification child remain unchanged. Source apply
+success and later verification failure/incompleteness remain distinct durable
+facts.
+
+`workspace_status` exposes only bounded latest plan/review, promotion operation,
+verification child and final semantic classification. Pending plans and
+promotion/verification work retain workspace bytes. New preparation admission
+is two per client per ten minutes with bounded keys and one active plan per
+workspace. Modern HTTP, modern stdio and bounded legacy HTTP share the exact
+fifteen-tool lexical catalog and replay state. Phase 12 is
+**IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**; this checkpoint does not
+declare formal Phase 12 completion and adds no Git, repository, shell, generic
+execution, external-target or production-target authority.

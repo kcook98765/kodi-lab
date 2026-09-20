@@ -622,3 +622,19 @@ container identifier beyond the pre-existing ephemeral broker result needed by
 the application boundary; the durable Slice 4 evidence deliberately does not
 persist container IDs. Execution itself remains unprivileged fixed Kodi
 JSON-RPC and adds no broker operation.
+
+## Phase 12 Slice 5 promotion-request boundary
+
+Slice 5 adds no broker operation or broker caller authority. MCP supplies only
+semantic request/workspace/generation/target UUIDs to the unprivileged
+application. That application validates persisted Slice 4 evidence and calls
+the existing Phase 9 promotion-plan preparation service; plan review performs
+no source mutation.
+
+Only a confirmed Web administrator approval may enter the existing Phase 9
+source-apply and verification choreography. The already restricted broker
+semantics still derive canonical DevelopmentSource, backup, target and
+container details from trusted state. MCP cannot select or invoke source apply,
+rollback, copy, reload, log capture, broker methods, paths, containers,
+commands, Docker operations, Git or repository publication. The mandatory
+durable verification child and existing source-success boundary are unchanged.

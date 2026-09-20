@@ -1294,3 +1294,46 @@ administration project bounded latest state.
 The catalog is exactly fourteen tools. Phase 12 remains **PARTIAL**: promotion
 request, Web human-review/approval integration and formal completion review are
 not implemented.
+
+## Phase 12 Slice 5 implementation-complete checkpoint
+
+Alembic `0043_mcp_promotion_request` adds exactly
+`development.request_promotion` to Add-on Development and Full Lab Control,
+extends the existing request-map operation set, and attaches bounded MCP origin
+and exact deployment/execution evidence to the existing Phase 9 promotion plan.
+Custom snapshots and read-only/production presets remain unchanged; there is no
+parallel promotion table.
+
+`promotion_request` accepts only request/workspace/generation/target UUIDs. It
+requires exact ownership, current source and target grants, internal managed
+disposable policy, present ready bytes, successful same-generation validation,
+successful exact deployment and successful fixed execution. The server derives
+source, add-on identity/version and complete change counts, then invokes only
+the Phase 9 plan-preparation service.
+
+The plan and request mapping commit together. Exact duplicates replay the same
+plan across modern HTTP, modern stdio and bounded legacy HTTP; changed arguments
+conflict and a post-claim preparing marker is ambiguous without retry. Existing
+one-active-plan/workspace and expiry rules apply. New preparations are limited
+to two/client/ten minutes with bounded keys, and request pruning retains an
+active plan's replay identity.
+
+The existing compact Web promotion page shows MCP origin, exact generation,
+server-derived change counts, validation/deployment/execution state, conflict
+classification and expiry alongside the existing exact diff. Approval and
+confirmed rejection remain Web-only under authentication, Trusted Host,
+same-origin, CSRF and literal confirmation. Client disable or grant revocation
+blocks MCP without deleting the plan; Web independently rechecks canonical plan
+safety and does not inherit MCP authority.
+
+Approval uses the unchanged Phase 9 conflict recheck, backup, atomic source
+apply, rollback, target sync/reload, inventory/readiness/log verification,
+durable handoff and mandatory verification child. Source success and a later
+verification failure remain separate. `workspace_status` projects only bounded
+latest plan/operation/verification/final classification. The exact catalog is
+fifteen lexical tools and contains no approval tool.
+
+Phase 12 is **IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**. Formal completion
+requires a separate read-only completion review; Slice 5 does not authorize
+Git, repository/GitHub publication, shell, arbitrary commands, generic
+execution, external targets or production targets.

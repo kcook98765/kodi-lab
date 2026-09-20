@@ -44,6 +44,7 @@ from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpPrincipal,
 )
+from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
 from kodi_lab.application.mcp_workspace_development import (
     WorkspaceDeploymentResult,
@@ -702,6 +703,18 @@ def build_mcp_http_transport(
             annotations=control_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "promotion_request": Tool(
+            name="promotion_request",
+            title="Request human-reviewed source promotion",
+            description=(
+                "Prepare one replay-safe exact-generation promotion plan for "
+                "Web administrator review; this tool cannot approve or apply it."
+            ),
+            input_schema=WorkspaceTargetOperationInput.model_json_schema(),
+            output_schema=PromotionRequestResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "target_list": Tool(
             name="target_list",
             title="List authorized Kodi targets",
@@ -843,6 +856,9 @@ def build_mcp_http_transport(
         source_id: UUID | None = None
         workspace_id: UUID | None = None
         relative_path: str | None = None
+        request_id: UUID | None = None
+        generation: int | None = None
+        promotion_plan_id: UUID | None = None
         try:
             arguments = params.arguments or {}
             result: (
@@ -860,6 +876,7 @@ def build_mcp_http_transport(
                 | WorkspaceValidateResult
                 | WorkspaceDeploymentResult
                 | WorkspaceExecutionResult
+                | PromotionRequestResult
             )
             if params.name in {
                 "development_source_list",
@@ -1001,6 +1018,19 @@ def build_mcp_http_transport(
                     tools.workspace_execute, principal, parsed_execution
                 )
                 source_id = result.source_id
+            elif params.name == "promotion_request":
+                parsed_promotion = WorkspaceTargetOperationInput.model_validate(
+                    arguments
+                )
+                workspace_id = parsed_promotion.workspace_id
+                target_id = parsed_promotion.target_id
+                request_id = parsed_promotion.request_id
+                generation = parsed_promotion.expected_generation
+                result = await asyncio.to_thread(
+                    tools.promotion_request, principal, parsed_promotion
+                )
+                source_id = result.source_id
+                promotion_plan_id = result.promotion_plan_id
             else:
                 raise McpAuthorizationError("permission_denied")
         except ValidationError:
@@ -1022,6 +1052,9 @@ def build_mcp_http_transport(
                         "success",
                         source_id=source_id,
                         workspace_id=workspace_id,
+                        request_id=request_id,
+                        generation=generation,
+                        promotion_plan_id=promotion_plan_id,
                     )
                     return CallToolResult(
                         content=[ImageContent(data=encoded, mime_type=PNG_MIME_TYPE)],
@@ -1036,6 +1069,9 @@ def build_mcp_http_transport(
                     outcome,
                     source_id=source_id,
                     workspace_id=workspace_id,
+                    request_id=request_id,
+                    generation=generation,
+                    promotion_plan_id=promotion_plan_id,
                 )
                 return CallToolResult(
                     content=[TextContent(text=outcome)],
@@ -1051,6 +1087,9 @@ def build_mcp_http_transport(
                 "success",
                 source_id=source_id,
                 workspace_id=workspace_id,
+                request_id=request_id,
+                generation=generation,
+                promotion_plan_id=promotion_plan_id,
             )
             return CallToolResult(
                 content=[
@@ -1069,6 +1108,9 @@ def build_mcp_http_transport(
             outcome,
             source_id=source_id,
             workspace_id=workspace_id,
+            request_id=request_id,
+            generation=generation,
+            promotion_plan_id=promotion_plan_id,
         )
         return CallToolResult(
             content=[TextContent(text=outcome)],
@@ -1134,10 +1176,13 @@ def _audit(
     *,
     source_id: UUID | None = None,
     workspace_id: UUID | None = None,
+    request_id: UUID | None = None,
+    generation: int | None = None,
+    promotion_plan_id: UUID | None = None,
 ) -> None:
     logger.info(
         "mcp_request client_id=%s credential_id=%s tool=%s target_id=%s "
-        "source_id=%s workspace_id=%s "
+        "source_id=%s workspace_id=%s request_id=%s generation=%s plan_id=%s "
         "started_at=%s completed_at=%s outcome=%s",
         principal.client_id,
         principal.credential_id,
@@ -1145,6 +1190,9 @@ def _audit(
         target_id,
         source_id,
         workspace_id,
+        request_id,
+        generation,
+        promotion_plan_id,
         started_at,
         _timestamp(),
         outcome,

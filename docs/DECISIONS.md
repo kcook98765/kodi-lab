@@ -3582,3 +3582,76 @@ authority.
   stdio and bounded legacy HTTP share the same service and durable replay
   namespace. Promotion request, human approval integration and formal Phase 12
   closeout remain later work; Phase 12 remains partial.
+
+## D-0269: Slice 5 adds one permission and one preparation tool
+- Status: accepted for Phase 12 Slice 5.
+- Decision: add only `development.request_promotion` to Add-on Development and
+  Full Lab Control and add only `promotion_request`. Existing custom snapshots,
+  Read-only Inspection and Production Remote Kodi remain unchanged. Inputs are
+  exactly request, workspace, generation and target UUIDs. Approval, apply,
+  force, summary, source path and changed-file inputs are unrepresentable.
+
+## D-0270: Exact execution evidence is a promotion-request prerequisite
+- Status: accepted for Phase 12 Slice 5.
+- Decision: MCP preparation requires the current ready byte-present owned
+  workspace, current source and target grants, exact internal-disposable target
+  policy, same-generation successful validation, deployment and fixed execution
+  evidence, stable source/workspace/add-on identity and promotion-safe Phase 9
+  state. The application derives source, version and complete change summary.
+
+## D-0271: MCP reuses the Phase 9 promotion plan and Web review
+- Status: accepted for Phase 12 Slice 5.
+- Decision: the adapter invokes the existing Phase 9 preparation boundary and
+  stores bounded MCP origin and exact deploy/execute evidence on that durable
+  plan. Phase 9 remains sole owner of change derivation, source preimage,
+  conflict detection, backup, atomic apply, rollback, handoff and verification.
+  The existing exact-diff Web review is reused; MCP receives no diff or content.
+
+## D-0272: Promotion request replay commits with the plan
+- Status: accepted for Phase 12 Slice 5.
+- Decision: extend `mcp_development_requests` with `promotion_request`; publish
+  the request mapping and Phase 9 preparing plan in one transaction. Exact
+  replay returns the same plan and current state, changed parameters conflict,
+  and a committed but still-preparing marker is
+  `promotion_request_ambiguous`, never automatic re-preparation. One active plan
+  per workspace and existing expiry rules prevent plan spam. Active-plan maps
+  are not pruned by ordinary 30-day request retention.
+
+## D-0273: Promotion approval and rejection are Web-only human authority
+- Status: accepted for Phase 12 Slice 5.
+- Decision: MCP can neither approve nor reject. Review, literal confirmation,
+  approval and rejection use the existing administrator session, Trusted Host,
+  same-origin and CSRF boundary. A valid MCP bearer is not Web authentication.
+  Approval rechecks the exact plan, source conflict, target anchor and immutable
+  generation/evidence before entering the canonical Phase 9 apply path.
+
+## D-0274: Revocation blocks MCP but does not silently decide human review
+- Status: accepted for Phase 12 Slice 5.
+- Decision: disabling the originating client or revoking its source/target
+  grant immediately blocks further MCP calls and status access but preserves
+  plan/history. It does not itself approve, reject or invalidate the plan. The
+  Web administrator may inspect/reject and may approve only if the independent
+  canonical plan/source/workspace/target/evidence recheck remains valid. Current
+  MCP authority is deliberately not delegated into the human approval decision.
+
+## D-0275: Source success still requires the Phase 9 verification handoff
+- Status: accepted for Phase 12 Slice 5.
+- Decision: Web approval uses the existing backup, atomic source apply, target
+  sync/reload, inventory/readiness/log verification and durable verification
+  child. MCP preparation never claims source success. Once source apply has
+  durably succeeded, a failed or incomplete verification child remains a
+  distinct `source_promoted_verification_failed|incomplete` classification and
+  never rewrites immutable source-apply success.
+
+## D-0276: Slice 5 remains bounded and closes implementation only
+- Status: accepted for Phase 12 Slice 5.
+- Decision: admit at most two new preparations per client per ten minutes with
+  bounded keys and existing workspace/promotion coordination. Audit only
+  semantic UUIDs, generation, tool, outcome and times. Active promotion and
+  required verification continue to block byte cleanup. `workspace_status`
+  projects bounded latest plan, operation, verification and final
+  classification. Modern HTTP, modern stdio and bounded legacy HTTP share one
+  fifteen-tool lexical catalog and replay namespace. There is no approval tool,
+  Git, repository publication, shell, arbitrary execution, external or
+  production target. Successful Slice 5 is implementation-complete pending a
+  separate formal Phase 12 review, not formal completion.

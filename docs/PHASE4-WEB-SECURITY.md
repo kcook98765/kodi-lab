@@ -166,3 +166,19 @@ Existing session authentication, Trusted Host, same-origin and CSRF controls
 remain the sole Web administration boundary. Recovery continues through
 existing UUID-specific target/workspace administration; no path, add-on ID,
 container, broker operation, raw Kodi response or log is rendered.
+
+Phase 12 Slice 5 reuses the existing promotion-plan review and
+approve-and-execute route and adds one confirmed rejection route. A review
+renders semantic source/workspace/target/generation, originating MCP client,
+add-on identity/version, bounded change counts, exact existing review diffs,
+validation/deployment/execution classifications, expiry and conflict state.
+Internal source, backup and workspace paths remain absent.
+
+Approval and rejection require an authenticated Web administrator cookie,
+Trusted Host, same-origin, CSRF token, exact UUID route identity and literal
+`{ "confirmed": true }`; unknown fields are rejected. MCP bearer authentication
+is deliberately not accepted by these routes. Client disable or MCP source/
+target grant revocation does not erase the review or act as approval/rejection;
+Web independently rechecks canonical Phase 9 plan safety before approval.
+There is no MCP approval route, hidden administration tool, force, alternate
+source, apply-only, rollback, Git or repository publication request field.

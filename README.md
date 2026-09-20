@@ -72,7 +72,7 @@ session. See [`docs/PHASE11-MCP.md`](docs/PHASE11-MCP.md) for security and
 client configuration details.
 
 The current production catalog is exactly `addon_list`,
-`development_source_list`, `remote_action`, `screenshot_capture`, `target_list`,
+`development_source_list`, `promotion_request`, `remote_action`, `screenshot_capture`, `target_list`,
 `target_status`, `workspace_create`, `workspace_deploy`, `workspace_edit`,
 `workspace_execute`, `workspace_read`, `workspace_status`, `workspace_tree`, and
 `workspace_validate`.
@@ -94,8 +94,13 @@ same-generation successful validation, exact ownership/source/target grants and
 an internal disposable target. `development.execute` invokes only the fixed
 copied Python video-plugin smoke shape from exact deployment evidence. Both are
 request-ID replay-safe across HTTP/stdio and expose no paths, lifecycle options,
-add-on selection or raw JSON-RPC. MCP has no abandon, cleanup, promotion,
-general execution, shell, Git, Docker, or caller-selected storage path.
+add-on selection or raw JSON-RPC. `promotion_request` requires
+`development.request_promotion` plus exact successful validation, deployment
+and fixed execution evidence. It prepares the existing Phase 9 plan for an
+authenticated Web administrator to review, approve or reject; MCP cannot
+approve/apply and receives no diffs, paths or logs. MCP has no abandon,
+cleanup, general execution, shell, Git, repository publication, Docker, or
+caller-selected storage path.
 
 Exact legacy `2025-11-25` clients may use authenticated Streamable HTTP at
 `/mcp`. Compatibility is stateless and bounded: there is no session/default
@@ -113,11 +118,13 @@ clone. **Phase 11 — MCP core is COMPLETE.** Its independently reviewed
 implementation checkpoint is `3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`,
 with Alembic head `0038_mcp_remote_control` and 1,928 collected tests.
 
-Phase 12 is **PARTIAL**. Web administrators may grant one
+Phase 12 is **IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**. Web administrators may grant one
 registered DevelopmentSource to an MCP client and bind one eligible existing
 AgentWorkspace. MCP can list granted source metadata and inspect only its exact
 bound, still-granted workspaces. Slices 2–4 add owned creation/editing, closed
 structural validation, system retention, exact internal disposable deployment
 and fixed smoke execution without granting MCP cleanup or generic Kodi
-authority. It still cannot request promotion, self-grant, or self-bind. See
+authority. Slice 5 adds only replay-safe promotion-plan preparation; Web alone
+reviews, confirms and enters the canonical Phase 9 apply/verification path.
+MCP still cannot approve promotion, self-grant, or self-bind. See
 [`docs/PHASE12-MCP-DEVELOPMENT.md`](docs/PHASE12-MCP-DEVELOPMENT.md).

@@ -24,6 +24,7 @@ class ToolRateClass(StrEnum):
     DEVELOPMENT_VALIDATE = "development_validate"
     DEVELOPMENT_DEPLOY = "development_deploy"
     DEVELOPMENT_EXECUTE = "development_execute"
+    DEVELOPMENT_PROMOTION_REQUEST = "development_promotion_request"
 
 
 class ToolScope(StrEnum):
@@ -131,7 +132,26 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "workspace.edit",
                 "workspace.deploy",
                 "development.execute",
+                "development.request_promotion",
             }
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="promotion_request",
+            schema_revision=1,
+            permissions=frozenset({"development.request_promotion"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset(
+                {"workspace_deployment", "workspace_execution"}
+            ),
+            required_states=frozenset({"running", "ready", "reconciled"}),
+            rate_class=ToolRateClass.DEVELOPMENT_PROMOTION_REQUEST,
+            adapter="agent_workspace.prepare_promotion_for_web_review",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE_TARGET,
         )
     )
     registry.register(

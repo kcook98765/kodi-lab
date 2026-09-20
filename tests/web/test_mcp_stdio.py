@@ -34,6 +34,7 @@ from kodi_lab.application.mcp_administration import (
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
 )
+from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_workspace_development import (
     WorkspaceDeploymentResult,
     WorkspaceExecutionResult,
@@ -422,6 +423,7 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
                 assert [item.name for item in (await direct.list_tools()).tools] == [
                     "addon_list",
                     "development_source_list",
+                    "promotion_request",
                     "remote_action",
                     "screenshot_capture",
                     "target_list",
@@ -521,6 +523,7 @@ def test_development_inspection_is_identical_over_modern_http_and_stdio(
                 assert [item.name for item in (await stdio.list_tools()).tools] == [
                     "addon_list",
                     "development_source_list",
+                    "promotion_request",
                     "remote_action",
                     "screenshot_capture",
                     "target_list",
@@ -822,6 +825,33 @@ def test_workspace_deploy_execute_replay_is_shared_across_stdio_and_http(
 
     context.mcp_workspace_development.deploy = deploy
     context.mcp_workspace_development.execute = execute
+    promotion_calls = 0
+    promotion_results: dict[UUID, PromotionRequestResult] = {}
+
+    def request_promotion(**kwargs: Any) -> PromotionRequestResult:
+        nonlocal promotion_calls
+        request_id = cast(UUID, kwargs["request_id"])
+        if request_id not in promotion_results:
+            promotion_calls += 1
+            promotion_results[request_id] = PromotionRequestResult(
+                request_id=request_id,
+                promotion_plan_id=uuid4(),
+                workspace_id=queued.workspace_id,
+                source_id=source.id,
+                target_id=INSTANCE_ID,
+                generation=0,
+                review_state="reviewable",
+                changed_file_count=1,
+                added_file_count=0,
+                modified_file_count=1,
+                candidate_version="1.0.0",
+                expires_at=datetime(2026, 9, 21, 18, tzinfo=UTC),
+                readiness_classification="ready_for_web_review",
+                conflict_classification="no_conflict",
+            )
+        return promotion_results[request_id]
+
+    context.mcp_promotion_requests.request = request_promotion
     with _live_loopback_server(client.app) as (endpoint, _capture):
 
         async def exercise() -> None:
@@ -858,7 +888,19 @@ def test_workspace_deploy_execute_replay_is_shared_across_stdio_and_http(
                 assert (
                     executed.structured_content == execution_replay.structured_content
                 )
+                promotion_arguments = {**arguments, "request_id": str(uuid4())}
+                promoted = await stdio.call_tool(
+                    "promotion_request", promotion_arguments
+                )
+                promotion_replay = await direct.call_tool(
+                    "promotion_request", promotion_arguments
+                )
+                assert not promoted.is_error and not promotion_replay.is_error
+                assert (
+                    promoted.structured_content == promotion_replay.structured_content
+                )
 
         asyncio.run(exercise())
     assert deployment_calls == 1
     assert execution_calls == 1
+    assert promotion_calls == 1

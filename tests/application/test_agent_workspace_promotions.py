@@ -21,6 +21,11 @@ from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceConflictError,
     AgentWorkspaceService,
 )
+from kodi_lab.application.mcp_promotion_requests import (
+    BoundedPromotionPreparationLimiter,
+    McpPromotionRequestError,
+    McpPromotionRequestService,
+)
 from kodi_lab.application.promotion_verifications import (
     PromotionVerificationError,
     PromotionVerificationService,
@@ -54,6 +59,12 @@ from kodi_lab.storage.models import (
     ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    McpClientRow,
+    McpDevelopmentRequestRow,
+    McpPresetRow,
+    McpWorkspaceDeploymentOperationRow,
+    McpWorkspaceExecutionOperationRow,
+    McpWorkspaceValidationRow,
     PromotionVerificationLogEvidenceRow,
     PromotionVerificationOperationRow,
     RuntimeDefinitionRow,
@@ -73,6 +84,8 @@ REVISION_ID = UUID("82000000-0000-4000-8000-000000000004")
 DEPLOYMENT_ID = UUID("82000000-0000-4000-8000-000000000005")
 ENABLEMENT_ID = UUID("82000000-0000-4000-8000-000000000006")
 SMOKE_ID = UUID("82000000-0000-4000-8000-000000000007")
+MCP_PRESET_ID = UUID("82000000-0000-4000-8000-000000000008")
+MCP_CLIENT_ID = UUID("82000000-0000-4000-8000-000000000009")
 CONTAINER_ID = "a" * 64
 SOURCE_DIGEST = "sha256:" + "b" * 64
 DESTINATION_DIGEST = "sha256:" + "c" * 64
@@ -1630,3 +1643,493 @@ def test_central_stale_dispatcher_closes_expired_promotion_ownership(
         assert session.scalar(select(ManagedInstanceMutationLeaseRow)) is None
         assert session.scalar(select(GlobalHeavyOperationLeaseRow)) is None
         assert session.scalar(select(DevelopmentSourcePromotionLeaseRow)) is None
+
+
+def _seed_mcp_promotion_evidence(
+    harness: Harness,
+    *,
+    validation: bool = True,
+    deployment: bool = True,
+    execution: bool = True,
+) -> tuple[UUID, UUID]:
+    workspace = harness.workspaces.get(harness.workspace_id)
+    deployment_id = uuid4()
+    execution_id = uuid4()
+    timestamp = NOW.isoformat(timespec="microseconds").replace("+00:00", "Z")
+    with harness.factory.begin() as session:
+        session.add(
+            McpPresetRow(
+                id=str(MCP_PRESET_ID),
+                display_name="Promotion test preset",
+                builtin=False,
+                assignable=True,
+            )
+        )
+        session.flush()
+        session.add(
+            McpClientRow(
+                id=str(MCP_CLIENT_ID),
+                display_name="Promotion requester",
+                enabled=True,
+                preset_id=str(MCP_PRESET_ID),
+                created_at=timestamp,
+                last_used_at=None,
+                disabled_at=None,
+            )
+        )
+        if validation:
+            session.add(
+                McpWorkspaceValidationRow(
+                    id=str(uuid4()),
+                    workspace_id=str(harness.workspace_id),
+                    development_source_id=str(SOURCE_ID),
+                    generation=workspace.generation,
+                    classification="passed",
+                    addon_id="plugin.video.example",
+                    addon_version="1.0.0",
+                    extension_types_json='["xbmc.python.pluginsource"]',
+                    validated_at=timestamp,
+                )
+            )
+        if deployment:
+            session.add(
+                McpWorkspaceDeploymentOperationRow(
+                    id=str(deployment_id),
+                    client_id=str(MCP_CLIENT_ID),
+                    request_id=str(uuid4()),
+                    workspace_id=str(harness.workspace_id),
+                    development_source_id=str(SOURCE_ID),
+                    target_id=str(TARGET_ID),
+                    runtime_revision_id=str(REVISION_ID),
+                    generation=workspace.generation,
+                    addon_id="plugin.video.example",
+                    addon_version="1.0.0",
+                    state="succeeded",
+                    phase="finalize",
+                    mutation_started=True,
+                    target_stopped=True,
+                    sync_started=True,
+                    sync_completed=True,
+                    target_started=True,
+                    inventory_classification="matched",
+                    addon_enabled=True,
+                    result_classification="deployed",
+                    source_manifest_digest="sha256:" + "d" * 64,
+                    verified_destination_digest="sha256:" + "f" * 64,
+                    failure_code=None,
+                    requested_at=timestamp,
+                    started_at=timestamp,
+                    completed_at=timestamp,
+                )
+            )
+            session.execute(
+                update(DevelopmentSourceDeploymentRow)
+                .where(
+                    DevelopmentSourceDeploymentRow.managed_instance_id
+                    == str(TARGET_ID),
+                    DevelopmentSourceDeploymentRow.development_source_id
+                    == str(SOURCE_ID),
+                )
+                .values(confidence="stale")
+            )
+        if execution:
+            session.add(
+                McpWorkspaceExecutionOperationRow(
+                    id=str(execution_id),
+                    client_id=str(MCP_CLIENT_ID),
+                    request_id=str(uuid4()),
+                    workspace_id=str(harness.workspace_id),
+                    development_source_id=str(SOURCE_ID),
+                    target_id=str(TARGET_ID),
+                    deployment_id=str(deployment_id),
+                    generation=workspace.generation,
+                    addon_id="plugin.video.example",
+                    addon_version="1.0.0",
+                    state="succeeded",
+                    phase="finalize",
+                    invocation_dispatched=True,
+                    execution_classification="directory_result",
+                    item_count=0,
+                    result_classification="passed",
+                    failure_code=None,
+                    requested_at=timestamp,
+                    started_at=timestamp,
+                    completed_at=timestamp,
+                )
+            )
+    return deployment_id, execution_id
+
+
+def test_mcp_promotion_request_replays_one_phase9_plan_and_web_approval(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id = uuid4()
+
+    requested = service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=request_id,
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    restarted = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    replayed = restarted.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=request_id,
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+
+    assert replayed == requested
+    assert requested.review_state == "reviewable"
+    assert requested.web_review_required is True
+    assert requested.changed_file_count == 1
+    assert requested.modified_file_count == 1
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AgentWorkspacePromotionPlanRow)
+            )
+            == 1
+        )
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 1
+        )
+    review = harness.promotions.get_plan(
+        TARGET_ID, harness.workspace_id, requested.promotion_plan_id
+    )
+    assert review.originating_actor == "mcp_client"
+    assert review.originating_mcp_client_id == MCP_CLIENT_ID
+    assert review.originating_mcp_client_name == "Promotion requester"
+    assert review.validation_classification == "passed"
+    assert review.deployment_classification == "succeeded"
+    assert review.execution_classification == "succeeded"
+
+    approved = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, requested.promotion_plan_id
+    )
+    assert approved.state.value == "succeeded"
+    projection = service.projection(harness.workspace_id)
+    assert projection.promotion_operation_id == approved.operation_id
+    assert projection.verification_id is not None
+    assert projection.verification_state == "queued"
+    assert projection.final_classification == "source_promoted_verification_queued"
+
+    resolver = SqliteDevelopmentSourceDeploymentResolver(
+        harness.factory,
+        development_root=harness.source.parent,
+        data_root=harness.data_root,
+    )
+
+    class Inventory:
+        def get(self, _instance_id: UUID) -> Any:
+            return SimpleNamespace(
+                query_status=AddonInventoryQueryStatus.AVAILABLE,
+                items=[
+                    SimpleNamespace(
+                        addon_id="plugin.video.example",
+                        version="1.0.0",
+                        enabled=True,
+                        kodi_type="xbmc.python.pluginsource",
+                    )
+                ],
+            )
+
+    class Broker:
+        state = ContainerRuntimeState.RUNNING
+
+        def managed_container_inventory(self) -> Any:
+            return SimpleNamespace(
+                containers=[
+                    SimpleNamespace(
+                        managed_instance_id=str(TARGET_ID),
+                        container_id=CONTAINER_ID,
+                        runtime_state=self.state,
+                    )
+                ]
+            )
+
+        def capture_promotion_kodi_log_cursor(self, **_kwargs: object) -> Any:
+            return SimpleNamespace(cursor="opaque")
+
+        def stop_managed_container(self, **_kwargs: object) -> None:
+            self.state = ContainerRuntimeState.STOPPED
+
+        def copy_sync_promoted_development_source(self, **kwargs: object) -> Any:
+            authority = resolver.resolve_promotion_verification(
+                str(kwargs["verification_operation_id"]),
+                str(kwargs["managed_instance_id"]),
+                str(kwargs["expected_container_id"]),
+            )
+            assert authority.addon_id == "plugin.video.example"
+            return SimpleNamespace(
+                source_manifest_digest="sha256:" + "7" * 64,
+                verified_destination_digest="sha256:" + "8" * 64,
+                container_id=CONTAINER_ID,
+                observed_source_name="Example",
+                observed_source_version="1.0.0",
+                result_classification="synchronized",
+                new_count=0,
+                changed_count=1,
+                unchanged_count=1,
+                destination_only_count=0,
+                transferred_bytes=20,
+            )
+
+        def start_managed_container(self, **_kwargs: object) -> None:
+            self.state = ContainerRuntimeState.RUNNING
+
+        def read_promotion_kodi_log_window(self, **_kwargs: object) -> Any:
+            return SimpleNamespace(
+                classification="clean",
+                target_error_count=0,
+                unrelated_warning_count=0,
+                snippets=[],
+            )
+
+    verification = PromotionVerificationService(
+        harness.factory,
+        Broker(),
+        Inventory(),
+        clock=harness.clock,
+        sleep=lambda _seconds: None,
+        readiness_factory=lambda _broker, _profile: SimpleNamespace(
+            wait_until_usable=lambda _instance_id: SimpleNamespace(
+                usability_state=UsabilityState.USABLE
+            )
+        ),
+    ).queue_and_run(approved.operation_id)
+    assert verification.state.value == "succeeded"
+    verified_projection = service.projection(harness.workspace_id)
+    assert verified_projection.verification_state == "succeeded"
+    assert verified_projection.final_classification == "source_promoted_and_verified"
+
+
+def test_mcp_promotion_post_marker_replay_is_ambiguous_and_mapping_is_retained(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id = uuid4()
+    requested = service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=request_id,
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    old = (
+        (harness.clock.now - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with harness.factory.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old)
+        )
+        service._prune_and_require_capacity(session, MCP_CLIENT_ID)
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 1
+        )
+        session.execute(
+            update(AgentWorkspacePromotionPlanRow)
+            .where(
+                AgentWorkspacePromotionPlanRow.id == str(requested.promotion_plan_id)
+            )
+            .values(state="preparing")
+        )
+
+    restarted = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    with pytest.raises(McpPromotionRequestError, match="promotion_request_ambiguous"):
+        restarted.request(
+            client_id=MCP_CLIENT_ID,
+            request_id=request_id,
+            workspace_id=harness.workspace_id,
+            expected_generation=1,
+            target_id=TARGET_ID,
+        )
+
+
+def test_web_promotion_authority_survives_originating_client_disable(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    requested = service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=uuid4(),
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    with harness.factory.begin() as session:
+        session.execute(
+            update(McpClientRow)
+            .where(McpClientRow.id == str(MCP_CLIENT_ID))
+            .values(
+                enabled=False,
+                disabled_at=NOW.isoformat(timespec="microseconds").replace(
+                    "+00:00", "Z"
+                ),
+            )
+        )
+
+    approved = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, requested.promotion_plan_id
+    )
+    assert approved.state.value == "succeeded"
+    assert service.projection(harness.workspace_id).verification_state == "queued"
+
+
+@pytest.mark.parametrize(
+    ("validation", "deployment", "execution", "expected"),
+    (
+        (False, True, True, "validation_required"),
+        (True, False, False, "deployment_required"),
+        (True, True, False, "execution_required"),
+    ),
+)
+def test_mcp_promotion_request_requires_exact_slice4_evidence(
+    tmp_path: Path,
+    validation: bool,
+    deployment: bool,
+    execution: bool,
+    expected: str,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(
+        harness,
+        validation=validation,
+        deployment=deployment,
+        execution=execution,
+    )
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    with pytest.raises(McpPromotionRequestError, match=expected):
+        service.request(
+            client_id=MCP_CLIENT_ID,
+            request_id=uuid4(),
+            workspace_id=harness.workspace_id,
+            expected_generation=1,
+            target_id=TARGET_ID,
+        )
+
+
+def test_mcp_promotion_request_conflict_expiry_rejection_and_source_drift(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id = uuid4()
+    service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=request_id,
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    with pytest.raises(McpPromotionRequestError, match="request_id_conflict"):
+        service.request(
+            client_id=MCP_CLIENT_ID,
+            request_id=request_id,
+            workspace_id=harness.workspace_id,
+            expected_generation=2,
+            target_id=TARGET_ID,
+        )
+    with pytest.raises(McpPromotionRequestError, match="promotion_already_requested"):
+        service.request(
+            client_id=MCP_CLIENT_ID,
+            request_id=uuid4(),
+            workspace_id=harness.workspace_id,
+            expected_generation=1,
+            target_id=TARGET_ID,
+        )
+
+    harness.clock.now += timedelta(minutes=16)
+    assert (
+        service.request(
+            client_id=MCP_CLIENT_ID,
+            request_id=request_id,
+            workspace_id=harness.workspace_id,
+            expected_generation=1,
+            target_id=TARGET_ID,
+        ).review_state
+        == "expired"
+    )
+    second = service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=uuid4(),
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    rejected = harness.promotions.reject(
+        TARGET_ID, harness.workspace_id, second.promotion_plan_id
+    )
+    assert rejected.state.value == "invalidated"
+
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    third = service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=uuid4(),
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    harness.source.joinpath("main.py").write_text(
+        "print('external change')\n", encoding="utf-8"
+    )
+    result = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, third.promotion_plan_id
+    )
+    assert result.state.value == "failed"
+    assert result.failure_code == "promotion_source_overlap"
+    assert harness.workspaces.get(harness.workspace_id).state.value == "ready"
+    assert harness.source.joinpath("main.py").read_text(encoding="utf-8") == (
+        "print('external change')\n"
+    )
+
+
+def test_promotion_preparation_limiter_is_two_per_ten_minutes_and_bounded() -> None:
+    now = [0.0]
+    limiter = BoundedPromotionPreparationLimiter(maximum_keys=2, clock=lambda: now[0])
+    assert limiter.allow("one") is True
+    assert limiter.allow("one") is True
+    assert limiter.allow("one") is False
+    assert limiter.allow("two") is True
+    assert limiter.allow("three") is False
+    assert limiter.key_count == 2
+    now[0] = 601.0
+    assert limiter.allow("three") is True
+    assert limiter.key_count == 1

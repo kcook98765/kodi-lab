@@ -3,11 +3,14 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.mcp_administration import FULL_LAB_CONTROL_PRESET_ID
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
 from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
@@ -535,3 +538,85 @@ def test_promotion_review_and_approval_are_strict_complete_and_private(
     assert workspace["state"] == "promoted"
     repeated = client.post(approve_url, json={"confirmed": True}, headers=headers)
     assert repeated.status_code == 409
+
+
+def test_promotion_rejection_is_confirmed_web_only_and_durable(
+    client: TestClient,
+    database: sessionmaker[Session],
+    data_root: Path,
+    broker: FakeBroker,
+) -> None:
+    _seed_source(database, data_root)
+    _seed_promotion_target(database)
+    broker.addon_inventory_result = KodiAddonInventoryResult(
+        identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"),
+        items=(
+            KodiAddonInventoryRecord(
+                addon_id="plugin.video.workspace",
+                name="Workspace",
+                version="1.0.0",
+                enabled=True,
+                kodi_type="xbmc.python.pluginsource",
+            ),
+        ),
+    )
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    context = cast(FastAPI, client.app).state.kodi_lab
+    mcp_client = context.mcp_administration.create_client(
+        display_name="Cannot approve", preset_id=FULL_LAB_CONTROL_PRESET_ID
+    )
+    bearer = context.mcp_administration.issue_credential(mcp_client.id).token
+    forbidden_approval = client.post(
+        f"/api/instances/{INSTANCE_ID}/agent-workspaces/{UUID(int=1)}/"
+        f"promotion-plans/{UUID(int=2)}/approve-and-execute",
+        json={"confirmed": True},
+        headers={**ORIGIN, "Authorization": f"Bearer {bearer}"},
+    )
+    assert forbidden_approval.status_code == 401
+
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    created = client.post(
+        "/api/agent-workspaces",
+        json={"development_source_id": str(SOURCE_ID)},
+        headers=headers,
+    ).json()
+    for _ in range(100):
+        creation = client.get(created["status_url"]).json()
+        if creation["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+    workspace_id = created["operation"]["workspace_id"]
+    assert (
+        client.put(
+            f"/api/agent-workspaces/{workspace_id}/files",
+            json={
+                "expected_generation": 0,
+                "path": "resources/main.py",
+                "content": "print('reject me')\n",
+            },
+            headers=headers,
+        ).status_code
+        == 200
+    )
+    plans_url = (
+        f"/api/instances/{INSTANCE_ID}/agent-workspaces/{workspace_id}/promotion-plans"
+    )
+    planned = client.post(plans_url, json={}, headers=headers)
+    assert planned.status_code == 201, planned.text
+    plan_id = planned.json()["plan_id"]
+    reject_url = f"{plans_url}/{plan_id}/reject"
+    assert client.post(reject_url, json={"confirmed": True}).status_code == 403
+    for payload in ({}, {"confirmed": False}, {"confirmed": True, "force": True}):
+        assert client.post(reject_url, json=payload, headers=headers).status_code == 422
+    rejected = client.post(reject_url, json={"confirmed": True}, headers=headers)
+    assert rejected.status_code == 200
+    assert rejected.json()["state"] == "invalidated"
+    assert (
+        client.post(
+            f"{plans_url}/{plan_id}/approve-and-execute",
+            json={"confirmed": True},
+            headers=headers,
+        ).status_code
+        == 409
+    )

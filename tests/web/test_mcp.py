@@ -26,6 +26,7 @@ from kodi_lab.application.mcp_administration import (
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
 )
+from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_workspace_development import (
     WorkspaceDeploymentResult,
     WorkspaceExecutionResult,
@@ -368,6 +369,7 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                 assert [item.name for item in modern_tools.tools] == [
                     "addon_list",
                     "development_source_list",
+                    "promotion_request",
                     "remote_action",
                     "screenshot_capture",
                     "target_list",
@@ -699,6 +701,7 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
     assert [item["name"] for item in tools] == [
         "addon_list",
         "development_source_list",
+        "promotion_request",
         "remote_action",
         "screenshot_capture",
         "target_list",
@@ -1768,7 +1771,7 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         time.sleep(0.01)
 
     tools = _post(client, token, "tools/list").json()["result"]["tools"]
-    for name in ("workspace_deploy", "workspace_execute"):
+    for name in ("promotion_request", "workspace_deploy", "workspace_execute"):
         schema = next(item for item in tools if item["name"] == name)["inputSchema"]
         assert set(schema["properties"]) == {
             "request_id",
@@ -1778,6 +1781,7 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         }
         assert set(schema["required"]) == set(schema["properties"])
         assert schema["additionalProperties"] is False
+    assert "promotion_approve" not in {item["name"] for item in tools}
 
     deployment_calls = 0
     execution_calls = 0
@@ -1903,3 +1907,93 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
     ).json()["result"]
     assert legacy_first["structuredContent"] == modern_replay["structuredContent"]
     assert execution_calls == 2
+
+    promotion_calls = 0
+    promotion_results: dict[UUID, PromotionRequestResult] = {}
+
+    def request_promotion(**kwargs: Any) -> PromotionRequestResult:
+        nonlocal promotion_calls
+        request_id = cast(UUID, kwargs["request_id"])
+        if request_id not in promotion_results:
+            promotion_calls += 1
+            promotion_results[request_id] = PromotionRequestResult(
+                request_id=request_id,
+                promotion_plan_id=uuid4(),
+                workspace_id=workspace_id,
+                source_id=source.id,
+                target_id=INSTANCE_ID,
+                generation=0,
+                review_state="reviewable",
+                changed_file_count=1,
+                added_file_count=0,
+                modified_file_count=1,
+                candidate_version="1.0.0",
+                expires_at=datetime(2026, 9, 21, 18, tzinfo=UTC),
+                readiness_classification="ready_for_web_review",
+                conflict_classification="no_conflict",
+            )
+        return promotion_results[request_id]
+
+    context.mcp_promotion_requests.request = request_promotion
+    promotion_arguments = {**arguments, "request_id": str(uuid4())}
+    modern_promotion = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "promotion_request", "arguments": promotion_arguments},
+    ).json()["result"]
+    legacy_promotion = _legacy_post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "promotion_request", "arguments": promotion_arguments},
+    ).json()["result"]
+    assert (
+        modern_promotion["structuredContent"] == legacy_promotion["structuredContent"]
+    )
+    assert promotion_calls == 1
+
+    isolated_promotion = _post(
+        client,
+        other_token,
+        "tools/call",
+        params={"name": "promotion_request", "arguments": promotion_arguments},
+    ).json()["result"]
+    assert isolated_promotion["structuredContent"] == {
+        "error": "workspace_not_found_or_not_authorized"
+    }
+    assert promotion_calls == 1
+
+    administration.remove_development_source_grant(mcp_client.id, source.id)
+    revoked_source = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "promotion_request", "arguments": promotion_arguments},
+    ).json()["result"]
+    assert revoked_source["structuredContent"] == {
+        "error": "workspace_not_found_or_not_authorized"
+    }
+    administration.grant_development_source(mcp_client.id, source.id)
+    administration.remove_target_grant(mcp_client.id, INSTANCE_ID)
+    revoked_target = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "promotion_request", "arguments": promotion_arguments},
+    ).json()["result"]
+    assert revoked_target["structuredContent"] == {
+        "error": "target_not_found_or_not_authorized"
+    }
+    administration.grant_target(mcp_client.id, INSTANCE_ID)
+    administration.set_client_enabled(mcp_client.id, False)
+    assert (
+        _post(
+            client,
+            token,
+            "tools/call",
+            params={"name": "promotion_request", "arguments": promotion_arguments},
+        ).status_code
+        == 401
+    )
+    assert promotion_calls == 1

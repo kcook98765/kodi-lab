@@ -37,7 +37,10 @@
     <ul>{% for item in activity %}<li>Generation {{ item.generation }}: {{ item.operation }} {{ item.path }}</li>{% else %}<li>No workspace mutations.</li>{% endfor %}</ul>
     <section id="workspace-promotion" data-workspace-id="{{ workspace.id }}" data-csrf="{{ csrf_token }}">
       <h2>Promote reviewed changes</h2>
-      {% if promotion_targets %}
+      {% if promotion_plan %}
+      <p>An exact generation {{ promotion_plan.workspace_generation }} promotion plan is awaiting or undergoing human review ({{ promotion_plan.state.value }}).</p>
+      <p><a href="/instances/{{ promotion_plan.verification_target_id }}/agent-workspaces/{{ workspace.id }}/promotion-plans/{{ promotion_plan.plan_id }}">Review the active promotion plan</a></p>
+      {% elif promotion_targets %}
       <p><label>Future verification target <select id="promotion-target">{% for target in promotion_targets %}<option value="{{ target.id }}">{{ target.name }}</option>{% endfor %}</select></label> <button id="prepare-promotion" type="button">Prepare exact promotion review</button></p>
       <p id="promotion-result" role="status"></p>
       {% else %}<p>No eligible running target has an exact retained verified deployment of this source.</p>{% endif %}
