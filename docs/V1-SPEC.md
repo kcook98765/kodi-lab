@@ -695,35 +695,46 @@ On restart:
 MCP is first-class v1, but focused on target use/development.
 
 Transports:
-- HTTP
-- stdio
+- modern Streamable HTTP, with primary protocol `2026-07-28`;
+- a later thin authenticated stdio adapter over the same identity and
+  authorization services.
 
 Client:
-- connect once;
+- authenticate every independent HTTP request with a durable MCP bearer
+  credential;
 - list authorized targets;
 - inspect type/capabilities;
-- select session-default target.
+- pass an explicit target UUID to every target-scoped tool.
+
+The modern HTTP path has no initialize/initialized handshake, application
+transport session, `Mcp-Session-Id`, selected/default-target state, or GET
+stream. Compatibility with handshake-era protocol `2025-11-25` is a separate
+later conformance decision, not an implicit fallback.
 
 Cross-target loops are client/agent side.
 
 ## 31. MCP authentication/tool exposure
 
-Separate MCP API tokens.
-Readable token/client name + session ID.
+Separate durable MCP clients and verifier-only bearer credentials. MCP
+`clientInfo` is diagnostic metadata at most and never establishes identity.
+There is no MCP application session ID.
 Default token expiry 24h; configurable/non-expiring.
 Show token once, hash only.
 
 Tool availability = intersection of:
+- valid credential and enabled client;
 - client permission/preset;
+- exact client/target grant;
 - target policy;
-- technical capability.
+- server-owned tool permission and target-class policy;
+- technical capability and current target state.
 
-Hide unsupported/disabled tools.
-Dynamic refresh on target change where supported; otherwise new session.
+Discovery is target-independent and reflects only current client-preset
+permission. Exact grants, target policy, capability, and current state are
+recomputed for every call; discovery is never authorization.
 
 Flat explicit names preferred:
 - target_list
-- target_select
 - player_state
 - playback_pause
 - library_search
@@ -733,6 +744,11 @@ Flat explicit names preferred:
 - jsonrpc_call
 
 MCP tool/API schema has separate explicit version.
+
+Phase 11 Slice 1 sets that Kodi Lab schema version to `1` and exposes only
+`target_list` and `target_status`. Stdio, screenshots, remote control, raw
+JSON-RPC, lifecycle, diagnostics, external targets, and the richer semantic
+catalog remain later slices/phases.
 
 ## 32. MCP baseline/presets
 

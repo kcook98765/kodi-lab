@@ -1,0 +1,121 @@
+"""Static server-owned tool metadata and common authorization declarations."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+
+KODI_LAB_MCP_SCHEMA_VERSION = 1
+
+
+class ToolEffect(StrEnum):
+    READ_ONLY = "read_only"
+    MUTATING = "mutating"
+
+
+class ToolRateClass(StrEnum):
+    READ_LIGHT = "read_light"
+
+
+class TargetClass(StrEnum):
+    INTERNAL_LAB = "internal_lab"
+    EXTERNAL_DEVELOPMENT = "external_development"
+    EXTERNAL_PRODUCTION = "external_production"
+
+
+@dataclass(frozen=True, slots=True)
+class McpToolDefinition:
+    name: str
+    schema_revision: int
+    permissions: frozenset[str]
+    effect: ToolEffect
+    allowed_target_classes: frozenset[TargetClass]
+    required_capabilities: frozenset[str]
+    required_states: frozenset[str]
+    rate_class: ToolRateClass
+    adapter: str
+    production_eligible: bool
+    target_scope_required: bool
+
+
+class McpRegistryError(ValueError):
+    pass
+
+
+class McpToolRegistry:
+    """Transport-neutral closed production inventory with extensible metadata."""
+
+    def __init__(self, *, known_permissions: frozenset[str]) -> None:
+        self._known_permissions = known_permissions
+        self._tools: dict[str, McpToolDefinition] = {}
+
+    def register(self, definition: McpToolDefinition) -> None:
+        if (
+            not definition.name
+            or len(definition.name) > 64
+            or definition.name != definition.name.lower()
+            or definition.schema_revision < 1
+            or not definition.permissions
+            or not definition.permissions.issubset(self._known_permissions)
+            or not definition.allowed_target_classes
+            or not definition.adapter
+            or definition.name in self._tools
+        ):
+            raise McpRegistryError("invalid_or_unknown_tool_metadata")
+        self._tools[definition.name] = definition
+
+    def get(self, name: str) -> McpToolDefinition | None:
+        return self._tools.get(name)
+
+    def require(self, name: str) -> McpToolDefinition:
+        definition = self.get(name)
+        if definition is None:
+            raise McpRegistryError("unknown_tool")
+        return definition
+
+    def discoverable(
+        self, permissions: frozenset[str]
+    ) -> tuple[McpToolDefinition, ...]:
+        return tuple(
+            definition
+            for name, definition in sorted(self._tools.items())
+            if definition.permissions.issubset(permissions)
+        )
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(sorted(self._tools))
+
+
+def build_mcp_tool_registry() -> McpToolRegistry:
+    registry = McpToolRegistry(known_permissions=frozenset({"target.inspect"}))
+    registry.register(
+        McpToolDefinition(
+            name="target_list",
+            schema_revision=1,
+            permissions=frozenset({"target.inspect"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"managed_runtime_status"}),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.READ_LIGHT,
+            adapter="managed_runtime_status.list",
+            production_eligible=False,
+            target_scope_required=False,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="target_status",
+            schema_revision=1,
+            permissions=frozenset({"target.inspect"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"managed_runtime_status"}),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.READ_LIGHT,
+            adapter="managed_runtime_status.get",
+            production_eligible=False,
+            target_scope_required=True,
+        )
+    )
+    return registry

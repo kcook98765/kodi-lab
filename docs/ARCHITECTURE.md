@@ -1484,3 +1484,69 @@ screenshot auto-refresh, keyboard/full-text input, live-display parity for
 additional runtimes, VNC/noVNC, and higher-frame-rate video. MCP transport,
 tokens, client/agent identity, target selection, schemas/tools, and workspace
 exposure remain Phase 11/12 work and were not introduced by Phase 10.
+
+## Phase 11 Slice 1 modern authenticated read-only MCP foundation
+
+Kodi Lab now hosts exact POST `/mcp` as an ASGI route in the existing FastAPI
+lifespan and listener. The outer MCP adapter admits only protocol
+`2026-07-28`, JSON request bodies up to 64 KiB, a valid Bearer credential, and
+bounded request/concurrency capacity before entering the exact-pinned official
+SDK. The SDK performs modern per-request envelope/header validation and
+dispatch; Kodi Lab strips any session header defensively and creates no
+transport-session or default-target state. `server/discover`, `tools/list`, and
+`tools/call` are independent requests. SDK legacy auto-mode cannot bypass the
+outer exact-version gate.
+
+`mcp_administration` owns durable clients, verifier-only credentials, immutable
+built-in presets, open-ended preset-permission strings, exact managed-target
+grants, target preset assignments, and content-free security-administration
+events. Browser routes are authenticated Web-admin-only mutations protected by
+the existing Host, Origin, session, and CSRF controls. Token plaintext exists
+only in the issue/rotation response and transient page DOM; list/detail and a
+reload cannot recover it.
+
+The transport-neutral MCP registry is static server code. Every definition
+owns permission, effect, target-class eligibility, capability/state gates, rate
+class, adapter identity, production eligibility, and target-scope metadata.
+`McpAuthorizationService` recomputes durable authority and invokes an adapter
+only after the full intersection passes. Consequently a later tool normally
+adds one approved Kodi Lab service, compact schema, registry definition,
+bounded output/error mapping, and tests; it does not add authentication,
+transport, grant, or preset architecture.
+
+The only adapters are `target_list` and `target_status`. Both call the existing
+`ManagedRuntimeStatusService`; neither imports Docker, broker, X11, raw Kodi
+HTTP/JSON-RPC, or host filesystem code. Discovery is private/immediately stale,
+lexical, and filtered only by target-independent client permission. Target
+grant/policy/capability/current-state checks occur at call time.
+
+Current target grants and policy assignments reference `managed_instances`,
+which deliberately makes unsupported external classes unrepresentable in
+Slice 1. The existing `targets` table is already the stable supertype. Phase 13
+can rebuild those association foreign keys to `targets.id`, retain every
+existing managed UUID, add external-development subtype storage and authority
+providers, and leave all MCP client/credential/preset identities unchanged.
+Phase 14 can add external-production subtype and production-safe policy. Static
+production definitions currently allow only `internal_lab`, and class is never
+sufficient without an exact grant and both preset sides.
+
+Structured per-call logs contain only client/credential/tool/optional target
+UUIDs, timestamps, and a safe outcome. Durable administration events contain
+only bounded semantic UUIDs and event kinds. Tokens, hashes, cookies, arbitrary
+arguments/text, file/image content, raw Kodi data, endpoints, and paths are
+excluded.
+
+Slice 1 uses Kodi Lab MCP schema `1`, distinct from MCP protocol
+`2026-07-28` and package version. It adds no stdio, `2025-11-25`
+compatibility, screenshots, remote control, action receipts, lifecycle,
+snapshots, logs/diagnostics, raw JSON-RPC, external targets, production
+connectivity, or Phase 12 workspace/development tools. Phase 11 is not complete.
+
+Protocol validation uses the official conformance runner pinned to
+`@modelcontextprotocol/conformance@0.2.0-alpha.11`. A test-only ASGI wrapper
+injects one issued bearer because that runner has no arbitrary-header option;
+it does not bypass any MCP protocol/header/dispatch behavior and is not shipped
+in the application package. Only Slice-1-relevant stateless, tool-list, cache,
+header-routing, and DNS-rebinding checks are in scope. Fixture-only sampling,
+subscription, prompt/resource, media-content, MRTR, OAuth-client, and later
+catalog scenarios are reported as exclusions rather than implemented.

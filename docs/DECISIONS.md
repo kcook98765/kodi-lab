@@ -3002,3 +3002,113 @@ exception-safe display capacity across WebSocket acceptance failure. Optional
 auto-refresh, keyboard/full-text, additional-runtime display parity, VNC/noVNC,
 and higher-frame-rate video remain future work. Phase 10 adds no MCP or agent
 authority.
+
+## D-0219: Kodi Lab MCP uses the modern stateless protocol as its primary wire
+
+- Status: approved; Phase 11 Slice 1 foundation implemented
+- Decision: the primary wire protocol is exactly `2026-07-28` over POST
+  `/mcp` in the existing FastAPI process on `127.0.0.1:8100`. It uses
+  `server/discover` and per-request protocol metadata/headers, with no
+  initialize/initialized exchange, `Mcp-Session-Id`, GET stream, application
+  transport session, or selected/default target. Every target-scoped call
+  carries an explicit `target_id`.
+- Dependency: official Python MCP SDK `mcp==2.1.1` (and lock-resolved matching
+  `mcp-types==2.1.1`) is exact-pinned because this is the reviewed generation
+  implementing the new wire. The SDK can auto-fallback to handshake-era
+  protocols, so Kodi Lab's outer gate requires `MCP-Protocol-Version` to equal
+  `2026-07-28`; legacy `2025-11-25` compatibility is not implemented in this
+  slice. Canonical stdio remains a later thin authenticated adapter.
+
+## D-0220: MCP identity is durable and separate from Web identity
+
+- Status: approved; Phase 11 Slice 1 implemented
+- Decision: a durable enabled/disabled MCP client receives one assignable
+  preset and owns separate credentials. A credential is 32 random bytes
+  encoded base64url, revealed once, and persisted only as SHA-256 of the
+  decoded high-entropy token. Verification uses constant-time comparison.
+  No protected stable pepper facility exists, so Slice 1 does not introduce a
+  poorly managed HMAC secret or a password KDF for machine tokens.
+- Lifecycle: default expiry is 24 hours; Web administration may select a
+  bounded shorter duration or explicit non-expiry. Issue, revoke, and atomic
+  old-revoke/new-create rotation are supported. Disabled clients invalidate
+  all credentials on the next request. Web cookies never authenticate MCP and
+  MCP bearer credentials never authenticate Web routes.
+
+## D-0221: MCP authority is an intersection recomputed on every call
+
+- Status: approved; Phase 11 Slice 1 implemented
+- Decision: the common boundary evaluates current credential validity, enabled
+  client, client preset permission, exact client/target grant, target preset
+  policy, tool permission, allowed target class/policy, technical capability,
+  and required current state before an adapter executes. Unknown and
+  unauthorized UUIDs share `target_not_found_or_not_authorized`. Discovery and
+  an earlier successful request confer no cached authority.
+
+## D-0222: One static transport-neutral registry owns MCP tool policy
+
+- Status: approved; Phase 11 Slice 1 implemented
+- Decision: server-owned definitions declare stable name, schema revision,
+  permission set, read/mutate effect, allowed target classes, capability and
+  state requirements, semantic rate class, adapter identity,
+  production-eligibility, and whether target scope is required. Unknown
+  permissions or incomplete metadata fail registration. Handlers remain thin
+  and call a shared authorize-then-invoke boundary before Kodi Lab application
+  services. User-editable arbitrary tool definitions are not supported.
+
+## D-0223: Permissions are open-ended names but operationally fail closed
+
+- Status: approved; Phase 11 Slice 1 implemented
+- Decision: preset permissions are bounded normalized strings rather than a
+  closed database enum, allowing later semantic permissions without replacing
+  clients, credentials, presets, or grants. The production registry recognizes
+  only approved permissions; Slice 1 recognizes only `target.inspect` and
+  exposes no speculative capability.
+
+## D-0224: Presets, exact grants, and target policy are distinct authority
+
+- Status: approved; Phase 11 Slice 1 implemented
+- Decision: deterministic immutable built-ins are Add-on Development,
+  Read-only Inspection, Full Lab Control, and Production Remote Kodi. The first
+  three currently contain only `target.inspect`; the production preset is
+  present but unassignable and grants nothing until Phases 13/14. Full Lab
+  Control remains target-use authority, never Web/infrastructure authority.
+- Scope: every grant is exactly `(client_uuid, managed_target_uuid)`; there is
+  no wildcard. A target policy assignment is separately required. Target
+  deletion cascades both, and a newly created target UUID inherits neither.
+  Custom-preset UI and granular RBAC editing are deferred.
+
+## D-0225: Slice 1 exposes only bounded target inspection
+
+- Status: approved; Phase 11 Slice 1 implemented
+- Decision: the complete production inventory is lexical `target_list` and
+  `target_status`. List pagination defaults to 50 and caps at 100. Both project
+  only bounded semantic identity, runtime/profile classification, safe state,
+  Kodi version, and safe capability. `ManagedRuntimeStatusService` remains the
+  authoritative target-state path. Docker/container/network/port/path/X11,
+  image/digest, broker internals, and raw Kodi JSON never leave the adapter.
+
+## D-0228: MCP admission is bounded before tool execution
+
+- Status: approved; Phase 11 Slice 1 implemented
+- Decision: failed authentication uses actual connection peer identity, never
+  attacker token text, at 5 requests/second with burst 20, at most 1,024
+  buckets, and 15-minute idle retirement. Authenticated admission is 20
+  requests/second per client with burst 40, at most 1,024 buckets, eight
+  concurrent requests per client, and 32 globally. New cardinality is rejected
+  rather than evicting hot authority. Monotonic clocks and exception-safe slot
+  release are testable; later registry rate classes may add narrower bounds.
+
+## D-0229: Phase 11 identity survives future target and tool expansion
+
+- Status: approved; Phase 11 Slice 1 foundation implemented
+- Decision: current grant and target-policy foreign keys intentionally bind to
+  `managed_instances` so Slice 1 cannot authorize a non-managed target. Static
+  metadata already names `internal_lab`, `external_development`, and
+  `external_production`, but production tools admit only `internal_lab` and an
+  actual ManagedInstance row is mandatory.
+- Migration path: Phase 13 may rebuild the two small association tables to
+  reference the already-existing generic `targets.id`, add external subtype
+  persistence/adapters, and migrate existing UUID rows unchanged. Phase 14 may
+  then add explicit production-safe policies. Client, credential, preset,
+  permission, transport, registry, and authorization identities remain intact;
+  target class alone is never permission.

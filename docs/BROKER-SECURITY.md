@@ -486,3 +486,19 @@ channel, caller-selected path/display/command/format/rate/timeout, or generic
 execution authority. The unprivileged application consumes each private raw
 artifact through the same strict decoder and validator, removes staging, and
 keeps the resulting display PNG in memory only.
+
+## Phase 11 Slice 1 MCP boundary
+
+The read-only MCP foundation adds no broker method and no new broker caller
+authority. MCP adapters never import the broker client, Docker adapter, X11,
+raw Kodi transport, or filesystem paths. `target_list` and `target_status`
+reuse the unprivileged transport-neutral `ManagedRuntimeStatusService`; that
+service retains the existing restricted broker boundary for its bounded
+managed-container observation.
+
+MCP client identity, bearer verification, presets, exact target grants, target
+policy, static tool metadata, and request admission all live in the ordinary
+application process. They cannot authorize a broker operation directly.
+Future MCP tools must first use an independently approved Kodi Lab application
+service; adding registry metadata alone never creates broker, Docker, shell,
+path, or raw JSON-RPC authority.

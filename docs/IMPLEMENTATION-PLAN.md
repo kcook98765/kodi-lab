@@ -968,3 +968,42 @@ remain optional future work. Phase 11 MCP architecture may begin only as a new
 separately reviewed milestone; Phase 10 introduced no MCP transport, token,
 client/agent identity, session-default target, schema/tool, or workspace
 exposure.
+
+## Phase 11 Slice 1 checkpoint
+
+Phase 11 Slice 1 implements only the modern authenticated read-only MCP
+foundation under D-0219 through D-0225 and D-0228/D-0229. Official Python SDK
+`mcp==2.1.1` is exact-pinned for reviewed protocol `2026-07-28` behavior.
+Existing FastAPI serves exact POST `/mcp`; an outer version gate prevents the
+SDK's legacy fallback path. There is no GET stream, initialize/initialized,
+`Mcp-Session-Id`, transport session, selected/default target, new listener,
+nginx/systemd change, CORS expansion, or stdio adapter.
+
+Migration `0036_mcp_core_foundation` adds deterministic built-in presets,
+open-ended permissions, durable clients, separate SHA-256 verifier-only
+credentials, exact managed-target grants, target-side preset assignments, and
+bounded security-administration events. Web administration provides client,
+preset, grant/policy, and issue/revoke/atomic-rotation lifecycle with show-once
+tokens. Admission has bounded peer/client token buckets and exception-safe
+per-client/global concurrency.
+
+The static registry and common authorize-then-invoke service support later
+semantic tools, permissions, target classes, capabilities, states, and rate
+classes without replacing transport or identity. Production inventory contains
+only lexical `target_list` and `target_status`, both over
+`ManagedRuntimeStatusService`, with explicit target UUID and bounded path-free
+output. Kodi Lab MCP schema version is `1`.
+
+Phase 11 remains **PARTIAL**. The next separately approved slices still own
+canonical authenticated stdio, any reviewed `2025-11-25` compatibility,
+inventory/screenshots, semantic remote control and durable action receipts,
+and richer Kodi operations. Phase 12 owns working-copy/development tools;
+Phase 13 external development targets; Phase 14 external production policy;
+Phase 15 diagnostics. No later capability is claimed by this checkpoint.
+
+The applicable official protocol check uses exact runner
+`@modelcontextprotocol/conformance@0.2.0-alpha.11` through the test-only
+authenticated wrapper in `scripts/phase11_mcp_conformance_app.py`. The runner's
+fixture-only sampling/subscription probes and unimplemented prompts, resources,
+media, MRTR, OAuth-client, and later tool-catalog scenarios are explicit
+exclusions, not Phase 11 conformance claims.

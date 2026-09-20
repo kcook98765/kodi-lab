@@ -4195,3 +4195,179 @@ class WebSessionRow(Base):
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     last_used_at: Mapped[str] = mapped_column(String(27), nullable=False)
     absolute_expires_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class McpPresetRow(Base):
+    """Immutable server-owned MCP authority preset."""
+
+    __tablename__ = "mcp_presets"
+    __table_args__ = (
+        CheckConstraint(
+            "length(display_name) BETWEEN 1 AND 120 "
+            "AND display_name = trim(display_name)",
+            name="mcp_preset_display_name_bounded",
+        ),
+        UniqueConstraint("display_name", name="uq_mcp_preset_display_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    builtin: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    assignable: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+
+class McpPresetPermissionRow(Base):
+    """Open-ended permission name assigned to one MCP preset."""
+
+    __tablename__ = "mcp_preset_permissions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(permission) BETWEEN 1 AND 128 "
+            "AND permission = lower(permission) "
+            "AND permission = trim(permission)",
+            name="mcp_preset_permission_bounded",
+        ),
+    )
+
+    preset_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("mcp_presets.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    permission: Mapped[str] = mapped_column(String(128), primary_key=True)
+
+
+class McpClientRow(Base):
+    """Durable MCP caller identity; protocol clientInfo is never authority."""
+
+    __tablename__ = "mcp_clients"
+    __table_args__ = (
+        CheckConstraint(
+            "length(display_name) BETWEEN 1 AND 120 "
+            "AND display_name = trim(display_name)",
+            name="mcp_client_display_name_bounded",
+        ),
+        CheckConstraint(
+            "length(created_at) = 27 "
+            "AND (last_used_at IS NULL OR length(last_used_at) = 27)",
+            name="mcp_client_timestamps_format",
+        ),
+        Index("ix_mcp_client_preset", "preset_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    preset_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_presets.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    last_used_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+
+
+class McpCredentialRow(Base):
+    """Verifier-only bearer credential belonging to one MCP client."""
+
+    __tablename__ = "mcp_credentials"
+    __table_args__ = (
+        CheckConstraint(
+            "length(token_digest) = 64 AND token_digest NOT GLOB '*[^0-9a-f]*'",
+            name="mcp_credential_digest_sha256",
+        ),
+        CheckConstraint(
+            "length(created_at) = 27 "
+            "AND (expires_at IS NULL OR length(expires_at) = 27) "
+            "AND (revoked_at IS NULL OR length(revoked_at) = 27) "
+            "AND (last_used_at IS NULL OR length(last_used_at) = 27)",
+            name="mcp_credential_timestamps_format",
+        ),
+        CheckConstraint(
+            "expires_at IS NULL OR expires_at > created_at",
+            name="mcp_credential_expiry_after_creation",
+        ),
+        UniqueConstraint("token_digest", name="uq_mcp_credential_token_digest"),
+        Index("ix_mcp_credential_client", "client_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="CASCADE"), nullable=False
+    )
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    expires_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    revoked_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    last_used_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+
+
+class McpClientTargetGrantRow(Base):
+    """Exact MCP client-to-managed-target grant; no wildcard representation."""
+
+    __tablename__ = "mcp_client_target_grants"
+    __table_args__ = (
+        CheckConstraint(
+            "length(created_at) = 27", name="mcp_client_target_grant_timestamp_format"
+        ),
+        Index("ix_mcp_grant_target", "target_id"),
+    )
+
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="CASCADE"), primary_key=True
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class McpTargetPresetAssignmentRow(Base):
+    """Current target-side policy assignment for an internal managed target."""
+
+    __tablename__ = "mcp_target_preset_assignments"
+    __table_args__ = (
+        CheckConstraint(
+            "length(assigned_at) = 27",
+            name="mcp_target_preset_assignment_timestamp_format",
+        ),
+        Index("ix_mcp_target_assignment_preset", "preset_id"),
+    )
+
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    preset_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_presets.id", ondelete="RESTRICT"), nullable=False
+    )
+    assigned_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class McpSecurityEventRow(Base):
+    """Content-free durable MCP security-administration event."""
+
+    __tablename__ = "mcp_security_events"
+    __table_args__ = (
+        CheckConstraint(
+            "length(event_kind) BETWEEN 1 AND 64 "
+            "AND event_kind = lower(event_kind) "
+            "AND event_kind = trim(event_kind)",
+            name="mcp_security_event_kind_bounded",
+        ),
+        CheckConstraint(
+            "length(occurred_at) = 27", name="mcp_security_event_timestamp_format"
+        ),
+        CheckConstraint("actor = 'web_admin'", name="mcp_security_event_actor_closed"),
+        Index("ix_mcp_security_event_occurred", "occurred_at", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    event_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str] = mapped_column(String(16), nullable=False)
+    client_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    credential_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    preset_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)

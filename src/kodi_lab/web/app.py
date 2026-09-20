@@ -10,6 +10,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -36,6 +37,7 @@ from python_multipart.multipart import MultipartParser, parse_options_header
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kodi_lab.application.activity import (
@@ -212,6 +214,16 @@ from kodi_lab.application.live_display import (
     LiveDisplayFrameSkipped,
     ManagedLiveDisplayService,
 )
+from kodi_lab.application.mcp_administration import (
+    McpAdministrationError,
+    McpAdministrationService,
+    McpAuthenticationService,
+    McpClientRead,
+    McpCredentialRead,
+    McpIssuedCredential,
+    McpPresetRead,
+    McpTargetPolicyRead,
+)
 from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
@@ -348,6 +360,10 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
+from kodi_lab.mcp.authorization import McpAuthorizationService
+from kodi_lab.mcp.registry import build_mcp_tool_registry
+from kodi_lab.mcp.tools import McpTargetToolService
+from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
@@ -648,6 +664,37 @@ class ManagedInstanceDeleteRequest(BaseModel):
     preserve_snapshots: StrictBool
 
 
+class McpClientCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = Field(min_length=1, max_length=120)
+    preset_id: UUID
+
+
+class McpClientRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = Field(min_length=1, max_length=120)
+
+
+class McpClientEnabledRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: StrictBool
+
+
+class McpPresetAssignmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preset_id: UUID
+
+
+class McpCredentialIssueRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expiration_seconds: int | None = Field(default=24 * 60 * 60, ge=60, le=31 * 86400)
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
@@ -715,6 +762,8 @@ class WebApplicationContext:
     browser_remote: BrowserRemoteService
     browser_remote_rate_limiter: BrowserRemoteRateLimiter
     live_display: ManagedLiveDisplayService
+    mcp_administration: McpAdministrationService
+    mcp_transport: McpHttpTransport
 
 
 def create_app(
@@ -802,6 +851,15 @@ def create_app(
     )
     status_service = ManagedRuntimeStatusService(
         session_factory, broker, task_registry, reconciliation
+    )
+    mcp_administration = McpAdministrationService(session_factory)
+    mcp_registry = build_mcp_tool_registry()
+    mcp_authorization = McpAuthorizationService(session_factory, mcp_registry)
+    mcp_transport = build_mcp_http_transport(
+        authentication=McpAuthenticationService(session_factory),
+        authorization=mcp_authorization,
+        registry=mcp_registry,
+        tools=McpTargetToolService(session_factory, mcp_authorization, status_service),
     )
     screenshots = managed_screenshot_service or ManagedScreenshotService(
         session_factory,
@@ -1230,6 +1288,8 @@ def create_app(
         browser_remote=browser_remote,
         browser_remote_rate_limiter=remote_rate_limiter,
         live_display=live_display,
+        mcp_administration=mcp_administration,
+        mcp_transport=mcp_transport,
     )
 
     @asynccontextmanager
@@ -1252,25 +1312,26 @@ def create_app(
         context.repository_replacement_executor.start()
         context.agent_workspace_executor.start()
         context.agent_workspace_cleanup_executor.start()
-        try:
-            yield
-        finally:
-            context.reset_executor.close()
-            context.snapshot_executor.close()
-            context.snapshot_restore_executor.close()
-            context.snapshot_delete_executor.close()
-            context.instance_delete_executor.close()
-            context.development_source_deployment_executor.close()
-            context.development_source_smoke_test_executor.close()
-            context.addon_zip_import_executor.close()
-            context.addon_zip_installation_executor.close()
-            context.addon_zip_smoke_test_executor.close()
-            context.addon_repository_refresh_executor.close()
-            context.addon_repository_fetch_executor.close()
-            context.repository_replacement_executor.close()
-            context.agent_workspace_executor.close()
-            context.agent_workspace_cleanup_executor.close()
-            context.readiness.close()
+        async with context.mcp_transport.server.session_manager.run():
+            try:
+                yield
+            finally:
+                context.reset_executor.close()
+                context.snapshot_executor.close()
+                context.snapshot_restore_executor.close()
+                context.snapshot_delete_executor.close()
+                context.instance_delete_executor.close()
+                context.development_source_deployment_executor.close()
+                context.development_source_smoke_test_executor.close()
+                context.addon_zip_import_executor.close()
+                context.addon_zip_installation_executor.close()
+                context.addon_zip_smoke_test_executor.close()
+                context.addon_repository_refresh_executor.close()
+                context.addon_repository_fetch_executor.close()
+                context.repository_replacement_executor.close()
+                context.agent_workspace_executor.close()
+                context.agent_workspace_cleanup_executor.close()
+                context.readiness.close()
 
     app = FastAPI(
         title="Kodi Lab",
@@ -1287,6 +1348,15 @@ def create_app(
     app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
     templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
     app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
+    app.router.routes.append(
+        Route(
+            "/mcp",
+            context.mcp_transport.app,
+            methods=["POST"],
+            name="mcp",
+            include_in_schema=False,
+        )
+    )
 
     @app.middleware("http")
     async def security_headers(
@@ -1823,6 +1893,13 @@ def create_app(
             503, "runtime_service_unavailable", "Runtime service unavailable."
         )
 
+    @app.exception_handler(McpAdministrationError)
+    async def mcp_administration_failure(
+        _request: Request, error: McpAdministrationError
+    ) -> JSONResponse:
+        status_code = 404 if error.code.endswith("_not_found") else 409
+        return _json_error(status_code, error.code, "MCP administration rejected.")
+
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request) -> Response:
         token = request.cookies.get(settings.web_session_cookie_name)
@@ -1911,6 +1988,22 @@ def create_app(
                 "reconciliation_statuses": reconciliation_statuses,
                 "csrf_token": authenticated.csrf_token,
                 "poll_interval_ms": 2000,
+            },
+        )
+
+    @app.get("/mcp-clients", response_class=HTMLResponse)
+    async def mcp_clients_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "mcp-clients.html",
+            {
+                "csrf_token": authenticated.csrf_token,
+                "clients": context.mcp_administration.list_clients(),
+                "presets": context.mcp_administration.list_presets(),
+                "targets": context.mcp_administration.list_target_policies(),
             },
         )
 
@@ -2358,6 +2451,151 @@ def create_app(
                 "snapshot": snapshot,
                 "csrf_token": authenticated.csrf_token,
             },
+        )
+
+    @app.get("/api/mcp/presets", response_model=list[McpPresetRead])
+    def list_mcp_presets(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[McpPresetRead]:
+        return context.mcp_administration.list_presets()
+
+    @app.get("/api/mcp/clients", response_model=list[McpClientRead])
+    def list_mcp_clients(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[McpClientRead]:
+        return context.mcp_administration.list_clients()
+
+    @app.post(
+        "/api/mcp/clients",
+        response_model=McpClientRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_mcp_client(
+        payload: McpClientCreateRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.create_client(
+            display_name=payload.display_name, preset_id=payload.preset_id
+        )
+
+    @app.get("/api/mcp/clients/{client_id}", response_model=McpClientRead)
+    def get_mcp_client(
+        client_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.get_client(client_id)
+
+    @app.post("/api/mcp/clients/{client_id}/rename", response_model=McpClientRead)
+    def rename_mcp_client(
+        client_id: UUID,
+        payload: McpClientRenameRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.rename_client(client_id, payload.display_name)
+
+    @app.post("/api/mcp/clients/{client_id}/enabled", response_model=McpClientRead)
+    def set_mcp_client_enabled(
+        client_id: UUID,
+        payload: McpClientEnabledRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.set_client_enabled(client_id, payload.enabled)
+
+    @app.post("/api/mcp/clients/{client_id}/preset", response_model=McpClientRead)
+    def assign_mcp_client_preset(
+        client_id: UUID,
+        payload: McpPresetAssignmentRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.assign_client_preset(
+            client_id, payload.preset_id
+        )
+
+    @app.post(
+        "/api/mcp/clients/{client_id}/credentials",
+        response_model=McpIssuedCredential,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def issue_mcp_credential(
+        client_id: UUID,
+        payload: McpCredentialIssueRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpIssuedCredential:
+        lifetime = (
+            None
+            if payload.expiration_seconds is None
+            else timedelta(seconds=payload.expiration_seconds)
+        )
+        return context.mcp_administration.issue_credential(client_id, lifetime=lifetime)
+
+    @app.post(
+        "/api/mcp/clients/{client_id}/credentials/{credential_id}/revoke",
+        response_model=McpCredentialRead,
+    )
+    def revoke_mcp_credential(
+        client_id: UUID,
+        credential_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpCredentialRead:
+        return context.mcp_administration.revoke_credential(client_id, credential_id)
+
+    @app.post(
+        "/api/mcp/clients/{client_id}/credentials/{credential_id}/rotate",
+        response_model=McpIssuedCredential,
+    )
+    def rotate_mcp_credential(
+        client_id: UUID,
+        credential_id: UUID,
+        payload: McpCredentialIssueRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpIssuedCredential:
+        lifetime = (
+            None
+            if payload.expiration_seconds is None
+            else timedelta(seconds=payload.expiration_seconds)
+        )
+        return context.mcp_administration.rotate_credential(
+            client_id, credential_id, lifetime=lifetime
+        )
+
+    @app.post(
+        "/api/mcp/clients/{client_id}/targets/{target_id}",
+        response_model=McpClientRead,
+    )
+    def grant_mcp_target(
+        client_id: UUID,
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.grant_target(client_id, target_id)
+
+    @app.delete(
+        "/api/mcp/clients/{client_id}/targets/{target_id}",
+        response_model=McpClientRead,
+    )
+    def remove_mcp_target_grant(
+        client_id: UUID,
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpClientRead:
+        return context.mcp_administration.remove_target_grant(client_id, target_id)
+
+    @app.get("/api/mcp/target-policies", response_model=list[McpTargetPolicyRead])
+    def list_mcp_target_policies(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[McpTargetPolicyRead]:
+        return context.mcp_administration.list_target_policies()
+
+    @app.post(
+        "/api/mcp/target-policies/{target_id}", response_model=McpTargetPolicyRead
+    )
+    def assign_mcp_target_policy(
+        target_id: UUID,
+        payload: McpPresetAssignmentRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpTargetPolicyRead:
+        return context.mcp_administration.assign_target_preset(
+            target_id, payload.preset_id
         )
 
     @app.get("/api/runtime-matrix", response_model=RuntimeMatrixResponse)

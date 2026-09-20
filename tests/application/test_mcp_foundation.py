@@ -1,0 +1,532 @@
+from __future__ import annotations
+
+import asyncio
+import base64
+import hmac
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import UUID, uuid4
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+from starlette.testclient import TestClient
+from starlette.types import Receive, Scope, Send
+
+from kodi_lab.application.mcp_administration import (
+    PRODUCTION_REMOTE_KODI_PRESET_ID,
+    READ_ONLY_INSPECTION_PRESET_ID,
+    McpAdministrationError,
+    McpAdministrationService,
+    McpAuthenticationService,
+    McpPrincipal,
+)
+from kodi_lab.mcp.authorization import (
+    McpAuthorizationError,
+    McpAuthorizationService,
+    TargetTechnicalAuthority,
+)
+from kodi_lab.mcp.registry import (
+    McpRegistryError,
+    McpToolDefinition,
+    McpToolRegistry,
+    TargetClass,
+    ToolEffect,
+    ToolRateClass,
+)
+from kodi_lab.mcp.transport import (
+    BoundedConcurrencyLimiter,
+    BoundedTokenBucketLimiter,
+    ModernMcpAuthMiddleware,
+)
+from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.metadata import Base
+from kodi_lab.storage.models import (
+    ManagedInstanceRow,
+    McpClientTargetGrantRow,
+    McpCredentialRow,
+    McpPresetPermissionRow,
+    McpPresetRow,
+    McpSecurityEventRow,
+    RuntimeDefinitionRow,
+    RuntimeRevisionRow,
+    TargetRow,
+)
+
+TARGET_ID = UUID("12000000-0000-4000-8000-000000000001")
+REVISION_ID = UUID("12000000-0000-4000-8000-000000000002")
+DEFINITION_ID = UUID("12000000-0000-4000-8000-000000000003")
+
+
+class MutableClock:
+    def __init__(self) -> None:
+        self.now = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
+        self.monotonic = 100.0
+
+    def utc(self) -> datetime:
+        return self.now
+
+    def tick(self) -> float:
+        return self.monotonic
+
+
+class TokenSource:
+    def __init__(self) -> None:
+        self.counter = 0
+
+    def __call__(self, size: int) -> bytes:
+        self.counter += 1
+        return bytes([self.counter]) * size
+
+
+@pytest.fixture
+def mcp_database(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'mcp.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    _seed_target(factory)
+    yield factory
+    engine.dispose()
+
+
+def _seed_target(factory: sessionmaker[Session]) -> None:
+    digest = "sha256:" + "a" * 64
+    with factory.begin() as session:
+        session.add(
+            RuntimeDefinitionRow(
+                id=str(DEFINITION_ID), slug="mcp-kodi", kodi_version="21.3"
+            )
+        )
+        session.flush()
+        session.add(
+            RuntimeRevisionRow(
+                id=str(REVISION_ID),
+                runtime_definition_id=str(DEFINITION_ID),
+                revision_number=1,
+                source_kind="test",
+                source_reference="test",
+                content_digest=digest,
+                manifest_reference="test",
+                manifest_digest=digest,
+                built_at="2026-09-19T00:00:00.000000Z",
+                build_log_reference=None,
+                approval_state="approved",
+                approved_at="2026-09-19T00:00:00.000000Z",
+                approval_note=None,
+                requires_trusted_build_confirmation=False,
+                trusted_build_confirmed_at=None,
+            )
+        )
+        session.flush()
+        session.add(
+            TargetRow(
+                id=str(TARGET_ID),
+                name="MCP target",
+                target_type="managed",
+                kodi_version="21.3",
+                availability="available",
+                health="healthy",
+                connection_state="connected",
+            )
+        )
+        session.flush()
+        session.add(
+            ManagedInstanceRow(
+                target_id=str(TARGET_ID),
+                instance_type="disposable",
+                runtime_revision_id=str(REVISION_ID),
+                runtime_state="stopped",
+                start_on_host_boot=False,
+                notes=None,
+            )
+        )
+
+
+def test_tokens_are_256_bit_verifier_only_expiring_and_show_once(
+    mcp_database: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = MutableClock()
+    source = TokenSource()
+    administration = McpAdministrationService(
+        mcp_database, clock=clock.utc, token_bytes=source
+    )
+    client = administration.create_client(
+        display_name="Token client", preset_id=READ_ONLY_INSPECTION_PRESET_ID
+    )
+    issued = administration.issue_credential(client.id)
+    raw = base64.urlsafe_b64decode(issued.token + "=")
+    assert len(raw) == 32
+    assert issued.credential.expires_at == clock.now + timedelta(hours=24)
+    assert issued.token not in administration.get_client(client.id).model_dump_json()
+
+    compared: list[tuple[str, str]] = []
+    original = hmac.compare_digest
+
+    def compare(left: str, right: str) -> bool:
+        compared.append((left, right))
+        return original(left, right)
+
+    monkeypatch.setattr(hmac, "compare_digest", compare)
+    authentication = McpAuthenticationService(mcp_database, clock=clock.utc)
+    assert authentication.authenticate(issued.token) is not None
+    assert compared and compared[-1][0] == compared[-1][1]
+
+    with mcp_database() as session:
+        row = session.get(McpCredentialRow, str(issued.credential.id))
+        assert row is not None
+        assert len(row.token_digest) == 64
+        assert issued.token not in row.token_digest
+        events = session.scalars(select(McpSecurityEventRow)).all()
+        assert all(issued.token not in repr(event.__dict__) for event in events)
+
+    shorter = administration.issue_credential(client.id, lifetime=timedelta(minutes=5))
+    assert shorter.credential.expires_at == clock.now + timedelta(minutes=5)
+    non_expiring = administration.issue_credential(client.id, lifetime=None)
+    assert non_expiring.credential.expires_at is None
+    clock.now += timedelta(hours=24)
+    assert authentication.authenticate(issued.token) is None
+
+
+def test_revoke_rotate_disable_and_grant_cascade_recompute_current_state(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    clock = MutableClock()
+    administration = McpAdministrationService(
+        mcp_database, clock=clock.utc, token_bytes=TokenSource()
+    )
+    client = administration.create_client(
+        display_name="Lifecycle client", preset_id=READ_ONLY_INSPECTION_PRESET_ID
+    )
+    administration.assign_target_preset(TARGET_ID, READ_ONLY_INSPECTION_PRESET_ID)
+    administration.grant_target(client.id, TARGET_ID)
+    old = administration.issue_credential(client.id)
+    authentication = McpAuthenticationService(mcp_database, clock=clock.utc)
+    assert authentication.authenticate(old.token) is not None
+
+    rotated = administration.rotate_credential(client.id, old.credential.id)
+    assert authentication.authenticate(old.token) is None
+    assert authentication.authenticate(rotated.token) is not None
+    administration.revoke_credential(client.id, rotated.credential.id)
+    assert authentication.authenticate(rotated.token) is None
+
+    active = administration.issue_credential(client.id)
+    administration.set_client_enabled(client.id, False)
+    assert authentication.authenticate(active.token) is None
+    administration.set_client_enabled(client.id, True)
+    assert authentication.authenticate(active.token) is not None
+
+    with mcp_database.begin() as session:
+        session.delete(session.get(TargetRow, str(TARGET_ID)))
+    with mcp_database() as session:
+        assert (
+            session.get(
+                McpClientTargetGrantRow,
+                {"client_id": str(client.id), "target_id": str(TARGET_ID)},
+            )
+            is None
+        )
+    replacement_id = uuid4()
+    with mcp_database.begin() as session:
+        session.add(
+            TargetRow(
+                id=str(replacement_id),
+                name="Replacement MCP target",
+                target_type="managed",
+                kodi_version="21.3",
+                availability="available",
+                health="healthy",
+                connection_state="connected",
+            )
+        )
+        session.flush()
+        session.add(
+            ManagedInstanceRow(
+                target_id=str(replacement_id),
+                instance_type="disposable",
+                runtime_revision_id=str(REVISION_ID),
+                runtime_state="stopped",
+                start_on_host_boot=False,
+                notes=None,
+            )
+        )
+    assert administration.get_client(client.id).target_grants == ()
+
+
+def test_builtin_presets_are_deterministic_and_production_is_unassignable(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    administration = McpAdministrationService(mcp_database)
+    presets = administration.list_presets()
+    assert [item.display_name for item in presets] == [
+        "Add-on Development",
+        "Full Lab Control",
+        "Production Remote Kodi",
+        "Read-only Inspection",
+    ]
+    production = next(
+        item for item in presets if item.id == PRODUCTION_REMOTE_KODI_PRESET_ID
+    )
+    assert production.permissions == ()
+    assert not production.assignable
+    with pytest.raises(McpAdministrationError, match="mcp_preset_not_assignable"):
+        administration.create_client(
+            display_name="Production", preset_id=PRODUCTION_REMOTE_KODI_PRESET_ID
+        )
+
+
+class FixedTargetAuthority:
+    def __init__(self, authority: TargetTechnicalAuthority) -> None:
+        self.authority = authority
+
+    def resolve(self, _target_id: UUID) -> TargetTechnicalAuthority:
+        return self.authority
+
+
+def _definition(
+    name: str,
+    permission: str,
+    *,
+    target_class: TargetClass = TargetClass.INTERNAL_LAB,
+    capability: str = "managed_runtime_status",
+    states: frozenset[str] = frozenset(),
+) -> McpToolDefinition:
+    return McpToolDefinition(
+        name=name,
+        schema_revision=1,
+        permissions=frozenset({permission}),
+        effect=ToolEffect.READ_ONLY,
+        allowed_target_classes=frozenset({target_class}),
+        required_capabilities=frozenset({capability}),
+        required_states=states,
+        rate_class=ToolRateClass.READ_LIGHT,
+        adapter=f"test.{name}",
+        production_eligible=False,
+        target_scope_required=True,
+    )
+
+
+def test_registry_supports_future_permissions_target_classes_and_capabilities(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    registry = McpToolRegistry(
+        known_permissions=frozenset({"target.inspect", "target.library"})
+    )
+    registry.register(_definition("z_future", "target.library"))
+    registry.register(_definition("a_future", "target.library"))
+    registry.register(
+        _definition(
+            "reconciled_future",
+            "target.library",
+            states=frozenset({"reconciled"}),
+        )
+    )
+    assert registry.names() == ("a_future", "reconciled_future", "z_future")
+    with pytest.raises(McpRegistryError, match="invalid_or_unknown_tool_metadata"):
+        registry.register(_definition("unknown", "target.settings.read"))
+
+    clock = MutableClock()
+    administration = McpAdministrationService(
+        mcp_database, clock=clock.utc, token_bytes=TokenSource()
+    )
+    client = administration.create_client(
+        display_name="Future client", preset_id=READ_ONLY_INSPECTION_PRESET_ID
+    )
+    administration.assign_target_preset(TARGET_ID, READ_ONLY_INSPECTION_PRESET_ID)
+    administration.grant_target(client.id, TARGET_ID)
+    with mcp_database.begin() as session:
+        session.add(
+            McpPresetPermissionRow(
+                preset_id=str(READ_ONLY_INSPECTION_PRESET_ID),
+                permission="target.library",
+            )
+        )
+    issued = administration.issue_credential(client.id)
+    principal = McpAuthenticationService(mcp_database, clock=clock.utc).authenticate(
+        issued.token
+    )
+    assert principal is not None
+
+    denied_class = McpAuthorizationService(
+        mcp_database,
+        registry,
+        targets=FixedTargetAuthority(
+            TargetTechnicalAuthority(
+                target_class=TargetClass.EXTERNAL_DEVELOPMENT,
+                capabilities=frozenset({"managed_runtime_status"}),
+                current_states=frozenset(),
+            )
+        ),
+    )
+    invoked = False
+
+    def adapter() -> str:
+        nonlocal invoked
+        invoked = True
+        return "not reached"
+
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        denied_class.invoke_target(principal, "a_future", TARGET_ID, adapter)
+    assert not invoked
+
+    missing_capability = McpAuthorizationService(
+        mcp_database,
+        registry,
+        targets=FixedTargetAuthority(
+            TargetTechnicalAuthority(
+                target_class=TargetClass.INTERNAL_LAB,
+                capabilities=frozenset(),
+                current_states=frozenset(),
+            )
+        ),
+    )
+    with pytest.raises(McpAuthorizationError, match="capability_unavailable"):
+        missing_capability.invoke_target(principal, "a_future", TARGET_ID, adapter)
+    assert not invoked
+
+    missing_state = McpAuthorizationService(mcp_database, registry)
+    with pytest.raises(McpAuthorizationError, match="target_reconciliation_required"):
+        missing_state.invoke_target(principal, "reconciled_future", TARGET_ID, adapter)
+    assert not invoked
+
+
+def test_preset_policy_intersection_fails_closed(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    administration = McpAdministrationService(mcp_database, token_bytes=TokenSource())
+    empty_id = uuid4()
+    with mcp_database.begin() as session:
+        session.add(
+            McpPresetRow(
+                id=str(empty_id),
+                display_name="Test deny policy",
+                builtin=False,
+                assignable=True,
+            )
+        )
+    registry = McpToolRegistry(known_permissions=frozenset({"target.inspect"}))
+    registry.register(_definition("inspect_future", "target.inspect"))
+    client = administration.create_client(
+        display_name="Intersection client", preset_id=READ_ONLY_INSPECTION_PRESET_ID
+    )
+    administration.grant_target(client.id, TARGET_ID)
+    administration.assign_target_preset(TARGET_ID, empty_id)
+    issued = administration.issue_credential(client.id)
+    principal = McpAuthenticationService(mcp_database).authenticate(issued.token)
+    assert principal is not None
+    authorization = McpAuthorizationService(mcp_database, registry)
+    assert authorization.discoverable_tools(principal) == ("inspect_future",)
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        authorization.invoke_target(
+            principal, "inspect_future", TARGET_ID, lambda: "not reached"
+        )
+    administration.assign_target_preset(TARGET_ID, READ_ONLY_INSPECTION_PRESET_ID)
+    administration.assign_client_preset(client.id, empty_id)
+    assert authorization.discoverable_tools(principal) == ()
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        authorization.invoke_target(
+            principal, "inspect_future", TARGET_ID, lambda: "not reached"
+        )
+
+
+def test_bounded_token_buckets_refill_expire_and_preserve_hot_entries() -> None:
+    clock = MutableClock()
+    limiter = BoundedTokenBucketLimiter(
+        rate=2,
+        burst=2,
+        maximum_buckets=2,
+        idle_seconds=10,
+        clock=clock.tick,
+    )
+    assert limiter.allow("hot")
+    assert limiter.allow("hot")
+    assert not limiter.allow("hot")
+    assert limiter.allow("cold")
+    assert not limiter.allow("overflow")
+    clock.monotonic += 0.5
+    assert limiter.allow("hot")
+    clock.monotonic += 10
+    assert limiter.allow("replacement")
+    assert limiter.bucket_count <= 2
+
+
+class AlwaysInvalidAuthentication:
+    def authenticate(self, _token: str) -> None:
+        return None
+
+
+class NeverReachedApp:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        raise AssertionError("authentication failure reached the application")
+
+
+class FixedAuthentication:
+    def __init__(self, principal: McpPrincipal) -> None:
+        self.principal = principal
+
+    def authenticate(self, _token: str) -> McpPrincipal:
+        return self.principal
+
+
+class ExplodingApp:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        raise RuntimeError("adapter failed")
+
+
+def test_failed_auth_limiter_uses_peer_not_attacker_token() -> None:
+    clock = MutableClock()
+    limiter = BoundedTokenBucketLimiter(
+        rate=5,
+        burst=20,
+        maximum_buckets=1024,
+        idle_seconds=900,
+        clock=clock.tick,
+    )
+    middleware = ModernMcpAuthMiddleware(
+        NeverReachedApp(),
+        AlwaysInvalidAuthentication(),
+        failed_auth=limiter,
+    )
+    client = TestClient(middleware, base_url="http://127.0.0.1")
+    responses = [
+        client.post(
+            "/mcp",
+            headers={
+                "MCP-Protocol-Version": "2026-07-28",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {'a' * 42}{index % 10}",
+            },
+        )
+        for index in range(21)
+    ]
+    client.close()
+    assert [item.status_code for item in responses] == [401] * 20 + [429]
+    assert limiter.bucket_count == 1
+
+
+def test_concurrency_slots_release_after_application_exception() -> None:
+    limiter = BoundedConcurrencyLimiter(per_client=1, global_limit=1)
+    principal = McpPrincipal(
+        client_id=uuid4(),
+        credential_id=uuid4(),
+        preset_id=uuid4(),
+        permissions=frozenset({"target.inspect"}),
+    )
+    middleware = ModernMcpAuthMiddleware(
+        ExplodingApp(),
+        FixedAuthentication(principal),
+        concurrency=limiter,
+    )
+    client = TestClient(middleware, base_url="http://127.0.0.1")
+    with pytest.raises(RuntimeError, match="adapter failed"):
+        client.post(
+            "/mcp",
+            headers={
+                "MCP-Protocol-Version": "2026-07-28",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {'a' * 43}",
+            },
+        )
+    client.close()
+    assert asyncio.run(limiter.acquire(principal.client_id))
+    asyncio.run(limiter.release(principal.client_id))

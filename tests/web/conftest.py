@@ -379,6 +379,7 @@ def seed_instance(factory: sessionmaker[Session]) -> None:
                 id=str(DEFINITION_ID), slug="kodi-21.3", kodi_version="21.3"
             )
         )
+        session.flush()
         session.add(
             RuntimeRevisionRow(
                 id=str(REVISION_ID),
@@ -398,6 +399,7 @@ def seed_instance(factory: sessionmaker[Session]) -> None:
                 trusted_build_confirmed_at=None,
             )
         )
+        session.flush()
         session.add(
             TargetRow(
                 id=str(INSTANCE_ID),
@@ -409,6 +411,7 @@ def seed_instance(factory: sessionmaker[Session]) -> None:
                 connection_state="connected",
             )
         )
+        session.flush()
         session.add(
             ManagedInstanceRow(
                 target_id=str(INSTANCE_ID),

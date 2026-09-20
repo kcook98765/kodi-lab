@@ -139,7 +139,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0035_managed_screenshots",)
+        ).fetchone() == ("0036_mcp_core_foundation",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -210,6 +210,13 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_screenshots",
+        "mcp_clients",
+        "mcp_client_target_grants",
+        "mcp_credentials",
+        "mcp_presets",
+        "mcp_preset_permissions",
+        "mcp_security_events",
+        "mcp_target_preset_assignments",
         "managed_instance_delete_operations",
         "managed_instance_addon_repository_sources",
         "managed_instance_development_sources",
@@ -350,6 +357,58 @@ def test_0035_managed_screenshot_populated_downgrade_is_guarded(
     engine.dispose()
     command.downgrade(config, "0034_phase9_completion_remediation")
     command.upgrade(config, "0035_managed_screenshots")
+
+
+def test_0036_mcp_foundation_seeds_builtins_and_guards_populated_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0035_managed_screenshots"
+    )
+    command.upgrade(config, "0036_mcp_core_foundation")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        preset_rows = connection.execute(
+            text(
+                "SELECT display_name, builtin, assignable FROM mcp_presets ORDER BY id"
+            )
+        ).fetchall()
+        assert [tuple(row) for row in preset_rows] == [
+            ("Add-on Development", 1, 1),
+            ("Read-only Inspection", 1, 1),
+            ("Full Lab Control", 1, 1),
+            ("Production Remote Kodi", 1, 0),
+        ]
+        permission_rows = connection.execute(
+            text(
+                "SELECT permission, COUNT(*) FROM mcp_preset_permissions "
+                "GROUP BY permission"
+            )
+        ).fetchall()
+        assert [tuple(row) for row in permission_rows] == [("target.inspect", 3)]
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients "
+                "(id, display_name, enabled, preset_id, created_at, last_used_at) "
+                "VALUES (:id, 'migration client', 1, :preset, :at, NULL)"
+            ),
+            {
+                "id": str(uuid4()),
+                "preset": "11000000-0000-4000-8000-000000000002",
+                "at": "2026-09-19T00:00:00.000000Z",
+            },
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="populated MCP foundation"):
+        command.downgrade(config, "0035_managed_screenshots")
+
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM mcp_clients"))
+    engine.dispose()
+    command.downgrade(config, "0035_managed_screenshots")
+    command.upgrade(config, "0036_mcp_core_foundation")
 
 
 def test_explicit_0001_upgrades_to_head(

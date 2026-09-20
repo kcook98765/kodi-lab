@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MCP clients · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main data-mcp-administration data-csrf-token="{{ csrf_token }}">
+      <h1>MCP clients</h1>
+      <p class="secondary">MCP bearer identities are separate from this Web administrator session. Token plaintext is shown once and cannot be recovered after navigation or reload.</p>
+      <p class="error" data-error role="alert" hidden></p>
+      <section>
+        <h2>Create client</h2>
+        <form data-create-client>
+          <label>Name <input name="display_name" required maxlength="120"></label>
+          <label>Preset <select name="preset_id" required>{% for preset in presets if preset.assignable %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
+          <button type="submit">Create client</button>
+        </form>
+      </section>
+      <section data-token-result hidden>
+        <h2>Token shown once</h2>
+        <code data-token></code>
+        <p>Copy it now. Kodi Lab persists only its SHA-256 verifier.</p>
+      </section>
+      {% for client in clients %}
+      <article data-client-id="{{ client.id }}">
+        <h2>{{ client.display_name }}</h2>
+        <p>{{ 'Enabled' if client.enabled else 'Disabled' }} · {{ client.preset.display_name }} · last used {{ client.last_used_at or 'never' }}</p>
+        <form data-rename><input name="display_name" value="{{ client.display_name }}" required maxlength="120"><button type="submit">Rename</button></form>
+        <label>Preset <select data-client-preset>{% for preset in presets if preset.assignable %}<option value="{{ preset.id }}"{% if preset.id == client.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select></label>
+        <button type="button" data-action="toggle" data-enabled="{{ 'true' if client.enabled else 'false' }}">{{ 'Disable' if client.enabled else 'Enable' }}</button>
+        <label>Token lifetime <select data-token-lifetime><option value="3600">1 hour</option><option value="86400" selected>24 hours</option><option value="604800">7 days</option><option value="none">Non-expiring</option></select></label>
+        <button type="button" data-action="issue">Issue token</button>
+        <h3>Credentials</h3>
+        <ul>{% for credential in client.credentials %}<li data-credential-id="{{ credential.id }}">{{ credential.id }} · {{ credential.status }} · expires {{ credential.expires_at or 'never' }} · last used {{ credential.last_used_at or 'never' }} <button type="button" data-action="rotate">Rotate</button> <button type="button" data-action="revoke">Revoke</button></li>{% else %}<li>No credentials.</li>{% endfor %}</ul>
+        <h3>Exact target grants</h3>
+        <ul>{% for target in targets %}<li>{{ target.target_name }} · policy {{ target.preset.display_name if target.preset else 'deny (unassigned)' }} <button type="button" data-action="grant" data-target-id="{{ target.target_id }}">Grant</button> <button type="button" data-action="remove-grant" data-target-id="{{ target.target_id }}">Remove grant</button></li>{% endfor %}</ul>
+      </article>
+      {% else %}<p>No MCP clients exist.</p>{% endfor %}
+      <section>
+        <h2>Target policy assignments</h2>
+        {% for target in targets %}<p data-target-policy="{{ target.target_id }}">{{ target.target_name }} <select>{% for preset in presets if preset.assignable %}<option value="{{ preset.id }}"{% if target.preset and preset.id == target.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select> <button type="button">Assign policy</button></p>{% else %}<p>No managed targets.</p>{% endfor %}
+      </section>
+      <p><a href="/">Back to dashboard</a></p>
+    </main>
+    <script src="{{ url_for('static', path='/mcp-clients.js') }}" defer></script>
+  </body>
+</html>
