@@ -192,3 +192,29 @@ audio/embedded content, OAuth, tasks, and MRTR are explicit exclusions.
 Phase 11 is **implementation-complete pending formal review**. This is not a
 formal COMPLETE declaration and does not freeze later Kodi tool expansion
 through the established registry and service boundary.
+
+## Formal completion record
+
+**Phase 11 — MCP core: COMPLETE.** An independent closeout review accepted the
+implementation at checkpoint `3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`,
+Alembic head `0038_mcp_remote_control`, and 1,928 collected tests. The preceding
+pending-review statement is retained as the historical Slice 5 checkpoint.
+
+The completed V1 core consists of primary stateless `2026-07-28` HTTP, canonical
+modern-only stdio, and bounded stateless `2025-11-25` HTTP compatibility; exact
+bearer-backed durable client identity; verifier-only issue, expiry, revocation,
+rotation and disable semantics; immutable built-ins and clone-only custom
+presets; explicit target grants intersected with target policy, target class,
+technical capability and current state; native bounded screenshots; and
+replay-safe semantic remote control. The production registry remains exactly
+`addon_list`, `remote_action`, `screenshot_capture`, `target_list`, and
+`target_status`.
+
+OpenCode `1.14.39` has only the retained legacy-HTTP connection and authorized
+discovery proof described above. Codex CLI `0.154.0` remains incompatible with
+the two supported revisions, and no untested-client compatibility is claimed.
+These are documented client-version limits, not V1 completion defects.
+
+Phase 12 editing, deployment and promotion workflows; Phase 13 external
+development targets; Phase 14 production policy activation; Phase 15 broad
+diagnostics; and any later Kodi tool expansion remain outside this closeout.

@@ -1161,3 +1161,23 @@ capability, external target, production policy, lifecycle, snapshot, raw
 JSON-RPC, settings, library/music, add-on execution, diagnostics, or Phase 12
 workflow. Phase 11 is **implementation-complete pending formal review**. Only an
 independent formal completion review may mark it COMPLETE.
+
+## Phase 11 formal completion checkpoint
+
+**Phase 11 — MCP core: COMPLETE.** Independent formal review accepted
+implementation checkpoint `3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`,
+Alembic head `0038_mcp_remote_control`, and 1,928 collected tests. The preceding
+Slice 5 pending-review text remains the historical implementation checkpoint.
+
+The completed core is primary stateless `2026-07-28` HTTP, canonical modern-only
+stdio, and bounded stateless `2025-11-25` HTTP compatibility, all using the same
+durable clients, verifier-only credentials, built-in or clone-only custom
+presets, exact grants, target-policy intersection, deterministic five-tool
+registry, bounds, errors, privacy rules and replay namespace. Native screenshots
+and semantic remote control complete the observation/control boundary.
+
+Codex CLI `0.154.0` is a documented unsupported client-version combination, not
+a V1 gate; OpenCode `1.14.39` retains only its proven legacy-HTTP connection and
+authorized discovery claim. Phase 12 editing/deployment/promotion, Phase 13–14
+external and production targets, Phase 15 diagnostics, and later Kodi tool
+expansion remain future milestones.

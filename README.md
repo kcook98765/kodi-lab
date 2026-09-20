@@ -88,5 +88,6 @@ Web MCP administration can create a custom preset by cloning one active
 immutable built-in. The clone receives a new UUID and a creation-time permission
 snapshot. V1 does not provide per-permission editing, custom rename, or custom
 deletion, and future built-in permissions do not silently broaden an existing
-clone. Phase 11 is implementation-complete pending an independent formal review;
-it is not formally COMPLETE.
+clone. **Phase 11 — MCP core is COMPLETE.** Its independently reviewed
+implementation checkpoint is `3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`,
+with Alembic head `0038_mcp_remote_control` and 1,928 collected tests.

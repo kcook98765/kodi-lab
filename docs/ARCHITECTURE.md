@@ -1776,3 +1776,24 @@ The production registry remains exactly lexical `addon_list`, `remote_action`,
 broker, Docker, lifecycle, filesystem, raw JSON-RPC, external-target, or Phase
 12 authority. Phase 11 is **implementation-complete pending formal review**;
 formal completion remains a separate independent task.
+
+## Phase 11 formal completion
+
+**Phase 11 — MCP core: COMPLETE.** Independent review closed the phase against
+the canonical V1 boundary at implementation checkpoint
+`3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`, Alembic head
+`0038_mcp_remote_control`, and 1,928 collected tests. The prior Slice 5 status
+above remains a historical checkpoint rather than the current project state.
+
+The accepted protocol boundary is primary stateless `2026-07-28` over the
+existing loopback HTTP listener and canonical modern-only stdio, plus exact
+bounded stateless `2025-11-25` HTTP compatibility. Both revisions and both
+transports share durable bearer identity, verifier-only credentials, preset and
+grant policy, registry authorization, limits, privacy mapping and replay
+receipts. Production discovery remains the five-tool catalog, including native
+bounded screenshots and replay-safe semantic remote control.
+
+Codex CLI `0.154.0` remains outside the supported two-revision boundary;
+OpenCode `1.14.39` has only retained legacy-HTTP connection and authorized
+discovery evidence. Phase 12 workflows, external and production target support,
+broad diagnostics, and later Kodi tools remain later-phase work.

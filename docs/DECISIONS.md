@@ -3288,3 +3288,25 @@ authority.
   `screenshot_capture`, `target_list`, and `target_status`. Phase 11 is
   implementation-complete pending independent formal review, not formally
   complete.
+
+## Phase 11 formal completion record
+
+- Status: **Phase 11 — MCP core: COMPLETE**
+- Review basis: independent formal review of implementation checkpoint
+  `3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`, Alembic head
+  `0038_mcp_remote_control`, and 1,928 collected tests. D-0219 through D-0237
+  remain the governing protocol, identity, authority, tool, compatibility and
+  client-boundary decisions; the pending status in D-0237 records its earlier
+  implementation checkpoint.
+- Accepted core: primary stateless `2026-07-28` HTTP, canonical modern-only
+  stdio, bounded stateless `2025-11-25` HTTP compatibility, durable
+  verifier-backed clients, built-in and clone-only custom presets, explicit
+  grants and target-policy intersection, the exact five-tool registry, native
+  bounded screenshots, and durable replay-safe semantic remote control.
+- Compatibility boundary: Codex CLI `0.154.0` is not a V1 acceptance target and
+  its excluded `2025-06-18` offer does not expand the approved two-revision
+  boundary. OpenCode `1.14.39` retains only its proven legacy-HTTP connection
+  and authorized discovery claim. Untested clients have no compatibility claim.
+- Later phases: AgentWorkspace and DevelopmentSource mutation, deployment and
+  promotion, external targets, production approval policy, broad diagnostics,
+  and later Kodi tools remain outside Phase 11.
