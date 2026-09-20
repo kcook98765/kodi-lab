@@ -1116,3 +1116,48 @@ settings, add-on execution, library/music, external/production target,
 diagnostic, Phase 12, legacy protocol, or custom-preset capability. Remaining
 gates are custom presets, decision and any approved implementation for
 `2025-11-25`, the final client/conformance matrix, and formal closeout.
+
+## Phase 11 Slice 5 checkpoint
+
+Slice 5 completes the remaining implementation gates without expanding the
+production tool catalog. Custom presets clone one active immutable built-in into
+a new UUID and trimmed bounded unique display name. Permissions are an immutable
+creation-time snapshot; there is no granular editor, rename, delete,
+custom-from-custom chain, Production Remote Kodi template, or silent inheritance
+of future permissions. Existing client and internal-target assignment paths
+apply the clone on the next request and record bounded create, assign, and
+unassign audit events. Existing tables already represent this safely, so no
+migration is added and Alembic remains `0038_mcp_remote_control`.
+
+Primary HTTP and canonical stdio remain exact modern `2026-07-28`. Exact legacy
+`2025-11-25` is additionally supported on the same authenticated POST `/mcp`
+route with pinned SDK stateless mode. The initial headerless legacy initialize
+must explicitly offer that version; later traffic carries it. There is no
+cross-era fallback, `Mcp-Session-Id`, GET stream, application session, selected
+target, protocol-specific credential, protocol permission, or authority cache.
+Both eras share request-size, failed-auth, authenticated-client, concurrency,
+registry, grant, policy, class, capability/state, replay, audit, and privacy
+boundaries. Legacy stdio is deliberately unsupported rather than adding proxy
+negotiation state or a second server.
+
+Pinned official SDK `mcp==2.1.1` covers modern explicit, modern auto-discovery,
+canonical stdio, and legacy HTTP with catalog/schema equivalence, both replay
+directions, and next-request grant, policy, preset, disable, revoke, and privacy
+effects. OpenCode `1.14.39` connects over exact legacy HTTP; its legacy stdio
+handshake is unsupported. Codex CLI `0.154.0` is tested-incompatible because it
+offers excluded `2025-06-18`; no untested-client claim is made.
+
+Official conformance runner `@modelcontextprotocol/conformance@0.2.0-alpha.11`
+passes modern tools-list (3/3), DNS (2/2), and header validation (14/14), plus
+the applicable tools-cache checks. Modern stateless is 23/25 with only the
+absent runner diagnostic `test_missing_capability` accounting for two checks;
+caching failures are absent prompt/resource methods. Legacy initialize (2/2),
+ping (2/2), tools-list (3/3), and DNS (2/2) pass. Other canned fixture tools and
+unimplemented optional surfaces remain classified exclusions.
+
+Production remains exactly lexical `addon_list`, `remote_action`,
+`screenshot_capture`, `target_list`, and `target_status`. Slice 5 adds no Kodi
+capability, external target, production policy, lifecycle, snapshot, raw
+JSON-RPC, settings, library/music, add-on execution, diagnostics, or Phase 12
+workflow. Phase 11 is **implementation-complete pending formal review**. Only an
+independent formal completion review may mark it COMPLETE.

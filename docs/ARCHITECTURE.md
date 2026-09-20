@@ -1714,3 +1714,65 @@ both HTTP-first/stdio-duplicate and stdio-first/HTTP-duplicate directions with
 explicit adapter dispatch counts. Phase 11 remains **PARTIAL**: custom presets,
 the `2025-11-25` compatibility decision/implementation, final client and
 conformance matrix, and formal closeout remain.
+
+## Phase 11 Slice 5 presets and bounded compatibility
+
+Custom presets are clone-only immutable permission snapshots. Web
+administration supplies a trimmed 1–120 character unique display name and one
+active immutable built-in UUID; the application creates a new random preset
+UUID and copies only the built-in's server-known permission rows in one
+transaction. The inactive Production Remote Kodi preset cannot be used as a
+template. No endpoint can rename, delete, convert, or edit permission rows.
+Later built-in permissions therefore do not silently broaden an older clone.
+The existing `builtin`, `assignable`, permission, assignment, and content-free
+event schema is sufficient, so Alembic remains `0038_mcp_remote_control`.
+
+Custom presets use the existing client and internal-target assignment paths.
+Authentication reloads the client preset and its permissions on every request;
+target policy, exact grant, class, capability, state, and reconciliation proof
+remain invocation-time checks. Reassignment records bounded unassignment and
+assignment events containing UUIDs only. Creation records `preset_created` and
+never stores form payloads. Custom rename, permission editing, and deletion are
+deferred; there is no fallback preset.
+
+Exact legacy `2025-11-25` is enabled only on authenticated stateless HTTP. The
+same official SDK ASGI application runs both eras with `stateless_http=True`.
+An initial headerless request selects legacy only when its valid JSON-RPC
+initialize envelope explicitly offers `2025-11-25`; every later legacy request
+carries that exact header. Explicit modern, explicit legacy, unsupported, and
+malformed requests have disjoint deterministic handling. Modern malformed
+traffic is never retried as legacy. `Mcp-Session-Id` is rejected and stripped,
+and no negotiated target, identity, authority, or protocol session is stored.
+
+Both eras enter the same bearer verifier, peer-keyed authentication-failure
+limiter, client-keyed request limiter, client/global concurrency limiter,
+principal context, registry, authorization service, tool schemas, adapters,
+replay receipt namespace, and privacy mapping. Protocol revision is not an
+authorization input. Canonical stdio stays exact modern `2026-07-28`; supporting
+a handshake-era stdio client would require negotiation state in the proxy and
+is not a V1 requirement. There is no second legacy stdio server.
+
+The final matrix uses official Python SDK `mcp==2.1.1` for pinned modern,
+modern auto-discovery, canonical stdio, and pinned legacy HTTP. OpenCode
+`1.14.39` connects over legacy HTTP with no session identifier and receives its
+currently authorized catalog; its legacy stdio handshake is intentionally
+unsupported. Codex CLI `0.154.0` is tested but incompatible because it offers
+unapproved `2025-06-18` over HTTP and performs a handshake over the modern-only
+stdio proxy. No compatibility is claimed for untested Claude, Cline, LM Studio,
+Open WebUI, or similar clients.
+
+Official conformance runner `@modelcontextprotocol/conformance@0.2.0-alpha.11`
+passes modern tools-list, DNS protection, and all header-validation checks, plus
+the applicable tool-cache checks. Modern stateless passes 23/25; the two
+remaining checks require the runner-only `test_missing_capability` diagnostic
+tool. Cache failures are only unimplemented prompt/resource surfaces. Exact
+legacy initialize, ping, tools-list, and DNS scenarios all pass. Fixture-only
+tool-call names, prompts, resources, subscriptions, sampling, elicitation,
+audio/embedded content, OAuth, tasks, and MRTR remain explicit exclusions, not
+production defects or reasons to add tools.
+
+The production registry remains exactly lexical `addon_list`, `remote_action`,
+`screenshot_capture`, `target_list`, and `target_status`. Slice 5 adds no Kodi,
+broker, Docker, lifecycle, filesystem, raw JSON-RPC, external-target, or Phase
+12 authority. Phase 11 is **implementation-complete pending formal review**;
+formal completion remains a separate independent task.

@@ -8,11 +8,13 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import httpx2
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import MCPError
 from mcp_types import ImageContent
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -27,6 +29,10 @@ from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryRes
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import PNG_SIGNATURE, validate_png
+from kodi_lab.mcp.transport import (
+    BoundedTokenBucketLimiter,
+    ModernMcpAuthMiddleware,
+)
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
     ManagedScreenshotRow,
@@ -40,6 +46,7 @@ from kodi_lab.storage.models import (
 from .conftest import INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
 
 PROTOCOL = "2026-07-28"
+LEGACY_PROTOCOL = "2025-11-25"
 META = {
     "io.modelcontextprotocol/protocolVersion": PROTOCOL,
     "io.modelcontextprotocol/clientCapabilities": {},
@@ -97,6 +104,39 @@ def _post(
             "id": request_id,
             "method": method,
             "params": materialized,
+        },
+        follow_redirects=False,
+    )
+
+
+def _legacy_post(
+    client: TestClient,
+    token: str,
+    method: str,
+    *,
+    params: dict[str, Any] | None = None,
+    request_id: int = 1,
+    extra_headers: dict[str, str] | None = None,
+) -> Response:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        "MCP-Protocol-Version": LEGACY_PROTOCOL,
+        "Mcp-Method": method,
+    }
+    if method == "tools/call" and isinstance((params or {}).get("name"), str):
+        headers["Mcp-Name"] = cast(str, (params or {})["name"])
+    if extra_headers:
+        headers.update(extra_headers)
+    return client.post(
+        "/mcp",
+        headers=headers,
+        json={
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": {} if params is None else params,
         },
         follow_redirects=False,
     )
@@ -262,6 +302,173 @@ def test_pinned_official_sdk_uses_only_modern_stateless_requests(
     ]
     assert "initialize" not in methods
     assert "notifications/initialized" not in methods
+
+
+def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
+    client: TestClient,
+    broker: FakeBroker,
+) -> None:
+    _make_target_ready(client)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Cross-protocol client",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.assign_target_preset(INSTANCE_ID, FULL_LAB_CONTROL_PRESET_ID)
+    administration.grant_target(mcp_client.id, INSTANCE_ID)
+    issued = administration.issue_credential(mcp_client.id)
+    observed: list[tuple[str, str | None, str | None]] = []
+
+    async def capture(request: httpx2.Request) -> None:
+        body = json.loads(request.content)
+        observed.append(
+            (
+                cast(str, body["method"]),
+                request.headers.get("mcp-protocol-version"),
+                request.headers.get("mcp-session-id"),
+            )
+        )
+
+    async def exercise() -> None:
+        transport = httpx2.ASGITransport(app=client.app)
+        async with httpx2.AsyncClient(
+            transport=transport,
+            base_url="http://127.0.0.1",
+            headers={"Authorization": f"Bearer {issued.token}"},
+            event_hooks={"request": [capture]},
+        ) as http:
+            modern_streams = streamable_http_client(
+                "http://127.0.0.1/mcp",
+                http_client=http,
+                terminate_on_close=False,
+            )
+            legacy_streams = streamable_http_client(
+                "http://127.0.0.1/mcp",
+                http_client=http,
+                terminate_on_close=False,
+            )
+            async with (
+                Client(modern_streams, mode=PROTOCOL, cache=None) as modern,
+                Client(legacy_streams, mode="legacy", cache=None) as legacy,
+            ):
+                assert modern.protocol_version == PROTOCOL
+                assert legacy.protocol_version == LEGACY_PROTOCOL
+                modern_tools = await modern.list_tools()
+                legacy_tools = await legacy.list_tools()
+                assert [item.model_dump() for item in modern_tools.tools] == [
+                    item.model_dump() for item in legacy_tools.tools
+                ]
+                assert [item.name for item in modern_tools.tools] == [
+                    "addon_list",
+                    "remote_action",
+                    "screenshot_capture",
+                    "target_list",
+                    "target_status",
+                ]
+
+                request_id = str(uuid4())
+                arguments = {
+                    "request_id": request_id,
+                    "target_id": str(INSTANCE_ID),
+                    "action": "volume_up",
+                }
+                modern_first = await modern.call_tool("remote_action", arguments)
+                legacy_replay = await legacy.call_tool("remote_action", arguments)
+                assert not modern_first.is_error and not legacy_replay.is_error
+                assert (
+                    modern_first.structured_content == legacy_replay.structured_content
+                )
+                assert broker.remote_calls == [BrowserRemoteAction.VOLUME_UP]
+
+                reverse_id = str(uuid4())
+                reverse = {
+                    "request_id": reverse_id,
+                    "target_id": str(INSTANCE_ID),
+                    "action": "volume_down",
+                }
+                legacy_first = await legacy.call_tool("remote_action", reverse)
+                modern_replay = await modern.call_tool("remote_action", reverse)
+                assert not legacy_first.is_error and not modern_replay.is_error
+                assert (
+                    legacy_first.structured_content == modern_replay.structured_content
+                )
+                assert broker.remote_calls == [
+                    BrowserRemoteAction.VOLUME_UP,
+                    BrowserRemoteAction.VOLUME_DOWN,
+                ]
+
+                administration.remove_target_grant(mcp_client.id, INSTANCE_ID)
+                modern_denied = await modern.call_tool(
+                    "target_status", {"target_id": str(INSTANCE_ID)}
+                )
+                legacy_denied = await legacy.call_tool(
+                    "target_status", {"target_id": str(INSTANCE_ID)}
+                )
+                assert modern_denied.is_error and legacy_denied.is_error
+                assert (
+                    modern_denied.structured_content == legacy_denied.structured_content
+                )
+                administration.grant_target(mcp_client.id, INSTANCE_ID)
+
+                administration.assign_target_preset(
+                    INSTANCE_ID, READ_ONLY_INSPECTION_PRESET_ID
+                )
+                for protocol_client in (modern, legacy):
+                    denied = await protocol_client.call_tool(
+                        "remote_action",
+                        {
+                            "request_id": str(uuid4()),
+                            "target_id": str(INSTANCE_ID),
+                            "action": "volume_up",
+                        },
+                    )
+                    assert denied.is_error
+                    assert denied.structured_content == {"error": "permission_denied"}
+                administration.assign_target_preset(
+                    INSTANCE_ID, FULL_LAB_CONTROL_PRESET_ID
+                )
+
+                administration.assign_client_preset(
+                    mcp_client.id, READ_ONLY_INSPECTION_PRESET_ID
+                )
+                for protocol_client in (modern, legacy):
+                    names = [
+                        item.name for item in (await protocol_client.list_tools()).tools
+                    ]
+                    assert "remote_action" not in names
+                administration.assign_client_preset(
+                    mcp_client.id, FULL_LAB_CONTROL_PRESET_ID
+                )
+
+                administration.set_client_enabled(mcp_client.id, False)
+                for protocol_client in (modern, legacy):
+                    with pytest.raises(MCPError):
+                        await protocol_client.list_tools()
+                administration.set_client_enabled(mcp_client.id, True)
+                assert "remote_action" in {
+                    item.name for item in (await legacy.list_tools()).tools
+                }
+
+                administration.revoke_credential(mcp_client.id, issued.credential.id)
+                for protocol_client in (modern, legacy):
+                    with pytest.raises(MCPError):
+                        await protocol_client.list_tools()
+
+    asyncio.run(exercise())
+    assert observed[0] == ("initialize", None, None)
+    assert any(
+        method == "notifications/initialized" and version == LEGACY_PROTOCOL
+        for method, version, _session in observed
+    )
+    assert any(
+        method == "tools/list" and version == PROTOCOL
+        for method, version, _session in observed
+    )
+    assert any(
+        method == "tools/list" and version == LEGACY_PROTOCOL
+        for method, version, _session in observed
+    )
+    assert all(session is None for _method, _version, session in observed)
 
 
 def test_observation_tools_are_bounded_native_and_retain_latest_on_failure(
@@ -576,7 +783,7 @@ def test_mcp_raw_protocol_and_authentication_fail_closed(
         "/mcp",
         headers={
             **modern,
-            "MCP-Protocol-Version": "2025-11-25",
+            "MCP-Protocol-Version": "2025-06-18",
             "Authorization": f"Bearer {token}",
         },
         json=valid_body,
@@ -584,6 +791,9 @@ def test_mcp_raw_protocol_and_authentication_fail_closed(
     assert unsupported.status_code == 400
     assert unsupported.json()["error"]["code"] != 0
     assert unsupported.json()["id"] == 1
+    assert unsupported.json()["error"]["data"]["supported"] == [
+        PROTOCOL,
+    ]
 
     failures = [
         client.post("/mcp", headers=modern, json=valid_body),
@@ -709,6 +919,137 @@ def test_mcp_raw_protocol_and_authentication_fail_closed(
     assert disabled_response.json() == {"error": "authentication_failed"}
 
 
+def test_legacy_http_malformed_input_and_downgrade_matrix(
+    client: TestClient,
+) -> None:
+    _client_id, token = _authority(client)
+    initialize_body = {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": LEGACY_PROTOCOL,
+            "capabilities": {},
+            "clientInfo": {"name": "legacy-matrix", "version": "1"},
+        },
+    }
+    initialized = client.post(
+        "/mcp",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        },
+        json=initialize_body,
+    )
+    assert initialized.status_code == 200
+    assert initialized.headers.get("mcp-session-id") is None
+    assert initialized.json()["result"]["protocolVersion"] == LEGACY_PROTOCOL
+
+    listed = _legacy_post(client, token, "tools/list", request_id=11)
+    assert listed.status_code == 200
+    assert listed.headers.get("mcp-session-id") is None
+    assert [item["name"] for item in listed.json()["result"]["tools"]] == [
+        "addon_list",
+        "screenshot_capture",
+        "target_list",
+        "target_status",
+    ]
+
+    legacy_headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "MCP-Protocol-Version": LEGACY_PROTOCOL,
+    }
+    malformed = client.post("/mcp", headers=legacy_headers, content=b"{")
+    assert malformed.status_code == 400
+    invalid_method = _legacy_post(client, token, "debug/anything")
+    assert invalid_method.status_code == 404
+    invalid_params = _legacy_post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "target_status", "arguments": {}},
+    )
+    assert invalid_params.status_code == 200
+    assert invalid_params.json()["result"]["isError"] is True
+    session_header = _legacy_post(
+        client,
+        token,
+        "tools/list",
+        extra_headers={"Mcp-Session-Id": "caller-state"},
+    )
+    assert session_header.status_code == 400
+    mismatch = _legacy_post(
+        client,
+        token,
+        "tools/list",
+        extra_headers={"Mcp-Method": "tools/call"},
+    )
+    assert mismatch.status_code == 400
+
+    # An explicit era never falls through to the other era's method set.
+    legacy_discover = _legacy_post(client, token, "server/discover")
+    assert legacy_discover.status_code == 404
+    modern_initialize = _post(
+        client,
+        token,
+        "initialize",
+        params=cast(dict[str, Any], initialize_body["params"]),
+    )
+    assert modern_initialize.status_code == 404
+    wrong_headerless_initialize = dict(initialize_body)
+    wrong_headerless_initialize["params"] = {
+        **cast(dict[str, Any], initialize_body["params"]),
+        "protocolVersion": "2025-06-18",
+    }
+    wrong_version = client.post(
+        "/mcp",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        },
+        json=wrong_headerless_initialize,
+    )
+    assert wrong_version.status_code == 400
+    assert wrong_version.json()["error"]["data"] == {
+        "supported": [LEGACY_PROTOCOL],
+        "requested": "2025-06-18",
+    }
+
+    unauthenticated = _legacy_post(client, "invalid", "tools/list")
+    assert unauthenticated.status_code == 401
+    oversized = client.post(
+        "/mcp",
+        headers=legacy_headers,
+        content=b" " * (64 * 1024 + 1),
+    )
+    assert oversized.status_code == 413
+
+
+def test_modern_and_legacy_share_one_authenticated_rate_bucket(
+    client: TestClient,
+) -> None:
+    _client_id, token = _authority(client)
+    app = cast(FastAPI, client.app)
+    middleware = app.state.kodi_lab.mcp_transport.app
+    assert isinstance(middleware, ModernMcpAuthMiddleware)
+    middleware.authenticated = BoundedTokenBucketLimiter(
+        rate=1.0,
+        burst=2,
+        maximum_buckets=4,
+        idle_seconds=60,
+        clock=lambda: 100.0,
+    )
+    assert _post(client, token, "tools/list", request_id=1).status_code == 200
+    assert _legacy_post(client, token, "tools/list", request_id=2).status_code == 200
+    limited = _legacy_post(client, token, "tools/list", request_id=3)
+    assert limited.status_code == 429
+    assert limited.json() == {"error": "rate_limited"}
+
+
 def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
     client: TestClient, database: sessionmaker[Session]
 ) -> None:
@@ -720,6 +1061,16 @@ def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
         item for item in presets if item["display_name"] == "Read-only Inspection"
     )
 
+    no_preset_csrf = client.post(
+        "/api/mcp/presets",
+        headers=ORIGIN,
+        json={
+            "display_name": "Custom Web preset",
+            "template_preset_id": read_only["id"],
+        },
+    )
+    assert no_preset_csrf.status_code == 403
+
     no_csrf = client.post(
         "/api/mcp/clients",
         headers=ORIGIN,
@@ -727,6 +1078,40 @@ def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
     )
     assert no_csrf.status_code == 403
     mutation_headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    custom_name = "Custom <script>alert(1)</script>"
+    custom_response = client.post(
+        "/api/mcp/presets",
+        headers=mutation_headers,
+        json={
+            "display_name": f"  {custom_name}  ",
+            "template_preset_id": read_only["id"],
+        },
+    )
+    assert custom_response.status_code == 201
+    custom = custom_response.json()
+    assert custom["display_name"] == custom_name
+    assert custom["builtin"] is False
+    assert custom["permissions"] == ["target.inspect", "target.visual"]
+    duplicate = client.post(
+        "/api/mcp/presets",
+        headers=mutation_headers,
+        json={
+            "display_name": custom_name,
+            "template_preset_id": read_only["id"],
+        },
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "mcp_preset_name_conflict"
+    custom_template = client.post(
+        "/api/mcp/presets",
+        headers=mutation_headers,
+        json={
+            "display_name": "Nested custom preset",
+            "template_preset_id": custom["id"],
+        },
+    )
+    assert custom_template.status_code == 409
+    assert custom_template.json()["error"]["code"] == "mcp_preset_template_invalid"
     bad_origin = client.post(
         "/api/mcp/clients",
         headers={"Origin": "https://attacker.example", "X-Kodi-Lab-CSRF": csrf},
@@ -764,9 +1149,21 @@ def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
     assigned = client.post(
         f"/api/mcp/clients/{client_id}/preset",
         headers=mutation_headers,
+        json={"preset_id": custom["id"]},
+    )
+    assert assigned.json()["preset"]["id"] == custom["id"]
+    reassigned = client.post(
+        f"/api/mcp/clients/{client_id}/preset",
+        headers=mutation_headers,
         json={"preset_id": read_only["id"]},
     )
-    assert assigned.json()["preset"]["id"] == read_only["id"]
+    assert reassigned.json()["preset"]["id"] == read_only["id"]
+    policy = client.post(
+        f"/api/mcp/target-policies/{INSTANCE_ID}",
+        headers=mutation_headers,
+        json={"preset_id": custom["id"]},
+    )
+    assert policy.json()["preset"]["id"] == custom["id"]
     policy = client.post(
         f"/api/mcp/target-policies/{INSTANCE_ID}",
         headers=mutation_headers,
@@ -815,6 +1212,8 @@ def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
     assert "Non-expiring" in page_text
     assert "kodi-lab-mcp-stdio" in page_text
     assert "KODI_LAB_MCP_TOKEN" in page_text
+    assert custom_name not in page_text
+    assert "Custom &lt;script&gt;alert(1)&lt;/script&gt;" in page_text
     assert token not in page_text
     with database() as session:
         persisted = session.scalar(
@@ -825,13 +1224,16 @@ def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
         event_kinds = set(session.scalars(select(McpSecurityEventRow.event_kind)))
     assert {
         "client_created",
+        "preset_created",
         "client_renamed",
         "client_preset_assigned",
+        "client_preset_unassigned",
         "credential_issued",
         "credential_rotated",
         "credential_revoked",
         "client_disabled",
         "target_preset_assigned",
+        "target_preset_unassigned",
         "target_granted",
         "target_grant_removed",
     }.issubset(event_kinds)
@@ -934,3 +1336,20 @@ def test_target_authority_recomputes_grants_and_preserves_uuid_privacy(
         "target_not_found_or_not_authorized" in item["content"][0]["text"]
         for item in errors
     )
+    legacy_errors = []
+    for target_id in (INSTANCE_ID, uuid4()):
+        response = _legacy_post(
+            client,
+            token,
+            "tools/call",
+            params={
+                "name": "target_status",
+                "arguments": {"target_id": str(target_id)},
+            },
+        )
+        assert response.status_code == 200
+        legacy_errors.append(response.json()["result"])
+    assert [item["structuredContent"] for item in legacy_errors] == [
+        {"error": "target_not_found_or_not_authorized"},
+        {"error": "target_not_found_or_not_authorized"},
+    ]

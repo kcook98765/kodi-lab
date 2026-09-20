@@ -1,7 +1,9 @@
 # Phase 11 MCP transports and security
 
 Kodi Lab's primary MCP authority is modern Streamable HTTP POST `/mcp`, exact
-protocol `2026-07-28`. Canonical stdio is not a second server implementation.
+protocol `2026-07-28`. Exact legacy `2025-11-25` is a bounded stateless HTTP
+compatibility mode. Canonical stdio is modern-only and is not a second server
+implementation.
 Installed command `kodi-lab-mcp-stdio` forwards bounded stdio requests to the
 same authenticated loopback HTTP route, so both transports use identical
 durable client identity, credential lifecycle, preset permissions, exact target
@@ -38,7 +40,7 @@ services, or cache a verifier, principal, grant, preset, target policy,
 capability, state, or tool list. Revoke, disable, preset changes, grant removal,
 and policy changes therefore apply on the next request.
 
-There is no initialize/initialized exchange, legacy fallback,
+There is no stdio initialize/initialized exchange or legacy fallback,
 `Mcp-Session-Id`, application transport session, selected/default target, GET
 stream, daemonization, or durable adapter state. Stdin EOF cancels active work
 and ends the process. Input frames are bounded to 64 KiB before JSON parsing;
@@ -113,10 +115,9 @@ client and 100,000 globally. Saturation returns
 `remote_action_receipt_capacity`; clients and Web administrators cannot delete
 or manually replay receipts.
 
-Legacy `2025-11-25`, raw JSON-RPC, lifecycle,
-snapshots, settings mutation, library/music queries, add-on execution, logs,
-diagnostics, external targets, custom-preset administration and Phase 12
-workflows remain excluded.
+Raw JSON-RPC, lifecycle, snapshots, settings mutation, library/music queries,
+add-on execution, logs, diagnostics, external targets and Phase 12 workflows
+remain excluded.
 
 The applicable official runner subsets remain `tools-list`,
 `dns-rebinding-protection`, and `http-header-validation`. Its canned
@@ -125,3 +126,69 @@ The applicable official runner subsets remain `tools-list`,
 catalog. Native image behavior is instead exercised through the pinned official
 SDK over both direct HTTP and the canonical stdio subprocess, including exact
 MIME, PNG signature, decoded dimensions, byte bound and structured metadata.
+
+## Slice 5 custom presets
+
+Web administration can clone Add-on Development, Read-only Inspection, or Full
+Lab Control into a custom preset. The administrator supplies only a 1–120
+character trimmed unique display name and the built-in UUID. Kodi Lab creates a
+new UUID and copies the built-in's current server-known permissions. Production
+Remote Kodi stays inactive/unassignable and cannot be cloned in V1.
+
+The permission snapshot is immutable: there is no per-permission editor,
+rename, deletion, conversion, or custom-from-custom clone. A later permission
+added to a built-in does not appear in an older custom preset. Custom presets
+use the same client and internal-target policy assignment paths. Reassignment
+takes effect on the next request without transport restart and never falls back
+to broader authority. Creation, assignment, and displaced-preset unassignment
+events contain only bounded UUIDs/event kinds; no token or form payload is
+recorded. Existing schema suffices, so Alembic remains
+`0038_mcp_remote_control`.
+
+## Slice 5 legacy HTTP compatibility
+
+Exact `2025-11-25` uses the same POST `/mcp` SDK application with
+`stateless_http=True`. Its first headerless request must be a valid initialize
+request explicitly offering `2025-11-25`; all later requests carry exact
+`MCP-Protocol-Version: 2025-11-25`. Explicit modern and legacy method sets are
+disjoint. Unsupported or malformed traffic is rejected and never retried in
+the other era. `Mcp-Session-Id` is rejected and never emitted or persisted.
+
+Every HTTP request uses the same `Authorization: Bearer` verifier, peer-keyed
+authentication-failure limiter, client-keyed admission, concurrency caps,
+principal, discovery filter, exact grants, target policy, target class,
+capability/state checks, tool schemas/adapters, replay receipts, audit fields,
+and privacy errors. No query key, cookie, alternate credential store, selected
+target, or protocol-specific privilege exists. Modern remains the documented
+default. Legacy support may be removed only by an explicit future decision with
+compatibility evidence and schema/version policy review.
+
+Legacy stdio is not supported. The current proxy is intentionally stateless and
+modern; handshake-era stdio would require negotiation state. Older clients can
+use legacy HTTP without creating a second stdio server or application authority.
+
+## Final client and conformance matrix
+
+| Client or runner | Exact version | HTTP result | stdio result |
+| --- | --- | --- | --- |
+| Official Python SDK | `mcp==2.1.1`, `mcp-types==2.1.1` | modern pinned, modern auto, and legacy pinned pass | modern pass; legacy not supported |
+| Official conformance runner | `@modelcontextprotocol/conformance@0.2.0-alpha.11` | applicable modern and legacy scenarios pass except classified fixture/absent-surface exclusions | not a proxy-topology runner |
+| OpenCode | `1.14.39` | exact legacy `2025-11-25` connects with no session ID and lists its four read-only-authorized tools | legacy handshake fails against modern-only proxy |
+| Codex CLI | `0.154.0` | incompatible: offers excluded `2025-06-18` | incompatible: handshake is rejected by modern-only proxy |
+
+No Claude Desktop, Cline-class, LM Studio, or Open WebUI client was installed
+and no compatibility is claimed for them. The five-tool catalog remains compact,
+lexical, shallow, explicit-target, deterministic, and low-ambiguity for smaller
+MCP-capable local models.
+
+Modern conformance results are tools-list 3/3, DNS protection 2/2, HTTP header
+validation 14/14, stateless 23/25, and caching 4/7. The two stateless failures
+require runner-only `test_missing_capability`; the three caching failures are
+unimplemented prompts/resources while tool caching passes. Legacy initialize
+2/2, ping 2/2, tools-list 3/3, and DNS protection 2/2 pass. Canned diagnostic
+tool-call names, prompts, resources, subscriptions, sampling, elicitation,
+audio/embedded content, OAuth, tasks, and MRTR are explicit exclusions.
+
+Phase 11 is **implementation-complete pending formal review**. This is not a
+formal COMPLETE declaration and does not freeze later Kodi tool expansion
+through the established registry and service boundary.

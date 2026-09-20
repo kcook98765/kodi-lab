@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded live Kodi 21.3 proof for replay-safe MCP remote control."""
+"""Bounded live Kodi 21.3 proof for cross-protocol MCP remote control."""
 
 # ruff: noqa: E402 -- bytecode suppression precedes project imports.
 
@@ -31,7 +31,6 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from mcp.client import Client
-from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from starlette.types import ASGIApp
 
@@ -54,16 +53,11 @@ from kodi_lab.broker.screenshots import SqliteScreenshotCaptureResolver
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeExecutionProfile
 from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
-from kodi_lab.mcp.stdio_proxy import (
-    ENDPOINT_ENVIRONMENT_VARIABLE,
-    TOKEN_ENVIRONMENT_VARIABLE,
-)
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.web.app import create_app
 
 PASSWORD = "phase11-mcp-remote-live-password"
 ORIGIN = "http://127.0.0.1"
-STDIO_EXECUTABLE = Path(sys.executable).with_name("kodi-lab-mcp-stdio")
 
 
 def _require(condition: bool, message: str) -> None:
@@ -146,7 +140,19 @@ async def _direct_client(endpoint: str, token: str) -> AsyncIterator[Client]:
         streams = streamable_http_client(
             endpoint, http_client=http, terminate_on_close=False
         )
-        async with Client(streams, mode="auto", cache=None) as client:
+        async with Client(streams, mode="2026-07-28", cache=None) as client:
+            yield client
+
+
+@asynccontextmanager
+async def _legacy_client(endpoint: str, token: str) -> AsyncIterator[Client]:
+    async with httpx2.AsyncClient(
+        headers={"Authorization": f"Bearer {token}"}, follow_redirects=False
+    ) as http:
+        streams = streamable_http_client(
+            endpoint, http_client=http, terminate_on_close=False
+        )
+        async with Client(streams, mode="legacy", cache=None) as client:
             yield client
 
 
@@ -163,19 +169,20 @@ async def _exercise_transports(
     target_id: UUID,
     dispatches: list[str],
 ) -> dict[str, Any]:
-    parameters = StdioServerParameters(
-        command=str(STDIO_EXECUTABLE),
-        env={
-            TOKEN_ENVIRONMENT_VARIABLE: token,
-            ENDPOINT_ENVIRONMENT_VARIABLE: endpoint,
-        },
-        cwd=Path.cwd(),
-    )
     async with (
-        _direct_client(endpoint, token) as direct,
-        Client(parameters, mode="auto", cache=None) as stdio,
+        _direct_client(endpoint, token) as modern,
+        _legacy_client(endpoint, token) as legacy,
     ):
-        tool_names = [item.name for item in (await direct.list_tools()).tools]
+        _require(modern.protocol_version == "2026-07-28", "modern revision changed")
+        _require(legacy.protocol_version == "2025-11-25", "legacy revision changed")
+        modern_tools = (await modern.list_tools()).tools
+        legacy_tools = (await legacy.list_tools()).tools
+        _require(
+            [item.model_dump() for item in modern_tools]
+            == [item.model_dump() for item in legacy_tools],
+            "cross-protocol tool schemas changed",
+        )
+        tool_names = [item.name for item in modern_tools]
         _require(
             tool_names
             == [
@@ -188,111 +195,80 @@ async def _exercise_transports(
             "unexpected control-client catalog",
         )
 
-        http_request_id = str(uuid4())
-        http_arguments = {
-            "request_id": http_request_id,
+        modern_request_id = str(uuid4())
+        modern_arguments = {
+            "request_id": modern_request_id,
             "target_id": str(target_id),
             "action": "down",
         }
-        http_first = await direct.call_tool("remote_action", http_arguments)
-        _require(not http_first.is_error, "HTTP navigation action failed")
+        modern_first = await modern.call_tool("remote_action", modern_arguments)
+        _require(not modern_first.is_error, "modern navigation action failed")
         _require(
-            cast(dict[str, Any], http_first.structured_content)["screenshot_refresh"][
+            cast(dict[str, Any], modern_first.structured_content)["screenshot_refresh"][
                 "result"
             ]
             == "succeeded",
-            "HTTP navigation did not refresh the durable screenshot",
+            "modern navigation did not refresh the durable screenshot",
         )
-        after_http_count = len(dispatches)
-        http_replay = await stdio.call_tool("remote_action", http_arguments)
-        _require(not http_replay.is_error, "stdio replay failed")
+        after_modern_count = len(dispatches)
+        legacy_replay = await legacy.call_tool("remote_action", modern_arguments)
+        _require(not legacy_replay.is_error, "legacy replay failed")
         _require(
-            http_first.structured_content == http_replay.structured_content,
-            "HTTP to stdio replay result changed",
+            modern_first.structured_content == legacy_replay.structured_content,
+            "modern to legacy replay result changed",
         )
         _require(
-            len(dispatches) == after_http_count == 1,
-            "HTTP to stdio replay dispatched more than once",
+            len(dispatches) == after_modern_count == 1,
+            "modern to legacy replay dispatched more than once",
         )
 
-        stdio_request_id = str(uuid4())
-        stdio_arguments = {
-            "request_id": stdio_request_id,
+        legacy_request_id = str(uuid4())
+        legacy_arguments = {
+            "request_id": legacy_request_id,
             "target_id": str(target_id),
             "action": "up",
         }
-        stdio_first = await stdio.call_tool("remote_action", stdio_arguments)
-        _require(not stdio_first.is_error, "stdio navigation action failed")
+        legacy_first = await legacy.call_tool("remote_action", legacy_arguments)
+        _require(not legacy_first.is_error, "legacy navigation action failed")
         _require(
-            cast(dict[str, Any], stdio_first.structured_content)["screenshot_refresh"][
+            cast(dict[str, Any], legacy_first.structured_content)["screenshot_refresh"][
                 "result"
             ]
             == "succeeded",
-            "stdio navigation did not refresh the durable screenshot",
+            "legacy navigation did not refresh the durable screenshot",
         )
-        after_stdio_count = len(dispatches)
-        stdio_replay = await direct.call_tool("remote_action", stdio_arguments)
-        _require(not stdio_replay.is_error, "HTTP replay failed")
+        after_legacy_count = len(dispatches)
+        modern_replay = await modern.call_tool("remote_action", legacy_arguments)
+        _require(not modern_replay.is_error, "modern replay failed")
         _require(
-            stdio_first.structured_content == stdio_replay.structured_content,
-            "stdio to HTTP replay result changed",
+            legacy_first.structured_content == modern_replay.structured_content,
+            "legacy to modern replay result changed",
         )
         _require(
-            len(dispatches) == after_stdio_count == 2,
-            "stdio to HTTP replay dispatched more than once",
-        )
-
-        player_request_id = str(uuid4())
-        no_player = await direct.call_tool(
-            "remote_action",
-            {
-                "request_id": player_request_id,
-                "target_id": str(target_id),
-                "action": "play_pause",
-            },
-        )
-        _require(no_player.is_error, "idle playback unexpectedly succeeded")
-        _require(
-            cast(dict[str, object], no_player.structured_content).get("error")
-            == "remote_no_active_player",
-            "idle playback returned the wrong classification",
-        )
-        no_player_count = len(dispatches)
-        no_player_replay = await stdio.call_tool(
-            "remote_action",
-            {
-                "request_id": player_request_id,
-                "target_id": str(target_id),
-                "action": "play_pause",
-            },
-        )
-        _require(no_player_replay.is_error, "no-player replay changed outcome")
-        _require(
-            len(dispatches) == no_player_count,
-            "no-player replay entered the adapter twice",
+            len(dispatches) == after_legacy_count == 2,
+            "legacy to modern replay dispatched more than once",
         )
 
         return {
             "tool_catalog": tool_names,
-            "http_first_stdio_replay": {
-                "request_id": http_request_id,
-                "invocation_id": cast(dict[str, object], http_first.structured_content)[
-                    "invocation_id"
-                ],
-                "dispatch_count_after_pair": after_http_count,
-                "stored_result_equal": True,
-            },
-            "stdio_first_http_replay": {
-                "request_id": stdio_request_id,
+            "protocol_revisions": ["2026-07-28", "2025-11-25"],
+            "modern_first_legacy_replay": {
+                "request_id": modern_request_id,
                 "invocation_id": cast(
-                    dict[str, object], stdio_first.structured_content
+                    dict[str, object], modern_first.structured_content
                 )["invocation_id"],
-                "dispatch_count_after_pair": after_stdio_count,
+                "action": "down",
+                "dispatch_count_after_pair": after_modern_count,
                 "stored_result_equal": True,
             },
-            "no_player": {
-                "classification": "remote_no_active_player",
-                "duplicate_redispatched": False,
+            "legacy_first_modern_replay": {
+                "request_id": legacy_request_id,
+                "invocation_id": cast(
+                    dict[str, object], legacy_first.structured_content
+                )["invocation_id"],
+                "action": "up",
+                "dispatch_count_after_pair": after_legacy_count,
+                "stored_result_equal": True,
             },
         }
 
@@ -302,7 +278,7 @@ def main() -> None:
     parser.add_argument(
         "--evidence-path",
         type=Path,
-        default=Path("<project-root>-phase11-mcp-remote-evidence.json"),
+        default=Path("evidence/kodi-lab-phase11-compatibility-evidence.json"),
     )
     arguments = parser.parse_args()
     _require(os.geteuid() == 0, "live validation must run as root")
@@ -326,7 +302,7 @@ def main() -> None:
     evidence: dict[str, Any] = {}
     try:
         with tempfile.TemporaryDirectory(
-            prefix="kodi-lab-phase11-mcp-remote-", dir="/var/tmp"
+            prefix="kodi-lab-phase11-mcp-compatibility-", dir="/var/tmp"
         ) as temporary:
             root = Path(temporary)
             data_root = root / "data"
@@ -436,15 +412,17 @@ def main() -> None:
                             navigation_hash != baseline_hash,
                             "navigation did not change the visual hash",
                         )
-                        administration.set_client_enabled(mcp_client.id, False)
+                        administration.revoke_credential(
+                            mcp_client.id, issued.credential.id
+                        )
 
-                        async def denied_after_disable() -> bool:
+                        async def denied_after_revoke(revision: str) -> bool:
                             async with httpx2.AsyncClient(
                                 headers={
                                     "Authorization": f"Bearer {issued.token}",
                                     "Accept": "application/json, text/event-stream",
                                     "Content-Type": "application/json",
-                                    "MCP-Protocol-Version": "2026-07-28",
+                                    "MCP-Protocol-Version": revision,
                                     "Mcp-Method": "tools/call",
                                     "Mcp-Name": "remote_action",
                                 },
@@ -463,28 +441,36 @@ def main() -> None:
                                                 "target_id": str(target_id),
                                                 "action": "left",
                                             },
-                                            "_meta": {
-                                                "io.modelcontextprotocol/"
-                                                "protocolVersion": "2026-07-28",
-                                                "io.modelcontextprotocol/"
-                                                "clientCapabilities": {},
-                                                "io.modelcontextprotocol/clientInfo": {
-                                                    "name": "live-proof",
-                                                    "version": "1",
-                                                },
-                                            },
+                                            **(
+                                                {
+                                                    "_meta": {
+                                                        "io.modelcontextprotocol/"
+                                                        "protocolVersion": revision,
+                                                        "io.modelcontextprotocol/"
+                                                        "clientCapabilities": {},
+                                                        "io.modelcontextprotocol/"
+                                                        "clientInfo": {
+                                                            "name": "live-proof",
+                                                            "version": "1",
+                                                        },
+                                                    }
+                                                }
+                                                if revision == "2026-07-28"
+                                                else {}
+                                            ),
                                         },
                                     },
                                 )
                             return response.status_code == 401
 
                         _require(
-                            asyncio.run(denied_after_disable()),
-                            "disabled client retained remote authority",
+                            asyncio.run(denied_after_revoke("2026-07-28")),
+                            "revoked credential retained modern authority",
                         )
-                    administration.revoke_credential(
-                        mcp_client.id, issued.credential.id
-                    )
+                        _require(
+                            asyncio.run(denied_after_revoke("2025-11-25")),
+                            "revoked credential retained legacy authority",
+                        )
                     administration.remove_target_grant(mcp_client.id, target_id)
                     queued = web.post(
                         f"/api/instances/{target_id}/delete",
@@ -496,11 +482,11 @@ def main() -> None:
                     _require(deleted["state"] == "succeeded", "cleanup failed")
 
             evidence = {
-                "schema": "kodi-lab-phase11-mcp-remote-live-v1",
+                "schema": "kodi-lab-phase11-compatibility-live-v1",
                 "runtime": "Kodi 21.3 Current",
                 "target_id": str(target_id),
-                "transport_replay": transport,
-                "adapter_dispatches": counting.actions,
+                "protocol_replay": transport,
+                "adapter_actions": counting.actions,
                 "adapter_dispatch_count": len(counting.actions),
                 "navigation_refresh": {
                     "baseline_capture_id": baseline.json()["capture_id"],
@@ -510,7 +496,10 @@ def main() -> None:
                     "refreshes_per_new_navigation": 1,
                     "refreshes_per_duplicate": 0,
                 },
-                "disabled_client_denied": True,
+                "revocation": {
+                    "modern_denied_next_request": True,
+                    "legacy_denied_next_request": True,
+                },
                 "raw_jsonrpc_exposed": False,
             }
             engine.dispose()

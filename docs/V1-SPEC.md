@@ -708,8 +708,11 @@ Client:
 
 The modern HTTP path has no initialize/initialized handshake, application
 transport session, `Mcp-Session-Id`, selected/default-target state, or GET
-stream. Compatibility with handshake-era protocol `2025-11-25` is a separate
-later conformance decision, not an implicit fallback.
+stream. Phase 11 Slice 5 also supports exact handshake-era protocol
+`2025-11-25` over that same stateless authenticated HTTP route. The initial
+headerless request must be an exact `2025-11-25` initialize offer; subsequent
+requests carry that exact version. There is no permissive fallback between
+eras, and canonical stdio remains modern `2026-07-28` only.
 
 Cross-target loops are client/agent side.
 
@@ -745,13 +748,14 @@ Flat explicit names preferred:
 
 MCP tool/API schema has separate explicit version.
 
-Phase 11 Slice 3 retains Kodi Lab schema version `1` and exposes exactly
-`addon_list`, `screenshot_capture`, `target_list`, and `target_status` over both
-HTTP and stdio. Add-on inventory is bounded and path-free. Screenshot capture
-returns native `image/png` MCP content plus compact semantic metadata while
-updating the existing durable latest-screenshot cache. Remote control, action
-receipts, raw JSON-RPC, lifecycle, diagnostics, external targets, and the richer
-semantic catalog remain later slices/phases.
+Phase 11 retains Kodi Lab schema version `1` and exposes exactly `addon_list`,
+`remote_action`, `screenshot_capture`, `target_list`, and `target_status`.
+Add-on inventory is bounded and path-free. Screenshot capture returns native
+`image/png` MCP content plus compact semantic metadata while updating the
+existing durable latest-screenshot cache. Remote action is the existing closed
+semantic control surface with durable client/request replay protection. Raw
+JSON-RPC, lifecycle, diagnostics, external targets, and the richer semantic
+catalog remain later phases or separately scheduled expansion.
 
 ## 32. MCP baseline/presets
 
@@ -768,7 +772,12 @@ Built-in immutable presets:
 - Full Lab Control (target-use maximum, not infrastructure admin)
 - Production Remote Kodi
 
-Users duplicate built-ins into custom presets.
+Users duplicate an active built-in into a custom preset with a new UUID and
+bounded unique name. V1 custom permissions are an immutable creation-time
+snapshot: there is no arbitrary permission editor, later built-in permissions
+are not inherited automatically, and the custom preset may be assigned at the
+client and internal-target policy layers. Custom rename and deletion are
+deferred.
 
 Assign preset at client/token and target.
 Effective access is intersection.

@@ -676,6 +676,13 @@ class McpClientCreateRequest(BaseModel):
     preset_id: UUID
 
 
+class McpPresetCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = Field(min_length=1, max_length=120)
+    template_preset_id: UUID
+
+
 class McpClientRenameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2482,6 +2489,20 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[McpPresetRead]:
         return context.mcp_administration.list_presets()
+
+    @app.post(
+        "/api/mcp/presets",
+        response_model=McpPresetRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_mcp_preset(
+        payload: McpPresetCreateRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpPresetRead:
+        return context.mcp_administration.create_custom_preset(
+            display_name=payload.display_name,
+            template_preset_id=payload.template_preset_id,
+        )
 
     @app.get("/api/mcp/clients", response_model=list[McpClientRead])
     def list_mcp_clients(

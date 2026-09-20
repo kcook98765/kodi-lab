@@ -12,6 +12,15 @@
       <p class="secondary">MCP bearer identities are separate from this Web administrator session. Token plaintext is shown once and cannot be recovered after navigation or reload.</p>
       <p class="error" data-error role="alert" hidden></p>
       <section>
+        <h2>Create custom preset</h2>
+        <p>Custom presets are fixed permission snapshots copied from an active built-in. Later built-in permissions are not added automatically.</p>
+        <form data-create-preset>
+          <label>Name <input name="display_name" required maxlength="120"></label>
+          <label>Built-in template <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
+          <button type="submit">Create preset</button>
+        </form>
+      </section>
+      <section>
         <h2>Create client</h2>
         <form data-create-client>
           <label>Name <input name="display_name" required maxlength="120"></label>
@@ -46,6 +55,10 @@
       <section>
         <h2>Target policy assignments</h2>
         {% for target in targets %}<p data-target-policy="{{ target.target_id }}">{{ target.target_name }} <select>{% for preset in presets if preset.assignable %}<option value="{{ preset.id }}"{% if target.preset and preset.id == target.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select> <button type="button">Assign policy</button></p>{% else %}<p>No managed targets.</p>{% endfor %}
+      </section>
+      <section>
+        <h2>Presets</h2>
+        <ul>{% for preset in presets %}<li>{{ preset.display_name }} · {{ 'built-in' if preset.builtin else 'custom' }} · permissions {{ preset.permissions | join(', ') if preset.permissions else 'none' }} · UUID {{ preset.id }}</li>{% endfor %}</ul>
       </section>
       <p><a href="/">Back to dashboard</a></p>
     </main>

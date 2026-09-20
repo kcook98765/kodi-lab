@@ -112,3 +112,17 @@ database lease, and conflicting lifecycle calls return semantic 409. Web still
 uses the restricted broker client and has no Docker socket. Password re-entry is
 not required for this localhost single-admin profile; future LAN exposure must
 revisit sensitive-action reauthentication.
+
+Phase 11 Slice 5 adds one same-origin, session-authenticated, CSRF-protected
+custom-preset creation route in the existing MCP administration area. Its JSON
+body contains only a bounded display name and immutable built-in template UUID.
+Jinja autoescaping keeps the name text-only. The server creates the authority
+UUID and copies only registered permission rows; no token, permission string,
+tool, target, protocol version, broker input, or arbitrary form payload is
+caller-controlled or written to audit. Built-ins have no mutation route, and
+custom rename, permission editing, and deletion are absent.
+
+Legacy MCP support adds no Web compatibility toggle, client protocol preference,
+cookie authentication, or protocol-specific privilege. Exact `2025-11-25` HTTP
+requests still require the durable MCP bearer on every request and never use the
+Web administrator session.

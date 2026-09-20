@@ -304,6 +304,111 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
         )
 
 
+def test_custom_presets_are_bounded_builtin_permission_snapshots(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    administration = McpAdministrationService(mcp_database)
+    custom = administration.create_custom_preset(
+        display_name="  Visual inspection  ",
+        template_preset_id=READ_ONLY_INSPECTION_PRESET_ID,
+    )
+    assert custom.display_name == "Visual inspection"
+    assert custom.builtin is False
+    assert custom.assignable is True
+    assert custom.permissions == ("target.inspect", "target.visual")
+    assert custom.id not in {
+        ADDON_DEVELOPMENT_PRESET_ID,
+        READ_ONLY_INSPECTION_PRESET_ID,
+        FULL_LAB_CONTROL_PRESET_ID,
+        PRODUCTION_REMOTE_KODI_PRESET_ID,
+    }
+
+    client = administration.create_client(
+        display_name="Custom preset client", preset_id=custom.id
+    )
+    administration.assign_target_preset(TARGET_ID, custom.id)
+    token = administration.issue_credential(client.id).token
+    principal = McpAuthenticationService(mcp_database).authenticate(token)
+    assert principal is not None
+    assert principal.preset_id == custom.id
+    assert principal.permissions == frozenset({"target.inspect", "target.visual"})
+
+    # A later built-in permission is not retroactively inherited by the clone.
+    with mcp_database.begin() as session:
+        session.add(
+            McpPresetPermissionRow(
+                preset_id=str(READ_ONLY_INSPECTION_PRESET_ID),
+                permission="target.control",
+            )
+        )
+    assert next(
+        item for item in administration.list_presets() if item.id == custom.id
+    ).permissions == ("target.inspect", "target.visual")
+
+    with pytest.raises(McpAdministrationError, match="mcp_preset_name_conflict"):
+        administration.create_custom_preset(
+            display_name="Visual inspection",
+            template_preset_id=FULL_LAB_CONTROL_PRESET_ID,
+        )
+    for invalid_name in ("", "   ", "x" * 121):
+        with pytest.raises(McpAdministrationError, match="mcp_preset_name_invalid"):
+            administration.create_custom_preset(
+                display_name=invalid_name,
+                template_preset_id=FULL_LAB_CONTROL_PRESET_ID,
+            )
+    for invalid_template in (PRODUCTION_REMOTE_KODI_PRESET_ID, custom.id, uuid4()):
+        with pytest.raises(McpAdministrationError, match="mcp_preset_template_invalid"):
+            administration.create_custom_preset(
+                display_name=f"Invalid {invalid_template}",
+                template_preset_id=invalid_template,
+            )
+
+    with mcp_database() as session:
+        events = session.scalars(
+            select(McpSecurityEventRow).where(
+                McpSecurityEventRow.preset_id == str(custom.id)
+            )
+        ).all()
+    assert {event.event_kind for event in events} == {
+        "preset_created",
+        "client_created",
+        "target_preset_assigned",
+    }
+    assert all(event.client_id in {None, str(client.id)} for event in events)
+
+
+def test_custom_preset_reassignment_is_effective_on_next_authentication(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    administration = McpAdministrationService(mcp_database)
+    inspect = administration.create_custom_preset(
+        display_name="Inspection snapshot",
+        template_preset_id=READ_ONLY_INSPECTION_PRESET_ID,
+    )
+    control = administration.create_custom_preset(
+        display_name="Control snapshot",
+        template_preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    client = administration.create_client(
+        display_name="Immediate preset client", preset_id=control.id
+    )
+    issued = administration.issue_credential(client.id)
+    authentication = McpAuthenticationService(mcp_database)
+    before = authentication.authenticate(issued.token)
+    assert before is not None and "target.control" in before.permissions
+
+    administration.assign_client_preset(client.id, inspect.id)
+    after = authentication.authenticate(issued.token)
+    assert after is not None and "target.control" not in after.permissions
+
+    administration.assign_target_preset(TARGET_ID, control.id)
+    administration.assign_target_preset(TARGET_ID, inspect.id)
+    with mcp_database() as session:
+        event_kinds = list(session.scalars(select(McpSecurityEventRow.event_kind)))
+    assert "client_preset_unassigned" in event_kinds
+    assert "target_preset_unassigned" in event_kinds
+
+
 def test_builtin_permission_drift_fails_closed(
     mcp_database: sessionmaker[Session],
 ) -> None:

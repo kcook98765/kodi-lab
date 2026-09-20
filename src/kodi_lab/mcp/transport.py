@@ -1,4 +1,4 @@
-"""Authenticated modern-only MCP Streamable HTTP integration."""
+"""Authenticated primary-modern and bounded-legacy MCP HTTP integration."""
 
 from __future__ import annotations
 
@@ -59,10 +59,18 @@ from kodi_lab.mcp.tools import (
 )
 
 MCP_PROTOCOL_VERSION = "2026-07-28"
+MCP_LEGACY_PROTOCOL_VERSION = "2025-11-25"
+MCP_SUPPORTED_PROTOCOL_VERSIONS = (
+    MCP_PROTOCOL_VERSION,
+    MCP_LEGACY_PROTOCOL_VERSION,
+)
 MCP_MAX_REQUEST_BODY = 64 * 1024
 MCP_MAX_IMAGE_BASE64_BYTES = 4 * ((MAX_PNG_BYTES + 2) // 3)
 MCP_SERVER_VERSION = "0.0.0"
-_MCP_METHODS = frozenset({"server/discover", "tools/list", "tools/call"})
+_MODERN_MCP_METHODS = frozenset({"server/discover", "tools/list", "tools/call"})
+_LEGACY_MCP_METHODS = frozenset(
+    {"initialize", "notifications/initialized", "ping", "tools/list", "tools/call"}
+)
 
 logger = logging.getLogger("kodi_lab.mcp")
 _principal_context: contextvars.ContextVar[McpPrincipal] = contextvars.ContextVar(
@@ -199,7 +207,7 @@ class _RemoteActionInput(BaseModel):
 
 
 class ModernMcpAuthMiddleware:
-    """Modern-version gate, bearer authentication, and bounded admission."""
+    """Deterministic protocol gate, bearer authentication, and shared admission."""
 
     def __init__(
         self,
@@ -249,25 +257,47 @@ class ModernMcpAuthMiddleware:
             return
         request_id = self._request_id(body)
         replay_receive = self._replay(body)
+        method = self._request_method(body)
         version = headers.get("mcp-protocol-version")
         if version is None:
-            await self._protocol_error(
-                scope,
-                replay_receive,
-                send,
-                code=HEADER_MISMATCH,
-                message="MCP-Protocol-Version header is required",
-                request_id=request_id,
-            )
-            return
-        if version != MCP_PROTOCOL_VERSION:
+            initialize_version = self._initial_initialize_version(body)
+            if initialize_version == MCP_LEGACY_PROTOCOL_VERSION:
+                version = MCP_LEGACY_PROTOCOL_VERSION
+            elif initialize_version is not None:
+                await self._protocol_error(
+                    scope,
+                    replay_receive,
+                    send,
+                    code=UNSUPPORTED_PROTOCOL_VERSION,
+                    message="Unsupported protocol version",
+                    data={
+                        "supported": [MCP_LEGACY_PROTOCOL_VERSION],
+                        "requested": initialize_version[:64],
+                    },
+                    request_id=request_id,
+                )
+                return
+            else:
+                await self._protocol_error(
+                    scope,
+                    replay_receive,
+                    send,
+                    code=HEADER_MISMATCH,
+                    message="MCP-Protocol-Version header is required",
+                    request_id=request_id,
+                )
+                return
+        if version not in MCP_SUPPORTED_PROTOCOL_VERSIONS:
             await self._protocol_error(
                 scope,
                 replay_receive,
                 send,
                 code=UNSUPPORTED_PROTOCOL_VERSION,
                 message="Unsupported protocol version",
-                data={"supported": [MCP_PROTOCOL_VERSION], "requested": version[:64]},
+                data={
+                    "supported": self._supported_versions_for_body(body),
+                    "requested": version[:64],
+                },
                 request_id=request_id,
             )
             return
@@ -278,6 +308,31 @@ class ModernMcpAuthMiddleware:
                 send,
                 code=HEADER_MISMATCH,
                 message="Mcp-Session-Id is not valid for this protocol",
+                request_id=request_id,
+            )
+            return
+        declared_method = headers.get("mcp-method")
+        if declared_method is not None and declared_method != method:
+            await self._protocol_error(
+                scope,
+                replay_receive,
+                send,
+                code=HEADER_MISMATCH,
+                message="Mcp-Method header does not match request body",
+                request_id=request_id,
+            )
+            return
+        declared_tool = headers.get("mcp-name")
+        body_tool = self._request_tool_name(body)
+        if declared_tool is not None and (
+            method != "tools/call" or declared_tool != body_tool
+        ):
+            await self._protocol_error(
+                scope,
+                replay_receive,
+                send,
+                code=HEADER_MISMATCH,
+                message="Mcp-Name header does not match request body",
                 request_id=request_id,
             )
             return
@@ -300,8 +355,12 @@ class ModernMcpAuthMiddleware:
         if principal is None:
             await self._authentication_failed(scope, replay_receive, send)
             return
-        method = self._request_method(body)
-        if method is not None and method not in _MCP_METHODS:
+        allowed_methods = (
+            _MODERN_MCP_METHODS
+            if version == MCP_PROTOCOL_VERSION
+            else _LEGACY_MCP_METHODS
+        )
+        if method is not None and method not in allowed_methods:
             await self._protocol_error(
                 scope,
                 replay_receive,
@@ -399,6 +458,62 @@ class ModernMcpAuthMiddleware:
             return None
         value = decoded.get("method")
         return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _request_tool_name(body: bytes) -> str | None:
+        try:
+            decoded = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        if not isinstance(decoded, dict) or decoded.get("method") != "tools/call":
+            return None
+        params = decoded.get("params")
+        if not isinstance(params, dict):
+            return None
+        value = params.get("name")
+        return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _initial_initialize_version(body: bytes) -> str | None:
+        """Return an explicit headerless handshake offer, never an inferred era."""
+
+        try:
+            decoded = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        if not isinstance(decoded, dict) or decoded.get("jsonrpc") != "2.0":
+            return None
+        if decoded.get("method") != "initialize":
+            return None
+        request_id = decoded.get("id")
+        if not isinstance(request_id, (str, int)) or isinstance(request_id, bool):
+            return None
+        params = decoded.get("params")
+        if not isinstance(params, dict):
+            return None
+        version = params.get("protocolVersion")
+        return version if isinstance(version, str) else None
+
+    @staticmethod
+    def _supported_versions_for_body(body: bytes) -> list[str]:
+        """Report only the explicitly selected era's bounded compatibility set."""
+
+        try:
+            decoded = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return list(MCP_SUPPORTED_PROTOCOL_VERSIONS)
+        if not isinstance(decoded, dict):
+            return list(MCP_SUPPORTED_PROTOCOL_VERSIONS)
+        params = decoded.get("params")
+        if isinstance(params, dict):
+            metadata = params.get("_meta")
+            if isinstance(metadata, dict) and isinstance(
+                metadata.get("io.modelcontextprotocol/protocolVersion"), str
+            ):
+                return [MCP_PROTOCOL_VERSION]
+        if decoded.get("method") == "initialize":
+            return [MCP_LEGACY_PROTOCOL_VERSION]
+        return list(MCP_SUPPORTED_PROTOCOL_VERSIONS)
 
     @staticmethod
     def _replay(body: bytes) -> Receive:

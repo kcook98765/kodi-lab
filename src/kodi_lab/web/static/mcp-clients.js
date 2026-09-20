@@ -30,6 +30,12 @@
     await request("/api/mcp/clients", "POST", {display_name: form.get("display_name"), preset_id: form.get("preset_id")});
     location.reload();
   }));
+  root.querySelector("[data-create-preset]")?.addEventListener("submit", (event) => run(async () => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await request("/api/mcp/presets", "POST", {display_name: form.get("display_name"), template_preset_id: form.get("template_preset_id")});
+    location.reload();
+  }));
   root.querySelectorAll("[data-client-id]").forEach((card) => {
     const id = card.dataset.clientId;
     const lifetime = () => {

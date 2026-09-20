@@ -55,8 +55,8 @@ phased scope.
 
 ## MCP stdio
 
-Phase 11's canonical stdio command is a thin proxy to the running loopback MCP
-HTTP authority:
+Phase 11's primary protocol is modern `2026-07-28`. Its canonical stdio command
+is a thin modern-only proxy to the running loopback MCP HTTP authority:
 
 ```console
 KODI_LAB_MCP_TOKEN='<token shown once by Web administration>' kodi-lab-mcp-stdio
@@ -71,7 +71,22 @@ tool still requires an explicit `target_id`; stdio creates no selected target or
 session. See [`docs/PHASE11-MCP.md`](docs/PHASE11-MCP.md) for security and
 client configuration details.
 
-The current production catalog is exactly `addon_list`, `screenshot_capture`,
-`target_list`, and `target_status`. Screenshots are returned as native MCP
-`image/png` content through either transport; stdio does not write a temporary
-image or bypass the HTTP authority.
+The current production catalog is exactly `addon_list`, `remote_action`,
+`screenshot_capture`, `target_list`, and `target_status`. Screenshots are
+returned as native MCP `image/png` content through either transport; stdio does
+not write a temporary image or bypass the HTTP authority.
+
+Exact legacy `2025-11-25` clients may use authenticated Streamable HTTP at
+`/mcp`. Compatibility is stateless and bounded: there is no session/default
+target, `Mcp-Session-Id`, GET stream, alternate credential, legacy stdio, or
+fallback from malformed modern traffic. Every target-scoped call still supplies
+an explicit `target_id`, and both protocol revisions use the same current
+credential, preset, grant, target-policy, registry, capability/state, rate,
+replay, and privacy decisions.
+
+Web MCP administration can create a custom preset by cloning one active
+immutable built-in. The clone receives a new UUID and a creation-time permission
+snapshot. V1 does not provide per-permission editing, custom rename, or custom
+deletion, and future built-in permissions do not silently broaden an existing
+clone. Phase 11 is implementation-complete pending an independent formal review;
+it is not formally COMPLETE.

@@ -4198,7 +4198,7 @@ class WebSessionRow(Base):
 
 
 class McpPresetRow(Base):
-    """Immutable server-owned MCP authority preset."""
+    """Built-in or custom immutable-permission MCP authority preset."""
 
     __tablename__ = "mcp_presets"
     __table_args__ = (

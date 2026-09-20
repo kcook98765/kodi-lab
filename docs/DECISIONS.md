@@ -3237,3 +3237,54 @@ authority.
   refuses new protected work. There is no daemon, MCP/Web delete surface, manual
   replay action, lifecycle authority, external target, or production-control
   policy in this decision.
+
+## D-0235: V1 custom presets are immutable built-in snapshots
+
+- Status: approved and implemented for Phase 11 Slice 5
+- Decision: a Web administrator creates a custom preset from one active
+  immutable built-in, a trimmed bounded unique name, and a new random UUID. The
+  transaction copies only the built-in's current server-known permission rows.
+  The inactive Production Remote Kodi preset is not a template. Authorization
+  identity remains the UUID, never the display name.
+- Boundary: V1 has no arbitrary permission editor, custom rename, custom delete,
+  built-in mutation/conversion, or custom-from-custom chain. Future permissions
+  do not automatically broaden existing clones. Existing client and internal
+  target-policy assignments accept the clone and retain every other authority
+  intersection layer.
+- Audit/schema: creation and reassignment emit content-free UUID events;
+  reassignment records the displaced preset as unassigned. Existing schema is
+  sufficient and Alembic remains `0038_mcp_remote_control`.
+
+## D-0236: Exact 2025-11-25 compatibility is stateless HTTP only
+
+- Status: approved and implemented for Phase 11 Slice 5
+- Decision: primary protocol remains exact `2026-07-28`. The same POST `/mcp`
+  authority also accepts exact `2025-11-25` with the pinned SDK in stateless
+  mode. Only an exact headerless `initialize` offer may select legacy; later
+  requests carry exact `2025-11-25`. Unsupported versions and cross-era methods
+  are rejected without fallback.
+- State/authority: no `Mcp-Session-Id`, GET stream, selected target, protocol
+  identity, credential, permission, or authorization state is persisted. Both
+  eras share bearer verification, admission, principal derivation, registry,
+  authorization, service adapters, replay receipts, errors, and privacy.
+- Stdio/deprecation: canonical stdio remains modern-only because legacy stdio
+  would require negotiation state in the proxy. There is no second server.
+  Future removal of HTTP legacy support requires an explicit decision,
+  compatibility evidence, and protocol/schema policy review.
+
+## D-0237: Phase 11 closes with a tested five-tool client matrix
+
+- Status: approved and implemented for Phase 11 Slice 5
+- Decision: official Python SDK `2.1.1` is the reference for modern pinned,
+  modern auto, stdio, and legacy HTTP. Official conformance covers all applicable
+  implemented surfaces; runner-only fixtures and absent optional prompt,
+  resource, subscription, sampling, elicitation, OAuth, task, and MRTR surfaces
+  are classified exclusions rather than production tools.
+- Third parties: OpenCode `1.14.39` is compatible over legacy HTTP and not over
+  modern-only stdio. Codex CLI `0.154.0` is tested-incompatible because it offers
+  `2025-06-18`; Kodi Lab does not broaden its exact compatibility boundary.
+  Untested clients receive no claim.
+- Boundary: production remains exactly `addon_list`, `remote_action`,
+  `screenshot_capture`, `target_list`, and `target_status`. Phase 11 is
+  implementation-complete pending independent formal review, not formally
+  complete.

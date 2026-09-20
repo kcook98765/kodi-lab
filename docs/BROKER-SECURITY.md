@@ -538,3 +538,13 @@ The receipt is not broker protocol state and contains no broker request ID,
 container/network identity, endpoint, raw Kodi document, or screenshot bytes.
 It adds application-level replay protection across HTTP and stdio while the
 underlying remote adapter retains its single-attempt transport semantics.
+
+Phase 11 Slice 5 adds no broker operation or broker caller authority. Custom
+preset creation copies only ordinary application-database permission rows; it
+cannot name a broker method, path, runtime, container, endpoint, command, or
+Kodi request. Exact legacy `2025-11-25` is only an SDK wire adaptation in the
+same unprivileged HTTP process. It enters the identical authentication,
+admission, registry, authorization, service, and receipt boundaries as modern
+traffic and never creates a broker session or cached authority. The broker
+cannot observe or trust protocol revision, `Mcp-Session-Id`, client metadata, or
+caller-declared transport classification.

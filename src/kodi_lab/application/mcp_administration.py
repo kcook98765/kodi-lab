@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.storage.models import (
@@ -221,6 +222,60 @@ class McpAdministrationService:
             ).all()
             return [self._preset_read(session, row) for row in rows]
 
+    def create_custom_preset(
+        self, *, display_name: str, template_preset_id: UUID
+    ) -> McpPresetRead:
+        """Clone one active built-in into an independent permission snapshot."""
+
+        name = self._preset_name(display_name)
+        now = self._clock()
+        preset_id = uuid4()
+        try:
+            with self._session_factory.begin() as session:
+                template = self._require_clone_template(session, template_preset_id)
+                permissions = tuple(
+                    session.scalars(
+                        select(McpPresetPermissionRow.permission)
+                        .where(McpPresetPermissionRow.preset_id == template.id)
+                        .order_by(McpPresetPermissionRow.permission)
+                    ).all()
+                )
+                known_permissions = frozenset(
+                    permission
+                    for _id, _name, _assignable, builtin_permissions in _BUILTINS
+                    for permission in builtin_permissions
+                )
+                if not set(permissions).issubset(known_permissions):
+                    raise McpAdministrationError("mcp_preset_template_invalid")
+                session.add(
+                    McpPresetRow(
+                        id=str(preset_id),
+                        display_name=name,
+                        builtin=False,
+                        assignable=True,
+                    )
+                )
+                session.flush()
+                for permission in permissions:
+                    session.add(
+                        McpPresetPermissionRow(
+                            preset_id=str(preset_id), permission=permission
+                        )
+                    )
+                self._event(
+                    session,
+                    "preset_created",
+                    now,
+                    preset_id=preset_id,
+                )
+        except IntegrityError as error:
+            raise McpAdministrationError("mcp_preset_name_conflict") from error
+        with self._session_factory() as session:
+            row = session.get(McpPresetRow, str(preset_id))
+            if row is None:  # pragma: no cover - committed insert must be readable
+                raise RuntimeError("created MCP preset is missing")
+            return self._preset_read(session, row)
+
     def list_clients(self) -> list[McpClientRead]:
         now = self._clock()
         with self._session_factory() as session:
@@ -291,7 +346,16 @@ class McpAdministrationService:
         with self._session_factory.begin() as session:
             row = self._require_client(session, client_id)
             self._require_assignable_preset(session, preset_id)
+            previous_id = UUID(row.preset_id)
             row.preset_id = str(preset_id)
+            if previous_id != preset_id:
+                self._event(
+                    session,
+                    "client_preset_unassigned",
+                    now,
+                    client_id=client_id,
+                    preset_id=previous_id,
+                )
             self._event(
                 session,
                 "client_preset_assigned",
@@ -442,8 +506,17 @@ class McpAdministrationService:
                     )
                 )
             else:
+                previous_id = UUID(row.preset_id)
                 row.preset_id = str(preset_id)
                 row.assigned_at = _to_text(now)
+                if previous_id != preset_id:
+                    self._event(
+                        session,
+                        "target_preset_unassigned",
+                        now,
+                        target_id=target_id,
+                        preset_id=previous_id,
+                    )
             self._event(
                 session,
                 "target_preset_assigned",
@@ -486,6 +559,13 @@ class McpAdministrationService:
         normalized = value.strip()
         if not normalized or len(normalized) > 120:
             raise McpAdministrationError("mcp_client_name_invalid")
+        return normalized
+
+    @staticmethod
+    def _preset_name(value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 120:
+            raise McpAdministrationError("mcp_preset_name_invalid")
         return normalized
 
     @staticmethod
@@ -533,6 +613,13 @@ class McpAdministrationService:
         row = session.get(McpPresetRow, str(preset_id))
         if row is None or not row.assignable:
             raise McpAdministrationError("mcp_preset_not_assignable")
+        return row
+
+    @staticmethod
+    def _require_clone_template(session: Session, preset_id: UUID) -> McpPresetRow:
+        row = session.get(McpPresetRow, str(preset_id))
+        if row is None or not row.builtin or not row.assignable:
+            raise McpAdministrationError("mcp_preset_template_invalid")
         return row
 
     def _preset_read(self, session: Session, row: McpPresetRow) -> McpPresetRead:
