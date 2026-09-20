@@ -3444,3 +3444,59 @@ authority.
   request, workspace cleanup automation, external/production target, shell,
   Git, Docker, raw filesystem, or arbitrary command authority. Phase 12 remains
   partial.
+
+## D-0254: Structural validation is one closed observational tool
+- Status: accepted for Phase 12 Slice 3.
+- Decision: add only `workspace_validate`, requiring `workspace.inspect`, exact
+  owner/source/grant agreement, ready present state and exact generation. Inputs
+  are only workspace UUID and generation. No new permission, target grant,
+  command, test selector, script, environment, package manager or timeout is
+  accepted, and no validation history table is created.
+
+## D-0255: Phase 9 recapture and add-on parsing remain authoritative
+- Status: accepted for Phase 12 Slice 3.
+- Decision: validation reuses the Phase 9 coordinated complete baseline/current
+  recapture, UTF-8 change checks and authoritative `addon.xml` parser. It
+  classifies ID/version/extension changes and promotability, rejects deletion,
+  binary mutation, type/mode transition and unsafe objects, never repairs or
+  adopts drift, and returns no content, digest, locator or host path.
+
+## D-0256: Validation output and concurrency are bounded
+- Status: accepted for Phase 12 Slice 3.
+- Decision: results remain below 48 KiB and expose at most 64 deterministic
+  relative changed paths plus complete counts and truncation. Admission is one
+  validation/client, one/workspace and two globally. Exact-generation conflict
+  is final for that call; there is no retry against newer state.
+
+## D-0257: Terminal MCP workspace bytes retain seven days
+- Status: accepted for Phase 12 Slice 3.
+- Decision: MCP-owned abandoned and safely terminal promoted workspace bytes
+  become eligible after seven days through the existing Phase 9 cleanup service.
+  Reconciliation, active/ambiguous promotion or verification, failed cleanup and
+  other uncertainty retain bytes for Web-admin attention. Cleanup never deletes
+  binding or history, and cleaned bytes no longer consume present-byte quota.
+
+## D-0258: Disabled-client ready workspaces quarantine for thirty days
+- Status: accepted for Phase 12 Slice 3.
+- Decision: persist `mcp_clients.disabled_at`. Disable revokes MCP access
+  immediately but preserves bytes. After 30 days a still-safe ready workspace
+  uses existing abandonment, then the ordinary seven-day cleanup grace.
+  Re-enable clears `disabled_at` and cancels quarantine eligibility. Enabled
+  ready workspaces never age-delete.
+
+## D-0259: Retention is bounded system policy under workspace coordination
+- Status: accepted for Phase 12 Slice 3.
+- Decision: an opportunistic activity/startup sweep inspects at most 32
+  candidates, makes at most two lifecycle transitions and queues at most two
+  cleanups in deterministic cursor order. It rechecks state, shares Phase 9
+  workspace coordination with edit/validation, submits to the existing cleanup
+  executor and records content-free audit classifications. MCP gains no abandon,
+  cleanup or delete tool; Web retains only its existing guarded controls.
+
+## D-0260: Slice 3 preserves protocol and deployment boundaries
+- Status: accepted for Phase 12 Slice 3.
+- Decision: modern `2026-07-28` HTTP, modern stdio and bounded `2025-11-25`
+  HTTP share one twelve-tool lexical catalog and validation implementation.
+  There is no legacy stdio, deployment, add-on execution, promotion request,
+  external/production target, broker, Docker, shell, Git or arbitrary command
+  authority. Phase 12 remains partial.

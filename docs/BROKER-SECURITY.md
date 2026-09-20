@@ -579,3 +579,18 @@ no-follow traversal, full-tree integrity capture, atomic publication, rollback,
 and reconciliation remain in that unprivileged service. MCP cannot select a
 broker method, source/storage/destination path, container, command, executable,
 environment, ownership, mode, or Docker/Kodi parameter.
+
+## Phase 12 Slice 3 validation and retention boundary
+
+Slice 3 adds no broker operation, caller authority, Docker/Kodi access,
+subprocess, shell, Git or arbitrary test surface. `workspace_validate` passes
+only workspace UUID and exact generation to the unprivileged Phase 9 service.
+That service alone derives storage, takes workspace coordination, recaptures
+bounded trees and parses captured `addon.xml`; the MCP adapter never walks or
+opens workspace files and accepts no command, module, selector, script,
+environment, package manager or caller timeout.
+
+Retention is application policy and exposes no MCP tool. The bounded sweep
+performs metadata decisions and queues only the existing typed Phase 9 cleanup
+service, whose UUID-derived no-follow identity/deletion protections remain
+authoritative. It adds no direct directory removal and no broker involvement.

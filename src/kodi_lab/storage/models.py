@@ -4256,6 +4256,12 @@ class McpClientRow(Base):
             "AND (last_used_at IS NULL OR length(last_used_at) = 27)",
             name="mcp_client_timestamps_format",
         ),
+        CheckConstraint(
+            "(enabled = 1 AND disabled_at IS NULL) OR "
+            "(enabled = 0 AND disabled_at IS NOT NULL "
+            "AND length(disabled_at) = 27)",
+            name="mcp_client_disabled_timestamp_consistent",
+        ),
         Index("ix_mcp_client_preset", "preset_id"),
     )
 
@@ -4267,6 +4273,7 @@ class McpClientRow(Base):
     )
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     last_used_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    disabled_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
 
 
 class McpCredentialRow(Base):
@@ -4489,7 +4496,10 @@ class McpSecurityEventRow(Base):
         CheckConstraint(
             "length(occurred_at) = 27", name="mcp_security_event_timestamp_format"
         ),
-        CheckConstraint("actor = 'web_admin'", name="mcp_security_event_actor_closed"),
+        CheckConstraint(
+            "actor IN ('web_admin','system')",
+            name="mcp_security_event_actor_closed",
+        ),
         Index("ix_mcp_security_event_occurred", "occurred_at", "id"),
     )
 

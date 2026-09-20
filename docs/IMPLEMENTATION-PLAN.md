@@ -1234,3 +1234,27 @@ internal deployment, fixed execution, and promotion request/human-approval
 integration remain future slices. No validation, deployment, execution,
 promotion, cleanup automation, target expansion, shell, Git, Docker, or raw
 filesystem authority is added here.
+
+## Phase 12 Slice 3 checkpoint
+
+Alembic `0041_mcp_workspace_validation_retention` adds restart-safe client
+disable timing without a validation-history table. `workspace_validate` reuses
+Phase 9 complete recapture, authoritative descriptor parsing and structural
+change derivation at one exact generation. Its only inputs are workspace UUID
+and `expected_generation`; it requires `workspace.inspect`, current source
+grant and exact ownership, returns bounded semantic identity/change results,
+and rejects deletions, binary changes, type transitions and unsafe objects.
+Admission is one validation/client, one/workspace and two globally.
+
+System retention reuses Phase 9 abandonment and cleanup. Safe abandoned and
+promoted bytes retain seven days. Disabled-client ready workspaces quarantine
+for 30 days, then abandon safely and retain seven further days; re-enable clears
+quarantine eligibility. Enabled ready and reconciliation-required workspaces do
+not age-delete. Every opportunistic sweep is capped at 32 inspections, two
+transitions and two queued cleanups and shares workspace coordination with edit
+and validation. MCP gains no lifecycle or cleanup tool.
+
+Modern HTTP, modern stdio and legacy HTTP share the exact twelve-tool catalog
+and validation schema. Phase 12 remains **PARTIAL**: exact internal deployment,
+fixed add-on execution, promotion request and Web human-approval integration
+remain later slices.

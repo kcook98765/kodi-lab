@@ -1,6 +1,7 @@
 import os
 import shutil
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -139,7 +140,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0040_mcp_workspace_mutation",)
+        ).fetchone() == ("0041_mcp_workspace_validation_retention",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -4325,3 +4326,56 @@ def test_0034_upgrades_populated_0033_and_guards_detached_downgrade(
     engine.dispose()
     with pytest.raises(RuntimeError, match="retained identity semantics"):
         command.downgrade(config, "0033_agent_workspace_cleanup")
+
+
+def test_0041_workspace_retention_timestamp_and_guarded_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0040_mcp_workspace_mutation"
+    )
+    client_id = str(uuid4())
+    timestamp = "2026-09-20T14:00:00.000000Z"
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients "
+                "(id,display_name,enabled,preset_id,created_at,last_used_at) "
+                "VALUES (:id,'Disabled retention client',0,"
+                "'11000000-0000-4000-8000-000000000003',:time,NULL)"
+            ),
+            {"id": client_id, "time": timestamp},
+        )
+    engine.dispose()
+
+    migration_started_at = datetime.now(UTC)
+    command.upgrade(config, "0041_mcp_workspace_validation_retention")
+    migration_finished_at = datetime.now(UTC)
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        disabled_at = datetime.fromisoformat(
+            connection.scalar(
+                text("SELECT disabled_at FROM mcp_clients WHERE id=:id"),
+                {"id": client_id},
+            ).replace("Z", "+00:00")
+        )
+        assert migration_started_at <= disabled_at <= migration_finished_at
+        connection.execute(
+            text(
+                "INSERT INTO mcp_security_events "
+                "(id,event_kind,actor,client_id,credential_id,target_id,preset_id,"
+                "development_source_id,workspace_id,occurred_at) VALUES "
+                "(:id,'retention_cleanup_blocked','system',:client,NULL,NULL,NULL,"
+                "NULL,NULL,:time)"
+            ),
+            {"id": str(uuid4()), "client": client_id, "time": timestamp},
+        )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text("UPDATE mcp_clients SET enabled=1 WHERE id=:id"),
+                {"id": client_id},
+            )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated MCP workspace retention"):
+        command.downgrade(config, "0040_mcp_workspace_mutation")

@@ -456,6 +456,7 @@ def test_workspace_inspect_snapshot_does_not_discover_slice2_mutations(
         "workspace_read",
         "workspace_status",
         "workspace_tree",
+        "workspace_validate",
     )
 
 
@@ -705,6 +706,7 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         "workspace_read",
         "workspace_status",
         "workspace_tree",
+        "workspace_validate",
     )
     assert remote.permissions == frozenset({"target.control"})
     assert remote.effect is ToolEffect.MUTATING
@@ -721,6 +723,10 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         assert development.rate_class is ToolRateClass.DEVELOPMENT_READ
         assert development.effect is ToolEffect.READ_ONLY
         assert not development.production_eligible
+    validation = registry.require("workspace_validate")
+    assert validation.rate_class is ToolRateClass.DEVELOPMENT_VALIDATE
+    assert validation.effect is ToolEffect.READ_ONLY
+    assert not validation.production_eligible
     assert (
         registry.require("workspace_create").rate_class
         is ToolRateClass.DEVELOPMENT_CREATE

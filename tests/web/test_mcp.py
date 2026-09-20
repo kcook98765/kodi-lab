@@ -372,6 +372,7 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
+                    "workspace_validate",
                 ]
 
                 request_id = str(uuid4())
@@ -700,12 +701,16 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "workspace_read",
         "workspace_status",
         "workspace_tree",
+        "workspace_validate",
     ]
     remote = next(item for item in tools if item["name"] == "remote_action")
     workspace_create = next(
         item for item in tools if item["name"] == "workspace_create"
     )
     workspace_edit = next(item for item in tools if item["name"] == "workspace_edit")
+    workspace_validate = next(
+        item for item in tools if item["name"] == "workspace_validate"
+    )
     assert set(remote["inputSchema"]["properties"]) == {
         "request_id",
         "target_id",
@@ -744,6 +749,20 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "replace",
         "exact_patch",
     ]
+    assert set(workspace_validate["inputSchema"]["properties"]) == {
+        "workspace_id",
+        "expected_generation",
+    }
+    assert set(workspace_validate["inputSchema"]["required"]) == {
+        "workspace_id",
+        "expected_generation",
+    }
+    assert workspace_validate["annotations"] == {
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+        "readOnlyHint": True,
+    }
 
     request_id = str(uuid4())
     arguments = {
@@ -1341,10 +1360,14 @@ def test_web_admin_source_grant_and_existing_workspace_binding(
     bound = client.post(bind_url, headers=mutation_headers)
     assert bound.status_code == 201
     assert bound.json()["binding_origin"] == "web_admin"
+    assert bound.json()["owning_client_enabled"] is True
+    assert bound.json()["retention_classification"] == "active"
+    assert bound.json()["retention_deadline_at"] is None
+    assert bound.json()["automatic_cleanup_blocked"] is False
     token = administration.issue_credential(mcp_client.id).token
     cast(Any, context.mcp_transport.development_read_limiter)._clock = lambda: 100.0
     caplog.set_level(logging.INFO, logger="kodi_lab.mcp")
-    tool_calls: tuple[tuple[str, dict[str, str]], ...] = (
+    tool_calls: tuple[tuple[str, dict[str, object]], ...] = (
         ("development_source_list", {}),
         ("workspace_status", {"workspace_id": str(queued.workspace_id)}),
         ("workspace_tree", {"workspace_id": str(queued.workspace_id)}),
@@ -1354,6 +1377,10 @@ def test_web_admin_source_grant_and_existing_workspace_binding(
                 "workspace_id": str(queued.workspace_id),
                 "relative_path": "main.py",
             },
+        ),
+        (
+            "workspace_validate",
+            {"workspace_id": str(queued.workspace_id), "expected_generation": 0},
         ),
     )
     for index, (tool_name, arguments) in enumerate(tool_calls, start=1):
@@ -1368,8 +1395,13 @@ def test_web_admin_source_grant_and_existing_workspace_binding(
         modern_result = modern.json()["result"]
         legacy_result = legacy.json()["result"]
         assert modern_result["isError"] is False
-        assert modern_result["structuredContent"] == legacy_result["structuredContent"]
-    for request_id in range(12):
+        modern_content = dict(modern_result["structuredContent"])
+        legacy_content = dict(legacy_result["structuredContent"])
+        if tool_name == "workspace_validate":
+            modern_content.pop("validated_at")
+            legacy_content.pop("validated_at")
+        assert modern_content == legacy_content
+    for request_id in range(10):
         admitted = _post(
             client,
             token,
@@ -1391,6 +1423,7 @@ def test_web_admin_source_grant_and_existing_workspace_binding(
     assert str(context.settings.development_root) not in caplog.text
     page = client.get("/mcp-clients")
     assert str(queued.workspace_id) in page.text
+    assert "retention active" in page.text
     assert str(context.settings.development_root) not in page.text
 
     revoked = client.delete(grant_url, headers=mutation_headers)
@@ -1636,6 +1669,31 @@ def test_workspace_mutation_modern_legacy_replay_and_generation_parity(
     ).json()["result"]
     assert read["structuredContent"]["text"] == "three\n"
     assert read["structuredContent"]["observed_generation"] == 3
+    validation_arguments = {
+        "workspace_id": str(workspace_id),
+        "expected_generation": 3,
+    }
+    modern_validation = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_validate", "arguments": validation_arguments},
+        request_id=521,
+    ).json()["result"]
+    legacy_validation = _legacy_post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_validate", "arguments": validation_arguments},
+        request_id=522,
+    ).json()["result"]
+    assert modern_validation["isError"] is legacy_validation["isError"] is False
+    modern_content = dict(modern_validation["structuredContent"])
+    legacy_content = dict(legacy_validation["structuredContent"])
+    modern_content.pop("validated_at")
+    legacy_content.pop("validated_at")
+    assert modern_content == legacy_content
+    assert modern_validation["structuredContent"]["changed_file_count"] == 1
     assert "private-edit-name.py" not in caplog.text
     assert "secret-mcp-edit-payload" not in caplog.text
 

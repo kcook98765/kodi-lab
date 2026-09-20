@@ -147,3 +147,12 @@ workspace from later appearing eligible for Web rebinding. Web still accepts no
 source locator/path, workspace storage path, file content, edit path, request
 replay control, force flag, target, broker, Docker, shell, or command input for
 this slice.
+
+Phase 12 Slice 3 adds read-only retention visibility to existing MCP client and
+workspace-binding administration: owner enabled state, semantic retention
+classification, applicable deadline and automatic-cleanup blocker. Disabling a
+client still revokes MCP access immediately but does not delete bytes; re-enable
+clears its durable quarantine clock. Existing UUID-specific abandonment and
+confirmed cleanup routes remain the only manual controls. There is no force
+cleanup, ignore-state, cleanup-all, MCP cleanup, path, command or policy-timing
+input.

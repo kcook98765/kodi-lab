@@ -40,7 +40,7 @@
       {% for client in clients %}
       <article data-client-id="{{ client.id }}">
         <h2>{{ client.display_name }}</h2>
-        <p>{{ 'Enabled' if client.enabled else 'Disabled' }} · {{ client.preset.display_name }} · last used {{ client.last_used_at or 'never' }}</p>
+        <p>{{ 'Enabled' if client.enabled else 'Disabled' }} · {{ client.preset.display_name }} · last used {{ client.last_used_at or 'never' }}{% if client.disabled_at %} · disabled since {{ client.disabled_at }}{% endif %}</p>
         <form data-rename><input name="display_name" value="{{ client.display_name }}" required maxlength="120"><button type="submit">Rename</button></form>
         <label>Preset <select data-client-preset>{% for preset in presets if preset.assignable %}<option value="{{ preset.id }}"{% if preset.id == client.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select></label>
         <button type="button" data-action="toggle" data-enabled="{{ 'true' if client.enabled else 'false' }}">{{ 'Disable' if client.enabled else 'Enable' }}</button>
@@ -54,7 +54,7 @@
         <p class="secondary">A source grant is necessary but does not expose unbound workspaces.</p>
         <ul>{% for source in development_sources %}<li>{{ source.logical_name }} · {{ source.addon_id }} · {{ 'granted' if source.id in client.development_source_grants else 'not granted' }} <button type="button" data-action="grant-source" data-source-id="{{ source.id }}">Grant</button> <button type="button" data-action="revoke-source" data-source-id="{{ source.id }}">Revoke</button></li>{% else %}<li>No registered DevelopmentSources.</li>{% endfor %}</ul>
         <h3>Workspace bindings</h3>
-        <ul>{% for binding in client.workspace_bindings %}<li>{{ binding.workspace_id }} · source {{ binding.development_source_id }} · {{ binding.binding_origin }}</li>{% else %}<li>No bound workspaces.</li>{% endfor %}</ul>
+        <ul>{% for binding in client.workspace_bindings %}<li>{{ binding.workspace_id }} · source {{ binding.development_source_id }} · {{ binding.binding_origin }} · owner {{ 'enabled' if binding.owning_client_enabled else 'disabled' }} · retention {{ binding.retention_classification }}{% if binding.retention_deadline_at %} · deadline {{ binding.retention_deadline_at }}{% endif %}{% if binding.automatic_cleanup_blocked %} · automatic cleanup blocked; use existing workspace administration{% endif %}</li>{% else %}<li>No bound workspaces.</li>{% endfor %}</ul>
         <h3>Eligible unbound workspaces</h3>
         <ul>{% for workspace in eligible_workspaces[client.id] %}<li>{{ workspace.workspace_id }} · {{ workspace.source_logical_name }} · generation {{ workspace.generation }} <button type="button" data-action="bind-workspace" data-workspace-id="{{ workspace.workspace_id }}">Bind</button></li>{% else %}<li>No eligible unbound workspaces for current grants.</li>{% endfor %}</ul>
       </article>

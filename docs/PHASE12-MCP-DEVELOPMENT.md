@@ -1,12 +1,12 @@
 # Phase 12 MCP development workflows
 
 Phase 12 is **PARTIAL**. Slice 1 established Web-approved DevelopmentSource
-grants, exact MCP workspace ownership, and bounded inspection. Slice 2 adds only
-replay-safe workspace creation and generation-bound UTF-8 create, replace, and
-exact-patch editing. It adds no explicit validation, deployment, execution,
-promotion request, workspace cleanup/retention automation, source registration,
-external/production target, shell, Git, Docker, raw filesystem, or arbitrary
-command authority.
+grants, exact MCP workspace ownership, and bounded inspection. Slice 2 added
+replay-safe creation and generation-bound UTF-8 editing. Slice 3 adds only
+closed exact-generation structural validation plus system-owned bounded
+retention. It adds no deployment, execution, promotion request, source
+registration, external/production target, shell, Git, Docker, raw filesystem,
+arbitrary testing, or arbitrary command authority.
 
 ## Authority model
 
@@ -43,10 +43,10 @@ revoke/expiry/rotation, and never cause workspace-byte deletion.
 
 ## Read-only tools
 
-The production catalog is exactly eleven lexical tools: `addon_list`,
+The production catalog is exactly twelve lexical tools: `addon_list`,
 `development_source_list`, `remote_action`, `screenshot_capture`, `target_list`,
 `target_status`, `workspace_create`, `workspace_edit`, `workspace_read`,
-`workspace_status`, and `workspace_tree`.
+`workspace_status`, `workspace_tree`, and `workspace_validate`.
 
 `development_source_list` returns only currently granted persisted metadata:
 source UUID, logical name, local-directory classification, add-on ID/name/version,
@@ -134,6 +134,64 @@ edit request ID. The Phase 9 cross-process workspace lock and database CAS mean
 two edits at one generation cannot both publish. One succeeds with generation
 plus one; the other conflicts without interleaved bytes.
 
+## Closed structural validation
+
+`workspace_validate` accepts exactly `workspace_id` and
+`expected_generation`. It requires an enabled client, `workspace.inspect`, the
+current exact source grant, exact owner binding/source agreement, and a
+byte-present ready workspace. It requires no target grant and accepts no
+command, module, pytest selector, shell argument, environment, script, plugin,
+package manager or caller timeout.
+
+The Phase 9 service takes shared workspace coordination, recaptures and checks
+the immutable baseline and current tree, validates every changed file as strict
+UTF-8, parses baseline/current `addon.xml` with the authoritative parser, and
+derives added/modified changes. It explicitly classifies add-on ID, version and
+extension-type stability. Version and extension changes remain structurally
+promotable; add-on ID change is valid workspace experimentation but
+non-promotable. Unexpected deletion, binary mutation, type/mode transition,
+unsafe object, missing/malformed descriptor and unexplained integrity drift
+fail with bounded semantic errors and never repair or adopt bytes.
+
+Success returns semantic UUIDs, exact observed generation and time, parsed
+identity, counts/classifications, promotability, and at most 64 deterministic
+relative changed paths with `truncated`. It contains no content, XML, digest,
+locator, backing path or raw parser/OS error and remains below 48 KiB. A stale
+generation is `workspace_generation_conflict`; the server does not retry at a
+newer generation. Admission permits one validation/client, one/workspace and
+two globally, with no durable or unbounded limiter keys. Validation is a
+read-only/observational MCP effect and stores no latest-validation table.
+
+## Bounded workspace retention
+
+Migration `0041_mcp_workspace_validation_retention` adds the durable semantic
+`mcp_clients.disabled_at` timestamp and permits content-free system retention
+audit events. Existing `abandoned_at`, `promoted_at` and `cleaned_at` remain the
+authoritative lifecycle times; `updated_at` is not overloaded.
+
+MCP-owned abandoned workspaces, and promoted workspaces whose promotion and
+verification are safely terminal, retain bytes for seven days before the
+existing Phase 9 cleanup service is queued. Ready workspaces owned by a disabled
+client quarantine for 30 days, then use the existing safe abandonment service
+and retain the ordinary seven-day cleanup grace. Re-enable before abandonment
+clears `disabled_at`, cancels eligibility and restores ordinary active-ready
+retention. Disabling never deletes bytes.
+
+Enabled-client ready, creating, reconciliation-required, active/ambiguous
+promotion or verification, active edit/validation and failed/uncertain cleanup
+states are never age-deleted. Uncertainty retains bytes for Web-admin handling.
+The opportunistic sweep inspects at most 32 candidates, performs at most two
+transitions and queues at most two cleanups, using deterministic UUID cursor
+ordering and immediate state/coordination rechecks. It submits only to the
+existing cleanup executor; it never removes a directory directly. Cleaned
+bytes cease to count toward present-byte quotas while bindings and history
+remain. The separate 30-day request-ID mapping policy is unchanged.
+
+Retention is system/Web-admin policy, not MCP authority. MCP has no
+`workspace_delete`, `workspace_cleanup` or `workspace_abandon`. Existing Web
+UUID-specific abandonment/confirmed cleanup remains and gains only owner state,
+classification, deadline and blocker visibility; no force route is added.
+
 ## Phase 9 filesystem and integrity boundary
 
 MCP handlers never derive a workspace root or open caller paths. They call
@@ -165,8 +223,10 @@ include `workspace_not_ready`, `workspace_bytes_cleaned`, `path_not_allowed`,
 `workspace_generation_conflict`, `workspace_integrity_changed`,
 `workspace_quota_exceeded`, `request_id_conflict`,
 `workspace_creation_ambiguous`, `unsupported_file_type`, `file_too_large`, and
-`response_too_large`. Raw SQLite, OS, path, and traceback text never crosses
-MCP.
+`response_too_large`. Validation additionally uses `unsupported_deletion`,
+`unsupported_type_transition`, `validation_failed`, `validation_busy`, and the
+existing integrity/generation errors. Raw SQLite, OS, path, and traceback text
+never crosses MCP.
 
 The development-read class is client-keyed at 10 requests/second, burst 20,
 with at most 1,024 idle-retired buckets. It is inside existing authenticated
@@ -193,7 +253,6 @@ file editor. MCP cannot self-grant, manually bind an existing workspace,
 unbind, transfer/share, or register a source; `workspace_create` alone creates
 its atomic `mcp_created` binding.
 
-Remaining Phase 12 capabilities are structural validation, workspace
-retention/cleanup enforcement, internal deployment, fixed execution, and
+Remaining Phase 12 capabilities are internal deployment, fixed execution, and
 promotion request/human-approval integration. None is implied by
 `workspace.inspect`, `workspace.edit`, or Full Lab Control.

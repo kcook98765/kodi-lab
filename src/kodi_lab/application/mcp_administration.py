@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionService
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentSourceRow,
@@ -107,6 +108,10 @@ class McpWorkspaceBindingRead(BaseModel):
     development_source_id: UUID
     binding_origin: str = Field(pattern="^(web_admin|mcp_created)$")
     created_at: datetime
+    owning_client_enabled: bool = True
+    retention_classification: str = "active"
+    retention_deadline_at: datetime | None = None
+    automatic_cleanup_blocked: bool = False
 
 
 class McpEligibleWorkspaceRead(BaseModel):
@@ -130,6 +135,7 @@ class McpClientRead(BaseModel):
     preset: McpPresetRead
     created_at: datetime
     last_used_at: datetime | None
+    disabled_at: datetime | None = None
     credentials: tuple[McpCredentialRead, ...]
     target_grants: tuple[UUID, ...]
     development_source_grants: tuple[UUID, ...]
@@ -197,10 +203,12 @@ class McpAdministrationService:
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         token_bytes: Callable[[int], bytes] = secrets.token_bytes,
+        retention: McpWorkspaceRetentionService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._clock = clock
         self._token_bytes = token_bytes
+        self._retention = retention
         self.ensure_builtin_presets()
 
     def ensure_builtin_presets(self) -> None:
@@ -347,6 +355,7 @@ class McpAdministrationService:
                     preset_id=str(preset_id),
                     created_at=_to_text(now),
                     last_used_at=None,
+                    disabled_at=None,
                 )
             )
             self._event(
@@ -371,13 +380,26 @@ class McpAdministrationService:
         now = self._clock()
         with self._session_factory.begin() as session:
             row = self._require_client(session, client_id)
+            changed = row.enabled != enabled
             row.enabled = enabled
-            self._event(
-                session,
-                "client_enabled" if enabled else "client_disabled",
-                now,
-                client_id=client_id,
-            )
+            if changed:
+                row.disabled_at = None if enabled else _to_text(now)
+                self._event(
+                    session,
+                    "client_enabled" if enabled else "client_disabled",
+                    now,
+                    client_id=client_id,
+                )
+                self._event(
+                    session,
+                    (
+                        "retention_quarantine_cancelled"
+                        if enabled
+                        else "retention_quarantine_entered"
+                    ),
+                    now,
+                    client_id=client_id,
+                )
         return self.get_client(client_id)
 
     def assign_client_preset(self, client_id: UUID, preset_id: UUID) -> McpClientRead:
@@ -876,20 +898,39 @@ class McpAdministrationService:
             preset=self._preset_read(session, preset),
             created_at=created_at,
             last_used_at=_from_text(row.last_used_at),
+            disabled_at=_from_text(row.disabled_at),
             credentials=tuple(self._credential_read(item, now) for item in credentials),
             target_grants=grants,
             development_source_grants=source_grants,
             workspace_bindings=bindings,
         )
 
-    @staticmethod
-    def _binding_read(row: McpAgentWorkspaceBindingRow) -> McpWorkspaceBindingRead:
+    def _binding_read(
+        self, row: McpAgentWorkspaceBindingRow
+    ) -> McpWorkspaceBindingRead:
+        projection = (
+            None
+            if self._retention is None
+            else self._retention.projection(UUID(row.workspace_id))
+        )
         return McpWorkspaceBindingRead(
             workspace_id=UUID(row.workspace_id),
             client_id=UUID(row.client_id),
             development_source_id=UUID(row.development_source_id),
             binding_origin=row.binding_origin,
             created_at=_from_required_text(row.created_at),
+            owning_client_enabled=(
+                True if projection is None else projection.owning_client_enabled
+            ),
+            retention_classification=(
+                "active" if projection is None else projection.classification
+            ),
+            retention_deadline_at=(
+                None if projection is None else projection.deadline_at
+            ),
+            automatic_cleanup_blocked=(
+                False if projection is None else projection.automatic_cleanup_blocked
+            ),
         )
 
     @staticmethod

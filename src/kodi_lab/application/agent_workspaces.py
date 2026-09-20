@@ -53,7 +53,9 @@ from kodi_lab.workspace import (
     inspect_workspace_directory,
     mutate_workspace_text,
     read_workspace_text,
+    validate_workspace_structure,
     workspace_baseline_published,
+    workspace_coordination_lock,
 )
 
 WORKSPACE_CREATION_LEASE_DURATION = timedelta(minutes=30)
@@ -176,6 +178,31 @@ class AgentWorkspaceChangesRead(BaseModel):
     generation: int = Field(ge=0)
     identity_status: Literal["stable", "identity_changed"]
     changes: list[AgentWorkspaceChangeRead]
+
+
+class AgentWorkspaceStructuralChangeRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(max_length=512)
+    change_kind: Literal["added", "modified"]
+
+
+class AgentWorkspaceStructuralValidationRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    workspace_id: UUID
+    development_source_id: UUID
+    observed_generation: int = Field(ge=0)
+    validated_at: datetime
+    addon_id: str = Field(max_length=128)
+    addon_version: str = Field(max_length=128)
+    extension_types: tuple[str, ...] = Field(max_length=64)
+    addon_id_classification: Literal["unchanged", "changed"]
+    version_classification: Literal["unchanged", "changed"]
+    extension_type_classification: Literal["unchanged", "changed"]
+    promotable: bool
+    promotable_classification: Literal["promotable", "addon_identity_changed"]
+    changes: tuple[AgentWorkspaceStructuralChangeRead, ...]
 
 
 def _workspace_read(
@@ -544,65 +571,76 @@ class AgentWorkspaceService:
         return workspace
 
     def abandon(self, workspace_id: UUID) -> AgentWorkspaceRead:
-        now = self._clock()
-        with self._session_factory.begin() as session:
-            workspaces = AgentWorkspaceRepository(session)
-            workspace = workspaces.get(workspace_id)
-            if workspace is None:
-                raise AgentWorkspaceNotFoundError(workspace_id)
-            if workspace.state is AgentWorkspaceState.ABANDONED:
-                return _workspace_read(workspace)
-            if workspace.state is AgentWorkspaceState.RECONCILIATION_REQUIRED:
-                raise AgentWorkspaceConflictError(
-                    "workspace_reconciliation_blocked",
-                    "Workspace reconciliation is required before abandonment.",
-                )
-            if workspace.state is not AgentWorkspaceState.READY:
-                raise AgentWorkspaceConflictError(
-                    "workspace_abandonment_not_allowed",
-                    "Only a ready workspace may be abandoned.",
-                )
-            active_plan = AgentWorkspacePromotionPlanRepository(
-                session
-            ).active_for_workspace(workspace_id, now=now)
-            active_operation = AgentWorkspacePromotionOperationRepository(
-                session
-            ).active_for_workspace(workspace_id)
-            active_verification = PromotionVerificationOperationRepository(
-                session
-            ).blocking_for_workspace(workspace_id)
-            creation = AgentWorkspaceCreationOperationRepository(
-                session
-            ).get_for_workspace(workspace_id)
-            if (
-                active_plan is not None
-                or active_operation is not None
-                or active_verification
-                or creation is None
-                or creation.state
-                in {
-                    AgentWorkspaceCreationState.QUEUED,
-                    AgentWorkspaceCreationState.RUNNING,
-                    AgentWorkspaceCreationState.RECONCILIATION_REQUIRED,
-                }
+        try:
+            with workspace_coordination_lock(
+                self._data_root, workspace_id, exclusive=True, blocking=False
             ):
+                now = self._clock()
+                with self._session_factory.begin() as session:
+                    workspaces = AgentWorkspaceRepository(session)
+                    workspace = workspaces.get(workspace_id)
+                    if workspace is None:
+                        raise AgentWorkspaceNotFoundError(workspace_id)
+                    if workspace.state is AgentWorkspaceState.ABANDONED:
+                        return _workspace_read(workspace)
+                    if workspace.state is AgentWorkspaceState.RECONCILIATION_REQUIRED:
+                        raise AgentWorkspaceConflictError(
+                            "workspace_reconciliation_blocked",
+                            "Workspace reconciliation is required before abandonment.",
+                        )
+                    if workspace.state is not AgentWorkspaceState.READY:
+                        raise AgentWorkspaceConflictError(
+                            "workspace_abandonment_not_allowed",
+                            "Only a ready workspace may be abandoned.",
+                        )
+                    active_plan = AgentWorkspacePromotionPlanRepository(
+                        session
+                    ).active_for_workspace(workspace_id, now=now)
+                    active_operation = AgentWorkspacePromotionOperationRepository(
+                        session
+                    ).active_for_workspace(workspace_id)
+                    active_verification = PromotionVerificationOperationRepository(
+                        session
+                    ).blocking_for_workspace(workspace_id)
+                    creation = AgentWorkspaceCreationOperationRepository(
+                        session
+                    ).get_for_workspace(workspace_id)
+                    if (
+                        active_plan is not None
+                        or active_operation is not None
+                        or active_verification
+                        or creation is None
+                        or creation.state
+                        in {
+                            AgentWorkspaceCreationState.QUEUED,
+                            AgentWorkspaceCreationState.RUNNING,
+                            AgentWorkspaceCreationState.RECONCILIATION_REQUIRED,
+                        }
+                    ):
+                        raise AgentWorkspaceConflictError(
+                            "workspace_promotion_active",
+                            "Workspace has active or unresolved work.",
+                        )
+                    if not workspaces.abandon(workspace_id, now=now):
+                        raise AgentWorkspaceConflictError(
+                            "workspace_abandonment_conflict",
+                            "Workspace changed before abandonment could be published.",
+                        )
+                    AgentWorkspaceLifecycleEventRepository(session).create(
+                        AgentWorkspaceLifecycleEvent(
+                            id=self._uuid_factory(),
+                            workspace_id=workspace_id,
+                            kind=AgentWorkspaceLifecycleEventKind.ABANDONED,
+                            occurred_at=now,
+                        )
+                    )
+        except AgentWorkspaceStorageError as error:
+            if error.code == "agent_workspace_busy":
                 raise AgentWorkspaceConflictError(
-                    "workspace_promotion_active",
-                    "Workspace has active or unresolved work.",
-                )
-            if not workspaces.abandon(workspace_id, now=now):
-                raise AgentWorkspaceConflictError(
-                    "workspace_abandonment_conflict",
-                    "Workspace changed before abandonment could be published.",
-                )
-            AgentWorkspaceLifecycleEventRepository(session).create(
-                AgentWorkspaceLifecycleEvent(
-                    id=self._uuid_factory(),
-                    workspace_id=workspace_id,
-                    kind=AgentWorkspaceLifecycleEventKind.ABANDONED,
-                    occurred_at=now,
-                )
-            )
+                    "workspace_activity_active",
+                    "Workspace activity is already in progress.",
+                ) from error
+            raise
         return self.get(workspace_id)
 
     def inspect_directory(
@@ -852,6 +890,92 @@ class AgentWorkspaceService:
                 )
                 for item in result.changes
             ],
+        )
+
+    def validate_structure(
+        self, workspace_id: UUID, *, expected_generation: int
+    ) -> AgentWorkspaceStructuralValidationRead:
+        """Validate one exact generation without adopting or changing its bytes."""
+
+        workspace = self._mutation_workspace(workspace_id, expected_generation)
+        if (
+            workspace.baseline_manifest_digest is None
+            or workspace.current_tree_digest is None
+        ):
+            raise AgentWorkspaceConflictError(
+                "agent_workspace_not_ready", "Workspace is not ready for validation."
+            )
+        try:
+            result = validate_workspace_structure(
+                self._data_root,
+                workspace_id,
+                expected_baseline_digest=workspace.baseline_manifest_digest,
+                expected_tree_digest=workspace.current_tree_digest,
+            )
+        except AgentWorkspaceStorageError as error:
+            if error.code == "agent_workspace_busy":
+                raise
+            with self._session_factory() as session:
+                current = AgentWorkspaceRepository(session).get(workspace_id)
+            if current is not None and (
+                current.generation != expected_generation
+                or current.current_tree_digest != workspace.current_tree_digest
+            ):
+                raise AgentWorkspaceConflictError(
+                    "agent_workspace_generation_conflict",
+                    "Workspace generation is stale.",
+                ) from error
+            self._mark_reconciliation(workspace)
+            raise
+        with self._session_factory() as session:
+            current = AgentWorkspaceRepository(session).get(workspace_id)
+        if (
+            current is None
+            or current.state is not AgentWorkspaceState.READY
+            or current.generation != expected_generation
+            or current.current_tree_digest != result.tree_digest
+        ):
+            raise AgentWorkspaceConflictError(
+                "agent_workspace_generation_conflict",
+                "Workspace generation changed during validation.",
+            )
+        baseline = result.baseline_addon
+        observed = result.current_addon
+        if (
+            baseline.addon_id != workspace.source_addon_id
+            or baseline.observed_version != workspace.source_observed_version
+        ):
+            self._mark_reconciliation(workspace)
+            raise AgentWorkspaceStorageError(
+                "agent_workspace_integrity_changed",
+                "Workspace baseline identity is inconsistent.",
+            )
+        addon_changed = observed.addon_id != baseline.addon_id
+        version_changed = observed.observed_version != baseline.observed_version
+        extension_changed = observed.extension_types != baseline.extension_types
+        return AgentWorkspaceStructuralValidationRead(
+            workspace_id=workspace_id,
+            development_source_id=workspace.development_source_id,
+            observed_generation=expected_generation,
+            validated_at=self._clock(),
+            addon_id=observed.addon_id,
+            addon_version=observed.observed_version,
+            extension_types=observed.extension_types,
+            addon_id_classification="changed" if addon_changed else "unchanged",
+            version_classification="changed" if version_changed else "unchanged",
+            extension_type_classification=(
+                "changed" if extension_changed else "unchanged"
+            ),
+            promotable=not addon_changed,
+            promotable_classification=(
+                "addon_identity_changed" if addon_changed else "promotable"
+            ),
+            changes=tuple(
+                AgentWorkspaceStructuralChangeRead(
+                    path=item.path, change_kind=item.change_kind
+                )
+                for item in result.changes
+            ),
         )
 
     def list_activity(self, workspace_id: UUID) -> list[AgentWorkspaceActivityRead]:

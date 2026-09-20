@@ -21,6 +21,7 @@ class ToolRateClass(StrEnum):
     DEVELOPMENT_READ = "development_read"
     DEVELOPMENT_CREATE = "development_create"
     DEVELOPMENT_EDIT = "development_edit"
+    DEVELOPMENT_VALIDATE = "development_validate"
 
 
 class ToolScope(StrEnum):
@@ -251,6 +252,22 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             required_states=frozenset({"ready", "present"}),
             rate_class=ToolRateClass.DEVELOPMENT_EDIT,
             adapter="agent_workspace.edit_generation_bound",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="workspace_validate",
+            schema_revision=1,
+            permissions=frozenset({"workspace.inspect"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"agent_workspace"}),
+            required_states=frozenset({"ready", "present"}),
+            rate_class=ToolRateClass.DEVELOPMENT_VALIDATE,
+            adapter="agent_workspace.validate_structure",
             production_eligible=False,
             target_scope_required=False,
             scope=ToolScope.WORKSPACE,

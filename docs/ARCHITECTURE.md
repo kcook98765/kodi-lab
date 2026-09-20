@@ -1886,3 +1886,42 @@ legacy HTTP use the same schemas/services and client namespace. Slice 2 adds no
 explicit validation, workspace cleanup/retention automation, deployment,
 execution, promotion request, Kodi, broker, Docker, shell, Git, raw filesystem,
 external target or production target authority. Phase 12 remains **PARTIAL**.
+
+## Phase 12 Slice 3 structural validation and workspace retention
+
+Migration `0041_mcp_workspace_validation_retention` adds only durable
+`mcp_clients.disabled_at` timing and content-free system retention audit events.
+Validation evidence is synchronous and deliberately not persisted.
+`workspace_validate` requires `workspace.inspect`, exact ownership, the current
+source grant, byte-present ready state, and exact `expected_generation`; no
+target grant participates. Its schema has only workspace UUID and generation.
+
+The unprivileged Phase 9 workspace service remains the filesystem authority. It
+recaptures baseline/current trees under shared workspace coordination, checks
+durable identities, strict UTF-8 changes, authoritative `addon.xml` parsing,
+baseline/current ID, version and extension types, and derives deterministic
+added/modified relative paths. Deletion, binary change, type/mode transition,
+unsafe objects, malformed or missing `addon.xml`, and unexplained digest drift
+fail closed. Results contain no content, source locator, absolute path or raw
+error, expose at most 64 relative changed paths, and remain below 48 KiB.
+Validation is observational MCP authority, with one active call/client, one per
+workspace, and two globally; it adds no edit, test, command or execution power.
+
+Retention is system/Web-admin policy, never MCP permission. MCP-owned abandoned
+or safely terminal promoted workspaces become eligible for the existing Phase 9
+cleanup service after seven days. A disabled client's ready workspaces remain
+quarantined for 30 days, then use the existing safe abandonment transition and
+retain the ordinary seven-day byte grace. Re-enable clears `disabled_at` and
+immediately restores active ready-workspace retention. Enabled-client ready,
+creating, reconciliation-required, ambiguous promotion/verification and failed
+cleanup states are retained for administrator attention.
+
+An opportunistic application-activity sweep inspects at most 32 candidates,
+performs at most two lifecycle transitions and queues at most two cleanups. It
+uses deterministic UUID cursor ordering, rechecks classifications immediately,
+shares Phase 9 workspace coordination with edit/validation, and submits only to
+the existing cleanup executor. Cleaned bytes stop consuming present-byte quota;
+bindings, history and 30-day request-ID retention remain. The exact twelve-tool
+lexical catalog is shared by modern HTTP, modern stdio and legacy HTTP. Phase 12
+remains **PARTIAL**: deployment, fixed execution and promotion request/human
+approval integration are not implemented.

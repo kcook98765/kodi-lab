@@ -26,6 +26,7 @@ from kodi_lab.development.deployment import (
 from kodi_lab.development.sources import (
     MAX_ADDON_XML_BYTES,
     DevelopmentSourceValidationError,
+    DevelopmentSourceValidationResult,
     parse_captured_addon_xml,
 )
 
@@ -82,8 +83,59 @@ class WorkspaceDiff:
     identity_changed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class WorkspaceStructuralChange:
+    path: str
+    change_kind: Literal["added", "modified"]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceStructuralValidation:
+    tree_digest: str
+    changes: tuple[WorkspaceStructuralChange, ...]
+    baseline_addon: DevelopmentSourceValidationResult
+    current_addon: DevelopmentSourceValidationResult
+
+
 class AgentWorkspaceReconciliationRequired(AgentWorkspaceStorageError):
     pass
+
+
+@contextmanager
+def workspace_coordination_lock(
+    data_root: Path,
+    workspace_id: UUID,
+    *,
+    exclusive: bool,
+    blocking: bool = True,
+) -> Iterator[None]:
+    """Coordinate one workspace without exposing its derived storage path."""
+
+    workspace_fd = _open_workspace_root_fd(data_root, workspace_id)
+    lock_fd = -1
+    try:
+        lock_fd = os.open(
+            ".mutation.lock",
+            os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=workspace_fd,
+        )
+        operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        if not blocking:
+            operation |= fcntl.LOCK_NB
+        try:
+            fcntl.flock(lock_fd, operation)
+        except BlockingIOError as error:
+            raise AgentWorkspaceStorageError(
+                "agent_workspace_busy", "Workspace activity is already in progress."
+            ) from error
+        yield
+    finally:
+        if lock_fd >= 0:
+            with suppress(OSError):
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+        os.close(workspace_fd)
 
 
 def _storage_root(data_root: Path) -> Path:
@@ -1179,16 +1231,9 @@ def derive_workspace_diff(
 ) -> WorkspaceDiff:
     """Derive one coherent change view while excluding concurrent mutations."""
 
-    workspace_fd = _open_workspace_root_fd(data_root, workspace_id)
-    lock_fd = -1
-    try:
-        lock_fd = os.open(
-            ".mutation.lock",
-            os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=workspace_fd,
-        )
-        fcntl.flock(lock_fd, fcntl.LOCK_SH)
+    with workspace_coordination_lock(
+        data_root, workspace_id, exclusive=False, blocking=True
+    ):
         return _derive_workspace_diff_locked(
             data_root,
             workspace_id,
@@ -1196,9 +1241,104 @@ def derive_workspace_diff(
             expected_tree_digest=expected_tree_digest,
             expected_addon_id=expected_addon_id,
         )
-    finally:
-        if lock_fd >= 0:
-            with suppress(OSError):
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            os.close(lock_fd)
-        os.close(workspace_fd)
+
+
+def _parse_workspace_descriptor(
+    data_root: Path, workspace_id: UUID, *, baseline: bool
+) -> DevelopmentSourceValidationResult:
+    try:
+        document = _read_named_tree_text(
+            data_root, workspace_id, "addon.xml", baseline=baseline
+        ).encode("utf-8")
+        return parse_captured_addon_xml("workspace", document)
+    except (AgentWorkspaceStorageError, DevelopmentSourceValidationError) as error:
+        raise AgentWorkspaceStorageError(
+            "agent_workspace_addon_xml_invalid",
+            "Workspace add-on descriptor is invalid.",
+        ) from error
+
+
+def _validate_workspace_structure_locked(
+    data_root: Path,
+    workspace_id: UUID,
+    *,
+    expected_baseline_digest: str,
+    expected_tree_digest: str,
+) -> WorkspaceStructuralValidation:
+    baseline = _capture_workspace_tree(data_root, workspace_id, baseline=True)
+    current = _capture_workspace_tree(data_root, workspace_id)
+    if baseline.digest != expected_baseline_digest:
+        raise AgentWorkspaceStorageError(
+            "agent_workspace_integrity_changed",
+            "Workspace tree no longer matches durable metadata.",
+        )
+    baseline_by_path = baseline.by_path()
+    current_by_path = current.by_path()
+    if set(baseline_by_path) - set(current_by_path):
+        raise AgentWorkspaceStorageError(
+            "agent_workspace_baseline_entry_missing",
+            "Workspace is missing a baseline entry.",
+        )
+    changes: list[WorkspaceStructuralChange] = []
+    for path in sorted(current_by_path, key=lambda value: value.encode("utf-8")):
+        present = current_by_path[path]
+        prior = baseline_by_path.get(path)
+        if prior is None:
+            if present.entry_type != "file":
+                raise AgentWorkspaceStorageError(
+                    "agent_workspace_type_transition",
+                    "Workspace contains an unsupported added directory.",
+                )
+            _read_named_tree_text(data_root, workspace_id, path, baseline=False)
+            changes.append(WorkspaceStructuralChange(path, "added"))
+            continue
+        if present.entry_type != prior.entry_type:
+            raise AgentWorkspaceStorageError(
+                "agent_workspace_type_transition",
+                "Workspace contains an unsupported type transition.",
+            )
+        if present.entry_type == "directory":
+            continue
+        if present.sha256 == prior.sha256 and present.mode == prior.mode:
+            continue
+        if present.sha256 == prior.sha256:
+            raise AgentWorkspaceStorageError(
+                "agent_workspace_mode_transition",
+                "Workspace contains an unsupported mode-only transition.",
+            )
+        _read_named_tree_text(data_root, workspace_id, path, baseline=True)
+        _read_named_tree_text(data_root, workspace_id, path, baseline=False)
+        changes.append(WorkspaceStructuralChange(path, "modified"))
+    baseline_addon = _parse_workspace_descriptor(data_root, workspace_id, baseline=True)
+    current_addon = _parse_workspace_descriptor(data_root, workspace_id, baseline=False)
+    if current.digest != expected_tree_digest:
+        raise AgentWorkspaceStorageError(
+            "agent_workspace_integrity_changed",
+            "Workspace tree no longer matches durable metadata.",
+        )
+    return WorkspaceStructuralValidation(
+        tree_digest=current.digest,
+        changes=tuple(changes),
+        baseline_addon=baseline_addon,
+        current_addon=current_addon,
+    )
+
+
+def validate_workspace_structure(
+    data_root: Path,
+    workspace_id: UUID,
+    *,
+    expected_baseline_digest: str,
+    expected_tree_digest: str,
+) -> WorkspaceStructuralValidation:
+    """Validate one exact bounded structural view without returning content."""
+
+    with workspace_coordination_lock(
+        data_root, workspace_id, exclusive=False, blocking=False
+    ):
+        return _validate_workspace_structure_locked(
+            data_root,
+            workspace_id,
+            expected_baseline_digest=expected_baseline_digest,
+            expected_tree_digest=expected_tree_digest,
+        )

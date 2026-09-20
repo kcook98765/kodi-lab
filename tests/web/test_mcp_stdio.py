@@ -426,6 +426,7 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
+                    "workspace_validate",
                 ]
                 http_request = str(uuid4())
                 arguments = {
@@ -522,6 +523,7 @@ def test_development_inspection_is_identical_over_modern_http_and_stdio(
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
+                    "workspace_validate",
                 ]
                 calls: tuple[tuple[str, dict[str, str]], ...] = (
                     ("development_source_list", {}),
@@ -667,6 +669,23 @@ def test_stdio_first_workspace_creation_replays_over_http_and_edits_share_cas(
                 assert read.structured_content["text"] == "one\n"
                 assert patched.structured_content is not None
                 assert patched.structured_content["new_generation"] == 3
+                validation_arguments = {
+                    "workspace_id": workspace_id,
+                    "expected_generation": 3,
+                }
+                stdio_validation = await stdio.call_tool(
+                    "workspace_validate", validation_arguments
+                )
+                direct_validation = await direct.call_tool(
+                    "workspace_validate", validation_arguments
+                )
+                assert not stdio_validation.is_error
+                assert not direct_validation.is_error
+                stdio_content = dict(stdio_validation.structured_content or {})
+                direct_content = dict(direct_validation.structured_content or {})
+                stdio_content.pop("validated_at")
+                direct_content.pop("validated_at")
+                assert stdio_content == direct_content
 
         asyncio.run(exercise())
 

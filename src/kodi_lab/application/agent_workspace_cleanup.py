@@ -186,6 +186,16 @@ class AgentWorkspaceCleanupService:
                     "Promoted workspace verification is not safely terminal.",
                 )
 
+    def eligibility_code(self, workspace_id: UUID) -> str | None:
+        """Return a bounded blocker without changing cleanup state."""
+
+        try:
+            with self._session_factory() as session:
+                self._validate_eligibility(session, workspace_id)
+        except AgentWorkspaceCleanupError as error:
+            return error.code
+        return None
+
     def queue(self, workspace_id: UUID) -> AgentWorkspaceCleanupStatus:
         with self._session_factory.begin() as session:
             workspace = AgentWorkspaceRepository(session).get(workspace_id)

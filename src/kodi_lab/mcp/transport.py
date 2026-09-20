@@ -63,6 +63,8 @@ from kodi_lab.mcp.tools import (
     WorkspaceReadResult,
     WorkspaceStatusResult,
     WorkspaceTreeResult,
+    WorkspaceValidateInput,
+    WorkspaceValidateResult,
 )
 
 MCP_PROTOCOL_VERSION = "2026-07-28"
@@ -773,6 +775,18 @@ def build_mcp_http_transport(
             annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "workspace_validate": Tool(
+            name="workspace_validate",
+            title="Validate workspace structure",
+            description=(
+                "Validate one exact workspace generation using closed structural "
+                "checks; no command or test selector is accepted."
+            ),
+            input_schema=WorkspaceValidateInput.model_json_schema(),
+            output_schema=WorkspaceValidateResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
     }
 
     async def list_tools(
@@ -807,12 +821,14 @@ def build_mcp_http_transport(
                 | WorkspaceEditResult
                 | WorkspaceStatusResult
                 | WorkspaceTreeResult
+                | WorkspaceValidateResult
             )
             if params.name in {
                 "development_source_list",
                 "workspace_read",
                 "workspace_status",
                 "workspace_tree",
+                "workspace_validate",
             } and not development_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
             if params.name == "workspace_edit" and not edit_limiter.allow(
@@ -920,6 +936,13 @@ def build_mcp_http_transport(
                     relative_path=relative_path,
                     start_line=parsed_read.start_line,
                     max_lines=parsed_read.max_lines,
+                )
+                source_id = result.source_id
+            elif params.name == "workspace_validate":
+                parsed_validation = WorkspaceValidateInput.model_validate(arguments)
+                workspace_id = parsed_validation.workspace_id
+                result = await asyncio.to_thread(
+                    tools.workspace_validate, principal, parsed_validation
                 )
                 source_id = result.source_id
             else:

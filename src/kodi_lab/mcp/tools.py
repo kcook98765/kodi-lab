@@ -39,6 +39,7 @@ from kodi_lab.application.mcp_workspace_mutations import (
     McpWorkspaceMutationError,
     WorkspaceCreateResult,
 )
+from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionService
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -172,6 +173,9 @@ class WorkspaceSummary(BaseModel):
     updated_at: datetime | None
     latest_promotion_state: str | None = None
     latest_verification_state: str | None = None
+    retention_classification: str
+    retention_deadline_at: datetime | None = None
+    automatic_cleanup_blocked: StrictBool
 
 
 class WorkspaceStatusResult(BaseModel):
@@ -289,6 +293,49 @@ class WorkspaceEditResult(BaseModel):
     file_byte_size: int = Field(ge=0, le=2 * 1024 * 1024)
 
 
+class WorkspaceValidateInput(BaseModel):
+    """Closed structural validation has no caller-selected execution input."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    expected_generation: int = Field(ge=0)
+
+
+class WorkspaceValidatedPath(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(max_length=512)
+    change_kind: Literal["added", "modified"]
+
+
+class WorkspaceValidateResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    workspace_id: UUID
+    source_id: UUID
+    observed_generation: int = Field(ge=0)
+    validated_at: datetime
+    addon_id: str = Field(max_length=128)
+    addon_version: str = Field(max_length=128)
+    extension_types: tuple[str, ...] = Field(max_length=64)
+    identity_classification: Literal["stable", "changed"]
+    addon_id_classification: Literal["unchanged", "changed"]
+    version_classification: Literal["unchanged", "changed"]
+    extension_type_classification: Literal["unchanged", "changed"]
+    changed_file_count: int = Field(ge=0, le=50_000)
+    added_file_count: int = Field(ge=0, le=50_000)
+    modified_file_count: int = Field(ge=0, le=50_000)
+    deletion_classification: Literal["none"] = "none"
+    binary_change_classification: Literal["none"] = "none"
+    type_transition_classification: Literal["none"] = "none"
+    promotable: StrictBool
+    promotable_classification: Literal["promotable", "addon_identity_changed"]
+    changed_paths: tuple[WorkspaceValidatedPath, ...] = Field(max_length=64)
+    truncated: StrictBool
+
+
 class McpTargetToolService:
     def __init__(
         self,
@@ -300,6 +347,7 @@ class McpTargetToolService:
         remote_actions: McpRemoteActionReceiptService | None = None,
         workspaces: AgentWorkspaceService | None = None,
         workspace_creation: McpWorkspaceCreationService | None = None,
+        workspace_retention: McpWorkspaceRetentionService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -309,8 +357,13 @@ class McpTargetToolService:
         self._remote_actions = remote_actions
         self._workspaces = workspaces
         self._workspace_creation = workspace_creation
+        self._workspace_retention = workspace_retention
         self._active_edit_lock = threading.Lock()
         self._active_edits: set[UUID] = set()
+        self._validation_lock = threading.Lock()
+        self._validation_slots = threading.BoundedSemaphore(2)
+        self._active_validation_clients: set[UUID] = set()
+        self._active_validation_workspaces: set[UUID] = set()
 
     def workspace_create(
         self,
@@ -396,6 +449,72 @@ class McpTargetToolService:
             prior_generation=edit.expected_generation,
             new_generation=mutation.generation,
             file_byte_size=len(content.encode("utf-8")),
+        )
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_validate(
+        self, principal: McpPrincipal, validation: WorkspaceValidateInput
+    ) -> WorkspaceValidateResult:
+        workspace = self._authorization.authorize_workspace(
+            principal, "workspace_validate", validation.workspace_id
+        )
+        service = self._workspace_service()
+        with self._validation_lock:
+            if (
+                principal.client_id in self._active_validation_clients
+                or validation.workspace_id in self._active_validation_workspaces
+                or not self._validation_slots.acquire(blocking=False)
+            ):
+                raise McpAuthorizationError("validation_busy")
+            self._active_validation_clients.add(principal.client_id)
+            self._active_validation_workspaces.add(validation.workspace_id)
+        try:
+            try:
+                observed = service.validate_structure(
+                    validation.workspace_id,
+                    expected_generation=validation.expected_generation,
+                )
+            except (
+                AgentWorkspaceConflictError,
+                AgentWorkspaceNotFoundError,
+                AgentWorkspaceStorageError,
+            ) as error:
+                raise McpAuthorizationError(
+                    self._workspace_validation_error(error)
+                ) from error
+        finally:
+            with self._validation_lock:
+                self._active_validation_clients.remove(principal.client_id)
+                self._active_validation_workspaces.remove(validation.workspace_id)
+                self._validation_slots.release()
+        paths = tuple(
+            WorkspaceValidatedPath(path=item.path, change_kind=item.change_kind)
+            for item in observed.changes[:64]
+        )
+        added = sum(item.change_kind == "added" for item in observed.changes)
+        modified = len(observed.changes) - added
+        result = WorkspaceValidateResult(
+            workspace_id=observed.workspace_id,
+            source_id=workspace.development_source_id,
+            observed_generation=observed.observed_generation,
+            validated_at=observed.validated_at,
+            addon_id=observed.addon_id,
+            addon_version=observed.addon_version,
+            extension_types=observed.extension_types,
+            identity_classification=(
+                "changed" if observed.addon_id_classification == "changed" else "stable"
+            ),
+            addon_id_classification=observed.addon_id_classification,
+            version_classification=observed.version_classification,
+            extension_type_classification=observed.extension_type_classification,
+            changed_file_count=len(observed.changes),
+            added_file_count=added,
+            modified_file_count=modified,
+            promotable=observed.promotable,
+            promotable_classification=observed.promotable_classification,
+            changed_paths=paths,
+            truncated=len(paths) < len(observed.changes),
         )
         self._require_development_bounded(result)
         return result
@@ -835,10 +954,14 @@ class McpTargetToolService:
             raise McpAuthorizationError("capability_unavailable")
         return self._workspaces
 
-    @staticmethod
     def _workspace_summary(
-        workspace: AgentWorkspaceRead, updated_at: datetime
+        self, workspace: AgentWorkspaceRead, updated_at: datetime
     ) -> WorkspaceSummary:
+        projection = (
+            None
+            if self._workspace_retention is None
+            else self._workspace_retention.projection(workspace.id)
+        )
         return WorkspaceSummary(
             workspace_id=workspace.id,
             source_id=workspace.development_source_id,
@@ -859,6 +982,15 @@ class McpTargetToolService:
                 None
                 if workspace.verification_outcome is None
                 else workspace.verification_outcome.value
+            ),
+            retention_classification=(
+                "active" if projection is None else projection.classification
+            ),
+            retention_deadline_at=(
+                None if projection is None else projection.deadline_at
+            ),
+            automatic_cleanup_blocked=(
+                False if projection is None else projection.automatic_cleanup_blocked
             ),
         )
 
@@ -956,6 +1088,36 @@ class McpTargetToolService:
             "agent_workspace_content_too_large",
         }:
             return "file_too_large"
+        return "workspace_integrity_changed"
+
+    @staticmethod
+    def _workspace_validation_error(error: Exception) -> str:
+        code = getattr(error, "code", "")
+        if code == "agent_workspace_generation_conflict":
+            return "workspace_generation_conflict"
+        if code in {
+            "agent_workspace_not_ready",
+            "workspace_reconciliation_blocked",
+            "agent_workspace_promotion_active",
+        }:
+            return "workspace_not_ready"
+        if code == "agent_workspace_busy":
+            return "validation_busy"
+        if code == "agent_workspace_baseline_entry_missing":
+            return "unsupported_deletion"
+        if code in {
+            "agent_workspace_type_transition",
+            "agent_workspace_mode_transition",
+        }:
+            return "unsupported_type_transition"
+        if code in {
+            "agent_workspace_changed_binary",
+            "agent_workspace_tree_unsafe",
+            "development_source_unsafe_entry",
+        }:
+            return "unsupported_file_type"
+        if code == "agent_workspace_addon_xml_invalid":
+            return "validation_failed"
         return "workspace_integrity_changed"
 
     @staticmethod

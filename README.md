@@ -74,7 +74,7 @@ client configuration details.
 The current production catalog is exactly `addon_list`,
 `development_source_list`, `remote_action`, `screenshot_capture`, `target_list`,
 `target_status`, `workspace_create`, `workspace_edit`, `workspace_read`,
-`workspace_status`, and `workspace_tree`.
+`workspace_status`, `workspace_tree`, and `workspace_validate`.
 Screenshots are returned as native MCP `image/png` content through either
 transport; stdio does not write a temporary image or bypass the HTTP authority.
 
@@ -82,9 +82,14 @@ Phase 12 workspace mutation requires `workspace.edit`, available only in the
 Add-on Development and Full Lab Control built-ins. Creation is request-ID
 replay-safe and limited to exact Web-granted registered sources, four present
 bound workspaces/client, 32 globally, and one creating/client. Editing is
-generation-bound UTF-8 create/replace/exact-patch over existing Phase 9 paths;
-there is no force, mkdir, delete, rename, validation, deployment, execution,
-promotion, shell, Git, Docker, or caller-selected storage path.
+generation-bound UTF-8 create/replace/exact-patch over existing Phase 9 paths.
+`workspace_validate` performs only exact-generation closed structural checks;
+it accepts no command, test selector, script, environment, or timeout. MCP-owned
+terminal bytes retain seven days, while ready workspaces of disabled clients
+quarantine for 30 days before safe abandonment and the same seven-day grace.
+Active-client ready and reconciliation-required workspaces never age-delete.
+MCP has no abandon, cleanup, or delete tool, and there is no deployment,
+execution, promotion, shell, Git, Docker, or caller-selected storage path.
 
 Exact legacy `2025-11-25` clients may use authenticated Streamable HTTP at
 `/mcp`. Compatibility is stateless and bounded: there is no session/default
@@ -102,9 +107,10 @@ clone. **Phase 11 — MCP core is COMPLETE.** Its independently reviewed
 implementation checkpoint is `3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`,
 with Alembic head `0038_mcp_remote_control` and 1,928 collected tests.
 
-Phase 12 Slice 1 is read-only and **PARTIAL**. Web administrators may grant one
+Phase 12 is **PARTIAL**. Web administrators may grant one
 registered DevelopmentSource to an MCP client and bind one eligible existing
 AgentWorkspace. MCP can list granted source metadata and inspect only its exact
-bound, still-granted workspaces. It cannot create, edit, validate, deploy,
-execute, promote, clean up, self-grant, or self-bind. See
+bound, still-granted workspaces. Slices 2–3 add owned creation/editing, closed
+structural validation, and system retention without granting MCP cleanup. It
+still cannot deploy, execute, request promotion, self-grant, or self-bind. See
 [`docs/PHASE12-MCP-DEVELOPMENT.md`](docs/PHASE12-MCP-DEVELOPMENT.md).
