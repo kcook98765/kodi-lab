@@ -19,6 +19,8 @@ class ToolRateClass(StrEnum):
     VISUAL_CAPTURE = "visual_capture"
     REMOTE_CONTROL = "remote_control"
     DEVELOPMENT_READ = "development_read"
+    DEVELOPMENT_CREATE = "development_create"
+    DEVELOPMENT_EDIT = "development_edit"
 
 
 class ToolScope(StrEnum):
@@ -122,6 +124,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "target.visual",
                 "target.control",
                 "workspace.inspect",
+                "workspace.edit",
             }
         )
     )
@@ -219,6 +222,38 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             production_eligible=False,
             target_scope_required=False,
             scope=ToolScope.DEVELOPMENT_SOURCE,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="workspace_create",
+            schema_revision=1,
+            permissions=frozenset({"workspace.edit"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"registered_development_source"}),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.DEVELOPMENT_CREATE,
+            adapter="agent_workspace.create_replay_safe",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.DEVELOPMENT_SOURCE,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="workspace_edit",
+            schema_revision=1,
+            permissions=frozenset({"workspace.edit"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"agent_workspace"}),
+            required_states=frozenset({"ready", "present"}),
+            rate_class=ToolRateClass.DEVELOPMENT_EDIT,
+            adapter="agent_workspace.edit_generation_bound",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE,
         )
     )
     for name, adapter, states in (

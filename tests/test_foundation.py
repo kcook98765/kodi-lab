@@ -168,6 +168,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "mcp_client_development_source_grants",
         "mcp_agent_workspace_bindings",
         "mcp_credentials",
+        "mcp_development_requests",
         "mcp_presets",
         "mcp_preset_permissions",
         "mcp_remote_action_receipts",

@@ -73,9 +73,18 @@ client configuration details.
 
 The current production catalog is exactly `addon_list`,
 `development_source_list`, `remote_action`, `screenshot_capture`, `target_list`,
-`target_status`, `workspace_read`, `workspace_status`, and `workspace_tree`.
+`target_status`, `workspace_create`, `workspace_edit`, `workspace_read`,
+`workspace_status`, and `workspace_tree`.
 Screenshots are returned as native MCP `image/png` content through either
 transport; stdio does not write a temporary image or bypass the HTTP authority.
+
+Phase 12 workspace mutation requires `workspace.edit`, available only in the
+Add-on Development and Full Lab Control built-ins. Creation is request-ID
+replay-safe and limited to exact Web-granted registered sources, four present
+bound workspaces/client, 32 globally, and one creating/client. Editing is
+generation-bound UTF-8 create/replace/exact-patch over existing Phase 9 paths;
+there is no force, mkdir, delete, rename, validation, deployment, execution,
+promotion, shell, Git, Docker, or caller-selected storage path.
 
 Exact legacy `2025-11-25` clients may use authenticated Streamable HTTP at
 `/mcp`. Compatibility is stateless and bounded: there is no session/default

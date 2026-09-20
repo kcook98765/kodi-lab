@@ -139,7 +139,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0039_mcp_development_inspection",)
+        ).fetchone() == ("0040_mcp_workspace_mutation",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -215,6 +215,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_client_development_source_grants",
         "mcp_agent_workspace_bindings",
         "mcp_credentials",
+        "mcp_development_requests",
         "mcp_presets",
         "mcp_preset_permissions",
         "mcp_remote_action_receipts",
@@ -735,6 +736,192 @@ def test_0039_development_inspection_constraints_and_guarded_downgrade(
                 )
             )
             == 2
+        )
+    engine.dispose()
+
+
+def test_0040_workspace_mutation_constraints_and_guarded_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0039_mcp_development_inspection"
+    )
+    custom_preset_id = str(uuid4())
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO mcp_presets "
+                "(id, display_name, builtin, assignable) "
+                "VALUES (:id, 'Pre-0040 snapshot', 0, 1)"
+            ),
+            {"id": custom_preset_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_preset_permissions (preset_id, permission) "
+                "VALUES (:id, 'workspace.inspect')"
+            ),
+            {"id": custom_preset_id},
+        )
+    engine.dispose()
+    command.upgrade(config, "0040_mcp_workspace_mutation")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "mcp_development_requests" in inspector.get_table_names()
+    assert {
+        item["name"] for item in inspector.get_indexes("mcp_development_requests")
+    } == {
+        "ix_mcp_development_request_client_created",
+        "ix_mcp_development_request_created",
+    }
+    client_id = str(uuid4())
+    source_id = str(uuid4())
+    workspace_id = str(uuid4())
+    operation_id = str(uuid4())
+    request_id = str(uuid4())
+    timestamp = "2026-09-20T14:00:00.000000Z"
+    with engine.begin() as connection:
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    "SELECT preset_id, permission FROM mcp_preset_permissions "
+                    "WHERE permission = 'workspace.edit' ORDER BY preset_id"
+                )
+            )
+        ] == [
+            ("11000000-0000-4000-8000-000000000001", "workspace.edit"),
+            ("11000000-0000-4000-8000-000000000003", "workspace.edit"),
+        ]
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE preset_id = :id AND permission = 'workspace.edit'"
+                ),
+                {"id": custom_preset_id},
+            )
+            == 0
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients "
+                "(id, display_name, enabled, preset_id, created_at, last_used_at) "
+                "VALUES (:id, 'Mutation client', 1, "
+                "'11000000-0000-4000-8000-000000000003', :at, NULL)"
+            ),
+            {"id": client_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id, logical_name, source_kind, relative_locator, addon_id, "
+                "observed_name, observed_version, extension_types_json, "
+                "registered_at, validated_at) VALUES "
+                "(:id, 'Mutation source', 'local_directory', 'plugin.video.mutate', "
+                "'plugin.video.mutate', 'Mutation', '1.0.0', "
+                "'[\"xbmc.python.pluginsource\"]', :at, :at)"
+            ),
+            {"id": source_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspaces "
+                "(id, development_source_id, source_addon_id, source_logical_name, "
+                "source_observed_name, source_observed_version, state, "
+                "baseline_artifact_id, baseline_manifest_digest, generation, "
+                "current_tree_digest, capture_started_at, captured_at, created_at, "
+                "updated_at, bytes_state, promoted_at, abandoned_at, cleaned_at) "
+                "VALUES (:id, :source, 'plugin.video.mutate', 'Mutation source', "
+                "'Mutation', '1.0.0', 'creating', :baseline, NULL, 0, NULL, :at, "
+                "NULL, :at, :at, 'present', NULL, NULL, NULL)"
+            ),
+            {
+                "id": workspace_id,
+                "source": source_id,
+                "baseline": str(uuid4()),
+                "at": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspace_creation_operations "
+                "(id, workspace_id, development_source_id, requested_at, started_at, "
+                "completed_at, state, phase, failure_code, lease_token_digest, "
+                "lease_expires_at) VALUES "
+                "(:id, :workspace, :source, :at, NULL, NULL, 'queued', 'queued', "
+                "NULL, NULL, NULL)"
+            ),
+            {
+                "id": operation_id,
+                "workspace": workspace_id,
+                "source": source_id,
+                "at": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_agent_workspace_bindings "
+                "(workspace_id, client_id, development_source_id, binding_origin, "
+                "created_at) VALUES (:workspace, :client, :source, 'mcp_created', :at)"
+            ),
+            {
+                "workspace": workspace_id,
+                "client": client_id,
+                "source": source_id,
+                "at": timestamp,
+            },
+        )
+        values = {
+            "id": str(uuid4()),
+            "client": client_id,
+            "request": request_id,
+            "source": source_id,
+            "workspace": workspace_id,
+            "operation": operation_id,
+            "fingerprint": "a" * 64,
+            "at": timestamp,
+        }
+        insert = text(
+            "INSERT INTO mcp_development_requests "
+            "(id, client_id, request_id, operation_kind, parameter_fingerprint, "
+            "development_source_id, workspace_id, creation_operation_id, state, "
+            "created_at, updated_at) VALUES "
+            "(:id, :client, :request, 'workspace_create', :fingerprint, :source, "
+            ":workspace, :operation, 'allocated', :at, :at)"
+        )
+        connection.execute(insert, values)
+        with pytest.raises(IntegrityError):
+            connection.execute(insert, {**values, "id": str(uuid4())})
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                insert,
+                {**values, "id": str(uuid4()), "fingerprint": "not-a-digest"},
+            )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="workspace mutation state"):
+        command.downgrade(config, "0039_mcp_development_inspection")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM mcp_development_requests"))
+        connection.execute(
+            text("DELETE FROM mcp_clients WHERE id = :id"), {"id": client_id}
+        )
+    engine.dispose()
+    command.downgrade(config, "0039_mcp_development_inspection")
+    engine = create_database_engine(database_url)
+    assert "mcp_development_requests" not in inspect(engine).get_table_names()
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE permission = 'workspace.edit'"
+                )
+            )
+            == 0
         )
     engine.dispose()
 

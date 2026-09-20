@@ -137,3 +137,13 @@ source locator, host path, binding origin, target client, transfer/share flag,
 workspace bytes, or MCP self-service credential. There is no unbind/transfer,
 workspace creation, or source registration through these MCP administration
 routes.
+
+Phase 12 Slice 2 changes no Web mutation route. There is no Web button for
+MCP-origin creation and no manual Web MCP file editor. Existing authenticated
+grant/revoke and one-time eligible-workspace binding remain the only Web
+administration. `workspace_create` creates its `mcp_created` binding atomically
+inside the MCP application service, and the one-owner primary key prevents that
+workspace from later appearing eligible for Web rebinding. Web still accepts no
+source locator/path, workspace storage path, file content, edit path, request
+replay control, force flag, target, broker, Docker, shell, or command input for
+this slice.

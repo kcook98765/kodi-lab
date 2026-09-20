@@ -1830,3 +1830,59 @@ modern HTTP, modern stdio, and legacy HTTP. Audit is content-free. The catalog
 is now exactly nine lexical tools. Phase 12 remains **PARTIAL**: creation,
 editing/CAS, validation, quota/retention, deployment, execution, and promotion
 request remain later slices.
+
+## Phase 12 Slice 2 MCP workspace creation and editing
+
+Migration `0040_mcp_workspace_mutation` adds `workspace.edit` only to Add-on
+Development and Full Lab Control and adds one bounded
+`mcp_development_requests` replay table. Existing custom presets remain
+creation-time snapshots. Read-only Inspection and Production Remote Kodi remain
+unchanged. Two registry additions produce the exact eleven-tool catalog:
+`workspace_create` and `workspace_edit`.
+
+Creation accepts only client-generated request UUID and Web-registered source
+UUID. Current enabled client, permission, exact source grant, supported
+`local_directory` type, and quota are checked without target authority. The
+Phase 9 allocation is extended by a persistence-only transaction hook: one
+SQLite immediate transaction creates the workspace, durable creation operation,
+global-heavy reservation, `mcp_created` binding, and client/request/operation
+mapping. Executor submission occurs only after commit. The workspace is never
+visible unowned, and restart between commit and submission leaves exactly one
+queued operation for normal startup recovery.
+
+The mapping is unique by `(client_uuid, request_uuid, operation_kind)`, contains
+no arbitrary JSON, path, locator, or body, and binds the source through a
+normalized SHA-256 fingerprint. Exact duplicate calls return the same workspace
+and operation with current state; parameter conflict fails. Thirty-day
+opportunistic request-key expiry plus 10,000-per-client and 100,000-global caps
+bound the replay index. These bounds do not delete workspace bytes.
+
+Quota counts every bound workspace whose byte state remains present, regardless
+of whether the binding was Web-created or MCP-created and regardless of
+creating, ready, promoted, abandoned, or reconciliation-required lifecycle.
+Limits are four/client, 32/global, and one creating/client. Count and insert run
+under the same immediate database write transaction; there is no eviction or
+process-local-only reservation.
+
+`workspace_edit` is a flat strict operation discriminator. Create/replace carry
+one content field; exact patch carries exact expected and replacement text.
+Aggregate text is at most 48 KiB and encoded arguments are conservatively capped
+below the MCP 64 KiB body limit. Authorization requires current client,
+`workspace.edit`, exact binding, current source grant, source agreement, present
+ready state, and exact generation. No target participates.
+
+The adapter invokes only Phase 9 create/replace/exact-patch methods. Existing
+path parsing, descriptor-relative no-follow opens, regular-file/UTF-8 checks,
+existing-parent requirement, VCS rejection, complete pre/post recapture,
+same-directory atomic publication, exact rollback, reconciliation fallback, and
+database generation CAS remain unchanged. One process-active edit per workspace
+and the Phase 9 cross-process file lock ensure only one same-generation edit can
+publish. The loser receives `workspace_generation_conflict`.
+
+Mutation audit remains content-free and path-free. Edits use a client-keyed
+two/second burst-four bounded rate class; creation is bounded by request mapping,
+quota and the existing global-heavy coordinator. Modern HTTP, modern stdio and
+legacy HTTP use the same schemas/services and client namespace. Slice 2 adds no
+explicit validation, workspace cleanup/retention automation, deployment,
+execution, promotion request, Kodi, broker, Docker, shell, Git, raw filesystem,
+external target or production target authority. Phase 12 remains **PARTIAL**.

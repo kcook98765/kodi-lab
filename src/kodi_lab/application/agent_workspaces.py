@@ -250,7 +250,22 @@ class AgentWorkspaceService:
         self._clock = clock
         self._uuid_factory = uuid_factory
 
-    def queue_creation(self, source_id: UUID) -> AgentWorkspaceCreationStatus:
+    def queue_creation(
+        self,
+        source_id: UUID,
+        *,
+        transaction_hook: Callable[
+            [Session, AgentWorkspace, AgentWorkspaceCreationOperation], None
+        ]
+        | None = None,
+        immediate: bool = False,
+    ) -> AgentWorkspaceCreationStatus:
+        """Allocate one creation operation, optionally with atomic extra state.
+
+        The hook is intentionally persistence-only.  It runs in the same
+        transaction as the workspace, creation operation, and global-heavy
+        reservation, before any executor can begin copying bytes.
+        """
         with self._session_factory() as session:
             source = DevelopmentSourceRepository(session).get(source_id)
         if source is None:
@@ -293,13 +308,18 @@ class AgentWorkspaceService:
             phase=AgentWorkspaceCreationPhase.QUEUED,
         )
         try:
-            with self._session_factory.begin() as session:
+            with self._session_factory() as session:
+                if immediate:
+                    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                 AgentWorkspaceRepository(session).create(workspace)
                 AgentWorkspaceCreationOperationRepository(session).create(operation)
+                if transaction_hook is not None:
+                    transaction_hook(session, workspace, operation)
                 GlobalHeavyOperationLeaseRepository(session).reserve(
                     kind=GlobalHeavyOperationKind.AGENT_WORKSPACE_CREATION,
                     operation_id=operation.id,
                 )
+                session.commit()
         except IntegrityError as error:
             raise AgentWorkspaceConflictError(
                 "agent_workspace_creation_conflict",

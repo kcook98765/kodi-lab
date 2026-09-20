@@ -3370,3 +3370,77 @@ authority.
   class inside existing admission and behave identically through modern HTTP,
   modern stdio, and legacy HTTP. The catalog is exactly nine lexical tools.
   Phase 12 remains partial.
+
+## D-0247: Workspace mutation is one new permission and two compact tools
+- Status: accepted for Phase 12 Slice 2.
+- Decision: add `workspace.edit` only to Add-on Development and Full Lab
+  Control. Existing custom presets remain immutable snapshots. Read-only
+  Inspection and Production Remote Kodi do not gain it. The only new tools are
+  replay-safe `workspace_create` and discriminator-based `workspace_edit`; the
+  latter closes operations to `create|replace|exact_patch`.
+
+## D-0248: MCP creation ownership and replay identity commit atomically
+- Status: accepted for Phase 12 Slice 2.
+- Decision: reuse the Phase 9 `AgentWorkspaceService.queue_creation` allocation
+  and operation. In one immediate SQLite transaction, publish the workspace,
+  creation operation, existing global-heavy reservation, `mcp_created` owner
+  binding, and `mcp_development_requests` mapping before executor submission.
+  The mapping is unique by client UUID, request UUID, and operation kind and
+  binds a normalized source fingerprint plus exact resource/operation UUIDs.
+  Nothing can observe or claim an unbound MCP-created workspace.
+- Recovery: exact replay returns the same UUIDs and current semantic states;
+  changed source is `request_id_conflict`. A committed queued operation is
+  recovered by normal executor startup after a crash. Unknown outcome resolves
+  through the mapping or returns `workspace_creation_ambiguous`; it never
+  allocates a second speculative workspace.
+
+## D-0249: Creation quotas count every still-present MCP-owned workspace
+- Status: accepted for Phase 12 Slice 2.
+- Decision: count both binding origins while workspace bytes remain `present`,
+  including creating, ready, promoted, abandoned, and reconciliation-required
+  lifecycle states. Enforce four per client, 32 globally, and one creating per
+  client through an immediate transaction and durable queries. There is no
+  eviction. Saturation is `workspace_quota_exceeded`.
+- Replay-key bounds: mappings retain 30 days, opportunistically delete only
+  expired request identities, and cap at 10,000 per client and 100,000 global.
+  This is not workspace cleanup or retention automation; that remains Slice 3.
+
+## D-0250: Workspace edit is exact Phase 9 generation CAS
+- Status: accepted for Phase 12 Slice 2.
+- Decision: every edit requires exact owner binding, current source grant,
+  `workspace.edit`, byte-present ready state, and exact expected generation.
+  Create requires absence and an existing parent; replace requires an existing
+  UTF-8 regular file; exact patch is a complete exact-text preimage. No force,
+  overwrite option, mkdir, delete, rename, mode, fuzzy patch, regex, diff
+  parser, merge, rebase, or normal edit request ID exists.
+- Integrity: call only the existing Phase 9 service. Its workspace lock, full
+  pre/post recapture, atomic write, rollback/reconciliation behavior, and
+  conditional generation publication remain authoritative. A retry with the
+  old generation conflicts rather than silently repeating a mutation.
+
+## D-0251: MCP edit payload and result are smaller than Phase 9 internals
+- Status: accepted for Phase 12 Slice 2.
+- Decision: aggregate user text is at most 48 KiB and conservatively encoded
+  arguments remain below the 64 KiB transport request limit. Underlying files
+  retain the Phase 9 2 MiB bound. Success returns UUIDs, relative path,
+  operation, prior/new generation, semantic success, and authoritative byte
+  size, never automatic file content.
+
+## D-0252: Mutation privacy and admission remain semantic
+- Status: accepted for Phase 12 Slice 2.
+- Decision: mutation audit retains client/source/workspace UUIDs, tool, outcome,
+  and times but no path, content, expected/replacement text, patch, locator, raw
+  error, or host detail. Development edits use a client-keyed two/second,
+  burst-four bounded rate class and one process-active edit per workspace;
+  Phase 9 supplies cross-process exclusion. Creation uses durable quota,
+  replay, and global-heavy coordination.
+
+## D-0253: Slice 2 preserves transport parity and stops before validation
+- Status: accepted for Phase 12 Slice 2.
+- Decision: modern `2026-07-28` HTTP, modern stdio, and bounded `2025-11-25`
+  HTTP share one client-scoped creation replay namespace and one edit/CAS
+  implementation. The production catalog is exactly eleven lexical tools.
+  There is no legacy stdio, validation, deployment, execution, promotion
+  request, workspace cleanup automation, external/production target, shell,
+  Git, Docker, raw filesystem, or arbitrary command authority. Phase 12 remains
+  partial.

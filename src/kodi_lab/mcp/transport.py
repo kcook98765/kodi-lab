@@ -45,6 +45,7 @@ from kodi_lab.application.mcp_administration import (
     McpPrincipal,
 )
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
+from kodi_lab.application.mcp_workspace_mutations import WorkspaceCreateResult
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
@@ -57,6 +58,8 @@ from kodi_lab.mcp.tools import (
     ScreenshotToolResult,
     TargetListResult,
     TargetStatusResult,
+    WorkspaceEditInput,
+    WorkspaceEditResult,
     WorkspaceReadResult,
     WorkspaceStatusResult,
     WorkspaceTreeResult,
@@ -241,6 +244,13 @@ class _WorkspaceReadInput(BaseModel):
     relative_path: str = Field(min_length=1, max_length=512)
     start_line: int = Field(default=1, ge=1)
     max_lines: int = Field(default=200, ge=1, le=2000)
+
+
+class _WorkspaceCreateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    source_id: UUID
 
 
 class ModernMcpAuthMiddleware:
@@ -593,6 +603,7 @@ class McpHttpTransport:
     app: ASGIApp
     server: Server[dict[str, Any]]
     development_read_limiter: BoundedTokenBucketLimiter
+    development_edit_limiter: BoundedTokenBucketLimiter
 
 
 def build_mcp_http_transport(
@@ -605,6 +616,7 @@ def build_mcp_http_transport(
     authenticated_limiter: BoundedTokenBucketLimiter | None = None,
     concurrency_limiter: BoundedConcurrencyLimiter | None = None,
     development_read_limiter: BoundedTokenBucketLimiter | None = None,
+    development_edit_limiter: BoundedTokenBucketLimiter | None = None,
 ) -> McpHttpTransport:
     read_annotations = ToolAnnotations(
         read_only_hint=True,
@@ -624,9 +636,21 @@ def build_mcp_http_transport(
         idempotent_hint=True,
         open_world_hint=False,
     )
+    edit_annotations = ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=False,
+    )
     development_limiter = development_read_limiter or BoundedTokenBucketLimiter(
         rate=10.0,
         burst=20,
+        maximum_buckets=1024,
+        idle_seconds=15 * 60,
+    )
+    edit_limiter = development_edit_limiter or BoundedTokenBucketLimiter(
+        rate=2.0,
+        burst=4,
         maximum_buckets=1024,
         idle_seconds=15 * 60,
     )
@@ -705,6 +729,30 @@ def build_mcp_http_transport(
             annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "workspace_create": Tool(
+            name="workspace_create",
+            title="Create an owned workspace",
+            description=(
+                "Replay-safely create one server-located workspace from a granted "
+                "development source."
+            ),
+            input_schema=_WorkspaceCreateInput.model_json_schema(),
+            output_schema=WorkspaceCreateResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "workspace_edit": Tool(
+            name="workspace_edit",
+            title="Edit workspace UTF-8 text",
+            description=(
+                "Generation-bound create, replace, or exact full-preimage patch "
+                "inside one owned ready workspace."
+            ),
+            input_schema=WorkspaceEditInput.model_json_schema(),
+            output_schema=WorkspaceEditResult.model_json_schema(),
+            annotations=edit_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_tree": Tool(
             name="workspace_tree",
             title="List one workspace directory",
@@ -755,6 +803,8 @@ def build_mcp_http_transport(
                 | TargetStatusResult
                 | DevelopmentSourceListResult
                 | WorkspaceReadResult
+                | WorkspaceCreateResult
+                | WorkspaceEditResult
                 | WorkspaceStatusResult
                 | WorkspaceTreeResult
             )
@@ -764,6 +814,10 @@ def build_mcp_http_transport(
                 "workspace_status",
                 "workspace_tree",
             } and not development_limiter.allow(str(principal.client_id)):
+                raise McpAuthorizationError("rate_limited")
+            if params.name == "workspace_edit" and not edit_limiter.allow(
+                str(principal.client_id)
+            ):
                 raise McpAuthorizationError("rate_limited")
             if params.name == "addon_list":
                 parsed_addons = _AddonListInput.model_validate(arguments)
@@ -824,6 +878,24 @@ def build_mcp_http_transport(
                 )
                 if workspace_id is not None and result.workspaces:
                     source_id = result.workspaces[0].source_id
+            elif params.name == "workspace_create":
+                parsed_create = _WorkspaceCreateInput.model_validate(arguments)
+                source_id = parsed_create.source_id
+                result = await asyncio.to_thread(
+                    tools.workspace_create,
+                    principal,
+                    request_id=parsed_create.request_id,
+                    source_id=source_id,
+                )
+                workspace_id = result.workspace_id
+            elif params.name == "workspace_edit":
+                parsed_edit = WorkspaceEditInput.model_validate(arguments)
+                workspace_id = parsed_edit.workspace_id
+                relative_path = parsed_edit.relative_path
+                result = await asyncio.to_thread(
+                    tools.workspace_edit, principal, parsed_edit
+                )
+                source_id = result.source_id
             elif params.name == "workspace_tree":
                 parsed_tree = _WorkspaceTreeInput.model_validate(arguments)
                 workspace_id = parsed_tree.workspace_id
@@ -970,6 +1042,7 @@ def build_mcp_http_transport(
         app=protected,
         server=server,
         development_read_limiter=development_limiter,
+        development_edit_limiter=edit_limiter,
     )
 
 

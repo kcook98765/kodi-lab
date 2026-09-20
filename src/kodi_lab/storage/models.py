@@ -4387,6 +4387,71 @@ class McpAgentWorkspaceBindingRow(Base):
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
+class McpDevelopmentRequestRow(Base):
+    """Bounded durable replay identity for Phase 12 development mutations."""
+
+    __tablename__ = "mcp_development_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id) = 36 AND length(client_id) = 36 AND "
+            "length(request_id) = 36 AND length(development_source_id) = 36 AND "
+            "length(workspace_id) = 36 AND length(creation_operation_id) = 36",
+            name="mcp_development_request_uuid_lengths",
+        ),
+        CheckConstraint(
+            "operation_kind = 'workspace_create'",
+            name="mcp_development_request_operation_closed",
+        ),
+        CheckConstraint(
+            "state = 'allocated'",
+            name="mcp_development_request_state_closed",
+        ),
+        CheckConstraint(
+            "length(parameter_fingerprint) = 64 AND "
+            "parameter_fingerprint = lower(parameter_fingerprint)",
+            name="mcp_development_request_fingerprint_sha256",
+        ),
+        CheckConstraint(
+            "length(created_at) = 27 AND length(updated_at) = 27",
+            name="mcp_development_request_timestamp_format",
+        ),
+        UniqueConstraint(
+            "client_id",
+            "request_id",
+            "operation_kind",
+            name="uq_mcp_development_request_client_request_kind",
+        ),
+        Index("ix_mcp_development_request_client_created", "client_id", "created_at"),
+        Index("ix_mcp_development_request_created", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="CASCADE"), nullable=False
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    operation_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    parameter_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    creation_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspace_creation_operations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class McpTargetPresetAssignmentRow(Base):
     """Current target-side policy assignment for an internal managed target."""
 

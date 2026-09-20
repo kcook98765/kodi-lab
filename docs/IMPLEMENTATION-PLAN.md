@@ -1203,3 +1203,34 @@ Phase 12 remains **PARTIAL**. Slice 1 has no workspace creation,
 create/replace/patch editing or CAS, validation, quota/retention mutation,
 deployment, execution, promotion request, source registration/deletion,
 external/production targets, shell, Git, Docker, or raw filesystem authority.
+
+## Phase 12 Slice 2 checkpoint
+
+Alembic `0040_mcp_workspace_mutation` seeds `workspace.edit` only into Add-on
+Development and Full Lab Control and adds the bounded reusable
+`mcp_development_requests` identity table. Existing custom presets do not
+inherit. Read-only Inspection and Production Remote Kodi are unchanged.
+
+`workspace_create` accepts only request/source UUIDs. It reuses the Phase 9
+creation service and atomically commits the workspace, creation operation,
+global-heavy reservation, `mcp_created` binding, and client-scoped replay
+mapping before submitting the existing worker. Exact replay cannot allocate a
+second workspace. Present-workspace quotas are four/client and 32/global, with
+one creating/client, transactionally enforced without eviction. Request keys
+retain 30 days and cap at 10,000/client and 100,000/global.
+
+One `workspace_edit` tool discriminates create, replace, and exact full-file
+patch. It requires exact generation and the complete current client/permission,
+source-grant, binding/source, present-ready-state intersection. Aggregate edit
+text is 48 KiB. Phase 9 remains authoritative for paths, UTF-8, 2 MiB files,
+existing parents, no-follow traversal, special-object rejection, full recapture,
+atomic write, rollback/reconciliation, workspace exclusion, and generation CAS.
+Edits use the bounded two/second burst-four class.
+
+Modern HTTP, modern stdio, and legacy HTTP share the same replay namespace and
+edit semantics. The catalog is exactly eleven lexical tools. Phase 12 remains
+**PARTIAL**: structural validation, workspace retention/cleanup enforcement,
+internal deployment, fixed execution, and promotion request/human-approval
+integration remain future slices. No validation, deployment, execution,
+promotion, cleanup automation, target expansion, shell, Git, Docker, or raw
+filesystem authority is added here.

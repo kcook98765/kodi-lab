@@ -5,11 +5,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import threading
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -32,6 +34,11 @@ from kodi_lab.application.mcp_remote_actions import (
     McpRemoteActionReceiptService,
     McpRemoteActionResult,
 )
+from kodi_lab.application.mcp_workspace_mutations import (
+    McpWorkspaceCreationService,
+    McpWorkspaceMutationError,
+    WorkspaceCreateResult,
+)
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -51,6 +58,8 @@ from kodi_lab.workspace import AgentWorkspaceStorageError
 MAX_MCP_RESPONSE_BYTES = 64 * 1024
 MAX_MCP_DEVELOPMENT_RESPONSE_BYTES = 48 * 1024
 MAX_MCP_DEVELOPMENT_TEXT_BYTES = 44 * 1024
+MAX_MCP_DEVELOPMENT_EDIT_TEXT_BYTES = 48 * 1024
+MAX_MCP_DEVELOPMENT_EDIT_ARGUMENT_BYTES = 60 * 1024
 
 
 class AddonSummary(BaseModel):
@@ -210,6 +219,76 @@ class WorkspaceReadResult(BaseModel):
     truncated: StrictBool
 
 
+class WorkspaceEditInput(BaseModel):
+    """One flat strict discriminator for the three Phase 9 text mutations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    expected_generation: int = Field(ge=0)
+    operation: Literal["create", "replace", "exact_patch"]
+    relative_path: str = Field(min_length=1, max_length=512)
+    content: str | None = None
+    expected_text: str | None = None
+    replacement_text: str | None = None
+
+    @model_validator(mode="after")
+    def validate_operation_payload(self) -> WorkspaceEditInput:
+        supplied = self.model_fields_set
+        text_values: tuple[str, ...]
+        if self.operation in {"create", "replace"}:
+            if (
+                "content" not in supplied
+                or self.content is None
+                or "expected_text" in supplied
+                or "replacement_text" in supplied
+            ):
+                raise ValueError("create and replace require only content")
+            text_values = (self.content,)
+        else:
+            if (
+                "content" in supplied
+                or "expected_text" not in supplied
+                or "replacement_text" not in supplied
+                or self.expected_text is None
+                or self.replacement_text is None
+            ):
+                raise ValueError(
+                    "exact_patch requires only expected_text and replacement_text"
+                )
+            text_values = (self.expected_text, self.replacement_text)
+        try:
+            aggregate = sum(
+                len(value.encode("utf-8", "strict")) for value in text_values
+            )
+        except UnicodeEncodeError as error:
+            raise ValueError("edit text must be valid UTF-8") from error
+        if aggregate > MAX_MCP_DEVELOPMENT_EDIT_TEXT_BYTES:
+            raise ValueError("aggregate edit text exceeds 48 KiB")
+        encoded_arguments = json.dumps(
+            self.model_dump(mode="json", exclude_none=True),
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(encoded_arguments) > MAX_MCP_DEVELOPMENT_EDIT_ARGUMENT_BYTES:
+            raise ValueError("encoded edit arguments exceed the MCP bound")
+        return self
+
+
+class WorkspaceEditResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    workspace_id: UUID
+    source_id: UUID
+    relative_path: str = Field(max_length=512)
+    operation: Literal["create", "replace", "exact_patch"]
+    prior_generation: int = Field(ge=0)
+    new_generation: int = Field(ge=1)
+    result_classification: Literal["succeeded"] = "succeeded"
+    file_byte_size: int = Field(ge=0, le=2 * 1024 * 1024)
+
+
 class McpTargetToolService:
     def __init__(
         self,
@@ -220,6 +299,7 @@ class McpTargetToolService:
         screenshots: ManagedScreenshotService,
         remote_actions: McpRemoteActionReceiptService | None = None,
         workspaces: AgentWorkspaceService | None = None,
+        workspace_creation: McpWorkspaceCreationService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -228,6 +308,97 @@ class McpTargetToolService:
         self._screenshots = screenshots
         self._remote_actions = remote_actions
         self._workspaces = workspaces
+        self._workspace_creation = workspace_creation
+        self._active_edit_lock = threading.Lock()
+        self._active_edits: set[UUID] = set()
+
+    def workspace_create(
+        self,
+        principal: McpPrincipal,
+        *,
+        request_id: UUID,
+        source_id: UUID,
+    ) -> WorkspaceCreateResult:
+        self._authorization.authorize_development_source(
+            principal, "workspace_create", source_id
+        )
+        if self._workspace_creation is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._workspace_creation.create(
+                client_id=principal.client_id,
+                request_id=request_id,
+                source_id=source_id,
+            )
+        except McpWorkspaceMutationError as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_edit(
+        self, principal: McpPrincipal, edit: WorkspaceEditInput
+    ) -> WorkspaceEditResult:
+        workspace = self._authorization.authorize_workspace(
+            principal, "workspace_edit", edit.workspace_id
+        )
+        service = self._workspace_service()
+        with self._active_edit_lock:
+            if edit.workspace_id in self._active_edits:
+                raise McpAuthorizationError("workspace_generation_conflict")
+            self._active_edits.add(edit.workspace_id)
+        try:
+            try:
+                if edit.operation == "create":
+                    assert edit.content is not None
+                    mutation = service.create_text_file(
+                        edit.workspace_id,
+                        expected_generation=edit.expected_generation,
+                        relative_path=edit.relative_path,
+                        content=edit.content,
+                    )
+                    content = edit.content
+                elif edit.operation == "replace":
+                    assert edit.content is not None
+                    mutation = service.replace_text_file(
+                        edit.workspace_id,
+                        expected_generation=edit.expected_generation,
+                        relative_path=edit.relative_path,
+                        content=edit.content,
+                    )
+                    content = edit.content
+                else:
+                    assert edit.expected_text is not None
+                    assert edit.replacement_text is not None
+                    mutation = service.apply_exact_patch(
+                        edit.workspace_id,
+                        expected_generation=edit.expected_generation,
+                        relative_path=edit.relative_path,
+                        expected_text=edit.expected_text,
+                        replacement_text=edit.replacement_text,
+                    )
+                    content = edit.replacement_text
+            except (
+                AgentWorkspaceConflictError,
+                AgentWorkspaceNotFoundError,
+                AgentWorkspaceStorageError,
+            ) as error:
+                raise McpAuthorizationError(
+                    self._workspace_edit_error(error)
+                ) from error
+        finally:
+            with self._active_edit_lock:
+                self._active_edits.remove(edit.workspace_id)
+        result = WorkspaceEditResult(
+            workspace_id=mutation.workspace_id,
+            source_id=workspace.development_source_id,
+            relative_path=mutation.path,
+            operation=edit.operation,
+            prior_generation=edit.expected_generation,
+            new_generation=mutation.generation,
+            file_byte_size=len(content.encode("utf-8")),
+        )
+        self._require_development_bounded(result)
+        return result
 
     def development_source_list(
         self,
@@ -750,6 +921,41 @@ class McpTargetToolService:
             return "response_too_large"
         if code == "agent_workspace_not_found":
             return "workspace_integrity_changed"
+        return "workspace_integrity_changed"
+
+    @staticmethod
+    def _workspace_edit_error(error: Exception) -> str:
+        code = getattr(error, "code", "")
+        if code == "agent_workspace_generation_conflict":
+            return "workspace_generation_conflict"
+        if code in {
+            "agent_workspace_not_ready",
+            "workspace_reconciliation_blocked",
+            "agent_workspace_promotion_active",
+        }:
+            return "workspace_not_ready"
+        if code in {
+            "agent_workspace_path_invalid",
+            "agent_workspace_path_unavailable",
+            "agent_workspace_parent_unsafe",
+            "agent_workspace_create_conflict",
+            "agent_workspace_replace_missing",
+        }:
+            return "path_not_allowed"
+        if code == "agent_workspace_patch_preimage_mismatch":
+            return "workspace_generation_conflict"
+        if code in {
+            "agent_workspace_entry_unsafe",
+            "agent_workspace_file_unsafe",
+            "agent_workspace_file_not_text",
+            "agent_workspace_addon_xml_invalid",
+        }:
+            return "unsupported_file_type"
+        if code in {
+            "agent_workspace_file_too_large",
+            "agent_workspace_content_too_large",
+        }:
+            return "file_too_large"
         return "workspace_integrity_changed"
 
     @staticmethod

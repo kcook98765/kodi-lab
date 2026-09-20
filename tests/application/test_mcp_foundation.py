@@ -286,12 +286,14 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
         "target.control",
         "target.inspect",
         "target.visual",
+        "workspace.edit",
         "workspace.inspect",
     )
     assert permissions[FULL_LAB_CONTROL_PRESET_ID] == (
         "target.control",
         "target.inspect",
         "target.visual",
+        "workspace.edit",
         "workspace.inspect",
     )
     assert permissions[READ_ONLY_INSPECTION_PRESET_ID] == (
@@ -332,6 +334,7 @@ def test_custom_presets_are_bounded_builtin_permission_snapshots(
         "target.control",
         "target.inspect",
         "target.visual",
+        "workspace.edit",
         "workspace.inspect",
     )
 
@@ -419,6 +422,41 @@ def test_custom_preset_reassignment_is_effective_on_next_authentication(
         event_kinds = list(session.scalars(select(McpSecurityEventRow.event_kind)))
     assert "client_preset_unassigned" in event_kinds
     assert "target_preset_unassigned" in event_kinds
+
+
+def test_workspace_inspect_snapshot_does_not_discover_slice2_mutations(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    administration = McpAdministrationService(mcp_database)
+    preset_id = uuid4()
+    with mcp_database.begin() as session:
+        session.add(
+            McpPresetRow(
+                id=str(preset_id),
+                display_name="Pre-Slice-2 inspection snapshot",
+                builtin=False,
+                assignable=True,
+            )
+        )
+        session.flush()
+        session.add(
+            McpPresetPermissionRow(
+                preset_id=str(preset_id), permission="workspace.inspect"
+            )
+        )
+    client = administration.create_client(
+        display_name="Inspection snapshot client", preset_id=preset_id
+    )
+    token = administration.issue_credential(client.id).token
+    principal = McpAuthenticationService(mcp_database).authenticate(token)
+    assert principal is not None
+    authorization = McpAuthorizationService(mcp_database, build_mcp_tool_registry())
+    assert authorization.discoverable_tools(principal) == (
+        "development_source_list",
+        "workspace_read",
+        "workspace_status",
+        "workspace_tree",
+    )
 
 
 def test_builtin_permission_drift_fails_closed(
@@ -662,6 +700,8 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         "screenshot_capture",
         "target_list",
         "target_status",
+        "workspace_create",
+        "workspace_edit",
         "workspace_read",
         "workspace_status",
         "workspace_tree",
@@ -681,6 +721,13 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         assert development.rate_class is ToolRateClass.DEVELOPMENT_READ
         assert development.effect is ToolEffect.READ_ONLY
         assert not development.production_eligible
+    assert (
+        registry.require("workspace_create").rate_class
+        is ToolRateClass.DEVELOPMENT_CREATE
+    )
+    assert (
+        registry.require("workspace_edit").rate_class is ToolRateClass.DEVELOPMENT_EDIT
+    )
 
 
 def test_authorization_enforces_registry_scope_classification(

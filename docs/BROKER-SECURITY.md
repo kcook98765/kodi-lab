@@ -562,3 +562,20 @@ descriptor-relative no-follow traversal. Only byte-present ready workspace
 trees and single-link regular UTF-8 files are readable. `O_NONBLOCK` prevents an
 injected FIFO from blocking file open, and descriptor identity is rechecked
 after open. No workspace bytes cross the broker boundary.
+
+## Phase 12 Slice 2 workspace mutation boundary
+
+Slice 2 adds no broker operation, broker caller authority, Docker access, Kodi
+operation, shell, Git, subprocess, or generic filesystem surface. Replay-safe
+creation calls the unprivileged Phase 9 `AgentWorkspaceService.queue_creation`;
+the MCP layer contributes only ordinary SQLite mapping, quota, and exact owner
+binding state. Source capture and private workspace layout remain wholly inside
+the existing Phase 9 service.
+
+`workspace_edit` never derives or opens a root. It passes workspace UUID,
+expected generation, normalized semantic relative path, and bounded UTF-8 text
+to the existing Phase 9 create/replace/exact-patch methods. Descriptor-relative
+no-follow traversal, full-tree integrity capture, atomic publication, rollback,
+and reconciliation remain in that unprivileged service. MCP cannot select a
+broker method, source/storage/destination path, container, command, executable,
+environment, ownership, mode, or Docker/Kodi parameter.

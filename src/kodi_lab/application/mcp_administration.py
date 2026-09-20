@@ -42,6 +42,7 @@ _OBSERVATION_PERMISSIONS = ("target.inspect", "target.visual")
 _DEVELOPMENT_PERMISSIONS = (
     *_OBSERVATION_PERMISSIONS,
     "target.control",
+    "workspace.edit",
     "workspace.inspect",
 )
 

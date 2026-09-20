@@ -23,6 +23,7 @@ from kodi_lab.domain import (
     AgentWorkspaceBytesState,
     AgentWorkspaceState,
     DevelopmentSource,
+    DevelopmentSourceKind,
 )
 from kodi_lab.kodi.remote import REMOTE_RUNTIME_REVISION_IDS
 from kodi_lab.mcp.registry import (
@@ -244,6 +245,33 @@ class McpAuthorizationService:
         return tuple(source for source in sources if source is not None), len(
             ids
         ) > limit
+
+    def authorize_development_source(
+        self,
+        principal: McpPrincipal,
+        tool_name: str,
+        source_id: UUID,
+    ) -> DevelopmentSource:
+        """Resolve current client permission and one exact source grant."""
+
+        definition = self._definition(tool_name)
+        if definition.resolved_scope is not ToolScope.DEVELOPMENT_SOURCE:
+            raise McpAuthorizationError("permission_denied")
+        with self._session_factory() as session:
+            self._require_client_permission(session, principal, definition)
+            grant = session.get(
+                McpClientDevelopmentSourceGrantRow,
+                {
+                    "client_id": str(principal.client_id),
+                    "development_source_id": str(source_id),
+                },
+            )
+            source = DevelopmentSourceRepository(session).get(source_id)
+        if grant is None or source is None:
+            raise McpAuthorizationError("source_not_found_or_not_authorized")
+        if source.source_kind is not DevelopmentSourceKind.LOCAL_DIRECTORY:
+            raise McpAuthorizationError("source_not_found_or_not_authorized")
+        return source
 
     def owned_workspaces(
         self,

@@ -17,7 +17,7 @@ from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPError
 from mcp_types import ImageContent
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_administration import (
@@ -38,6 +38,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceRow,
     ManagedScreenshotRow,
     McpCredentialRow,
+    McpDevelopmentRequestRow,
     McpPresetPermissionRow,
     McpPresetRow,
     McpSecurityEventRow,
@@ -366,6 +367,8 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                     "screenshot_capture",
                     "target_list",
                     "target_status",
+                    "workspace_create",
+                    "workspace_edit",
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
@@ -692,11 +695,17 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "screenshot_capture",
         "target_list",
         "target_status",
+        "workspace_create",
+        "workspace_edit",
         "workspace_read",
         "workspace_status",
         "workspace_tree",
     ]
     remote = next(item for item in tools if item["name"] == "remote_action")
+    workspace_create = next(
+        item for item in tools if item["name"] == "workspace_create"
+    )
+    workspace_edit = next(item for item in tools if item["name"] == "workspace_edit")
     assert set(remote["inputSchema"]["properties"]) == {
         "request_id",
         "target_id",
@@ -713,6 +722,28 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "openWorldHint": False,
         "readOnlyHint": False,
     }
+    assert set(workspace_create["inputSchema"]["properties"]) == {
+        "request_id",
+        "source_id",
+    }
+    assert set(workspace_create["inputSchema"]["required"]) == {
+        "request_id",
+        "source_id",
+    }
+    assert set(workspace_edit["inputSchema"]["properties"]) == {
+        "workspace_id",
+        "expected_generation",
+        "operation",
+        "relative_path",
+        "content",
+        "expected_text",
+        "replacement_text",
+    }
+    assert workspace_edit["inputSchema"]["properties"]["operation"]["enum"] == [
+        "create",
+        "replace",
+        "exact_patch",
+    ]
 
     request_id = str(uuid4())
     arguments = {
@@ -1474,3 +1505,149 @@ def test_target_authority_recomputes_grants_and_preserves_uuid_privacy(
         {"error": "target_not_found_or_not_authorized"},
         {"error": "target_not_found_or_not_authorized"},
     ]
+
+
+def test_workspace_mutation_modern_legacy_replay_and_generation_parity(
+    client: TestClient,
+    database: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = cast(FastAPI, client.app)
+    context = app.state.kodi_lab
+    source_root = context.settings.development_root / "plugin.video.mcp.mutation"
+    (source_root / "resources").mkdir(parents=True)
+    (source_root / "addon.xml").write_text(
+        '<addon id="plugin.video.mcp.mutation" name="Mutation" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="main.py" />'
+        "</addon>\n",
+        encoding="utf-8",
+    )
+    (source_root / "main.py").write_text("old\n", encoding="utf-8")
+    source = context.development_source_administration.register_source(
+        logical_name="MCP mutation source",
+        relative_locator="plugin.video.mcp.mutation",
+    )
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Workspace mutation parity",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.grant_development_source(mcp_client.id, source.id)
+    token = administration.issue_credential(mcp_client.id).token
+    caplog.set_level(logging.INFO, logger="kodi_lab.mcp")
+    request_id = str(uuid4())
+    arguments = {"request_id": request_id, "source_id": str(source.id)}
+
+    modern = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_create", "arguments": arguments},
+        request_id=501,
+    ).json()["result"]
+    legacy = _legacy_post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_create", "arguments": arguments},
+        request_id=502,
+    ).json()["result"]
+    assert modern["isError"] is legacy["isError"] is False
+    assert (
+        modern["structuredContent"]["workspace_id"]
+        == legacy["structuredContent"]["workspace_id"]
+    )
+    assert (
+        modern["structuredContent"]["creation_operation_id"]
+        == legacy["structuredContent"]["creation_operation_id"]
+    )
+    created = modern["structuredContent"]
+    workspace_id = UUID(created["workspace_id"])
+    operation_id = UUID(created["creation_operation_id"])
+    deadline = time.monotonic() + 5
+    while context.agent_workspaces.creation_status(operation_id).state != "succeeded":
+        if time.monotonic() >= deadline:
+            raise AssertionError("workspace creation did not complete")
+        time.sleep(0.01)
+    with database() as session:
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 1
+        )
+
+    edit_calls = (
+        (
+            _post,
+            {
+                "workspace_id": str(workspace_id),
+                "expected_generation": 0,
+                "operation": "create",
+                "relative_path": "resources/private-edit-name.py",
+                "content": "secret-mcp-edit-payload\n",
+            },
+            1,
+        ),
+        (
+            _legacy_post,
+            {
+                "workspace_id": str(workspace_id),
+                "expected_generation": 1,
+                "operation": "replace",
+                "relative_path": "resources/private-edit-name.py",
+                "content": "two\n",
+            },
+            2,
+        ),
+        (
+            _post,
+            {
+                "workspace_id": str(workspace_id),
+                "expected_generation": 2,
+                "operation": "exact_patch",
+                "relative_path": "resources/private-edit-name.py",
+                "expected_text": "two\n",
+                "replacement_text": "three\n",
+            },
+            3,
+        ),
+    )
+    for caller, edit, generation in edit_calls:
+        response = caller(
+            client,
+            token,
+            "tools/call",
+            params={"name": "workspace_edit", "arguments": edit},
+            request_id=510 + generation,
+        ).json()["result"]
+        assert response["isError"] is False
+        assert response["structuredContent"]["new_generation"] == generation
+    read = _legacy_post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "workspace_read",
+            "arguments": {
+                "workspace_id": str(workspace_id),
+                "relative_path": "resources/private-edit-name.py",
+            },
+        },
+        request_id=520,
+    ).json()["result"]
+    assert read["structuredContent"]["text"] == "three\n"
+    assert read["structuredContent"]["observed_generation"] == 3
+    assert "private-edit-name.py" not in caplog.text
+    assert "secret-mcp-edit-payload" not in caplog.text
+
+
+def test_workspace_edit_rate_class_is_two_per_second_with_burst_four(
+    client: TestClient,
+) -> None:
+    context = cast(FastAPI, client.app).state.kodi_lab
+    limiter = context.mcp_transport.development_edit_limiter
+    now = [100.0]
+    cast(Any, limiter)._clock = lambda: now[0]
+    assert [limiter.allow("client") for _index in range(4)] == [True] * 4
+    assert limiter.allow("client") is False
+    now[0] += 0.5
+    assert limiter.allow("client") is True

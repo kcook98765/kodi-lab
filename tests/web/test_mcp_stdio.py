@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx2
 import pytest
@@ -421,6 +421,8 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
                     "screenshot_capture",
                     "target_list",
                     "target_status",
+                    "workspace_create",
+                    "workspace_edit",
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
@@ -515,6 +517,8 @@ def test_development_inspection_is_identical_over_modern_http_and_stdio(
                     "screenshot_capture",
                     "target_list",
                     "target_status",
+                    "workspace_create",
+                    "workspace_edit",
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
@@ -544,6 +548,125 @@ def test_development_inspection_is_identical_over_modern_http_and_stdio(
                         http_result.structured_content
                         == stdio_result.structured_content
                     )
+
+        asyncio.run(exercise())
+
+
+def test_stdio_first_workspace_creation_replays_over_http_and_edits_share_cas(
+    client: TestClient,
+) -> None:
+    app = cast(FastAPI, client.app)
+    context = app.state.kodi_lab
+    source_root = context.settings.development_root / "plugin.video.stdio.mutation"
+    (source_root / "resources").mkdir(parents=True)
+    (source_root / "addon.xml").write_text(
+        '<addon id="plugin.video.stdio.mutation" name="Stdio" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="main.py" />'
+        "</addon>\n",
+        encoding="utf-8",
+    )
+    (source_root / "main.py").write_text("old\n", encoding="utf-8")
+    source = context.development_source_administration.register_source(
+        logical_name="Stdio mutation source",
+        relative_locator="plugin.video.stdio.mutation",
+    )
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Stdio workspace mutation",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.grant_development_source(mcp_client.id, source.id)
+    issued = administration.issue_credential(mcp_client.id)
+
+    with _live_loopback_server(client.app) as (endpoint, _capture):
+
+        async def exercise() -> None:
+            parameters = StdioServerParameters(
+                command=str(STDIO_EXECUTABLE),
+                env={
+                    TOKEN_ENVIRONMENT_VARIABLE: issued.token,
+                    ENDPOINT_ENVIRONMENT_VARIABLE: endpoint,
+                },
+                cwd=Path.cwd(),
+            )
+            async with (
+                _direct_client(endpoint, issued.token) as direct,
+                Client(parameters, mode="auto", cache=None) as stdio,
+            ):
+                request_id = str(uuid4())
+                arguments = {
+                    "request_id": request_id,
+                    "source_id": str(source.id),
+                }
+                first = await stdio.call_tool("workspace_create", arguments)
+                replay = await direct.call_tool("workspace_create", arguments)
+                assert not first.is_error and not replay.is_error
+                assert first.structured_content is not None
+                assert replay.structured_content is not None
+                assert (
+                    first.structured_content["workspace_id"]
+                    == replay.structured_content["workspace_id"]
+                )
+                assert (
+                    first.structured_content["creation_operation_id"]
+                    == replay.structured_content["creation_operation_id"]
+                )
+                workspace_id = first.structured_content["workspace_id"]
+                operation_id = first.structured_content["creation_operation_id"]
+                deadline = time.monotonic() + 5
+                while (
+                    context.agent_workspaces.creation_status(UUID(operation_id)).state
+                    != "succeeded"
+                ):
+                    if time.monotonic() >= deadline:
+                        raise AssertionError("workspace creation did not complete")
+                    await asyncio.sleep(0.01)
+
+                created = await stdio.call_tool(
+                    "workspace_edit",
+                    {
+                        "workspace_id": workspace_id,
+                        "expected_generation": 0,
+                        "operation": "create",
+                        "relative_path": "resources/new.py",
+                        "content": "one\n",
+                    },
+                )
+                read = await direct.call_tool(
+                    "workspace_read",
+                    {
+                        "workspace_id": workspace_id,
+                        "relative_path": "resources/new.py",
+                    },
+                )
+                replaced = await direct.call_tool(
+                    "workspace_edit",
+                    {
+                        "workspace_id": workspace_id,
+                        "expected_generation": 1,
+                        "operation": "replace",
+                        "relative_path": "resources/new.py",
+                        "content": "two\n",
+                    },
+                )
+                patched = await stdio.call_tool(
+                    "workspace_edit",
+                    {
+                        "workspace_id": workspace_id,
+                        "expected_generation": 2,
+                        "operation": "exact_patch",
+                        "relative_path": "resources/new.py",
+                        "expected_text": "two\n",
+                        "replacement_text": "three\n",
+                    },
+                )
+                assert all(
+                    not result.is_error for result in (created, read, replaced, patched)
+                )
+                assert read.structured_content is not None
+                assert read.structured_content["text"] == "one\n"
+                assert patched.structured_content is not None
+                assert patched.structured_content["new_generation"] == 3
 
         asyncio.run(exercise())
 
