@@ -3655,3 +3655,18 @@ authority.
   Git, repository publication, shell, arbitrary execution, external or
   production target. Successful Slice 5 is implementation-complete pending a
   separate formal Phase 12 review, not formal completion.
+
+## D-0277: Shared development-request pruning is lifecycle-aware and fail-closed
+- Status: accepted Phase 12 remediation.
+- Decision: all `mcp_development_requests` retention uses one bounded, DB-only
+  pruner across creation, deployment, execution and promotion. Ordinary 30-day
+  expiry applies only after the exact associated workflow is provably terminal
+  and replay-safe to forget. Creation queued/running/reconciliation states,
+  deployment mutation-marked or unresolved states, execution dispatch-marked
+  or unresolved states, active review/apply, required verification, and every
+  missing/unknown/inconsistent relationship retain the mapping. Successful
+  promotion remains protected through terminal mandatory verification.
+  Protected rows continue to count toward 10,000/client and 100,000/global
+  capacity; saturation fails closed. Candidate and unreferenced terminal
+  operation cleanup are bounded and deterministic. This changes no transport,
+  tool, permission, schema, retention horizon, or Phase 12 completion status.

@@ -28,10 +28,17 @@ from kodi_lab.application.development_source_enablements import (
     DependencyStatus,
     DevelopmentSourceEnablementService,
 )
-from kodi_lab.application.mcp_workspace_mutations import (
+from kodi_lab.application.mcp_development_requests import (
     DEVELOPMENT_REQUEST_MAX_GLOBAL,
     DEVELOPMENT_REQUEST_MAX_PER_CLIENT,
     DEVELOPMENT_REQUEST_RETENTION,
+    prune_expired_safe_development_requests,
+)
+from kodi_lab.application.mcp_development_requests import (
+    WORKSPACE_DEPLOY_OPERATION_KIND as DEPLOY_OPERATION_KIND,
+)
+from kodi_lab.application.mcp_development_requests import (
+    WORKSPACE_EXECUTE_OPERATION_KIND as EXECUTE_OPERATION_KIND,
 )
 from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
@@ -75,6 +82,7 @@ from kodi_lab.kodi.addons import (
 )
 from kodi_lab.kodi.readiness import JsonRpcUnavailableError, KodiReadinessCoordinator
 from kodi_lab.storage.models import (
+    AgentWorkspacePromotionPlanRow,
     AgentWorkspaceRow,
     McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
@@ -93,9 +101,8 @@ from kodi_lab.storage.repositories import (
 )
 from kodi_lab.workspace import workspace_coordination_lock
 
-DEPLOY_OPERATION_KIND = "workspace_deploy"
-EXECUTE_OPERATION_KIND = "workspace_execute"
 OPERATION_LEASE = timedelta(minutes=15)
+DEVELOPMENT_OPERATION_PRUNE_LIMIT = 256
 
 
 def _to_text(value: datetime) -> str:
@@ -263,7 +270,12 @@ class McpWorkspaceDevelopmentService:
         ] = KodiAddonInventoryAdapter,
         details_adapter_factory: Callable[[Any, Any], Any] = KodiAddonEnablementAdapter,
         smoke_adapter_factory: Callable[[Any, Any], Any] = KodiAddonSmokeAdapter,
+        retention: timedelta = DEVELOPMENT_REQUEST_RETENTION,
+        max_per_client: int = DEVELOPMENT_REQUEST_MAX_PER_CLIENT,
+        max_global: int = DEVELOPMENT_REQUEST_MAX_GLOBAL,
     ) -> None:
+        if retention <= timedelta(0) or max_per_client < 1 or max_global < 1:
+            raise ValueError("development request bounds must be positive")
         self._sessions = session_factory
         self._broker = broker
         self._inventory = inventory
@@ -277,6 +289,9 @@ class McpWorkspaceDevelopmentService:
         self._inventory_factory = inventory_adapter_factory
         self._details_factory = details_adapter_factory
         self._smoke_factory = smoke_adapter_factory
+        self._retention = retention
+        self._max_per_client = max_per_client
+        self._max_global = max_global
 
     def record_validation(
         self,
@@ -1626,22 +1641,42 @@ class McpWorkspaceDevelopmentService:
     def _prune_and_require_capacity(
         self, session: Session, client_id: UUID, now: datetime
     ) -> None:
-        cutoff = _to_text(now - DEVELOPMENT_REQUEST_RETENTION)
-        session.execute(
-            delete(McpDevelopmentRequestRow).where(
-                McpDevelopmentRequestRow.created_at < cutoff
-            )
+        prune_expired_safe_development_requests(
+            session, now=now, retention=self._retention
         )
+        cutoff = _to_text(now - self._retention)
         referenced = select(McpDevelopmentRequestRow.operation_id).where(
             McpDevelopmentRequestRow.operation_id.is_not(None)
         )
-        session.execute(
-            delete(McpWorkspaceExecutionOperationRow).where(
+        promotion_deployments = select(
+            AgentWorkspacePromotionPlanRow.originating_mcp_deployment_id
+        ).where(
+            AgentWorkspacePromotionPlanRow.originating_mcp_deployment_id.is_not(None)
+        )
+        promotion_executions = select(
+            AgentWorkspacePromotionPlanRow.originating_mcp_execution_id
+        ).where(
+            AgentWorkspacePromotionPlanRow.originating_mcp_execution_id.is_not(None)
+        )
+        expired_execution_ids = (
+            select(McpWorkspaceExecutionOperationRow.id)
+            .where(
                 McpWorkspaceExecutionOperationRow.completed_at < cutoff,
                 McpWorkspaceExecutionOperationRow.state.not_in(
                     ("ambiguous", "reconciliation_required")
                 ),
                 McpWorkspaceExecutionOperationRow.id.not_in(referenced),
+                McpWorkspaceExecutionOperationRow.id.not_in(promotion_executions),
+            )
+            .order_by(
+                McpWorkspaceExecutionOperationRow.completed_at,
+                McpWorkspaceExecutionOperationRow.id,
+            )
+            .limit(DEVELOPMENT_OPERATION_PRUNE_LIMIT)
+        )
+        session.execute(
+            delete(McpWorkspaceExecutionOperationRow).where(
+                McpWorkspaceExecutionOperationRow.id.in_(expired_execution_ids)
             )
         )
         current_workspace_deployment = (
@@ -1655,14 +1690,26 @@ class McpWorkspaceDevelopmentService:
             )
             .exists()
         )
-        session.execute(
-            delete(McpWorkspaceDeploymentOperationRow).where(
+        expired_deployment_ids = (
+            select(McpWorkspaceDeploymentOperationRow.id)
+            .where(
                 McpWorkspaceDeploymentOperationRow.completed_at < cutoff,
                 McpWorkspaceDeploymentOperationRow.state.not_in(
                     ("ambiguous", "reconciliation_required")
                 ),
                 ~current_workspace_deployment,
                 McpWorkspaceDeploymentOperationRow.id.not_in(referenced),
+                McpWorkspaceDeploymentOperationRow.id.not_in(promotion_deployments),
+            )
+            .order_by(
+                McpWorkspaceDeploymentOperationRow.completed_at,
+                McpWorkspaceDeploymentOperationRow.id,
+            )
+            .limit(DEVELOPMENT_OPERATION_PRUNE_LIMIT)
+        )
+        session.execute(
+            delete(McpWorkspaceDeploymentOperationRow).where(
+                McpWorkspaceDeploymentOperationRow.id.in_(expired_deployment_ids)
             )
         )
         client_count = session.scalar(
@@ -1673,7 +1720,7 @@ class McpWorkspaceDevelopmentService:
         global_count = session.scalar(
             select(func.count()).select_from(McpDevelopmentRequestRow)
         )
-        if (client_count or 0) >= DEVELOPMENT_REQUEST_MAX_PER_CLIENT or (
+        if (client_count or 0) >= self._max_per_client or (
             global_count or 0
-        ) >= DEVELOPMENT_REQUEST_MAX_GLOBAL:
+        ) >= self._max_global:
             raise McpWorkspaceDevelopmentError("request_id_conflict")

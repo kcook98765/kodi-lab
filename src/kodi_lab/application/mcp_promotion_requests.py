@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -21,10 +21,12 @@ from kodi_lab.application.agent_workspace_promotions import (
     AgentWorkspacePromotionService,
     McpPromotionOrigin,
 )
-from kodi_lab.application.mcp_workspace_mutations import (
+from kodi_lab.application.mcp_development_requests import (
     DEVELOPMENT_REQUEST_MAX_GLOBAL,
     DEVELOPMENT_REQUEST_MAX_PER_CLIENT,
     DEVELOPMENT_REQUEST_RETENTION,
+    PROMOTION_REQUEST_OPERATION_KIND,
+    prune_expired_safe_development_requests,
 )
 from kodi_lab.domain import AgentWorkspaceBytesState, AgentWorkspaceState
 from kodi_lab.storage.models import (
@@ -41,8 +43,6 @@ from kodi_lab.storage.repositories import (
     AgentWorkspaceRepository,
     DevelopmentSourceRepository,
 )
-
-PROMOTION_REQUEST_OPERATION_KIND = "promotion_request"
 
 
 def _to_text(value: datetime) -> str:
@@ -505,21 +505,8 @@ class McpPromotionRequestService:
         )
 
     def _prune_and_require_capacity(self, session: Session, client_id: UUID) -> None:
-        cutoff = _to_text(self._clock() - self._retention)
-        active_plan_ids = select(AgentWorkspacePromotionPlanRow.id).where(
-            AgentWorkspacePromotionPlanRow.state.in_(
-                ("preparing", "reviewable", "approved_and_queued")
-            )
-        )
-        session.execute(
-            delete(McpDevelopmentRequestRow).where(
-                McpDevelopmentRequestRow.created_at < cutoff,
-                (
-                    McpDevelopmentRequestRow.operation_kind
-                    != PROMOTION_REQUEST_OPERATION_KIND
-                )
-                | McpDevelopmentRequestRow.operation_id.not_in(active_plan_ids),
-            )
+        prune_expired_safe_development_requests(
+            session, now=self._clock(), retention=self._retention
         )
         per_client = session.scalar(
             select(func.count())

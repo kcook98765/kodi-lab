@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import (
@@ -59,6 +59,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
+    McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
     RuntimeDefinitionRow,
@@ -462,6 +463,35 @@ def _environment(tmp_path: Path) -> Environment:
         smoke,
         client.id,
         creation.workspace_id,
+    )
+
+
+def _restarted_development(
+    env: Environment,
+    tmp_path: Path,
+    *,
+    max_per_client: int = 10_000,
+    max_global: int = 100_000,
+) -> McpWorkspaceDevelopmentService:
+    return McpWorkspaceDevelopmentService(
+        env.sessions,
+        env.broker,
+        FakeInventory(),  # type: ignore[arg-type]
+        env.workspaces,
+        data_root=tmp_path / "data",
+        clock=lambda: NOW,
+        readiness_factory=lambda _broker, _profile: SimpleNamespace(
+            wait_until_usable=lambda _target: SimpleNamespace(
+                usability_state=UsabilityState.USABLE
+            )
+        ),
+        deployment_rate=BoundedIntervalRateLimiter(300, clock=lambda: 2000.0),
+        execution_rate=BoundedIntervalRateLimiter(60, clock=lambda: 2000.0),
+        inventory_adapter_factory=lambda _observation, _profile: InventoryAdapter(),
+        details_adapter_factory=lambda _observation, _profile: DetailsAdapter(),
+        smoke_adapter_factory=lambda _observation, _profile: env.smoke,
+        max_per_client=max_per_client,
+        max_global=max_global,
     )
 
 
@@ -876,3 +906,185 @@ def test_process_restart_after_stop_terminalizes_without_redispatch(
             target_id=TARGET_ID,
         )
     assert (env.broker.stop_count, env.broker.sync_count) == (1, 0)
+
+
+def test_long_horizon_ambiguous_deployment_survives_pruning_and_restart_replay(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+
+    def fail(phase: str) -> None:
+        if phase == "after_stop":
+            raise RuntimeError("lost after deployment mutation marker")
+
+    env.development._failure = fail
+    request_id = uuid4()
+    with pytest.raises(McpWorkspaceDevelopmentError, match="deployment_ambiguous"):
+        env.development.deploy(
+            client_id=env.client_id,
+            request_id=request_id,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    before = (env.broker.stop_count, env.broker.sync_count, env.broker.start_count)
+    old = (
+        (NOW - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with env.sessions.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old, updated_at=old)
+        )
+    restarted = _restarted_development(env, tmp_path)
+    with env.sessions.begin() as session:
+        restarted._prune_and_require_capacity(session, env.client_id, NOW)
+        assert session.scalar(select(McpDevelopmentRequestRow)) is not None
+    with pytest.raises(McpWorkspaceDevelopmentError, match="deployment_ambiguous"):
+        restarted.deploy(
+            client_id=env.client_id,
+            request_id=request_id,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    assert (
+        env.broker.stop_count,
+        env.broker.sync_count,
+        env.broker.start_count,
+    ) == before
+
+
+def test_long_horizon_ambiguous_execution_survives_pruning_and_restart_replay(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+    env.development.deploy(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+
+    def fail(phase: str) -> None:
+        if phase == "execution_dispatch_marker":
+            raise RuntimeError("lost after execution dispatch marker")
+
+    env.development._failure = fail
+    request_id = uuid4()
+    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_ambiguous"):
+        env.development.execute(
+            client_id=env.client_id,
+            request_id=request_id,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    old = (
+        (NOW - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with env.sessions.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old, updated_at=old)
+        )
+    restarted = _restarted_development(env, tmp_path)
+    with env.sessions.begin() as session:
+        restarted._prune_and_require_capacity(session, env.client_id, NOW)
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(McpDevelopmentRequestRow)
+                .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            )
+            == 1
+        )
+    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_ambiguous"):
+        restarted.execute(
+            client_id=env.client_id,
+            request_id=request_id,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    assert env.smoke.count == 0
+
+
+def test_old_terminal_deployment_and_execution_mappings_are_pruned(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+    deployment_request = uuid4()
+    execution_request = uuid4()
+    env.development.deploy(
+        client_id=env.client_id,
+        request_id=deployment_request,
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+    env.development.execute(
+        client_id=env.client_id,
+        request_id=execution_request,
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+    old = (
+        (NOW - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with env.sessions.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow).values(created_at=old, updated_at=old)
+        )
+        env.development._prune_and_require_capacity(session, env.client_id, NOW)
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 0
+        )
+
+
+def test_protected_request_consumes_capacity_until_safely_terminalized(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+    capped = _restarted_development(env, tmp_path, max_per_client=1, max_global=1)
+    first_request = uuid4()
+    operation, created = capped._claim_deployment(
+        env.client_id, first_request, env.workspace_id, 0, TARGET_ID
+    )
+    assert created is True
+    old = (
+        (NOW - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with env.sessions.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(first_request))
+            .values(created_at=old, updated_at=old)
+        )
+        with pytest.raises(McpWorkspaceDevelopmentError, match="request_id_conflict"):
+            capped._prune_and_require_capacity(session, env.client_id, NOW)
+    with env.sessions() as session:
+        assert session.scalar(select(McpDevelopmentRequestRow)) is not None
+
+    capped._finish_deployment(operation.id, "failed", "deployment_interrupted")
+    with env.sessions.begin() as session:
+        capped._prune_and_require_capacity(session, env.client_id, NOW)
+        assert session.scalar(select(McpDevelopmentRequestRow)) is None
+    replacement, created = capped._claim_deployment(
+        env.client_id, uuid4(), env.workspace_id, 0, TARGET_ID
+    )
+    assert created is True
+    capped._finish_deployment(replacement.id, "failed", "deployment_interrupted")

@@ -9,13 +9,20 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceConflictError,
     AgentWorkspaceService,
+)
+from kodi_lab.application.mcp_development_requests import (
+    DEVELOPMENT_REQUEST_MAX_GLOBAL,
+    DEVELOPMENT_REQUEST_MAX_PER_CLIENT,
+    DEVELOPMENT_REQUEST_RETENTION,
+    WORKSPACE_CREATE_OPERATION_KIND,
+    prune_expired_safe_development_requests,
 )
 from kodi_lab.domain import (
     AgentWorkspace,
@@ -38,13 +45,9 @@ from kodi_lab.storage.repositories import (
     DevelopmentSourceRepository,
 )
 
-DEVELOPMENT_REQUEST_RETENTION = timedelta(days=30)
-DEVELOPMENT_REQUEST_MAX_PER_CLIENT = 10_000
-DEVELOPMENT_REQUEST_MAX_GLOBAL = 100_000
 MCP_PRESENT_WORKSPACES_PER_CLIENT = 4
 MCP_PRESENT_WORKSPACES_GLOBAL = 32
 MCP_CREATING_WORKSPACES_PER_CLIENT = 1
-WORKSPACE_CREATE_OPERATION_KIND = "workspace_create"
 
 
 def _to_text(value: datetime) -> str:
@@ -123,12 +126,7 @@ class McpWorkspaceCreationService:
             operation: AgentWorkspaceCreationOperation,
         ) -> None:
             now = self._clock()
-            cutoff = _to_text(now - self._retention)
-            session.execute(
-                delete(McpDevelopmentRequestRow).where(
-                    McpDevelopmentRequestRow.created_at < cutoff
-                )
-            )
+            self._prune_expired_requests(session, now)
             existing = self._find(session, client_id, request_id)
             if existing is not None:
                 if existing.parameter_fingerprint != fingerprint:
@@ -264,6 +262,11 @@ class McpWorkspaceCreationService:
             raise McpWorkspaceMutationError("source_not_found_or_not_authorized")
         if source.source_kind is not DevelopmentSourceKind.LOCAL_DIRECTORY:
             raise McpWorkspaceMutationError("source_not_found_or_not_authorized")
+
+    def _prune_expired_requests(self, session: Session, now: datetime) -> None:
+        prune_expired_safe_development_requests(
+            session, now=now, retention=self._retention
+        )
 
     def _require_request_capacity(self, session: Session, client_id: UUID) -> None:
         client_count = session.scalar(

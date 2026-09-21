@@ -26,6 +26,10 @@ from kodi_lab.application.mcp_promotion_requests import (
     McpPromotionRequestError,
     McpPromotionRequestService,
 )
+from kodi_lab.application.mcp_workspace_development import (
+    McpWorkspaceDevelopmentService,
+)
+from kodi_lab.application.mcp_workspace_mutations import McpWorkspaceCreationService
 from kodi_lab.application.promotion_verifications import (
     PromotionVerificationError,
     PromotionVerificationService,
@@ -1760,6 +1764,41 @@ def _seed_mcp_promotion_evidence(
     return deployment_id, execution_id
 
 
+def _request_pruning_services(
+    harness: Harness,
+) -> tuple[
+    McpWorkspaceCreationService,
+    McpWorkspaceDevelopmentService,
+    McpPromotionRequestService,
+]:
+    creation = McpWorkspaceCreationService(
+        harness.factory,
+        harness.workspaces,
+        lambda _operation_id: None,
+        clock=harness.clock,
+    )
+    development = McpWorkspaceDevelopmentService(
+        harness.factory,
+        cast(Any, object()),
+        cast(Any, object()),
+        harness.workspaces,
+        data_root=harness.data_root,
+        clock=harness.clock,
+    )
+    promotion = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    return creation, development, promotion
+
+
+def _old_request_timestamp(harness: Harness) -> str:
+    return (
+        (harness.clock.now - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+
+
 def test_mcp_promotion_request_replays_one_phase9_plan_and_web_approval(
     tmp_path: Path,
 ) -> None:
@@ -1824,6 +1863,15 @@ def test_mcp_promotion_request_replays_one_phase9_plan_and_web_approval(
     assert projection.verification_id is not None
     assert projection.verification_state == "queued"
     assert projection.final_classification == "source_promoted_verification_queued"
+    old = _old_request_timestamp(harness)
+    with harness.factory.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old, updated_at=old)
+        )
+        service._prune_and_require_capacity(session, MCP_CLIENT_ID)
+        assert session.scalar(select(McpDevelopmentRequestRow)) is not None
 
     resolver = SqliteDevelopmentSourceDeploymentResolver(
         harness.factory,
@@ -1913,6 +1961,14 @@ def test_mcp_promotion_request_replays_one_phase9_plan_and_web_approval(
     verified_projection = service.projection(harness.workspace_id)
     assert verified_projection.verification_state == "succeeded"
     assert verified_projection.final_classification == "source_promoted_and_verified"
+    with harness.factory.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old, updated_at=old)
+        )
+        service._prune_and_require_capacity(session, MCP_CLIENT_ID)
+        assert session.scalar(select(McpDevelopmentRequestRow)) is None
 
 
 def test_mcp_promotion_post_marker_replay_is_ambiguous_and_mapping_is_retained(
@@ -1967,6 +2023,165 @@ def test_mcp_promotion_post_marker_replay_is_ambiguous_and_mapping_is_retained(
             expected_generation=1,
             target_id=TARGET_ID,
         )
+
+
+def test_active_promotion_mapping_survives_every_cross_operation_pruner_and_replays(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    creation, development, promotion = _request_pruning_services(harness)
+    request_id = uuid4()
+    requested = promotion.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=request_id,
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    old = _old_request_timestamp(harness)
+    with harness.factory.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old, updated_at=old)
+        )
+        creation._prune_expired_requests(session, harness.clock.now)
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 1
+        )
+    with harness.factory.begin() as session:
+        development._prune_and_require_capacity(
+            session, MCP_CLIENT_ID, harness.clock.now
+        )
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 1
+        )
+    with harness.factory.begin() as session:
+        promotion._prune_and_require_capacity(session, MCP_CLIENT_ID)
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 1
+        )
+
+    restarted = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    assert (
+        restarted.request(
+            client_id=MCP_CLIENT_ID,
+            request_id=request_id,
+            workspace_id=harness.workspace_id,
+            expected_generation=1,
+            target_id=TARGET_ID,
+        )
+        == requested
+    )
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AgentWorkspacePromotionPlanRow)
+            )
+            == 1
+        )
+
+
+def test_ambiguous_development_mappings_survive_cross_operation_pruners(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    deployment_id, execution_id = _seed_mcp_promotion_evidence(harness)
+    creation, development, promotion = _request_pruning_services(harness)
+    deployment_request = uuid4()
+    execution_request = uuid4()
+    missing_request = uuid4()
+    old = _old_request_timestamp(harness)
+    with harness.factory.begin() as session:
+        session.execute(
+            update(McpWorkspaceDeploymentOperationRow)
+            .where(McpWorkspaceDeploymentOperationRow.id == str(deployment_id))
+            .values(
+                request_id=str(deployment_request),
+                state="reconciliation_required",
+                failure_code="deployment_ambiguous",
+            )
+        )
+        session.execute(
+            update(McpWorkspaceExecutionOperationRow)
+            .where(McpWorkspaceExecutionOperationRow.id == str(execution_id))
+            .values(
+                request_id=str(execution_request),
+                state="ambiguous",
+                execution_classification="ambiguous",
+                failure_code="execution_ambiguous",
+            )
+        )
+        session.add_all(
+            [
+                McpDevelopmentRequestRow(
+                    id=str(uuid4()),
+                    client_id=str(MCP_CLIENT_ID),
+                    request_id=str(deployment_request),
+                    operation_kind="workspace_deploy",
+                    parameter_fingerprint="a" * 64,
+                    development_source_id=str(SOURCE_ID),
+                    workspace_id=str(harness.workspace_id),
+                    creation_operation_id=None,
+                    operation_id=str(deployment_id),
+                    state="allocated",
+                    created_at=old,
+                    updated_at=old,
+                ),
+                McpDevelopmentRequestRow(
+                    id=str(uuid4()),
+                    client_id=str(MCP_CLIENT_ID),
+                    request_id=str(execution_request),
+                    operation_kind="workspace_execute",
+                    parameter_fingerprint="b" * 64,
+                    development_source_id=str(SOURCE_ID),
+                    workspace_id=str(harness.workspace_id),
+                    creation_operation_id=None,
+                    operation_id=str(execution_id),
+                    state="allocated",
+                    created_at=old,
+                    updated_at=old,
+                ),
+                McpDevelopmentRequestRow(
+                    id=str(uuid4()),
+                    client_id=str(MCP_CLIENT_ID),
+                    request_id=str(missing_request),
+                    operation_kind="workspace_deploy",
+                    parameter_fingerprint="c" * 64,
+                    development_source_id=str(SOURCE_ID),
+                    workspace_id=str(harness.workspace_id),
+                    creation_operation_id=None,
+                    operation_id=str(uuid4()),
+                    state="allocated",
+                    created_at=old,
+                    updated_at=old,
+                ),
+            ]
+        )
+
+    with harness.factory.begin() as session:
+        promotion._prune_and_require_capacity(session, MCP_CLIENT_ID)
+    with harness.factory.begin() as session:
+        creation._prune_expired_requests(session, harness.clock.now)
+        development._prune_and_require_capacity(
+            session, MCP_CLIENT_ID, harness.clock.now
+        )
+    with harness.factory() as session:
+        retained = set(
+            session.scalars(select(McpDevelopmentRequestRow.request_id)).all()
+        )
+    assert retained == {
+        str(deployment_request),
+        str(execution_request),
+        str(missing_request),
+    }
 
 
 def test_web_promotion_authority_survives_originating_client_disable(

@@ -1318,6 +1318,11 @@ one-active-plan/workspace and expiry rules apply. New preparations are limited
 to two/client/ten minutes with bounded keys, and request pruning retains an
 active plan's replay identity.
 
+All four development mutation kinds now share one bounded lifecycle-aware
+pruner. Thirty-day-old mappings are deleted only for provably terminal,
+replay-safe creation/deployment/execution or complete promotion/verification;
+uncertainty and unresolved work retain identity and count toward capacity.
+
 The existing compact Web promotion page shows MCP origin, exact generation,
 server-derived change counts, validation/deployment/execution state, conflict
 classification and expiry alongside the existing exact diff. Approval and

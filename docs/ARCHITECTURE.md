@@ -2004,6 +2004,13 @@ mapping whose plan remains in the post-claim preparing state is ambiguous and
 never causes another preparation. Active-plan request mappings survive the
 ordinary 30-day pruning horizon.
 
+One shared bounded, DB-only pruner applies to all four development mutation
+kinds. It deletes expired mappings only when the exact creation, deployment,
+execution, or complete review/apply/verification workflow is provably terminal
+and replay-safe. Unknown, marker-bearing, ambiguous, active,
+reconciliation-required, missing, or inconsistent state is retained and
+continues counting toward request capacity.
+
 MCP receives only semantic UUIDs, generation, counts, candidate version,
 review/expiry and readiness/conflict classifications. Existing Web review
 renders the complete exact diff and now identifies the originating client plus

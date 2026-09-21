@@ -45,9 +45,10 @@ revoke/expiry/rotation, and never cause workspace-byte deletion.
 
 ## Read-only tools
 
-The production catalog is exactly twelve lexical tools: `addon_list`,
-`development_source_list`, `remote_action`, `screenshot_capture`, `target_list`,
-`target_status`, `workspace_create`, `workspace_edit`, `workspace_read`,
+The production catalog is exactly fifteen lexical tools: `addon_list`,
+`development_source_list`, `promotion_request`, `remote_action`,
+`screenshot_capture`, `target_list`, `target_status`, `workspace_create`,
+`workspace_deploy`, `workspace_edit`, `workspace_execute`, `workspace_read`,
 `workspace_status`, `workspace_tree`, and `workspace_validate`.
 
 `development_source_list` returns only currently granted persisted metadata:
@@ -109,6 +110,30 @@ transactional count-and-insert enforcement prevents concurrent pre-check bypass;
 there is no eviction. Request keys retain 30 days, are opportunistically pruned,
 and fail closed at 10,000 per client or 100,000 globally. These request-key
 bounds are not workspace byte cleanup or retention automation.
+
+All four mutation kinds use one bounded, DB-only development-request pruner.
+Age is never sufficient. After 30 days, creation mappings are eligible only
+for a succeeded operation with its stable workspace/binding or a definitively
+failed operation whose workspace is abandoned. Deployment mappings are
+eligible only after success, or definitive failure before the mutation marker;
+execution mappings are eligible only after success, or definitive failure
+before the invocation marker. Deployment/execution evidence referenced by a
+nonterminal promotion workflow remains protected. Promotion mappings remain
+through preparation/review, approval/application, reconciliation, and queued or
+running mandatory verification; successful promotion becomes eligible only
+after verification is terminal (`succeeded`, `failed`, or `incomplete`). A
+conflicted, rejected/invalidated, or expired plan with no apply operation and a
+definitively failed non-reconciliation apply are also terminal. Missing,
+unknown, inconsistent, ambiguous, reconciliation-required, or otherwise
+unprovable relationships fail closed and retain the mapping.
+
+Each allocation inspects at most 256 deterministically ordered potentially
+terminal candidates. Protected rows continue to count against the 10,000/client
+and 100,000/global caps; saturation rejects new mutation work rather than
+discarding replay identity. Separate deletion of old unreferenced terminal
+deployment/execution rows is likewise bounded, while unresolved rows remain
+indirectly bounded by their retained request mappings and caps. Promotion-plan
+references retain their exact operation evidence.
 
 ## Generation-bound editing
 
@@ -362,8 +387,9 @@ return the same plan and current state. Changed workspace/generation/target is
 `promotion_request_ambiguous` and never creates another plan. One active plan
 per workspace, Phase 9 expiry and new-request-ID-after-expiry rules apply. Edits
 cannot silently retarget an old plan. Active plan mappings are retained past
-the ordinary 30-day prune horizon. New preparations are limited to two per
-client per ten minutes with at most 1,024 active limiter keys.
+the ordinary 30-day prune horizon, as are approved mappings until mandatory
+verification is terminal. New preparations are limited to two per client per
+ten minutes with at most 1,024 active limiter keys.
 
 Only the Web administrator may approve or reject. Both actions require the
 existing authenticated session, Trusted Host, same-origin, CSRF and literal
