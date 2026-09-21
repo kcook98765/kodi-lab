@@ -6,16 +6,19 @@ import hashlib
 import json
 import os
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.development.deployment import DevelopmentTreeManifest
 from kodi_lab.domain import (
     ExternalAdministrativeState,
     ExternalBridgePairingState,
@@ -26,6 +29,9 @@ from kodi_lab.domain import (
 from kodi_lab.kodi.bridge import (
     BRIDGE_ADDON_ID,
     BRIDGE_PROTOCOL_VERSION,
+    DEPLOYMENT_CHUNK_BYTES,
+    BridgeAddonTree,
+    BridgeDeploymentReceipt,
     BridgeIdentity,
     BridgeScreenshotResult,
     ExternalBridgeClient,
@@ -46,6 +52,8 @@ from kodi_lab.storage.models import (
 )
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore, SecretStoreError
 
+MAX_DEPLOYMENT_DURATION_SECONDS = 2 * 60 * 60
+MAX_DEPLOYMENT_TRANSFER_BYTES_PER_SECOND = 16 * 1024 * 1024
 PAIRING_TOKEN_TTL = timedelta(minutes=10)
 BRIDGE_RECEIPT_TTL = timedelta(hours=24)
 MAX_RECEIPTS_PER_TARGET = 256
@@ -169,6 +177,7 @@ class ExternalBridgeService:
         self._clock = clock
         self._pairing_gate = _BoundedGate(global_limit=2)
         self._screenshot_gate = _BoundedGate(global_limit=4)
+        self._deployment_gate = _BoundedGate(global_limit=2)
         with self._sessions() as session:
             protected = session.scalar(
                 select(ExternalBridgePairingRow.target_id)
@@ -306,9 +315,9 @@ class ExternalBridgeService:
                     bridge_id=pairing.identity.bridge_id,
                     secret=pairing.secret,
                 )
-                if authenticated_identity != pairing.identity or capabilities != (
-                    "screenshot",
-                ):
+                if authenticated_identity != pairing.identity or not set(
+                    capabilities
+                ).intersection({"screenshot", "workspace_deployment"}):
                     raise ExternalBridgeServiceError("bridge_identity_mismatch")
             except (
                 ExternalBridgeError,
@@ -458,7 +467,9 @@ class ExternalBridgeService:
             except ExternalBridgeServiceError:
                 self._invalidate_identity(target_id, "bridge_identity_mismatch")
                 raise
-            if capabilities != ("screenshot",):
+            if not set(capabilities).intersection(
+                {"screenshot", "workspace_deployment"}
+            ):
                 self._invalidate_identity(target_id, "bridge_capability_unavailable")
                 raise ExternalBridgeServiceError("bridge_capability_unavailable")
             now = self._clock()
@@ -487,14 +498,225 @@ class ExternalBridgeService:
 
     def screenshot_available(self, target_id: UUID) -> bool:
         try:
-            self._active_snapshot(target_id)
+            self._active_snapshot(target_id, required_capability="screenshot")
             return True
         except ExternalBridgeServiceError:
             return False
 
+    def deployment_available(self, target_id: UUID) -> bool:
+        try:
+            self._active_snapshot(target_id, required_capability="workspace_deployment")
+            return True
+        except ExternalBridgeServiceError:
+            return False
+
+    def inspect_addon(self, target_id: UUID, addon_id: str) -> BridgeAddonTree:
+        with self._deployment_gate.enter(target_id):
+            snapshot = self._active_snapshot(
+                target_id, required_capability="workspace_deployment"
+            )
+            identity, capabilities = self._observe_authenticated(snapshot)
+            self._require_pinned_identity(snapshot, identity)
+            if "workspace_deployment" not in capabilities:
+                raise ExternalBridgeServiceError("bridge_capability_unavailable")
+            try:
+                return self._client.inspect_addon(
+                    snapshot.endpoint,
+                    bridge_port=snapshot.bridge_port,
+                    target_id=target_id,
+                    bridge_id=snapshot.bridge_id,
+                    secret=self._read_secret(snapshot),
+                    addon_id=addon_id,
+                )
+            except ExternalBridgeError as error:
+                self._publish_reachability(target_id, error.code)
+                raise ExternalBridgeServiceError(error.code) from error
+
+    def deploy_workspace(
+        self,
+        target_id: UUID,
+        *,
+        operation_id: UUID,
+        request_id: UUID,
+        addon_id: str,
+        addon_version: str,
+        generation: int,
+        manifest: DevelopmentTreeManifest,
+        stage_root: Path,
+        before_commit: Callable[[], None] | None = None,
+    ) -> BridgeDeploymentReceipt:
+        started = time.monotonic()
+        transferred = 0
+
+        def require_within_duration() -> None:
+            if time.monotonic() - started > MAX_DEPLOYMENT_DURATION_SECONDS:
+                raise ExternalBridgeServiceError("transfer_invalid")
+
+        with self._deployment_gate.enter(target_id):
+            snapshot = self._active_snapshot(
+                target_id, required_capability="workspace_deployment"
+            )
+            identity, capabilities = self._observe_authenticated(snapshot)
+            self._require_pinned_identity(snapshot, identity)
+            if "workspace_deployment" not in capabilities:
+                raise ExternalBridgeServiceError("bridge_capability_unavailable")
+            secret = self._read_secret(snapshot)
+            entries = [entry.canonical() for entry in manifest.entries]
+            file_count = sum(entry.entry_type == "file" for entry in manifest.entries)
+            try:
+
+                def begin() -> BridgeDeploymentReceipt:
+                    require_within_duration()
+                    return self._client.deployment_begin(
+                        snapshot.endpoint,
+                        bridge_port=snapshot.bridge_port,
+                        target_id=target_id,
+                        bridge_id=snapshot.bridge_id,
+                        secret=secret,
+                        deployment_id=operation_id,
+                        request_id=request_id,
+                        addon_id=addon_id,
+                        addon_version=addon_version,
+                        generation=generation,
+                        manifest_digest=manifest.digest,
+                        entries=entries,
+                        file_count=file_count,
+                        total_bytes=manifest.included_bytes,
+                    )
+
+                try:
+                    receipt = begin()
+                except ExternalBridgeError:
+                    receipt = begin()
+                if receipt.state in {"succeeded", "failed", "ambiguous"}:
+                    return receipt
+                for entry in manifest.entries:
+                    if entry.entry_type != "file" or entry.sha256 is None:
+                        continue
+                    path = stage_root.joinpath(*entry.path.split("/"))
+                    offset = 0
+                    with path.open("rb") as stream:
+                        while chunk := stream.read(DEPLOYMENT_CHUNK_BYTES):
+                            transferred += len(chunk)
+                            expected_elapsed = (
+                                transferred / MAX_DEPLOYMENT_TRANSFER_BYTES_PER_SECOND
+                            )
+                            remaining = expected_elapsed - (time.monotonic() - started)
+                            if remaining > 0:
+                                time.sleep(remaining)
+                            require_within_duration()
+                            receipt = self._transfer_chunk_with_retry(
+                                snapshot,
+                                secret,
+                                operation_id,
+                                entry.path,
+                                entry.sha256,
+                                offset,
+                                chunk,
+                            )
+                            offset += len(chunk)
+                if before_commit is not None:
+                    require_within_duration()
+                    before_commit()
+                require_within_duration()
+                return self._commit_or_reconcile(
+                    snapshot, secret, operation_id, manifest.digest
+                )
+            except ExternalBridgeServiceError:
+                raise
+            except (ExternalBridgeError, OSError) as error:
+                code = getattr(error, "code", "transfer_invalid")
+                self._publish_reachability(target_id, code)
+                raise ExternalBridgeServiceError(code) from error
+
+    def _transfer_chunk_with_retry(
+        self,
+        snapshot: _Snapshot,
+        secret: bytes,
+        operation_id: UUID,
+        path: str,
+        file_digest: str,
+        offset: int,
+        content: bytes,
+    ) -> BridgeDeploymentReceipt:
+        def transfer() -> BridgeDeploymentReceipt:
+            return self._client.deployment_chunk(
+                snapshot.endpoint,
+                bridge_port=snapshot.bridge_port,
+                target_id=snapshot.target_id,
+                bridge_id=snapshot.bridge_id,
+                secret=secret,
+                deployment_id=operation_id,
+                path=path,
+                file_digest=file_digest,
+                offset=offset,
+                content=content,
+            )
+
+        try:
+            return transfer()
+        except ExternalBridgeError:
+            return transfer()
+
+    def deployment_receipt(
+        self, target_id: UUID, operation_id: UUID
+    ) -> BridgeDeploymentReceipt:
+        with self._deployment_gate.enter(target_id):
+            snapshot = self._active_snapshot(
+                target_id, required_capability="workspace_deployment"
+            )
+            try:
+                receipt = self._client.deployment_receipt(
+                    snapshot.endpoint,
+                    bridge_port=snapshot.bridge_port,
+                    target_id=target_id,
+                    bridge_id=snapshot.bridge_id,
+                    secret=self._read_secret(snapshot),
+                    deployment_id=operation_id,
+                )
+                return receipt
+            except ExternalBridgeError as error:
+                self._publish_reachability(target_id, error.code)
+                raise ExternalBridgeServiceError(error.code) from error
+
+    def _commit_or_reconcile(
+        self,
+        snapshot: _Snapshot,
+        secret: bytes,
+        operation_id: UUID,
+        manifest_digest: str,
+    ) -> BridgeDeploymentReceipt:
+        try:
+            return self._client.deployment_commit(
+                snapshot.endpoint,
+                bridge_port=snapshot.bridge_port,
+                target_id=snapshot.target_id,
+                bridge_id=snapshot.bridge_id,
+                secret=secret,
+                deployment_id=operation_id,
+                manifest_digest=manifest_digest,
+            )
+        except ExternalBridgeError:
+            try:
+                receipt = self._client.deployment_receipt(
+                    snapshot.endpoint,
+                    bridge_port=snapshot.bridge_port,
+                    target_id=snapshot.target_id,
+                    bridge_id=snapshot.bridge_id,
+                    secret=secret,
+                    deployment_id=operation_id,
+                )
+                if receipt.state not in {"succeeded", "failed", "ambiguous"}:
+                    raise ExternalBridgeServiceError("deployment_ambiguous")
+                return receipt
+            except ExternalBridgeError as error:
+                raise ExternalBridgeServiceError("deployment_ambiguous") from error
+
     def capture_screenshot(self, target_id: UUID) -> ExternalScreenshotCapture:
         with self._screenshot_gate.enter(target_id):
-            snapshot = self._active_snapshot(target_id)
+            snapshot = self._active_snapshot(
+                target_id, required_capability="screenshot"
+            )
             request_id = uuid4()
             requested_at = self._clock()
             self._audit_screenshot(
@@ -515,7 +737,7 @@ class ExternalBridgeService:
                 self._invalidate_identity(target_id, "bridge_identity_mismatch")
                 self._fail_receipt(target_id, request_id, error.code, ambiguous=False)
                 raise
-            if capabilities != ("screenshot",):
+            if "screenshot" not in capabilities:
                 self._invalidate_identity(target_id, "bridge_capability_unavailable")
                 self._fail_receipt(
                     target_id,
@@ -608,10 +830,20 @@ class ExternalBridgeService:
             )
 
     def _active_snapshot(
-        self, target_id: UUID, *, allow_needs_reverification: bool = False
+        self,
+        target_id: UUID,
+        *,
+        allow_needs_reverification: bool = False,
+        required_capability: str | None = None,
     ) -> _Snapshot:
         with self._sessions() as session:
             external = self._require_native_verified(session, target_id)
+            if (
+                required_capability is not None
+                and required_capability
+                not in self._parse_closed(external.configured_capabilities_json)
+            ):
+                raise ExternalBridgeServiceError("bridge_capability_unavailable")
             row = session.get(ExternalBridgePairingRow, str(target_id))
             allowed = {ExternalBridgePairingState.PAIRED}
             if allow_needs_reverification:
@@ -631,7 +863,8 @@ class ExternalBridgeService:
                 )
                 or (
                     not allow_needs_reverification
-                    and "screenshot"
+                    and required_capability is not None
+                    and required_capability
                     not in self._parse_closed(row.verified_capabilities_json)
                 )
             ):
@@ -900,7 +1133,7 @@ class ExternalBridgeService:
         ):
             raise ExternalBridgeServiceError("needs_reverification")
         configured = cls._parse_closed(external.configured_capabilities_json)
-        if "screenshot" not in configured:
+        if not configured.intersection({"screenshot", "workspace_deployment"}):
             raise ExternalBridgeServiceError("bridge_capability_unavailable")
         return external
 

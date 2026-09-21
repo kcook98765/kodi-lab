@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -12,6 +13,7 @@ import zlib
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import TracebackType
+from typing import cast
 from uuid import UUID, uuid4
 
 from kodi_lab.kodi.bridge import (
@@ -73,10 +75,20 @@ class FakeExternalBridge:
         self.kodi_version = "21.3"
         self.addon_version = "1.0.0"
         self.build_fingerprint = hashlib.sha256(b"fake-bridge-build").hexdigest()
-        self.capabilities = ["screenshot"]
+        self.capabilities = ["screenshot", "workspace_deployment"]
         self.requests: dict[str, tuple[bytes, int, dict[str, str], bytes]] = {}
         self.nonces: set[str] = set()
         self.capture_count = 0
+        self.replacement_count = 0
+        self.addon_id = "plugin.video.fixture"
+        self.addon_version = "1.0.0"
+        self.addon_manifest_digest = (
+            "sha256:" + hashlib.sha256(b"initial-tree").hexdigest()
+        )
+        self.addon_file_count = 1
+        self.addon_total_bytes = 1
+        self.addon_enabled = True
+        self.deployments: dict[str, dict[str, object]] = {}
         self.tamper: str | None = None
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -216,6 +228,11 @@ class FakeExternalBridge:
                         "bridge_identity",
                         "bridge_capabilities",
                         "capture_screenshot",
+                        "inspect_addon",
+                        "deployment_begin",
+                        "deployment_chunk",
+                        "deployment_commit",
+                        "deployment_receipt",
                     }
                     or document["target_id"] != str(owner.target_id)
                     or document["bridge_id"] != str(owner.bridge_id)
@@ -231,8 +248,157 @@ class FakeExternalBridge:
                     self._cache(document, digest, {"capabilities": owner.capabilities})
                 elif document["operation"] == "capture_screenshot":
                     self._screenshot(document, digest)
+                elif document["operation"] == "inspect_addon":
+                    self._inspect_addon(document, digest)
+                elif document["operation"] == "deployment_begin":
+                    self._deployment_begin(document, digest)
+                elif document["operation"] == "deployment_chunk":
+                    self._deployment_chunk(document, digest)
+                elif document["operation"] == "deployment_commit":
+                    self._deployment_commit(document, digest)
+                elif document["operation"] == "deployment_receipt":
+                    self._deployment_receipt(document, digest)
                 else:
                     raise ValueError
+
+            def _inspect_addon(
+                self, request: dict[str, object], request_digest: bytes
+            ) -> None:
+                payload = request["payload"]
+                if not isinstance(payload, dict) or payload != {
+                    "addon_id": owner.addon_id
+                }:
+                    raise ValueError
+                self._cache(
+                    request,
+                    request_digest,
+                    {
+                        "addon_id": owner.addon_id,
+                        "addon_version": owner.addon_version,
+                        "enabled": owner.addon_enabled,
+                        "file_count": owner.addon_file_count,
+                        "manifest_digest": owner.addon_manifest_digest,
+                        "total_bytes": owner.addon_total_bytes,
+                    },
+                )
+
+            def _receipt(self, deployment: dict[str, object]) -> dict[str, object]:
+                return {
+                    "addon_id": deployment["addon_id"],
+                    "addon_version": deployment["addon_version"],
+                    "bridge_id": str(owner.bridge_id),
+                    "classification": deployment["classification"],
+                    "completed_at": deployment["completed_at"],
+                    "deployment_id": deployment["deployment_id"],
+                    "deployment_request_id": deployment["deployment_request_id"],
+                    "enabled_state": ("enabled" if owner.addon_enabled else "disabled"),
+                    "file_count": deployment["file_count"],
+                    "generation": deployment["generation"],
+                    "inventory_verified": deployment["inventory_verified"],
+                    "manifest_digest": deployment["manifest_digest"],
+                    "receipt_id": deployment["receipt_id"],
+                    "state": deployment["state"],
+                    "total_bytes": deployment["total_bytes"],
+                }
+
+            def _deployment_begin(
+                self, request: dict[str, object], request_digest: bytes
+            ) -> None:
+                payload = request["payload"]
+                if not isinstance(payload, dict):
+                    raise ValueError
+                deployment_id = str(payload["deployment_id"])
+                existing = owner.deployments.get(deployment_id)
+                identity = hashlib.sha256(canonical_json(payload)).hexdigest()
+                if existing is not None:
+                    if existing["begin_identity"] != identity:
+                        self._send(409, {}, b"")
+                    else:
+                        self._cache(request, request_digest, self._receipt(existing))
+                    return
+                if (
+                    payload.get("addon_id") != owner.addon_id
+                    or payload.get("manifest_version") != 1
+                    or not isinstance(payload.get("entries"), list)
+                ):
+                    raise ValueError
+                deployment: dict[str, object] = {
+                    **payload,
+                    "begin_identity": identity,
+                    "classification": "staging",
+                    "completed_at": None,
+                    "inventory_verified": False,
+                    "receipt_id": None,
+                    "state": "staging",
+                    "chunks": {},
+                }
+                owner.deployments[deployment_id] = deployment
+                self._cache(request, request_digest, self._receipt(deployment))
+
+            def _deployment_chunk(
+                self, request: dict[str, object], request_digest: bytes
+            ) -> None:
+                payload = request["payload"]
+                if not isinstance(payload, dict):
+                    raise ValueError
+                deployment = owner.deployments[str(payload["deployment_id"])]
+                if deployment["state"] != "staging":
+                    raise ValueError
+                encoded = str(payload["content"])
+                content = base64.b64decode(
+                    encoded.encode("ascii") + b"=" * (-len(encoded) % 4),
+                    altchars=b"-_",
+                    validate=True,
+                )
+                if hashlib.sha256(content).hexdigest() != payload["content_digest"]:
+                    raise ValueError
+                chunks = deployment["chunks"]
+                assert isinstance(chunks, dict)
+                key = (str(payload["path"]), int(payload["offset"]))
+                prior = chunks.get(key)
+                if prior is not None and prior != content:
+                    self._send(409, {}, b"")
+                    return
+                chunks[key] = content
+                self._cache(request, request_digest, self._receipt(deployment))
+
+            def _deployment_commit(
+                self, request: dict[str, object], request_digest: bytes
+            ) -> None:
+                payload = request["payload"]
+                if not isinstance(payload, dict):
+                    raise ValueError
+                deployment = owner.deployments[str(payload["deployment_id"])]
+                if payload["manifest_digest"] != deployment["manifest_digest"]:
+                    raise ValueError
+                if deployment["state"] == "staging":
+                    if owner.tamper == "replacement_failure_before":
+                        deployment["state"] = "failed"
+                        deployment["classification"] = "replacement_failed"
+                    else:
+                        owner.replacement_count += 1
+                        owner.addon_version = str(deployment["addon_version"])
+                        owner.addon_manifest_digest = str(deployment["manifest_digest"])
+                        owner.addon_file_count = cast(int, deployment["file_count"])
+                        owner.addon_total_bytes = cast(int, deployment["total_bytes"])
+                        deployment["state"] = "succeeded"
+                        deployment["classification"] = "deployed"
+                        deployment["inventory_verified"] = True
+                    deployment["receipt_id"] = str(uuid4())
+                    deployment["completed_at"] = timestamp_text(datetime.now(UTC))
+                receipt = self._receipt(deployment)
+                self._cache(request, request_digest, receipt)
+
+            def _deployment_receipt(
+                self, request: dict[str, object], request_digest: bytes
+            ) -> None:
+                payload = request["payload"]
+                if not isinstance(payload, dict):
+                    raise ValueError
+                deployment = owner.deployments.get(str(payload["deployment_id"]))
+                if deployment is None:
+                    raise ValueError
+                self._cache(request, request_digest, self._receipt(deployment))
 
             def _cache(
                 self,
@@ -287,6 +453,15 @@ class FakeExternalBridge:
                 headers = {"Content-Type": "application/json"}
                 item = (request_digest, 200, headers, body)
                 owner.requests[str(request["request_id"])] = item
+                drop_once = {
+                    "deployment_begin": "drop_deployment_begin_once",
+                    "deployment_chunk": "drop_deployment_chunk_once",
+                    "deployment_commit": "drop_deployment_commit_once",
+                }.get(str(request["operation"]))
+                if drop_once is not None and owner.tamper == drop_once:
+                    owner.tamper = None
+                    self.close_connection = True
+                    return
                 self._send(200, headers, body)
 
             def _screenshot(

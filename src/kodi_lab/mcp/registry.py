@@ -142,7 +142,9 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             schema_revision=1,
             permissions=frozenset({"development.request_promotion"}),
             effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            allowed_target_classes=frozenset(
+                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+            ),
             required_capabilities=frozenset(
                 {"workspace_deployment", "workspace_execution"}
             ),
@@ -298,7 +300,9 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             schema_revision=1,
             permissions=frozenset({"workspace.deploy"}),
             effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            allowed_target_classes=frozenset(
+                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+            ),
             required_capabilities=frozenset({"workspace_deployment"}),
             required_states=frozenset({"running", "ready", "reconciled"}),
             rate_class=ToolRateClass.DEVELOPMENT_DEPLOY,
@@ -314,7 +318,9 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             schema_revision=1,
             permissions=frozenset({"development.execute"}),
             effect=ToolEffect.MUTATING,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            allowed_target_classes=frozenset(
+                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+            ),
             required_capabilities=frozenset({"workspace_execution"}),
             required_states=frozenset({"running", "ready", "reconciled"}),
             rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,

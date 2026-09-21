@@ -236,3 +236,25 @@ grant receives the same unavailable result for a paired UUID as for a missing
 target; pairing state is not an alternate discovery channel. External
 `screenshot_capture` returns the existing bounded metadata/image result only
 after the complete authority intersection.
+
+## Phase 13 Slice 4 baseline and reconciliation administration
+
+DevelopmentSource baseline establishment and bridge deployment reconciliation
+are Web-only mutations behind the same administrator cookie, Trusted Host,
+strict same-origin and CSRF dependency. Baseline input is only `confirmed=true`
+and an existing source UUID. The server derives the target, source capture,
+add-on ID and bridge request; no caller path, digest, version, destination,
+force flag or observed tree can be asserted as trusted.
+
+Reconciliation input is only `confirmed=true` on the exact target/operation
+route. The server verifies local operation ownership, pinned bridge/target,
+semantic request UUID, expected manifest digest and counts before accepting a
+terminal receipt. It exposes no generic retry or arbitrary receipt lookup.
+Missing, staging, contradictory or unreachable evidence remains ambiguous.
+
+MCP cannot pair/reverify a bridge, attach/establish/rebaseline a source,
+reconcile an operation or change capability. MCP deployment, execution and
+promotion inputs remain their existing four-field schemas. Web and audit
+responses contain semantic UUID/digest/count classifications only—never file
+content, destination/staging/backup path, HMAC, secret, raw JSON or raw Kodi
+response.

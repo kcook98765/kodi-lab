@@ -655,6 +655,25 @@ def _capture_workspace_tree(
         ) from error
 
 
+def capture_workspace_deployment_tree(
+    data_root: Path, workspace_id: UUID, *, stage_root: Path
+) -> DevelopmentTreeManifest:
+    """Recapture and materialize one UUID-derived current tree for transfer."""
+
+    locator = f"{workspace_id}/tree"
+    try:
+        return capture_development_tree(
+            _storage_root(data_root),
+            locator,
+            stage_root=stage_root,
+            reject_vcs=True,
+        )
+    except DevelopmentTreeError as error:
+        raise AgentWorkspaceStorageError(
+            "agent_workspace_tree_unsafe", "Workspace tree is inconsistent or unsafe."
+        ) from error
+
+
 def _open_workspace_root_fd(data_root: Path, workspace_id: UUID) -> int:
     storage_fd = os.open(_storage_root(data_root), _DIRECTORY_FLAGS)
     try:

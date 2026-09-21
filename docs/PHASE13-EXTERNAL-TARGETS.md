@@ -214,14 +214,89 @@ globally and one per target, with at most 1,024 target gates.
 Modern HTTP, modern stdio and bounded legacy HTTP enter the same registry,
 authorization, adapter and receipt. External screenshot uses this shared path
 and returns the existing metadata plus official image content. Discovery and
-schema remain unchanged. Workspace deployment, workspace execution and
-promotion remain internal-managed-only and reject an external UUID without
-disclosing unauthorized existence.
+schema remain unchanged.
+
+## Slice 4 bridge-backed development deployment
+
+**Slice 4 is COMPLETE; Phase 13 remains PARTIAL.** Migration
+`0046_external_bridge_development` generalizes the Phase 12 deployment and
+promotion-plan evidence shapes and adds only external source baselines and
+bridge receipt correlation. It does not create a parallel external workflow.
+The unchanged `workspace_deploy`, `workspace_execute` and `promotion_request`
+schemas admit `external_development` only through the full client permission,
+workspace ownership, source grant, target grant/policy, enabled native trust,
+paired bridge trust, configured/verified capability, generation, validation
+and source-provenance intersection.
+
+Protocol 1 is additively compatible. A Slice 3 bridge that advertises only
+`screenshot` remains valid for screenshots. A Slice 4 bridge explicitly adds
+`workspace_deployment` and the closed `inspect_addon`, `deployment_begin`,
+`deployment_chunk`, `deployment_commit` and `deployment_receipt` operations.
+The bridge does not advertise `fixed_execution`: execution stays on the native
+JSON-RPC adapter because the existing fixed `Files.GetDirectory` video-plugin
+smoke is sufficient and avoids bridge execution authority.
+
+Lab captures the exact protected workspace generation into a private temporary
+tree. The canonical Phase 9 manifest permits only normalized relative regular
+files/directories, caps each file at 2 MiB, the manifest at 16 MiB, a chunk at
+256 KiB, files at 25,000, entries at 50,000 and included bytes at 1 GiB. It
+excludes traversal, links, special objects, VCS administration and Python
+bytecode caches. Each chunk is HMAC-authenticated and accepted only for an
+already authorized deployment UUID and referenced manifest file. No request
+contains the Kodi add-on destination. Lab serially paces transfer at no more
+than 16 MiB/s and fails an invocation that exceeds two hours; one deployment is
+active per target and the existing global heavy gate admits two transfers.
+
+The bridge derives the destination from its local Kodi add-on root and the
+descriptor add-on ID. It stages into a bridge-owned directory, fsyncs file
+content, re-hashes the full tree, confirms the copied Python video-plugin
+descriptor, preserves enabled state, moves the prior tree to one bounded
+rollback copy, replaces the directory, re-enables if needed and checks final
+tree plus Kodi inventory. Failure after mutation attempts rollback; proven
+rollback returns failed, while an unprovable final state remains replacing and
+requires reconciliation. No process, host, profile or container lifecycle is
+owned by the bridge.
+
+Bridge deployment replay is independent of Lab replay. The Lab client/request
+map prevents duplicate semantic dispatch across HTTP, stdio and legacy HTTP.
+The bridge binds deployment UUID, MCP request UUID and exact begin fingerprint;
+repeated chunks must match existing bytes, exact terminal commit replay returns
+the same receipt, and conflicting reuse is rejected. Begin/chunk transfer may
+retry idempotently before activation. Commit is attempted once. A lost commit
+response is recovered only by receipt lookup and never by a second replace.
+
+Before first use, Web must establish a DevelopmentSource baseline by comparing
+the registered source capture with bridge add-on ID/version, tree digest, file
+count and bytes. MCP cannot attach, establish or rebaseline. Each operation
+compares the current bridge tree with the baseline or last successful exact
+deployment. External change marks provenance stale, emits a content-free event
+and blocks deployment, execution and promotion evidence.
+
+Successful external deployment occupies the existing Phase 12 evidence row
+with target class, bridge/request/receipt UUIDs, manifest digest and counts.
+`workspace_execute` requires that exact evidence, current native inventory and
+current bridge tree, then uses the unchanged fixed native smoke and Phase 12
+at-most-once dispatch marker. `promotion_request` accepts the resulting exact
+validation/deployment/execution evidence and produces one Web-review plan; MCP
+still cannot approve or apply it. Existing managed deployment, execution and
+promotion behavior is unchanged.
+
+The Web-only baseline endpoint and deployment reconciliation endpoint require
+the normal authenticated session, Trusted Host, same-origin and CSRF controls.
+Reconciliation queries only the exact bridge receipt and accepts only matching
+terminal evidence; there is no retry button. Disablement, deactivation or
+bridge revocation denies new work immediately while operation history and
+unresolved reconciliation remain visible.
+
+Audit contains UUIDs, generation, semantic classification, manifest digest and
+counts. It contains no file contents, destination/staging/backup path, secret,
+HMAC, raw JSON or raw Kodi response. The bridge keeps at most 64 deployment
+records, one active deployment per target, two Lab transfers globally and one
+immediate rollback copy. Abandoned staging bytes become retained failed
+receipts after 24 hours; terminal/unresolved receipt identity is never evicted
+merely to recover capacity.
 
 ## Remaining Phase 13 work
 
-- workspace deployment
-- fixed execution
-- promotion evidence integration
-- authorized LAN-development proof
+- authorized LAN-development proof and compatibility/network hardening if needed
 - formal Phase 13 closeout

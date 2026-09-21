@@ -51,6 +51,7 @@ from kodi_lab.kodi.addons import (
     KodiAddonInventoryLimitExceededError,
     KodiAddonInventoryMalformedDataError,
     KodiAddonInventoryUnsupportedResponseError,
+    KodiAddonSmokeResult,
 )
 from kodi_lab.kodi.external import (
     ExternalEndpointError,
@@ -204,6 +205,17 @@ class KodiTargetAdapterService:
             capabilities.add("screenshot")
         else:
             capabilities.discard("screenshot")
+        if (
+            self._external_bridges is not None
+            and "workspace_deployment" in capabilities
+            and self._external_bridges.deployment_available(target_id)
+        ):
+            capabilities.add("workspace_deployment")
+            if "fixed_execution" in capabilities:
+                capabilities.add("workspace_execution")
+        else:
+            capabilities.discard("workspace_deployment")
+            capabilities.discard("workspace_execution")
         states = {"reconciled"}
         if capabilities:
             states.update({"running", "ready"})
@@ -326,6 +338,24 @@ class KodiTargetAdapterService:
                 for item in result.items
             ],
         )
+
+    def fixed_execute(
+        self, target_id: UUID, addon_id: str, invocation_id: UUID
+    ) -> KodiAddonSmokeResult:
+        if self._target_type(target_id) is TargetType.MANAGED:
+            raise KodiTargetAdapterError("execution_unsupported")
+        snapshot = self._external_snapshot(
+            target_id, required_capability="fixed_execution", load_secret=True
+        )
+        try:
+            with self._gate.enter(target_id):
+                adapter = self._external_adapter(snapshot)
+                self._require_identity(snapshot, adapter)
+                return adapter.invoke_fixed_video_plugin(addon_id, invocation_id)
+        except KodiTargetAdapterError:
+            raise
+        except ExternalProbeError as error:
+            raise KodiTargetAdapterError(error.code) from error
 
     def invoke(
         self,
@@ -499,6 +529,14 @@ class KodiTargetAdapterService:
                 and self._external_bridges.screenshot_available(target_id)
             ):
                 capabilities.add("screenshot")
+            if (
+                self._external_bridges is not None
+                and "workspace_deployment" in configured
+                and self._external_bridges.deployment_available(target_id)
+            ):
+                capabilities.add("workspace_deployment")
+                if "fixed_execution" in capabilities:
+                    capabilities.add("workspace_execution")
             if required_capability not in capabilities:
                 raise KodiTargetAdapterError("capability_unavailable")
             addresses = tuple(self._closed_json_strings(row.verified_addresses_json))

@@ -37,9 +37,12 @@ from kodi_lab.domain import (
     InstanceType,
     ManagedInstanceMutationKind,
     TargetAvailability,
+    TargetType,
 )
 from kodi_lab.storage.models import (
     AgentWorkspacePromotionPlanPathRow,
+    ExternalBridgePairingRow,
+    ExternalDevelopmentSourceBaselineRow,
     McpClientRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
@@ -164,9 +167,11 @@ class AgentWorkspacePromotionTargetRead(BaseModel):
 @dataclass(frozen=True, slots=True)
 class _TargetBinding:
     name: str
-    runtime_revision_id: UUID
-    container_id: str
-    deployment_operation_id: UUID
+    target_class: str
+    runtime_revision_id: UUID | None
+    container_id: str | None
+    deployment_operation_id: UUID | None
+    bridge_id: UUID | None
     source_digest: str
     destination_digest: str
     expected_enabled: bool
@@ -273,8 +278,6 @@ class AgentWorkspacePromotionService:
         mcp_origin: McpPromotionOrigin | None = None,
         permit_reserved_operation: UUID | None = None,
     ) -> _TargetBinding:
-        if self._reconciliation_gate is not None:
-            self._reconciliation_gate(target_id)
         with self._session_factory() as session:
             target = TargetRepository(session).get(target_id)
             source = DevelopmentSourceRepository(session).get(source_id)
@@ -312,6 +315,12 @@ class AgentWorkspacePromotionService:
                     McpWorkspaceExecutionOperationRow, str(mcp_origin.execution_id)
                 )
             )
+        if (
+            self._reconciliation_gate is not None
+            and target is not None
+            and target.target_type is TargetType.MANAGED
+        ):
+            self._reconciliation_gate(target_id)
         exact_mcp_evidence = mcp_origin is not None and (
             workspace_id is not None
             and generation is not None
@@ -323,6 +332,7 @@ class AgentWorkspacePromotionService:
             and mcp_deployment.target_id == str(target_id)
             and mcp_deployment.generation == generation
             and mcp_deployment.state == "succeeded"
+            and mcp_deployment.target_class in {"internal_lab", "external_development"}
             and source is not None
             and mcp_deployment.addon_id == source.addon_id
             and mcp_deployment.source_manifest_digest is not None
@@ -337,6 +347,53 @@ class AgentWorkspacePromotionService:
             and mcp_execution.addon_id == mcp_deployment.addon_id
             and mcp_execution.addon_version == mcp_deployment.addon_version
         )
+        if (
+            target is not None
+            and target.target_type is TargetType.EXTERNAL_DEVELOPMENT
+            and exact_mcp_evidence
+            and mcp_deployment is not None
+            and mcp_deployment.target_class == "external_development"
+            and mcp_deployment.bridge_id is not None
+            and mcp_deployment.addon_enabled is not None
+        ):
+            with self._session_factory() as session:
+                pairing = session.get(ExternalBridgePairingRow, str(target_id))
+                external_baseline = session.get(
+                    ExternalDevelopmentSourceBaselineRow,
+                    {
+                        "target_id": str(target_id),
+                        "development_source_id": str(source_id),
+                    },
+                )
+            if (
+                target.availability is not TargetAvailability.AVAILABLE
+                or target.health is not HealthStatus.HEALTHY
+                or target.connection_state is not ConnectionState.CONNECTED
+                or pairing is None
+                or pairing.pairing_state.value != "paired"
+                or pairing.pinned_bridge_id != mcp_deployment.bridge_id
+                or external_baseline is None
+                or external_baseline.state != "current"
+                or external_baseline.bridge_id != mcp_deployment.bridge_id
+            ):
+                raise AgentWorkspacePromotionConflictError(
+                    "promotion_target_ineligible",
+                    "Selected verification target no longer has exact eligible "
+                    "deployment state.",
+                )
+            assert mcp_deployment.source_manifest_digest is not None
+            assert mcp_deployment.verified_destination_digest is not None
+            return _TargetBinding(
+                name=target.name,
+                target_class="external_development",
+                runtime_revision_id=None,
+                container_id=None,
+                deployment_operation_id=None,
+                bridge_id=UUID(mcp_deployment.bridge_id),
+                source_digest=mcp_deployment.source_manifest_digest,
+                destination_digest=mcp_deployment.verified_destination_digest,
+                expected_enabled=mcp_deployment.addon_enabled,
+            )
         if (
             target is None
             or instance is None
@@ -408,13 +465,15 @@ class AgentWorkspacePromotionService:
             selected_source_digest = mcp_source_digest
             selected_destination_digest = mcp_destination_digest
         return _TargetBinding(
-            target.name,
-            instance.runtime_revision_id,
-            deployment.trusted_container_id,
-            deployment.last_successful_operation_id,
-            selected_source_digest,
-            selected_destination_digest,
-            enabled,
+            name=target.name,
+            target_class="internal_lab",
+            runtime_revision_id=instance.runtime_revision_id,
+            container_id=deployment.trusted_container_id,
+            deployment_operation_id=deployment.last_successful_operation_id,
+            bridge_id=None,
+            source_digest=selected_source_digest,
+            destination_digest=selected_destination_digest,
+            expected_enabled=enabled,
         )
 
     def eligible_targets(
@@ -670,6 +729,8 @@ class AgentWorkspacePromotionService:
             originating_mcp_execution_id=(
                 None if mcp_origin is None else mcp_origin.execution_id
             ),
+            target_class=binding.target_class,
+            target_bridge_id=binding.bridge_id,
         )
         try:
             with self._session_factory.begin() as session:
@@ -795,6 +856,8 @@ class AgentWorkspacePromotionService:
             originating_mcp_execution_id=(
                 None if mcp_origin is None else mcp_origin.execution_id
             ),
+            target_class=binding.target_class,
+            target_bridge_id=binding.bridge_id,
         )
         paths: list[dict[str, object]] = [
             {
@@ -1069,7 +1132,9 @@ class AgentWorkspacePromotionService:
             mcp_origin=origin,
         )
         if (
-            binding.runtime_revision_id != plan.target_runtime_revision_id
+            binding.target_class != plan.target_class
+            or binding.bridge_id != plan.target_bridge_id
+            or binding.runtime_revision_id != plan.target_runtime_revision_id
             or binding.container_id != plan.target_container_id
             or binding.deployment_operation_id != plan.target_deployment_operation_id
             or binding.source_digest != plan.target_source_digest
@@ -1079,6 +1144,12 @@ class AgentWorkspacePromotionService:
             raise AgentWorkspacePromotionConflictError(
                 "promotion_target_drift",
                 "Selected verification target changed after review.",
+            )
+        if plan.target_class != "internal_lab":
+            raise AgentWorkspacePromotionConflictError(
+                "promotion_target_ineligible",
+                "External verification evidence is reviewable, but source mutation "
+                "requires the existing managed verification workflow.",
             )
         operation = AgentWorkspacePromotionOperation(
             id=self._uuid_factory(),
@@ -1271,6 +1342,9 @@ class AgentWorkspacePromotionService:
 
         def success() -> None:
             now = self._clock()
+            assert plan.target_runtime_revision_id is not None
+            assert plan.target_container_id is not None
+            assert plan.target_deployment_operation_id is not None
             binding = self._target_binding(
                 lease.target_id,
                 lease.source_id,
@@ -1280,7 +1354,9 @@ class AgentWorkspacePromotionService:
                 permit_reserved_operation=lease.operation_id,
             )
             if (
-                binding.runtime_revision_id != plan.target_runtime_revision_id
+                binding.target_class != plan.target_class
+                or binding.bridge_id != plan.target_bridge_id
+                or binding.runtime_revision_id != plan.target_runtime_revision_id
                 or binding.container_id != plan.target_container_id
                 or binding.deployment_operation_id
                 != plan.target_deployment_operation_id

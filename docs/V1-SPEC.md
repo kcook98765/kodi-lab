@@ -1152,10 +1152,16 @@ authenticated identity/capability/screenshot protocol. It admits eligible
 external development targets to the unchanged `screenshot_capture` schema and
 returns bounded in-memory PNG bytes without a remote path. Mutual HMAC,
 request/nonce replay bounds and pinned bridge/add-on/Kodi/build identity protect
-the LAN exchange. The common target UUID and fifteen-tool catalog remain
-unchanged; credentials and bridge secrets remain protected outside SQLite.
-External-production type, workspace deployment, fixed execution, promotion
-evidence integration and lifecycle control remain unavailable.
+the LAN exchange. Slice 4 additively gives that bridge a pathless content-
+addressed workspace-deployment capability, retains fixed execution on the
+native closed video-plugin smoke, and accepts exact external deployment/
+execution evidence for the unchanged Web-reviewed promotion request. Web alone
+establishes the exact DevelopmentSource baseline and reconciles ambiguous
+terminal bridge receipts; drift blocks mutation. The common target UUID,
+fifteen-tool catalog and tool schemas remain unchanged; credentials and bridge
+secrets remain protected outside SQLite. External-production type, arbitrary
+file/add-on management, host lifecycle and production control remain
+unavailable.
 
 ## 48. Recommended module boundaries
 

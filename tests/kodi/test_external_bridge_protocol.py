@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -58,7 +59,7 @@ def test_fake_bridge_pair_identity_capability_screenshot_and_replay() -> None:
             target_id=target_id,
             bridge_id=fake.bridge_id,
             secret=pairing.secret,
-        ) == ("screenshot",)
+        ) == ("screenshot", "workspace_deployment")
         request_id = uuid4()
         nonce = b64url(os.urandom(32))
         requested_at = datetime.now(UTC)
@@ -237,6 +238,91 @@ def test_operation_payload_and_identity_are_covered_by_request_hmac() -> None:
         tampered = dict(envelope)
         tampered[key] = value
         assert request_signature(secret, tampered) != signature
+
+
+def test_content_addressed_deployment_receipt_prevents_duplicate_replacement() -> None:
+    target_id = uuid4()
+    token = os.urandom(32)
+    deployment_id = uuid4()
+    semantic_request_id = uuid4()
+    content = b"fixture"
+    digest = hashlib.sha256(content).hexdigest()
+    manifest_digest = "sha256:" + hashlib.sha256(b"manifest").hexdigest()
+    entries: list[dict[str, object]] = [
+        {
+            "type": "file",
+            "mode": 420,
+            "path": "addon.py",
+            "sha256": digest,
+            "size": len(content),
+        }
+    ]
+    with FakeExternalBridge(target_id=target_id, token=token) as fake:
+        client = ExternalBridgeClient()
+        pairing = client.pair(
+            _endpoint(fake.port),
+            bridge_port=fake.port,
+            target_id=target_id,
+            token=token,
+        )
+        begun = client.deployment_begin(
+            _endpoint(fake.port),
+            bridge_port=fake.port,
+            target_id=target_id,
+            bridge_id=fake.bridge_id,
+            secret=pairing.secret,
+            deployment_id=deployment_id,
+            request_id=semantic_request_id,
+            addon_id=fake.addon_id,
+            addon_version="2.0.0",
+            generation=3,
+            manifest_digest=manifest_digest,
+            entries=entries,
+            file_count=1,
+            total_bytes=len(content),
+        )
+        assert begun.state == "staging"
+        client.deployment_chunk(
+            _endpoint(fake.port),
+            bridge_port=fake.port,
+            target_id=target_id,
+            bridge_id=fake.bridge_id,
+            secret=pairing.secret,
+            deployment_id=deployment_id,
+            path="addon.py",
+            file_digest=digest,
+            offset=0,
+            content=content,
+        )
+        first = client.deployment_commit(
+            _endpoint(fake.port),
+            bridge_port=fake.port,
+            target_id=target_id,
+            bridge_id=fake.bridge_id,
+            secret=pairing.secret,
+            deployment_id=deployment_id,
+            manifest_digest=manifest_digest,
+        )
+        replay = client.deployment_commit(
+            _endpoint(fake.port),
+            bridge_port=fake.port,
+            target_id=target_id,
+            bridge_id=fake.bridge_id,
+            secret=pairing.secret,
+            deployment_id=deployment_id,
+            manifest_digest=manifest_digest,
+        )
+        recovered = client.deployment_receipt(
+            _endpoint(fake.port),
+            bridge_port=fake.port,
+            target_id=target_id,
+            bridge_id=fake.bridge_id,
+            secret=pairing.secret,
+            deployment_id=deployment_id,
+        )
+        assert first.state == replay.state == recovered.state == "succeeded"
+        assert first.receipt_id == replay.receipt_id == recovered.receipt_id
+        assert fake.replacement_count == 1
 
 
 def test_unsupported_bridge_protocol_is_bounded() -> None:

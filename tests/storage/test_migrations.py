@@ -140,7 +140,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0045_external_bridge_pairing",)
+        ).fetchone() == ("0046_external_bridge_development",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -212,8 +212,10 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "external_kodi_target_observations",
         "external_kodi_targets",
         "external_bridge_events",
+        "external_bridge_deployment_receipts",
         "external_bridge_pairings",
         "external_bridge_request_receipts",
+        "external_development_source_baselines",
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_screenshots",
@@ -4837,3 +4839,44 @@ def test_0045_refuses_lossy_downgrade_with_bridge_state(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated external bridge"):
         command.downgrade(config, "0044_external_development_targets")
+
+
+def test_0046_external_bridge_development_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0045_external_bridge_pairing"
+    )
+    command.upgrade(config, "0046_external_bridge_development")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        "external_development_source_baselines",
+        "external_bridge_deployment_receipts",
+    } <= set(inspector.get_table_names())
+    deployment_columns = {
+        item["name"]: item
+        for item in inspector.get_columns("mcp_workspace_deployment_operations")
+    }
+    assert deployment_columns["runtime_revision_id"]["nullable"] is True
+    assert deployment_columns["target_class"]["nullable"] is False
+    promotion_columns = {
+        item["name"]: item
+        for item in inspector.get_columns("agent_workspace_promotion_plans")
+    }
+    assert promotion_columns["target_runtime_revision_id"]["nullable"] is True
+    assert promotion_columns["target_bridge_id"]["nullable"] is True
+    engine.dispose()
+
+    command.downgrade(config, "0045_external_bridge_pairing")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert not {
+        "external_development_source_baselines",
+        "external_bridge_deployment_receipts",
+    }.intersection(inspector.get_table_names())
+    assert "target_class" not in {
+        item["name"]
+        for item in inspector.get_columns("mcp_workspace_deployment_operations")
+    }
+    engine.dispose()

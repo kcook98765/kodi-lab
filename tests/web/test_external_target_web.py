@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
 from kodi_lab.application.mcp_administration import FULL_LAB_CONTROL_PRESET_ID
+from kodi_lab.application.mcp_workspace_development import ExternalBaselineResult
 from kodi_lab.kodi.external import ExternalKodiProbeResult
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore
@@ -205,6 +207,75 @@ def test_external_target_web_flow_and_safe_projection(client: TestClient) -> Non
     assert deactivated["administrative_state"] == "deactivated"
     events = client.get(f"/api/external-targets/{target_id}/events").json()
     assert events[-1]["event_kind"] == "deactivated"
+
+
+def test_external_baseline_establishment_is_web_csrf_only(
+    client: TestClient, monkeypatch: Any
+) -> None:
+    target_id = uuid4()
+    source_id = uuid4()
+    bridge_id = uuid4()
+    route = f"/api/external-targets/{target_id}/development-baselines"
+    assert (
+        client.post(
+            route, json={"confirmed": True, "source_id": str(source_id)}
+        ).status_code
+        == 401
+    )
+    csrf = login(client)
+    assert (
+        client.post(
+            route,
+            json={"confirmed": True, "source_id": str(source_id)},
+            headers=ORIGIN,
+        ).status_code
+        == 403
+    )
+    app = cast(FastAPI, client.app)
+    development = app.state.kodi_lab.mcp_workspace_development
+    monkeypatch.setattr(
+        development,
+        "establish_external_baseline",
+        lambda *, target_id, source_id: ExternalBaselineResult(
+            target_id=target_id,
+            source_id=source_id,
+            bridge_id=bridge_id,
+            addon_id="plugin.video.fixture",
+            addon_version="1.0.0",
+            manifest_digest="sha256:" + "a" * 64,
+            file_count=2,
+            total_bytes=64,
+            established_at=datetime(2026, 9, 21, tzinfo=UTC),
+        ),
+    )
+    response = client.post(
+        route,
+        json={"confirmed": True, "source_id": str(source_id)},
+        headers=_headers(csrf),
+    )
+    assert response.status_code == 201
+    assert response.json()["bridge_id"] == str(bridge_id)
+
+    reconciliation = (
+        f"/api/external-targets/{target_id}/deployments/{uuid4()}/reconcile"
+    )
+    assert client.post(reconciliation, json={"confirmed": True}).status_code == 403
+    assert (
+        client.post(
+            reconciliation,
+            json={"confirmed": True, "retry": True},
+            headers=_headers(csrf),
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            reconciliation,
+            json={"confirmed": True},
+            headers=_headers(csrf),
+        ).status_code
+        == 404
+    )
 
 
 def test_external_target_web_rejects_ssrf_and_invalid_identity(

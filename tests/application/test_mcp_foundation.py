@@ -736,7 +736,7 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         "promotion_request",
     ):
         assert registry.require(name).allowed_target_classes == frozenset(
-            {TargetClass.INTERNAL_LAB}
+            {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
         )
     assert not remote.production_eligible
     for name in (

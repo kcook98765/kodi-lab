@@ -17,6 +17,7 @@ from kodi_lab.storage.models import (
     AgentWorkspacePromotionPlanPathRow,
     AgentWorkspacePromotionPlanRow,
     AgentWorkspaceRow,
+    ExternalBridgeDeploymentReceiptRow,
     McpAgentWorkspaceBindingRow,
     McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
@@ -40,6 +41,10 @@ _DEPLOYMENT_RESULT_CLASSIFICATIONS = {
     "synchronized",
     "unchanged",
 }
+_EXTERNAL_DEPLOYMENT_RESULT_CLASSIFICATIONS = {
+    "deployed",
+    "deployed_and_verified",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,24 +66,57 @@ def _to_text(value: datetime) -> str:
 
 
 def _deployment_success_evidence_is_consistent(
+    session: Session,
     operation: McpWorkspaceDeploymentOperationRow,
 ) -> bool:
-    return bool(
+    common = bool(
         operation.state == "succeeded"
         and operation.phase == "finalize"
         and operation.started_at is not None
         and operation.completed_at is not None
         and operation.mutation_started
-        and operation.target_stopped
         and operation.sync_started
         and operation.sync_completed
         and operation.target_started
         and operation.inventory_classification == "matched"
-        and operation.addon_enabled is True
-        and operation.result_classification in _DEPLOYMENT_RESULT_CLASSIFICATIONS
+        and operation.addon_enabled is not None
         and operation.source_manifest_digest is not None
         and operation.verified_destination_digest is not None
         and operation.failure_code is None
+    )
+    if not common:
+        return False
+    if operation.target_class == "internal_lab":
+        return bool(
+            operation.target_stopped
+            and operation.addon_enabled is True
+            and operation.result_classification in _DEPLOYMENT_RESULT_CLASSIFICATIONS
+            and operation.runtime_revision_id is not None
+            and operation.bridge_id is None
+        )
+    receipt = session.get(ExternalBridgeDeploymentReceiptRow, operation.id)
+    return bool(
+        operation.target_class == "external_development"
+        and not operation.target_stopped
+        and operation.runtime_revision_id is None
+        and operation.bridge_id is not None
+        and operation.bridge_request_id == operation.request_id
+        and operation.bridge_receipt_id is not None
+        and operation.file_count is not None
+        and operation.total_bytes is not None
+        and operation.result_classification
+        in _EXTERNAL_DEPLOYMENT_RESULT_CLASSIFICATIONS
+        and receipt is not None
+        and receipt.target_id == operation.target_id
+        and receipt.bridge_id == operation.bridge_id
+        and receipt.bridge_request_id == operation.request_id
+        and receipt.bridge_receipt_id == operation.bridge_receipt_id
+        and receipt.expected_manifest_digest == operation.source_manifest_digest
+        and receipt.expected_manifest_digest == operation.verified_destination_digest
+        and receipt.file_count == operation.file_count
+        and receipt.total_bytes == operation.total_bytes
+        and receipt.state == "succeeded"
+        and receipt.completed_at is not None
     )
 
 
@@ -144,6 +182,24 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
     """SQL form used by bounded terminal-operation cleanup."""
 
     operation = McpWorkspaceDeploymentOperationRow
+    receipt = ExternalBridgeDeploymentReceiptRow
+    external_receipt = (
+        exists()
+        .where(
+            receipt.operation_id == operation.id,
+            receipt.target_id == operation.target_id,
+            receipt.bridge_id == operation.bridge_id,
+            receipt.bridge_request_id == operation.request_id,
+            receipt.bridge_receipt_id == operation.bridge_receipt_id,
+            receipt.expected_manifest_digest == operation.source_manifest_digest,
+            receipt.expected_manifest_digest == operation.verified_destination_digest,
+            receipt.file_count == operation.file_count,
+            receipt.total_bytes == operation.total_bytes,
+            receipt.state == "succeeded",
+            receipt.completed_at.is_not(None),
+        )
+        .correlate(operation)
+    )
     return or_(
         and_(
             operation.state == "succeeded",
@@ -151,14 +207,36 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
             operation.started_at.is_not(None),
             operation.completed_at.is_not(None),
             operation.mutation_started.is_(True),
-            operation.target_stopped.is_(True),
             operation.sync_started.is_(True),
             operation.sync_completed.is_(True),
             operation.target_started.is_(True),
             operation.inventory_classification == "matched",
-            operation.addon_enabled.is_(True),
-            operation.result_classification.in_(
-                tuple(sorted(_DEPLOYMENT_RESULT_CLASSIFICATIONS))
+            operation.addon_enabled.is_not(None),
+            or_(
+                and_(
+                    operation.target_class == "internal_lab",
+                    operation.target_stopped.is_(True),
+                    operation.addon_enabled.is_(True),
+                    operation.runtime_revision_id.is_not(None),
+                    operation.bridge_id.is_(None),
+                    operation.result_classification.in_(
+                        tuple(sorted(_DEPLOYMENT_RESULT_CLASSIFICATIONS))
+                    ),
+                ),
+                and_(
+                    operation.target_class == "external_development",
+                    operation.target_stopped.is_(False),
+                    operation.runtime_revision_id.is_(None),
+                    operation.bridge_id.is_not(None),
+                    operation.bridge_request_id == operation.request_id,
+                    operation.bridge_receipt_id.is_not(None),
+                    operation.file_count.is_not(None),
+                    operation.total_bytes.is_not(None),
+                    operation.result_classification.in_(
+                        tuple(sorted(_EXTERNAL_DEPLOYMENT_RESULT_CLASSIFICATIONS))
+                    ),
+                    external_receipt,
+                ),
             ),
             operation.source_manifest_digest.is_not(None),
             operation.verified_destination_digest.is_not(None),
@@ -531,7 +609,7 @@ def _deployment_is_replay_safe(
     ):
         return False
     return bool(
-        _deployment_success_evidence_is_consistent(operation)
+        _deployment_success_evidence_is_consistent(session, operation)
         or _deployment_pre_mutation_failure_evidence_is_consistent(operation)
     )
 

@@ -3883,3 +3883,55 @@ authority.
   bounded ambiguity; it never silently creates a second capture. HTTP HMAC
   authenticates integrity but screenshots remain cleartext on the LAN; HTTPS
   retains normal certificate validation and has no `verify=false` mode.
+
+## D-0294: Bridge deployment is pathless, content-addressed and development-only
+- Status: accepted Phase 13 Slice 4.
+- Decision: protocol 1 additively advertises `workspace_deployment` and exposes
+  only exact add-on inspection, deployment begin, referenced chunk transfer,
+  commit and receipt lookup. Lab supplies a canonical bounded manifest and
+  hashes but no destination. The bridge derives `special://home/addons/<id>`
+  from the verified descriptor ID, stages regular files only, excludes VCS and
+  bytecode caches, verifies the complete tree, and admits only one copied
+  Python video plugin on an approved `external_development` target. There is no
+  generic upload, filesystem, install, URL, shell, restart or lifecycle API.
+
+## D-0295: External deployment reuses Phase 12 replay and evidence
+- Status: accepted Phase 13 Slice 4.
+- Decision: `workspace_deploy` keeps its four existing arguments and its Phase
+  12 client/request map, workspace ownership, validation, rate, heavy lease and
+  target grant. The generalized deployment row records either exact managed
+  runtime identity or exact bridge identity/receipt, never both. The bridge
+  independently binds deployment/request UUID, manifest and chunks; exact
+  replay returns one receipt and conflicting reuse fails. Staging transfer may
+  resume idempotently, but commit is never redispatched after uncertainty.
+
+## D-0296: External baseline provenance is Web-established and drift revokes authority
+- Status: accepted Phase 13 Slice 4.
+- Decision: before first deployment, Web compares an approved
+  DevelopmentSource capture with the bridge's current add-on ID, version,
+  manifest digest, file count and bytes. MCP cannot establish or re-baseline
+  this association. Every later deployment/execution proves the expected last
+  tree; external change marks the association stale and blocks mutation rather
+  than adopting it. Disablement, deactivation, bridge revocation or capability
+  drift blocks new work while durable evidence remains.
+
+## D-0297: Fixed external execution remains native and closed
+- Status: accepted Phase 13 Slice 4.
+- Decision: the bridge has no execution capability or JSON-RPC proxy. Native
+  verification proves the configured `fixed_execution` maximum by exact
+  `Files.GetDirectory` introspection; after exact bridge deployment, the target
+  adapter invokes only the existing Phase 12 video-plugin directory smoke.
+  Pre/post inventory and bridge-tree evidence bind the same add-on, version,
+  target, workspace and generation. The existing pre-dispatch marker and
+  no-post-dispatch-retry ambiguity rule are unchanged.
+
+## D-0298: External ambiguity is Web-reconciled from durable bridge receipts
+- Status: accepted Phase 13 Slice 4.
+- Decision: commit-response loss makes the Lab operation reconciliation-
+  required and never causes replacement redispatch. A CSRF-protected Web-only
+  action queries the pinned bridge by deployment UUID and accepts only a
+  terminal receipt matching bridge, target, semantic request, manifest and
+  counts. Missing, staging, contradictory or unprovable evidence stays
+  ambiguous. Bridge operation metadata is bounded to 64 entries; abandoned
+  staging bytes expire after 24 hours into retained failed receipts, terminal
+  and unresolved receipt identity is not evicted to recover capacity.

@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+import kodi_lab.application.external_bridges as external_bridge_module
 from kodi_lab.application.external_bridges import (
     ExternalBridgeService,
     ExternalBridgeServiceError,
@@ -20,6 +21,7 @@ from kodi_lab.application.mcp_administration import (
     McpPrincipal,
 )
 from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
+from kodi_lab.development.deployment import capture_development_tree
 from kodi_lab.domain import ExternalBridgePairingState, ExternalProtocolKind
 from kodi_lab.kodi.bridge import ExternalBridgeClient
 from kodi_lab.kodi.external import (
@@ -83,7 +85,7 @@ def _seed(factory: sessionmaker[Session], target_id: UUID) -> None:
                 authentication_mode="none",
                 secret_reference=None,
                 configured_capabilities_json=json.dumps(
-                    ["screenshot", "target_inspect"]
+                    ["screenshot", "target_inspect", "workspace_deployment"]
                 ),
                 verified_capabilities_json=json.dumps(["target_inspect"]),
                 administrative_state="enabled",
@@ -143,7 +145,10 @@ def test_web_pair_confirm_capture_replay_receipt_and_revoke(tmp_path: Path) -> N
         paired = service.confirm_pairing(target_id)
         assert paired.pairing_state is ExternalBridgePairingState.PAIRED
         assert paired.pinned_bridge_id == fake.bridge_id
-        assert paired.verified_capabilities == ("screenshot",)
+        assert paired.verified_capabilities == (
+            "screenshot",
+            "workspace_deployment",
+        )
         fake.tamper = "drop_screenshot_once"
         capture = service.capture_screenshot(target_id)
         assert capture.bridge_id == fake.bridge_id
@@ -198,6 +203,115 @@ def test_web_pair_confirm_capture_replay_receipt_and_revoke(tmp_path: Path) -> N
         with pytest.raises(ExternalBridgeServiceError, match="bridge_not_paired"):
             service.capture_screenshot(target_id)
         assert list(secrets.iterdir()) == []
+    engine.dispose()
+
+
+def test_bridge_deploys_exact_manifest_once_and_recovers_terminal_receipt(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'deployment.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id = uuid4()
+    _seed(factory, target_id)
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "addon.xml").write_text(
+        '<addon id="plugin.video.fixture" name="Fixture" version="2.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="addon.py">'
+        "<provides>video</provides></extension></addon>"
+    )
+    (stage / "addon.py").write_text("print('fixture')\n")
+    manifest = capture_development_tree(tmp_path, "stage")
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        service = _service(factory, tmp_path / "bridge-secrets", fake.port)
+        generated = service.generate_pairing_token(target_id, bridge_port=fake.port)
+        fake.token = _decode_token(generated.token)
+        service.attempt_pairing(target_id)
+        service.confirm_pairing(target_id)
+        operation_id = uuid4()
+        request_id = uuid4()
+        fake.tamper = "drop_deployment_begin_once"
+        first = service.deploy_workspace(
+            target_id,
+            operation_id=operation_id,
+            request_id=request_id,
+            addon_id=fake.addon_id,
+            addon_version="2.0.0",
+            generation=4,
+            manifest=manifest,
+            stage_root=stage,
+        )
+        replay = service.deploy_workspace(
+            target_id,
+            operation_id=operation_id,
+            request_id=request_id,
+            addon_id=fake.addon_id,
+            addon_version="2.0.0",
+            generation=4,
+            manifest=manifest,
+            stage_root=stage,
+        )
+        recovered = service.deployment_receipt(target_id, operation_id)
+        observed = service.inspect_addon(target_id, fake.addon_id)
+        assert first.state == replay.state == recovered.state == "succeeded"
+        assert first.receipt_id == replay.receipt_id == recovered.receipt_id
+        assert observed.manifest_digest == manifest.digest
+        assert fake.replacement_count == 1
+        fake.tamper = "drop_deployment_commit_once"
+        recovered_after_loss = service.deploy_workspace(
+            target_id,
+            operation_id=uuid4(),
+            request_id=uuid4(),
+            addon_id=fake.addon_id,
+            addon_version="2.0.0",
+            generation=5,
+            manifest=manifest,
+            stage_root=stage,
+        )
+        assert recovered_after_loss.state == "succeeded"
+        assert fake.replacement_count == 2
+    engine.dispose()
+
+
+def test_bridge_transfer_duration_exhaustion_never_replaces(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'duration.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id = uuid4()
+    _seed(factory, target_id)
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "addon.xml").write_text(
+        '<addon id="plugin.video.fixture" name="Fixture" version="2.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="addon.py">'
+        "<provides>video</provides></extension></addon>"
+    )
+    (stage / "addon.py").write_text("print('fixture')\n")
+    manifest = capture_development_tree(tmp_path, "stage")
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        service = _service(factory, tmp_path / "bridge-secrets", fake.port)
+        generated = service.generate_pairing_token(target_id, bridge_port=fake.port)
+        fake.token = _decode_token(generated.token)
+        service.attempt_pairing(target_id)
+        service.confirm_pairing(target_id)
+        monkeypatch.setattr(
+            external_bridge_module, "MAX_DEPLOYMENT_DURATION_SECONDS", -1
+        )
+        with pytest.raises(ExternalBridgeServiceError, match="transfer_invalid"):
+            service.deploy_workspace(
+                target_id,
+                operation_id=uuid4(),
+                request_id=uuid4(),
+                addon_id=fake.addon_id,
+                addon_version="2.0.0",
+                generation=4,
+                manifest=manifest,
+                stage_root=stage,
+            )
+        assert fake.replacement_count == 0
     engine.dispose()
 
 

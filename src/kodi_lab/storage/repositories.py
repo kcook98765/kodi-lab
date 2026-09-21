@@ -993,9 +993,17 @@ def _agent_workspace_promotion_plan_from_row(
         current_version=row.current_version,
         promoted_name=row.promoted_name,
         promoted_version=row.promoted_version,
-        target_runtime_revision_id=UUID(row.target_runtime_revision_id),
+        target_runtime_revision_id=(
+            None
+            if row.target_runtime_revision_id is None
+            else UUID(row.target_runtime_revision_id)
+        ),
         target_container_id=row.target_container_id,
-        target_deployment_operation_id=UUID(row.target_deployment_operation_id),
+        target_deployment_operation_id=(
+            None
+            if row.target_deployment_operation_id is None
+            else UUID(row.target_deployment_operation_id)
+        ),
         target_source_digest=row.target_source_digest,
         target_destination_digest=row.target_destination_digest,
         expected_enabled=(
@@ -1038,6 +1046,10 @@ def _agent_workspace_promotion_plan_from_row(
             None
             if row.originating_mcp_execution_id is None
             else UUID(row.originating_mcp_execution_id)
+        ),
+        target_class=row.target_class,
+        target_bridge_id=(
+            None if row.target_bridge_id is None else UUID(row.target_bridge_id)
         ),
     )
 
@@ -7620,8 +7632,10 @@ class AgentWorkspacePromotionPlanRepository:
                 workspace_id=str(plan.workspace_id),
                 development_source_id=str(plan.development_source_id),
                 original_target_instance_id=str(plan.target_instance_id),
-                target_instance_id=str(
-                    plan.live_target_instance_id or plan.target_instance_id
+                target_instance_id=(
+                    None
+                    if plan.target_class == "external_development"
+                    else str(plan.live_target_instance_id or plan.target_instance_id)
                 ),
                 original_target_name=plan.original_target_name,
                 workspace_generation=plan.workspace_generation,
@@ -7633,9 +7647,23 @@ class AgentWorkspacePromotionPlanRepository:
                 current_version=plan.current_version,
                 promoted_name=plan.promoted_name,
                 promoted_version=plan.promoted_version,
-                target_runtime_revision_id=str(plan.target_runtime_revision_id),
+                target_runtime_revision_id=(
+                    None
+                    if plan.target_runtime_revision_id is None
+                    else str(plan.target_runtime_revision_id)
+                ),
                 target_container_id=plan.target_container_id,
-                target_deployment_operation_id=str(plan.target_deployment_operation_id),
+                target_deployment_operation_id=(
+                    None
+                    if plan.target_deployment_operation_id is None
+                    else str(plan.target_deployment_operation_id)
+                ),
+                target_class=plan.target_class,
+                target_bridge_id=(
+                    None
+                    if plan.target_bridge_id is None
+                    else str(plan.target_bridge_id)
+                ),
                 target_source_digest=plan.target_source_digest,
                 target_destination_digest=plan.target_destination_digest,
                 expected_enabled=plan.expected_enabled,

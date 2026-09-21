@@ -2203,6 +2203,49 @@ Exact MCP permission, target grant and target preset remain mandatory.
 Unauthorized clients cannot distinguish pairing state. Native Slice 2 tools do
 not require a bridge. Deployment, execution and promotion stay internal-only.
 
+## Phase 13 Slice 4 bridge-backed external development
+
+Migration `0046_external_bridge_development` keeps Phase 12 as the sole
+workspace-development state machine. Its deployment evidence now has a closed
+target-class union: managed operations bind exact runtime revision, while
+external operations bind exact bridge, bridge request and terminal receipt.
+The same workspace generation, structural validation, request map, global
+heavy coordination, execution evidence and promotion request consume either
+shape. No new MCP tool or input field exists.
+
+External mutation begins with a Web-established association between one
+approved DevelopmentSource and one paired external target. The association is
+an exact add-on ID/version plus canonical tree digest/counts, not a version
+claim. Deployment checks the baseline or last successful external deployment;
+unexplained tree change marks it stale. Baseline establishment and ambiguity
+reconciliation are authenticated Web operations only.
+
+The additive protocol-1 `workspace_deployment` capability is a content-addressed
+transaction, not a file API. Lab sends a canonical manifest and referenced
+256-KiB chunks under one authorized deployment UUID. The bridge locally derives
+the destination, stages regular files, verifies hashes/descriptor, preserves
+enablement, keeps one rollback tree, performs best-available directory rename,
+and verifies tree plus Kodi inventory. Lab caps transfer bandwidth at 16 MiB/s
+and each invocation at two hours in addition to the fixed body and concurrency
+bounds. Commit-response loss is resolved only by
+the durable receipt. Begin/chunk resume is idempotent and cannot activate a
+partial tree; commit is not automatically repeated.
+
+Fixed execution remains native. Native verification proves the exact
+`Files.GetDirectory` method and the bridge proves current deployment bytes.
+The existing Phase 12 copied-video-plugin invocation then runs behind its
+pre-dispatch marker. Pre/post tree and inventory observations bind execution to
+the deployment. Consequently the bridge gains no JSON-RPC or execution
+mutation authority.
+
+The authority intersection includes client/tool, workspace ownership, source
+grant, target grant/policy, external-development class, enabled native identity,
+paired bridge identity, configured and observed capabilities, exact generation,
+successful validation and current source provenance. Target disablement,
+deactivation or bridge revocation blocks new work without deleting history.
+Phase 13 remains partial pending authorized LAN-development proof and formal
+closeout.
+
 The add-on uses Kodi RenderCapture at the server-owned 1280x720 geometry and
 converts BGRA to an in-memory RGB PNG. It never writes or reads a remote path.
 The application authenticates response identity/status/digest before applying

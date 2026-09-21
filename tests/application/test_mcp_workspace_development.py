@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,11 +21,15 @@ from kodi_lab.application.addon_inventory import (
     KodiAddonProvenanceEvidenceStatus,
     ManagedInstanceAddonInventory,
 )
+from kodi_lab.application.agent_workspace_promotions import (
+    AgentWorkspacePromotionService,
+)
 from kodi_lab.application.agent_workspaces import AgentWorkspaceService
 from kodi_lab.application.mcp_administration import (
     FULL_LAB_CONTROL_PRESET_ID,
     McpAdministrationService,
 )
+from kodi_lab.application.mcp_promotion_requests import McpPromotionRequestService
 from kodi_lab.application.mcp_workspace_development import (
     BoundedIntervalRateLimiter,
     McpWorkspaceDevelopmentError,
@@ -42,7 +48,13 @@ from kodi_lab.broker.operations import (
     ObserveManagedKodiRuntimeResult,
     VerifyAttachedDevelopmentSourceDestinationResult,
 )
-from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
+from kodi_lab.domain import (
+    DevelopmentSource,
+    DevelopmentSourceKind,
+    ExternalAdministrativeState,
+    ExternalBridgePairingState,
+    ExternalBridgeReachabilityState,
+)
 from kodi_lab.kodi.addons import (
     KodiAddonDetailsRecord,
     KodiAddonInventoryRecord,
@@ -50,12 +62,18 @@ from kodi_lab.kodi.addons import (
     KodiAddonSmokeResult,
     KodiAddonSmokeTimeoutError,
 )
+from kodi_lab.kodi.bridge import BridgeAddonTree, BridgeDeploymentReceipt
 from kodi_lab.kodi.readiness import KodiApplicationIdentity, UsabilityState
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    AgentWorkspacePromotionPlanRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
+    ExternalBridgeDeploymentReceiptRow,
+    ExternalBridgePairingRow,
+    ExternalDevelopmentSourceBaselineRow,
+    ExternalKodiTargetRow,
     ManagedInstanceDevelopmentSourceRow,
     ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
@@ -78,6 +96,8 @@ CONTAINER_ID = "a" * 64
 IMAGE_ID = "sha256:" + "b" * 64
 NOW = datetime(2026, 9, 20, 18, 0, tzinfo=UTC)
 NOW_TEXT = "2026-09-20T18:00:00.000000Z"
+EXTERNAL_TARGET_ID = UUID("72000000-0000-4000-8000-000000000006")
+EXTERNAL_BRIDGE_ID = UUID("72000000-0000-4000-8000-000000000007")
 
 
 class FakeInventory:
@@ -232,6 +252,112 @@ class DetailsAdapter:
             kodi_type="xbmc.python.pluginsource",
             dependencies=(),
         )
+
+
+@dataclass
+class FakeExternalDevelopmentBridge:
+    manifest_digest: str
+    file_count: int
+    total_bytes: int
+    version: str = "1.0.0"
+    enabled: bool = True
+    replacement_count: int = 0
+    receipt: BridgeDeploymentReceipt | None = None
+    pre_commit_hook: Callable[[], None] | None = None
+
+    def inspect_addon(self, target_id: UUID, addon_id: str) -> BridgeAddonTree:
+        assert target_id == EXTERNAL_TARGET_ID
+        assert addon_id == "plugin.video.slice4"
+        return BridgeAddonTree(
+            addon_id=addon_id,
+            addon_version=self.version,
+            manifest_digest=self.manifest_digest,
+            file_count=self.file_count,
+            total_bytes=self.total_bytes,
+            enabled=self.enabled,
+        )
+
+    def deploy_workspace(
+        self, target_id: UUID, **kwargs: Any
+    ) -> BridgeDeploymentReceipt:
+        assert target_id == EXTERNAL_TARGET_ID
+        operation_id = cast(UUID, kwargs["operation_id"])
+        request_id = cast(UUID, kwargs["request_id"])
+        if self.receipt is not None and self.receipt.deployment_id == operation_id:
+            return self.receipt
+        before_commit = kwargs["before_commit"]
+        if self.pre_commit_hook is not None:
+            self.pre_commit_hook()
+        before_commit()
+        manifest = kwargs["manifest"]
+        self.replacement_count += 1
+        self.manifest_digest = manifest.digest
+        self.file_count = sum(entry.entry_type == "file" for entry in manifest.entries)
+        self.total_bytes = manifest.included_bytes
+        self.version = str(kwargs["addon_version"])
+        self.receipt = BridgeDeploymentReceipt(
+            receipt_id=uuid4(),
+            deployment_id=operation_id,
+            request_id=request_id,
+            bridge_id=EXTERNAL_BRIDGE_ID,
+            addon_id="plugin.video.slice4",
+            addon_version=self.version,
+            generation=int(kwargs["generation"]),
+            manifest_digest=self.manifest_digest,
+            file_count=self.file_count,
+            total_bytes=self.total_bytes,
+            state="succeeded",
+            classification="deployed",
+            enabled_state="enabled",
+            inventory_verified=True,
+            completed_at=NOW,
+        )
+        return self.receipt
+
+    def deployment_receipt(
+        self, target_id: UUID, operation_id: UUID
+    ) -> BridgeDeploymentReceipt:
+        assert target_id == EXTERNAL_TARGET_ID
+        assert self.receipt is not None and self.receipt.deployment_id == operation_id
+        return self.receipt
+
+
+@dataclass
+class FakeExternalTargetAdapters:
+    bridge: FakeExternalDevelopmentBridge
+    execution_count: int = 0
+
+    def addon_inventory(self, target_id: UUID) -> ManagedInstanceAddonInventory:
+        tree = self.bridge.inspect_addon(target_id, "plugin.video.slice4")
+        return ManagedInstanceAddonInventory(
+            instance_id=target_id,
+            observed_at=NOW,
+            kodi_release="21.3",
+            query_status=AddonInventoryQueryStatus.AVAILABLE,
+            complete=True,
+            items=[
+                KodiAddonInventoryItem(
+                    addon_id=tree.addon_id,
+                    name="Slice 4",
+                    version=tree.addon_version,
+                    enabled=tree.enabled,
+                    kodi_type="xbmc.python.pluginsource",
+                    provenance=KodiAddonProvenance(
+                        classification=KodiAddonProvenanceClassification.UNKNOWN,
+                        evidence_status=KodiAddonProvenanceEvidenceStatus.UNKNOWN,
+                    ),
+                )
+            ],
+        )
+
+    def fixed_execute(
+        self, target_id: UUID, addon_id: str, invocation_id: UUID
+    ) -> KodiAddonSmokeResult:
+        assert target_id == EXTERNAL_TARGET_ID
+        assert addon_id == "plugin.video.slice4"
+        assert invocation_id
+        self.execution_count += 1
+        return KodiAddonSmokeResult(item_count=1, duration_ms=3)
 
 
 @dataclass
@@ -493,6 +619,323 @@ def _restarted_development(
         max_per_client=max_per_client,
         max_global=max_global,
     )
+
+
+def _configure_external_environment(
+    env: Environment,
+) -> tuple[FakeExternalDevelopmentBridge, FakeExternalTargetAdapters]:
+    manifest = env.workspaces.capture_registered_source_manifest(SOURCE_ID)
+    files = [entry for entry in manifest.entries if entry.entry_type == "file"]
+    with env.sessions.begin() as session:
+        session.add(
+            TargetRow(
+                id=str(EXTERNAL_TARGET_ID),
+                name="Slice 4 external",
+                target_type="external_development",
+                kodi_version="21.3",
+                availability="available",
+                health="healthy",
+                connection_state="connected",
+            )
+        )
+        session.flush()
+        session.add(
+            ExternalKodiTargetRow(
+                target_id=str(EXTERNAL_TARGET_ID),
+                protocol_kind="jsonrpc_http",
+                host="127.0.0.1",
+                port=8080,
+                authentication_mode="none",
+                secret_reference=None,
+                configured_capabilities_json=json.dumps(
+                    ["fixed_execution", "target_inspect", "workspace_deployment"]
+                ),
+                verified_capabilities_json=json.dumps(
+                    ["fixed_execution", "target_inspect"]
+                ),
+                administrative_state="enabled",
+                verification_state="verified",
+                observation_state="reachable",
+                verified_addresses_json='["127.0.0.1"]',
+                verified_kodi_name="Kodi",
+                verified_kodi_version="21.3",
+                observed_kodi_name="Kodi",
+                observed_kodi_version="21.3",
+                observed_protocol_version="13.0.0",
+                pending_observation_id=None,
+                created_at=NOW_TEXT,
+                verified_at=NOW_TEXT,
+                deactivated_at=None,
+                last_observed_at=NOW_TEXT,
+            )
+        )
+        session.flush()
+        session.add(
+            ExternalBridgePairingRow(
+                target_id=str(EXTERNAL_TARGET_ID),
+                bridge_port=8765,
+                pairing_state="paired",
+                reachability_state="reachable",
+                pairing_token_reference=None,
+                bridge_secret_reference=str(uuid4()),
+                pairing_token_expires_at=None,
+                observed_bridge_id=str(EXTERNAL_BRIDGE_ID),
+                observed_protocol_version="1",
+                observed_addon_id="service.kodi_lab_bridge",
+                observed_addon_version="1.1.0",
+                observed_kodi_version="21.3",
+                observed_build_fingerprint="a" * 64,
+                observed_capabilities_json='["screenshot","workspace_deployment"]',
+                pinned_bridge_id=str(EXTERNAL_BRIDGE_ID),
+                pinned_protocol_version="1",
+                pinned_addon_id="service.kodi_lab_bridge",
+                pinned_addon_version="1.1.0",
+                pinned_kodi_version="21.3",
+                pinned_build_fingerprint="a" * 64,
+                verified_capabilities_json='["screenshot","workspace_deployment"]',
+                endpoint_revision_digest="b" * 64,
+                token_generated_at=NOW_TEXT,
+                pairing_attempted_at=NOW_TEXT,
+                paired_at=NOW_TEXT,
+                verified_at=NOW_TEXT,
+                revoked_at=None,
+            )
+        )
+    bridge = FakeExternalDevelopmentBridge(
+        manifest_digest=manifest.digest,
+        file_count=len(files),
+        total_bytes=manifest.included_bytes,
+    )
+    targets = FakeExternalTargetAdapters(bridge)
+    env.development.configure_external(
+        bridges=cast(Any, bridge), targets=cast(Any, targets)
+    )
+    env.development._deployment_rate = BoundedIntervalRateLimiter(0)
+    env.development._execution_rate = BoundedIntervalRateLimiter(0)
+    env.development.establish_external_baseline(
+        target_id=EXTERNAL_TARGET_ID, source_id=SOURCE_ID
+    )
+    return bridge, targets
+
+
+def test_external_deploy_execute_replay_and_drift_invalidation(tmp_path: Path) -> None:
+    env = _environment(tmp_path)
+    bridge, targets = _configure_external_environment(env)
+    edit = env.workspaces.replace_text_file(
+        env.workspace_id,
+        expected_generation=0,
+        relative_path="main.py",
+        content="print('external')\n",
+    )
+    assert edit.generation == 1
+    env.development.record_validation(
+        workspace_id=env.workspace_id,
+        source_id=SOURCE_ID,
+        generation=1,
+        addon_id="plugin.video.slice4",
+        addon_version="1.0.0",
+        extension_types=("xbmc.python.pluginsource",),
+        validated_at=NOW,
+    )
+    deploy_request = uuid4()
+    first = env.development.deploy(
+        client_id=env.client_id,
+        request_id=deploy_request,
+        workspace_id=env.workspace_id,
+        expected_generation=1,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    replay = env.development.deploy(
+        client_id=env.client_id,
+        request_id=deploy_request,
+        workspace_id=env.workspace_id,
+        expected_generation=1,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    assert replay == first
+    assert bridge.replacement_count == 1
+    execute_request = uuid4()
+    executed = env.development.execute(
+        client_id=env.client_id,
+        request_id=execute_request,
+        workspace_id=env.workspace_id,
+        expected_generation=1,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    execute_replay = env.development.execute(
+        client_id=env.client_id,
+        request_id=execute_request,
+        workspace_id=env.workspace_id,
+        expected_generation=1,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    assert execute_replay == executed
+    assert targets.execution_count == 1
+    promotions = AgentWorkspacePromotionService(
+        env.sessions,
+        data_root=tmp_path / "data",
+        development_root=tmp_path / "sources",
+        verification_publisher=lambda _session, _operation: uuid4(),
+        clock=lambda: NOW,
+    )
+    promotion_requests = McpPromotionRequestService(
+        env.sessions, promotions, clock=lambda: NOW
+    )
+    promotion_request_id = uuid4()
+    promotion = promotion_requests.request(
+        client_id=env.client_id,
+        request_id=promotion_request_id,
+        workspace_id=env.workspace_id,
+        expected_generation=1,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    promotion_replay = promotion_requests.request(
+        client_id=env.client_id,
+        request_id=promotion_request_id,
+        workspace_id=env.workspace_id,
+        expected_generation=1,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    assert promotion_replay == promotion
+    assert promotion.review_state == "reviewable"
+    with env.sessions() as session:
+        plan = session.get(
+            AgentWorkspacePromotionPlanRow, str(promotion.promotion_plan_id)
+        )
+        assert plan is not None
+        assert plan.target_class == "external_development"
+        assert plan.target_bridge_id == str(EXTERNAL_BRIDGE_ID)
+    with env.sessions.begin() as session:
+        deployment_row = session.get(
+            McpWorkspaceDeploymentOperationRow, str(first.deployment_id)
+        )
+        receipt_row = session.get(
+            ExternalBridgeDeploymentReceiptRow, str(first.deployment_id)
+        )
+        assert deployment_row is not None and receipt_row is not None
+        deployment_row.state = "reconciliation_required"
+        deployment_row.failure_code = "deployment_ambiguous"
+        receipt_row.state = "ambiguous"
+        receipt_row.classification = "deployment_ambiguous"
+    restarted = _restarted_development(env, tmp_path)
+    restarted.configure_external(bridges=cast(Any, bridge), targets=cast(Any, targets))
+    assert restarted.reconcile_external_deployment(first.deployment_id) == "succeeded"
+    assert bridge.replacement_count == 1
+    bridge.manifest_digest = "sha256:" + "f" * 64
+    with pytest.raises(
+        McpWorkspaceDevelopmentError, match="target_provenance_mismatch"
+    ):
+        env.development.deploy(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            workspace_id=env.workspace_id,
+            expected_generation=1,
+            target_id=EXTERNAL_TARGET_ID,
+        )
+    with env.sessions() as session:
+        baseline = session.get(
+            ExternalDevelopmentSourceBaselineRow,
+            {
+                "target_id": str(EXTERNAL_TARGET_ID),
+                "development_source_id": str(SOURCE_ID),
+            },
+        )
+        assert baseline is not None and baseline.state == "stale"
+
+
+@pytest.mark.parametrize("revoked", [False, True])
+def test_external_disable_or_bridge_revoke_before_commit_denies_mutation(
+    tmp_path: Path, revoked: bool
+) -> None:
+    env = _environment(tmp_path)
+    bridge, _targets = _configure_external_environment(env)
+
+    def revoke_authority() -> None:
+        with env.sessions.begin() as session:
+            if revoked:
+                pairing = session.get(ExternalBridgePairingRow, str(EXTERNAL_TARGET_ID))
+                assert pairing is not None
+                pairing.pairing_state = ExternalBridgePairingState.REVOKED
+                pairing.reachability_state = ExternalBridgeReachabilityState.UNKNOWN
+                pairing.bridge_secret_reference = None
+                pairing.verified_capabilities_json = "[]"
+            else:
+                external = session.get(ExternalKodiTargetRow, str(EXTERNAL_TARGET_ID))
+                assert external is not None
+                external.administrative_state = ExternalAdministrativeState.DISABLED
+
+    bridge.pre_commit_hook = revoke_authority
+    with pytest.raises(McpWorkspaceDevelopmentError, match="deployment_not_allowed"):
+        env.development.deploy(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=EXTERNAL_TARGET_ID,
+        )
+    assert bridge.replacement_count == 0
+
+
+def test_external_terminal_receipt_prunes_only_with_coherent_phase12_evidence(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+    _bridge, _targets = _configure_external_environment(env)
+    request_id = uuid4()
+    deployed = env.development.deploy(
+        client_id=env.client_id,
+        request_id=request_id,
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    env.workspaces.replace_text_file(
+        env.workspace_id,
+        expected_generation=0,
+        relative_path="main.py",
+        content="print('next generation')\n",
+    )
+    old = (
+        (NOW - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with env.sessions.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old, updated_at=old)
+        )
+        session.execute(
+            update(McpWorkspaceDeploymentOperationRow)
+            .where(McpWorkspaceDeploymentOperationRow.id == str(deployed.deployment_id))
+            .values(completed_at=old)
+        )
+        session.execute(
+            update(ExternalBridgeDeploymentReceiptRow)
+            .where(
+                ExternalBridgeDeploymentReceiptRow.operation_id
+                == str(deployed.deployment_id)
+            )
+            .values(completed_at=old)
+        )
+        env.development._prune_and_require_capacity(session, env.client_id, NOW)
+        assert (
+            session.scalar(
+                select(McpDevelopmentRequestRow).where(
+                    McpDevelopmentRequestRow.request_id == str(request_id)
+                )
+            )
+            is None
+        )
+        assert (
+            session.get(McpWorkspaceDeploymentOperationRow, str(deployed.deployment_id))
+            is None
+        )
+        assert (
+            session.get(ExternalBridgeDeploymentReceiptRow, str(deployed.deployment_id))
+            is None
+        )
 
 
 def test_exact_generation_deploy_execute_and_replay_counts(tmp_path: Path) -> None:

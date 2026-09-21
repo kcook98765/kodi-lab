@@ -244,6 +244,8 @@ from kodi_lab.application.mcp_promotion_requests import McpPromotionRequestServi
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionReceiptService
 from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
 from kodi_lab.application.mcp_workspace_development import (
+    ExternalBaselineResult,
+    McpWorkspaceDevelopmentError,
     McpWorkspaceDevelopmentService,
 )
 from kodi_lab.application.mcp_workspace_mutations import McpWorkspaceCreationService
@@ -397,6 +399,7 @@ from kodi_lab.mcp.authorization import (
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
+from kodi_lab.storage.models import McpWorkspaceDeploymentOperationRow
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
 from kodi_lab.storage.secrets import (
     ExternalBridgeSecretStore,
@@ -795,6 +798,19 @@ class ExternalBridgeConfirmedRequest(BaseModel):
     confirmed: Literal[True]
 
 
+class ExternalBaselineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    source_id: UUID
+
+
+class ExternalDeploymentReconciliationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
@@ -1074,6 +1090,10 @@ def create_app(
         endpoint_policy=external_endpoint_policy,
         credential_store=external_credential_store,
         external_transport=external_target_transport,
+    )
+    mcp_workspace_development.configure_external(
+        bridges=external_bridges,
+        targets=mcp_target_adapters,
     )
     remote_receipts = McpRemoteActionReceiptService(
         session_factory, mcp_target_adapters, remote_rate_limiter
@@ -2155,6 +2175,15 @@ def create_app(
         }.get(error.code, 409)
         return _json_error(status_code, error.code, "External bridge request rejected.")
 
+    @app.exception_handler(McpWorkspaceDevelopmentError)
+    async def external_development_failure(
+        _request: Request, error: McpWorkspaceDevelopmentError
+    ) -> JSONResponse:
+        status_code = 503 if error.code == "deployment_ambiguous" else 409
+        return _json_error(
+            status_code, error.code, "External development request rejected."
+        )
+
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request) -> Response:
         token = request.cookies.get(settings.web_session_cookie_name)
@@ -3193,6 +3222,40 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalBridgeStatus:
         return context.external_bridges.revoke(target_id)
+
+    @app.post(
+        "/api/external-targets/{target_id}/development-baselines",
+        response_model=ExternalBaselineResult,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def establish_external_development_baseline(
+        target_id: UUID,
+        payload: ExternalBaselineRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBaselineResult:
+        return context.mcp_workspace_development.establish_external_baseline(
+            target_id=target_id, source_id=payload.source_id
+        )
+
+    @app.post("/api/external-targets/{target_id}/deployments/{operation_id}/reconcile")
+    def reconcile_external_deployment(
+        target_id: UUID,
+        operation_id: UUID,
+        _payload: ExternalDeploymentReconciliationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, str]:
+        with session_factory() as session:
+            operation = session.get(
+                McpWorkspaceDeploymentOperationRow, str(operation_id)
+            )
+        if operation is None or operation.target_id != str(target_id):
+            raise HTTPException(status_code=404, detail="deployment_not_found")
+        classification = (
+            context.mcp_workspace_development.reconcile_external_deployment(
+                operation_id
+            )
+        )
+        return {"classification": classification}
 
     @app.get("/api/runtime-matrix", response_model=RuntimeMatrixResponse)
     def runtime_matrix(

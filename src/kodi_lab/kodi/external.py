@@ -21,6 +21,10 @@ from kodi_lab.kodi.addons import (
     KodiAddonInventoryRecord,
     KodiAddonInventoryResult,
     KodiAddonInventoryUnsupportedResponseError,
+    KodiAddonSmokeAdapter,
+    KodiAddonSmokeAmbiguousError,
+    KodiAddonSmokeJsonRpcError,
+    KodiAddonSmokeResult,
 )
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.kodi.remote import (
@@ -232,6 +236,10 @@ class NativeExternalKodiVerifier:
                     client, endpoint, started
                 ):
                     verified.append("semantic_remote")
+                if "fixed_execution" in configured_capabilities and self._probe_method(
+                    client, endpoint, started, "Files.GetDirectory"
+                ):
+                    verified.append("fixed_execution")
         except ExternalProbeError:
             raise
         except (httpx.TimeoutException, httpx.NetworkError) as error:
@@ -319,6 +327,32 @@ class NativeExternalKodiVerifier:
             ):
                 return False
         return True
+
+    def _probe_method(
+        self,
+        client: httpx.Client,
+        endpoint: ValidatedExternalEndpoint,
+        started: float,
+        method: str,
+    ) -> bool:
+        result = self._call(
+            client,
+            endpoint,
+            "JSONRPC.Introspect",
+            {
+                "getdescriptions": False,
+                "getmetadata": False,
+                "filter": {"id": method, "type": "method"},
+            },
+            started,
+            allow_method_error=True,
+        )
+        return (
+            result is not _METHOD_UNAVAILABLE
+            and isinstance(result, dict)
+            and isinstance(result.get("methods"), dict)
+            and method in result["methods"]
+        )
 
     def _call(
         self,
@@ -613,6 +647,44 @@ class NativeExternalKodiAdapter:
                 action,
                 invocation_id,
             )
+
+    def invoke_fixed_video_plugin(
+        self, addon_id: str, invocation_id: UUID
+    ) -> KodiAddonSmokeResult:
+        """Invoke only the Phase 12 one-item video-plugin smoke shape."""
+
+        started = time.monotonic()
+        try:
+            with self._client() as client:
+                result = self._remote_request(
+                    client,
+                    f"kodi-lab-external-smoke-{invocation_id}",
+                    "Files.GetDirectory",
+                    {
+                        "directory": f"plugin://{addon_id}/",
+                        "media": "video",
+                        "properties": [],
+                        "limits": {"start": 0, "end": 1},
+                    },
+                    True,
+                )
+        except RemoteKodiRejectedError as error:
+            raise KodiAddonSmokeJsonRpcError(
+                max(0, min(90_000, round((time.monotonic() - started) * 1000)))
+            ) from error
+        except (RemoteActionAmbiguousError, ExternalProbeError) as error:
+            raise KodiAddonSmokeAmbiguousError(
+                "External Kodi invocation completion is ambiguous"
+            ) from error
+        if not isinstance(result, dict):
+            raise KodiAddonSmokeAmbiguousError(
+                "External Kodi invocation result is unsupported"
+            )
+        item_count = KodiAddonSmokeAdapter._validate_directory_result(result)
+        return KodiAddonSmokeResult(
+            item_count=item_count,
+            duration_ms=max(0, min(90_000, round((time.monotonic() - started) * 1000))),
+        )
 
     def _client(self) -> httpx.Client:
         auth = (

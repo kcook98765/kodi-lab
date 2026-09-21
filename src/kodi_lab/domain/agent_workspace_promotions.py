@@ -72,9 +72,9 @@ class AgentWorkspacePromotionPlan:
     current_version: str
     promoted_name: str
     promoted_version: str
-    target_runtime_revision_id: UUID
-    target_container_id: str
-    target_deployment_operation_id: UUID
+    target_runtime_revision_id: UUID | None
+    target_container_id: str | None
+    target_deployment_operation_id: UUID | None
     target_source_digest: str
     target_destination_digest: str
     expected_enabled: bool
@@ -92,6 +92,8 @@ class AgentWorkspacePromotionPlan:
     originating_mcp_request_id: UUID | None = None
     originating_mcp_deployment_id: UUID | None = None
     originating_mcp_execution_id: UUID | None = None
+    target_class: str = "internal_lab"
+    target_bridge_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.workspace_generation < 0:
@@ -100,8 +102,25 @@ class AgentWorkspacePromotionPlan:
             raise ValueError("promotion changed-file count is invalid")
         if not 0 <= self.review_text_bytes <= 4 * 1024 * 1024:
             raise ValueError("promotion review byte count is invalid")
-        if len(self.target_container_id) != 64:
-            raise ValueError("promotion target container identity is invalid")
+        if self.target_class == "internal_lab":
+            if (
+                self.target_runtime_revision_id is None
+                or self.target_container_id is None
+                or len(self.target_container_id) != 64
+                or self.target_deployment_operation_id is None
+                or self.target_bridge_id is not None
+            ):
+                raise ValueError("internal promotion target identity is invalid")
+        elif self.target_class == "external_development":
+            if (
+                self.target_runtime_revision_id is not None
+                or self.target_container_id is not None
+                or self.target_deployment_operation_id is not None
+                or self.target_bridge_id is None
+            ):
+                raise ValueError("external promotion target identity is invalid")
+        else:
+            raise ValueError("promotion target class is invalid")
         origin = (
             self.originating_mcp_client_id,
             self.originating_mcp_request_id,

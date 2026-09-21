@@ -402,7 +402,7 @@ class McpAuthorizationService:
                 McpClientTargetGrantRow,
                 {"client_id": str(principal.client_id), "target_id": str(target_id)},
             )
-            instance = session.get(ManagedInstanceRow, str(target_id))
+            target = session.get(TargetRow, str(target_id))
             assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
             target_permissions = (
                 frozenset()
@@ -417,7 +417,7 @@ class McpAuthorizationService:
                 or str(workspace.development_source_id) != binding.development_source_id
             ):
                 raise McpAuthorizationError("workspace_not_found_or_not_authorized")
-            if target_grant is None or instance is None or assignment is None:
+            if target_grant is None or target is None or assignment is None:
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
             client_permissions = self._permissions(session, client.preset_id)
             if not definition.permissions.issubset(

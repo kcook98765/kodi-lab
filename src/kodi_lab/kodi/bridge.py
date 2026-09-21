@@ -25,12 +25,27 @@ from kodi_lab.kodi.screenshots import (
 BRIDGE_PROTOCOL_VERSION = "1"
 BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
 BRIDGE_ADDON_ID = "service.kodi_lab_bridge"
-BRIDGE_CAPABILITIES = frozenset({"screenshot"})
+BRIDGE_CAPABILITIES = frozenset({"screenshot", "workspace_deployment"})
 BRIDGE_OPERATIONS = frozenset(
-    {"bridge_identity", "bridge_capabilities", "capture_screenshot"}
+    {
+        "bridge_identity",
+        "bridge_capabilities",
+        "capture_screenshot",
+        "inspect_addon",
+        "deployment_begin",
+        "deployment_chunk",
+        "deployment_commit",
+        "deployment_receipt",
+    }
 )
 PAIRING_OPERATION = "pair_bridge"
 MAX_BRIDGE_JSON_BYTES = 65_536
+MAX_DEPLOYMENT_MANIFEST_BYTES = 16 * 1024 * 1024
+MAX_DEPLOYMENT_FILE_BYTES = 2 * 1024 * 1024
+DEPLOYMENT_CHUNK_BYTES = 256 * 1024
+MAX_DEPLOYMENT_FILES = 25_000
+MAX_DEPLOYMENT_ENTRIES = 50_000
+MAX_DEPLOYMENT_BYTES = 1024 * 1024 * 1024
 MAX_CLOCK_SKEW_SECONDS = 60
 
 
@@ -68,6 +83,35 @@ class BridgeScreenshotResult:
     height: int
     digest: str
     captured_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class BridgeAddonTree:
+    addon_id: str
+    addon_version: str
+    manifest_digest: str
+    file_count: int
+    total_bytes: int
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class BridgeDeploymentReceipt:
+    receipt_id: UUID | None
+    deployment_id: UUID
+    request_id: UUID
+    bridge_id: UUID
+    addon_id: str
+    addon_version: str
+    generation: int
+    manifest_digest: str
+    file_count: int
+    total_bytes: int
+    state: str
+    classification: str
+    enabled_state: str
+    inventory_verified: bool
+    completed_at: datetime | None
 
 
 def canonical_json(value: object) -> bytes:
@@ -334,6 +378,147 @@ class ExternalBridgeClient:
             raise ExternalBridgeError("bridge_capability_unavailable")
         return tuple(sorted(values))
 
+    def inspect_addon(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+        addon_id: str,
+    ) -> BridgeAddonTree:
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            operation="inspect_addon",
+            payload={"addon_id": addon_id},
+        )
+        return self._addon_tree(payload, addon_id)
+
+    def deployment_begin(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+        deployment_id: UUID,
+        request_id: UUID,
+        addon_id: str,
+        addon_version: str,
+        generation: int,
+        manifest_digest: str,
+        entries: list[dict[str, object]],
+        file_count: int,
+        total_bytes: int,
+    ) -> BridgeDeploymentReceipt:
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            operation="deployment_begin",
+            payload={
+                "addon_id": addon_id,
+                "addon_version": addon_version,
+                "deployment_id": str(deployment_id),
+                "deployment_request_id": str(request_id),
+                "entries": entries,
+                "file_count": file_count,
+                "generation": generation,
+                "manifest_digest": manifest_digest,
+                "manifest_version": 1,
+                "total_bytes": total_bytes,
+            },
+        )
+        return self._deployment_receipt(payload)
+
+    def deployment_chunk(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+        deployment_id: UUID,
+        path: str,
+        file_digest: str,
+        offset: int,
+        content: bytes,
+    ) -> BridgeDeploymentReceipt:
+        if not content or len(content) > DEPLOYMENT_CHUNK_BYTES:
+            raise ValueError("deployment chunk is outside the fixed bound")
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            operation="deployment_chunk",
+            payload={
+                "content": b64url(content),
+                "content_digest": hashlib.sha256(content).hexdigest(),
+                "deployment_id": str(deployment_id),
+                "file_digest": file_digest,
+                "offset": offset,
+                "path": path,
+            },
+        )
+        return self._deployment_receipt(payload)
+
+    def deployment_commit(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+        deployment_id: UUID,
+        manifest_digest: str,
+    ) -> BridgeDeploymentReceipt:
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            operation="deployment_commit",
+            payload={
+                "deployment_id": str(deployment_id),
+                "manifest_digest": manifest_digest,
+            },
+        )
+        return self._deployment_receipt(payload)
+
+    def deployment_receipt(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+        deployment_id: UUID,
+    ) -> BridgeDeploymentReceipt:
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            operation="deployment_receipt",
+            payload={"deployment_id": str(deployment_id)},
+        )
+        return self._deployment_receipt(payload)
+
     def capture_screenshot(
         self,
         endpoint: ValidatedExternalEndpoint,
@@ -455,6 +640,7 @@ class ExternalBridgeClient:
         bridge_id: UUID,
         secret: bytes,
         operation: str,
+        payload: dict[str, object] | None = None,
     ) -> object:
         request_id = uuid4()
         envelope = self._envelope(
@@ -464,6 +650,7 @@ class ExternalBridgeClient:
             request_id=request_id,
             nonce=b64url(os.urandom(32)),
             requested_at=self._clock(),
+            payload={} if payload is None else payload,
         )
         envelope["signature"] = request_signature(secret, envelope)
         document = self._post_json(endpoint, bridge_port, envelope)
@@ -563,6 +750,114 @@ class ExternalBridgeClient:
             build_fingerprint=value["build_fingerprint"],
         )
 
+    @staticmethod
+    def _addon_tree(value: object, addon_id: str) -> BridgeAddonTree:
+        if not isinstance(value, dict) or set(value) != {
+            "addon_id",
+            "addon_version",
+            "enabled",
+            "file_count",
+            "manifest_digest",
+            "total_bytes",
+        }:
+            raise ExternalBridgeError("target_provenance_unknown")
+        if (
+            value["addon_id"] != addon_id
+            or not isinstance(value["addon_version"], str)
+            or not 1 <= len(value["addon_version"]) <= 128
+            or type(value["enabled"]) is not bool
+            or type(value["file_count"]) is not int
+            or not 1 <= value["file_count"] <= MAX_DEPLOYMENT_FILES
+            or type(value["total_bytes"]) is not int
+            or not 1 <= value["total_bytes"] <= MAX_DEPLOYMENT_BYTES
+            or not isinstance(value["manifest_digest"], str)
+            or len(value["manifest_digest"]) != 71
+            or not value["manifest_digest"].startswith("sha256:")
+        ):
+            raise ExternalBridgeError("target_provenance_unknown")
+        return BridgeAddonTree(
+            addon_id=addon_id,
+            addon_version=value["addon_version"],
+            manifest_digest=value["manifest_digest"],
+            file_count=value["file_count"],
+            total_bytes=value["total_bytes"],
+            enabled=value["enabled"],
+        )
+
+    @staticmethod
+    def _deployment_receipt(value: object) -> BridgeDeploymentReceipt:
+        expected = {
+            "addon_id",
+            "addon_version",
+            "bridge_id",
+            "classification",
+            "completed_at",
+            "deployment_id",
+            "deployment_request_id",
+            "enabled_state",
+            "file_count",
+            "generation",
+            "inventory_verified",
+            "manifest_digest",
+            "receipt_id",
+            "state",
+            "total_bytes",
+        }
+        if not isinstance(value, dict) or set(value) != expected:
+            raise ExternalBridgeError("deployment_ambiguous")
+        try:
+            deployment_id = UUID(str(value["deployment_id"]))
+            request_id = UUID(str(value["deployment_request_id"]))
+            bridge_id = UUID(str(value["bridge_id"]))
+            receipt_id = (
+                None if value["receipt_id"] is None else UUID(str(value["receipt_id"]))
+            )
+            completed_at = (
+                None
+                if value["completed_at"] is None
+                else datetime.fromisoformat(
+                    str(value["completed_at"]).replace("Z", "+00:00")
+                )
+            )
+        except (TypeError, ValueError) as error:
+            raise ExternalBridgeError("deployment_ambiguous") from error
+        if (
+            value["state"]
+            not in {"staging", "ready", "succeeded", "failed", "ambiguous"}
+            or not isinstance(value["addon_id"], str)
+            or not isinstance(value["addon_version"], str)
+            or type(value["generation"]) is not int
+            or value["generation"] < 0
+            or not isinstance(value["manifest_digest"], str)
+            or len(value["manifest_digest"]) != 71
+            or type(value["file_count"]) is not int
+            or not 1 <= value["file_count"] <= MAX_DEPLOYMENT_FILES
+            or type(value["total_bytes"]) is not int
+            or not 1 <= value["total_bytes"] <= MAX_DEPLOYMENT_BYTES
+            or not isinstance(value["classification"], str)
+            or not 1 <= len(value["classification"]) <= 64
+            or value["enabled_state"] not in {"enabled", "disabled", "unknown"}
+            or type(value["inventory_verified"]) is not bool
+        ):
+            raise ExternalBridgeError("deployment_ambiguous")
+        return BridgeDeploymentReceipt(
+            receipt_id=receipt_id,
+            deployment_id=deployment_id,
+            request_id=request_id,
+            bridge_id=bridge_id,
+            addon_id=value["addon_id"],
+            addon_version=value["addon_version"],
+            generation=value["generation"],
+            manifest_digest=value["manifest_digest"],
+            file_count=value["file_count"],
+            total_bytes=value["total_bytes"],
+            state=value["state"],
+            classification=value["classification"],
+            enabled_state=value["enabled_state"],
+            inventory_verified=value["inventory_verified"],
+            completed_at=completed_at,
+        )
+
     def _post_json(
         self,
         endpoint: ValidatedExternalEndpoint,
@@ -614,6 +909,7 @@ class ExternalBridgeClient:
         request_id: UUID,
         nonce: str,
         requested_at: datetime,
+        payload: dict[str, object] | None = None,
     ) -> dict[str, object]:
         if operation not in BRIDGE_OPERATIONS:
             raise ValueError("operation is outside the closed bridge protocol")
@@ -625,7 +921,7 @@ class ExternalBridgeClient:
             "request_id": str(request_id),
             "timestamp": timestamp_text(requested_at),
             "nonce": nonce,
-            "payload": {},
+            "payload": {} if payload is None else payload,
         }
 
     @staticmethod

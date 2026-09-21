@@ -537,8 +537,21 @@ class AgentWorkspacePromotionPlanRow(Base):
             "length(current_version) BETWEEN 1 AND 128 AND "
             "length(promoted_name) BETWEEN 1 AND 256 AND "
             "length(promoted_version) BETWEEN 1 AND 128 AND "
-            "length(target_container_id)=64",
+            "(target_container_id IS NULL OR length(target_container_id)=64)",
             name="workspace_promotion_identity_bounds",
+        ),
+        CheckConstraint(
+            "target_class IN ('internal_lab','external_development')",
+            name="workspace_promotion_target_class_closed",
+        ),
+        CheckConstraint(
+            "(target_class='internal_lab' AND target_runtime_revision_id IS NOT NULL "
+            "AND target_container_id IS NOT NULL AND "
+            "target_deployment_operation_id IS NOT NULL AND target_bridge_id IS NULL) "
+            "OR (target_class='external_development' AND "
+            "target_runtime_revision_id IS NULL AND target_container_id IS NULL AND "
+            "target_deployment_operation_id IS NULL AND length(target_bridge_id)=36)",
+            name="workspace_promotion_target_shape",
         ),
         CheckConstraint(
             "invalidation_reason IS NULL OR "
@@ -608,17 +621,19 @@ class AgentWorkspacePromotionPlanRow(Base):
     current_version: Mapped[str] = mapped_column(String(128), nullable=False)
     promoted_name: Mapped[str] = mapped_column(String(256), nullable=False)
     promoted_version: Mapped[str] = mapped_column(String(128), nullable=False)
-    target_runtime_revision_id: Mapped[str] = mapped_column(
+    target_runtime_revision_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
-        nullable=False,
     )
-    target_container_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    target_deployment_operation_id: Mapped[str] = mapped_column(
+    target_container_id: Mapped[str | None] = mapped_column(String(64))
+    target_deployment_operation_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("development_source_deployment_operations.id", ondelete="RESTRICT"),
-        nullable=False,
     )
+    target_class: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="internal_lab"
+    )
+    target_bridge_id: Mapped[str | None] = mapped_column(String(36))
     target_source_digest: Mapped[str] = mapped_column(String(71), nullable=False)
     target_destination_digest: Mapped[str] = mapped_column(String(71), nullable=False)
     expected_enabled: Mapped[bool | None] = mapped_column(Boolean)
@@ -1352,8 +1367,12 @@ class ExternalBridgePairingRow(Base):
             name="external_bridge_capabilities_bounded",
         ),
         CheckConstraint(
-            "observed_capabilities_json IN ('[]','[\"screenshot\"]') AND "
-            "verified_capabilities_json IN ('[]','[\"screenshot\"]')",
+            "observed_capabilities_json IN "
+            "('[]','[\"screenshot\"]','[\"workspace_deployment\"]',"
+            '\'["screenshot","workspace_deployment"]\') AND '
+            "verified_capabilities_json IN "
+            "('[]','[\"screenshot\"]','[\"workspace_deployment\"]',"
+            '\'["screenshot","workspace_deployment"]\')',
             name="external_bridge_capabilities_closed",
         ),
         CheckConstraint(
@@ -1533,6 +1552,145 @@ class ExternalBridgeRequestReceiptRow(Base):
     expires_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
+class ExternalDevelopmentSourceBaselineRow(Base):
+    """Web-established exact source baseline for one external target."""
+
+    __tablename__ = "external_development_source_baselines"
+    __table_args__ = (
+        CheckConstraint(
+            "length(target_id)=36 AND length(development_source_id)=36 AND "
+            "length(bridge_id)=36",
+            name="external_source_baseline_uuid_lengths",
+        ),
+        CheckConstraint(
+            "state IN ('current','stale','unknown')",
+            name="external_source_baseline_state_closed",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 128",
+            name="external_source_baseline_identity_bounded",
+        ),
+        CheckConstraint(
+            "length(manifest_digest)=71 AND substr(manifest_digest,1,7)='sha256:'",
+            name="external_source_baseline_digest_valid",
+        ),
+        CheckConstraint(
+            "file_count BETWEEN 1 AND 25000 AND total_bytes BETWEEN 1 AND 1073741824",
+            name="external_source_baseline_counts_bounded",
+        ),
+        CheckConstraint(
+            "length(established_at)=27 AND length(checked_at)=27 AND "
+            "(invalidated_at IS NULL OR length(invalidated_at)=27)",
+            name="external_source_baseline_timestamps_format",
+        ),
+        CheckConstraint(
+            "(state='current' AND invalidated_at IS NULL) OR "
+            "(state<>'current' AND invalidated_at IS NOT NULL)",
+            name="external_source_baseline_state_time_consistent",
+        ),
+        Index("ix_external_source_baseline_state", "target_id", "state"),
+    )
+
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_bridge_pairings.target_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    bridge_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    manifest_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    established_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    checked_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    invalidated_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class ExternalBridgeDeploymentReceiptRow(Base):
+    """Lab-side durable correlation for one bridge deployment receipt."""
+
+    __tablename__ = "external_bridge_deployment_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(operation_id)=36 AND length(target_id)=36 AND "
+            "length(bridge_id)=36 AND length(bridge_request_id)=36 AND "
+            "(bridge_receipt_id IS NULL OR length(bridge_receipt_id)=36)",
+            name="external_bridge_deployment_receipt_uuid_lengths",
+        ),
+        CheckConstraint(
+            "state IN ('pending','succeeded','failed','ambiguous')",
+            name="external_bridge_deployment_receipt_state_closed",
+        ),
+        CheckConstraint(
+            "length(expected_manifest_digest)=71 AND "
+            "substr(expected_manifest_digest,1,7)='sha256:'",
+            name="external_bridge_deployment_receipt_digest_valid",
+        ),
+        CheckConstraint(
+            "classification IS NULL OR length(classification) BETWEEN 1 AND 64",
+            name="external_bridge_deployment_receipt_classification_bounded",
+        ),
+        CheckConstraint(
+            "file_count BETWEEN 1 AND 25000 AND total_bytes BETWEEN 1 AND 1073741824",
+            name="external_bridge_deployment_receipt_counts_bounded",
+        ),
+        CheckConstraint(
+            "length(created_at)=27 AND "
+            "(completed_at IS NULL OR length(completed_at)=27) AND "
+            "(reconciled_at IS NULL OR length(reconciled_at)=27)",
+            name="external_bridge_deployment_receipt_timestamps_format",
+        ),
+        CheckConstraint(
+            "(state='pending' AND completed_at IS NULL AND "
+            "bridge_receipt_id IS NULL) OR "
+            "(state IN ('succeeded','failed') AND completed_at IS NOT NULL AND "
+            "bridge_receipt_id IS NOT NULL) OR state='ambiguous'",
+            name="external_bridge_deployment_receipt_terminal_shape",
+        ),
+        UniqueConstraint(
+            "target_id",
+            "bridge_request_id",
+            name="uq_external_bridge_deployment_request",
+        ),
+        Index(
+            "ix_external_bridge_deployment_receipt_state",
+            "target_id",
+            "state",
+            "created_at",
+        ),
+    )
+
+    operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("mcp_workspace_deployment_operations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_bridge_pairings.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    bridge_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    bridge_request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    bridge_receipt_id: Mapped[str | None] = mapped_column(String(36))
+    expected_manifest_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    classification: Mapped[str | None] = mapped_column(String(64))
+    file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(27))
+    reconciled_at: Mapped[str | None] = mapped_column(String(27))
+
+
 class ExternalBridgeEventRow(Base):
     """Content-free semantic bridge administration and capture audit."""
 
@@ -1542,7 +1700,10 @@ class ExternalBridgeEventRow(Base):
             "event_kind IN ('pairing_token_generated','pairing_attempted',"
             "'bridge_paired','pairing_failed','bridge_revoked',"
             "'bridge_reverified','bridge_reverification_required',"
-            "'screenshot_requested','screenshot_completed','screenshot_failed')",
+            "'screenshot_requested','screenshot_completed','screenshot_failed',"
+            "'baseline_established','baseline_invalidated','deployment_requested',"
+            "'deployment_completed','deployment_failed','deployment_reconciled',"
+            "'execution_completed','execution_failed')",
             name="external_bridge_event_kind_closed",
         ),
         CheckConstraint(
@@ -5019,8 +5180,24 @@ class McpWorkspaceDeploymentOperationRow(Base):
         CheckConstraint(
             "length(id)=36 AND length(client_id)=36 AND length(request_id)=36 "
             "AND length(workspace_id)=36 AND length(development_source_id)=36 "
-            "AND length(target_id)=36 AND length(runtime_revision_id)=36",
+            "AND length(target_id)=36 AND "
+            "(runtime_revision_id IS NULL OR length(runtime_revision_id)=36) AND "
+            "(bridge_id IS NULL OR length(bridge_id)=36) AND "
+            "(bridge_request_id IS NULL OR length(bridge_request_id)=36) AND "
+            "(bridge_receipt_id IS NULL OR length(bridge_receipt_id)=36)",
             name="mcp_workspace_deployment_uuid_lengths",
+        ),
+        CheckConstraint(
+            "target_class IN ('internal_lab','external_development')",
+            name="mcp_workspace_deployment_target_class_closed",
+        ),
+        CheckConstraint(
+            "(target_class='internal_lab' AND runtime_revision_id IS NOT NULL AND "
+            "bridge_id IS NULL AND bridge_request_id IS NULL AND "
+            "bridge_receipt_id IS NULL) OR "
+            "(target_class='external_development' AND runtime_revision_id IS NULL "
+            "AND bridge_id IS NOT NULL AND bridge_request_id IS NOT NULL)",
+            name="mcp_workspace_deployment_target_shape",
         ),
         CheckConstraint(
             "generation >= 0", name="mcp_workspace_deployment_generation_nonnegative"
@@ -5031,9 +5208,15 @@ class McpWorkspaceDeploymentOperationRow(Base):
             name="mcp_workspace_deployment_state_closed",
         ),
         CheckConstraint(
-            "phase IN ('claimed','preflight','stop','sync','start','readiness',"
-            "'inventory','finalize')",
+            "phase IN ('claimed','preflight','stop','sync','transfer','replace',"
+            "'receipt','start','readiness','inventory','finalize')",
             name="mcp_workspace_deployment_phase_closed",
+        ),
+        CheckConstraint(
+            "(file_count IS NULL AND total_bytes IS NULL) OR "
+            "(file_count BETWEEN 1 AND 25000 AND "
+            "total_bytes BETWEEN 1 AND 1073741824)",
+            name="mcp_workspace_deployment_counts_bounded",
         ),
         CheckConstraint(
             "inventory_classification IN ('not_checked','matched','failed','unknown')",
@@ -5080,7 +5263,9 @@ class McpWorkspaceDeploymentOperationRow(Base):
             "state<>'succeeded' OR (sync_completed=1 AND target_started=1 AND "
             "inventory_classification='matched' AND addon_enabled IS NOT NULL AND "
             "result_classification IS NOT NULL AND source_manifest_digest IS NOT NULL "
-            "AND verified_destination_digest IS NOT NULL AND failure_code IS NULL)",
+            "AND verified_destination_digest IS NOT NULL AND failure_code IS NULL "
+            "AND (target_class='internal_lab' OR (bridge_receipt_id IS NOT NULL "
+            "AND file_count IS NOT NULL AND total_bytes IS NOT NULL)))",
             name="mcp_workspace_deployment_success_complete",
         ),
         UniqueConstraint(
@@ -5122,7 +5307,15 @@ class McpWorkspaceDeploymentOperationRow(Base):
     workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
     development_source_id: Mapped[str] = mapped_column(String(36), nullable=False)
     target_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    runtime_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    target_class: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="internal_lab"
+    )
+    bridge_id: Mapped[str | None] = mapped_column(String(36))
+    bridge_request_id: Mapped[str | None] = mapped_column(String(36))
+    bridge_receipt_id: Mapped[str | None] = mapped_column(String(36))
+    file_count: Mapped[int | None] = mapped_column(Integer)
+    total_bytes: Mapped[int | None] = mapped_column(BigInteger)
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
     addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
     addon_version: Mapped[str] = mapped_column(String(128), nullable=False)

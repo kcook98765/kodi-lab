@@ -216,6 +216,16 @@ class PromotionVerificationService:
                 "promotion_verification_publication_invalid",
                 "Successful source promotion cannot publish verification authority.",
             )
+        if (
+            plan.target_class != "internal_lab"
+            or plan.target_runtime_revision_id is None
+            or plan.target_container_id is None
+            or plan.target_deployment_operation_id is None
+        ):
+            raise PromotionVerificationError(
+                "promotion_verification_publication_invalid",
+                "Successful source promotion lacks managed verification authority.",
+            )
         verification_id = self._uuid()
         deployment_id = self._uuid()
         now = self._clock()

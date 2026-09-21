@@ -17,7 +17,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import DevelopmentSourceNotFoundError
-from kodi_lab.development.deployment import DevelopmentTreeError
+from kodi_lab.development.deployment import (
+    DevelopmentTreeError,
+    DevelopmentTreeManifest,
+    capture_development_tree,
+)
 from kodi_lab.domain import (
     AgentWorkspace,
     AgentWorkspaceBytesState,
@@ -276,6 +280,36 @@ class AgentWorkspaceService:
         self._development_root = development_root
         self._clock = clock
         self._uuid_factory = uuid_factory
+
+    def capture_registered_source_manifest(
+        self, source_id: UUID
+    ) -> DevelopmentTreeManifest:
+        """Capture one approved source for Web-only external baselining."""
+
+        if self._development_root is None:
+            raise AgentWorkspaceError(
+                "agent_workspace_source_unavailable",
+                "Development sources are unavailable.",
+            )
+        with self._session_factory() as session:
+            source = DevelopmentSourceRepository(session).get(source_id)
+        if (
+            source is None
+            or source.source_kind is not DevelopmentSourceKind.LOCAL_DIRECTORY
+        ):
+            raise AgentWorkspaceError(
+                "agent_workspace_source_unsupported",
+                "Only a registered local-directory source is eligible.",
+            )
+        try:
+            return capture_development_tree(
+                self._development_root, source.relative_locator, reject_vcs=True
+            )
+        except DevelopmentTreeError as error:
+            raise AgentWorkspaceError(
+                "agent_workspace_source_unavailable",
+                "Development source could not be proven safe.",
+            ) from error
 
     def queue_creation(
         self,

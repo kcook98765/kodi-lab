@@ -132,8 +132,8 @@ shell, Git/repository publication, arbitrary execution, external target, or
 production mutation authority. See
 [`docs/PHASE12-MCP-DEVELOPMENT.md`](docs/PHASE12-MCP-DEVELOPMENT.md).
 
-Phase 13 Slices 1-3 add Web-only external-development registration, fixed
-native verification/tools, and an optional authenticated screenshot bridge;
+Phase 13 Slices 1-4 add Web-only external-development registration, fixed
+native verification/tools, and an authenticated screenshot/deployment bridge;
 Phase 13 remains PARTIAL. Password and bridge secrets require an operator-provided
 `KODI_LAB_EXTERNAL_TARGET_MASTER_KEY` containing a base64url-encoded 32-byte
 key. The key is never generated into the repository or stored in SQLite.
@@ -141,17 +141,21 @@ Structured native endpoints default to allowlisted port `8080`; the separate
 bridge allowlist defaults to `8765`. Loopback is available only through the
 explicit test setting. The MCP catalog remains the same fifteen tools:
 eligible paired external targets use the existing `screenshot_capture`, while
-deployment, execution and promotion remain internal-only. See
+exact bridge-backed `workspace_deploy`, native fixed `workspace_execute` and
+promotion evidence use their existing schemas. See
 [`docs/PHASE13-EXTERNAL-TARGETS.md`](docs/PHASE13-EXTERNAL-TARGETS.md).
 
 For a development bridge, install
 `bridge/service.kodi_lab_bridge` as an ordinary Kodi service add-on. Keep it
 disabled until the external target is registered, native-verified, explicitly
-confirmed/enabled and configured with the `screenshot` maximum. In Web, create
+confirmed/enabled and configured with the required capability maximum. In Web, create
 the show-once pairing token; enter it locally in the add-on settings, set the
 allowlisted bridge port, enable the add-on, then use Web to run the possession
 proof and confirm the displayed bridge identity. Re-pairing rotates the secret
-and revocation disables screenshot authority immediately. The add-on exposes
-only identity, capability and fixed in-memory screenshot operations. With HTTP,
+and revocation disables screenshot/deployment authority immediately. The add-on
+exposes only identity, capability, screenshot and pathless content-addressed
+deployment operations; fixed execution remains native. Establish the exact
+DevelopmentSource baseline in Web before deployment and use only Web receipt
+reconciliation after ambiguity. With HTTP,
 HMAC protects integrity but PNG bytes are cleartext to observers on that LAN;
 use normally validated HTTPS when confidentiality is required.

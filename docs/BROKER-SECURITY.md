@@ -675,3 +675,18 @@ profile or arbitrary Kodi-method authority. Existing managed
 `capture_managed_kodi_screenshot`; its broker request and protected-runtime
 isolation are unchanged. Migration `0045_external_bridge_pairing` creates no
 broker action, allowlist entry or privileged caller.
+
+## Phase 13 Slice 4 has no new broker authority
+
+External workspace deployment is performed by the separately authenticated
+Kodi bridge and fixed execution by the existing direct native JSON-RPC target
+adapter. Neither path can call the privileged broker. Migration
+`0046_external_bridge_development` adds no broker action, socket message,
+allowlist, container identity, filesystem root or host lifecycle operation.
+
+The bridge's local add-on-directory transaction is not broker authority: it is
+limited to the manifest add-on ID under Kodi's own add-on root and receives no
+host path. It cannot stop/restart Kodi, manipulate a container/profile, run a
+command or reach a DevelopmentSource. Managed Phase 12 deployment retains its
+existing broker constraints unchanged. Production roots and protected runtime
+fingerprints remain outside both external adapters.

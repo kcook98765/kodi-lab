@@ -1459,3 +1459,31 @@ contacted; a live disposable/LAN proof is intentionally deferred rather than
 weakening the boundary. Remaining work is bridge-backed external workspace
 deployment, fixed execution, promotion evidence integration, authorized LAN-
 development proof and formal closeout.
+
+## Phase 13 Slice 4 checkpoint
+
+**Slice 4: COMPLETE. Phase 13: PARTIAL.** Migration
+`0046_external_bridge_development` adds Web-owned exact source baselines and
+durable bridge deployment receipt correlation while generalizing, rather than
+duplicating, Phase 12 deployment and promotion-plan evidence. The MCP catalog
+remains fifteen tools and the three existing schemas are unchanged.
+
+The protocol-1 bridge additively advertises `workspace_deployment`. Exact
+manifests and bounded authenticated chunks stage one copied Python video add-on;
+the bridge derives the destination, preserves enabled state, keeps one rollback
+copy, verifies replacement and persists replay receipts. Lab and bridge replay
+barriers independently prove one replacement. Lost commit response is Web-
+reconciled from the receipt and never causes mutation redispatch.
+
+Web establishes the approved DevelopmentSource baseline before first mutation.
+External drift invalidates provenance. Fixed execution uses the native closed
+video-plugin smoke after exact bridge deployment and keeps the Phase 12
+at-most-once dispatch marker. Exact external validation/deployment/execution
+evidence is eligible for one Web-reviewed promotion request. Managed Phase 12,
+native external Slice 1-2 and screenshot Slice 3 behavior remain unchanged.
+
+No production or existing LAN target was contacted. The next candidate
+milestones are Slice 5 authorized LAN-development proof and hardening, Slice 4
+remediation if review finds a defect, or formal Phase 13 completion review.
+Phase 13 cannot close until authorized LAN proof and any resulting compatibility
+work are complete.
