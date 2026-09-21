@@ -1890,9 +1890,17 @@ class McpWorkspaceDevelopmentService:
         bridges = self._external_bridges
         if bridges is None or baseline is None:
             raise McpWorkspaceDevelopmentError("target_provenance_unknown")
+        # An explicit Web re-baseline is a newer human trust decision and must
+        # supersede older deployment lineage. Only a successful deployment
+        # completed after that decision advances the expected target tree.
+        prior_is_newer = (
+            prior is not None
+            and prior.completed_at is not None
+            and prior.completed_at > baseline.established_at
+        )
         expected = (
             prior.verified_destination_digest
-            if prior is not None
+            if prior_is_newer and prior is not None
             else baseline.manifest_digest
         )
         try:

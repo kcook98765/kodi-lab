@@ -842,6 +842,27 @@ def test_external_deploy_execute_replay_and_drift_invalidation(tmp_path: Path) -
         )
         assert baseline is not None and baseline.state == "stale"
 
+    source_manifest = env.workspaces.capture_registered_source_manifest(SOURCE_ID)
+    bridge.manifest_digest = source_manifest.digest
+    bridge.file_count = sum(
+        entry.entry_type == "file" for entry in source_manifest.entries
+    )
+    bridge.total_bytes = source_manifest.included_bytes
+    env.development._clock = lambda: NOW + timedelta(seconds=10)
+    restored = env.development.establish_external_baseline(
+        target_id=EXTERNAL_TARGET_ID, source_id=SOURCE_ID
+    )
+    assert restored.state == "current"
+    recovered = env.development.deploy(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=1,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    assert recovered.state == "succeeded"
+    assert bridge.replacement_count == 2
+
 
 @pytest.mark.parametrize("revoked", [False, True])
 def test_external_disable_or_bridge_revoke_before_commit_denies_mutation(

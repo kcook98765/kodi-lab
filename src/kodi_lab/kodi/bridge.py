@@ -19,13 +19,16 @@ from kodi_lab.kodi.screenshots import (
     MAX_PNG_BYTES,
     PNG_MIME_TYPE,
     ScreenshotArtifactError,
-    validate_png,
+    validate_external_png,
 )
 
 BRIDGE_PROTOCOL_VERSION = "1"
 BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
 BRIDGE_ADDON_ID = "service.kodi_lab_bridge"
 BRIDGE_CAPABILITIES = frozenset({"screenshot", "workspace_deployment"})
+BRIDGE_JSON_ERROR_CODES = frozenset(
+    {"addon_inspection_failed", "bridge_operation_failed"}
+)
 BRIDGE_OPERATIONS = frozenset(
     {
         "bridge_identity",
@@ -47,6 +50,14 @@ MAX_DEPLOYMENT_FILES = 25_000
 MAX_DEPLOYMENT_ENTRIES = 50_000
 MAX_DEPLOYMENT_BYTES = 1024 * 1024 * 1024
 MAX_CLOCK_SKEW_SECONDS = 60
+SCREENSHOT_ERROR_CODES = frozenset(
+    {
+        "screenshot_capture_failed",
+        "screenshot_invalid",
+        "screenshot_too_large",
+        "screenshot_cleanup_failed",
+    }
+)
 
 
 class ExternalBridgeError(RuntimeError):
@@ -556,6 +567,19 @@ class ExternalBridgeClient:
                     raise ExternalBridgeError("bridge_unreachable")
                 if response.status_code == 409:
                     raise ExternalBridgeError("bridge_replay_rejected")
+                if response.status_code == 422:
+                    error_body = response.read()
+                    if error_body:
+                        raise ExternalBridgeError("bridge_authentication_failed")
+                    raise ExternalBridgeError(
+                        self._screenshot_error_code(
+                            response.headers,
+                            target_id=target_id,
+                            bridge_id=bridge_id,
+                            request_id=request_id,
+                            secret=secret,
+                        )
+                    )
                 if response.status_code != 200:
                     raise ExternalBridgeError("bridge_unreachable")
                 if (
@@ -611,7 +635,7 @@ class ExternalBridgeClient:
         if not hmac.compare_digest(expected_signature, signature):
             raise ExternalBridgeError("bridge_authentication_failed")
         try:
-            validated = validate_png(png)
+            validated = validate_external_png(png)
         except ScreenshotArtifactError as error:
             raise ExternalBridgeError("screenshot_invalid") from error
         try:
@@ -630,6 +654,54 @@ class ExternalBridgeClient:
             digest=digest,
             captured_at=parse_fresh_timestamp(response_timestamp, self._clock()),
         )
+
+    def _screenshot_error_code(
+        self,
+        headers: httpx.Headers,
+        *,
+        target_id: UUID,
+        bridge_id: UUID,
+        request_id: UUID,
+        secret: bytes,
+    ) -> str:
+        if (
+            headers.get("content-type", "").split(";", 1)[0]
+            != "application/octet-stream"
+            or headers.get("x-kodi-lab-protocol") != BRIDGE_PROTOCOL_VERSION
+            or headers.get("x-kodi-lab-operation") != "capture_screenshot"
+            or headers.get("x-kodi-lab-target-id") != str(target_id)
+            or headers.get("x-kodi-lab-bridge-id") != str(bridge_id)
+            or headers.get("x-kodi-lab-request-id") != str(request_id)
+            or headers.get("x-kodi-lab-content-sha256") != _digest(b"")
+        ):
+            raise ExternalBridgeError("bridge_authentication_failed")
+        status = headers.get("x-kodi-lab-status")
+        timestamp = headers.get("x-kodi-lab-timestamp")
+        nonce = headers.get("x-kodi-lab-nonce")
+        signature = headers.get("x-kodi-lab-signature")
+        if (
+            status not in SCREENSHOT_ERROR_CODES
+            or timestamp is None
+            or nonce is None
+            or signature is None
+        ):
+            raise ExternalBridgeError("bridge_authentication_failed")
+        parse_fresh_timestamp(timestamp, self._clock())
+        decode_b64url(nonce, size=32)
+        expected = response_signature(
+            secret,
+            target_id=str(target_id),
+            bridge_id=str(bridge_id),
+            operation="capture_screenshot",
+            request_id=str(request_id),
+            timestamp=timestamp,
+            nonce=nonce,
+            status=status,
+            payload_digest=_digest(b""),
+        )
+        if not hmac.compare_digest(expected, signature):
+            raise ExternalBridgeError("bridge_authentication_failed")
+        return str(status)
 
     def _authenticated_json(
         self,
@@ -674,7 +746,7 @@ class ExternalBridgeClient:
             or document["target_id"] != str(target_id)
             or document["bridge_id"] != str(bridge_id)
             or document["request_id"] != str(request_id)
-            or document["status"] != "ok"
+            or not isinstance(document["status"], str)
             or not isinstance(document["timestamp"], str)
             or not isinstance(document["nonce"], str)
             or not isinstance(document["signature"], str)
@@ -682,6 +754,9 @@ class ExternalBridgeClient:
             raise ExternalBridgeError("bridge_identity_mismatch")
         parse_fresh_timestamp(document["timestamp"], self._clock())
         decode_b64url(document["nonce"], size=32)
+        status = document["status"]
+        if status != "ok" and status not in BRIDGE_JSON_ERROR_CODES:
+            raise ExternalBridgeError("bridge_authentication_failed")
         expected = response_signature(
             secret,
             target_id=str(target_id),
@@ -690,11 +765,13 @@ class ExternalBridgeClient:
             request_id=str(request_id),
             timestamp=document["timestamp"],
             nonce=document["nonce"],
-            status="ok",
+            status=status,
             payload_digest=_digest(canonical_json(document["payload"])),
         )
         if not hmac.compare_digest(expected, document["signature"]):
             raise ExternalBridgeError("bridge_authentication_failed")
+        if status != "ok":
+            raise ExternalBridgeError(status)
         return document["payload"]
 
     @staticmethod
@@ -878,7 +955,7 @@ class ExternalBridgeClient:
                     raise ExternalBridgeError("bridge_authentication_failed")
                 if response.status_code == 409:
                     raise ExternalBridgeError("bridge_replay_rejected")
-                if response.status_code != 200 or 300 <= response.status_code < 400:
+                if response.status_code not in {200, 422}:
                     raise ExternalBridgeError("bridge_unreachable")
                 if (
                     response.headers.get("content-type", "").split(";", 1)[0]

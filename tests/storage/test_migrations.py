@@ -13,7 +13,12 @@ from alembic.util.exc import CommandError
 from sqlalchemy import Connection, String, inspect, text
 from sqlalchemy.exc import IntegrityError
 
-from kodi_lab.storage.engine import create_database_engine
+from kodi_lab.application.external_bridges import ExternalBridgeService
+from kodi_lab.application.external_targets import ExternalTargetAdministrationService
+from kodi_lab.domain import ExternalAuthenticationMode, ExternalProtocolKind
+from kodi_lab.kodi.external import ExternalEndpointPolicy
+from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.secrets import ExternalBridgeSecretStore, ExternalCredentialStore
 
 pytestmark = pytest.mark.slow
 
@@ -4718,6 +4723,121 @@ def test_0044_preserves_managed_target_grants_and_policies_round_trip(
             )
             == 1
         )
+    engine.dispose()
+
+
+def test_external_registration_orders_parent_before_subtype_on_migrated_head(
+    migration_templates: MigrationTemplateStore, tmp_path: Path
+) -> None:
+    database_path = tmp_path / "migrated-head.db"
+    migration_templates.clone("head", database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
+    factory = create_session_factory(engine)
+    service = ExternalTargetAdministrationService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "external-secrets", master_key=None, key_version=1
+        ),
+    )
+
+    created = service.register(
+        logical_name="Migrated external target",
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host="192.168.50.12",
+        port=8080,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"target_inspect"},
+    )
+
+    assert created.target_class == "external_development"
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT COUNT(*) FROM targets WHERE id=:id"),
+                {"id": str(created.target_id)},
+            )
+            == 1
+        )
+        assert (
+            connection.scalar(
+                text("SELECT COUNT(*) FROM external_kodi_targets WHERE target_id=:id"),
+                {"id": str(created.target_id)},
+            )
+            == 1
+        )
+    engine.dispose()
+
+
+def test_bridge_token_orders_pairing_parent_before_event_on_migrated_head(
+    migration_templates: MigrationTemplateStore, tmp_path: Path
+) -> None:
+    database_path = tmp_path / "migrated-head.db"
+    migration_templates.clone("head", database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
+    factory = create_session_factory(engine)
+    target_service = ExternalTargetAdministrationService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "external-secrets", master_key=None, key_version=1
+        ),
+    )
+    target = target_service.register(
+        logical_name="Migrated bridge target",
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host="192.168.50.12",
+        port=8080,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"screenshot", "target_inspect"},
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE external_kodi_targets SET "
+                "administrative_state='enabled', verification_state='verified', "
+                "observation_state='reachable', "
+                "verified_addresses_json='[\"192.168.50.12\"]', "
+                "verified_kodi_name='Kodi', verified_kodi_version='20.5', "
+                "verified_at='2026-09-21T00:00:00.000000Z' "
+                "WHERE target_id=:id"
+            ),
+            {"id": str(target.target_id)},
+        )
+
+    bridge_secrets = tmp_path / "bridge-secrets"
+    service = ExternalBridgeService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8765,)),
+        secret_store=ExternalBridgeSecretStore(
+            bridge_secrets, master_key=b"b" * 32, key_version=1
+        ),
+    )
+    generated = service.generate_pairing_token(target.target_id, bridge_port=8765)
+
+    assert len(generated.token) == 43
+    assert service.status(target.target_id).pairing_token_pending is True
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM external_bridge_pairings WHERE target_id=:id"
+                ),
+                {"id": str(target.target_id)},
+            )
+            == 1
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM external_bridge_events "
+                    "WHERE target_id=:id AND event_kind='pairing_token_generated'"
+                ),
+                {"id": str(target.target_id)},
+            )
+            == 1
+        )
+    assert len(list(bridge_secrets.glob("*.json"))) == 1
     engine.dispose()
 
 

@@ -1,11 +1,29 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings version="1">
   <section id="service.kodi_lab_bridge">
-    <category id="general" label="General">
-      <group id="1">
-        <setting id="enabled" type="boolean" label="Enable bridge" default="false"/>
-        <setting id="bridge_port" type="integer" label="Bridge port" default="8765" constraints="1:65535"/>
-        <setting id="pairing_token" type="string" label="One-time pairing token" default=""/>
+    <category id="general" label="32000">
+      <group id="1" label="32001">
+        <setting id="enabled" type="boolean" label="32010" help="32011">
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="bridge_port" type="integer" label="32020" help="32021">
+          <default>8765</default>
+          <constraints>
+            <minimum>1</minimum>
+            <maximum>65535</maximum>
+          </constraints>
+          <control type="spinner" format="integer"/>
+        </setting>
+        <setting id="pairing_token" type="string" label="32030" help="32031">
+          <default></default>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <hidden>true</hidden>
+          </control>
+        </setting>
       </group>
     </category>
   </section>

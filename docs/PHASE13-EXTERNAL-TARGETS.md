@@ -2,7 +2,9 @@
 
 ## Status
 
-Phase 13 Slices 1, 2 and 3 are complete. Phase 13 overall is **PARTIAL**.
+Phase 13 Slices 1 through 5 are implemented. Phase 13 is
+**IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**; only a fresh independent
+completion review may mark it complete.
 
 Slice 1 implements Web-managed external-development registration, protected
 credentials, native read-only Kodi verification, explicit confirmation and
@@ -11,9 +13,11 @@ enable/disable/deactivation. Slice 2 allows only the existing `target_list`,
 use eligible targets. It does not add a bridge, screenshots, deployment,
 execution, promotion, lifecycle control or production targets. Slice 3 adds the
 optional authenticated screenshot-only bridge and admits eligible external
-targets to the existing `screenshot_capture` tool. Deployment, execution,
-promotion evidence integration, external lifecycle control and production
-targets remain absent.
+targets to the existing `screenshot_capture` tool. Slice 4 admits exact
+bridge-backed external deployment, fixed native execution and promotion
+evidence through the existing Phase 12 tools. Slice 5 supplies the authorized
+Kodi 20.5 LAN proof and compatibility/network hardening. External lifecycle
+control and production targets remain absent.
 
 ## Data and state
 
@@ -148,13 +152,29 @@ policy, `target.visual` permission and external-development class eligibility.
 Pairing is irrelevant to native-only target list/status, inventory and remote
 control.
 
-The add-on calls Kodi RenderCapture with the server-owned 1280x720 geometry,
-receives fixed BGRA bytes, converts them in memory to one RGB, 8-bit,
-non-interlaced PNG and returns bytes directly. It never asks Kodi to write a
-path and never reads one back. Lab applies the existing strict PNG parser: exact
-signature and `IHDR`/`IDAT`/`IEND` layout, checksum, encoding, geometry,
-decompressed length and filter, with an 8 MiB encoded maximum. No animation,
+Kodi 20.5 live proof established that `RenderCapture` is video-renderer-only
+and cannot capture Home or other GUI screens. The corrected add-on invokes
+`TakeScreenshot(<bridge-owned-path>,sync)` with an unpredictable name beneath
+the fixed `special://temp/kodi-lab-bridge` namespace. Neither MCP nor Lab can
+provide any path component. The bridge bounds file appearance, refuses unsafe
+file identities, checks encoded size before bounded readback, validates and
+normalizes the GUI image to one RGB, 8-bit, non-interlaced PNG, and deletes the
+exact transient in `finally` before response construction. Lab applies the
+strict normalized PNG parser for checksum, bounded observed geometry, decoded
+length and filter under the 8 MiB encoded maximum. No animation, retained
 metadata or multi-frame content is accepted.
+
+Kodi 19.5, 20.5 and 21.3 implement the requested synchronous write. Kodi 22
+accepts the built-in but ignores its removed `sync` option; the bridge's same
+two-second deadline retries only the exact generated candidate until a complete
+valid PNG is available. Timeout remains a bounded capture failure.
+
+Crash residue is limited by a five-minute TTL, a 64-entry direct-child scan and
+at most 16 deletions per pass. Only strict bridge-generated capture names are
+eligible; cleanup never recurses or removes unknown files. Capture, validation,
+size and cleanup failures are authenticated bounded classifications distinct
+from bridge authentication failure. This local fixed lifecycle is not generic
+filesystem authority.
 
 Screenshots are not persisted by the external path. Audit contains only target,
 bridge and request UUIDs plus bounded outcome, byte count, dimensions and
@@ -247,6 +267,15 @@ contains the Kodi add-on destination. Lab serially paces transfer at no more
 than 16 MiB/s and fails an invocation that exceeds two hours; one deployment is
 active per target and the existing global heavy gate admits two transfers.
 
+Kodi's external Python runtime may create `__pycache__` after fixed execution.
+Installed-tree inspection therefore applies the same bytecode-cache exclusion
+without weakening source provenance: it skips only a real direct
+`__pycache__` directory containing bounded single-link regular `.pyc` files,
+does not recurse beneath it, and rejects links, nested directories, unknown
+files and over-limit caches. Direct `.pyc` and every non-cache destination
+addition still fail closed. This canonical exclusion is not filesystem
+authority, cleanup or adoption of external source drift.
+
 The bridge derives the destination from its local Kodi add-on root and the
 descriptor add-on ID. It stages into a bridge-owned directory, fsyncs file
 content, re-hashes the full tree, confirms the copied Python video-plugin
@@ -271,6 +300,10 @@ count and bytes. MCP cannot attach, establish or rebaseline. Each operation
 compares the current bridge tree with the baseline or last successful exact
 deployment. External change marks provenance stale, emits a content-free event
 and blocks deployment, execution and promotion evidence.
+After the operator restores the disposable target to the exact registered
+source, a newer successful Web baseline supersedes older deployment lineage;
+only a deployment completed after that explicit trust decision advances the
+expected tree again.
 
 Successful external deployment occupies the existing Phase 12 evidence row
 with target class, bridge/request/receipt UUIDs, manifest digest and counts.
@@ -296,7 +329,46 @@ immediate rollback copy. Abandoned staging bytes become retained failed
 receipts after 24 hours; terminal/unresolved receipt identity is never evicted
 merely to recover capacity.
 
+## Slice 5 authorized LAN proof
+
+One dedicated Kodi 20.5 development target proved the complete registration,
+native verification, exact client grant, pairing, GUI screenshot, source
+baseline, deployment, fixed execution, promotion-evidence, drift rejection and
+reconciliation paths over a real private-LAN connection. Native request replay
+dispatched one Home action; cross-protocol deployment replay performed one
+replacement; fixed-execution replay performed one invocation; and promotion
+replay produced one review plan. Screenshot evidence retains only validated
+geometry, encoded size and digest, never pixels.
+
+Controlled source drift made the baseline stale and blocked deployment,
+execution and promotion without adopting external bytes. After an out-of-band
+maintainer restored the disposable fixture, a newer authenticated Web baseline
+became the trust anchor and deployment recovered. A temporary endpoint change
+and protected credential rotation each forced reverification and immediate MCP
+denial. A maintainer-side Kodi restart produced the bounded
+reachable/unreachable/reachable transition without adding lifecycle authority.
+Bridge revocation removed only bridge capabilities while native trust remained
+usable, and re-pairing required the normal possession and confirmation flow.
+
+The LAN proof exposed and fixed narrow implementation defects without a schema
+change: fresh migrated databases needed explicit parent flushes before target
+subtype and pairing-event insertion; the Kodi 20.5 settings UI needed the
+version-1 structured settings schema plus packaged localization; GUI capture
+needed D-0299's bounded transient `TakeScreenshot` lifecycle; Kodi 20.5 add-on
+inspection rejected a newer invalid `type` request property; and fixed
+execution required D-0300's narrow interpreter-cache exclusion. D-0301 orders
+a newer explicit Web re-baseline ahead of older successful deployment lineage.
+Bridge releases 1.1.1 through 1.1.6 preserved protocol authority while applying
+the incremental packaging, GUI capture, Kodi 20.5 inspection and provenance
+corrections; the validated package is 1.1.6.
+
+Temporary direct SSH was used only as out-of-band maintainer setup to restore
+the disposable fixture, enter a one-time bridge token and restart Kodi. Those
+actions are not Kodi Lab product authority and add no MCP, bridge, filesystem,
+installation or lifecycle surface. No other LAN host or production Kodi target
+was contacted. This proof validates Kodi 20.5 only; deterministic compatibility
+coverage remains authoritative for 19.5, 20.5, 21.3 and the Kodi 22 line.
+
 ## Remaining Phase 13 work
 
-- authorized LAN-development proof and compatibility/network hardening if needed
-- formal Phase 13 closeout
+- independent formal Phase 13 completion review

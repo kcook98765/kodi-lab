@@ -3871,7 +3871,7 @@ authority.
   two globally; screenshots are one/target and four globally.
 
 ## D-0293: External screenshots are authenticated bounded bytes, never remote paths
-- Status: accepted Phase 13 Slice 3.
+- Status: superseded by D-0299 during Phase 13 Slice 5.
 - Decision: the unchanged `screenshot_capture` schema can admit an external-
   development target only through configured screenshot maximum, native trust,
   exact MCP authority and a paired, reachable, identity-pinned bridge with
@@ -3935,3 +3935,51 @@ authority.
   ambiguous. Bridge operation metadata is bounded to 64 entries; abandoned
   staging bytes expire after 24 hours into retained failed receipts, terminal
   and unresolved receipt identity is not evicted to recover capacity.
+
+## D-0299: External screenshots capture the Kodi GUI through one transient bridge-owned file
+- Status: accepted Phase 13 Slice 5 remediation.
+- Decision: Kodi `RenderCapture` exposes the active video renderer and therefore
+  cannot implement the intended Home/settings/library/add-on GUI screenshot.
+  The bridge instead invokes `TakeScreenshot(<bridge-owned-path>,sync)` with one
+  unpredictable filename beneath its fixed `special://temp/kodi-lab-bridge`
+  namespace. Neither MCP nor Lab supplies any path component. The bridge bounds
+  the synchronous existence wait, rejects links/reparse points and non-regular
+  files, checks encoded size before bounded reading, validates and normalizes a
+  bounded non-interlaced RGB/RGBA PNG, and deletes the exact transient file in
+  `finally` before constructing a response. Cleanup failure returns an
+  authenticated semantic failure and short-TTL startup/pre-capture cleanup
+  scans at most 64 direct children and deletes at most 16 strict bridge capture
+  names; it never recurses or touches unknown names. This fixed local lifecycle
+  is not generic filesystem authority. Lab persists no screenshot bytes or
+  native path. Exact request replay still returns the four-entry/120-second
+  authenticated response cache and cannot invoke a second screenshot. Kodi
+  19.5 through 21.3 honor `sync`; Kodi 22 ignores the removed option, so the
+  same operation uses its strict deadline to retry only the exact candidate
+  until a complete valid PNG is readable.
+
+## D-0300: External installed-tree provenance excludes only bounded interpreter caches
+- Status: accepted Phase 13 Slice 5 real-network remediation.
+- Decision: Kodi 20.5 proved that native fixed execution can create
+  `__pycache__` after an exact bridge deployment, making the former bridge
+  readback reject its own expected runtime byproduct after a successful
+  invocation. Incoming manifests and staged trees still reject every bytecode
+  path. Installed-tree inspection alone skips an exact real `__pycache__`
+  directory only when every direct child is a bounded single-link regular
+  `.pyc` file. It never recurses into that directory and rejects symlinks,
+  reparse-like entries where observable, nested directories, unknown files,
+  direct `.pyc` paths and aggregate count/size excess. The bridge neither
+  reads nor deletes excluded bytecode. All source files, descriptors and other
+  destination additions remain in the exact digest, so this implements the
+  D-0294 canonical exclusion without adding filesystem authority or silently
+  adopting source drift.
+
+## D-0301: Explicit external re-baseline supersedes older deployment lineage
+- Status: accepted Phase 13 Slice 5 real-network remediation.
+- Decision: drift makes the external DevelopmentSource baseline stale and
+  blocks deployment, execution and promotion. Recovery requires the operator
+  to restore the disposable target to the exact registered source and perform
+  the existing authenticated Web baseline comparison. A successful Web
+  baseline whose establishment time is newer than prior successful deployment
+  completion becomes the new trust anchor; only a later successful deployment
+  advances expected target provenance again. MCP cannot select, create or
+  alter this ordering, and neither stale nor mismatched bytes are adopted.

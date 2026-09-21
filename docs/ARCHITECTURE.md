@@ -2169,7 +2169,7 @@ independent authorities; none implies another.
 
 The new `service.kodi_lab_bridge` is a narrow ordinary Kodi Python add-on. On
 first initialization it creates one persistent random instance UUID. Protocol
-1 owns one fixed POST endpoint and only identity, capability and in-memory
+1 owns one fixed POST endpoint and only identity, capability and bounded GUI
 screenshot operations plus the possession-proof pairing exchange. Its
 identity includes bridge UUID, protocol, add-on ID/version, Kodi version,
 closed capability and canonical build fingerprint. It exposes no generic
@@ -2219,6 +2219,11 @@ an exact add-on ID/version plus canonical tree digest/counts, not a version
 claim. Deployment checks the baseline or last successful external deployment;
 unexplained tree change marks it stale. Baseline establishment and ambiguity
 reconciliation are authenticated Web operations only.
+If the operator restores the target to the exact registered source, a newer
+successful Web baseline supersedes older successful deployment lineage. This
+timestamp ordering lets the existing Web trust ceremony recover from drift
+without MCP adoption or direct state edits; only a later successful deployment
+becomes the next expected tree.
 
 The additive protocol-1 `workspace_deployment` capability is a content-addressed
 transaction, not a file API. Lab sends a canonical manifest and referenced
@@ -2238,19 +2243,36 @@ pre-dispatch marker. Pre/post tree and inventory observations bind execution to
 the deployment. Consequently the bridge gains no JSON-RPC or execution
 mutation authority.
 
+External Kodi may emit interpreter bytecode during that invocation even though
+the exact deployed manifest contains none. Bridge readback applies the
+canonical bytecode-cache exclusion only to a real, non-recursive
+`__pycache__` directory whose direct children are bounded single-link regular
+`.pyc` files. Links, subdirectories, other names, direct `.pyc` files and all
+source-tree additions remain errors. The bridge neither reads those derived
+bytes nor deletes them, and the request still supplies no path or filesystem
+operation.
+
 The authority intersection includes client/tool, workspace ownership, source
 grant, target grant/policy, external-development class, enabled native identity,
 paired bridge identity, configured and observed capabilities, exact generation,
 successful validation and current source provenance. Target disablement,
 deactivation or bridge revocation blocks new work without deleting history.
-Phase 13 remains partial pending authorized LAN-development proof and formal
-closeout.
+Phase 13 is implementation-complete pending an independent formal completion
+review. Authorized Kodi 20.5 LAN proof exercised the complete external-
+development path; production external targets and all external lifecycle
+authority remain deferred.
 
-The add-on uses Kodi RenderCapture at the server-owned 1280x720 geometry and
-converts BGRA to an in-memory RGB PNG. It never writes or reads a remote path.
-The application authenticates response identity/status/digest before applying
-the existing strict PNG signature/chunk/checksum/encoding/geometry/decoded-size
-validator and 8 MiB maximum. External PNG bytes are not persisted. Audit holds
+The add-on captures the full Kodi GUI with the cross-version
+`TakeScreenshot(<path>,sync)` built-in. It generates the complete filename
+under its fixed `special://temp/kodi-lab-bridge` namespace, performs bounded
+readback and PNG normalization, and deletes the exact transient file in
+`finally` before constructing the authenticated response. MCP and Lab provide
+no path, filename, directory or URI. A bounded short-TTL scan touches only
+strict bridge screenshot names after crash residue; it never recurses or
+removes unknown files. The application authenticates response
+identity/status/digest before applying the strict normalized PNG
+signature/chunk/checksum/encoding/geometry/decoded-size validator and 8 MiB
+maximum. External PNG bytes and native paths are not persisted. Audit holds
 only UUIDs, outcome, dimensions, size and digest. An exact request UUID/nonce
 retry returns the cached result or bounded replay/ambiguity and cannot perform
 a second capture.

@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import struct
 import threading
 import time
@@ -15,6 +16,7 @@ import uuid
 import xml.etree.ElementTree as ET
 import zlib
 from collections import OrderedDict
+from contextlib import suppress
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -25,13 +27,14 @@ import xbmcvfs
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.0"
+ADDON_VERSION = "1.1.6"
 CAPABILITIES = ["screenshot", "workspace_deployment"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.0|protocol-1|identity,capabilities,screenshot,workspace-deployment"
+    b"kodi-lab-narrow-bridge|1.1.6|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ADDON_ROOT = "special://home/addons"
+SCREENSHOT_ROOT = "special://temp/kodi-lab-bridge"
 MAX_REQUEST = 17 * 1024 * 1024
 MAX_PNG = 8 * 1024 * 1024
 MAX_MANIFEST = 16 * 1024 * 1024
@@ -40,15 +43,21 @@ MAX_CHUNK = 256 * 1024
 MAX_FILES = 25000
 MAX_ENTRIES = 50000
 MAX_TOTAL = 1024 * 1024 * 1024
+MAX_BYTECODE_CACHE_FILES = 4096
+MAX_BYTECODE_CACHE_BYTES = 64 * 1024 * 1024
 MAX_DEPLOYMENTS = 64
 DEPLOYMENT_TTL = 86400
-WIDTH = 1280
-HEIGHT = 720
 MAX_SKEW = 60
 MAX_REPLAY = 256
 MAX_RESPONSE_CACHE = 4
 REPLAY_TTL = 86400
 RESPONSE_CACHE_TTL = 120
+SCREENSHOT_STALE_TTL = 300
+MAX_SCREENSHOT_SCAN = 64
+MAX_SCREENSHOT_CLEANUP = 16
+MAX_SCREENSHOT_WIDTH = 4096
+MAX_SCREENSHOT_HEIGHT = 2160
+MAX_SCREENSHOT_DECODED = MAX_SCREENSHOT_WIDTH * MAX_SCREENSHOT_HEIGHT * 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 OPERATIONS = {
     "bridge_identity",
@@ -69,6 +78,18 @@ _RESPONSES = OrderedDict()
 
 class AuthenticationError(Exception):
     pass
+
+
+class ScreenshotError(Exception):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
+class OperationError(Exception):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
 
 
 def _canonical(value):
@@ -297,30 +318,273 @@ def _png_chunk(kind, data):
     )
 
 
-def _capture_png():
-    capture = xbmc.RenderCapture()
-    capture.capture(WIDTH, HEIGHT)
-    pixels = bytes(capture.getImage(5000))
-    if len(pixels) != WIDTH * HEIGHT * 4:
-        raise RuntimeError("capture geometry invalid")
+def _unsafe_file(metadata):
+    if stat.S_ISLNK(metadata.st_mode):
+        return True
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return bool(reparse and getattr(metadata, "st_file_attributes", 0) & reparse)
+
+
+def _screenshot_root():
+    temporary = os.path.abspath(xbmcvfs.translatePath("special://temp"))
+    root = os.path.abspath(xbmcvfs.translatePath(SCREENSHOT_ROOT))
+    try:
+        if os.path.commonpath((temporary, root)) != temporary or root == temporary:
+            raise ScreenshotError("screenshot_capture_failed")
+    except ValueError as error:
+        raise ScreenshotError("screenshot_capture_failed") from error
+    try:
+        if not os.path.exists(root):
+            os.mkdir(root, 0o700)
+        metadata = os.lstat(root)
+        if not stat.S_ISDIR(metadata.st_mode) or _unsafe_file(metadata):
+            raise ScreenshotError("screenshot_capture_failed")
+        real_temporary = os.path.realpath(temporary)
+        if (
+            os.path.commonpath((real_temporary, os.path.realpath(root)))
+            != real_temporary
+        ):
+            raise ScreenshotError("screenshot_capture_failed")
+        with suppress(OSError):
+            os.chmod(root, 0o700)
+    except ScreenshotError:
+        raise
+    except OSError as error:
+        raise ScreenshotError("screenshot_capture_failed") from error
+    return root
+
+
+def _cleanup_stale_screenshots(root, now=None):
+    current = time.time() if now is None else now
+    scanned = 0
+    removed = 0
+    try:
+        with os.scandir(root) as entries:
+            for entry in entries:
+                if scanned >= MAX_SCREENSHOT_SCAN or removed >= MAX_SCREENSHOT_CLEANUP:
+                    break
+                scanned += 1
+                if re.fullmatch(r"capture-[0-9a-f]{32}\.png", entry.name) is None:
+                    continue
+                try:
+                    metadata = entry.stat(follow_symlinks=False)
+                    if current - metadata.st_mtime < SCREENSHOT_STALE_TTL:
+                        continue
+                    os.unlink(entry.path)
+                    removed += 1
+                except OSError:
+                    xbmc.log(
+                        "[service.kodi_lab_bridge] stale screenshot cleanup failed",
+                        xbmc.LOGWARNING,
+                    )
+    except OSError:
+        xbmc.log(
+            "[service.kodi_lab_bridge] stale screenshot scan failed", xbmc.LOGWARNING
+        )
+    return scanned, removed
+
+
+def _paeth(left, above, upper_left):
+    prediction = left + above - upper_left
+    left_distance = abs(prediction - left)
+    above_distance = abs(prediction - above)
+    upper_left_distance = abs(prediction - upper_left)
+    if left_distance <= above_distance and left_distance <= upper_left_distance:
+        return left
+    if above_distance <= upper_left_distance:
+        return above
+    return upper_left
+
+
+def _normalize_png(payload):
+    if not len(PNG_SIGNATURE) < len(payload) <= MAX_PNG or not payload.startswith(
+        PNG_SIGNATURE
+    ):
+        raise ScreenshotError("screenshot_invalid")
+    offset = len(PNG_SIGNATURE)
+    header = None
+    compressed = bytearray()
+    ended = False
+    seen_idat = False
+    while offset < len(payload):
+        if offset + 12 > len(payload):
+            raise ScreenshotError("screenshot_invalid")
+        length = struct.unpack(">I", payload[offset : offset + 4])[0]
+        kind = payload[offset + 4 : offset + 8]
+        end = offset + 12 + length
+        if end > len(payload):
+            raise ScreenshotError("screenshot_invalid")
+        data = payload[offset + 8 : offset + 8 + length]
+        checksum = struct.unpack(">I", payload[offset + 8 + length : end])[0]
+        if binascii.crc32(kind + data) & 0xFFFFFFFF != checksum:
+            raise ScreenshotError("screenshot_invalid")
+        if kind == b"IHDR" and header is None and offset == len(PNG_SIGNATURE):
+            header = data
+        elif kind == b"IDAT" and header is not None and not ended:
+            seen_idat = True
+            compressed.extend(data)
+            if len(compressed) > MAX_PNG:
+                raise ScreenshotError("screenshot_too_large")
+        elif kind == b"IEND" and data == b"" and seen_idat:
+            ended = True
+            offset = end
+            break
+        elif kind[:1].isupper():
+            raise ScreenshotError("screenshot_invalid")
+        offset = end
+    if not ended or offset != len(payload) or header is None or len(header) != 13:
+        raise ScreenshotError("screenshot_invalid")
+    width, height, depth, color, compression, filtering, interlace = struct.unpack(
+        ">IIBBBBB", header
+    )
+    if (
+        not 1 <= width <= MAX_SCREENSHOT_WIDTH
+        or not 1 <= height <= MAX_SCREENSHOT_HEIGHT
+        or depth != 8
+        or color not in (2, 6)
+        or (compression, filtering, interlace) != (0, 0, 0)
+    ):
+        raise ScreenshotError("screenshot_invalid")
+    channels = 3 if color == 2 else 4
+    stride = width * channels
+    expected = height * (stride + 1)
+    if expected > MAX_SCREENSHOT_DECODED:
+        raise ScreenshotError("screenshot_too_large")
+    try:
+        decompressor = zlib.decompressobj()
+        decoded = decompressor.decompress(bytes(compressed), expected + 1)
+        if len(decoded) > expected or decompressor.unconsumed_tail:
+            raise ScreenshotError("screenshot_too_large")
+        decoded += decompressor.flush(expected + 1 - len(decoded))
+    except zlib.error as error:
+        raise ScreenshotError("screenshot_invalid") from error
+    if (
+        len(decoded) != expected
+        or not decompressor.eof
+        or decompressor.unused_data
+        or decompressor.unconsumed_tail
+    ):
+        raise ScreenshotError("screenshot_invalid")
     raw = bytearray()
-    row_size = WIDTH * 4
-    for row_number in range(HEIGHT):
+    previous = bytearray(stride)
+    source_offset = 0
+    for _row_number in range(height):
+        filter_kind = decoded[source_offset]
+        source_offset += 1
+        filtered = decoded[source_offset : source_offset + stride]
+        source_offset += stride
+        row = bytearray(stride)
+        for index, value in enumerate(filtered):
+            left = row[index - channels] if index >= channels else 0
+            above = previous[index]
+            upper_left = previous[index - channels] if index >= channels else 0
+            if filter_kind == 0:
+                decoded_value = value
+            elif filter_kind == 1:
+                decoded_value = value + left
+            elif filter_kind == 2:
+                decoded_value = value + above
+            elif filter_kind == 3:
+                decoded_value = value + ((left + above) // 2)
+            elif filter_kind == 4:
+                decoded_value = value + _paeth(left, above, upper_left)
+            else:
+                raise ScreenshotError("screenshot_invalid")
+            row[index] = decoded_value & 0xFF
         raw.append(0)
-        row = pixels[row_number * row_size : (row_number + 1) * row_size]
-        for offset in range(0, len(row), 4):
-            blue, green, red, _alpha = row[offset : offset + 4]
-            raw.extend((red, green, blue))
+        if channels == 3:
+            raw.extend(row)
+        else:
+            for index in range(0, len(row), 4):
+                raw.extend(row[index : index + 3])
+        previous = row
     png = bytearray(PNG_SIGNATURE)
     png.extend(
-        _png_chunk(b"IHDR", struct.pack(">IIBBBBB", WIDTH, HEIGHT, 8, 2, 0, 0, 0))
+        _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
     )
     png.extend(_png_chunk(b"IDAT", zlib.compress(bytes(raw), 6)))
     png.extend(_png_chunk(b"IEND", b""))
     result = bytes(png)
     if len(result) > MAX_PNG:
-        raise RuntimeError("capture too large")
+        raise ScreenshotError("screenshot_too_large")
     return result
+
+
+def _read_screenshot(path):
+    try:
+        metadata = os.lstat(path)
+        if not stat.S_ISREG(metadata.st_mode) or _unsafe_file(metadata):
+            raise ScreenshotError("screenshot_invalid")
+        if metadata.st_size > MAX_PNG:
+            raise ScreenshotError("screenshot_too_large")
+        if metadata.st_size <= len(PNG_SIGNATURE):
+            raise ScreenshotError("screenshot_invalid")
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_dev != metadata.st_dev
+                or opened.st_ino != metadata.st_ino
+            ):
+                raise ScreenshotError("screenshot_invalid")
+            chunks = []
+            remaining = MAX_PNG + 1
+            while remaining:
+                chunk = os.read(descriptor, min(65536, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+        finally:
+            os.close(descriptor)
+    except ScreenshotError:
+        raise
+    except OSError as error:
+        raise ScreenshotError("screenshot_capture_failed") from error
+    payload = b"".join(chunks)
+    if len(payload) > MAX_PNG:
+        raise ScreenshotError("screenshot_too_large")
+    if len(payload) != metadata.st_size:
+        raise ScreenshotError("screenshot_invalid")
+    return _normalize_png(payload)
+
+
+def _capture_png():
+    root = _screenshot_root()
+    _cleanup_stale_screenshots(root)
+    filename = "capture-" + uuid.uuid4().hex + ".png"
+    native_path = os.path.join(root, filename)
+    special_path = SCREENSHOT_ROOT + "/" + filename
+    if os.path.lexists(native_path):
+        raise ScreenshotError("screenshot_capture_failed")
+    cleanup_failed = False
+    try:
+        try:
+            xbmc.executebuiltin("TakeScreenshot(" + special_path + ",sync)")
+        except Exception as error:
+            raise ScreenshotError("screenshot_capture_failed") from error
+        deadline = time.monotonic() + 2.0
+        last_error = ScreenshotError("screenshot_capture_failed")
+        while time.monotonic() < deadline:
+            if os.path.lexists(native_path):
+                try:
+                    return _read_screenshot(native_path)
+                except ScreenshotError as error:
+                    if error.code == "screenshot_too_large":
+                        raise
+                    last_error = error
+            time.sleep(0.02)
+        raise last_error
+    finally:
+        try:
+            if os.path.lexists(native_path):
+                os.unlink(native_path)
+        except OSError:
+            cleanup_failed = True
+        if cleanup_failed:
+            raise ScreenshotError("screenshot_cleanup_failed")
 
 
 def _cache_get(request_id, request_hash):
@@ -505,6 +769,8 @@ def _tree_manifest(root):
     entries = []
     files = 0
     total = 0
+    cache_files = 0
+    cache_bytes = 0
     root_real = os.path.realpath(root)
     for current, directories, names in os.walk(root, topdown=True, followlinks=False):
         if os.path.realpath(current) == root_real:
@@ -514,6 +780,20 @@ def _tree_manifest(root):
         directories.sort(key=lambda item: item.encode("utf-8"))
         names.sort(key=lambda item: item.encode("utf-8"))
         for name in list(directories):
+            if name == "__pycache__":
+                absolute = os.path.join(current, name)
+                ignored_files, ignored_bytes = _validate_bytecode_cache(absolute)
+                cache_files += ignored_files
+                cache_bytes += ignored_bytes
+                if (
+                    cache_files > MAX_BYTECODE_CACHE_FILES
+                    or cache_bytes > MAX_BYTECODE_CACHE_BYTES
+                    or files + cache_files > MAX_FILES
+                    or total + cache_bytes > MAX_TOTAL
+                ):
+                    raise ValueError("bytecode cache bounds exceeded")
+                directories.remove(name)
+                continue
             path = name if not prefix else prefix + "/" + name
             _relative_path(path)
             absolute = os.path.join(current, name)
@@ -546,7 +826,11 @@ def _tree_manifest(root):
                     digest.update(chunk)
             files += 1
             total += metadata.st_size
-            if files > MAX_FILES or len(entries) >= MAX_ENTRIES or total > MAX_TOTAL:
+            if (
+                files + cache_files > MAX_FILES
+                or len(entries) >= MAX_ENTRIES
+                or total + cache_bytes > MAX_TOTAL
+            ):
                 raise ValueError("tree bounds exceeded")
             mode = 0o755 if metadata.st_mode & 0o111 else 0o644
             entries.append(
@@ -561,6 +845,42 @@ def _tree_manifest(root):
     entries.sort(key=lambda item: item["path"].encode("utf-8"))
     encoded = _manifest_bytes(entries)
     return entries, "sha256:" + hashlib.sha256(encoded).hexdigest(), files, total
+
+
+def _validate_bytecode_cache(root):
+    try:
+        metadata = os.lstat(root)
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise ValueError("unsafe bytecode cache")
+        files = 0
+        total = 0
+        with os.scandir(root) as stream:
+            for entry in stream:
+                name = entry.name
+                item = entry.stat(follow_symlinks=False)
+                if (
+                    not name
+                    or not name.endswith(".pyc")
+                    or len(name.encode("utf-8")) > 255
+                    or any(
+                        ord(character) < 32 or ord(character) == 127
+                        for character in name
+                    )
+                    or not stat.S_ISREG(item.st_mode)
+                    or stat.S_ISLNK(item.st_mode)
+                    or item.st_nlink != 1
+                    or item.st_size > MAX_FILE
+                ):
+                    raise ValueError("unsafe bytecode cache")
+                files += 1
+                total += item.st_size
+                if files > MAX_BYTECODE_CACHE_FILES or total > MAX_BYTECODE_CACHE_BYTES:
+                    raise ValueError("bytecode cache bounds exceeded")
+        return files, total
+    except ValueError:
+        raise
+    except OSError as error:
+        raise ValueError("unsafe bytecode cache") from error
 
 
 def _addon_descriptor(root):
@@ -591,18 +911,18 @@ def _jsonrpc(method, params):
         or result.get("id") != "kodi-lab-bridge"
         or "result" not in result
     ):
-        raise ValueError("Kodi response unavailable")
+        raise OperationError("addon_inspection_failed")
     return result["result"]
 
 
 def _addon_enabled(addon_id):
     result = _jsonrpc(
         "Addons.GetAddonDetails",
-        {"addonid": addon_id, "properties": ["enabled", "version", "type"]},
+        {"addonid": addon_id, "properties": ["enabled", "version"]},
     )
     addon = result.get("addon") if isinstance(result, dict) else None
     if not isinstance(addon, dict) or addon.get("addonid") != addon_id:
-        raise ValueError("add-on inventory unavailable")
+        raise OperationError("addon_inspection_failed")
     return bool(addon.get("enabled")), addon
 
 
@@ -859,11 +1179,20 @@ class Handler(BaseHTTPRequestHandler):
                 if set(payload) != {"addon_id"}:
                     raise ValueError
                 root = os.path.join(xbmcvfs.translatePath(ADDON_ROOT), addon_id)
-                _entries, digest, files, total = _tree_manifest(root)
-                observed_id, version, _eligible = _addon_descriptor(root)
-                if observed_id != addon_id:
-                    raise ValueError
-                enabled, _details = _addon_enabled(addon_id)
+                try:
+                    _entries, digest, files, total = _tree_manifest(root)
+                    observed_id, version, _eligible = _addon_descriptor(root)
+                    if observed_id != addon_id:
+                        raise ValueError
+                    enabled, _details = _addon_enabled(addon_id)
+                except (OSError, ET.ParseError, OperationError, ValueError):
+                    self._json_error_response(
+                        request,
+                        request_hash,
+                        secret,
+                        "addon_inspection_failed",
+                    )
+                    return
                 result = {
                     "addon_id": addon_id,
                     "addon_version": version,
@@ -1203,14 +1532,63 @@ class Handler(BaseHTTPRequestHandler):
         _cache_put(request["request_id"], request_hash, 200, headers, body)
         self._send(200, headers, body)
 
+    def _json_error_response(self, request, request_hash, secret, code):
+        if code != "addon_inspection_failed":
+            code = "bridge_operation_failed"
+        payload = {}
+        timestamp = _timestamp()
+        nonce = _b64(os.urandom(32))
+        response = {
+            "protocol_version": PROTOCOL,
+            "operation": request["operation"],
+            "target_id": request["target_id"],
+            "bridge_id": request["bridge_id"],
+            "request_id": request["request_id"],
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "status": code,
+            "payload": payload,
+        }
+        response["signature"] = _response_signature(
+            secret,
+            request["target_id"],
+            request["bridge_id"],
+            request["operation"],
+            request["request_id"],
+            timestamp,
+            nonce,
+            code,
+            hashlib.sha256(_canonical(payload)).hexdigest(),
+        )
+        body = _canonical(response)
+        headers = {"Content-Type": "application/json"}
+        _cache_put(request["request_id"], request_hash, 422, headers, body)
+        self._send(422, headers, body)
+
     def _screenshot_response(self, request, request_hash, secret):
         if not _CAPTURE_LOCK.acquire(False):
             raise ValueError("capture already in progress")
         try:
-            png = _capture_png()
+            try:
+                png = _capture_png()
+            except ScreenshotError as error:
+                self._screenshot_error_response(
+                    request, request_hash, secret, error.code
+                )
+                return
+            except Exception:
+                xbmc.log(
+                    "[service.kodi_lab_bridge] screenshot capture failed",
+                    xbmc.LOGERROR,
+                )
+                self._screenshot_error_response(
+                    request, request_hash, secret, "screenshot_capture_failed"
+                )
+                return
         finally:
             _CAPTURE_LOCK.release()
         digest = hashlib.sha256(png).hexdigest()
+        width, height = struct.unpack(">II", png[16:24])
         timestamp = _timestamp()
         nonce = _b64(os.urandom(32))
         headers = {
@@ -1224,8 +1602,8 @@ class Handler(BaseHTTPRequestHandler):
             "X-Kodi-Lab-Nonce": nonce,
             "X-Kodi-Lab-Status": "ok",
             "X-Kodi-Lab-Content-SHA256": digest,
-            "X-Kodi-Lab-Width": str(WIDTH),
-            "X-Kodi-Lab-Height": str(HEIGHT),
+            "X-Kodi-Lab-Width": str(width),
+            "X-Kodi-Lab-Height": str(height),
             "X-Kodi-Lab-Signature": _response_signature(
                 secret,
                 request["target_id"],
@@ -1240,6 +1618,44 @@ class Handler(BaseHTTPRequestHandler):
         }
         _cache_put(request["request_id"], request_hash, 200, headers, png)
         self._send(200, headers, png)
+
+    def _screenshot_error_response(self, request, request_hash, secret, code):
+        if code not in {
+            "screenshot_capture_failed",
+            "screenshot_invalid",
+            "screenshot_too_large",
+            "screenshot_cleanup_failed",
+        }:
+            code = "screenshot_capture_failed"
+        body = b""
+        digest = hashlib.sha256(body).hexdigest()
+        timestamp = _timestamp()
+        nonce = _b64(os.urandom(32))
+        headers = {
+            "Content-Type": "application/octet-stream",
+            "X-Kodi-Lab-Protocol": PROTOCOL,
+            "X-Kodi-Lab-Operation": "capture_screenshot",
+            "X-Kodi-Lab-Target-Id": request["target_id"],
+            "X-Kodi-Lab-Bridge-Id": request["bridge_id"],
+            "X-Kodi-Lab-Request-Id": request["request_id"],
+            "X-Kodi-Lab-Timestamp": timestamp,
+            "X-Kodi-Lab-Nonce": nonce,
+            "X-Kodi-Lab-Status": code,
+            "X-Kodi-Lab-Content-SHA256": digest,
+            "X-Kodi-Lab-Signature": _response_signature(
+                secret,
+                request["target_id"],
+                request["bridge_id"],
+                "capture_screenshot",
+                request["request_id"],
+                timestamp,
+                nonce,
+                code,
+                digest,
+            ),
+        }
+        _cache_put(request["request_id"], request_hash, 422, headers, body)
+        self._send(422, headers, body)
 
     def _send(self, status, headers, body):
         self.send_response(status)

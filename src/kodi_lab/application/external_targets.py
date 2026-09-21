@@ -192,6 +192,11 @@ class ExternalTargetAdministrationService:
                         connection_state=ConnectionState.DISCONNECTED,
                     )
                 )
+                # The subtype row is created from a scalar target UUID rather
+                # than an ORM relationship.  Flush the common target first so
+                # SQLite's immediate foreign-key check is satisfied on a real
+                # Alembic-created database as well as Base.metadata fixtures.
+                session.flush()
                 session.add(
                     ExternalKodiTargetRow(
                         target_id=str(target_id),

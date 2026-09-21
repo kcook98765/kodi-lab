@@ -667,10 +667,14 @@ They cannot call the broker. The server derives the fixed bridge endpoint from
 persisted target state and the configured bridge-port allowlist; MCP cannot
 provide a URL, path, port, secret, signature or operation.
 
-The narrow Kodi add-on captures through Kodi RenderCapture and returns bounded
-PNG bytes in the authenticated response. It has no host path, container,
-network, Docker, lifecycle, deployment, execution, shell, log, filesystem,
-profile or arbitrary Kodi-method authority. Existing managed
+The narrow Kodi add-on captures the GUI through Kodi's fixed
+`TakeScreenshot(<bridge-owned-path>,sync)` built-in, immediately reads and
+deletes one unpredictable file below its own `special://temp` subdirectory,
+and returns bounded normalized PNG bytes in the authenticated response. No
+caller supplies a path and the bridge exposes no file operation. It has no
+host path, container, network, Docker, lifecycle, deployment, execution,
+shell, log, generic filesystem, profile or arbitrary Kodi-method authority.
+Existing managed
 `screenshot_capture` continues to use only
 `capture_managed_kodi_screenshot`; its broker request and protected-runtime
 isolation are unchanged. Migration `0045_external_bridge_pairing` creates no
@@ -690,3 +694,10 @@ host path. It cannot stop/restart Kodi, manipulate a container/profile, run a
 command or reach a DevelopmentSource. Managed Phase 12 deployment retains its
 existing broker constraints unchanged. Production roots and protected runtime
 fingerprints remain outside both external adapters.
+
+Installed-tree provenance parsing may omit a real, non-recursive
+`__pycache__` directory only when every direct child is a bounded single-link
+regular `.pyc` file. This canonical exclusion is not broker or filesystem
+authority: the bridge receives no path, does not read or delete the derived
+bytes, and rejects links, nested directories, unknown names and over-limit
+caches.

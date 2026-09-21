@@ -1487,3 +1487,40 @@ milestones are Slice 5 authorized LAN-development proof and hardening, Slice 4
 remediation if review finds a defect, or formal Phase 13 completion review.
 Phase 13 cannot close until authorized LAN proof and any resulting compatibility
 work are complete.
+
+## Phase 13 Slice 5 implementation-complete checkpoint
+
+**Slice 5: COMPLETE. Phase 13: IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW.**
+One authorized dedicated Kodi 20.5 development target proved the complete
+external-development flow over the real private LAN. Registration, protected
+username/password verification, explicit confirmation, capability proof, exact
+client grant, bridge possession proof and identity pinning preceded native
+tools, full-GUI screenshot, exact source baseline, workspace deployment, fixed
+execution and promotion evidence. Replay remained at-most-once at the native,
+Lab and bridge layers. Controlled drift blocked deployment, execution and
+promotion until out-of-band fixture restoration plus the authenticated Web
+re-baseline and reconciliation flow.
+
+The proof produced narrow hardening results. Fresh migrated databases now
+flush the common target before its subtype and a lazily created pairing parent
+before its event. Kodi 20.5 settings use the structured version-1 schema and
+packaged numeric localization. D-0299 replaces video-only `RenderCapture` with
+bounded full-GUI `TakeScreenshot` readback from one bridge-owned transient
+`special://temp` namespace. Kodi 20.5 add-on inspection no longer requests its
+invalid `type` property. D-0300 excludes only strictly bounded interpreter
+caches from installed-tree provenance, and D-0301 makes a newer explicit Web
+re-baseline supersede older deployment lineage. No migration, MCP tool, schema
+field, generic file operation or lifecycle authority was added.
+
+Real endpoint change and credential rotation forced reverification and MCP
+denial. A maintainer-side Kodi restart proved unreachable/reachable behavior;
+bridge revocation removed bridge-only capability while native trust remained
+independent. Gentle concurrent status, screenshot, remote and deployment calls
+were rate-limited or target-serialized. Temporary SSH restored the disposable
+fixture, entered a one-time token and restarted Kodi strictly outside the
+product authority model. The production Kodi 19.5 target and all other LAN
+hosts remained untouched. Kodi 20.5 is the sole live compatibility claim;
+automated coverage retains 19.5, 20.5, 21.3 and Kodi 22.
+
+Only an independent formal Phase 13 completion review may mark the phase
+complete. Phase 14 production-target architecture remains deferred.

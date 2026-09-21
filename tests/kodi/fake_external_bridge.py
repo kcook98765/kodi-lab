@@ -469,6 +469,41 @@ class FakeExternalBridge:
             ) -> None:
                 assert owner.secret is not None
                 owner.capture_count += 1
+                if owner.tamper in {"capture_error", "capture_error_bad_signature"}:
+                    timestamp = timestamp_text(datetime.now(UTC))
+                    nonce = b64url(os.urandom(32))
+                    digest = hashlib.sha256(b"").hexdigest()
+                    status = "screenshot_capture_failed"
+                    signature = response_signature(
+                        owner.secret,
+                        target_id=str(owner.target_id),
+                        bridge_id=str(owner.bridge_id),
+                        operation="capture_screenshot",
+                        request_id=str(request["request_id"]),
+                        timestamp=timestamp,
+                        nonce=nonce,
+                        status=status,
+                        payload_digest=digest,
+                    )
+                    if owner.tamper == "capture_error_bad_signature":
+                        signature = b64url(b"x" * 32)
+                    headers = {
+                        "Content-Type": "application/octet-stream",
+                        "X-Kodi-Lab-Protocol": owner.protocol_version,
+                        "X-Kodi-Lab-Operation": "capture_screenshot",
+                        "X-Kodi-Lab-Target-Id": str(owner.target_id),
+                        "X-Kodi-Lab-Bridge-Id": str(owner.bridge_id),
+                        "X-Kodi-Lab-Request-Id": str(request["request_id"]),
+                        "X-Kodi-Lab-Timestamp": timestamp,
+                        "X-Kodi-Lab-Nonce": nonce,
+                        "X-Kodi-Lab-Status": status,
+                        "X-Kodi-Lab-Content-SHA256": digest,
+                        "X-Kodi-Lab-Signature": signature,
+                    }
+                    item = (request_digest, 422, headers, b"")
+                    owner.requests[str(request["request_id"])] = item
+                    self._send(422, headers, b"")
+                    return
                 png = fake_png()
                 if owner.tamper == "invalid_png":
                     png = b"not-a-png"

@@ -472,6 +472,18 @@ def ppm_to_png(payload: bytes) -> bytes:
 
 
 def validate_png(payload: bytes) -> ValidatedPng:
+    return _validate_normalized_png(payload, require_runtime_geometry=True)
+
+
+def validate_external_png(payload: bytes) -> ValidatedPng:
+    """Validate a normalized bounded GUI screenshot at its observed geometry."""
+
+    return _validate_normalized_png(payload, require_runtime_geometry=False)
+
+
+def _validate_normalized_png(
+    payload: bytes, *, require_runtime_geometry: bool
+) -> ValidatedPng:
     if not len(PNG_SIGNATURE) < len(payload) <= MAX_PNG_BYTES:
         raise ScreenshotArtifactError("PNG size is invalid.")
     if not payload.startswith(PNG_SIGNATURE):
@@ -506,7 +518,10 @@ def validate_png(payload: bytes) -> ValidatedPng:
     )
     if not (0 < width <= MAX_WIDTH and 0 < height <= MAX_HEIGHT):
         raise ScreenshotArtifactError("PNG dimensions are invalid.")
-    if (width, height) != (EXPECTED_WIDTH, EXPECTED_HEIGHT):
+    if require_runtime_geometry and (width, height) != (
+        EXPECTED_WIDTH,
+        EXPECTED_HEIGHT,
+    ):
         raise ScreenshotArtifactError("PNG dimensions differ from runtime geometry.")
     if (depth, color, compression, filtering, interlace) != (8, 2, 0, 0, 0):
         raise ScreenshotArtifactError("PNG encoding is unsupported.")

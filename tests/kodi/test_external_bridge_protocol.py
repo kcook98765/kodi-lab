@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -16,6 +17,7 @@ from kodi_lab.kodi.bridge import (
     ExternalBridgeError,
     b64url,
     request_signature,
+    response_signature,
     timestamp_text,
 )
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
@@ -126,6 +128,94 @@ def test_response_authentication_rejects_tampering(tamper: str, code: str) -> No
                 requested_at=datetime.now(UTC),
             )
         assert raised.value.code == code
+
+
+@pytest.mark.parametrize(
+    ("tamper", "code"),
+    [
+        ("capture_error", "screenshot_capture_failed"),
+        ("capture_error_bad_signature", "bridge_authentication_failed"),
+    ],
+)
+def test_authenticated_screenshot_error_is_distinct_from_authentication(
+    tamper: str, code: str
+) -> None:
+    target_id = uuid4()
+    token = os.urandom(32)
+    with FakeExternalBridge(target_id=target_id, token=token) as fake:
+        client = ExternalBridgeClient()
+        pairing = client.pair(
+            _endpoint(fake.port),
+            bridge_port=fake.port,
+            target_id=target_id,
+            token=token,
+        )
+        fake.tamper = tamper
+        request_id = uuid4()
+        nonce = b64url(os.urandom(32))
+        requested_at = datetime.now(UTC)
+        for _attempt in range(2):
+            with pytest.raises(ExternalBridgeError) as raised:
+                client.capture_screenshot(
+                    _endpoint(fake.port),
+                    bridge_port=fake.port,
+                    target_id=target_id,
+                    bridge_id=fake.bridge_id,
+                    secret=pairing.secret,
+                    request_id=request_id,
+                    nonce=nonce,
+                    requested_at=requested_at,
+                )
+            assert raised.value.code == code
+        assert fake.capture_count == 1
+
+
+def test_authenticated_addon_inspection_error_is_not_replay_rejection() -> None:
+    target_id = uuid4()
+    bridge_id = uuid4()
+    secret = os.urandom(32)
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        envelope = json.loads(request.content)
+        payload: dict[str, object] = {}
+        timestamp = timestamp_text(datetime.now(UTC))
+        nonce = b64url(os.urandom(32))
+        status = "addon_inspection_failed"
+        response = {
+            "protocol_version": BRIDGE_PROTOCOL_VERSION,
+            "operation": envelope["operation"],
+            "target_id": envelope["target_id"],
+            "bridge_id": envelope["bridge_id"],
+            "request_id": envelope["request_id"],
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "status": status,
+            "payload": payload,
+        }
+        response["signature"] = response_signature(
+            secret,
+            target_id=envelope["target_id"],
+            bridge_id=envelope["bridge_id"],
+            operation=envelope["operation"],
+            request_id=envelope["request_id"],
+            timestamp=timestamp,
+            nonce=nonce,
+            status=status,
+            payload_digest=hashlib.sha256(b"{}").hexdigest(),
+        )
+        return httpx.Response(422, json=response)
+
+    client = ExternalBridgeClient(transport=httpx.MockTransport(respond))
+    with pytest.raises(ExternalBridgeError) as raised:
+        client.inspect_addon(
+            _endpoint(8765),
+            bridge_port=8765,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            addon_id="plugin.video.fixture",
+        )
+    assert raised.value.code == "addon_inspection_failed"
 
 
 def test_wrong_secret_target_protocol_and_stale_clock_fail_closed() -> None:

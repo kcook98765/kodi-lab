@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import binascii
 import hashlib
 import json
 import os
 import runpy
+import struct
 import sys
+import threading
+import time
 import xml.etree.ElementTree as ET
+import zlib
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
@@ -22,14 +27,10 @@ from kodi_lab.kodi.bridge import (
     response_signature,
     timestamp_text,
 )
-from kodi_lab.kodi.screenshots import EXPECTED_HEIGHT, EXPECTED_WIDTH, validate_png
+from kodi_lab.kodi.screenshots import validate_external_png
 
-ADDON = (
-    Path(__file__).parents[2]
-    / "bridge"
-    / "service.kodi_lab_bridge"
-    / "narrow_bridge.py"
-)
+ADDON_ROOT = Path(__file__).parents[2] / "bridge" / "service.kodi_lab_bridge"
+ADDON = ADDON_ROOT / "narrow_bridge.py"
 
 
 def _module(name: str, **values: object) -> ModuleType:
@@ -42,23 +43,34 @@ def _module(name: str, **values: object) -> ModuleType:
 def _load(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    pixels: bytes | None = None,
     state_path: Path | None = None,
     addon_root: Path | None = None,
+    temp_root: Path | None = None,
+    screenshot_png: bytes | None = None,
+    screenshot_commands: list[str] | None = None,
+    jsonrpc_requests: list[dict[str, object]] | None = None,
 ) -> dict[str, Any]:
-    class RenderCapture:
-        def capture(self, width: int, height: int) -> None:
-            assert (width, height) == (EXPECTED_WIDTH, EXPECTED_HEIGHT)
-
-        def getImage(self, timeout: int) -> bytes:
-            assert timeout == 5000
-            assert pixels is not None
-            return pixels
-
     enabled = {"value": True}
+
+    def execute_builtin(command: str) -> None:
+        assert command.startswith(
+            "TakeScreenshot(special://temp/kodi-lab-bridge/capture-"
+        )
+        assert command.endswith(".png,sync)")
+        if screenshot_commands is not None:
+            screenshot_commands.append(command)
+        if screenshot_png is not None:
+            assert temp_root is not None
+            filename = command.removeprefix(
+                "TakeScreenshot(special://temp/kodi-lab-bridge/"
+            ).removesuffix(",sync)")
+            destination = temp_root / "kodi-lab-bridge" / filename
+            destination.write_bytes(screenshot_png)
 
     def execute_jsonrpc(raw: str) -> str:
         request = json.loads(raw)
+        if jsonrpc_requests is not None:
+            jsonrpc_requests.append(request)
         method = request["method"]
         if method == "Addons.SetAddonEnabled":
             enabled["value"] = bool(request["params"]["enabled"])
@@ -83,20 +95,19 @@ def _load(
         "xbmc",
         _module(
             "xbmc",
-            RenderCapture=RenderCapture,
+            executebuiltin=execute_builtin,
             getInfoLabel=lambda _name: "21.3 (21.3.0)",
             log=lambda *_args: None,
             LOGDEBUG=0,
             LOGINFO=1,
             LOGERROR=2,
+            LOGWARNING=3,
             Monitor=object,
             executeJSONRPC=execute_jsonrpc,
         ),
     )
     monkeypatch.setitem(sys.modules, "xbmcaddon", _module("xbmcaddon", Addon=object))
-    if state_path is None:
-        vfs = _module("xbmcvfs")
-    else:
+    if state_path is not None or temp_root is not None:
 
         class VfsFile:
             def __init__(self, path: str, mode: str = "rb") -> None:
@@ -114,7 +125,13 @@ def _load(
         def translate(path: str) -> str:
             if path == "special://home/addons" and addon_root is not None:
                 return str(addon_root)
-            return str(state_path)
+            if path == "special://temp" and temp_root is not None:
+                return str(temp_root)
+            if path == "special://temp/kodi-lab-bridge" and temp_root is not None:
+                return str(temp_root / "kodi-lab-bridge")
+            if state_path is not None:
+                return str(state_path)
+            raise AssertionError(path)
 
         vfs = _module(
             "xbmcvfs",
@@ -123,6 +140,8 @@ def _load(
             mkdirs=lambda path: Path(path).mkdir(parents=True, exist_ok=True),
             File=VfsFile,
         )
+    else:
+        vfs = _module("xbmcvfs")
     monkeypatch.setitem(sys.modules, "xbmcvfs", vfs)
     return runpy.run_path(str(ADDON))
 
@@ -184,15 +203,348 @@ def test_addon_protocol_is_closed_and_crypto_matches_lab(
     )
 
 
-def test_addon_capture_returns_fixed_bounded_png_without_a_path(
+def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    bgra = b"\x10\x20\x30\xff" * (EXPECTED_WIDTH * EXPECTED_HEIGHT)
-    bridge = _load(monkeypatch, pixels=bgra)
+    bridge = _load(monkeypatch)
+    descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
+    assert descriptor.attrib["id"] == bridge["ADDON_ID"]
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.6"
+    dependency = descriptor.find("./requires/import")
+    assert dependency is not None and dependency.attrib == {
+        "addon": "xbmc.python",
+        "version": "3.0.0",
+    }
+    service = descriptor.find("./extension[@point='xbmc.service']")
+    assert service is not None and service.attrib == {
+        "point": "xbmc.service",
+        "library": "service.py",
+        "start": "login",
+    }
+
+    settings = ET.parse(ADDON_ROOT / "resources" / "settings.xml").getroot()
+    assert settings.attrib == {"version": "1"}
+    definitions = {
+        setting.attrib["id"]: setting for setting in settings.findall(".//setting")
+    }
+    assert set(definitions) == {"enabled", "bridge_port", "pairing_token"}
+    assert all(setting.find("control") is not None for setting in definitions.values())
+    assert definitions["enabled"].findtext("default") == "false"
+    assert definitions["bridge_port"].findtext("default") == "8765"
+    assert definitions["bridge_port"].findtext("constraints/minimum") == "1"
+    assert definitions["bridge_port"].findtext("constraints/maximum") == "65535"
+    assert definitions["pairing_token"].findtext("constraints/allowempty") == "true"
+    assert definitions["pairing_token"].findtext("control/hidden") == "true"
+
+    labels = {
+        element.attrib[field]
+        for element in settings.findall(".//*[@label]")
+        for field in ("label",)
+    }
+    helps = {
+        element.attrib[field]
+        for element in settings.findall(".//*[@help]")
+        for field in ("help",)
+    }
+    assert labels == {"32000", "32001", "32010", "32020", "32030"}
+    assert helps == {"32011", "32021", "32031"}
+    catalog = (
+        ADDON_ROOT / "resources/language/resource.language.en_gb/strings.po"
+    ).read_text()
+    for message_id in labels | helps:
+        assert f'msgctxt "#{message_id}"' in catalog
+
+
+def test_addon_inspection_uses_kodi_20_compatible_detail_properties(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    addon_root = tmp_path / "addons"
+    addon = addon_root / "plugin.video.fixture"
+    _write_video_plugin(addon, "1.0.0", "pass\n")
+    requests: list[dict[str, object]] = []
+    bridge = _load(
+        monkeypatch,
+        addon_root=addon_root,
+        jsonrpc_requests=requests,
+    )
+
+    enabled, details = bridge["_addon_enabled"]("plugin.video.fixture")
+
+    assert enabled is True
+    assert details["version"] == "1.0.0"
+    assert requests == [
+        {
+            "jsonrpc": "2.0",
+            "id": "kodi-lab-bridge",
+            "method": "Addons.GetAddonDetails",
+            "params": {
+                "addonid": "plugin.video.fixture",
+                "properties": ["enabled", "version"],
+            },
+        }
+    ]
+    params = cast(dict[str, object], requests[0]["params"])
+    assert "type" not in cast(list[str], params["properties"])
+
+
+def test_addon_inspection_error_response_is_authenticated_and_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load(monkeypatch)
+    request = {
+        "operation": "inspect_addon",
+        "target_id": str(uuid4()),
+        "bridge_id": str(uuid4()),
+        "request_id": str(uuid4()),
+    }
+    secret = os.urandom(32)
+    sent: dict[str, object] = {}
+    handler = object.__new__(bridge["Handler"])
+
+    def capture(status: int, headers: dict[str, str], body: bytes) -> None:
+        sent.update(status=status, headers=headers, body=body)
+
+    handler._send = capture
+    handler._json_error_response(request, "0" * 64, secret, "addon_inspection_failed")
+
+    assert sent["status"] == 422
+    assert sent["headers"] == {"Content-Type": "application/json"}
+    response = json.loads(cast(bytes, sent["body"]))
+    assert response["status"] == "addon_inspection_failed"
+    assert response["payload"] == {}
+    assert response["signature"] == bridge["_response_signature"](
+        secret,
+        request["target_id"],
+        request["bridge_id"],
+        request["operation"],
+        request["request_id"],
+        response["timestamp"],
+        response["nonce"],
+        "addon_inspection_failed",
+        hashlib.sha256(b"{}").hexdigest(),
+    )
+
+
+def _png(width: int = 4, height: int = 3, *, rgba: bool = True) -> bytes:
+    channels = 4 if rgba else 3
+    rows = b"".join(
+        b"\x00" + bytes((row + column) % 256 for column in range(width * channels))
+        for row in range(height)
+    )
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(payload))
+            + kind
+            + payload
+            + struct.pack(">I", binascii.crc32(kind + payload) & 0xFFFFFFFF)
+        )
+
+    return b"".join(
+        (
+            b"\x89PNG\r\n\x1a\n",
+            chunk(
+                b"IHDR",
+                struct.pack(">IIBBBBB", width, height, 8, 6 if rgba else 2, 0, 0, 0),
+            ),
+            chunk(b"IDAT", zlib.compress(rows)),
+            chunk(b"IEND", b""),
+        )
+    )
+
+
+def test_addon_gui_capture_uses_fixed_temp_namespace_without_playback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[str] = []
+    bridge = _load(
+        monkeypatch,
+        temp_root=tmp_path,
+        screenshot_png=_png(),
+        screenshot_commands=commands,
+    )
     png = cast(bytes, bridge["_capture_png"]())
-    validated = validate_png(png)
-    assert (validated.width, validated.height) == (EXPECTED_WIDTH, EXPECTED_HEIGHT)
-    assert validated.byte_size <= bridge["MAX_PNG"]
+    validated = validate_external_png(png)
+    assert (validated.width, validated.height) == (4, 3)
+    assert commands and "TakeScreenshot(" in commands[0]
+    assert "RenderCapture" not in ADDON.read_text()
+    capture_root = tmp_path / "kodi-lab-bridge"
+    assert list(capture_root.iterdir()) == []
+
+
+def test_addon_capture_protocol_rejects_even_authenticated_path_payload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    state_path = tmp_path / "state" / "state.json"
+    bridge = _load(monkeypatch, state_path=state_path, temp_root=tmp_path / "temp")
+    state = bridge["_load_state"]()
+    target_id = str(uuid4())
+    secret = os.urandom(32)
+    state["target_id"] = target_id
+    state["secret"] = b64url(secret)
+    bridge["_save_state"](state)
+    request: dict[str, object] = {
+        "protocol_version": bridge["PROTOCOL"],
+        "operation": "capture_screenshot",
+        "target_id": target_id,
+        "bridge_id": state["bridge_id"],
+        "request_id": str(uuid4()),
+        "timestamp": bridge["_timestamp"](),
+        "nonce": b64url(os.urandom(32)),
+        "payload": {"path": "special://temp/attacker.png"},
+    }
+    request["signature"] = bridge["_request_signature"](secret, request)
+    handler = object.__new__(bridge["Handler"])
+    with pytest.raises(ValueError):
+        handler._authenticated(request, "0" * 64)
+
+
+def test_addon_gui_capture_deletes_invalid_and_oversized_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    module: Any = sys.modules["xbmc"]
+
+    def install(payload: bytes) -> None:
+        def execute(command: str) -> None:
+            filename = command.rsplit("/", 1)[1].removesuffix(",sync)")
+            (tmp_path / "kodi-lab-bridge" / filename).write_bytes(payload)
+
+        module.executebuiltin = execute
+
+    install(b"not-a-png")
+    with pytest.raises(bridge["ScreenshotError"], match="screenshot_invalid"):
+        bridge["_capture_png"]()
+    assert list((tmp_path / "kodi-lab-bridge").iterdir()) == []
+
+    install(b"x" * (bridge["MAX_PNG"] + 1))
+    with pytest.raises(bridge["ScreenshotError"], match="screenshot_too_large"):
+        bridge["_capture_png"]()
+    assert list((tmp_path / "kodi-lab-bridge").iterdir()) == []
+
+
+def test_addon_gui_capture_bounds_kodi_22_asynchronous_completion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    module: Any = sys.modules["xbmc"]
+    writers: list[threading.Thread] = []
+
+    def execute(command: str) -> None:
+        filename = command.rsplit("/", 1)[1].removesuffix(",sync)")
+        destination = tmp_path / "kodi-lab-bridge" / filename
+        destination.write_bytes(b"")
+
+        def finish() -> None:
+            time.sleep(0.04)
+            destination.write_bytes(_png())
+
+        writer = threading.Thread(target=finish)
+        writer.start()
+        writers.append(writer)
+
+    module.executebuiltin = execute
+    png = bridge["_capture_png"]()
+    for writer in writers:
+        writer.join()
+    assert validate_external_png(png).width == 4
+    assert list((tmp_path / "kodi-lab-bridge").iterdir()) == []
+
+
+def test_addon_gui_capture_rejects_symlink_and_cleans_only_bounded_namespace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    root = Path(bridge["_screenshot_root"]())
+    stale = root / ("capture-" + ("a" * 32) + ".png")
+    fresh = root / ("capture-" + ("b" * 32) + ".png")
+    unknown = root / "keep-me.png"
+    stale.write_bytes(b"stale")
+    fresh.write_bytes(b"fresh")
+    unknown.write_bytes(b"unknown")
+    old = time.time() - bridge["SCREENSHOT_STALE_TTL"] - 1
+    os.utime(stale, (old, old))
+    scanned, removed = bridge["_cleanup_stale_screenshots"](root)
+    assert scanned <= bridge["MAX_SCREENSHOT_SCAN"]
+    assert removed == 1
+    assert not stale.exists() and fresh.exists() and unknown.exists()
+
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(_png())
+    symlink = root / ("capture-" + ("c" * 32) + ".png")
+    try:
+        symlink.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    with pytest.raises(bridge["ScreenshotError"], match="screenshot_invalid"):
+        bridge["_read_screenshot"](str(symlink))
+    assert outside.exists()
+
+
+def test_addon_screenshot_failure_is_authenticated_semantic_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load(monkeypatch)
+    handler = object.__new__(bridge["Handler"])
+    sent: list[tuple[int, dict[str, str], bytes]] = []
+    handler._send = lambda status, headers, body: sent.append((status, headers, body))
+    globals_ = handler._screenshot_response.__func__.__globals__
+    globals_["_capture_png"] = lambda: (_ for _ in ()).throw(
+        bridge["ScreenshotError"]("screenshot_capture_failed")
+    )
+    request = {
+        "target_id": str(uuid4()),
+        "bridge_id": str(uuid4()),
+        "request_id": str(uuid4()),
+    }
+    handler._screenshot_response(request, "0" * 64, os.urandom(32))
+    assert sent[0][0] == 422
+    assert sent[0][1]["X-Kodi-Lab-Status"] == "screenshot_capture_failed"
+    assert sent[0][2] == b""
+
+    globals_["_capture_png"] = lambda: (_ for _ in ()).throw(
+        RuntimeError("untrusted native detail")
+    )
+    request["request_id"] = str(uuid4())
+    handler._screenshot_response(request, "1" * 64, os.urandom(32))
+    assert sent[1][0] == 422
+    assert sent[1][1]["X-Kodi-Lab-Status"] == "screenshot_capture_failed"
+    assert sent[1][2] == b""
+
+
+def test_addon_gui_capture_is_deleted_before_response_authentication(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path, screenshot_png=_png())
+    handler = object.__new__(bridge["Handler"])
+    globals_ = handler._screenshot_response.__func__.__globals__
+    globals_["_response_signature"] = lambda *_args: (_ for _ in ()).throw(
+        RuntimeError("injected response construction failure")
+    )
+    request = {
+        "target_id": str(uuid4()),
+        "bridge_id": str(uuid4()),
+        "request_id": str(uuid4()),
+    }
+    with pytest.raises(RuntimeError, match="response construction"):
+        handler._screenshot_response(request, "0" * 64, os.urandom(32))
+    assert list((tmp_path / "kodi-lab-bridge").iterdir()) == []
+
+
+def test_addon_gui_capture_reports_cleanup_failure_without_returning_pixels(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path, screenshot_png=_png())
+    real_unlink = os.unlink
+
+    def fail_capture_unlink(path: str | bytes | os.PathLike[str]) -> None:
+        if Path(os.fsdecode(os.fspath(path))).name.startswith("capture-"):
+            raise OSError("injected cleanup failure")
+        real_unlink(path)
+
+    monkeypatch.setattr(os, "unlink", fail_capture_unlink)
+    with pytest.raises(bridge["ScreenshotError"], match="screenshot_cleanup_failed"):
+        bridge["_capture_png"]()
 
 
 def test_addon_source_has_no_legacy_broad_authority() -> None:
@@ -258,7 +610,7 @@ def test_deployment_manifest_is_exact_bounded_and_pathless(
             bridge["_validate_manifest"](invalid)
 
 
-def test_deployment_tree_rejects_links_and_bytecode_cache(
+def test_deployment_tree_rejects_links_and_direct_bytecode(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     bridge = _load(monkeypatch)
@@ -269,8 +621,30 @@ def test_deployment_tree_rejects_links_and_bytecode_cache(
     with pytest.raises(ValueError, match="unsafe file"):
         bridge["_tree_manifest"](str(tree))
     (tree / "linked.py").unlink()
-    (tree / "__pycache__").mkdir()
-    with pytest.raises(ValueError, match="invalid relative path"):
+    (tree / "cached.pyc").write_bytes(b"bytecode")
+    with pytest.raises(ValueError, match="bytecode cache is not deployable"):
+        bridge["_tree_manifest"](str(tree))
+
+
+def test_installed_tree_ignores_only_bounded_regular_bytecode_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch)
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "addon.py").write_text("pass\n")
+    clean = bridge["_tree_manifest"](str(tree))
+    cache = tree / "__pycache__"
+    cache.mkdir()
+    (cache / "addon.cpython-311.pyc").write_bytes(b"derived")
+    assert bridge["_tree_manifest"](str(tree)) == clean
+
+    (cache / "unexpected.txt").write_text("not bytecode")
+    with pytest.raises(ValueError, match="unsafe bytecode cache"):
+        bridge["_tree_manifest"](str(tree))
+    (cache / "unexpected.txt").unlink()
+    os.symlink(cache / "addon.cpython-311.pyc", cache / "linked.pyc")
+    with pytest.raises(ValueError, match="unsafe bytecode cache"):
         bridge["_tree_manifest"](str(tree))
 
 

@@ -256,6 +256,11 @@ class ExternalBridgeService:
                         verified_capabilities_json="[]",
                     )
                     session.add(row)
+                    # The semantic event references this lazily created parent
+                    # by scalar target UUID.  Publish the parent first so a
+                    # real migrated SQLite database can enforce its immediate
+                    # foreign-key constraint deterministically.
+                    session.flush()
                 for value in (
                     row.pairing_token_reference,
                     row.bridge_secret_reference,

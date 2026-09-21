@@ -409,7 +409,10 @@ def test_bridge_pairing_administration_is_web_only_show_once_and_csrf_protected(
     )
     generated = client.post(url, json=body, headers=_headers(csrf))
     assert generated.status_code == 201
-    token = generated.json()["token"]
+    assert generated.headers["content-type"] == "application/json"
+    generated_payload = generated.json()
+    assert set(generated_payload) == {"target_id", "token", "expires_at"}
+    token = generated_payload["token"]
     assert len(token) == 43
     status = client.get(f"/api/external-targets/{target_id}/bridge").json()
     assert status["pairing_token_pending"] is True
