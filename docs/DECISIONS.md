@@ -3670,3 +3670,21 @@ authority.
   capacity; saturation fails closed. Candidate and unreferenced terminal
   operation cleanup are bounded and deterministic. This changes no transport,
   tool, permission, schema, retention horizon, or Phase 12 completion status.
+
+## D-0278: Replay pruning requires coherent evidence and bounded references
+- Status: accepted Phase 12 remediation.
+- Decision: D-0277 terminality is a positive proof over the complete durable
+  evidence shape, not an inference from terminal state and completion time.
+  Creation lifecycle, deployment mutation/progress, execution dispatch/result,
+  and promotion plan/apply/handoff/verification fields must be internally
+  consistent; every malformed, contradictory, incomplete, missing, or unknown
+  combination is retained. In particular, a pre-mutation deployment failure has
+  no stop, sync, restart, inventory, result, or digest evidence, and a
+  pre-dispatch execution failure has no dispatch, post-dispatch classification,
+  result, or count evidence. Referencing promotion workflows are tested by one
+  scalar SQL existence predicate per inspected deployment/execution rather than
+  materializing historical plans. The outer batch remains 256; per-candidate
+  queries and instantiated application rows are therefore finite regardless of
+  promotion fanout. Terminal operation cleanup applies the same consistency
+  predicates and bounded existence checks. No tool, protocol, permission,
+  migration, retention horizon, or Phase 12 status changes.

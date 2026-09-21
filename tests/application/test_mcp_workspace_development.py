@@ -8,7 +8,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import (
@@ -1053,6 +1053,190 @@ def test_old_terminal_deployment_and_execution_mappings_are_pruned(
         )
 
 
+@pytest.mark.parametrize(
+    "contradictory_evidence",
+    [
+        {"target_stopped": True},
+        {"inventory_classification": "unknown"},
+        {"source_manifest_digest": "sha256:" + "9" * 64},
+    ],
+    ids=("target-stopped", "inventory-checked", "sync-digest"),
+)
+def test_malformed_pre_mutation_deployment_failure_survives_restart_pruning(
+    tmp_path: Path, contradictory_evidence: dict[str, object]
+) -> None:
+    env = _environment(tmp_path)
+    request_id = uuid4()
+    operation, created = env.development._claim_deployment(
+        env.client_id, request_id, env.workspace_id, 0, TARGET_ID
+    )
+    assert created is True
+    env.development._finish_deployment(operation.id, "failed", "deployment_interrupted")
+    old = (
+        (NOW - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with env.sessions.begin() as session:
+        session.execute(
+            update(McpWorkspaceDeploymentOperationRow)
+            .where(McpWorkspaceDeploymentOperationRow.id == operation.id)
+            .values(**contradictory_evidence)
+        )
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old, updated_at=old)
+        )
+
+    restarted = _restarted_development(env, tmp_path)
+    with env.sessions.begin() as session:
+        restarted._prune_and_require_capacity(session, env.client_id, NOW)
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(McpDevelopmentRequestRow)
+                .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            )
+            == 1
+        )
+
+
+def test_incomplete_deployment_success_evidence_is_retained(tmp_path: Path) -> None:
+    env = _environment(tmp_path)
+    request_id = uuid4()
+    env.development.deploy(
+        client_id=env.client_id,
+        request_id=request_id,
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+    old = (
+        (NOW - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with env.sessions.begin() as session:
+        session.execute(
+            update(McpWorkspaceDeploymentOperationRow)
+            .where(McpWorkspaceDeploymentOperationRow.request_id == str(request_id))
+            .values(target_stopped=False)
+        )
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old, updated_at=old)
+        )
+        env.development._prune_and_require_capacity(session, env.client_id, NOW)
+        assert session.scalar(select(McpDevelopmentRequestRow)) is not None
+
+
+def test_malformed_pre_dispatch_execution_failure_and_incomplete_success_are_retained(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+    env.development.deploy(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+    malformed_request = uuid4()
+    operation, created = env.development._claim_execution(
+        env.client_id, malformed_request, env.workspace_id, 0, TARGET_ID
+    )
+    assert created is True
+    env.development._finish_execution(operation.id, "failed", "execution_interrupted")
+    success_request = uuid4()
+    env.development.execute(
+        client_id=env.client_id,
+        request_id=success_request,
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+    old = (
+        (NOW - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with env.sessions.begin() as session:
+        session.execute(
+            update(McpWorkspaceExecutionOperationRow)
+            .where(McpWorkspaceExecutionOperationRow.id == operation.id)
+            .values(execution_classification="ambiguous")
+        )
+        session.execute(
+            update(McpWorkspaceExecutionOperationRow)
+            .where(McpWorkspaceExecutionOperationRow.request_id == str(success_request))
+            .values(item_count=None)
+        )
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(
+                McpDevelopmentRequestRow.request_id.in_(
+                    (str(malformed_request), str(success_request))
+                )
+            )
+            .values(created_at=old, updated_at=old)
+        )
+
+    restarted = _restarted_development(env, tmp_path)
+    with env.sessions.begin() as session:
+        restarted._prune_and_require_capacity(session, env.client_id, NOW)
+        retained = set(
+            session.scalars(
+                select(McpDevelopmentRequestRow.request_id).where(
+                    McpDevelopmentRequestRow.request_id.in_(
+                        (str(malformed_request), str(success_request))
+                    )
+                )
+            )
+        )
+    assert retained == {str(malformed_request), str(success_request)}
+
+
+def test_terminal_operation_cleanup_is_bounded_and_rejects_malformed_evidence(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+    canonical, created = env.development._claim_deployment(
+        env.client_id, uuid4(), env.workspace_id, 0, TARGET_ID
+    )
+    assert created is True
+    env.development._finish_deployment(canonical.id, "failed", "deployment_interrupted")
+    malformed, created = env.development._claim_deployment(
+        env.client_id, uuid4(), env.workspace_id, 0, TARGET_ID
+    )
+    assert created is True
+    env.development._finish_deployment(malformed.id, "failed", "deployment_interrupted")
+    old = (
+        (NOW - timedelta(days=31))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    with env.sessions.begin() as session:
+        session.execute(delete(McpDevelopmentRequestRow))
+        session.execute(
+            update(McpWorkspaceDeploymentOperationRow)
+            .where(
+                McpWorkspaceDeploymentOperationRow.id.in_((canonical.id, malformed.id))
+            )
+            .values(completed_at=old)
+        )
+        session.execute(
+            update(McpWorkspaceDeploymentOperationRow)
+            .where(McpWorkspaceDeploymentOperationRow.id == malformed.id)
+            .values(target_stopped=True)
+        )
+        env.development._prune_and_require_capacity(session, env.client_id, NOW)
+        retained = set(session.scalars(select(McpWorkspaceDeploymentOperationRow.id)))
+    assert canonical.id not in retained
+    assert malformed.id in retained
+
+
 def test_protected_request_consumes_capacity_until_safely_terminalized(
     tmp_path: Path,
 ) -> None:
@@ -1068,7 +1252,13 @@ def test_protected_request_consumes_capacity_until_safely_terminalized(
         .isoformat(timespec="microseconds")
         .replace("+00:00", "Z")
     )
+    capped._finish_deployment(operation.id, "failed", "deployment_interrupted")
     with env.sessions.begin() as session:
+        session.execute(
+            update(McpWorkspaceDeploymentOperationRow)
+            .where(McpWorkspaceDeploymentOperationRow.id == operation.id)
+            .values(target_stopped=True)
+        )
         session.execute(
             update(McpDevelopmentRequestRow)
             .where(McpDevelopmentRequestRow.request_id == str(first_request))
@@ -1079,8 +1269,12 @@ def test_protected_request_consumes_capacity_until_safely_terminalized(
     with env.sessions() as session:
         assert session.scalar(select(McpDevelopmentRequestRow)) is not None
 
-    capped._finish_deployment(operation.id, "failed", "deployment_interrupted")
     with env.sessions.begin() as session:
+        session.execute(
+            update(McpWorkspaceDeploymentOperationRow)
+            .where(McpWorkspaceDeploymentOperationRow.id == operation.id)
+            .values(target_stopped=False)
+        )
         capped._prune_and_require_capacity(session, env.client_id, NOW)
         assert session.scalar(select(McpDevelopmentRequestRow)) is None
     replacement, created = capped._claim_deployment(

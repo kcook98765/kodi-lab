@@ -1322,6 +1322,9 @@ All four development mutation kinds now share one bounded lifecycle-aware
 pruner. Thirty-day-old mappings are deleted only for provably terminal,
 replay-safe creation/deployment/execution or complete promotion/verification;
 uncertainty and unresolved work retain identity and count toward capacity.
+Terminal proof rejects every contradictory or incomplete progress marker, and
+promotion-reference inspection uses scalar existence queries rather than
+materializing historical plan collections.
 
 The existing compact Web promotion page shows MCP origin, exact generation,
 server-derived change counts, validation/deployment/execution state, conflict

@@ -15,7 +15,7 @@ from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, exists, func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -32,6 +32,8 @@ from kodi_lab.application.mcp_development_requests import (
     DEVELOPMENT_REQUEST_MAX_GLOBAL,
     DEVELOPMENT_REQUEST_MAX_PER_CLIENT,
     DEVELOPMENT_REQUEST_RETENTION,
+    deployment_terminal_evidence_is_consistent_sql,
+    execution_terminal_evidence_is_consistent_sql,
     prune_expired_safe_development_requests,
 )
 from kodi_lab.application.mcp_development_requests import (
@@ -1645,28 +1647,21 @@ class McpWorkspaceDevelopmentService:
             session, now=now, retention=self._retention
         )
         cutoff = _to_text(now - self._retention)
-        referenced = select(McpDevelopmentRequestRow.operation_id).where(
-            McpDevelopmentRequestRow.operation_id.is_not(None)
+        execution_request_reference = exists().where(
+            McpDevelopmentRequestRow.operation_id
+            == McpWorkspaceExecutionOperationRow.id
         )
-        promotion_deployments = select(
-            AgentWorkspacePromotionPlanRow.originating_mcp_deployment_id
-        ).where(
-            AgentWorkspacePromotionPlanRow.originating_mcp_deployment_id.is_not(None)
-        )
-        promotion_executions = select(
+        execution_promotion_reference = exists().where(
             AgentWorkspacePromotionPlanRow.originating_mcp_execution_id
-        ).where(
-            AgentWorkspacePromotionPlanRow.originating_mcp_execution_id.is_not(None)
+            == McpWorkspaceExecutionOperationRow.id
         )
         expired_execution_ids = (
             select(McpWorkspaceExecutionOperationRow.id)
             .where(
                 McpWorkspaceExecutionOperationRow.completed_at < cutoff,
-                McpWorkspaceExecutionOperationRow.state.not_in(
-                    ("ambiguous", "reconciliation_required")
-                ),
-                McpWorkspaceExecutionOperationRow.id.not_in(referenced),
-                McpWorkspaceExecutionOperationRow.id.not_in(promotion_executions),
+                execution_terminal_evidence_is_consistent_sql(),
+                ~execution_request_reference,
+                ~execution_promotion_reference,
             )
             .order_by(
                 McpWorkspaceExecutionOperationRow.completed_at,
@@ -1690,16 +1685,22 @@ class McpWorkspaceDevelopmentService:
             )
             .exists()
         )
+        deployment_request_reference = exists().where(
+            McpDevelopmentRequestRow.operation_id
+            == McpWorkspaceDeploymentOperationRow.id
+        )
+        deployment_promotion_reference = exists().where(
+            AgentWorkspacePromotionPlanRow.originating_mcp_deployment_id
+            == McpWorkspaceDeploymentOperationRow.id
+        )
         expired_deployment_ids = (
             select(McpWorkspaceDeploymentOperationRow.id)
             .where(
                 McpWorkspaceDeploymentOperationRow.completed_at < cutoff,
-                McpWorkspaceDeploymentOperationRow.state.not_in(
-                    ("ambiguous", "reconciliation_required")
-                ),
+                deployment_terminal_evidence_is_consistent_sql(),
                 ~current_workspace_deployment,
-                McpWorkspaceDeploymentOperationRow.id.not_in(referenced),
-                McpWorkspaceDeploymentOperationRow.id.not_in(promotion_deployments),
+                ~deployment_request_reference,
+                ~deployment_promotion_reference,
             )
             .order_by(
                 McpWorkspaceDeploymentOperationRow.completed_at,

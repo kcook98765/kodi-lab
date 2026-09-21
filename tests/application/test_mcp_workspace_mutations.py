@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.agent_workspace_cleanup import AgentWorkspaceCleanupService
@@ -48,6 +48,7 @@ from kodi_lab.mcp.tools import (
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    AgentWorkspaceCreationOperationRow,
     AgentWorkspaceRow,
     McpAgentWorkspaceBindingRow,
     McpClientRow,
@@ -295,6 +296,44 @@ def test_request_retention_cleanup_and_capacity_are_bounded(tmp_path: Path) -> N
     assert replay.workspace_id == second.workspace_id
     with pytest.raises(McpWorkspaceMutationError, match="workspace_creation_ambiguous"):
         bounded.create(client_id=client_id, request_id=uuid4(), source_id=SOURCE_ID)
+
+
+def test_malformed_creation_terminal_phase_is_retained(tmp_path: Path) -> None:
+    sessions, workspaces, administration, _tools, submitted = _environment(tmp_path)
+    client_id, _principal_value = _principal(
+        administration, sessions, "Malformed creation"
+    )
+    administration.grant_development_source(client_id, SOURCE_ID)
+    now = datetime(2026, 9, 20, 16, 0, tzinfo=UTC)
+    service = McpWorkspaceCreationService(
+        sessions, workspaces, submitted.append, clock=lambda: now
+    )
+    created = service.create(
+        client_id=client_id, request_id=uuid4(), source_id=SOURCE_ID
+    )
+    _finish(workspaces, created.creation_operation_id)
+    with sessions.begin() as session:
+        session.execute(
+            update(AgentWorkspaceCreationOperationRow)
+            .where(
+                AgentWorkspaceCreationOperationRow.id
+                == str(created.creation_operation_id)
+            )
+            .values(phase="queued")
+        )
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(
+                McpDevelopmentRequestRow.creation_operation_id
+                == str(created.creation_operation_id)
+            )
+            .values(
+                created_at="2026-01-01T00:00:00.000000Z",
+                updated_at="2026-01-01T00:00:00.000000Z",
+            )
+        )
+        service._prune_expired_requests(session, now)
+        assert session.scalar(select(McpDevelopmentRequestRow)) is not None
 
 
 def test_edit_create_replace_patch_cas_and_cross_client_isolation(

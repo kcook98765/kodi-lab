@@ -127,13 +127,24 @@ definitively failed non-reconciliation apply are also terminal. Missing,
 unknown, inconsistent, ambiguous, reconciliation-required, or otherwise
 unprovable relationships fail closed and retain the mapping.
 
+Terminality requires a coherent complete evidence shape. A safe pre-mutation
+deployment failure has no target-stop, sync, restart, inventory, result, or
+digest marker; a safe pre-dispatch execution failure has `not_attempted` and no
+result or item count. Success requires every service-published progress and
+result field, while creation and promotion require consistent lifecycle,
+operation, handoff, and mandatory-verification relationships. Database-admitted
+contradictions are protected even when normal services cannot emit them.
+
 Each allocation inspects at most 256 deterministically ordered potentially
 terminal candidates. Protected rows continue to count against the 10,000/client
 and 100,000/global caps; saturation rejects new mutation work rather than
 discarding replay identity. Separate deletion of old unreferenced terminal
 deployment/execution rows is likewise bounded, while unresolved rows remain
 indirectly bounded by their retained request mappings and caps. Promotion-plan
-references retain their exact operation evidence.
+references retain their exact operation evidence. Reference inspection uses one
+scalar database existence test per candidate and never materializes a historical
+plan collection, so query count and application-row materialization remain
+bounded independently of promotion fanout.
 
 ## Generation-bound editing
 

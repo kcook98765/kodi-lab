@@ -2011,6 +2011,16 @@ and replay-safe. Unknown, marker-bearing, ambiguous, active,
 reconciliation-required, missing, or inconsistent state is retained and
 continues counting toward request capacity.
 
+The proof is deliberately field-complete: contradictory deployment lifecycle,
+sync, inventory or digest markers; contradictory execution dispatch,
+classification, result or count markers; and inconsistent creation or
+promotion/apply/handoff/verification relationships all retain replay identity.
+Dependent promotion references are answered by a scalar SQL existence predicate
+per candidate rather than loading historical plans. Thus the 256-candidate
+outer bound also has finite query and application-object bounds under arbitrary
+historical promotion fanout. The same consistency and bounded-reference rules
+govern unreferenced terminal deployment/execution history cleanup.
+
 MCP receives only semantic UUIDs, generation, counts, candidate version,
 review/expiry and readiness/conflict classifications. Existing Web review
 renders the complete exact diff and now identifies the originating client plus

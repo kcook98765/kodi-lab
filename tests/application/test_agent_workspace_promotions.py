@@ -8,7 +8,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, event, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.addon_inventory import AddonInventoryQueryStatus
@@ -20,6 +20,10 @@ from kodi_lab.application.agent_workspace_promotions import (
 from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceConflictError,
     AgentWorkspaceService,
+)
+from kodi_lab.application.mcp_development_requests import (
+    DEVELOPMENT_REQUEST_PRUNE_CANDIDATE_LIMIT,
+    prune_expired_safe_development_requests,
 )
 from kodi_lab.application.mcp_promotion_requests import (
     BoundedPromotionPreparationLimiter,
@@ -2182,6 +2186,223 @@ def test_ambiguous_development_mappings_survive_cross_operation_pruners(
         str(execution_request),
         str(missing_request),
     }
+
+
+def test_malformed_promotion_operation_relationship_retains_request_mapping(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id = uuid4()
+    requested = service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=request_id,
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    old = _old_request_timestamp(harness)
+    operation_id = uuid4()
+    with harness.factory.begin() as session:
+        session.execute(
+            update(AgentWorkspacePromotionPlanRow)
+            .where(
+                AgentWorkspacePromotionPlanRow.id == str(requested.promotion_plan_id)
+            )
+            .values(
+                state="invalidated",
+                invalidation_reason="promotion_rejected",
+            )
+        )
+        session.add(
+            AgentWorkspacePromotionOperationRow(
+                id=str(operation_id),
+                plan_id=str(requested.promotion_plan_id),
+                workspace_id=str(harness.workspace_id),
+                development_source_id=str(SOURCE_ID),
+                original_target_instance_id=str(TARGET_ID),
+                target_instance_id=str(TARGET_ID),
+                state="failed",
+                phase="finalize",
+                requested_at=NOW.isoformat(),
+                application_started=False,
+                backup_artifact_id=None,
+                backup_verified=False,
+                started_at=NOW.isoformat(),
+                completed_at=NOW.isoformat(),
+                failure_code="promotion_rejected",
+                reconciliation_required=False,
+                lease_token_digest=None,
+                lease_expires_at=None,
+            )
+        )
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(created_at=old, updated_at=old)
+        )
+        service._prune_and_require_capacity(session, MCP_CLIENT_ID)
+        assert session.scalar(select(McpDevelopmentRequestRow)) is not None
+
+
+@pytest.mark.parametrize("operation_kind", ("workspace_deploy", "workspace_execute"))
+def test_high_fanout_promotion_references_are_query_bounded_and_fail_closed(
+    tmp_path: Path, operation_kind: str
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    deployment_id, execution_id = _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    requested = service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=uuid4(),
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    fanout = DEVELOPMENT_REQUEST_PRUNE_CANDIDATE_LIMIT + 44
+    old = _old_request_timestamp(harness)
+    with harness.factory.begin() as session:
+        deployment = session.get(McpWorkspaceDeploymentOperationRow, str(deployment_id))
+        assert deployment is not None
+        deployment.result_classification = "synchronized"
+        execution = session.get(McpWorkspaceExecutionOperationRow, str(execution_id))
+        assert execution is not None
+        execution.result_classification = "smoke_passed"
+        relevant_operation = (
+            deployment if operation_kind == "workspace_deploy" else execution
+        )
+        relevant_operation_id = (
+            deployment_id if operation_kind == "workspace_deploy" else execution_id
+        )
+        base = session.get(
+            AgentWorkspacePromotionPlanRow, str(requested.promotion_plan_id)
+        )
+        assert base is not None
+        values = {
+            column.key: getattr(base, column.key)
+            for column in AgentWorkspacePromotionPlanRow.__table__.columns
+        }
+        for _index in range(fanout - 1):
+            duplicate = dict(values)
+            duplicate.update(
+                id=str(uuid4()),
+                state="expired",
+                invalidation_reason="promotion_plan_expired",
+                originating_mcp_request_id=str(uuid4()),
+            )
+            session.add(AgentWorkspacePromotionPlanRow(**duplicate))
+        session.add(
+            McpDevelopmentRequestRow(
+                id=str(uuid4()),
+                client_id=str(MCP_CLIENT_ID),
+                request_id=relevant_operation.request_id,
+                operation_kind=operation_kind,
+                parameter_fingerprint="f" * 64,
+                development_source_id=str(SOURCE_ID),
+                workspace_id=str(harness.workspace_id),
+                creation_operation_id=None,
+                operation_id=str(relevant_operation_id),
+                state="allocated",
+                created_at=old,
+                updated_at=old,
+            )
+        )
+
+    loaded_plans = 0
+    statement_count = 0
+
+    def plan_loaded(_target: object, _context: object) -> None:
+        nonlocal loaded_plans
+        loaded_plans += 1
+
+    def statement_started(*_args: object) -> None:
+        nonlocal statement_count
+        statement_count += 1
+
+    engine = harness.factory.kw["bind"]
+    event.listen(AgentWorkspacePromotionPlanRow, "load", plan_loaded)
+    event.listen(engine, "before_cursor_execute", statement_started)
+    try:
+        with harness.factory.begin() as session:
+            blocked = prune_expired_safe_development_requests(
+                session, now=harness.clock.now
+            )
+        blocked_statements = statement_count
+        assert (blocked.inspected, blocked.deleted) == (1, 0)
+        assert loaded_plans == 0
+        assert blocked_statements <= 3
+
+        with harness.factory.begin() as session:
+            session.execute(
+                update(AgentWorkspacePromotionPlanRow)
+                .where(
+                    AgentWorkspacePromotionPlanRow.id
+                    == str(requested.promotion_plan_id)
+                )
+                .values(
+                    state="expired",
+                    invalidation_reason="promotion_plan_expired",
+                )
+            )
+        loaded_plans = 0
+        statement_count = 0
+        with harness.factory.begin() as session:
+            reclaimed = prune_expired_safe_development_requests(
+                session, now=harness.clock.now
+            )
+        assert (reclaimed.inspected, reclaimed.deleted) == (1, 1)
+        assert loaded_plans == 0
+        assert statement_count <= 4
+    finally:
+        event.remove(AgentWorkspacePromotionPlanRow, "load", plan_loaded)
+        event.remove(engine, "before_cursor_execute", statement_started)
+
+    _creation, development, _promotion = _request_pruning_services(harness)
+    with harness.factory.begin() as session:
+        operation_model = (
+            McpWorkspaceDeploymentOperationRow
+            if operation_kind == "workspace_deploy"
+            else McpWorkspaceExecutionOperationRow
+        )
+        session.execute(
+            update(operation_model)
+            .where(operation_model.id == str(relevant_operation_id))
+            .values(completed_at=old)
+        )
+        development._prune_and_require_capacity(
+            session, MCP_CLIENT_ID, harness.clock.now
+        )
+        assert session.get(operation_model, str(relevant_operation_id)) is not None
+
+    with harness.factory() as session:
+        reference = (
+            AgentWorkspacePromotionPlanRow.originating_mcp_deployment_id
+            if operation_kind == "workspace_deploy"
+            else AgentWorkspacePromotionPlanRow.originating_mcp_execution_id
+        )
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(AgentWorkspacePromotionPlanRow)
+                .where(reference == str(relevant_operation_id))
+            )
+            == fanout
+        )
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(McpDevelopmentRequestRow)
+                .where(McpDevelopmentRequestRow.operation_kind == operation_kind)
+            )
+            == 0
+        )
 
 
 def test_web_promotion_authority_survives_originating_client_disable(
