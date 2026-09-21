@@ -1540,3 +1540,25 @@ production target, broker operation or lifecycle authority was added.
 
 Phase 14 may now begin with an independent architecture review only. This
 closeout does not authorize Phase 14 implementation or production contact.
+
+## Phase 14 Slice 1 checkpoint
+
+**Slice 1: production foundation implemented. Phase 14: PARTIAL.** Migration
+`0047_external_production_policy` adds the immutable
+`external_production` target class, its mandatory policy subtype, database
+class-immutability guards and a singleton production-mutation block seeded to
+blocked. Existing target rows and the dormant production preset remain inert.
+
+The Web has a distinct production registration and trust flow: registration is
+disabled/unverified, probing records an observation, native confirmation pins
+identity, and a separate explicit production acknowledgement binds that exact
+observation before read-only enablement. Material endpoint, credential or
+identity drift advances the identity generation, disables the target and
+invalidates designation without automatic restoration.
+
+The existing fifteen-tool MCP registry is unchanged. A centralized class veto
+is used by direct target and workspace-target authorization, so production is
+not reachable through inspection, control, workspace deployment/execution or
+promotion paths. No real host was contacted. Later production inspection,
+bridge/screenshot, constrained control and approval work requires separately
+scoped slices; support-addon deployment requires a separate architecture review.

@@ -97,6 +97,7 @@ from kodi_lab.domain import (
     ManagedInstanceMutationKind,
     ManagedInstanceSemanticState,
     ProcessObservationKind,
+    ProductionDesignationState,
     PromotionLogResult,
     PromotionVerificationPhase,
     PromotionVerificationStageResult,
@@ -1094,6 +1095,8 @@ class TargetRow(Base):
             "(target_type = 'managed' AND kodi_version IS NOT NULL "
             "AND length(trim(kodi_version)) > 0) OR "
             "(target_type = 'external_development' AND "
+            "(kodi_version IS NULL OR length(trim(kodi_version)) > 0)) OR "
+            "(target_type = 'external_production' AND "
             "(kodi_version IS NULL OR length(trim(kodi_version)) > 0))",
             name="target_kodi_version_by_type",
         ),
@@ -1319,7 +1322,12 @@ class ExternalKodiTargetEventRow(Base):
             "event_kind IN ('registered','endpoint_changed','credential_rotated',"
             "'probe_attempted','probe_succeeded','probe_failed',"
             "'verification_confirmed','reverification_required','enabled',"
-            "'disabled','deactivated')",
+            "'disabled','deactivated','production_target_registered',"
+            "'native_observation_obtained','production_native_identity_confirmed',"
+            "'production_designation_confirmed',"
+            "'production_designation_invalidated',"
+            "'production_mutations_suspended',"
+            "'production_mutations_resumed')",
             name="external_target_event_kind_closed",
         ),
         CheckConstraint(
@@ -1338,6 +1346,95 @@ class ExternalKodiTargetEventRow(Base):
     classification: Mapped[str | None] = mapped_column(String(64))
     observation_id: Mapped[str | None] = mapped_column(String(36))
     occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ExternalProductionPolicyRow(Base):
+    """Mandatory one-to-one policy state for an external-production target."""
+
+    __tablename__ = "external_production_policies"
+    __table_args__ = (
+        CheckConstraint(
+            "identity_generation >= 1 AND policy_revision >= 1",
+            name="external_production_generations_positive",
+        ),
+        CheckConstraint(
+            "confirmed_observation_digest IS NULL OR "
+            "(length(confirmed_observation_digest)=64 AND "
+            "confirmed_observation_digest NOT GLOB '*[^0-9a-f]*')",
+            name="external_production_observation_digest_sha256",
+        ),
+        CheckConstraint(
+            "designation_state<>'confirmed' OR "
+            "(confirmed_observation_id IS NOT NULL AND "
+            "confirmed_observation_digest IS NOT NULL AND "
+            "designation_confirmed_by IS NOT NULL AND "
+            "designation_confirmed_at IS NOT NULL)",
+            name="external_production_confirmation_complete",
+        ),
+        CheckConstraint(
+            "length(created_at)=27 AND length(updated_at)=27 AND "
+            "(designation_confirmed_at IS NULL OR "
+            "length(designation_confirmed_at)=27) AND "
+            "(designation_invalidated_at IS NULL OR "
+            "length(designation_invalidated_at)=27)",
+            name="external_production_timestamps_format",
+        ),
+        CheckConstraint(
+            "designation_confirmed_by IS NULL OR "
+            "length(designation_confirmed_by) BETWEEN 1 AND 64",
+            name="external_production_administrator_bounded",
+        ),
+        Index("ix_external_production_designation", "designation_state"),
+    )
+
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_kodi_targets.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    designation_state: Mapped[ProductionDesignationState] = mapped_column(
+        Enum(
+            ProductionDesignationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="production_designation_state",
+        ),
+        nullable=False,
+    )
+    confirmed_observation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("external_kodi_target_observations.id", ondelete="RESTRICT"),
+    )
+    confirmed_observation_digest: Mapped[str | None] = mapped_column(String(64))
+    identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    mutations_suspended: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    designation_confirmed_by: Mapped[str | None] = mapped_column(String(64))
+    designation_confirmed_at: Mapped[str | None] = mapped_column(String(27))
+    designation_invalidated_at: Mapped[str | None] = mapped_column(String(27))
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ProductionMutationControlRow(Base):
+    """Singleton deny-only global production mutation control."""
+
+    __tablename__ = "production_mutation_control"
+    __table_args__ = (
+        CheckConstraint("id=1", name="production_mutation_control_singleton"),
+        CheckConstraint("policy_epoch >= 1", name="production_policy_epoch_positive"),
+        CheckConstraint(
+            "length(updated_by) BETWEEN 1 AND 64 AND length(updated_at)=27",
+            name="production_mutation_control_update_bounded",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    production_mutations_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    policy_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
 class ExternalBridgePairingRow(Base):

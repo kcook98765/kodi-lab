@@ -400,3 +400,10 @@ installed on the LAN target; the retained live claim remains Kodi 20.5 with
 
 Phase 13 is closed. External-production support, policy, approvals and
 activation remain deferred to Phase 14.
+
+Phase 14 Slice 1 now reuses only the external endpoint, protected-secret and
+native-observation mechanics beneath a distinct immutable
+`external_production` class and mandatory production policy. It does not change
+the completed Phase 13 external-development authority, bridge protocol,
+workspace semantics or live compatibility claims. Production remains excluded
+from MCP and from every Phase 13 bridge/deployment path.

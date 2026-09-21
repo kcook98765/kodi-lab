@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
 import pytest
-from sqlalchemy import create_engine, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.external_targets import (
@@ -258,22 +258,27 @@ def test_deactivation_retires_credentials_preserves_identity_and_history(
     } <= kinds
 
 
-def test_external_production_is_unrepresentable_in_database(
+def test_external_development_service_does_not_expose_production_rows(
     external_service: tuple[
         ExternalTargetAdministrationService, sessionmaker[Session], FakeVerifier
     ],
 ) -> None:
-    _service, factory, _verifier = external_service
-    with pytest.raises(IntegrityError), factory.begin() as session:
-        session.execute(
-            text(
-                "INSERT INTO targets "
-                "(id,name,target_type,kodi_version,availability,health,"
-                "connection_state) VALUES "
-                "('00000000-0000-4000-8000-000000000001','production',"
-                "'external_production',NULL,'unavailable','warning','disconnected')"
+    service, factory, _verifier = external_service
+    target_id = UUID("00000000-0000-4000-8000-000000000001")
+    with factory.begin() as session:
+        session.add(
+            TargetRow(
+                id=str(target_id),
+                name="production",
+                target_type="external_production",
+                kodi_version=None,
+                availability="unavailable",
+                health="warning",
+                connection_state="disconnected",
             )
         )
+    with pytest.raises(ExternalTargetError, match="target_not_found"):
+        service.get(target_id)
 
 
 def test_existing_encrypted_credential_requires_master_key_at_startup(

@@ -54,6 +54,7 @@ from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     ExternalKodiTargetRow,
     ManagedInstanceRow,
+    ProductionMutationControlRow,
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
@@ -423,6 +424,15 @@ def database(tmp_path: Path) -> Iterator[sessionmaker[Session]]:
 def seed_instance(factory: sessionmaker[Session]) -> None:
     digest = "sha256:" + ("c" * 64)
     with factory.begin() as session:
+        session.add(
+            ProductionMutationControlRow(
+                id=1,
+                production_mutations_blocked=True,
+                policy_epoch=1,
+                updated_by="system",
+                updated_at="2026-09-21T00:00:00.000000Z",
+            )
+        )
         session.add(
             RuntimeDefinitionRow(
                 id=str(DEFINITION_ID), slug="kodi-21.3", kodi_version="21.3"

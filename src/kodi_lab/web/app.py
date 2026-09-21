@@ -201,6 +201,7 @@ from kodi_lab.application.external_targets import (
     ExternalTargetError,
     ExternalTargetEventRead,
     ExternalTargetRead,
+    ProductionMutationControlRead,
 )
 from kodi_lab.application.instance_delete_operations import (
     ManagedInstanceDeleteConflictError,
@@ -386,6 +387,7 @@ from kodi_lab.domain import (
     ManagedInstanceDeleteOperationState,
     SnapshotSourceBinding,
     SnapshotState,
+    TargetType,
     normalize_development_source_logical_name,
 )
 from kodi_lab.kodi.bridge import ExternalBridgeClient
@@ -785,6 +787,29 @@ class ExternalTargetEnabledRequest(BaseModel):
     enabled: StrictBool
 
 
+class ProductionDesignationConfirmationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    observation_id: UUID
+    acknowledgement: Literal[
+        "I confirm this is a production Kodi target and mutations may affect "
+        "real user state."
+    ]
+
+
+class ProductionMutationBlockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    blocked: StrictBool
+
+
+class ProductionTargetMutationSuspensionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suspended: StrictBool
+
+
 class ExternalBridgePairingTokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -882,6 +907,7 @@ class WebApplicationContext:
     browser_remote_rate_limiter: BrowserRemoteRateLimiter
     live_display: ManagedLiveDisplayService
     external_targets: ExternalTargetAdministrationService
+    production_targets: ExternalTargetAdministrationService
     external_bridges: ExternalBridgeService
     mcp_administration: McpAdministrationService
     mcp_transport: McpHttpTransport
@@ -941,6 +967,7 @@ def create_app(
     browser_remote_adapter_factory: RemoteAdapterFactory | None = None,
     managed_live_display_service: ManagedLiveDisplayService | None = None,
     external_target_service: ExternalTargetAdministrationService | None = None,
+    production_target_service: ExternalTargetAdministrationService | None = None,
     external_bridge_service: ExternalBridgeService | None = None,
     external_target_transport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
@@ -1071,6 +1098,15 @@ def create_app(
         session_factory,
         endpoint_policy=external_endpoint_policy,
         credential_store=external_credential_store,
+    )
+    production_targets = (
+        production_target_service
+        or ExternalTargetAdministrationService(
+            session_factory,
+            endpoint_policy=external_endpoint_policy,
+            credential_store=external_credential_store,
+            target_type=TargetType.EXTERNAL_PRODUCTION,
+        )
     )
     mcp_registry = build_mcp_tool_registry()
     managed_target_authority = InternalManagedTargetAuthorityProvider(
@@ -1522,6 +1558,7 @@ def create_app(
         browser_remote_rate_limiter=remote_rate_limiter,
         live_display=live_display,
         external_targets=external_targets,
+        production_targets=production_targets,
         external_bridges=external_bridges,
         mcp_administration=mcp_administration,
         mcp_transport=mcp_transport,
@@ -2320,6 +2357,25 @@ def create_app(
                 },
                 "allowed_ports": settings.external_target_allowed_ports,
                 "bridge_allowed_ports": settings.external_bridge_allowed_ports,
+                "test_loopback_enabled": (
+                    settings.external_target_test_loopback_enabled
+                ),
+            },
+        )
+
+    @app.get("/production-targets", response_class=HTMLResponse)
+    async def production_targets_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "production-targets.html",
+            {
+                "csrf_token": authenticated.csrf_token,
+                "targets": context.production_targets.list_targets(),
+                "mutation_control": context.production_targets.mutation_control(),
+                "allowed_ports": settings.external_target_allowed_ports,
                 "test_loopback_enabled": (
                     settings.external_target_test_loopback_enabled
                 ),
@@ -3143,6 +3199,172 @@ def create_app(
             if error.code != "bridge_not_paired":
                 raise
         return context.external_targets.deactivate(target_id)
+
+    @app.get("/api/production-targets", response_model=list[ExternalTargetRead])
+    def list_production_targets(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[ExternalTargetRead]:
+        return context.production_targets.list_targets()
+
+    @app.post(
+        "/api/production-targets",
+        response_model=ExternalTargetRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def register_production_target(
+        payload: ExternalTargetRegistrationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.register(
+            logical_name=payload.logical_name,
+            protocol_kind=payload.protocol_kind,
+            host=payload.host,
+            port=payload.port,
+            authentication_mode=payload.authentication_mode,
+            configured_capabilities=payload.configured_capabilities,
+            username=payload.username,
+            password=payload.password,
+        )
+
+    @app.get(
+        "/api/production-targets/mutation-control",
+        response_model=ProductionMutationControlRead,
+    )
+    def get_production_mutation_control(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ProductionMutationControlRead:
+        return context.production_targets.mutation_control()
+
+    @app.post(
+        "/api/production-targets/mutation-control",
+        response_model=ProductionMutationControlRead,
+    )
+    def set_production_mutation_control(
+        payload: ProductionMutationBlockRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ProductionMutationControlRead:
+        return context.production_targets.set_mutation_block(blocked=payload.blocked)
+
+    @app.get("/api/production-targets/{target_id}", response_model=ExternalTargetRead)
+    def get_production_target(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.get(target_id)
+
+    @app.get(
+        "/api/production-targets/{target_id}/events",
+        response_model=list[ExternalTargetEventRead],
+    )
+    def list_production_target_events(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[ExternalTargetEventRead]:
+        return context.production_targets.events(target_id)
+
+    @app.put(
+        "/api/production-targets/{target_id}/endpoint",
+        response_model=ExternalTargetRead,
+    )
+    def edit_production_target_endpoint(
+        target_id: UUID,
+        payload: ExternalTargetEndpointRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.edit_endpoint(
+            target_id,
+            protocol_kind=payload.protocol_kind,
+            host=payload.host,
+            port=payload.port,
+        )
+
+    @app.post(
+        "/api/production-targets/{target_id}/credentials",
+        response_model=ExternalTargetRead,
+    )
+    def rotate_production_target_credentials(
+        target_id: UUID,
+        payload: ExternalTargetCredentialRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.rotate_credentials(
+            target_id,
+            authentication_mode=payload.authentication_mode,
+            username=payload.username,
+            password=payload.password,
+        )
+
+    @app.post(
+        "/api/production-targets/{target_id}/probe",
+        response_model=ExternalTargetRead,
+    )
+    def probe_production_target(
+        target_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.probe(target_id)
+
+    @app.post(
+        "/api/production-targets/{target_id}/confirm-native",
+        response_model=ExternalTargetRead,
+    )
+    def confirm_production_native_identity(
+        target_id: UUID,
+        payload: ExternalTargetConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.confirm(target_id, payload.observation_id)
+
+    @app.post(
+        "/api/production-targets/{target_id}/confirm-designation",
+        response_model=ExternalTargetRead,
+    )
+    def confirm_production_designation(
+        target_id: UUID,
+        payload: ProductionDesignationConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.confirm_production_designation(
+            target_id, payload.observation_id
+        )
+
+    @app.post(
+        "/api/production-targets/{target_id}/enabled",
+        response_model=ExternalTargetRead,
+    )
+    def set_production_target_enabled(
+        target_id: UUID,
+        payload: ExternalTargetEnabledRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.set_enabled(
+            target_id, enabled=payload.enabled
+        )
+
+    @app.post(
+        "/api/production-targets/{target_id}/mutation-suspension",
+        response_model=ExternalTargetRead,
+    )
+    def set_production_target_mutation_suspension(
+        target_id: UUID,
+        payload: ProductionTargetMutationSuspensionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.set_target_mutation_suspension(
+            target_id, suspended=payload.suspended
+        )
+
+    @app.post(
+        "/api/production-targets/{target_id}/deactivate",
+        response_model=ExternalTargetRead,
+    )
+    def deactivate_production_target(
+        target_id: UUID,
+        _payload: AgentWorkspacePromotionConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.production_targets.deactivate(target_id)
 
     @app.get(
         "/api/external-targets/{target_id}/bridge",

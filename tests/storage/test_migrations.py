@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.application.external_bridges import ExternalBridgeService
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
-from kodi_lab.domain import ExternalAuthenticationMode, ExternalProtocolKind
+from kodi_lab.domain import ExternalAuthenticationMode, ExternalProtocolKind, TargetType
 from kodi_lab.kodi.external import ExternalEndpointPolicy
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore, ExternalCredentialStore
@@ -145,7 +145,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0046_external_bridge_development",)
+        ).fetchone() == ("0047_external_production_policy",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -221,6 +221,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "external_bridge_pairings",
         "external_bridge_request_receipts",
         "external_development_source_baselines",
+        "external_production_policies",
+        "production_mutation_control",
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_screenshots",
@@ -4999,4 +5001,132 @@ def test_0046_external_bridge_development_empty_round_trip(
         item["name"]
         for item in inspector.get_columns("mcp_workspace_deployment_operations")
     }
+    engine.dispose()
+
+
+def test_0047_external_production_foundation_upgrade_and_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0046_external_bridge_development"
+    )
+    engine = create_database_engine(database_url)
+    preserved_id = "47000000-0000-4000-8000-000000000001"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets (id,name,target_type,kodi_version,availability,"
+                "health,connection_state) VALUES "
+                "(:id,'preserved development','external_development',NULL,"
+                "'unavailable','warning','disconnected')"
+            ),
+            {"id": preserved_id},
+        )
+    engine.dispose()
+
+    command.upgrade(config, "0047_external_production_policy")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        "external_production_policies",
+        "production_mutation_control",
+    } <= set(inspector.get_table_names())
+    with engine.begin() as connection:
+        assert connection.execute(
+            text("SELECT name,target_type,kodi_version FROM targets WHERE id=:id"),
+            {"id": preserved_id},
+        ).one() == ("preserved development", "external_development", None)
+        assert connection.execute(
+            text(
+                "SELECT production_mutations_blocked,policy_epoch,updated_by "
+                "FROM production_mutation_control WHERE id=1"
+            )
+        ).one() == (1, 1, "system")
+        with pytest.raises(IntegrityError, match="target_type_immutable"):
+            connection.execute(
+                text(
+                    "UPDATE targets SET target_type='external_production' WHERE id=:id"
+                ),
+                {"id": preserved_id},
+            )
+    factory = create_session_factory(engine)
+    development = ExternalTargetAdministrationService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "development-secrets", master_key=None, key_version=1
+        ),
+    ).register(
+        logical_name="Development policy binding proof",
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host="192.168.50.19",
+        port=8080,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"target_inspect"},
+    )
+    with (
+        engine.begin() as connection,
+        pytest.raises(
+            IntegrityError, match="external_production_policy_class_required"
+        ),
+    ):
+        connection.execute(
+            text(
+                "INSERT INTO external_production_policies "
+                "(target_id,designation_state,confirmed_observation_id,"
+                "confirmed_observation_digest,identity_generation,"
+                "policy_revision,mutations_suspended,designation_confirmed_by,"
+                "designation_confirmed_at,designation_invalidated_at,created_at,"
+                "updated_at) VALUES (:id,'pending_native_identity',NULL,NULL,"
+                "1,1,1,NULL,NULL,NULL,'2026-09-21T00:00:00.000000Z',"
+                "'2026-09-21T00:00:00.000000Z')"
+            ),
+            {"id": str(development.target_id)},
+        )
+    engine.dispose()
+
+    command.downgrade(config, "0046_external_bridge_development")
+    engine = create_database_engine(database_url)
+    assert not {
+        "external_production_policies",
+        "production_mutation_control",
+    }.intersection(inspect(engine).get_table_names())
+    engine.dispose()
+
+
+def test_0047_orders_production_parent_subtype_policy_on_upgraded_schema(
+    migration_templates: MigrationTemplateStore, tmp_path: Path
+) -> None:
+    database_path = tmp_path / "production-head.db"
+    migration_templates.clone("head", database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
+    factory = create_session_factory(engine)
+    service = ExternalTargetAdministrationService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "production-secrets", master_key=None, key_version=1
+        ),
+        target_type=TargetType.EXTERNAL_PRODUCTION,
+    )
+    created = service.register(
+        logical_name="Production ordering proof",
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host="192.168.50.20",
+        port=8080,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"target_inspect"},
+    )
+    assert created.target_class == "external_production"
+    assert created.production_policy is not None
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT t.target_type,e.target_id,p.identity_generation "
+                "FROM targets t JOIN external_kodi_targets e ON e.target_id=t.id "
+                "JOIN external_production_policies p ON p.target_id=t.id "
+                "WHERE t.id=:id"
+            ),
+            {"id": str(created.target_id)},
+        ).one() == ("external_production", str(created.target_id), 1)
     engine.dispose()

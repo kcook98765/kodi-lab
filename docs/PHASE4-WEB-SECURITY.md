@@ -258,3 +258,19 @@ promotion inputs remain their existing four-field schemas. Web and audit
 responses contain semantic UUID/digest/count classifications only—never file
 content, destination/staging/backup path, HMAC, secret, raw JSON or raw Kodi
 response.
+
+## Phase 14 Slice 1 production administration
+
+Production administration uses a distinct page and route family behind the
+existing administrator cookie, Trusted Host, strict same-origin and CSRF
+dependencies. There is no target-class selector. Creation accepts only the
+structured IP literal, allowlisted protocol/port, label and Kodi credential and
+performs no probe. Credentials remain encrypted outside SQLite.
+
+Probe, native confirmation and production designation are separate requests.
+Designation requires the exact production acknowledgement and the server binds
+the current observation UUID/digest, administrator, timestamp and policy
+revision. Endpoint/credential edits, enable/disable, deactivation, global block
+and per-target suspension are Web-only. No production MCP grant, preset,
+bridge, screenshot, remote action, approval, workspace, deployment, execution,
+promotion or lifecycle route is introduced.

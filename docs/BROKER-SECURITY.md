@@ -707,3 +707,15 @@ Phase 13 formal-review remediation D-0302 changes no broker boundary. Bridge
 the native adapter's aggregate deadline and rejects screenshot hardlinks. It
 adds no broker operation, caller, path, runtime, container, Docker, shell,
 filesystem or lifecycle authority.
+
+## Phase 14 Slice 1 has no broker authority
+
+The production foundation is database, application and authenticated-Web policy
+only. It reuses the existing direct external native verifier and protected
+secret store and adds no broker request, allowlist entry, fixed path, privileged
+caller, runtime/container operation or lifecycle action. The centralized MCP
+veto prevents production adapter dispatch. Global and per-target mutation
+switches are deny-only policy state and cannot invoke the broker.
+
+No production target was contacted. Production data/runtime roots and protected
+managed resources remain outside the external-production representation.

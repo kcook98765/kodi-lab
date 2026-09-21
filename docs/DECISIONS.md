@@ -4022,3 +4022,74 @@ authority.
   production policy, approval, activation, deployment and lifecycle authority
   remain Phase 14 work. Phase 13 adds no shell, generic filesystem, arbitrary
   JSON-RPC, Docker/raw-broker, Git or host-lifecycle authority.
+
+## D-0303: External production shares transport state but has a dedicated policy subtype
+- Status: accepted Phase 14 Slice 1.
+- Decision: `external_production` is a closed target class. It reuses the
+  common target row and Phase 13 external endpoint, protected credential and
+  native-observation subtype, but every completed production registration also
+  has exactly one `external_production_policies` row. Production policy cannot
+  attach to managed or external-development targets, and production targets
+  fail closed when that subtype is absent.
+
+## D-0304: Target class is immutable
+- Status: accepted Phase 14 Slice 1.
+- Decision: no application, repository or database path may reclassify a
+  target. Development-to-production, production-to-development and
+  managed/internal-to-production changes require deactivation followed by a
+  new target UUID and trust ceremony.
+
+## D-0305: Production designation is a separate Web confirmation
+- Status: accepted Phase 14 Slice 1.
+- Decision: native identity confirmation does not designate a production
+  target. A second authenticated-Web ceremony explicitly acknowledges that
+  the observed target is production and that future mutations may affect real
+  user state. The policy binds the administrator, time, exact observation
+  UUID/digest and policy revision. Probe establishes observation only.
+
+## D-0306: Production excludes development deployment and execution authority
+- Status: accepted Phase 14 foundation.
+- Decision: production has no DevelopmentSource baseline, workspace deployment,
+  workspace execution or promotion-request authority. Phase 14 Slice 1 adds no
+  automatic or Web production deployment. Any future support-addon deployment
+  requires a separate architecture review.
+
+## D-0314: Identity generation invalidates production authority
+- Status: accepted Phase 14 Slice 1.
+- Decision: each production policy owns a monotonic `identity_generation`.
+  Endpoint address, port, protocol, Kodi credential, observed native
+  identity/version or material transport-trust changes increment it and
+  invalidate designation. Reachability cannot automatically restore trust;
+  native identity and production designation must be explicitly reconfirmed.
+  Future grants and approvals must bind the exact generation.
+
+## D-0316: Production remains private-IP-only without DNS, WAN or SSH authority
+- Status: accepted Phase 14 Slice 1.
+- Decision: production registration inherits the Phase 13 structured IP-literal,
+  private-LAN, fixed-port policy and its rejection of public, loopback,
+  link-local, multicast, reserved and managed-Lab networks. Clients use no DNS,
+  redirects or ambient proxy. This creates no SSH, shell, arbitrary URL, raw
+  JSON-RPC, generic filesystem or lifecycle authority.
+
+## D-0319: Production mutation suspension is deny-only and epoch-bound
+- Status: accepted Phase 14 Slice 1.
+- Decision: a singleton Web-controlled `production_mutations_blocked` state is
+  seeded blocked and owns a monotonic policy epoch. Every block/unblock change
+  advances the epoch so future approvals cannot revive across a cycle.
+  Production policy also has a per-target mutation suspension. Clearing either
+  denial grants no capability, target grant or operation by itself.
+
+## D-0321: Production workspaces, execution and MCP deployment are prohibited
+- Status: accepted Phase 14 foundation.
+- Decision: all MCP target and workspace-target authorization passes through
+  one target-class veto beneath the transport layers. `external_production`
+  is denied in Slice 1, including indirect workspace deployment, execution and
+  promotion paths. The dormant Production Remote Kodi preset remains
+  unassignable and ineffective.
+
+## D-0322: Production preserves the zero-new-tool architecture
+- Status: accepted Phase 14 foundation.
+- Decision: Phase 14 adds no MCP tool. The registry remains exactly fifteen
+  tools, and Slice 1 exposes production administration only through
+  authenticated Web routes. Later capabilities, if accepted, must fit the
+  existing semantic tool catalog and centralized production veto.

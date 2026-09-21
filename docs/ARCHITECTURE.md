@@ -2291,3 +2291,36 @@ keeps normal certificate validation. HTTP HMAC prevents fabricated or modified
 semantic results but does not provide confidentiality, so PNG bytes are
 cleartext to LAN observers. Modern HTTP, modern stdio and bounded legacy HTTP
 continue through the same registry, authorization, adapter and tool result.
+
+## Phase 14 Slice 1 production foundation
+
+Production is represented by the immutable `external_production` target class.
+It reuses the external endpoint, encrypted credential and native-observation
+subtype, while a mandatory one-to-one production policy records the independent
+designation ceremony, exact confirmed observation, monotonic identity
+generation, policy revision and per-target mutation suspension. Registration
+creates the target, external subtype, policy and semantic event in explicit
+parent-first flush order and starts disabled and unverified.
+
+Native confirmation and production designation are distinct authenticated-Web
+steps. A native observation can establish endpoint identity but cannot establish
+production designation. The designation confirmation binds the administrator,
+time and exact observation UUID/digest. Endpoint, credential or observed native
+identity/version drift increments the production identity generation,
+invalidates designation, disables the target and requires both explicit trust
+steps again. Mere reachability never restores authority.
+
+A migration-seeded singleton blocks production mutations by default and advances
+a monotonic epoch on each state transition. Each production policy also carries
+a deny-only target suspension. Clearing either veto grants no authority. Slice 1
+has no production mutation operation, approval, bridge, screenshot, remote
+action, workspace, deployment, execution or promotion surface.
+
+One target-class veto is shared by direct MCP target authorization and indirect
+workspace-target authorization. It denies `external_production` before adapter
+dispatch. Consequently all fifteen existing tools remain unavailable or
+non-applicable, the dormant Production Remote Kodi preset remains ineffective,
+and managed plus external-development behavior is unchanged. Administration is
+Web-only, uses the existing private-IP literal and protected-secret boundary,
+and creates no broker operation, DNS/WAN/SSH, shell, generic filesystem, raw
+JSON-RPC or lifecycle authority.

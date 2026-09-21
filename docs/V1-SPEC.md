@@ -1226,3 +1226,20 @@ Before full MCP parity:
 
 Primary developer flow:
 create isolated Kodi instance → attach/install add-on → inspect/manipulate via UI or MCP → reproduce behavior → modify protected working copy → review/apply patch → retest → repeat on another Kodi version.
+
+## 51. Phase 14 production foundation boundary
+
+External production is a separate immutable target class layered on the shared
+external endpoint and native-trust representation. Completed registrations
+require a production policy subtype and separate Web-only native-identity and
+production-designation confirmations. Registration starts disabled/unverified;
+probe alone establishes no trust or designation. Material configuration or
+identity drift advances a monotonic generation and fails closed.
+
+Production mutations are globally blocked by default with a monotonic policy
+epoch and may also be suspended per target. Removing a suspension grants no
+authority. Slice 1 adds no production MCP, bridge, screenshot, remote control,
+approval, workspace, deployment, execution, promotion, lifecycle, DNS/WAN/SSH,
+shell, filesystem or raw JSON-RPC capability. The MCP catalog remains exactly
+fifteen tools and one shared authorization veto denies production through both
+direct target and workspace-target paths.

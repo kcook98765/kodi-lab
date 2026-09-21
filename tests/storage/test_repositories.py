@@ -138,6 +138,20 @@ def test_target_and_managed_instance_round_trip(db_session: Session) -> None:
     assert stored_instance.target_id == stored_target.id
 
 
+def test_target_repository_rejects_in_place_class_change(db_session: Session) -> None:
+    target = make_target()
+    repository = TargetRepository(db_session)
+    repository.create(target)
+    reclassified = replace(
+        target,
+        target_type=TargetType.EXTERNAL_PRODUCTION,
+        kodi_version=None,
+    )
+    with pytest.raises(ValueError, match="target class is immutable"):
+        repository.update(reclassified)
+    assert repository.get(target.id) == target
+
+
 def test_lists_have_predictable_order(db_session: Session) -> None:
     target_b = make_target("Beta")
     target_a = make_target("Alpha")

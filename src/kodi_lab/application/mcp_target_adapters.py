@@ -195,6 +195,12 @@ class KodiTargetAdapterService:
         target_type = self._target_type(target_id)
         if target_type is TargetType.MANAGED:
             return self._managed_authority.resolve(target_id)
+        if target_type is TargetType.EXTERNAL_PRODUCTION:
+            return TargetTechnicalAuthority(
+                target_class=TargetClass.EXTERNAL_PRODUCTION,
+                capabilities=frozenset(),
+                current_states=frozenset(),
+            )
         snapshot = self._external_snapshot(target_id, load_secret=False)
         capabilities = set(snapshot.capabilities)
         if (
@@ -235,6 +241,8 @@ class KodiTargetAdapterService:
             return self._managed_summary(
                 status, f"managed_{instance.instance_type.value}"
             )
+        if self._target_type(target_id) is TargetType.EXTERNAL_PRODUCTION:
+            raise KodiTargetAdapterError("target_not_found_or_not_authorized")
         snapshot = self._external_snapshot(target_id, load_secret=fresh)
         if fresh:
             with self._gate.enter(target_id):

@@ -1,3 +1,4 @@
+from dataclasses import FrozenInstanceError
 from uuid import uuid4
 
 import pytest
@@ -118,3 +119,17 @@ def test_canonical_enum_values() -> None:
     assert [item.value for item in HealthStatus] == ["healthy", "warning", "error"]
     assert [item.value for item in InstanceType] == ["disposable", "persistent"]
     assert [item.value for item in InstanceRuntimeState] == ["running", "stopped"]
+
+
+def test_external_production_target_class_is_domain_immutable() -> None:
+    target = Target(
+        id=uuid4(),
+        name="Production Kodi",
+        target_type=TargetType.EXTERNAL_PRODUCTION,
+        kodi_version=None,
+        availability=TargetAvailability.UNAVAILABLE,
+        health=HealthStatus.WARNING,
+        connection_state=ConnectionState.DISCONNECTED,
+    )
+    with pytest.raises(FrozenInstanceError):
+        target.target_type = TargetType.EXTERNAL_DEVELOPMENT  # type: ignore[misc]

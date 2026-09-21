@@ -14,6 +14,7 @@ class TargetType(StrEnum):
 
     MANAGED = "managed"
     EXTERNAL_DEVELOPMENT = "external_development"
+    EXTERNAL_PRODUCTION = "external_production"
 
 
 class TargetAvailability(StrEnum):

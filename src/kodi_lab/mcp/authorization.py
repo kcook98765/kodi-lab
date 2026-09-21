@@ -25,6 +25,7 @@ from kodi_lab.domain import (
     DevelopmentSource,
     DevelopmentSourceKind,
     InstanceType,
+    TargetType,
 )
 from kodi_lab.kodi.remote import REMOTE_RUNTIME_REVISION_IDS
 from kodi_lab.mcp.registry import (
@@ -191,6 +192,7 @@ class McpAuthorizationService:
             assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
             if grant is None or target is None or assignment is None:
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
+            self._enforce_target_class_veto(target)
             client_permissions = self._permissions(session, client.preset_id)
             target_permissions = self._permissions(session, assignment.preset_id)
             if not definition.permissions.issubset(
@@ -419,6 +421,7 @@ class McpAuthorizationService:
                 raise McpAuthorizationError("workspace_not_found_or_not_authorized")
             if target_grant is None or target is None or assignment is None:
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
+            self._enforce_target_class_veto(target, tool_name=tool_name)
             client_permissions = self._permissions(session, client.preset_id)
             if not definition.permissions.issubset(
                 client_permissions.intersection(target_permissions)
@@ -453,6 +456,23 @@ class McpAuthorizationService:
         if workspace.state is not AgentWorkspaceState.READY:
             raise McpAuthorizationError("workspace_not_ready")
         return workspace
+
+    @staticmethod
+    def _enforce_target_class_veto(
+        target: TargetRow, *, tool_name: str | None = None
+    ) -> None:
+        """One fail-closed Slice-1 veto shared by target and workspace paths."""
+
+        if target.target_type not in {
+            TargetType.EXTERNAL_PRODUCTION,
+            TargetType.EXTERNAL_PRODUCTION.value,
+        }:
+            return
+        if tool_name == "promotion_request":
+            raise McpAuthorizationError("promotion_not_allowed")
+        if tool_name in {"workspace_deploy", "workspace_execute"}:
+            raise McpAuthorizationError("deployment_not_allowed")
+        raise McpAuthorizationError("permission_denied")
 
     def _require_client_permission(
         self,

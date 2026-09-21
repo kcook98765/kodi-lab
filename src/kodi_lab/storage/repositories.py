@@ -3929,8 +3929,9 @@ class TargetRepository:
         row = self._session.get(TargetRow, str(target.id))
         if row is None:
             raise EntityNotFoundError(f"target {target.id} does not exist")
+        if row.target_type is not target.target_type:
+            raise ValueError("target class is immutable; create a new target UUID")
         row.name = target.name
-        row.target_type = target.target_type
         row.kodi_version = target.kodi_version
         row.availability = target.availability
         row.health = target.health

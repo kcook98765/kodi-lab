@@ -158,6 +158,7 @@ from kodi_lab.domain.models import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.domain.production_targets import ProductionDesignationState
 from kodi_lab.domain.promotion_verifications import (
     PromotionLogResult,
     PromotionVerificationOperation,
@@ -350,6 +351,7 @@ __all__ = [
     "ManagedInstanceMutationKind",
     "ManagedInstanceSemanticState",
     "ProcessObservationKind",
+    "ProductionDesignationState",
     "PromotionLogResult",
     "PromotionVerificationOperation",
     "PromotionVerificationPhase",

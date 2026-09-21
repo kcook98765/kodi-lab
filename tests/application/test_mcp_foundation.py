@@ -314,6 +314,36 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
         )
 
 
+def test_all_fifteen_tools_and_central_target_veto_deny_production() -> None:
+    registry = build_mcp_tool_registry()
+    assert len(registry.names()) == 15
+    for name in registry.names():
+        definition = registry.require(name)
+        assert TargetClass.EXTERNAL_PRODUCTION not in definition.allowed_target_classes
+        assert definition.production_eligible is False
+
+    target = TargetRow(
+        id="14000000-0000-4000-8000-000000000001",
+        name="Production target",
+        target_type="external_production",
+        kodi_version=None,
+        availability="unavailable",
+        health="warning",
+        connection_state="disconnected",
+    )
+    for tool_name, expected in (
+        (None, "permission_denied"),
+        ("target_status", "permission_denied"),
+        ("workspace_deploy", "deployment_not_allowed"),
+        ("workspace_execute", "deployment_not_allowed"),
+        ("promotion_request", "promotion_not_allowed"),
+    ):
+        with pytest.raises(McpAuthorizationError, match=expected):
+            McpAuthorizationService._enforce_target_class_veto(
+                target, tool_name=tool_name
+            )
+
+
 def test_custom_presets_are_bounded_builtin_permission_snapshots(
     mcp_database: sessionmaker[Session],
 ) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -20,6 +21,7 @@ from kodi_lab.domain import (
     ExternalProtocolKind,
     ExternalVerificationState,
     HealthStatus,
+    ProductionDesignationState,
     TargetAvailability,
     TargetType,
 )
@@ -35,8 +37,11 @@ from kodi_lab.storage.models import (
     ExternalKodiTargetEventRow,
     ExternalKodiTargetObservationRow,
     ExternalKodiTargetRow,
+    ExternalProductionPolicyRow,
     McpClientTargetGrantRow,
+    McpSecurityEventRow,
     McpTargetPresetAssignmentRow,
+    ProductionMutationControlRow,
     TargetRow,
 )
 from kodi_lab.storage.secrets import (
@@ -68,7 +73,7 @@ class ExternalTargetRead(BaseModel):
 
     target_id: UUID
     logical_name: str = Field(max_length=120)
-    target_class: str = Field(pattern="^external_development$")
+    target_class: str = Field(pattern="^external_(development|production)$")
     protocol_kind: ExternalProtocolKind
     host: str = Field(max_length=64)
     port: int = Field(ge=1, le=65_535)
@@ -88,6 +93,33 @@ class ExternalTargetRead(BaseModel):
     verified_at: datetime | None
     last_observed_at: datetime | None
     deactivated_at: datetime | None
+    production_policy: ProductionPolicyRead | None = None
+
+
+class ProductionPolicyRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    designation_state: ProductionDesignationState
+    lifecycle_state: str
+    confirmed_observation_id: UUID | None
+    confirmed_observation_digest: str | None = Field(
+        default=None, pattern="^[0-9a-f]{64}$"
+    )
+    identity_generation: int = Field(ge=1)
+    policy_revision: int = Field(ge=1)
+    mutations_suspended: bool
+    designation_confirmed_by: str | None
+    designation_confirmed_at: datetime | None
+    designation_invalidated_at: datetime | None
+
+
+class ProductionMutationControlRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    production_mutations_blocked: bool
+    policy_epoch: int = Field(ge=1)
+    updated_by: str
+    updated_at: datetime
 
 
 class ExternalTargetEventRead(BaseModel):
@@ -139,12 +171,21 @@ class ExternalTargetAdministrationService:
         credential_store: ExternalCredentialStore,
         verifier: NativeExternalKodiVerifier | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        target_type: TargetType = TargetType.EXTERNAL_DEVELOPMENT,
     ) -> None:
         self._session_factory = session_factory
         self._endpoint_policy = endpoint_policy
         self._credential_store = credential_store
         self._verifier = verifier or NativeExternalKodiVerifier()
         self._clock = clock
+        if target_type not in {
+            TargetType.EXTERNAL_DEVELOPMENT,
+            TargetType.EXTERNAL_PRODUCTION,
+        }:
+            raise ValueError(
+                "external target administration requires an external class"
+            )
+        self._target_type = target_type
         with self._session_factory() as session:
             encrypted = session.scalar(
                 select(ExternalKodiTargetRow.target_id)
@@ -172,6 +213,11 @@ class ExternalTargetAdministrationService:
         name = self._name(logical_name)
         endpoint = self._validate_endpoint(protocol_kind, host, port)
         capabilities = self._capabilities(configured_capabilities)
+        if self._target_type is TargetType.EXTERNAL_PRODUCTION and not capabilities <= {
+            "target_inspect",
+            "addon_inventory",
+        }:
+            raise ExternalTargetError("endpoint_not_allowed")
         target_id = uuid4()
         now = self._clock()
         secret_reference: UUID | None = None
@@ -185,7 +231,7 @@ class ExternalTargetAdministrationService:
                     TargetRow(
                         id=str(target_id),
                         name=name,
-                        target_type=TargetType.EXTERNAL_DEVELOPMENT,
+                        target_type=self._target_type,
                         kodi_version=None,
                         availability=TargetAvailability.UNAVAILABLE,
                         health=HealthStatus.WARNING,
@@ -225,7 +271,36 @@ class ExternalTargetAdministrationService:
                         last_observed_at=None,
                     )
                 )
-                self._event(session, target_id, "registered", now)
+                session.flush()
+                if self._target_type is TargetType.EXTERNAL_PRODUCTION:
+                    session.add(
+                        ExternalProductionPolicyRow(
+                            target_id=str(target_id),
+                            designation_state=(
+                                ProductionDesignationState.PENDING_NATIVE_IDENTITY
+                            ),
+                            confirmed_observation_id=None,
+                            confirmed_observation_digest=None,
+                            identity_generation=1,
+                            policy_revision=1,
+                            mutations_suspended=True,
+                            designation_confirmed_by=None,
+                            designation_confirmed_at=None,
+                            designation_invalidated_at=None,
+                            created_at=_to_text(now),
+                            updated_at=_to_text(now),
+                        )
+                    )
+                self._event(
+                    session,
+                    target_id,
+                    (
+                        "production_target_registered"
+                        if self._target_type is TargetType.EXTERNAL_PRODUCTION
+                        else "registered"
+                    ),
+                    now,
+                )
         except Exception:
             if secret_reference is not None:
                 self._credential_store.retire(secret_reference)
@@ -237,9 +312,10 @@ class ExternalTargetAdministrationService:
             rows = session.execute(
                 select(ExternalKodiTargetRow, TargetRow)
                 .join(TargetRow, TargetRow.id == ExternalKodiTargetRow.target_id)
+                .where(TargetRow.target_type == self._target_type)
                 .order_by(TargetRow.name, TargetRow.id)
             ).all()
-            return [self._read(target, external) for external, target in rows]
+            return [self._read(session, target, external) for external, target in rows]
 
     def get(self, target_id: UUID) -> ExternalTargetRead:
         with self._session_factory() as session:
@@ -247,7 +323,9 @@ class ExternalTargetAdministrationService:
             target = session.get(TargetRow, str(target_id))
             if external is None or target is None:
                 raise ExternalTargetError("target_not_found")
-            return self._read(target, external)
+            if target.target_type is not self._target_type:
+                raise ExternalTargetError("target_not_found")
+            return self._read(session, target, external)
 
     def events(self, target_id: UUID) -> list[ExternalTargetEventRead]:
         self.get(target_id)
@@ -301,6 +379,9 @@ class ExternalTargetAdministrationService:
                 row.host = endpoint.address
                 row.port = endpoint.port
                 self._require_reverification(row)
+                self._invalidate_production_policy(
+                    session, target_id, now, force_generation=True
+                )
                 target.availability = TargetAvailability.UNAVAILABLE
                 target.connection_state = ConnectionState.DISCONNECTED
                 target.health = HealthStatus.WARNING
@@ -337,6 +418,9 @@ class ExternalTargetAdministrationService:
                     None if new_reference is None else str(new_reference)
                 )
                 self._require_reverification(row)
+                self._invalidate_production_policy(
+                    session, target_id, now, force_generation=True
+                )
                 self._event(session, target_id, "credential_rotated", now)
                 self._event(session, target_id, "reverification_required", now)
         except Exception:
@@ -420,6 +504,16 @@ class ExternalTargetAdministrationService:
             target.kodi_version = observation.kodi_version
             target.health = HealthStatus.HEALTHY
             target.connection_state = ConnectionState.CONNECTED
+            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            if (
+                policy is not None
+                and policy.designation_state is not ProductionDesignationState.CONFIRMED
+            ):
+                policy.designation_state = (
+                    ProductionDesignationState.PENDING_CONFIRMATION
+                )
+                policy.policy_revision += 1
+                policy.updated_at = _to_text(now)
             self._event(
                 session,
                 target_id,
@@ -427,6 +521,150 @@ class ExternalTargetAdministrationService:
                 now,
                 observation_id=observation_id,
             )
+            if policy is not None:
+                self._event(
+                    session,
+                    target_id,
+                    "production_native_identity_confirmed",
+                    now,
+                    observation_id=observation_id,
+                )
+        return self.get(target_id)
+
+    def confirm_production_designation(
+        self,
+        target_id: UUID,
+        observation_id: UUID,
+        *,
+        administrator_reference: str = "local_administrator",
+    ) -> ExternalTargetRead:
+        if self._target_type is not TargetType.EXTERNAL_PRODUCTION:
+            raise ExternalTargetError("target_not_found")
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            _target, row = self._require_mutable(session, target_id)
+            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            observation = session.get(
+                ExternalKodiTargetObservationRow, str(observation_id)
+            )
+            if (
+                policy is None
+                or row.verification_state is not ExternalVerificationState.VERIFIED
+                or row.pending_observation_id != str(observation_id)
+                or observation is None
+                or observation.target_id != str(target_id)
+                or observation.outcome != ExternalObservationState.REACHABLE.value
+                or observation.error_code is not None
+                or policy.designation_state
+                is not ProductionDesignationState.PENDING_CONFIRMATION
+            ):
+                raise ExternalTargetError("production_designation_required")
+            administrator = administrator_reference.strip()
+            if not administrator or len(administrator) > 64:
+                raise ExternalTargetError("production_designation_required")
+            digest = self._observation_digest(row, observation)
+            policy.designation_state = ProductionDesignationState.CONFIRMED
+            policy.confirmed_observation_id = str(observation_id)
+            policy.confirmed_observation_digest = digest
+            policy.designation_confirmed_by = administrator
+            policy.designation_confirmed_at = _to_text(now)
+            policy.designation_invalidated_at = None
+            policy.policy_revision += 1
+            policy.updated_at = _to_text(now)
+            self._event(
+                session,
+                target_id,
+                "production_designation_confirmed",
+                now,
+                classification=f"revision_{policy.policy_revision}",
+                observation_id=observation_id,
+            )
+        return self.get(target_id)
+
+    def mutation_control(self) -> ProductionMutationControlRead:
+        with self._session_factory() as session:
+            row = session.get(ProductionMutationControlRow, 1)
+            if row is None:
+                raise ExternalTargetError("production_policy_missing")
+            updated = _from_text(row.updated_at)
+            assert updated is not None
+            return ProductionMutationControlRead(
+                production_mutations_blocked=row.production_mutations_blocked,
+                policy_epoch=row.policy_epoch,
+                updated_by=row.updated_by,
+                updated_at=updated,
+            )
+
+    def set_mutation_block(
+        self,
+        *,
+        blocked: bool,
+        administrator_reference: str = "local_administrator",
+    ) -> ProductionMutationControlRead:
+        if self._target_type is not TargetType.EXTERNAL_PRODUCTION:
+            raise ExternalTargetError("target_not_found")
+        now = self._clock()
+        administrator = administrator_reference.strip()
+        if not administrator or len(administrator) > 64:
+            raise ExternalTargetError("production_policy_missing")
+        with self._session_factory.begin() as session:
+            row = session.get(ProductionMutationControlRow, 1)
+            if row is None:
+                raise ExternalTargetError("production_policy_missing")
+            if row.production_mutations_blocked != blocked:
+                row.production_mutations_blocked = blocked
+                row.policy_epoch += 1
+                row.updated_by = administrator
+                row.updated_at = _to_text(now)
+                session.add(
+                    McpSecurityEventRow(
+                        id=str(uuid4()),
+                        event_kind=(
+                            "production_mutations_blocked"
+                            if blocked
+                            else "production_mutations_unblocked"
+                        ),
+                        actor="web_admin",
+                        client_id=None,
+                        credential_id=None,
+                        target_id=None,
+                        development_source_id=None,
+                        workspace_id=None,
+                        preset_id=None,
+                        occurred_at=_to_text(now),
+                    )
+                )
+        return self.mutation_control()
+
+    def set_target_mutation_suspension(
+        self,
+        target_id: UUID,
+        *,
+        suspended: bool,
+    ) -> ExternalTargetRead:
+        if self._target_type is not TargetType.EXTERNAL_PRODUCTION:
+            raise ExternalTargetError("target_not_found")
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            _target, _row = self._require_mutable(session, target_id)
+            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            if policy is None:
+                raise ExternalTargetError("production_policy_missing")
+            if policy.mutations_suspended != suspended:
+                policy.mutations_suspended = suspended
+                policy.policy_revision += 1
+                policy.updated_at = _to_text(now)
+                self._event(
+                    session,
+                    target_id,
+                    (
+                        "production_mutations_suspended"
+                        if suspended
+                        else "production_mutations_resumed"
+                    ),
+                    now,
+                    classification=f"revision_{policy.policy_revision}",
+                )
         return self.get(target_id)
 
     def set_enabled(self, target_id: UUID, *, enabled: bool) -> ExternalTargetRead:
@@ -441,6 +679,13 @@ class ExternalTargetAdministrationService:
                     raise ExternalTargetError("identity_mismatch")
                 if row.verification_state is not ExternalVerificationState.VERIFIED:
                     raise ExternalTargetError("verification_required")
+                policy = session.get(ExternalProductionPolicyRow, str(target_id))
+                if target.target_type is TargetType.EXTERNAL_PRODUCTION and (
+                    policy is None
+                    or policy.designation_state
+                    is not ProductionDesignationState.CONFIRMED
+                ):
+                    raise ExternalTargetError("production_designation_required")
                 row.administrative_state = ExternalAdministrativeState.ENABLED
                 target.availability = TargetAvailability.AVAILABLE
                 self._event(session, target_id, "enabled", now)
@@ -461,6 +706,12 @@ class ExternalTargetAdministrationService:
             row.secret_reference = None
             row.administrative_state = ExternalAdministrativeState.DEACTIVATED
             row.deactivated_at = _to_text(now)
+            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            if policy is not None:
+                policy.designation_state = ProductionDesignationState.DEACTIVATED
+                policy.mutations_suspended = True
+                policy.policy_revision += 1
+                policy.updated_at = _to_text(now)
             target.availability = TargetAvailability.UNAVAILABLE
             target.connection_state = ConnectionState.DISCONNECTED
             target.health = HealthStatus.WARNING
@@ -528,6 +779,7 @@ class ExternalTargetAdministrationService:
             row.pending_observation_id = None
             if row.verification_state is ExternalVerificationState.VERIFIED:
                 row.verification_state = ExternalVerificationState.NEEDS_REVERIFICATION
+                self._invalidate_production_policy(session, target_id, completed)
                 self._event(session, target_id, "reverification_required", completed)
             target.connection_state = ConnectionState.DISCONNECTED
             target.health = HealthStatus.ERROR
@@ -591,6 +843,30 @@ class ExternalTargetAdministrationService:
             row.last_observed_at = _to_text(completed)
             if mismatch:
                 row.verification_state = ExternalVerificationState.IDENTITY_MISMATCH
+                self._invalidate_production_policy(
+                    session,
+                    target_id,
+                    completed,
+                    identity_mismatch=True,
+                )
+            elif session.get(ExternalProductionPolicyRow, str(target_id)) is not None:
+                policy = session.get(ExternalProductionPolicyRow, str(target_id))
+                assert policy is not None
+                if policy.designation_state in {
+                    ProductionDesignationState.PENDING_NATIVE_IDENTITY,
+                    ProductionDesignationState.INVALIDATED,
+                }:
+                    policy.designation_state = (
+                        ProductionDesignationState.PENDING_NATIVE_IDENTITY
+                    )
+                policy.updated_at = _to_text(completed)
+                self._event(
+                    session,
+                    target_id,
+                    "native_observation_obtained",
+                    completed,
+                    observation_id=observation_id,
+                )
             target.connection_state = ConnectionState.CONNECTED
             target.health = HealthStatus.WARNING
             self._event(
@@ -616,20 +892,87 @@ class ExternalTargetAdministrationService:
             row.configured_capabilities_json,
         ) == expected
 
+    def _invalidate_production_policy(
+        self,
+        session: Session,
+        target_id: UUID,
+        now: datetime,
+        *,
+        identity_mismatch: bool = False,
+        force_generation: bool = False,
+    ) -> None:
+        policy = session.get(ExternalProductionPolicyRow, str(target_id))
+        if policy is None:
+            return
+        already_invalid = (
+            policy.designation_state is ProductionDesignationState.INVALIDATED
+            and policy.confirmed_observation_id is None
+        )
+        if already_invalid and not force_generation:
+            return
+        policy.identity_generation += 1
+        policy.policy_revision += 1
+        policy.designation_state = ProductionDesignationState.INVALIDATED
+        policy.confirmed_observation_id = None
+        policy.confirmed_observation_digest = None
+        policy.designation_confirmed_by = None
+        policy.designation_confirmed_at = None
+        policy.designation_invalidated_at = _to_text(now)
+        policy.mutations_suspended = True
+        policy.updated_at = _to_text(now)
+        self._event(
+            session,
+            target_id,
+            "production_designation_invalidated",
+            now,
+            classification=(
+                "identity_mismatch" if identity_mismatch else "configuration_changed"
+            ),
+        )
+
+    @staticmethod
+    def _observation_digest(
+        row: ExternalKodiTargetRow, observation: ExternalKodiTargetObservationRow
+    ) -> str:
+        encoded = json.dumps(
+            {
+                "addresses": json.loads(observation.addresses_json),
+                "capabilities": json.loads(observation.verified_capabilities_json),
+                "completed_at": observation.completed_at,
+                "host": row.host,
+                "kodi_name": observation.kodi_name,
+                "kodi_version": observation.kodi_version,
+                "observation_id": observation.id,
+                "port": row.port,
+                "protocol_kind": row.protocol_kind.value,
+                "protocol_version": observation.protocol_version,
+                "target_id": observation.target_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
     @staticmethod
     def _require_reverification(row: ExternalKodiTargetRow) -> None:
         row.verification_state = ExternalVerificationState.NEEDS_REVERIFICATION
         row.pending_observation_id = None
         row.verified_capabilities_json = "[]"
 
-    @staticmethod
     def _require_mutable(
-        session: Session, target_id: UUID
+        self, session: Session, target_id: UUID
     ) -> tuple[TargetRow, ExternalKodiTargetRow]:
         target = session.get(TargetRow, str(target_id))
         row = session.get(ExternalKodiTargetRow, str(target_id))
         if target is None or row is None:
             raise ExternalTargetError("target_not_found")
+        if target.target_type is not self._target_type:
+            raise ExternalTargetError("target_not_found")
+        if (
+            target.target_type is TargetType.EXTERNAL_PRODUCTION
+            and session.get(ExternalProductionPolicyRow, str(target_id)) is None
+        ):
+            raise ExternalTargetError("production_policy_missing")
         if row.administrative_state is ExternalAdministrativeState.DEACTIVATED:
             raise ExternalTargetError("verification_required")
         return target, row
@@ -693,14 +1036,24 @@ class ExternalTargetAdministrationService:
             )
         )
 
-    @staticmethod
-    def _read(target: TargetRow, row: ExternalKodiTargetRow) -> ExternalTargetRead:
+    def _read(
+        self,
+        session: Session,
+        target: TargetRow,
+        row: ExternalKodiTargetRow,
+    ) -> ExternalTargetRead:
         created = _from_text(row.created_at)
         assert created is not None
+        production_policy = None
+        if target.target_type is TargetType.EXTERNAL_PRODUCTION:
+            policy = session.get(ExternalProductionPolicyRow, row.target_id)
+            if policy is None:
+                raise ExternalTargetError("production_policy_missing")
+            production_policy = self._production_policy_read(row, policy)
         return ExternalTargetRead(
             target_id=UUID(row.target_id),
             logical_name=target.name,
-            target_class="external_development",
+            target_class=target.target_type.value,
             protocol_kind=row.protocol_kind,
             host=row.host,
             port=row.port,
@@ -726,4 +1079,53 @@ class ExternalTargetAdministrationService:
             verified_at=_from_text(row.verified_at),
             last_observed_at=_from_text(row.last_observed_at),
             deactivated_at=_from_text(row.deactivated_at),
+            production_policy=production_policy,
+        )
+
+    @staticmethod
+    def _production_policy_read(
+        row: ExternalKodiTargetRow, policy: ExternalProductionPolicyRow
+    ) -> ProductionPolicyRead:
+        if row.administrative_state is ExternalAdministrativeState.DEACTIVATED:
+            lifecycle = "deactivated"
+        elif row.verification_state is ExternalVerificationState.IDENTITY_MISMATCH:
+            lifecycle = "identity_mismatch"
+        elif row.verification_state is ExternalVerificationState.NEEDS_REVERIFICATION:
+            lifecycle = "needs_reverification"
+        elif (
+            row.verification_state is ExternalVerificationState.UNVERIFIED
+            and row.pending_observation_id is None
+        ):
+            lifecycle = "registered_disabled_unverified"
+        elif row.verification_state is ExternalVerificationState.UNVERIFIED:
+            lifecycle = "observed_pending_confirmation"
+        elif (
+            policy.designation_state is ProductionDesignationState.PENDING_CONFIRMATION
+        ):
+            lifecycle = "production_designation_pending"
+        elif policy.designation_state is ProductionDesignationState.CONFIRMED:
+            lifecycle = (
+                "enabled_read_only"
+                if row.administrative_state is ExternalAdministrativeState.ENABLED
+                else "production_designation_confirmed"
+            )
+        elif policy.designation_state is ProductionDesignationState.INVALIDATED:
+            lifecycle = "needs_reverification"
+        else:
+            lifecycle = "native_identity_confirmed"
+        return ProductionPolicyRead(
+            designation_state=policy.designation_state,
+            lifecycle_state=lifecycle,
+            confirmed_observation_id=(
+                None
+                if policy.confirmed_observation_id is None
+                else UUID(policy.confirmed_observation_id)
+            ),
+            confirmed_observation_digest=policy.confirmed_observation_digest,
+            identity_generation=policy.identity_generation,
+            policy_revision=policy.policy_revision,
+            mutations_suspended=policy.mutations_suspended,
+            designation_confirmed_by=policy.designation_confirmed_by,
+            designation_confirmed_at=_from_text(policy.designation_confirmed_at),
+            designation_invalidated_at=_from_text(policy.designation_invalidated_at),
         )
