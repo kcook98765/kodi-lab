@@ -639,10 +639,11 @@ class NativeExternalKodiAdapter:
         )
 
     def dispatch(self, action: BrowserRemoteAction, invocation_id: UUID) -> None:
+        started = time.monotonic()
         with self._client() as client:
             dispatch_semantic_remote(
                 lambda request_id, method, params, mutation: self._remote_request(
-                    client, request_id, method, params, mutation
+                    client, request_id, method, params, mutation, started
                 ),
                 action,
                 invocation_id,
@@ -667,6 +668,7 @@ class NativeExternalKodiAdapter:
                         "limits": {"start": 0, "end": 1},
                     },
                     True,
+                    started,
                 )
         except RemoteKodiRejectedError as error:
             raise KodiAddonSmokeJsonRpcError(
@@ -707,6 +709,7 @@ class NativeExternalKodiAdapter:
         method: str,
         params: dict[str, object] | None,
         mutation: bool,
+        started: float,
     ) -> object:
         body: dict[str, object] = {
             "jsonrpc": "2.0",
@@ -715,7 +718,13 @@ class NativeExternalKodiAdapter:
         }
         if params is not None:
             body["params"] = params
-        timeout = httpx.Timeout(self._response_timeout, connect=self._connect_timeout)
+        remaining = self._total_timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            raise ExternalProbeError("target_unreachable")
+        timeout = httpx.Timeout(
+            min(remaining, self._response_timeout),
+            connect=min(remaining, self._connect_timeout),
+        )
         try:
             with client.stream(
                 "POST", self._endpoint.url, json=body, timeout=timeout
@@ -733,6 +742,12 @@ class NativeExternalKodiAdapter:
                 chunks: list[bytes] = []
                 size = 0
                 for chunk in response.iter_bytes():
+                    if time.monotonic() - started > self._total_timeout:
+                        if mutation:
+                            raise RemoteActionAmbiguousError(
+                                "remote total deadline exceeded"
+                            )
+                        raise ExternalProbeError("target_unreachable")
                     size += len(chunk)
                     if size > MAX_EXTERNAL_RESPONSE_BYTES:
                         if mutation:
@@ -741,6 +756,12 @@ class NativeExternalKodiAdapter:
                             )
                         raise ExternalProbeError("invalid_kodi_response")
                     chunks.append(chunk)
+                if time.monotonic() - started > self._total_timeout:
+                    if mutation:
+                        raise RemoteActionAmbiguousError(
+                            "remote total deadline exceeded"
+                        )
+                    raise ExternalProbeError("target_unreachable")
         except (
             ExternalProbeError,
             RemoteActionAmbiguousError,

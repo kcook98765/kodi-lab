@@ -2190,6 +2190,11 @@ canonical target/bridge identity, protocol, operation, request UUID, timestamp,
 nonce, status where applicable and payload digest. Sixty-second time freshness
 is combined with request/nonce uniqueness. The add-on durably caps replay
 identity at 256 for 24 hours and caches four exact responses for 120 seconds.
+Within that ledger, a live screenshot identity is non-evictable; protected
+capacity exhaustion rejects new work. Read-only and content-addressed
+deployment entries may be displaced only because their handlers independently
+make exact replay idempotent and conflicting reuse fail closed. Legacy entries
+without an operation classification are protected until expiry.
 Lab caps screenshot receipts at 256 per target and 4,096 globally for 24 hours,
 prunes only expired terminal rows and preserves pending/ambiguous identity.
 Pairing is serialized per target with two global slots; screenshot capture is
@@ -2257,10 +2262,13 @@ grant, target grant/policy, external-development class, enabled native identity,
 paired bridge identity, configured and observed capabilities, exact generation,
 successful validation and current source provenance. Target disablement,
 deactivation or bridge revocation blocks new work without deleting history.
-Phase 13 is implementation-complete pending an independent formal completion
-review. Authorized Kodi 20.5 LAN proof exercised the complete external-
-development path; production external targets and all external lifecycle
-authority remain deferred.
+**Phase 13 — Remote targets: COMPLETE.** Independent formal review reproduced
+and remediated one bridge replay-capacity defect, enforced the documented
+native total deadline, and tightened screenshot hardlink rejection. Authorized
+Kodi 20.5 LAN proof remains the sole live compatibility claim; deterministic
+coverage supports 19.5, 20.5, 21.3 and the Kodi 22 line. Production external
+targets and every external lifecycle authority remain deferred to Phase 14 or
+later.
 
 The add-on captures the full Kodi GUI with the cross-version
 `TakeScreenshot(<path>,sync)` built-in. It generates the complete filename

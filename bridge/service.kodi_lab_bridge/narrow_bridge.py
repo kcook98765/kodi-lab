@@ -27,10 +27,10 @@ import xbmcvfs
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.6"
+ADDON_VERSION = "1.1.7"
 CAPABILITIES = ["screenshot", "workspace_deployment"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.6|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
+    b"kodi-lab-narrow-bridge|1.1.7|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ADDON_ROOT = "special://home/addons"
@@ -69,6 +69,7 @@ OPERATIONS = {
     "deployment_commit",
     "deployment_receipt",
 }
+REPLAY_EVICTABLE_OPERATIONS = OPERATIONS - {"capture_screenshot"}
 _STATE_LOCK = threading.Lock()
 _RESPONSE_LOCK = threading.Lock()
 _CAPTURE_LOCK = threading.Lock()
@@ -513,7 +514,11 @@ def _normalize_png(payload):
 def _read_screenshot(path):
     try:
         metadata = os.lstat(path)
-        if not stat.S_ISREG(metadata.st_mode) or _unsafe_file(metadata):
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or _unsafe_file(metadata)
+            or metadata.st_nlink != 1
+        ):
             raise ScreenshotError("screenshot_invalid")
         if metadata.st_size > MAX_PNG:
             raise ScreenshotError("screenshot_too_large")
@@ -527,6 +532,7 @@ def _read_screenshot(path):
                 not stat.S_ISREG(opened.st_mode)
                 or opened.st_dev != metadata.st_dev
                 or opened.st_ino != metadata.st_ino
+                or opened.st_nlink != 1
             ):
                 raise ScreenshotError("screenshot_invalid")
             chunks = []
@@ -609,13 +615,25 @@ def _cache_put(request_id, request_hash, status, headers, body):
             _RESPONSES.popitem(last=False)
 
 
-def _claim_replay(state, request_id, nonce):
+def _claim_replay(state, request_id, nonce, operation):
     now = int(time.time())
     replay = [item for item in state["replay"] if now - item[2] <= REPLAY_TTL]
     if any(item[0] == request_id or item[1] == nonce for item in replay):
         raise ValueError("replay")
-    replay.append([request_id, nonce, now])
-    state["replay"] = replay[-MAX_REPLAY:]
+    if len(replay) >= MAX_REPLAY:
+        evictable = next(
+            (
+                index
+                for index, item in enumerate(replay)
+                if len(item) == 4 and item[3] in REPLAY_EVICTABLE_OPERATIONS
+            ),
+            None,
+        )
+        if evictable is None:
+            raise ValueError("replay capacity")
+        del replay[evictable]
+    replay.append([request_id, nonce, now, operation])
+    state["replay"] = replay
     _save_state(state)
 
 
@@ -1150,7 +1168,12 @@ class Handler(BaseHTTPRequestHandler):
             expected = _request_signature(secret, document)
             if not hmac.compare_digest(expected, document["signature"]):
                 raise AuthenticationError
-            _claim_replay(state, document["request_id"], document["nonce"])
+            _claim_replay(
+                state,
+                document["request_id"],
+                document["nonce"],
+                document["operation"],
+            )
         if document["operation"] == "bridge_identity":
             if document["payload"] != {}:
                 raise ValueError

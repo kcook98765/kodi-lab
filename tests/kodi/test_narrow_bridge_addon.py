@@ -209,7 +209,7 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.6"
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.7"
     dependency = descriptor.find("./requires/import")
     assert dependency is not None and dependency.attrib == {
         "addon": "xbmc.python",
@@ -479,6 +479,70 @@ def test_addon_gui_capture_rejects_symlink_and_cleans_only_bounded_namespace(
     with pytest.raises(bridge["ScreenshotError"], match="screenshot_invalid"):
         bridge["_read_screenshot"](str(symlink))
     assert outside.exists()
+
+
+def test_addon_gui_capture_rejects_hardlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    root = Path(bridge["_screenshot_root"]())
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(_png())
+    hardlink = root / ("capture-" + ("d" * 32) + ".png")
+    try:
+        os.link(outside, hardlink)
+    except OSError:
+        pytest.skip("hardlinks unavailable")
+    with pytest.raises(bridge["ScreenshotError"], match="screenshot_invalid"):
+        bridge["_read_screenshot"](str(hardlink))
+    assert outside.exists()
+
+
+def test_screenshot_replay_identity_cannot_be_evicted_by_bridge_traffic(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, state_path=tmp_path / "state.json")
+    state = bridge["_state_default"]()
+    request_id = str(uuid4())
+    nonce = bridge["_b64"](os.urandom(32))
+    bridge["_claim_replay"](state, request_id, nonce, "capture_screenshot")
+
+    for _index in range(bridge["MAX_REPLAY"]):
+        bridge["_claim_replay"](
+            state,
+            str(uuid4()),
+            bridge["_b64"](os.urandom(32)),
+            "deployment_chunk",
+        )
+
+    assert len(state["replay"]) == bridge["MAX_REPLAY"]
+    assert any(item[0] == request_id for item in state["replay"])
+    with pytest.raises(ValueError, match="replay"):
+        bridge["_claim_replay"](
+            state, request_id, bridge["_b64"](os.urandom(32)), "capture_screenshot"
+        )
+
+
+def test_screenshot_replay_capacity_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, state_path=tmp_path / "state.json")
+    state = bridge["_state_default"]()
+    state["replay"] = [[str(uuid4()), bridge["_b64"](os.urandom(32)), int(time.time())]]
+    for _index in range(bridge["MAX_REPLAY"] - 1):
+        bridge["_claim_replay"](
+            state,
+            str(uuid4()),
+            bridge["_b64"](os.urandom(32)),
+            "capture_screenshot",
+        )
+    with pytest.raises(ValueError, match="replay capacity"):
+        bridge["_claim_replay"](
+            state,
+            str(uuid4()),
+            bridge["_b64"](os.urandom(32)),
+            "bridge_identity",
+        )
 
 
 def test_addon_screenshot_failure_is_authenticated_semantic_error(

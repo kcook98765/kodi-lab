@@ -132,9 +132,11 @@ shell, Git/repository publication, arbitrary execution, external target, or
 production mutation authority. See
 [`docs/PHASE12-MCP-DEVELOPMENT.md`](docs/PHASE12-MCP-DEVELOPMENT.md).
 
-Phase 13 Slices 1-4 add Web-only external-development registration, fixed
-native verification/tools, and an authenticated screenshot/deployment bridge;
-Phase 13 remains PARTIAL. Password and bridge secrets require an operator-provided
+**Phase 13 — Remote targets is COMPLETE.** It adds Web-only external-development
+registration, fixed native verification/tools, and an authenticated
+screenshot/deployment bridge. Independent formal review closed D-0302's
+replay-capacity and native-deadline remediation without adding production
+authority. Password and bridge secrets require an operator-provided
 `KODI_LAB_EXTERNAL_TARGET_MASTER_KEY` containing a base64url-encoded 32-byte
 key. The key is never generated into the repository or stored in SQLite.
 Structured native endpoints default to allowlisted port `8080`; the separate

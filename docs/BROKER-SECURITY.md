@@ -701,3 +701,9 @@ regular `.pyc` file. This canonical exclusion is not broker or filesystem
 authority: the bridge receives no path, does not read or delete the derived
 bytes, and rejects links, nested directories, unknown names and over-limit
 caches.
+
+Phase 13 formal-review remediation D-0302 changes no broker boundary. Bridge
+1.1.7 protects live screenshot replay identity under bounded capacity, enforces
+the native adapter's aggregate deadline and rejects screenshot hardlinks. It
+adds no broker operation, caller, path, runtime, container, Docker, shell,
+filesystem or lifecycle authority.

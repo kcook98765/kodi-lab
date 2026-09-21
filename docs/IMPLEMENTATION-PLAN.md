@@ -1524,3 +1524,19 @@ automated coverage retains 19.5, 20.5, 21.3 and Kodi 22.
 
 Only an independent formal Phase 13 completion review may mark the phase
 complete. Phase 14 production-target architecture remains deferred.
+
+## Phase 13 formal closeout
+
+**Phase 13 — Remote targets: COMPLETE.** Independent review verified the
+external-development-only boundary, current trust/authority intersections,
+fresh-schema ordering fixes, retained Kodi 20.5 evidence and Phase 11/12
+regression safety. It also reproduced one completion blocker: authenticated
+deployment traffic could evict a still-live screenshot request from the
+bridge's 256-entry replay ledger. D-0302 and bridge 1.1.7 preserve every live
+non-idempotent capture identity, fail closed at protected capacity, retain
+independently idempotent deployment progress, enforce the native aggregate
+deadline and reject screenshot hardlinks. No migration, MCP tool/schema,
+production target, broker operation or lifecycle authority was added.
+
+Phase 14 may now begin with an independent architecture review only. This
+closeout does not authorize Phase 14 implementation or production contact.

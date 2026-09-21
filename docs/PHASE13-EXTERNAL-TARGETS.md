@@ -2,9 +2,8 @@
 
 ## Status
 
-Phase 13 Slices 1 through 5 are implemented. Phase 13 is
-**IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**; only a fresh independent
-completion review may mark it complete.
+**Phase 13 — Remote targets: COMPLETE.** Independent formal review accepted
+Slices 1 through 5 after the narrow D-0302 replay/deadline remediation.
 
 Slice 1 implements Web-managed external-development registration, protected
 credentials, native read-only Kodi verification, explicit confirmation and
@@ -128,7 +127,11 @@ Every response HMAC covers the corresponding identities, operation, request,
 timestamp, nonce, status and payload digest. Clock skew is fixed at sixty
 seconds and request UUID/nonce uniqueness is still mandatory. The bridge keeps
 at most 256 durable replay identities for 24 hours and four exact response
-receipts for 120 seconds. Kodi Lab keeps at most 256 durable screenshot receipts
+receipts for 120 seconds. A live screenshot identity is never evicted: protected
+capacity exhaustion rejects new work. Read-only and content-addressed deployment
+entries may be displaced only because exact replay is independently idempotent
+and conflicting reuse fails closed; legacy unclassified entries remain
+protected until expiry. Kodi Lab keeps at most 256 durable screenshot receipts
 per target and 4,096 globally for 24 hours and removes only expired terminal
 rows; pending or ambiguous identity is never evicted to recover capacity.
 
@@ -360,7 +363,12 @@ execution required D-0300's narrow interpreter-cache exclusion. D-0301 orders
 a newer explicit Web re-baseline ahead of older successful deployment lineage.
 Bridge releases 1.1.1 through 1.1.6 preserved protocol authority while applying
 the incremental packaging, GUI capture, Kodi 20.5 inspection and provenance
-corrections; the validated package is 1.1.6.
+corrections. The live-validated package is 1.1.6. Its deterministic ZIP
+SHA-256 is `5a7707dacb92a2e6f576f97f990c1b743dbaf72d476538fd8049159745a086f3`;
+its semantic build fingerprint is
+`ab36d89415065dc9ff62abec480adaa7557324c15fc62e35d897da6a8741f9d7`.
+These intentionally identify different concepts: exact archive bytes versus
+the embedded release/protocol/capability identity.
 
 Temporary direct SSH was used only as out-of-band maintainer setup to restore
 the disposable fixture, enter a one-time bridge token and restart Kodi. Those
@@ -369,6 +377,26 @@ installation or lifecycle surface. No other LAN host or production Kodi target
 was contacted. This proof validates Kodi 20.5 only; deterministic compatibility
 coverage remains authoritative for 19.5, 20.5, 21.3 and the Kodi 22 line.
 
-## Remaining Phase 13 work
+## Formal completion review
 
-- independent formal Phase 13 completion review
+The independent review reproduced one completion blocker in bridge 1.1.6: more
+than 256 fresh authenticated messages could evict a still-fresh screenshot
+request identity after its four-entry response cache rolled over. A captured
+signed request could then invoke a second GUI capture. D-0302 fixes this in
+bridge 1.1.7 by making live screenshot and legacy-unclassified replay entries
+non-evictable, failing closed if protected capacity fills, and displacing only
+operations whose handlers independently provide exact idempotence and conflict
+rejection. The same remediation enforces the native adapter's documented total
+deadline and rejects screenshot hardlinks. It changes no database migration,
+protocol version, capability, MCP schema or tool count.
+
+The deterministic 1.1.7 closeout package has ZIP SHA-256
+`a632f26ac7d6f2fb908577d4c75c9afc344ab138c1803f87132abefcf9c99a5c`
+and embedded semantic build fingerprint
+`3f9eea79fcf03c3bd2d24e4aab8a61ffa98ed093e1c1185d9e9a3911d41b7486`.
+Its archive contents exactly match the reviewed bridge source. It was not
+installed on the LAN target; the retained live claim remains Kodi 20.5 with
+1.1.6, while the remediation is covered deterministically.
+
+Phase 13 is closed. External-production support, policy, approvals and
+activation remain deferred to Phase 14.

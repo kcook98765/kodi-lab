@@ -3858,7 +3858,7 @@ authority.
   secret. MCP cannot begin, confirm, rotate, inspect a token or revoke pairing.
 
 ## D-0292: Bridge requests and responses are mutually authenticated and replay bounded
-- Status: accepted Phase 13 Slice 3.
+- Status: accepted Phase 13 Slice 3; capacity behavior refined by D-0302.
 - Decision: HMAC-SHA-256 subkeys with versioned request/response labels cover
   canonical target UUID, bridge UUID, protocol, operation, request UUID,
   timestamp, nonce and payload digest. Responses additionally cover status and
@@ -3943,10 +3943,11 @@ authority.
   The bridge instead invokes `TakeScreenshot(<bridge-owned-path>,sync)` with one
   unpredictable filename beneath its fixed `special://temp/kodi-lab-bridge`
   namespace. Neither MCP nor Lab supplies any path component. The bridge bounds
-  the synchronous existence wait, rejects links/reparse points and non-regular
-  files, checks encoded size before bounded reading, validates and normalizes a
-  bounded non-interlaced RGB/RGBA PNG, and deletes the exact transient file in
-  `finally` before constructing a response. Cleanup failure returns an
+  the synchronous existence wait, rejects symlinks, reparse points, hardlinks
+  and non-regular files, checks encoded size before bounded reading, validates
+  and normalizes a bounded non-interlaced RGB/RGBA PNG, and deletes the exact
+  transient file in `finally` before constructing a response. Cleanup failure
+  returns an
   authenticated semantic failure and short-TTL startup/pre-capture cleanup
   scans at most 64 direct children and deletes at most 16 strict bridge capture
   names; it never recurses or touches unknown names. This fixed local lifecycle
@@ -3983,3 +3984,41 @@ authority.
   completion becomes the new trust anchor; only a later successful deployment
   advances expected target provenance again. MCP cannot select, create or
   alter this ordering, and neither stale nor mismatched bytes are adopted.
+
+## D-0302: Non-idempotent bridge replay identity survives bounded traffic
+- Status: accepted Phase 13 formal-review remediation.
+- Decision: the 256-entry durable bridge replay ledger must never evict an
+  unexpired `capture_screenshot` request identity. If every entry is protected,
+  new authenticated work fails closed before dispatch. Read-only identity,
+  capability and inspection calls plus content-addressed deployment begin,
+  chunk, commit and receipt calls may be displaced because their handlers
+  independently make exact replay idempotent and reject conflicting payloads;
+  this preserves large bounded transfers without permitting a second capture.
+  Legacy three-field entries have no proven operation class and therefore stay
+  protected until expiry. The screenshot reader also rejects multi-link files,
+  and native semantic mutation/fixed execution now enforce their existing
+  aggregate deadline; deadline expiry after possible dispatch is ambiguous and
+  is never retried. Bridge version 1.1.7 and its build fingerprint identify the
+  remediation without changing protocol 1, capabilities, MCP schema, tool
+  count or database schema.
+
+## Phase 13 formal completion record
+
+- Status: **Phase 13 — Remote targets: COMPLETE**
+- Review basis: independent formal review of implementation checkpoint
+  `28d84c607598d28dd237da12056ac37485768c1d`, Alembic head
+  `0046_external_bridge_development`, the exact fifteen-tool production
+  catalog, retained Kodi 20.5 evidence and the D-0302 remediation.
+- Accepted boundary: authenticated-Web registration, native trust lifecycle,
+  exact MCP grant/preset/policy intersection, bounded native inspection and
+  semantic control, optional authenticated GUI screenshot bridge, pathless
+  external workspace deployment, fixed native execution, exact provenance and
+  Web-reviewed promotion evidence for `external_development` only.
+- Evidence boundary: live LAN proof is Kodi 20.5 only. Kodi 19.5, 21.3 and 22
+  compatibility remains deterministic automated evidence. Direct SSH was
+  out-of-band maintainer setup/recovery authority and is not a product
+  capability.
+- Deferred boundary: `external_production` is not representable in the database;
+  production policy, approval, activation, deployment and lifecycle authority
+  remain Phase 14 work. Phase 13 adds no shell, generic filesystem, arbitrary
+  JSON-RPC, Docker/raw-broker, Git or host-lifecycle authority.

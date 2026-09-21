@@ -49,5 +49,10 @@ repeat the deployment. A rollback-failed/replacing receipt requires operator
 reconciliation before further deployment.
 
 HTTP HMAC protects identity, integrity and replay but does not encrypt traffic.
+The durable bounded replay ledger never evicts a live screenshot request
+identity: when that protected capacity is exhausted the bridge rejects new
+work. Read-only and content-addressed deployment messages may be evicted from
+the ledger because their handlers independently reject conflicts and are
+idempotent; legacy ledger entries are treated as protected until they expire.
 Use a trusted network or normal certificate-validated HTTPS where required.
 Never configure this add-on against the production Kodi target.

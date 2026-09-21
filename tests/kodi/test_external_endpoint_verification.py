@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import time
+from collections.abc import Iterator
 from uuid import UUID
 
 import httpx
@@ -307,6 +309,62 @@ def test_external_remote_response_loss_is_ambiguous_but_connect_failure_is_not()
         ).dispatch(
             BrowserRemoteAction.HOME, UUID("14000000-0000-4000-8000-000000000002")
         )
+
+
+def test_external_remote_total_deadline_is_ambiguous_after_dispatch() -> None:
+    class SlowResponse(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            yield b'{"jsonrpc":"2.0",'
+            time.sleep(0.02)
+            yield b'"id":"unused","result":"OK"}'
+
+    adapter = NativeExternalKodiAdapter(
+        ValidatedExternalEndpoint(
+            ExternalProtocolKind.JSONRPC_HTTP, "192.168.1.9", 8080
+        ),
+        None,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, stream=SlowResponse())
+        ),
+        response_timeout=1.0,
+        total_timeout=0.01,
+    )
+    with pytest.raises(RemoteActionAmbiguousError, match="total deadline"):
+        adapter.dispatch(
+            BrowserRemoteAction.HOME,
+            UUID("14000000-0000-4000-8000-000000000003"),
+        )
+
+
+def test_external_remote_expired_deadline_before_send_is_definite() -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200)
+
+    adapter = NativeExternalKodiAdapter(
+        ValidatedExternalEndpoint(
+            ExternalProtocolKind.JSONRPC_HTTP, "192.168.1.9", 8080
+        ),
+        None,
+        transport=httpx.MockTransport(handler),
+        total_timeout=0.01,
+    )
+    with (
+        adapter._client() as client,
+        pytest.raises(ExternalProbeError, match="target_unreachable"),
+    ):
+        adapter._remote_request(
+            client,
+            "expired-before-send",
+            "Input.Home",
+            None,
+            True,
+            time.monotonic() - 1,
+        )
+    assert calls == 0
 
 
 def test_no_hostname_resolution_or_mixed_dns_answer_path_exists(

@@ -1163,6 +1163,11 @@ secrets remain protected outside SQLite. External-production type, arbitrary
 file/add-on management, host lifecycle and production control remain
 unavailable.
 
+**Phase 13 — Remote targets: COMPLETE.** Independent formal review accepted
+the external-development boundary after D-0302 closed bridge replay-capacity
+and native total-deadline defects. Phase 14 remains the first possible scope
+for external-production policy, approval or activation.
+
 ## 48. Recommended module boundaries
 
 Example:
