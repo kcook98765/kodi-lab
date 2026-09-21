@@ -1345,3 +1345,30 @@ Phase 12 is **IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**. Formal completion
 requires a separate read-only completion review; Slice 5 does not authorize
 Git, repository/GitHub publication, shell, arbitrary commands, generic
 execution, external targets or production targets.
+
+## Phase 12 formal completion checkpoint
+
+**Phase 12 — MCP development workflows: COMPLETE.** Independent formal review
+accepted implementation checkpoint `dc6f7857b222aff31467222e8d9eff8b96df6328`,
+Alembic head `0043_mcp_promotion_request`, and 2,020 collected tests. The
+preceding Slice 1–5 status text remains historical.
+
+The completed workflow uses exact source grants and one durable workspace owner;
+bounded inspect/read; atomic replay-safe creation; generation-CAS create,
+replace and exact patch; closed validation; seven-day terminal retention plus
+disabled-client quarantine; exact internal-disposable deploy; fixed copied
+Python video-plugin execution; and promotion request into the Web-only Phase 9
+review, apply and mandatory-verification path. The exact production catalog is
+`addon_list`, `development_source_list`, `promotion_request`, `remote_action`,
+`screenshot_capture`, `target_list`, `target_status`, `workspace_create`,
+`workspace_deploy`, `workspace_edit`, `workspace_execute`, `workspace_read`,
+`workspace_status`, `workspace_tree`, and `workspace_validate`.
+
+D-0277 supplies centralized lifecycle-aware request retention; D-0278 requires
+coherent terminal evidence and bounded scalar promotion references; D-0279
+makes the exact promotion journal authoritative mutation evidence. Protected
+identity fails closed under ambiguity and capacity pressure. Modern HTTP,
+modern stdio and bounded legacy HTTP share the same services and replay state.
+No shell, Git/GitHub, repository or ZIP publication, arbitrary command/test,
+generic execution, raw filesystem, external target or production target is
+added. Phase 13 is the separate external-development-target architecture gate.

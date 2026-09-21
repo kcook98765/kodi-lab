@@ -439,3 +439,46 @@ is no legacy stdio, MCP approval/rejection, repository/Git/GitHub publication,
 shell, arbitrary command, generic execution, external target or production
 target. A separate formal completion review remains; this implementation task
 does not declare Phase 12 formally complete.
+
+## Formal completion record
+
+**Phase 12 — MCP development workflows: COMPLETE.** Independent formal review
+accepted implementation checkpoint `dc6f7857b222aff31467222e8d9eff8b96df6328`,
+Alembic head `0043_mcp_promotion_request`, and 2,020 collected tests. The
+preceding implementation-complete statement remains the historical Slice 5
+checkpoint.
+
+The completed authority is exact Web-managed DevelopmentSource grants and one
+durable client owner per workspace; bounded source/status/tree/read inspection;
+server-generated replay-safe creation; generation-CAS create, replace and exact
+patch; closed structural validation; seven-day terminal retention and the
+disabled-client 30-day quarantine; exact internal-disposable deployment; fixed
+copied Python video-plugin execution; and MCP preparation of a Phase 9 plan for
+Web-only human review, source apply and mandatory verification. The five Phase
+12 permissions are exactly `workspace.inspect`, `workspace.edit`,
+`workspace.deploy`, `development.execute`, and
+`development.request_promotion`.
+
+D-0277 centralizes lifecycle-aware expiry of all shared development request
+identities. D-0278 requires coherent complete terminal evidence and bounded
+scalar promotion-reference checks. D-0279 makes the exact content-free
+promotion journal authoritative: safe failed-before-application expiry requires
+all expected rows to be `not_attempted`, while successful terminal expiry
+requires all expected rows to be `applied` plus coherent handoff and terminal
+verification. Missing, extra, mismatched, rolled-back, uncertain, ambiguous or
+otherwise contradictory evidence retains replay identity and consumes bounded
+capacity.
+
+The production catalog is exactly `addon_list`, `development_source_list`,
+`promotion_request`, `remote_action`, `screenshot_capture`, `target_list`,
+`target_status`, `workspace_create`, `workspace_deploy`, `workspace_edit`,
+`workspace_execute`, `workspace_read`, `workspace_status`, `workspace_tree`,
+and `workspace_validate`. Modern HTTP, modern stdio and bounded legacy HTTP
+share the same authority and replay state. MCP has no shell, Git/GitHub,
+repository or ZIP publication, raw filesystem, arbitrary test/command,
+generic JSON-RPC, generic add-on execution, Docker/raw-broker, external-target
+or production-mutation authority.
+
+Phase 13 owns architecture review for external development targets. No LAN
+development or production Kodi target was contacted for this closeout, and
+production-policy safeguards remain explicitly later scope.

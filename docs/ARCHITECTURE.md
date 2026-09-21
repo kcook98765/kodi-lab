@@ -2051,3 +2051,35 @@ fifteen-tool lexical catalog and replay state. Phase 12 is
 **IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**; this checkpoint does not
 declare formal Phase 12 completion and adds no Git, repository, shell, generic
 execution, external-target or production-target authority.
+
+## Phase 12 formal completion
+
+**Phase 12 — MCP development workflows: COMPLETE.** Independent review closed
+the canonical V1 phase at implementation checkpoint
+`dc6f7857b222aff31467222e8d9eff8b96df6328`, Alembic head
+`0043_mcp_promotion_request`, and 2,020 collected tests. The Slice 1–5 status
+statements above remain historical checkpoints.
+
+The accepted design combines exact Web-managed source grants, one durable MCP
+client owner per workspace, Phase 9 no-follow path authority, atomic replay-safe
+creation, generation-CAS editing, closed validation, conservative bounded
+retention, exact internal-disposable deployment, fixed copied video-plugin
+execution, and MCP-only preparation of Web-reviewed Phase 9 promotion. Web human
+approval, source-conflict recheck, source apply, handoff and mandatory
+verification remain the sole canonical completion path.
+
+D-0277 through D-0279 close replay-retention risk with one bounded central
+pruner, coherent complete terminal evidence, bounded scalar historical-plan
+references, and exact promotion-journal predicates. Applied, rolled-back,
+uncertain, missing, extra, mismatched or otherwise contradictory source-mutation
+evidence retains identity; only coherent all-`not_attempted` pre-application
+failure or coherent all-`applied` terminal success may expire. Protected rows
+remain inside the request caps and are never deleted to recover capacity.
+
+The production registry is the exact fifteen-tool catalog documented in the
+Phase 12 record and preserves the completed Phase 11 identity, transport,
+permission, grant, registry and replay core. There is still no shell, Git,
+repository/ZIP publication, arbitrary filesystem/test/command, generic
+JSON-RPC/add-on execution, Docker/raw-broker, external-development target or
+production-target authority. Phase 13 begins with external-development-target
+architecture review, not implementation or production testing.

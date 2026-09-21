@@ -118,13 +118,16 @@ clone. **Phase 11 — MCP core is COMPLETE.** Its independently reviewed
 implementation checkpoint is `3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`,
 with Alembic head `0038_mcp_remote_control` and 1,928 collected tests.
 
-Phase 12 is **IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**. Web administrators may grant one
-registered DevelopmentSource to an MCP client and bind one eligible existing
-AgentWorkspace. MCP can list granted source metadata and inspect only its exact
-bound, still-granted workspaces. Slices 2–4 add owned creation/editing, closed
-structural validation, system retention, exact internal disposable deployment
-and fixed smoke execution without granting MCP cleanup or generic Kodi
-authority. Slice 5 adds only replay-safe promotion-plan preparation; Web alone
-reviews, confirms and enters the canonical Phase 9 apply/verification path.
-MCP still cannot approve promotion, self-grant, or self-bind. See
+**Phase 12 — MCP development workflows is COMPLETE.** Independent review
+accepted implementation checkpoint `dc6f7857b222aff31467222e8d9eff8b96df6328`,
+Alembic head `0043_mcp_promotion_request`, and 2,020 collected tests. Web
+administrators grant exact DevelopmentSources and bind eligible existing
+AgentWorkspaces; MCP creation binds one durable owner atomically. The exact
+15-tool catalog supports bounded inspect/create/edit/validate, internal
+disposable deployment, fixed execution, and promotion-plan request. D-0277
+through D-0279 make shared replay retention lifecycle-aware, evidence-coherent,
+and authoritative to the bounded promotion journal. Web alone reviews and
+approves canonical source apply and mandatory verification. MCP still has no
+shell, Git/repository publication, arbitrary execution, external target, or
+production mutation authority. See
 [`docs/PHASE12-MCP-DEVELOPMENT.md`](docs/PHASE12-MCP-DEVELOPMENT.md).

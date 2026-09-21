@@ -3703,3 +3703,32 @@ authority.
   predicates keep the decision bounded without loading journal collections.
   This changes no tool, protocol, permission, migration, horizon, retention
   authority, or Phase 12 completion status.
+
+## Phase 12 formal completion record
+
+- Status: **Phase 12 — MCP development workflows: COMPLETE**
+- Review basis: independent formal review of implementation checkpoint
+  `dc6f7857b222aff31467222e8d9eff8b96df6328`, Alembic head
+  `0043_mcp_promotion_request`, and 2,020 collected tests. D-0238 through D-0279
+  remain governing decisions; their PARTIAL, implementation-complete and
+  remediation-status wording records historical checkpoints.
+- Accepted workflow: exact Web-managed DevelopmentSource grants, one durable
+  workspace owner, bounded inspection, replay-safe creation, generation-CAS
+  editing, closed validation, conservative retention, exact internal deployment,
+  fixed execution, MCP promotion request, Web-only approval, source-conflict
+  protection, and mandatory verification.
+- Replay closeout: D-0277 centralizes lifecycle-aware request retention; D-0278
+  requires coherent terminal evidence and bounded scalar promotion references;
+  D-0279 makes exact journal evidence authoritative. Unknown, malformed,
+  ambiguous or contradictory evidence retains identity and consumes capacity.
+- Registry and boundary: the production catalog is exactly fifteen tools and the
+  Phase 12 permissions are exactly `workspace.inspect`, `workspace.edit`,
+  `workspace.deploy`, `development.execute`, and
+  `development.request_promotion`. Phase 11 identity and transports remain
+  frozen. Shell, Git/GitHub, repository/ZIP publication, arbitrary filesystem,
+  command/test or add-on execution, generic JSON-RPC, Docker/raw broker,
+  external targets and production mutation remain absent.
+- Next boundary: Phase 13 may begin with external-development-target architecture
+  review. LAN development and production Kodi testing were not part of this
+  closeout; production remains deferred until production-policy safeguards are
+  explicitly in scope.
