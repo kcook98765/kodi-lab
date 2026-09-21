@@ -581,7 +581,7 @@ def test_mcp_projects_screenshot_capability_for_all_four_curated_profiles(
         mcp_database, screenshots=screenshots
     )
     assert all(
-        "managed_screenshot" in provider.resolve(target_id).capabilities
+        {"managed_screenshot", "screenshot"} <= provider.resolve(target_id).capabilities
         for target_id in target_ids
     )
 
@@ -726,12 +726,11 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     assert remote.allowed_target_classes == frozenset(
         {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
     )
-    for name in ("target_list", "target_status", "addon_list"):
+    for name in ("target_list", "target_status", "addon_list", "screenshot_capture"):
         assert registry.require(name).allowed_target_classes == frozenset(
             {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
         )
     for name in (
-        "screenshot_capture",
         "workspace_deploy",
         "workspace_execute",
         "promotion_request",

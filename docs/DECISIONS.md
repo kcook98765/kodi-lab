@@ -3832,3 +3832,54 @@ authority.
   have reached Kodi is conservative ambiguity. One operation per external
   target and a bounded global native-operation pool prevent slow targets from
   consuming unbounded workers.
+
+## D-0290: The bridge is an optional narrow semantic extension
+- Status: accepted Phase 13 Slice 3.
+- Decision: a verified external-development target may add one separately
+  configured and verified bridge without changing native target trust. Protocol
+  version 1 exposes exactly `bridge_identity`, `bridge_capabilities` and
+  `capture_screenshot`, plus the possession-proof pairing exchange. It has no
+  filesystem, log, generic JSON-RPC, add-on administration, deployment,
+  execution, shell, restart, profile or lifecycle operation. Native-only Slice
+  2 tools neither require nor reveal bridge pairing. Production remains absent.
+
+## D-0291: Bridge pairing is Web-only and pins persistent instance identity
+- Status: accepted Phase 13 Slice 3.
+- Decision: each bridge generates one persistent random UUID locally. An
+  authenticated Web administrator creates a random 256-bit, target-bound,
+  purpose-bound token with a ten-minute lifetime and sees it once; the token is
+  entered locally in Kodi. The bootstrap request first proves Lab knows the
+  token, then the bridge proves possession; only then do both sides derive a
+  separate long-lived request secret and Kodi clears the visible token. This
+  prevents unauthenticated remote enrollment or token consumption. Kodi Lab
+  observes UUID, protocol, add-on ID/version, Kodi version, closed
+  capability and build fingerprint, then requires explicit Web confirmation
+  before pinning and activation. Rotation or revocation retires every prior Lab
+  secret. MCP cannot begin, confirm, rotate, inspect a token or revoke pairing.
+
+## D-0292: Bridge requests and responses are mutually authenticated and replay bounded
+- Status: accepted Phase 13 Slice 3.
+- Decision: HMAC-SHA-256 subkeys with versioned request/response labels cover
+  canonical target UUID, bridge UUID, protocol, operation, request UUID,
+  timestamp, nonce and payload digest. Responses additionally cover status and
+  returned payload digest. The clock window is sixty seconds but never replaces
+  nonce/request uniqueness. The add-on durably retains at most 256 request
+  identities for 24 hours and caches four exact responses for 120 seconds;
+  conflicting or repeated identity cannot re-execute. Lab receipts are capped
+  at 256/target and 4,096 globally for 24 hours, prune only expired terminal
+  rows, and retain pending/ambiguous identity. Pairing is at most one/target and
+  two globally; screenshots are one/target and four globally.
+
+## D-0293: External screenshots are authenticated bounded bytes, never remote paths
+- Status: accepted Phase 13 Slice 3.
+- Decision: the unchanged `screenshot_capture` schema can admit an external-
+  development target only through configured screenshot maximum, native trust,
+  exact MCP authority and a paired, reachable, identity-pinned bridge with
+  verified `screenshot` capability. The add-on uses Kodi RenderCapture at the
+  server-owned 1280x720 geometry, converts BGRA to one non-interlaced RGB PNG in
+  memory and returns bytes directly. Kodi Lab accepts only the existing strict
+  PNG shape and 8 MiB maximum and persists no image. Request loss retries the
+  exact request UUID/nonce once so the bridge returns the cached result or a
+  bounded ambiguity; it never silently creates a second capture. HTTP HMAC
+  authenticates integrity but screenshots remain cleartext on the LAN; HTTPS
+  retains normal certificate validation and has no `verify=false` mode.

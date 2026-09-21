@@ -236,3 +236,194 @@ class ExternalCredentialStore:
     def _associated_data(target_id: UUID, reference: UUID, key_version: int) -> bytes:
         value = f"kodi-lab-external-credential\0{target_id}\0{reference}\0{key_version}"
         return value.encode()
+
+
+class ExternalBridgeSecretStore:
+    """The Slice 1 AEAD/no-follow facility specialized for 256-bit bridge keys."""
+
+    _PURPOSES = frozenset({"pairing_token", "request_authentication"})
+
+    def __init__(
+        self,
+        root: Path,
+        *,
+        master_key: bytes | None,
+        key_version: int,
+    ) -> None:
+        self._root = root
+        self._master_key = master_key
+        self._key_version = key_version
+
+    @property
+    def available(self) -> bool:
+        return self._master_key is not None
+
+    def write(self, target_id: UUID, purpose: str, secret: bytes) -> UUID:
+        if purpose not in self._PURPOSES or len(secret) != 32:
+            raise SecretStoreError("bridge secret shape is invalid")
+        key = self._require_key()
+        reference = uuid4()
+        nonce = os.urandom(12)
+        ciphertext = AESGCM(key).encrypt(
+            nonce,
+            secret,
+            self._associated_data(target_id, reference, purpose, self._key_version),
+        )
+        document = json.dumps(
+            {
+                "format": 1,
+                "key_version": self._key_version,
+                "purpose": purpose,
+                "nonce": base64.urlsafe_b64encode(nonce).decode("ascii"),
+                "ciphertext": base64.urlsafe_b64encode(ciphertext).decode("ascii"),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        if len(document) > MAX_SECRET_FILE_BYTES:
+            raise SecretStoreError("encrypted bridge secret is too large")
+        reference_name = f"{reference}.json"
+        directory_fd = self._open_directory(create=True)
+        temporary = f".{uuid4()}.tmp"
+        try:
+            try:
+                os.stat(reference_name, dir_fd=directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise SecretStoreError("bridge secret reference collision")
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory_fd,
+            )
+            try:
+                with os.fdopen(descriptor, "wb", closefd=False) as handle:
+                    handle.write(document)
+                    handle.flush()
+                    os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.replace(
+                temporary,
+                reference_name,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+            )
+            os.fsync(directory_fd)
+        except Exception:
+            with suppress(FileNotFoundError):
+                os.unlink(temporary, dir_fd=directory_fd)
+            raise
+        finally:
+            os.close(directory_fd)
+        return reference
+
+    def read(self, target_id: UUID, reference: UUID, purpose: str) -> bytes:
+        if purpose not in self._PURPOSES:
+            raise SecretStoreError("bridge secret purpose is invalid")
+        key = self._require_key()
+        directory_fd = self._open_directory(create=False)
+        try:
+            descriptor = os.open(
+                f"{reference}.json",
+                os.O_RDONLY | os.O_NOFOLLOW,
+                dir_fd=directory_fd,
+            )
+            try:
+                metadata = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                ):
+                    raise SecretStoreError("secret file metadata is unsafe")
+                chunks: list[bytes] = []
+                remaining = MAX_SECRET_FILE_BYTES + 1
+                while remaining:
+                    chunk = os.read(descriptor, remaining)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                document = b"".join(chunks)
+                if len(document) > MAX_SECRET_FILE_BYTES:
+                    raise SecretStoreError("secret file is too large")
+            finally:
+                os.close(descriptor)
+        except (FileNotFoundError, OSError) as error:
+            raise SecretStoreError("encrypted bridge secret is unavailable") from error
+        finally:
+            os.close(directory_fd)
+        try:
+            raw = json.loads(document)
+            if not isinstance(raw, dict) or set(raw) != {
+                "format",
+                "key_version",
+                "purpose",
+                "nonce",
+                "ciphertext",
+            }:
+                raise ValueError
+            if (
+                raw["format"] != 1
+                or raw["key_version"] != self._key_version
+                or raw["purpose"] != purpose
+            ):
+                raise ValueError
+            secret = AESGCM(key).decrypt(
+                base64.urlsafe_b64decode(raw["nonce"]),
+                base64.urlsafe_b64decode(raw["ciphertext"]),
+                self._associated_data(
+                    target_id, reference, purpose, raw["key_version"]
+                ),
+            )
+            if len(secret) != 32:
+                raise ValueError
+            return secret
+        except (InvalidTag, ValueError, TypeError, json.JSONDecodeError) as error:
+            raise SecretStoreError(
+                "encrypted bridge secret cannot be decrypted"
+            ) from error
+
+    def retire(self, reference: UUID) -> None:
+        directory_fd = self._open_directory(create=False)
+        try:
+            name = f"{reference}.json"
+            metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise SecretStoreError("secret file metadata is unsafe")
+            os.unlink(name, dir_fd=directory_fd)
+            os.fsync(directory_fd)
+        except FileNotFoundError:
+            return
+        finally:
+            os.close(directory_fd)
+
+    def _require_key(self) -> bytes:
+        if self._master_key is None:
+            raise SecretStoreError("external target master key is unavailable")
+        return self._master_key
+
+    def _open_directory(self, *, create: bool) -> int:
+        if create:
+            with suppress(FileExistsError):
+                self._root.mkdir(mode=0o700, parents=True)
+        try:
+            metadata = self._root.lstat()
+        except FileNotFoundError as error:
+            raise SecretStoreError("secret directory is unavailable") from error
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o700
+        ):
+            raise SecretStoreError("secret directory metadata is unsafe")
+        return os.open(self._root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+
+    @staticmethod
+    def _associated_data(
+        target_id: UUID, reference: UUID, purpose: str, key_version: int
+    ) -> bytes:
+        return (
+            f"kodi-lab-external-bridge\0{purpose}\0{target_id}\0{reference}\0{key_version}"
+        ).encode()

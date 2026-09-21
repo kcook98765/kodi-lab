@@ -140,7 +140,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0044_external_development_targets",)
+        ).fetchone() == ("0045_external_bridge_pairing",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -211,6 +211,9 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "external_kodi_target_events",
         "external_kodi_target_observations",
         "external_kodi_targets",
+        "external_bridge_events",
+        "external_bridge_pairings",
+        "external_bridge_request_receipts",
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_screenshots",
@@ -4754,3 +4757,83 @@ def test_0044_refuses_lossy_downgrade_with_external_state(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated external-development"):
         command.downgrade(config, "0043_mcp_promotion_request")
+
+
+def test_0045_external_bridge_schema_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0044_external_development_targets"
+    )
+    command.upgrade(config, "0045_external_bridge_pairing")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        "external_bridge_pairings",
+        "external_bridge_request_receipts",
+        "external_bridge_events",
+    } <= set(inspector.get_table_names())
+    assert {
+        item["name"]
+        for item in inspector.get_unique_constraints("external_bridge_request_receipts")
+    } == {"uq_external_bridge_nonce"}
+    engine.dispose()
+
+    command.downgrade(config, "0044_external_development_targets")
+    engine = create_database_engine(database_url)
+    assert not {
+        "external_bridge_pairings",
+        "external_bridge_request_receipts",
+        "external_bridge_events",
+    }.intersection(inspect(engine).get_table_names())
+    engine.dispose()
+
+
+def test_0045_refuses_lossy_downgrade_with_bridge_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0044_external_development_targets"
+    )
+    command.upgrade(config, "0045_external_bridge_pairing")
+    target_id = "45000000-0000-4000-8000-000000000001"
+    timestamp = "2026-09-21T00:00:00.000000Z"
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets "
+                "(id,name,target_type,kodi_version,availability,health,"
+                "connection_state) VALUES "
+                "(:id,'bridge','external_development','21.3','available',"
+                "'healthy','connected')"
+            ),
+            {"id": target_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_kodi_targets "
+                "(target_id,protocol_kind,host,port,authentication_mode,"
+                "secret_reference,configured_capabilities_json,"
+                "verified_capabilities_json,administrative_state,"
+                "verification_state,observation_state,verified_addresses_json,"
+                "verified_kodi_name,verified_kodi_version,created_at,verified_at) "
+                "VALUES (:id,'jsonrpc_http','192.168.1.8',8080,'none',NULL,"
+                '\'["screenshot","target_inspect"]\',\'["target_inspect"]\','
+                "'enabled','verified','reachable','[\"192.168.1.8\"]',"
+                "'Kodi','21.3',:at,:at)"
+            ),
+            {"id": target_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_bridge_pairings "
+                "(target_id,bridge_port,pairing_state,reachability_state,"
+                "observed_capabilities_json,verified_capabilities_json) "
+                "VALUES (:id,8765,'unpaired','unknown','[]','[]')"
+            ),
+            {"id": target_id},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated external bridge"):
+        command.downgrade(config, "0044_external_development_targets")

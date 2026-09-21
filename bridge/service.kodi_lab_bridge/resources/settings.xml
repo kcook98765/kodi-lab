@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings version="1">
+  <section id="service.kodi_lab_bridge">
+    <category id="general" label="General">
+      <group id="1">
+        <setting id="enabled" type="boolean" label="Enable bridge" default="false"/>
+        <setting id="bridge_port" type="integer" label="Bridge port" default="8765" constraints="1:65535"/>
+        <setting id="pairing_token" type="string" label="One-time pairing token" default=""/>
+      </group>
+    </category>
+  </section>
+</settings>

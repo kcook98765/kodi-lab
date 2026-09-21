@@ -1210,6 +1210,7 @@ def _tool_capability(tool_name: str) -> str:
         "target_status": "target_inspect",
         "addon_list": "addon_inventory",
         "remote_action": "semantic_remote",
+        "screenshot_capture": "screenshot",
     }.get(tool_name, "not_applicable")
 
 

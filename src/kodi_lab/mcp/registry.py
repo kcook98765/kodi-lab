@@ -196,11 +196,13 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             schema_revision=1,
             permissions=frozenset({"target.visual"}),
             effect=ToolEffect.READ_ONLY,
-            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
-            required_capabilities=frozenset({"managed_screenshot"}),
+            allowed_target_classes=frozenset(
+                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+            ),
+            required_capabilities=frozenset({"screenshot"}),
             required_states=frozenset({"reconciled"}),
             rate_class=ToolRateClass.VISUAL_CAPTURE,
-            adapter="managed_screenshot.capture",
+            adapter="kodi_target.screenshot.capture",
             production_eligible=False,
             target_scope_required=True,
             scope=ToolScope.TARGET,

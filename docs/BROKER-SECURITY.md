@@ -658,3 +658,20 @@ intersection. It cannot call the broker or select a broker method, container,
 path, command, lifecycle action, bridge, deployment or execution operation.
 Existing managed-target tools continue through their existing services and
 broker boundaries unchanged.
+
+## Phase 13 Slice 3 has no new broker authority
+
+Bridge pairing, authenticated bridge identity/capability probes and external
+screenshot capture are unprivileged application-to-external-target operations.
+They cannot call the broker. The server derives the fixed bridge endpoint from
+persisted target state and the configured bridge-port allowlist; MCP cannot
+provide a URL, path, port, secret, signature or operation.
+
+The narrow Kodi add-on captures through Kodi RenderCapture and returns bounded
+PNG bytes in the authenticated response. It has no host path, container,
+network, Docker, lifecycle, deployment, execution, shell, log, filesystem,
+profile or arbitrary Kodi-method authority. Existing managed
+`screenshot_capture` continues to use only
+`capture_managed_kodi_screenshot`; its broker request and protected-runtime
+isolation are unchanged. Migration `0045_external_bridge_pairing` creates no
+broker action, allowlist entry or privileged caller.

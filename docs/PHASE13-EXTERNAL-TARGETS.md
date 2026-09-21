@@ -2,14 +2,18 @@
 
 ## Status
 
-Phase 13 Slices 1 and 2 are complete. Phase 13 overall is **PARTIAL**.
+Phase 13 Slices 1, 2 and 3 are complete. Phase 13 overall is **PARTIAL**.
 
 Slice 1 implements Web-managed external-development registration, protected
 credentials, native read-only Kodi verification, explicit confirmation and
 enable/disable/deactivation. Slice 2 allows only the existing `target_list`,
 `target_status`, `addon_list` and closed semantic `remote_action` MCP tools to
 use eligible targets. It does not add a bridge, screenshots, deployment,
-execution, promotion, lifecycle control or production targets.
+execution, promotion, lifecycle control or production targets. Slice 3 adds the
+optional authenticated screenshot-only bridge and admits eligible external
+targets to the existing `screenshot_capture` tool. Deployment, execution,
+promotion evidence integration, external lifecycle control and production
+targets remain absent.
 
 ## Data and state
 
@@ -56,6 +60,14 @@ HTTP is private-LAN-only and password authentication produces a Web warning.
 HTTPS uses normal CA validation against the IP literal. Self-signed/SPKI pinning
 is deferred; there is no certificate-verification bypass.
 
+The bridge reuses the same IP-literal/address-class policy with a separate
+server allowlist for its structured port. The server owns the fixed
+`POST /kodi-lab/bridge/v1` path, follows no redirect, ignores ambient proxies
+and never accepts a caller URL or path. HTTP HMAC authenticates request and
+response integrity, but does not encrypt the PNG; the Web UI explicitly warns
+that HTTP screenshots are cleartext on the LAN. HTTPS retains normal
+certificate validation with no `verify=false` option.
+
 ## Secrets and capabilities
 
 No-auth and username/password are the only authentication modes. Credentials
@@ -75,12 +87,95 @@ read-only introspection. Missing or partial proof leaves a capability
 unverified. Effective MCP use remains configured intersected with verified;
 neither field independently grants authority.
 
+Bridge tokens and request-authentication secrets use the same protected AEAD,
+no-follow and atomic-file facility in a separate `external-bridges` directory.
+SQLite stores only opaque UUID references. A pairing token is random 256-bit,
+target/purpose bound by AEAD, shown once, valid for ten minutes and retired
+after one successful mutual possession proof. The bridge changes no state and
+does not clear the token until the initiating Lab request authenticates. The
+visible token is not the long-lived
+secret: Lab and bridge derive that secret from token, target UUID, persistent
+bridge UUID and fresh server/bridge nonces, then derive separately labelled
+request and response HMAC keys. Rotation and revocation retire prior Lab secret
+files.
+
+## Slice 3 bridge protocol and identity
+
+Migration `0045_external_bridge_pairing` adds independent bridge pairing state,
+bounded replay receipts and content-free semantic events. Pairing state is
+`unpaired`, `pairing_pending`, `paired`, `needs_reverification` or `revoked`;
+reachability is independently `unknown`, `reachable`, `unreachable`,
+`authentication_failed`, `identity_mismatch` or `protocol_unsupported`.
+Populated state blocks destructive downgrade.
+
+The new Kodi Python service add-on uses only standard-library cryptography and
+ordinary Kodi APIs compatible with 19.5, 20.5, 21.3 and the Kodi 22 line. It
+generates and preserves one random bridge UUID at first initialization.
+Protocol 1 reports that UUID, protocol, add-on ID/version, Kodi version, exact
+`screenshot` capability and canonical package/build fingerprint. Its closed
+operations are `bridge_identity`, `bridge_capabilities` and
+`capture_screenshot`; pairing is the only bootstrap exchange. It has no generic
+RPC, caller path, filesystem, log, add-on administration, deployment,
+execution, restart, profile or shell authority.
+
+Every authenticated request HMAC covers target UUID, bridge UUID, protocol,
+operation, request UUID, timestamp, 256-bit nonce and canonical payload digest.
+Every response HMAC covers the corresponding identities, operation, request,
+timestamp, nonce, status and payload digest. Clock skew is fixed at sixty
+seconds and request UUID/nonce uniqueness is still mandatory. The bridge keeps
+at most 256 durable replay identities for 24 hours and four exact response
+receipts for 120 seconds. Kodi Lab keeps at most 256 durable screenshot receipts
+per target and 4,096 globally for 24 hours and removes only expired terminal
+rows; pending or ambiguous identity is never evicted to recover capacity.
+
+Pairing begins only for an enabled, native-verified target with screenshot in
+its configured maximum. The administrator generates and locally enters the
+show-once token, asks Lab to perform the possession proof, inspects the observed
+identity, and explicitly confirms the exact observation. Active use requires
+the pinned bridge UUID/protocol/add-on/Kodi/build identity, unchanged endpoint
+revision, verified `screenshot` capability and reachable state. Drift clears
+effective screenshot capability and moves the bridge to
+`needs_reverification`; authenticated Web reverification must reproduce the
+pinned identity.
+
+## External screenshot semantics
+
+`screenshot_capture` retains its exact target-only schema and is still one of
+fifteen tools. Effective external screenshot authority is configured maximum
+intersected with native verified state, paired/reachable/pinned bridge,
+bridge-verified screenshot capability, exact client target grant, preset
+policy, `target.visual` permission and external-development class eligibility.
+Pairing is irrelevant to native-only target list/status, inventory and remote
+control.
+
+The add-on calls Kodi RenderCapture with the server-owned 1280x720 geometry,
+receives fixed BGRA bytes, converts them in memory to one RGB, 8-bit,
+non-interlaced PNG and returns bytes directly. It never asks Kodi to write a
+path and never reads one back. Lab applies the existing strict PNG parser: exact
+signature and `IHDR`/`IDAT`/`IEND` layout, checksum, encoding, geometry,
+decompressed length and filter, with an 8 MiB encoded maximum. No animation,
+metadata or multi-frame content is accepted.
+
+Screenshots are not persisted by the external path. Audit contains only target,
+bridge and request UUIDs plus bounded outcome, byte count, dimensions and
+SHA-256 digest. It never contains token, secret, signature or pixels. A
+transport-loss retry repeats the exact request UUID, nonce, timestamp and HMAC;
+the bridge returns the cached identical PNG or rejects the replay. A second
+capture is never used to hide ambiguity.
+
 ## Web and MCP boundary
 
 All status and action routes require the ordinary authenticated Web session;
 mutations also require Trusted Host, same-origin and CSRF controls. Projection
 contains safe structured metadata and never secrets or raw protocol/network
 material. Audit records only semantic event and bounded classification.
+
+Bridge status, token generation, possession-proof attempt, identity
+confirmation, reverification, needs-reverification marking and revocation are
+also Web-only. Token rotation, revocation and reverification use strict
+confirmation bodies; the generated token exists only in the creation response
+and is never recoverable from status or HTML. Deactivation revokes bridge
+authority before retiring the native target.
 
 The MCP lexical catalog remains exactly fifteen tools. Registration,
 configuration, credentials, probe, confirmation, enablement, target policy and
@@ -117,15 +212,16 @@ failure is conservative ambiguity. Native operations are bounded to eight
 globally and one per target, with at most 1,024 target gates.
 
 Modern HTTP, modern stdio and bounded legacy HTTP enter the same registry,
-authorization, adapter and receipt. Screenshot, workspace deployment,
-workspace execution and promotion remain internal-managed-only and reject an
-external UUID without disclosing unauthorized existence.
+authorization, adapter and receipt. External screenshot uses this shared path
+and returns the existing metadata plus official image content. Discovery and
+schema remain unchanged. Workspace deployment, workspace execution and
+promotion remain internal-managed-only and reject an external UUID without
+disclosing unauthorized existence.
 
 ## Remaining Phase 13 work
 
-- bridge pairing and stronger bridge identity
-- screenshots
 - workspace deployment
 - fixed execution
-- authorized LAN development proof
+- promotion evidence integration
+- authorized LAN-development proof
 - formal Phase 13 closeout

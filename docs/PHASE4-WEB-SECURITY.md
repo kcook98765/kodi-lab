@@ -211,3 +211,28 @@ mode, secret reference, credentials and raw observation records. Native request
 failures and audits contain only bounded semantic classifications, client/
 credential/target UUIDs, tool/capability and mutation request UUID where
 applicable; Authorization and credential material are never logged.
+
+## Phase 13 Slice 3 bridge administration
+
+Bridge status is authenticated-Web-only. Pairing-token generation, pairing
+attempt, identity confirmation, reverification, needs-reverification marking
+and revocation additionally use the ordinary mutation-session dependency:
+Trusted Host, authenticated administrator cookie, strict same-origin and CSRF
+are all required. Rotation/re-pair, reverification and revoke bodies contain
+only exact confirmation plus the server-allowlisted structured bridge port
+where applicable; extra endpoint, secret, signature, capability or operation
+fields are forbidden.
+
+The random pairing token appears only in the successful creation response. It
+is not stored in SQLite, status projection, HTML, JavaScript state, audit or
+logs and cannot be fetched again. The page displays only pending/paired state,
+bounded observed/pinned identity and verified capabilities. HTTP targets show
+that screenshot bytes are cleartext on the LAN despite HMAC integrity.
+
+MCP bearer credentials do not authenticate bridge routes. The exact fifteen-
+tool catalog has no begin-pairing, token, identity-confirmation, endpoint,
+capability-enable, rotate or revoke tool. An MCP client without the exact target
+grant receives the same unavailable result for a paired UUID as for a missing
+target; pairing state is not an alternate discovery channel. External
+`screenshot_capture` returns the existing bounded metadata/image result only
+after the complete authority intersection.

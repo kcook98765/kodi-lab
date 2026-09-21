@@ -1147,10 +1147,15 @@ identity, and manage enable/disable/deactivation. Slice 2 lets the existing
 use an exactly granted, enabled, verified, identity-matching target through a
 fixed native adapter. Configured capability is only a maximum and must
 intersect read-only technical proof, target policy, client permission and exact
-grant. The common target UUID and fifteen-tool catalog remain unchanged;
-credentials remain protected outside SQLite. External-production type, bridge
-pairing, screenshots, deployment, execution and lifecycle control remain
-unavailable.
+grant. Slice 3 adds an optional Web-paired, persistent-UUID bridge with a closed
+authenticated identity/capability/screenshot protocol. It admits eligible
+external development targets to the unchanged `screenshot_capture` schema and
+returns bounded in-memory PNG bytes without a remote path. Mutual HMAC,
+request/nonce replay bounds and pinned bridge/add-on/Kodi/build identity protect
+the LAN exchange. The common target UUID and fifteen-tool catalog remain
+unchanged; credentials and bridge secrets remain protected outside SQLite.
+External-production type, workspace deployment, fixed execution, promotion
+evidence integration and lifecycle control remain unavailable.
 
 ## 48. Recommended module boundaries
 

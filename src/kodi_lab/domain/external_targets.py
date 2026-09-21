@@ -45,3 +45,20 @@ class ExternalCapability(StrEnum):
 
 
 EXTERNAL_CAPABILITY_VALUES = frozenset(item.value for item in ExternalCapability)
+
+
+class ExternalBridgePairingState(StrEnum):
+    UNPAIRED = "unpaired"
+    PAIRING_PENDING = "pairing_pending"
+    PAIRED = "paired"
+    NEEDS_REVERIFICATION = "needs_reverification"
+    REVOKED = "revoked"
+
+
+class ExternalBridgeReachabilityState(StrEnum):
+    UNKNOWN = "unknown"
+    REACHABLE = "reachable"
+    UNREACHABLE = "unreachable"
+    AUTHENTICATION_FAILED = "authentication_failed"
+    IDENTITY_MISMATCH = "identity_mismatch"
+    PROTOCOL_UNSUPPORTED = "protocol_unsupported"

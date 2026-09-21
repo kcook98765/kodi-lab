@@ -2157,3 +2157,64 @@ internal managed target-class eligibility. No bridge, pairing, endpoint input,
 raw JSON-RPC, lifecycle, filesystem, production or registration authority is
 added to MCP. Modern HTTP, modern stdio and bounded legacy HTTP all enter the
 same adapter, authorization and replay services.
+
+## Phase 13 Slice 3 authenticated external screenshot bridge
+
+Migration `0045_external_bridge_pairing` keeps optional bridge trust separate
+from native target trust. It stores bridge lifecycle/reachability, observed and
+pinned identity, opaque secret references, endpoint revision and verified
+`screenshot` capability. Bounded request receipts and content-free semantic
+events are separate tables. Pairing, native verification and MCP grants are
+independent authorities; none implies another.
+
+The new `service.kodi_lab_bridge` is a narrow ordinary Kodi Python add-on. On
+first initialization it creates one persistent random instance UUID. Protocol
+1 owns one fixed POST endpoint and only identity, capability and in-memory
+screenshot operations plus the possession-proof pairing exchange. Its
+identity includes bridge UUID, protocol, add-on ID/version, Kodi version,
+closed capability and canonical build fingerprint. It exposes no generic
+JSON-RPC, caller path, filesystem, log, add-on administration, deployment,
+execution, restart, profile or lifecycle operation.
+
+Web creates a random 256-bit, target/purpose-bound token with a ten-minute TTL
+and returns it once. The operator enters it locally in the add-on. The bridge
+first requires the Lab request to prove possession, then proves its own
+possession; only then do both peers derive a long-lived secret from the token,
+target, bridge and fresh nonces; the visible token is then cleared. Lab stores
+only AES-GCM secret references and requires explicit administrator confirmation
+of observed identity before activation. Re-pairing rotates authority;
+revocation and target deactivation retire it. MCP has no bridge administration.
+
+Separate version-labelled HMAC-SHA-256 request and response subkeys cover
+canonical target/bridge identity, protocol, operation, request UUID, timestamp,
+nonce, status where applicable and payload digest. Sixty-second time freshness
+is combined with request/nonce uniqueness. The add-on durably caps replay
+identity at 256 for 24 hours and caches four exact responses for 120 seconds.
+Lab caps screenshot receipts at 256 per target and 4,096 globally for 24 hours,
+prunes only expired terminal rows and preserves pending/ambiguous identity.
+Pairing is serialized per target with two global slots; screenshot capture is
+serialized per target with four global slots.
+
+`screenshot_capture` keeps its target-only schema and now permits an external-
+development class. The adapter advertises `screenshot` only for an enabled,
+native-verified target whose configured maximum includes it and whose bridge is
+paired, reachable, identity-pinned, endpoint-current and capability-verified.
+Exact MCP permission, target grant and target preset remain mandatory.
+Unauthorized clients cannot distinguish pairing state. Native Slice 2 tools do
+not require a bridge. Deployment, execution and promotion stay internal-only.
+
+The add-on uses Kodi RenderCapture at the server-owned 1280x720 geometry and
+converts BGRA to an in-memory RGB PNG. It never writes or reads a remote path.
+The application authenticates response identity/status/digest before applying
+the existing strict PNG signature/chunk/checksum/encoding/geometry/decoded-size
+validator and 8 MiB maximum. External PNG bytes are not persisted. Audit holds
+only UUIDs, outcome, dimensions, size and digest. An exact request UUID/nonce
+retry returns the cached result or bounded replay/ambiguity and cannot perform
+a second capture.
+
+Bridge connection reuses the external IP-literal/address-class policy with a
+separate allowed port, fixed path, no redirects and no ambient proxies. HTTPS
+keeps normal certificate validation. HTTP HMAC prevents fabricated or modified
+semantic results but does not provide confidentiality, so PNG bytes are
+cleartext to LAN observers. Modern HTTP, modern stdio and bounded legacy HTTP
+continue through the same registry, authorization, adapter and tool result.

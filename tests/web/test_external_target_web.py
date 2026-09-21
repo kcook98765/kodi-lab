@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
@@ -9,6 +10,8 @@ from fastapi.testclient import TestClient
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
 from kodi_lab.application.mcp_administration import FULL_LAB_CONTROL_PRESET_ID
 from kodi_lab.kodi.external import ExternalKodiProbeResult
+from kodi_lab.mcp.registry import build_mcp_tool_registry
+from kodi_lab.storage.secrets import ExternalBridgeSecretStore
 
 from .conftest import INSTANCE_ID, ORIGIN, login
 
@@ -264,3 +267,104 @@ def test_mcp_cannot_list_or_use_registered_external_target(
     for name, arguments in attempts:
         result = _mcp_call(client, token, name, arguments)["result"]
         assert result["isError"] is True
+
+
+def test_bridge_pairing_administration_is_web_only_show_once_and_csrf_protected(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    payload = _registration()
+    payload["configured_capabilities"] = ["target_inspect", "screenshot"]
+    assert (
+        client.post(
+            f"/api/external-targets/{uuid4()}/bridge/pairing-token",
+            json={"confirmed": True, "bridge_port": 8765},
+        ).status_code
+        == 401
+    )
+    csrf = login(client)
+    created = client.post(
+        "/api/external-targets", json=payload, headers=_headers(csrf)
+    ).json()
+    target_id = created["target_id"]
+    app = cast(FastAPI, client.app)
+    app.state.kodi_lab.external_bridges._secrets = ExternalBridgeSecretStore(
+        tmp_path / "web-bridge-secrets", master_key=b"b" * 32, key_version=1
+    )
+    service = cast(
+        ExternalTargetAdministrationService, app.state.kodi_lab.external_targets
+    )
+    service._verifier = SuccessfulExternalVerifier()  # type: ignore[assignment]
+    observed = client.post(
+        f"/api/external-targets/{target_id}/probe",
+        json={},
+        headers=_headers(csrf),
+    ).json()
+    client.post(
+        f"/api/external-targets/{target_id}/confirm",
+        json={
+            "confirmed": True,
+            "observation_id": observed["pending_observation_id"],
+        },
+        headers=_headers(csrf),
+    )
+    client.post(
+        f"/api/external-targets/{target_id}/enabled",
+        json={"enabled": True},
+        headers=_headers(csrf),
+    )
+    url = f"/api/external-targets/{target_id}/bridge/pairing-token"
+    body = {"confirmed": True, "bridge_port": 8765}
+    assert client.post(url, json=body).status_code == 403
+    assert (
+        client.post(url, json=body, headers={"X-Kodi-Lab-CSRF": csrf}).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            url,
+            json={"confirmed": False, "bridge_port": 8765},
+            headers=_headers(csrf),
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            url,
+            json={**body, "secret": "caller-owned"},
+            headers=_headers(csrf),
+        ).status_code
+        == 422
+    )
+    generated = client.post(url, json=body, headers=_headers(csrf))
+    assert generated.status_code == 201
+    token = generated.json()["token"]
+    assert len(token) == 43
+    status = client.get(f"/api/external-targets/{target_id}/bridge").json()
+    assert status["pairing_token_pending"] is True
+    assert "token" not in status
+    page = client.get("/external-targets")
+    assert page.status_code == 200
+    assert token not in page.text
+
+    revoke = f"/api/external-targets/{target_id}/bridge/revoke"
+    assert (
+        client.post(
+            revoke, json={"confirmed": False}, headers=_headers(csrf)
+        ).status_code
+        == 422
+    )
+    assert client.post(revoke, json={"confirmed": True}).status_code == 403
+    revoked = client.post(revoke, json={"confirmed": True}, headers=_headers(csrf))
+    assert revoked.status_code == 200
+    assert revoked.json()["pairing_state"] == "revoked"
+
+    names = set(build_mcp_tool_registry().names())
+    assert not names.intersection(
+        {
+            "bridge_pair",
+            "bridge_pairing_token",
+            "bridge_revoke",
+            "bridge_set_endpoint",
+        }
+    )

@@ -78,6 +78,8 @@ from kodi_lab.domain import (
     DevelopmentSourceSmokeTestPostProvenance,
     ExternalAdministrativeState,
     ExternalAuthenticationMode,
+    ExternalBridgePairingState,
+    ExternalBridgeReachabilityState,
     ExternalObservationState,
     ExternalProtocolKind,
     ExternalVerificationState,
@@ -1320,6 +1322,259 @@ class ExternalKodiTargetEventRow(Base):
     event_kind: Mapped[str] = mapped_column(String(64), nullable=False)
     classification: Mapped[str | None] = mapped_column(String(64))
     observation_id: Mapped[str | None] = mapped_column(String(36))
+    occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ExternalBridgePairingRow(Base):
+    """Pinned optional bridge identity and protected-secret references."""
+
+    __tablename__ = "external_bridge_pairings"
+    __table_args__ = (
+        CheckConstraint(
+            "bridge_port IS NULL OR bridge_port BETWEEN 1 AND 65535",
+            name="external_bridge_port_valid",
+        ),
+        CheckConstraint(
+            "pairing_token_reference IS NULL OR length(pairing_token_reference)=36",
+            name="external_bridge_pairing_token_reference_shape",
+        ),
+        CheckConstraint(
+            "bridge_secret_reference IS NULL OR length(bridge_secret_reference)=36",
+            name="external_bridge_secret_reference_shape",
+        ),
+        CheckConstraint(
+            "pairing_token_expires_at IS NULL OR length(pairing_token_expires_at)=27",
+            name="external_bridge_token_expiry_shape",
+        ),
+        CheckConstraint(
+            "length(observed_capabilities_json) BETWEEN 2 AND 256 AND "
+            "length(verified_capabilities_json) BETWEEN 2 AND 256",
+            name="external_bridge_capabilities_bounded",
+        ),
+        CheckConstraint(
+            "observed_capabilities_json IN ('[]','[\"screenshot\"]') AND "
+            "verified_capabilities_json IN ('[]','[\"screenshot\"]')",
+            name="external_bridge_capabilities_closed",
+        ),
+        CheckConstraint(
+            "(pairing_token_reference IS NULL) = (pairing_token_expires_at IS NULL)",
+            name="external_bridge_pairing_token_complete",
+        ),
+        CheckConstraint(
+            "pairing_token_reference IS NULL OR pairing_state='unpaired'",
+            name="external_bridge_token_only_unpaired",
+        ),
+        CheckConstraint(
+            "pairing_state<>'revoked' OR "
+            "(pairing_token_reference IS NULL AND "
+            "bridge_secret_reference IS NULL AND "
+            "verified_capabilities_json='[]')",
+            name="external_bridge_revocation_retires_authority",
+        ),
+        CheckConstraint(
+            "observed_build_fingerprint IS NULL OR "
+            "(length(observed_build_fingerprint)=64 AND "
+            "observed_build_fingerprint NOT GLOB '*[^0-9a-f]*')",
+            name="external_bridge_observed_fingerprint_sha256",
+        ),
+        CheckConstraint(
+            "pinned_build_fingerprint IS NULL OR "
+            "(length(pinned_build_fingerprint)=64 AND "
+            "pinned_build_fingerprint NOT GLOB '*[^0-9a-f]*')",
+            name="external_bridge_pinned_fingerprint_sha256",
+        ),
+        CheckConstraint(
+            "endpoint_revision_digest IS NULL OR "
+            "(length(endpoint_revision_digest)=64 AND "
+            "endpoint_revision_digest NOT GLOB '*[^0-9a-f]*')",
+            name="external_bridge_endpoint_revision_sha256",
+        ),
+        CheckConstraint(
+            "(pairing_state='pairing_pending' AND "
+            "bridge_secret_reference IS NOT NULL AND "
+            "observed_bridge_id IS NOT NULL) OR "
+            "pairing_state<>'pairing_pending'",
+            name="external_bridge_pending_complete",
+        ),
+        CheckConstraint(
+            "(pairing_state IN ('paired','needs_reverification') AND "
+            "bridge_secret_reference IS NOT NULL AND "
+            "pinned_bridge_id IS NOT NULL) OR "
+            "pairing_state NOT IN ('paired','needs_reverification')",
+            name="external_bridge_active_identity_complete",
+        ),
+        Index(
+            "ix_external_bridge_pairing_state",
+            "pairing_state",
+            "reachability_state",
+        ),
+    )
+
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_kodi_targets.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    bridge_port: Mapped[int | None] = mapped_column(Integer)
+    pairing_state: Mapped[ExternalBridgePairingState] = mapped_column(
+        Enum(
+            ExternalBridgePairingState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="external_bridge_pairing_state",
+        ),
+        nullable=False,
+    )
+    reachability_state: Mapped[ExternalBridgeReachabilityState] = mapped_column(
+        Enum(
+            ExternalBridgeReachabilityState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="external_bridge_reachability_state",
+        ),
+        nullable=False,
+    )
+    pairing_token_reference: Mapped[str | None] = mapped_column(String(36))
+    bridge_secret_reference: Mapped[str | None] = mapped_column(String(36))
+    pairing_token_expires_at: Mapped[str | None] = mapped_column(String(27))
+    observed_bridge_id: Mapped[str | None] = mapped_column(String(36))
+    observed_protocol_version: Mapped[str | None] = mapped_column(String(16))
+    observed_addon_id: Mapped[str | None] = mapped_column(String(128))
+    observed_addon_version: Mapped[str | None] = mapped_column(String(64))
+    observed_kodi_version: Mapped[str | None] = mapped_column(String(64))
+    observed_build_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    observed_capabilities_json: Mapped[str] = mapped_column(String(256), nullable=False)
+    pinned_bridge_id: Mapped[str | None] = mapped_column(String(36))
+    pinned_protocol_version: Mapped[str | None] = mapped_column(String(16))
+    pinned_addon_id: Mapped[str | None] = mapped_column(String(128))
+    pinned_addon_version: Mapped[str | None] = mapped_column(String(64))
+    pinned_kodi_version: Mapped[str | None] = mapped_column(String(64))
+    pinned_build_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    verified_capabilities_json: Mapped[str] = mapped_column(String(256), nullable=False)
+    endpoint_revision_digest: Mapped[str | None] = mapped_column(String(64))
+    token_generated_at: Mapped[str | None] = mapped_column(String(27))
+    pairing_attempted_at: Mapped[str | None] = mapped_column(String(27))
+    paired_at: Mapped[str | None] = mapped_column(String(27))
+    verified_at: Mapped[str | None] = mapped_column(String(27))
+    revoked_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class ExternalBridgeRequestReceiptRow(Base):
+    """Bounded durable identity for one authenticated bridge request."""
+
+    __tablename__ = "external_bridge_request_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "operation IN "
+            "('bridge_identity','bridge_capabilities','capture_screenshot')",
+            name="external_bridge_receipt_operation_closed",
+        ),
+        CheckConstraint(
+            "state IN ('pending','completed','ambiguous','rejected')",
+            name="external_bridge_receipt_state_closed",
+        ),
+        CheckConstraint("length(nonce)=43", name="external_bridge_nonce_shape"),
+        CheckConstraint(
+            "response_digest IS NULL OR "
+            "(length(response_digest)=64 AND "
+            "response_digest NOT GLOB '*[^0-9a-f]*')",
+            name="external_bridge_response_digest_sha256",
+        ),
+        CheckConstraint(
+            "byte_size IS NULL OR byte_size BETWEEN 1 AND 8388608",
+            name="external_bridge_receipt_size_bounded",
+        ),
+        CheckConstraint(
+            "(width IS NULL AND height IS NULL) OR "
+            "(width BETWEEN 1 AND 4096 AND height BETWEEN 1 AND 2160)",
+            name="external_bridge_receipt_dimensions_bounded",
+        ),
+        CheckConstraint(
+            "length(created_at)=27 AND length(expires_at)=27 AND "
+            "(completed_at IS NULL OR length(completed_at)=27)",
+            name="external_bridge_receipt_timestamps_format",
+        ),
+        CheckConstraint(
+            "(state='pending' AND completed_at IS NULL AND "
+            "response_digest IS NULL AND byte_size IS NULL AND "
+            "width IS NULL AND height IS NULL) OR "
+            "(state='completed' AND completed_at IS NOT NULL AND "
+            "response_digest IS NOT NULL AND byte_size IS NOT NULL AND "
+            "width IS NOT NULL AND height IS NOT NULL) OR "
+            "(state IN ('ambiguous','rejected') AND completed_at IS NOT NULL)",
+            name="external_bridge_receipt_terminal_coherent",
+        ),
+        UniqueConstraint("target_id", "nonce", name="uq_external_bridge_nonce"),
+        Index(
+            "ix_external_bridge_receipt_expiry",
+            "expires_at",
+            "target_id",
+            "request_id",
+        ),
+    )
+
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_bridge_pairings.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    nonce: Mapped[str] = mapped_column(String(43), nullable=False)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    response_digest: Mapped[str | None] = mapped_column(String(64))
+    byte_size: Mapped[int | None] = mapped_column(Integer)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(27))
+    expires_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ExternalBridgeEventRow(Base):
+    """Content-free semantic bridge administration and capture audit."""
+
+    __tablename__ = "external_bridge_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_kind IN ('pairing_token_generated','pairing_attempted',"
+            "'bridge_paired','pairing_failed','bridge_revoked',"
+            "'bridge_reverified','bridge_reverification_required',"
+            "'screenshot_requested','screenshot_completed','screenshot_failed')",
+            name="external_bridge_event_kind_closed",
+        ),
+        CheckConstraint(
+            "classification IS NULL OR length(classification) BETWEEN 1 AND 64",
+            name="external_bridge_event_classification_bounded",
+        ),
+        CheckConstraint(
+            "content_digest IS NULL OR "
+            "(length(content_digest)=64 AND "
+            "content_digest NOT GLOB '*[^0-9a-f]*')",
+            name="external_bridge_event_digest_sha256",
+        ),
+        CheckConstraint(
+            "length(occurred_at)=27", name="external_bridge_event_timestamp_format"
+        ),
+        Index("ix_external_bridge_event_time", "target_id", "occurred_at", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_bridge_pairings.target_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    bridge_id: Mapped[str | None] = mapped_column(String(36))
+    request_id: Mapped[str | None] = mapped_column(String(36))
+    event_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    classification: Mapped[str | None] = mapped_column(String(64))
+    byte_size: Mapped[int | None] = mapped_column(Integer)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    content_digest: Mapped[str | None] = mapped_column(String(64))
     occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 

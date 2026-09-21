@@ -955,36 +955,68 @@ class McpTargetToolService:
         )
 
     def _screenshot_capture_authorized(self, target_id: UUID) -> ScreenshotToolResult:
-        try:
-            result = self._screenshots.capture_image(target_id)
-        except ManagedInstanceNotFoundError as error:
-            raise McpAuthorizationError("target_not_found_or_not_authorized") from error
-        except ScreenshotServiceError as error:
-            raise McpAuthorizationError(self._screenshot_error(error.code)) from error
-        status = result.capture.screenshot
+        capture_id: UUID
+        captured_at: datetime | None
+        width: int | None
+        height: int | None
+        mime_type: str | None
+        png: bytes
+        byte_size: int | None
+        if self._target_adapters is not None:
+            try:
+                adapted = self._target_adapters.capture_screenshot(target_id)
+            except KodiTargetAdapterError as error:
+                raise McpAuthorizationError(
+                    self._screenshot_error(error.code)
+                ) from error
+            capture_id = adapted.capture_id
+            captured_at = adapted.captured_at
+            width = adapted.width
+            height = adapted.height
+            mime_type = adapted.mime_type
+            png = adapted.png
+            byte_size = adapted.byte_size
+        else:
+            try:
+                result = self._screenshots.capture_image(target_id)
+            except ManagedInstanceNotFoundError as error:
+                raise McpAuthorizationError(
+                    "target_not_found_or_not_authorized"
+                ) from error
+            except ScreenshotServiceError as error:
+                raise McpAuthorizationError(
+                    self._screenshot_error(error.code)
+                ) from error
+            status = result.capture.screenshot
+            capture_id = result.capture.capture_id
+            captured_at = status.captured_at
+            width = status.width
+            height = status.height
+            mime_type = status.mime_type
+            png = result.png
+            byte_size = status.byte_size
         if (
-            status.capture_id != result.capture.capture_id
-            or status.captured_at is None
-            or status.width is None
-            or status.height is None
-            or status.mime_type != PNG_MIME_TYPE
-            or status.byte_size != len(result.png)
-            or not result.png.startswith(PNG_SIGNATURE)
+            captured_at is None
+            or width is None
+            or height is None
+            or mime_type != PNG_MIME_TYPE
+            or byte_size != len(png)
+            or not png.startswith(PNG_SIGNATURE)
         ):
             raise McpAuthorizationError("screenshot_capture_unavailable")
-        if len(result.png) > MAX_PNG_BYTES:
+        if len(png) > MAX_PNG_BYTES:
             raise McpAuthorizationError("response_too_large")
         metadata = ScreenshotCaptureMetadata(
             target_id=target_id,
-            capture_id=result.capture.capture_id,
-            captured_at=status.captured_at,
-            width=status.width,
-            height=status.height,
+            capture_id=capture_id,
+            captured_at=captured_at,
+            width=width,
+            height=height,
             mime_type=PNG_MIME_TYPE,
-            byte_size=len(result.png),
+            byte_size=len(png),
         )
         self._require_bounded(metadata)
-        return ScreenshotToolResult(metadata=metadata, png=result.png)
+        return ScreenshotToolResult(metadata=metadata, png=png)
 
     def target_list(
         self,
@@ -1402,6 +1434,15 @@ class McpTargetToolService:
     def _screenshot_error(code: str) -> str:
         return {
             "screenshot_unsupported": "capability_unavailable",
+            "bridge_not_paired": "capability_unavailable",
+            "bridge_capability_unavailable": "capability_unavailable",
+            "bridge_unreachable": "screenshot_capture_unavailable",
+            "bridge_authentication_failed": "screenshot_capture_unavailable",
+            "bridge_identity_mismatch": "screenshot_capture_unavailable",
+            "bridge_protocol_unsupported": "screenshot_capture_unavailable",
+            "bridge_replay_rejected": "screenshot_capture_unavailable",
+            "screenshot_invalid": "screenshot_invalid_result",
+            "screenshot_too_large": "response_too_large",
             "visual_instance_not_running": "target_not_running",
             "visual_kodi_not_ready": "target_not_ready",
         }.get(

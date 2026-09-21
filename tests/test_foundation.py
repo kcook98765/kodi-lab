@@ -19,6 +19,8 @@ def _isolate_settings_environment(
     monkeypatch.delenv("KODI_LAB_WEB_PORT", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_COOKIE_SECURE", raising=False)
     monkeypatch.delenv("KODI_LAB_TRUSTED_CUSTOM_BUILDS_ENABLED", raising=False)
+    monkeypatch.delenv("KODI_LAB_EXTERNAL_TARGET_ALLOWED_PORTS", raising=False)
+    monkeypatch.delenv("KODI_LAB_EXTERNAL_BRIDGE_ALLOWED_PORTS", raising=False)
 
 
 def test_package_exposes_version() -> None:
@@ -39,6 +41,22 @@ def test_configuration_uses_documented_roots(
     assert settings.web_port == 8100
     assert settings.web_cookie_secure is False
     assert settings.trusted_custom_builds_enabled is False
+    assert settings.external_target_allowed_ports == (8080,)
+    assert settings.external_bridge_allowed_ports == (8765,)
+
+
+def test_external_bridge_ports_are_separate_normalized_server_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_settings_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("KODI_LAB_EXTERNAL_BRIDGE_ALLOWED_PORTS", "[8766,8765,8766]")
+    settings = Settings()
+    assert settings.external_bridge_allowed_ports == (8765, 8766)
+    assert settings.external_target_allowed_ports == (8080,)
+
+    monkeypatch.setenv("KODI_LAB_EXTERNAL_BRIDGE_ALLOWED_PORTS", "[]")
+    with pytest.raises(ValidationError):
+        Settings()
 
 
 def test_trusted_custom_builds_require_explicit_deployment_opt_in(
@@ -158,6 +176,9 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "external_kodi_target_events",
         "external_kodi_target_observations",
         "external_kodi_targets",
+        "external_bridge_events",
+        "external_bridge_pairings",
+        "external_bridge_request_receipts",
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_screenshots",

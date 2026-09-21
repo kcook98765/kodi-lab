@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     external_target_master_key: SecretStr | None = None
     external_target_master_key_version: int = Field(default=1, ge=1, le=2_147_483_647)
     external_target_allowed_ports: tuple[int, ...] = (8080,)
+    external_bridge_allowed_ports: tuple[int, ...] = (8765,)
     external_target_ipv6_ula_networks: tuple[str, ...] = ()
     external_target_test_loopback_enabled: bool = False
 
@@ -53,7 +54,7 @@ class Settings(BaseSettings):
             raise ValueError("Phase 4 Web port must be 8100 or 8180")
         return value
 
-    @field_validator("external_target_allowed_ports")
+    @field_validator("external_target_allowed_ports", "external_bridge_allowed_ports")
     @classmethod
     def _approved_external_target_ports(cls, value: tuple[int, ...]) -> tuple[int, ...]:
         normalized = tuple(sorted(set(value)))

@@ -190,6 +190,12 @@ from kodi_lab.application.errors import (
     PersistentDevelopmentSourceAttachmentUnsupportedError,
     TargetNotFoundError,
 )
+from kodi_lab.application.external_bridges import (
+    ExternalBridgeService,
+    ExternalBridgeServiceError,
+    ExternalBridgeStatus,
+    PairingTokenResult,
+)
 from kodi_lab.application.external_targets import (
     ExternalTargetAdministrationService,
     ExternalTargetError,
@@ -380,6 +386,7 @@ from kodi_lab.domain import (
     SnapshotState,
     normalize_development_source_logical_name,
 )
+from kodi_lab.kodi.bridge import ExternalBridgeClient
 from kodi_lab.kodi.external import ExternalEndpointPolicy
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
@@ -391,7 +398,11 @@ from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
-from kodi_lab.storage.secrets import ExternalCredentialStore, decode_master_key
+from kodi_lab.storage.secrets import (
+    ExternalBridgeSecretStore,
+    ExternalCredentialStore,
+    decode_master_key,
+)
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
 _WEB_ROOT = Path(__file__).parent
@@ -771,6 +782,19 @@ class ExternalTargetEnabledRequest(BaseModel):
     enabled: StrictBool
 
 
+class ExternalBridgePairingTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    bridge_port: int = Field(ge=1, le=65_535)
+
+
+class ExternalBridgeConfirmedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
@@ -842,6 +866,7 @@ class WebApplicationContext:
     browser_remote_rate_limiter: BrowserRemoteRateLimiter
     live_display: ManagedLiveDisplayService
     external_targets: ExternalTargetAdministrationService
+    external_bridges: ExternalBridgeService
     mcp_administration: McpAdministrationService
     mcp_transport: McpHttpTransport
 
@@ -900,6 +925,7 @@ def create_app(
     browser_remote_adapter_factory: RemoteAdapterFactory | None = None,
     managed_live_display_service: ManagedLiveDisplayService | None = None,
     external_target_service: ExternalTargetAdministrationService | None = None,
+    external_bridge_service: ExternalBridgeService | None = None,
     external_target_transport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
@@ -1005,6 +1031,26 @@ def create_app(
         ),
         key_version=settings.external_target_master_key_version,
     )
+    external_bridge_endpoint_policy = ExternalEndpointPolicy(
+        allowed_ports=settings.external_bridge_allowed_ports,
+        ipv6_ula_networks=settings.external_target_ipv6_ula_networks,
+        test_loopback_enabled=settings.external_target_test_loopback_enabled,
+    )
+    external_bridge_secret_store = ExternalBridgeSecretStore(
+        settings.data_root / "secrets" / "external-bridges",
+        master_key=decode_master_key(
+            None
+            if settings.external_target_master_key is None
+            else settings.external_target_master_key.get_secret_value()
+        ),
+        key_version=settings.external_target_master_key_version,
+    )
+    external_bridges = external_bridge_service or ExternalBridgeService(
+        session_factory,
+        endpoint_policy=external_bridge_endpoint_policy,
+        secret_store=external_bridge_secret_store,
+        client=ExternalBridgeClient(transport=external_target_transport),
+    )
     external_targets = external_target_service or ExternalTargetAdministrationService(
         session_factory,
         endpoint_policy=external_endpoint_policy,
@@ -1022,7 +1068,9 @@ def create_app(
         managed_status=status_service,
         managed_inventory=addon_inventory,
         managed_remote=browser_remote,
+        managed_screenshots=screenshots,
         managed_authority=managed_target_authority,
+        external_bridges=external_bridges,
         endpoint_policy=external_endpoint_policy,
         credential_store=external_credential_store,
         external_transport=external_target_transport,
@@ -1454,6 +1502,7 @@ def create_app(
         browser_remote_rate_limiter=remote_rate_limiter,
         live_display=live_display,
         external_targets=external_targets,
+        external_bridges=external_bridges,
         mcp_administration=mcp_administration,
         mcp_transport=mcp_transport,
     )
@@ -2087,6 +2136,25 @@ def create_app(
         }.get(error.code, 409)
         return _json_error(status_code, error.code, "External target request rejected.")
 
+    @app.exception_handler(ExternalBridgeServiceError)
+    async def external_bridge_failure(
+        _request: Request, error: ExternalBridgeServiceError
+    ) -> JSONResponse:
+        status_code = {
+            "target_not_found": 404,
+            "bridge_not_paired": 409,
+            "bridge_unreachable": 503,
+            "bridge_authentication_failed": 502,
+            "bridge_identity_mismatch": 409,
+            "bridge_protocol_unsupported": 409,
+            "bridge_capability_unavailable": 409,
+            "bridge_replay_rejected": 409,
+            "screenshot_invalid": 502,
+            "screenshot_too_large": 502,
+            "needs_reverification": 409,
+        }.get(error.code, 409)
+        return _json_error(status_code, error.code, "External bridge request rejected.")
+
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request) -> Response:
         token = request.cookies.get(settings.web_session_cookie_name)
@@ -2210,13 +2278,19 @@ def create_app(
         request: Request,
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
+        targets = context.external_targets.list_targets()
         return templates.TemplateResponse(
             request,
             "external-targets.html",
             {
                 "csrf_token": authenticated.csrf_token,
-                "targets": context.external_targets.list_targets(),
+                "targets": targets,
+                "bridge_statuses": {
+                    target.target_id: context.external_bridges.status(target.target_id)
+                    for target in targets
+                },
                 "allowed_ports": settings.external_target_allowed_ports,
+                "bridge_allowed_ports": settings.external_bridge_allowed_ports,
                 "test_loopback_enabled": (
                     settings.external_target_test_loopback_enabled
                 ),
@@ -2951,12 +3025,18 @@ def create_app(
         payload: ExternalTargetEndpointRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
-        return context.external_targets.edit_endpoint(
+        result = context.external_targets.edit_endpoint(
             target_id,
             protocol_kind=payload.protocol_kind,
             host=payload.host,
             port=payload.port,
         )
+        try:
+            context.external_bridges.mark_needs_reverification(target_id)
+        except ExternalBridgeServiceError as error:
+            if error.code != "bridge_not_paired":
+                raise
+        return result
 
     @app.post(
         "/api/external-targets/{target_id}/credentials",
@@ -2967,12 +3047,18 @@ def create_app(
         payload: ExternalTargetCredentialRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
-        return context.external_targets.rotate_credentials(
+        result = context.external_targets.rotate_credentials(
             target_id,
             authentication_mode=payload.authentication_mode,
             username=payload.username,
             password=payload.password,
         )
+        try:
+            context.external_bridges.mark_needs_reverification(target_id)
+        except ExternalBridgeServiceError as error:
+            if error.code != "bridge_not_paired":
+                raise
+        return result
 
     @app.post(
         "/api/external-targets/{target_id}/probe",
@@ -2994,7 +3080,13 @@ def create_app(
         payload: ExternalTargetConfirmationRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
-        return context.external_targets.confirm(target_id, payload.observation_id)
+        result = context.external_targets.confirm(target_id, payload.observation_id)
+        try:
+            context.external_bridges.mark_needs_reverification(target_id)
+        except ExternalBridgeServiceError as error:
+            if error.code != "bridge_not_paired":
+                raise
+        return result
 
     @app.post(
         "/api/external-targets/{target_id}/enabled",
@@ -3016,7 +3108,91 @@ def create_app(
         _payload: AgentWorkspacePromotionConfirmationRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
+        try:
+            context.external_bridges.revoke(target_id)
+        except ExternalBridgeServiceError as error:
+            if error.code != "bridge_not_paired":
+                raise
         return context.external_targets.deactivate(target_id)
+
+    @app.get(
+        "/api/external-targets/{target_id}/bridge",
+        response_model=ExternalBridgeStatus,
+    )
+    def get_external_bridge_status(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.status(target_id)
+
+    @app.post(
+        "/api/external-targets/{target_id}/bridge/pairing-token",
+        response_model=PairingTokenResult,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def generate_external_bridge_pairing_token(
+        target_id: UUID,
+        payload: ExternalBridgePairingTokenRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> PairingTokenResult:
+        return context.external_bridges.generate_pairing_token(
+            target_id, bridge_port=payload.bridge_port
+        )
+
+    @app.post(
+        "/api/external-targets/{target_id}/bridge/pair",
+        response_model=ExternalBridgeStatus,
+    )
+    def pair_external_bridge(
+        target_id: UUID,
+        _payload: ExternalBridgeConfirmedRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.attempt_pairing(target_id)
+
+    @app.post(
+        "/api/external-targets/{target_id}/bridge/confirm",
+        response_model=ExternalBridgeStatus,
+    )
+    def confirm_external_bridge(
+        target_id: UUID,
+        _payload: ExternalBridgeConfirmedRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.confirm_pairing(target_id)
+
+    @app.post(
+        "/api/external-targets/{target_id}/bridge/reverify",
+        response_model=ExternalBridgeStatus,
+    )
+    def reverify_external_bridge(
+        target_id: UUID,
+        _payload: ExternalBridgeConfirmedRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.reverify(target_id)
+
+    @app.post(
+        "/api/external-targets/{target_id}/bridge/needs-reverification",
+        response_model=ExternalBridgeStatus,
+    )
+    def mark_external_bridge_needs_reverification(
+        target_id: UUID,
+        _payload: ExternalBridgeConfirmedRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.mark_needs_reverification(target_id)
+
+    @app.post(
+        "/api/external-targets/{target_id}/bridge/revoke",
+        response_model=ExternalBridgeStatus,
+    )
+    def revoke_external_bridge(
+        target_id: UUID,
+        _payload: ExternalBridgeConfirmedRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.revoke(target_id)
 
     @app.get("/api/runtime-matrix", response_model=RuntimeMatrixResponse)
     def runtime_matrix(

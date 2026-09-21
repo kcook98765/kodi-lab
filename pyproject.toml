@@ -59,6 +59,7 @@ artifacts = [
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
+pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
   "slow: materially expensive lifecycle or end-to-end validation retained by the full gate",

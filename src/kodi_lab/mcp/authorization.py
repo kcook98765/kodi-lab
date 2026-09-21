@@ -101,6 +101,7 @@ class InternalManagedTargetAuthorityProvider:
                 UUID(instance.runtime_revision_id)
             ):
                 capabilities.add("managed_screenshot")
+                capabilities.add("screenshot")
             if (
                 instance is not None
                 and UUID(instance.runtime_revision_id) in REMOTE_RUNTIME_REVISION_IDS

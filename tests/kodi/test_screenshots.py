@@ -1,4 +1,6 @@
+import binascii
 import struct
+import zlib
 from pathlib import Path
 from uuid import uuid4
 
@@ -233,6 +235,29 @@ def test_png_rejects_wrong_signature_truncation_trailing_and_oversize() -> None:
     for candidate in candidates:
         with pytest.raises(ScreenshotArtifactError):
             validate_png(candidate)
+
+
+def test_png_decompression_is_bounded_to_declared_fixed_geometry() -> None:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", EXPECTED_WIDTH, EXPECTED_HEIGHT, 8, 2, 0, 0, 0)
+    declared = (b"\x00" + b"\x00\x00\x00" * EXPECTED_WIDTH) * EXPECTED_HEIGHT
+    bomb = b"".join(
+        (
+            PNG_SIGNATURE,
+            chunk(b"IHDR", header),
+            chunk(b"IDAT", zlib.compress(declared + (b"x" * 1024))),
+            chunk(b"IEND", b""),
+        )
+    )
+    with pytest.raises(ScreenshotArtifactError, match="decoded size"):
+        validate_png(bomb)
 
 
 def test_private_cache_round_trip_disappearance_and_instance_cleanup(

@@ -31,7 +31,15 @@ from kodi_lab.application.browser_remote import (
     RemoteActorContext,
     ScreenshotRefreshResult,
 )
+from kodi_lab.application.external_bridges import (
+    ExternalBridgeService,
+    ExternalBridgeServiceError,
+)
 from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
+from kodi_lab.application.screenshots import (
+    ManagedScreenshotService,
+    ScreenshotServiceError,
+)
 from kodi_lab.domain import (
     EXTERNAL_CAPABILITY_VALUES,
     ExternalAdministrativeState,
@@ -94,6 +102,18 @@ class KodiTargetSummaryData:
 
 
 @dataclass(frozen=True, slots=True)
+class KodiTargetScreenshotData:
+    target_id: UUID
+    capture_id: UUID
+    captured_at: datetime
+    width: int
+    height: int
+    mime_type: str
+    byte_size: int
+    png: bytes
+
+
+@dataclass(frozen=True, slots=True)
 class _ExternalSnapshot:
     target_id: UUID
     logical_name: str
@@ -152,6 +172,8 @@ class KodiTargetAdapterService:
         managed_authority: _ManagedAuthority,
         endpoint_policy: ExternalEndpointPolicy,
         credential_store: ExternalCredentialStore,
+        managed_screenshots: ManagedScreenshotService | None = None,
+        external_bridges: ExternalBridgeService | None = None,
         external_transport: httpx.BaseTransport | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -159,7 +181,9 @@ class KodiTargetAdapterService:
         self._managed_status = managed_status
         self._managed_inventory = managed_inventory
         self._managed_remote = managed_remote
+        self._managed_screenshots = managed_screenshots
         self._managed_authority = managed_authority
+        self._external_bridges = external_bridges
         self._endpoint_policy = endpoint_policy
         self._credential_store = credential_store
         self._external_transport = external_transport
@@ -171,12 +195,21 @@ class KodiTargetAdapterService:
         if target_type is TargetType.MANAGED:
             return self._managed_authority.resolve(target_id)
         snapshot = self._external_snapshot(target_id, load_secret=False)
+        capabilities = set(snapshot.capabilities)
+        if (
+            self._external_bridges is not None
+            and "screenshot" in capabilities
+            and self._external_bridges.screenshot_available(target_id)
+        ):
+            capabilities.add("screenshot")
+        else:
+            capabilities.discard("screenshot")
         states = {"reconciled"}
-        if snapshot.capabilities:
+        if capabilities:
             states.update({"running", "ready"})
         return TargetTechnicalAuthority(
             target_class=TargetClass.EXTERNAL_DEVELOPMENT,
-            capabilities=snapshot.capabilities,
+            capabilities=frozenset(capabilities),
             current_states=frozenset(states),
         )
 
@@ -354,6 +387,54 @@ class KodiTargetAdapterService:
             screenshot_refresh=ScreenshotRefreshResult(result="not_requested"),
         )
 
+    def capture_screenshot(self, target_id: UUID) -> KodiTargetScreenshotData:
+        if self._target_type(target_id) is TargetType.MANAGED:
+            managed_screenshots = self._managed_screenshots
+            if managed_screenshots is None:
+                raise KodiTargetAdapterError("screenshot_unsupported")
+            try:
+                result = managed_screenshots.capture_image(target_id)
+            except ScreenshotServiceError as error:
+                raise KodiTargetAdapterError(error.code) from error
+            status = result.capture.screenshot
+            if (
+                status.capture_id != result.capture.capture_id
+                or status.captured_at is None
+                or status.width is None
+                or status.height is None
+                or status.mime_type is None
+                or status.byte_size is None
+                or status.byte_size != len(result.png)
+            ):
+                raise KodiTargetAdapterError("screenshot_invalid")
+            return KodiTargetScreenshotData(
+                target_id=target_id,
+                capture_id=result.capture.capture_id,
+                captured_at=status.captured_at,
+                width=status.width,
+                height=status.height,
+                mime_type=status.mime_type,
+                byte_size=status.byte_size,
+                png=result.png,
+            )
+        external_bridges = self._external_bridges
+        if external_bridges is None:
+            raise KodiTargetAdapterError("bridge_not_paired")
+        try:
+            external_result = external_bridges.capture_screenshot(target_id)
+        except ExternalBridgeServiceError as error:
+            raise KodiTargetAdapterError(error.code) from error
+        return KodiTargetScreenshotData(
+            target_id=target_id,
+            capture_id=external_result.capture_id,
+            captured_at=external_result.captured_at,
+            width=external_result.width,
+            height=external_result.height,
+            mime_type="image/png",
+            byte_size=external_result.byte_size,
+            png=external_result.png,
+        )
+
     @staticmethod
     def _before_dispatch(callback: Callable[[], None] | None) -> None:
         if callback is None:
@@ -411,7 +492,13 @@ class KodiTargetAdapterService:
             verified = self._closed_json_strings(
                 row.verified_capabilities_json, allowed=EXTERNAL_CAPABILITY_VALUES
             )
-            capabilities = configured.intersection(verified)
+            capabilities = set(configured.intersection(verified))
+            if (
+                self._external_bridges is not None
+                and "screenshot" in configured
+                and self._external_bridges.screenshot_available(target_id)
+            ):
+                capabilities.add("screenshot")
             if required_capability not in capabilities:
                 raise KodiTargetAdapterError("capability_unavailable")
             addresses = tuple(self._closed_json_strings(row.verified_addresses_json))
@@ -450,7 +537,7 @@ class KodiTargetAdapterService:
             credential=credential,
             kodi_name=kodi_name,
             kodi_version=kodi_version,
-            capabilities=capabilities,
+            capabilities=frozenset(capabilities),
         )
 
     @staticmethod
@@ -499,13 +586,18 @@ class KodiTargetAdapterService:
         if name != snapshot.kodi_name or version != snapshot.kodi_version:
             raise KodiTargetAdapterError("identity_mismatch")
 
-    @staticmethod
-    def _external_summary(snapshot: _ExternalSnapshot) -> KodiTargetSummaryData:
+    def _external_summary(self, snapshot: _ExternalSnapshot) -> KodiTargetSummaryData:
         tools = ["target_status"]
         if "addon_inventory" in snapshot.capabilities:
             tools.append("addon_list")
         if "semantic_remote" in snapshot.capabilities:
             tools.append("remote_action")
+        if (
+            self._external_bridges is not None
+            and "screenshot" in snapshot.capabilities
+            and self._external_bridges.screenshot_available(snapshot.target_id)
+        ):
+            tools.append("screenshot_capture")
         return KodiTargetSummaryData(
             target_id=snapshot.target_id,
             display_name=snapshot.logical_name,

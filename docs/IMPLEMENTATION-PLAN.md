@@ -1417,6 +1417,45 @@ The production catalog remains exactly fifteen tools. Read-only Inspection can
 use external discovery/status/inventory when independently granted and allowed;
 its permission still excludes control. Add-on Development and Full Lab Control
 can use the four tools only within the same intersection. Screenshot,
-workspace deploy/execute and promotion remain internal-only. Bridge pairing,
-external screenshot/deployment/execution, LAN-development proof and formal
-closeout remain future work.
+workspace deploy/execute and promotion were internal-only at this checkpoint;
+bridge pairing, external screenshot/deployment/execution, LAN-development proof
+and formal closeout were future Slice 2 work.
+
+## Phase 13 Slice 3 checkpoint
+
+**Slice 3: COMPLETE. Phase 13: PARTIAL.** Migration
+`0045_external_bridge_pairing` adds separate bridge pairing/reachability state,
+pinned identity, protected secret references, bounded durable screenshot
+receipts and content-free audit events. Destructive downgrade refuses populated
+bridge state. The narrow Kodi Python add-on has protocol 1 and exactly identity,
+capability and in-memory screenshot semantics plus the pairing bootstrap.
+The checkpoint collects 2,145 tests and keeps the MCP catalog at fifteen.
+
+Pairing is authenticated-Web-only: a random target-bound token is shown once,
+entered locally, mutually proved by HMAC and retired after derivation of a
+distinct long-lived secret. An unauthenticated remote request cannot enroll the
+bridge or consume the token. An administrator confirms observed bridge UUID,
+protocol/add-on/Kodi versions, screenshot capability and build fingerprint.
+Every semantic request and response is HMAC-authenticated over canonical
+identity, operation, request UUID, timestamp, nonce, status and payload digest.
+Durable bounded replay memory prevents duplicate execution and screenshot retry
+reuses the exact request identity.
+
+The existing `screenshot_capture` schema and fifteen-tool catalog are unchanged.
+External eligibility adds configured screenshot maximum, native trust,
+paired/reachable/pinned bridge identity and verified bridge capability to the
+existing exact grant, permission and target-policy intersection. The add-on
+returns a server-owned 1280x720 RGB PNG directly from Kodi RenderCapture; no
+remote path exists. Lab authenticates and strictly validates the PNG under the
+8 MiB maximum, does not persist it and audits metadata/digest only. Managed
+screenshot behavior and external native Slice 2 tools remain unchanged across
+modern HTTP, modern stdio and bounded legacy HTTP.
+
+The deterministic fake bridge covers pairing, identity, HMAC response and
+request tampering, clock/nonce/request replay, capability, strict image bounds,
+revocation and exact cached screenshot replay. The add-on crypto and fixed PNG
+capture are unit tested with Kodi API doubles. No LAN or production Kodi was
+contacted; a live disposable/LAN proof is intentionally deferred rather than
+weakening the boundary. Remaining work is bridge-backed external workspace
+deployment, fixed execution, promotion evidence integration, authorized LAN-
+development proof and formal closeout.

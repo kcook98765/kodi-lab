@@ -82,6 +82,15 @@ metadata. The 8 MiB validated PNG ceiling is unchanged. The same latest cache,
 failed-refresh retention, one-per-instance exclusion and four-global-capture
 bound apply to Web, HTTP MCP and stdio MCP.
 
+Phase 13 Slice 3 preserves this exact schema and permission while adding a
+second semantic adapter below the same authorization boundary. A verified
+external-development target satisfies `screenshot` only through its configured
+maximum and an independently paired, reachable, identity-pinned bridge with
+verified screenshot capability. That adapter returns authenticated, strictly
+validated PNG bytes without persistence or a remote path. Managed screenshot
+behavior remains unchanged; bridge administration never enters MCP and the
+catalog remains fifteen tools.
+
 Built-in Add-on Development, Read-only Inspection and Full Lab Control presets
 contain both `target.inspect` and `target.visual`. Production Remote Kodi remains
 empty and unassignable. A client with only `target.inspect` discovers

@@ -510,11 +510,24 @@ def validate_png(payload: bytes) -> ValidatedPng:
         raise ScreenshotArtifactError("PNG dimensions differ from runtime geometry.")
     if (depth, color, compression, filtering, interlace) != (8, 2, 0, 0, 0):
         raise ScreenshotArtifactError("PNG encoding is unsupported.")
+    expected_length = height * (1 + (width * 3))
     try:
-        decoded = zlib.decompress(chunks[1][1])
+        decompressor = zlib.decompressobj()
+        decoded = decompressor.decompress(chunks[1][1], expected_length + 1)
+        if decompressor.unconsumed_tail or len(decoded) > expected_length:
+            raise ScreenshotArtifactError("PNG decoded size exceeds its geometry.")
+        remaining = expected_length + 1 - len(decoded)
+        if remaining:
+            decoded += decompressor.flush(remaining)
+        if (
+            len(decoded) > expected_length
+            or not decompressor.eof
+            or decompressor.unused_data
+            or decompressor.unconsumed_tail
+        ):
+            raise ScreenshotArtifactError("PNG compressed stream is invalid.")
     except zlib.error as error:
         raise ScreenshotArtifactError("PNG image data is invalid.") from error
-    expected_length = height * (1 + (width * 3))
     if len(decoded) != expected_length:
         raise ScreenshotArtifactError("PNG decoded size is inconsistent.")
     row_size = 1 + (width * 3)
