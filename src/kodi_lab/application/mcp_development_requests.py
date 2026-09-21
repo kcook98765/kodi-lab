@@ -12,7 +12,9 @@ from sqlalchemy.sql.elements import ColumnElement
 from kodi_lab.storage.models import (
     AgentWorkspaceCreationOperationRow,
     AgentWorkspacePromotionHandoffRow,
+    AgentWorkspacePromotionJournalRow,
     AgentWorkspacePromotionOperationRow,
+    AgentWorkspacePromotionPlanPathRow,
     AgentWorkspacePromotionPlanRow,
     AgentWorkspaceRow,
     McpAgentWorkspaceBindingRow,
@@ -313,6 +315,51 @@ def _promotion_plan_is_definitively_terminal_predicate() -> ColumnElement[bool]:
     plan = AgentWorkspacePromotionPlanRow
     operation = AgentWorkspacePromotionOperationRow
     handoff = AgentWorkspacePromotionHandoffRow
+    journal = AgentWorkspacePromotionJournalRow
+    path = AgentWorkspacePromotionPlanPathRow
+
+    def journal_exactly_matches(expected_state: str) -> ColumnElement[bool]:
+        expected_identity = (
+            and_(
+                journal.applied_device.is_not(None),
+                journal.applied_inode.is_not(None),
+            )
+            if expected_state == "applied"
+            else and_(
+                journal.applied_device.is_(None),
+                journal.applied_inode.is_(None),
+            )
+        )
+        matching_journal = (
+            exists()
+            .where(
+                journal.operation_id == operation.id,
+                journal.ordinal == path.ordinal,
+                journal.relative_path == path.relative_path,
+                journal.state == expected_state,
+                expected_identity,
+            )
+            .correlate(operation, path)
+        )
+        matching_path = (
+            exists()
+            .where(
+                path.plan_id == plan.id,
+                path.ordinal == journal.ordinal,
+                path.relative_path == journal.relative_path,
+            )
+            .correlate(plan, journal)
+        )
+        return and_(
+            exists().where(path.plan_id == plan.id).correlate(plan),
+            ~exists()
+            .where(path.plan_id == plan.id, ~matching_journal)
+            .correlate(plan, operation),
+            ~exists()
+            .where(journal.operation_id == operation.id, ~matching_path)
+            .correlate(plan, operation),
+        )
+
     no_source_operation = and_(
         plan.source_operation_id.is_(None),
         or_(
@@ -340,13 +387,20 @@ def _promotion_plan_is_definitively_terminal_predicate() -> ColumnElement[bool]:
         plan.invalidation_reason.is_not(None),
         operation.state == "failed",
         operation.phase == "finalize",
+        operation.started_at.is_not(None),
         operation.completed_at.is_not(None),
         operation.failure_code.is_not(None),
         operation.reconciliation_required.is_(False),
         operation.application_started.is_(False),
+        operation.backup_verified.is_(False),
+        operation.backup_artifact_id.is_(None),
         operation.lease_token_digest.is_(None),
         operation.lease_expires_at.is_(None),
         ~exists().where(handoff.operation_id == operation.id).correlate(operation),
+        ~exists()
+        .where(PromotionVerificationOperationRow.source_promotion_id == operation.id)
+        .correlate(operation),
+        journal_exactly_matches("not_attempted"),
     )
     succeeded_source_operation = and_(
         plan.state == "consumed",
@@ -362,6 +416,7 @@ def _promotion_plan_is_definitively_terminal_predicate() -> ColumnElement[bool]:
         operation.backup_artifact_id.is_not(None),
         operation.lease_token_digest.is_(None),
         operation.lease_expires_at.is_(None),
+        journal_exactly_matches("applied"),
         _promotion_terminal_verification_exists(),
     )
     source_operation = (

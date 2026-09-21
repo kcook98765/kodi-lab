@@ -123,7 +123,7 @@ through preparation/review, approval/application, reconciliation, and queued or
 running mandatory verification; successful promotion becomes eligible only
 after verification is terminal (`succeeded`, `failed`, or `incomplete`). A
 conflicted, rejected/invalidated, or expired plan with no apply operation and a
-definitively failed non-reconciliation apply are also terminal. Missing,
+definitively failed pre-application operation are also terminal. Missing,
 unknown, inconsistent, ambiguous, reconciliation-required, or otherwise
 unprovable relationships fail closed and retain the mapping.
 
@@ -134,6 +134,12 @@ result or item count. Success requires every service-published progress and
 result field, while creation and promotion require consistent lifecycle,
 operation, handoff, and mandatory-verification relationships. Database-admitted
 contradictions are protected even when normal services cannot emit them.
+The content-free promotion journal is authoritative mutation evidence: a safe
+pre-application failure requires an exact plan-path journal containing only
+`not_attempted`, while successful source application requires the same exact
+shape containing only `applied`. Missing, extra, mismatched, `rolled_back`, or
+`uncertain` rows retain replay identity. These checks are correlated database
+existence predicates and never materialize the journal collection.
 
 Each allocation inspects at most 256 deterministically ordered potentially
 terminal candidates. Protected rows continue to count against the 10,000/client

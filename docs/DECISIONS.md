@@ -3688,3 +3688,18 @@ authority.
   promotion fanout. Terminal operation cleanup applies the same consistency
   predicates and bounded existence checks. No tool, protocol, permission,
   migration, retention horizon, or Phase 12 status changes.
+
+## D-0279: Promotion journal evidence is authoritative for replay retention
+- Status: accepted Phase 12 remediation.
+- Decision: promotion-request pruning treats the content-free Phase 9 source
+  application journal as authoritative mutation evidence. Definitive
+  pre-application failure requires an exact one-to-one plan-path journal whose
+  rows are all `not_attempted`, no backup, handoff or verification progress, and
+  coherent failed operation markers. Successful terminal promotion requires the
+  same exact journal shape with all rows `applied` plus the existing coherent
+  handoff and terminal verification proof. Applied, rolled-back, uncertain,
+  missing, extra or mismatched journal evidence overrides contradictory
+  high-level markers and retains replay identity. Correlated scalar existence
+  predicates keep the decision bounded without loading journal collections.
+  This changes no tool, protocol, permission, migration, horizon, retention
+  authority, or Phase 12 completion status.

@@ -56,6 +56,7 @@ from kodi_lab.storage.models import (
     AgentWorkspacePromotionHandoffRow,
     AgentWorkspacePromotionJournalRow,
     AgentWorkspacePromotionOperationRow,
+    AgentWorkspacePromotionPlanPathRow,
     AgentWorkspacePromotionPlanRow,
     AgentWorkspaceRow,
     DevelopmentSourceDeploymentOperationRow,
@@ -1803,6 +1804,56 @@ def _old_request_timestamp(harness: Harness) -> str:
     )
 
 
+def _request_then_fail_before_application(
+    harness: Harness,
+    service: McpPromotionRequestService,
+    *,
+    request_id: UUID | None = None,
+) -> tuple[UUID, Any, Any]:
+    request_id = request_id or uuid4()
+    requested = service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=request_id,
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    harness.source.joinpath("main.py").write_text(
+        "print('external change')\n", encoding="utf-8"
+    )
+    operation = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, requested.promotion_plan_id
+    )
+    assert operation.state.value == "failed"
+    assert operation.application_started is False
+    with harness.factory.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(
+                created_at=_old_request_timestamp(harness),
+                updated_at=_old_request_timestamp(harness),
+            )
+        )
+    return request_id, requested, operation
+
+
+def _set_promotion_journal_state(
+    harness: Harness, operation_id: UUID, state: str
+) -> None:
+    identity = (
+        {"applied_device": 101, "applied_inode": 202}
+        if state == "applied"
+        else {"applied_device": None, "applied_inode": None}
+    )
+    with harness.factory.begin() as session:
+        session.execute(
+            update(AgentWorkspacePromotionJournalRow)
+            .where(AgentWorkspacePromotionJournalRow.operation_id == str(operation_id))
+            .values(state=state, **identity)
+        )
+
+
 def test_mcp_promotion_request_replays_one_phase9_plan_and_web_approval(
     tmp_path: Path,
 ) -> None:
@@ -2188,7 +2239,171 @@ def test_ambiguous_development_mappings_survive_cross_operation_pruners(
     }
 
 
-def test_malformed_promotion_operation_relationship_retains_request_mapping(
+def test_applied_journal_overrides_false_application_marker_across_restart_and_replay(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id, requested, operation = _request_then_fail_before_application(
+        harness, service
+    )
+    _set_promotion_journal_state(harness, operation.operation_id, "applied")
+
+    with harness.factory() as session:
+        before = session.scalar(
+            select(func.count())
+            .select_from(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+        )
+    with harness.factory.begin() as session:
+        outcome = prune_expired_safe_development_requests(
+            session, now=harness.clock.now
+        )
+    with harness.factory() as session:
+        after = session.scalar(
+            select(func.count())
+            .select_from(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+        )
+    assert (before, outcome.inspected, outcome.deleted, after) == (1, 1, 0, 1)
+
+    restarted = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    with harness.factory.begin() as session:
+        restarted._prune_and_require_capacity(session, MCP_CLIENT_ID)
+    replayed = restarted.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=request_id,
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    assert replayed.promotion_plan_id == requested.promotion_plan_id
+    assert replayed.review_state == "invalidated"
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AgentWorkspacePromotionPlanRow)
+            )
+            == 1
+        )
+
+
+@pytest.mark.parametrize("journal_state", ("applied", "rolled_back", "uncertain"))
+def test_non_preapplication_journal_state_protects_false_marker_failure(
+    tmp_path: Path, journal_state: str
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id, _requested, operation = _request_then_fail_before_application(
+        harness, service
+    )
+    _set_promotion_journal_state(harness, operation.operation_id, journal_state)
+
+    with harness.factory.begin() as session:
+        outcome = prune_expired_safe_development_requests(
+            session, now=harness.clock.now
+        )
+    assert (outcome.inspected, outcome.deleted) == (1, 0)
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(McpDevelopmentRequestRow).where(
+                    McpDevelopmentRequestRow.request_id == str(request_id)
+                )
+            )
+            is not None
+        )
+
+
+def test_coherent_failed_preapplication_promotion_is_prunable_after_horizon(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id, _requested, _operation = _request_then_fail_before_application(
+        harness, service
+    )
+
+    with harness.factory.begin() as session:
+        outcome = prune_expired_safe_development_requests(
+            session, now=harness.clock.now
+        )
+    assert (outcome.inspected, outcome.deleted) == (1, 1)
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(McpDevelopmentRequestRow).where(
+                    McpDevelopmentRequestRow.request_id == str(request_id)
+                )
+            )
+            is None
+        )
+
+
+@pytest.mark.parametrize("terminal_state", ("rejected", "expired"))
+def test_no_apply_rejected_or_expired_promotion_is_prunable(
+    tmp_path: Path, terminal_state: str
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id = uuid4()
+    requested = service.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=request_id,
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    if terminal_state == "rejected":
+        harness.promotions.reject(
+            TARGET_ID, harness.workspace_id, requested.promotion_plan_id
+        )
+    else:
+        harness.clock.now += timedelta(minutes=16)
+        assert (
+            service.request(
+                client_id=MCP_CLIENT_ID,
+                request_id=request_id,
+                workspace_id=harness.workspace_id,
+                expected_generation=1,
+                target_id=TARGET_ID,
+            ).review_state
+            == "expired"
+        )
+    with harness.factory.begin() as session:
+        session.execute(
+            update(McpDevelopmentRequestRow)
+            .where(McpDevelopmentRequestRow.request_id == str(request_id))
+            .values(
+                created_at=_old_request_timestamp(harness),
+                updated_at=_old_request_timestamp(harness),
+            )
+        )
+        outcome = prune_expired_safe_development_requests(
+            session, now=harness.clock.now
+        )
+    assert (outcome.inspected, outcome.deleted) == (1, 1)
+
+
+def test_malformed_promotion_journal_operation_relationship_retains_request_mapping(
     tmp_path: Path,
 ) -> None:
     harness = _harness(tmp_path)
@@ -2240,6 +2455,17 @@ def test_malformed_promotion_operation_relationship_retains_request_mapping(
                 lease_expires_at=None,
             )
         )
+        session.flush()
+        session.add(
+            AgentWorkspacePromotionJournalRow(
+                operation_id=str(operation_id),
+                ordinal=0,
+                relative_path="main.py",
+                state="applied",
+                applied_device=101,
+                applied_inode=202,
+            )
+        )
         session.execute(
             update(McpDevelopmentRequestRow)
             .where(McpDevelopmentRequestRow.request_id == str(request_id))
@@ -2247,6 +2473,199 @@ def test_malformed_promotion_operation_relationship_retains_request_mapping(
         )
         service._prune_and_require_capacity(session, MCP_CLIENT_ID)
         assert session.scalar(select(McpDevelopmentRequestRow)) is not None
+
+
+def test_high_journal_fanout_is_query_and_object_bounded(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory, harness.promotions, clock=harness.clock
+    )
+    request_id, requested, operation = _request_then_fail_before_application(
+        harness, service
+    )
+    with harness.factory.begin() as session:
+        base = session.scalar(
+            select(AgentWorkspacePromotionPlanPathRow).where(
+                AgentWorkspacePromotionPlanPathRow.plan_id
+                == str(requested.promotion_plan_id),
+                AgentWorkspacePromotionPlanPathRow.ordinal == 0,
+            )
+        )
+        assert base is not None
+        values = {
+            column.key: getattr(base, column.key)
+            for column in AgentWorkspacePromotionPlanPathRow.__table__.columns
+            if column.key not in {"plan_id", "ordinal", "relative_path"}
+        }
+        for ordinal in range(1, 100):
+            relative_path = f"fanout/path-{ordinal:03}.py"
+            session.add(
+                AgentWorkspacePromotionPlanPathRow(
+                    plan_id=str(requested.promotion_plan_id),
+                    ordinal=ordinal,
+                    relative_path=relative_path,
+                    **values,
+                )
+            )
+            session.add(
+                AgentWorkspacePromotionJournalRow(
+                    operation_id=str(operation.operation_id),
+                    ordinal=ordinal,
+                    relative_path=relative_path,
+                    state="not_attempted",
+                    applied_device=None,
+                    applied_inode=None,
+                )
+            )
+        session.execute(
+            update(AgentWorkspacePromotionJournalRow)
+            .where(
+                AgentWorkspacePromotionJournalRow.operation_id
+                == str(operation.operation_id),
+                AgentWorkspacePromotionJournalRow.ordinal == 99,
+            )
+            .values(state="applied", applied_device=101, applied_inode=202)
+        )
+
+    loaded_journals = 0
+    statement_count = 0
+
+    def journal_loaded(_target: object, _context: object) -> None:
+        nonlocal loaded_journals
+        loaded_journals += 1
+
+    def statement_started(*_args: object) -> None:
+        nonlocal statement_count
+        statement_count += 1
+
+    engine = harness.factory.kw["bind"]
+    event.listen(AgentWorkspacePromotionJournalRow, "load", journal_loaded)
+    event.listen(engine, "before_cursor_execute", statement_started)
+    try:
+        with harness.factory.begin() as session:
+            blocked = prune_expired_safe_development_requests(
+                session, now=harness.clock.now
+            )
+        assert (blocked.inspected, blocked.deleted) == (1, 0)
+        assert loaded_journals == 0
+        assert statement_count <= 3
+
+        with harness.factory.begin() as session:
+            session.execute(
+                update(AgentWorkspacePromotionJournalRow)
+                .where(
+                    AgentWorkspacePromotionJournalRow.operation_id
+                    == str(operation.operation_id),
+                    AgentWorkspacePromotionJournalRow.ordinal == 99,
+                )
+                .values(state="not_attempted", applied_device=None, applied_inode=None)
+            )
+        loaded_journals = 0
+        statement_count = 0
+        with harness.factory.begin() as session:
+            reclaimed = prune_expired_safe_development_requests(
+                session, now=harness.clock.now
+            )
+        assert (reclaimed.inspected, reclaimed.deleted) == (1, 1)
+        assert loaded_journals == 0
+        assert statement_count <= 4
+    finally:
+        event.remove(AgentWorkspacePromotionJournalRow, "load", journal_loaded)
+        event.remove(engine, "before_cursor_execute", statement_started)
+
+    with harness.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(AgentWorkspacePromotionJournalRow)
+                .where(
+                    AgentWorkspacePromotionJournalRow.operation_id
+                    == str(operation.operation_id)
+                )
+            )
+            == 100
+        )
+        assert (
+            session.scalar(
+                select(McpDevelopmentRequestRow).where(
+                    McpDevelopmentRequestRow.request_id == str(request_id)
+                )
+            )
+            is None
+        )
+
+
+def test_journal_contradiction_consumes_capacity_until_coherently_terminal(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    _seed_mcp_promotion_evidence(harness)
+    service = McpPromotionRequestService(
+        harness.factory,
+        harness.promotions,
+        clock=harness.clock,
+        max_per_client=1,
+        max_global=1,
+    )
+    _request_id, _requested, operation = _request_then_fail_before_application(
+        harness, service
+    )
+    _set_promotion_journal_state(harness, operation.operation_id, "applied")
+    harness.source.joinpath("main.py").write_text("print('old')\n", encoding="utf-8")
+    harness.clock.now += timedelta(minutes=11)
+
+    with pytest.raises(McpPromotionRequestError, match="promotion_request_ambiguous"):
+        service.request(
+            client_id=MCP_CLIENT_ID,
+            request_id=uuid4(),
+            workspace_id=harness.workspace_id,
+            expected_generation=1,
+            target_id=TARGET_ID,
+        )
+    with harness.factory() as session:
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 1
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AgentWorkspacePromotionPlanRow)
+            )
+            == 1
+        )
+
+    _set_promotion_journal_state(harness, operation.operation_id, "not_attempted")
+    restarted = McpPromotionRequestService(
+        harness.factory,
+        harness.promotions,
+        clock=harness.clock,
+        max_per_client=1,
+        max_global=1,
+    )
+    replacement = restarted.request(
+        client_id=MCP_CLIENT_ID,
+        request_id=uuid4(),
+        workspace_id=harness.workspace_id,
+        expected_generation=1,
+        target_id=TARGET_ID,
+    )
+    assert replacement.review_state == "reviewable"
+    with harness.factory() as session:
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == 1
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AgentWorkspacePromotionPlanRow)
+            )
+            == 2
+        )
 
 
 @pytest.mark.parametrize("operation_kind", ("workspace_deploy", "workspace_execute"))

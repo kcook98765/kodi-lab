@@ -2015,6 +2015,10 @@ The proof is deliberately field-complete: contradictory deployment lifecycle,
 sync, inventory or digest markers; contradictory execution dispatch,
 classification, result or count markers; and inconsistent creation or
 promotion/apply/handoff/verification relationships all retain replay identity.
+Promotion journal rows are authoritative source-mutation evidence: only an exact
+all-`not_attempted` journal can prove pre-application failure, and successful
+application requires an exact all-`applied` journal. Missing, extra, mismatched,
+rolled-back or uncertain evidence retains identity.
 Dependent promotion references are answered by a scalar SQL existence predicate
 per candidate rather than loading historical plans. Thus the 256-candidate
 outer bound also has finite query and application-object bounds under arbitrary
