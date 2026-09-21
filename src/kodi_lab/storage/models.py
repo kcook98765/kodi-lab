@@ -76,6 +76,11 @@ from kodi_lab.domain import (
     DevelopmentSourceSmokeTestOperationState,
     DevelopmentSourceSmokeTestOverallResult,
     DevelopmentSourceSmokeTestPostProvenance,
+    ExternalAdministrativeState,
+    ExternalAuthenticationMode,
+    ExternalObservationState,
+    ExternalProtocolKind,
+    ExternalVerificationState,
     FixtureContentCategory,
     FixtureSizeCategory,
     GlobalHeavyOperationKind,
@@ -1069,7 +1074,11 @@ class TargetRow(Base):
     __table_args__ = (
         CheckConstraint("length(trim(name)) > 0", name="target_name_not_blank"),
         CheckConstraint(
-            "length(trim(kodi_version)) > 0", name="target_kodi_version_not_blank"
+            "(target_type = 'managed' AND kodi_version IS NOT NULL "
+            "AND length(trim(kodi_version)) > 0) OR "
+            "(target_type = 'external_development' AND "
+            "(kodi_version IS NULL OR length(trim(kodi_version)) > 0))",
+            name="target_kodi_version_by_type",
         ),
     )
 
@@ -1085,7 +1094,7 @@ class TargetRow(Base):
         ),
         nullable=False,
     )
-    kodi_version: Mapped[str] = mapped_column(Text, nullable=False)
+    kodi_version: Mapped[str | None] = mapped_column(Text, nullable=True)
     availability: Mapped[TargetAvailability] = mapped_column(
         Enum(
             TargetAvailability,
@@ -1116,6 +1125,202 @@ class TargetRow(Base):
         ),
         nullable=False,
     )
+
+
+class ExternalKodiTargetRow(Base):
+    """One-to-one external-development subtype with separate state dimensions."""
+
+    __tablename__ = "external_kodi_targets"
+    __table_args__ = (
+        CheckConstraint(
+            "length(host) BETWEEN 2 AND 64 AND host = trim(host)",
+            name="external_target_host_bounded",
+        ),
+        CheckConstraint("port BETWEEN 1 AND 65535", name="external_target_port_valid"),
+        CheckConstraint(
+            "(authentication_mode = 'none' AND secret_reference IS NULL) OR "
+            "(authentication_mode = 'username_password' "
+            "AND length(secret_reference) = 36)",
+            name="external_target_secret_shape",
+        ),
+        CheckConstraint(
+            "length(configured_capabilities_json) BETWEEN 2 AND 512 "
+            "AND length(verified_capabilities_json) BETWEEN 2 AND 512",
+            name="external_target_capabilities_bounded",
+        ),
+        CheckConstraint(
+            "length(verified_addresses_json) BETWEEN 2 AND 512",
+            name="external_target_addresses_bounded",
+        ),
+        CheckConstraint(
+            "length(created_at) = 27 "
+            "AND (verified_at IS NULL OR length(verified_at) = 27) "
+            "AND (deactivated_at IS NULL OR length(deactivated_at) = 27) "
+            "AND (last_observed_at IS NULL OR length(last_observed_at) = 27)",
+            name="external_target_timestamps_format",
+        ),
+        CheckConstraint(
+            "pending_observation_id IS NULL OR length(pending_observation_id) = 36",
+            name="external_target_pending_observation_shape",
+        ),
+        CheckConstraint(
+            "(administrative_state = 'deactivated' AND deactivated_at IS NOT NULL "
+            "AND secret_reference IS NULL) OR "
+            "(administrative_state <> 'deactivated' AND deactivated_at IS NULL)",
+            name="external_target_deactivation_consistent",
+        ),
+        Index(
+            "ix_external_target_admin_verification",
+            "administrative_state",
+            "verification_state",
+        ),
+    )
+
+    target_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("targets.id", ondelete="CASCADE"), primary_key=True
+    )
+    protocol_kind: Mapped[ExternalProtocolKind] = mapped_column(
+        Enum(
+            ExternalProtocolKind,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="external_protocol_kind",
+        ),
+        nullable=False,
+    )
+    host: Mapped[str] = mapped_column(String(64), nullable=False)
+    port: Mapped[int] = mapped_column(Integer, nullable=False)
+    authentication_mode: Mapped[ExternalAuthenticationMode] = mapped_column(
+        Enum(
+            ExternalAuthenticationMode,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="external_authentication_mode",
+        ),
+        nullable=False,
+    )
+    secret_reference: Mapped[str | None] = mapped_column(String(36))
+    configured_capabilities_json: Mapped[str] = mapped_column(
+        String(512), nullable=False
+    )
+    verified_capabilities_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    administrative_state: Mapped[ExternalAdministrativeState] = mapped_column(
+        Enum(
+            ExternalAdministrativeState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="external_administrative_state",
+        ),
+        nullable=False,
+    )
+    verification_state: Mapped[ExternalVerificationState] = mapped_column(
+        Enum(
+            ExternalVerificationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="external_verification_state",
+        ),
+        nullable=False,
+    )
+    observation_state: Mapped[ExternalObservationState | None] = mapped_column(
+        Enum(
+            ExternalObservationState,
+            values_callable=_enum_values,
+            native_enum=False,
+            create_constraint=True,
+            name="external_observation_state",
+        )
+    )
+    verified_addresses_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    verified_kodi_name: Mapped[str | None] = mapped_column(String(64))
+    verified_kodi_version: Mapped[str | None] = mapped_column(String(64))
+    observed_kodi_name: Mapped[str | None] = mapped_column(String(64))
+    observed_kodi_version: Mapped[str | None] = mapped_column(String(64))
+    observed_protocol_version: Mapped[str | None] = mapped_column(String(32))
+    pending_observation_id: Mapped[str | None] = mapped_column(
+        String(36),
+    )
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    verified_at: Mapped[str | None] = mapped_column(String(27))
+    deactivated_at: Mapped[str | None] = mapped_column(String(27))
+    last_observed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class ExternalKodiTargetObservationRow(Base):
+    """Bounded durable result of one fixed native read-only probe."""
+
+    __tablename__ = "external_kodi_target_observations"
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('reachable','unreachable','authentication_failed',"
+            "'capability_missing')",
+            name="external_observation_outcome_closed",
+        ),
+        CheckConstraint(
+            "error_code IS NULL OR error_code IN ('endpoint_not_allowed',"
+            "'target_unreachable','authentication_failed','invalid_kodi_response',"
+            "'unsupported_kodi_version','identity_mismatch','secret_unavailable')",
+            name="external_observation_error_closed",
+        ),
+        CheckConstraint(
+            "length(addresses_json) BETWEEN 2 AND 512 "
+            "AND length(verified_capabilities_json) BETWEEN 2 AND 512",
+            name="external_observation_json_bounded",
+        ),
+        CheckConstraint(
+            "length(attempted_at) = 27 AND length(completed_at) = 27",
+            name="external_observation_timestamps_format",
+        ),
+        Index("ix_external_observation_target_time", "target_id", "attempted_at", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("external_kodi_targets.target_id", ondelete="CASCADE")
+    )
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    addresses_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    kodi_name: Mapped[str | None] = mapped_column(String(64))
+    kodi_version: Mapped[str | None] = mapped_column(String(64))
+    protocol_version: Mapped[str | None] = mapped_column(String(32))
+    verified_capabilities_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    attempted_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ExternalKodiTargetEventRow(Base):
+    """Content-free semantic Web-administration audit event."""
+
+    __tablename__ = "external_kodi_target_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_kind IN ('registered','endpoint_changed','credential_rotated',"
+            "'probe_attempted','probe_succeeded','probe_failed',"
+            "'verification_confirmed','reverification_required','enabled',"
+            "'disabled','deactivated')",
+            name="external_target_event_kind_closed",
+        ),
+        CheckConstraint(
+            "classification IS NULL OR length(classification) BETWEEN 1 AND 64",
+            name="external_target_event_classification_bounded",
+        ),
+        CheckConstraint(
+            "length(occurred_at) = 27", name="external_target_event_timestamp_format"
+        ),
+        Index("ix_external_target_event_time", "target_id", "occurred_at", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    event_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    classification: Mapped[str | None] = mapped_column(String(64))
+    observation_id: Mapped[str | None] = mapped_column(String(36))
+    occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
 class ManagedInstanceRow(Base):
@@ -4342,7 +4547,7 @@ class McpCredentialRow(Base):
 
 
 class McpClientTargetGrantRow(Base):
-    """Exact MCP client-to-managed-target grant; no wildcard representation."""
+    """Exact client-to-target grant; application policy remains class-specific."""
 
     __tablename__ = "mcp_client_target_grants"
     __table_args__ = (
@@ -4357,7 +4562,7 @@ class McpClientTargetGrantRow(Base):
     )
     target_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        ForeignKey("targets.id", ondelete="CASCADE"),
         primary_key=True,
     )
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
@@ -4784,7 +4989,7 @@ class McpWorkspaceExecutionOperationRow(Base):
 
 
 class McpTargetPresetAssignmentRow(Base):
-    """Current target-side policy assignment for an internal managed target."""
+    """Current target-side policy assignment on the common target identity."""
 
     __tablename__ = "mcp_target_preset_assignments"
     __table_args__ = (
@@ -4797,7 +5002,7 @@ class McpTargetPresetAssignmentRow(Base):
 
     target_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        ForeignKey("targets.id", ondelete="CASCADE"),
         primary_key=True,
     )
     preset_id: Mapped[str] = mapped_column(

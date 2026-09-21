@@ -13,6 +13,7 @@ class TargetType(StrEnum):
     """Kinds of targets implemented by the current domain slice."""
 
     MANAGED = "managed"
+    EXTERNAL_DEVELOPMENT = "external_development"
 
 
 class TargetAvailability(StrEnum):
@@ -63,21 +64,26 @@ class Target:
     id: UUID
     name: str
     target_type: TargetType
-    kodi_version: str
+    kodi_version: str | None
     availability: TargetAvailability
     health: HealthStatus
     connection_state: ConnectionState
 
     def __post_init__(self) -> None:
         _require_text(self.name, "name")
-        _require_text(self.kodi_version, "kodi_version")
-        release = KodiReleaseIdentity.parse(self.kodi_version)
-        object.__setattr__(self, "kodi_version", release.canonical)
+        if self.target_type is TargetType.MANAGED and self.kodi_version is None:
+            raise ValueError("managed targets require a Kodi version")
+        if self.kodi_version is not None:
+            _require_text(self.kodi_version, "kodi_version")
+            release = KodiReleaseIdentity.parse(self.kodi_version)
+            object.__setattr__(self, "kodi_version", release.canonical)
 
     @property
     def kodi_release(self) -> KodiReleaseIdentity:
         """Return the exact typed release identity declared by this target."""
 
+        if self.kodi_version is None:
+            raise ValueError("target has no verified Kodi release")
         return KodiReleaseIdentity.parse(self.kodi_version)
 
 

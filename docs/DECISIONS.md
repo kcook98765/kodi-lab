@@ -3732,3 +3732,64 @@ authority.
   review. LAN development and production Kodi testing were not part of this
   closeout; production remains deferred until production-policy safeguards are
   explicitly in scope.
+
+## D-0280: Phase 13 begins with external-development registration only
+- Status: accepted Phase 13 Slice 1.
+- Decision: Slice 1 adds Web-managed `external_development` targets and native
+  read-only verification only. `external_production` is not representable in
+  the closed target type, and no MCP, bridge, screenshot, deployment,
+  execution, promotion, lifecycle or production authority is added. Phase 13
+  overall remains PARTIAL.
+
+## D-0281: External Kodi is a one-to-one target subtype
+- Status: accepted Phase 13 Slice 1.
+- Decision: the existing `targets` row remains the stable UUID identity.
+  `external_kodi_targets` stores only endpoint configuration, opaque secret
+  reference, closed capabilities and separate administrative, verification and
+  observation state. Durable observations and content-free events preserve
+  evidence without creating a parallel identity system.
+
+## D-0282: Registration and trust are Web administrator decisions
+- Status: accepted Phase 13 Slice 1.
+- Decision: authenticated, same-origin, CSRF-protected Web administration alone
+  may register, probe, confirm, enable, disable, edit, rotate credentials or
+  deactivate an external target. Registration starts disabled and unverified;
+  successful probe records evidence but explicit confirmation is required
+  before enable. MCP bearer credentials have no equivalent route or tool.
+
+## D-0283: Slice 1 endpoints are structured private-LAN IP literals
+- Status: accepted Phase 13 Slice 1.
+- Decision: configuration is protocol enum, canonical IP literal and a port
+  from the server allowlist. The server owns `POST /jsonrpc`, disables redirects
+  and environment proxies, and accepts only RFC1918 IPv4 or explicitly
+  configured IPv6 ULA. Loopback is test-only; public, metadata, link-local,
+  multicast, unspecified, reserved, documentation, benchmark, CGNAT, mapped
+  IPv6 and managed-lab addresses fail closed. Hostname/DNS support is deferred,
+  so no DNS rebinding path exists in Slice 1.
+
+## D-0284: Native verification proves endpoint observations, not machine identity
+- Status: accepted Phase 13 Slice 1.
+- Decision: the verifier calls only fixed read-only `JSONRPC.Ping`,
+  `JSONRPC.Version` and `Application.GetProperties` requests with bounded time,
+  body and JSON shape. Evidence is the exact endpoint address, Kodi name and
+  supported version, JSON-RPC compatibility and observation time. Endpoint,
+  credential or important identity change requires re-verification; native
+  evidence is not a strong machine identity and bridge identity is future work.
+
+## D-0285: Recoverable credentials live in protected AEAD files
+- Status: accepted Phase 13 Slice 1.
+- Decision: SQLite contains only a random UUID reference. A deployment-provided
+  256-bit base64url key encrypts bounded credentials with AES-256-GCM and bound
+  target/reference/version associated data in UUID-named no-follow files under
+  a `0700` directory with `0600` files and atomic publication. Missing or wrong
+  keys fail closed. Rotation publishes a new reference before retiring the old;
+  deactivation retires the active secret. Secrets never enter status or audit.
+
+## D-0286: Configured capability is a closed maximum, not authority
+- Status: accepted Phase 13 Slice 1.
+- Decision: the only stored maximum-capability vocabulary is
+  `target_inspect`, `addon_inventory`, `semantic_remote`, `screenshot`,
+  `workspace_deployment` and `fixed_execution`. Native Slice 1 verification can
+  establish only `target_inspect`; configuration or observation grants no MCP
+  authority. Effective use requires future class eligibility and authorization
+  in addition to configured and verified capability intersection.

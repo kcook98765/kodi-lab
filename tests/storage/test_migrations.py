@@ -140,7 +140,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0043_mcp_promotion_request",)
+        ).fetchone() == ("0044_external_development_targets",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -208,6 +208,9 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "development_source_smoke_test_operations",
         "development_sources",
         "fixture_definitions",
+        "external_kodi_target_events",
+        "external_kodi_target_observations",
+        "external_kodi_targets",
         "global_heavy_operation_lease",
         "managed_instances",
         "managed_screenshots",
@@ -4591,3 +4594,163 @@ def test_0043_promotion_request_reuses_plans_and_preserves_custom_snapshots(
     engine.dispose()
     with pytest.raises(RuntimeError, match="populated MCP Slice 5"):
         command.downgrade(config, "0042_mcp_workspace_deployment_execution")
+
+
+def test_0044_preserves_managed_target_grants_and_policies_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0043_mcp_promotion_request"
+    )
+    target_id = "44000000-0000-4000-8000-000000000001"
+    client_id = "44000000-0000-4000-8000-000000000002"
+    definition_id = "44000000-0000-4000-8000-000000000003"
+    revision_id = "44000000-0000-4000-8000-000000000004"
+    preset_id = "11000000-0000-4000-8000-000000000002"
+    timestamp = "2026-09-21T00:00:00.000000Z"
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions "
+                "(id,slug,kodi_version,support_tier) VALUES "
+                "(:id,'phase13-preserve','21.3','current')"
+            ),
+            {"id": definition_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_revisions "
+                "(id,runtime_definition_id,revision_number,source_kind,"
+                "source_reference,content_digest,manifest_reference,"
+                "manifest_digest,built_at,approval_state,"
+                "requires_trusted_build_confirmation) VALUES "
+                "(:id,:definition,1,'test','test',:digest,'test',:digest,"
+                "'2026-09-21T00:00:00Z','not_approved',0)"
+            ),
+            {
+                "id": revision_id,
+                "definition": definition_id,
+                "digest": "sha256:" + "a" * 64,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO targets "
+                "(id,name,target_type,kodi_version,availability,health,"
+                "connection_state) VALUES "
+                "(:id,'preserved','managed','21.3','available','healthy',"
+                "'connected')"
+            ),
+            {"id": target_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances "
+                "(target_id,instance_type,runtime_revision_id,runtime_state,"
+                "start_on_host_boot) VALUES "
+                "(:id,'disposable',:revision,'stopped',0)"
+            ),
+            {"id": target_id, "revision": revision_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients "
+                "(id,display_name,enabled,preset_id,created_at,last_used_at,"
+                "disabled_at) VALUES (:id,'preserved',1,:preset,:at,NULL,NULL)"
+            ),
+            {"id": client_id, "preset": preset_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_client_target_grants "
+                "(client_id,target_id,created_at) VALUES (:client,:target,:at)"
+            ),
+            {"client": client_id, "target": target_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_target_preset_assignments "
+                "(target_id,preset_id,assigned_at) VALUES (:target,:preset,:at)"
+            ),
+            {"target": target_id, "preset": preset_id, "at": timestamp},
+        )
+    engine.dispose()
+
+    command.upgrade(config, "0044_external_development_targets")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert any(
+        item["referred_table"] == "targets"
+        for item in inspector.get_foreign_keys("mcp_client_target_grants")
+    )
+    with engine.begin() as connection:
+        assert connection.execute(
+            text("SELECT client_id,target_id,created_at FROM mcp_client_target_grants")
+        ).one() == (client_id, target_id, timestamp)
+        assert connection.execute(
+            text(
+                "SELECT target_id,preset_id,assigned_at "
+                "FROM mcp_target_preset_assignments"
+            )
+        ).one() == (target_id, preset_id, timestamp)
+    engine.dispose()
+
+    command.downgrade(config, "0043_mcp_promotion_request")
+    engine = create_database_engine(database_url)
+    assert any(
+        item["referred_table"] == "managed_instances"
+        for item in inspect(engine).get_foreign_keys("mcp_client_target_grants")
+    )
+    with engine.begin() as connection:
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM mcp_client_target_grants"))
+            == 1
+        )
+        assert (
+            connection.scalar(
+                text("SELECT COUNT(*) FROM mcp_target_preset_assignments")
+            )
+            == 1
+        )
+    engine.dispose()
+
+
+def test_0044_refuses_lossy_downgrade_with_external_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0043_mcp_promotion_request"
+    )
+    command.upgrade(config, "0044_external_development_targets")
+    target_id = "44000000-0000-4000-8000-000000000010"
+    timestamp = "2026-09-21T00:00:00.000000Z"
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets "
+                "(id,name,target_type,kodi_version,availability,health,"
+                "connection_state) VALUES "
+                "(:id,'external','external_development',NULL,'unavailable',"
+                "'warning','disconnected')"
+            ),
+            {"id": target_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_kodi_targets "
+                "(target_id,protocol_kind,host,port,authentication_mode,"
+                "secret_reference,configured_capabilities_json,"
+                "verified_capabilities_json,administrative_state,"
+                "verification_state,observation_state,verified_addresses_json,"
+                "created_at) VALUES "
+                "(:id,'jsonrpc_http','192.168.1.8',8080,'none',NULL,"
+                "'[\"target_inspect\"]','[]','disabled','unverified',NULL,"
+                "'[]',:at)"
+            ),
+            {"id": target_id, "at": timestamp},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="populated external-development"):
+        command.downgrade(config, "0043_mcp_promotion_request")

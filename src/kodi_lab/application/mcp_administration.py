@@ -20,6 +20,7 @@ from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentService,
 )
 from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionService
+from kodi_lab.domain import TargetType
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentSourceRow,
@@ -761,14 +762,16 @@ class McpAdministrationService:
     def list_target_policies(self) -> list[McpTargetPolicyRead]:
         with self._session_factory() as session:
             targets = session.scalars(
-                select(TargetRow).order_by(TargetRow.name, TargetRow.id)
+                select(TargetRow)
+                .where(TargetRow.target_type == TargetType.MANAGED)
+                .order_by(TargetRow.name, TargetRow.id)
             ).all()
             return [self._target_policy_read(session, row) for row in targets]
 
     def get_target_policy(self, target_id: UUID) -> McpTargetPolicyRead:
         with self._session_factory() as session:
             target = session.get(TargetRow, str(target_id))
-            if target is None:
+            if target is None or target.target_type is not TargetType.MANAGED:
                 raise McpAdministrationError("managed_target_not_found")
             return self._target_policy_read(session, target)
 
@@ -834,10 +837,7 @@ class McpAdministrationService:
     @staticmethod
     def _require_managed_target(session: Session, target_id: UUID) -> None:
         target = session.get(TargetRow, str(target_id))
-        if target is None or str(target.target_type) not in {
-            "managed",
-            "TargetType.MANAGED",
-        }:
+        if target is None or target.target_type is not TargetType.MANAGED:
             raise McpAdministrationError("managed_target_not_found")
 
     @staticmethod

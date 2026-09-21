@@ -182,3 +182,17 @@ target grant revocation does not erase the review or act as approval/rejection;
 Web independently rechecks canonical Phase 9 plan safety before approval.
 There is no MCP approval route, hidden administration tool, force, alternate
 source, apply-only, rollback, Git or repository publication request field.
+
+## Phase 13 Slice 1 external-target administration
+
+All external-target pages and read APIs require the authenticated Web session.
+Registration, endpoint edit, credential rotation, probe, observation
+confirmation, enable/disable and deactivation additionally require same-origin
+and CSRF validation through the ordinary mutation-session dependency. Trusted
+Host remains global. MCP bearer tokens do not authenticate these routes.
+
+Responses expose logical name, structured endpoint, authentication mode,
+separate states, bounded Kodi/protocol observations, configured/verified
+capabilities and timestamps. They never expose a password, Authorization
+header, secret reference, raw response, raw JSON-RPC, DNS data or socket error.
+Failures use the closed semantic external-target error vocabulary.

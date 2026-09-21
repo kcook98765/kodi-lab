@@ -131,3 +131,12 @@ approves canonical source apply and mandatory verification. MCP still has no
 shell, Git/repository publication, arbitrary execution, external target, or
 production mutation authority. See
 [`docs/PHASE12-MCP-DEVELOPMENT.md`](docs/PHASE12-MCP-DEVELOPMENT.md).
+
+Phase 13 Slice 1 adds Web-only external-development registration and fixed
+native read-only verification; Phase 13 remains PARTIAL and MCP remains
+managed-target-only. Password credentials require an operator-provided
+`KODI_LAB_EXTERNAL_TARGET_MASTER_KEY` containing a base64url-encoded 32-byte
+key. The key is never generated into the repository or stored in SQLite.
+Structured endpoints default to the server port allowlist `8080`; loopback is
+available only through the explicit test setting. See
+[`docs/PHASE13-EXTERNAL-TARGETS.md`](docs/PHASE13-EXTERNAL-TARGETS.md).

@@ -189,6 +189,12 @@ from kodi_lab.application.errors import (
     PersistentDevelopmentSourceAttachmentUnsupportedError,
     TargetNotFoundError,
 )
+from kodi_lab.application.external_targets import (
+    ExternalTargetAdministrationService,
+    ExternalTargetError,
+    ExternalTargetEventRead,
+    ExternalTargetRead,
+)
 from kodi_lab.application.instance_delete_operations import (
     ManagedInstanceDeleteConflictError,
     ManagedInstanceDeleteNotFoundError,
@@ -365,11 +371,14 @@ from kodi_lab.development import (
 from kodi_lab.domain import (
     MAX_DEVELOPMENT_SOURCE_LOCATOR,
     MAX_DEVELOPMENT_SOURCE_LOGICAL_NAME,
+    ExternalAuthenticationMode,
+    ExternalProtocolKind,
     ManagedInstanceDeleteOperationState,
     SnapshotSourceBinding,
     SnapshotState,
     normalize_development_source_logical_name,
 )
+from kodi_lab.kodi.external import ExternalEndpointPolicy
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
 from kodi_lab.mcp.authorization import (
@@ -380,6 +389,7 @@ from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
+from kodi_lab.storage.secrets import ExternalCredentialStore, decode_master_key
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
 _WEB_ROOT = Path(__file__).parent
@@ -717,6 +727,48 @@ class McpCredentialIssueRequest(BaseModel):
     expiration_seconds: int | None = Field(default=24 * 60 * 60, ge=60, le=31 * 86400)
 
 
+class ExternalTargetRegistrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    logical_name: str = Field(min_length=1, max_length=120)
+    protocol_kind: ExternalProtocolKind
+    host: str = Field(min_length=2, max_length=64)
+    port: int = Field(ge=1, le=65_535)
+    authentication_mode: ExternalAuthenticationMode
+    configured_capabilities: set[str] = Field(min_length=1, max_length=6)
+    username: str | None = Field(default=None, min_length=1, max_length=256)
+    password: str | None = Field(default=None, min_length=1, max_length=1024)
+
+
+class ExternalTargetEndpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocol_kind: ExternalProtocolKind
+    host: str = Field(min_length=2, max_length=64)
+    port: int = Field(ge=1, le=65_535)
+
+
+class ExternalTargetCredentialRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    authentication_mode: ExternalAuthenticationMode
+    username: str | None = Field(default=None, min_length=1, max_length=256)
+    password: str | None = Field(default=None, min_length=1, max_length=1024)
+
+
+class ExternalTargetConfirmationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    observation_id: UUID
+
+
+class ExternalTargetEnabledRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: StrictBool
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
@@ -787,6 +839,7 @@ class WebApplicationContext:
     browser_remote: BrowserRemoteService
     browser_remote_rate_limiter: BrowserRemoteRateLimiter
     live_display: ManagedLiveDisplayService
+    external_targets: ExternalTargetAdministrationService
     mcp_administration: McpAdministrationService
     mcp_transport: McpHttpTransport
 
@@ -844,6 +897,7 @@ def create_app(
     browser_remote_rate_limiter: BrowserRemoteRateLimiter | None = None,
     browser_remote_adapter_factory: RemoteAdapterFactory | None = None,
     managed_live_display_service: ManagedLiveDisplayService | None = None,
+    external_target_service: ExternalTargetAdministrationService | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -936,6 +990,23 @@ def create_app(
         session_factory,
         retention=mcp_workspace_retention,
         development=mcp_workspace_development,
+    )
+    external_targets = external_target_service or ExternalTargetAdministrationService(
+        session_factory,
+        endpoint_policy=ExternalEndpointPolicy(
+            allowed_ports=settings.external_target_allowed_ports,
+            ipv6_ula_networks=settings.external_target_ipv6_ula_networks,
+            test_loopback_enabled=settings.external_target_test_loopback_enabled,
+        ),
+        credential_store=ExternalCredentialStore(
+            settings.data_root / "secrets" / "external-targets",
+            master_key=decode_master_key(
+                None
+                if settings.external_target_master_key is None
+                else settings.external_target_master_key.get_secret_value()
+            ),
+            key_version=settings.external_target_master_key_version,
+        ),
     )
     mcp_registry = build_mcp_tool_registry()
     mcp_authorization = McpAuthorizationService(
@@ -1365,6 +1436,7 @@ def create_app(
         browser_remote=browser_remote,
         browser_remote_rate_limiter=remote_rate_limiter,
         live_display=live_display,
+        external_targets=external_targets,
         mcp_administration=mcp_administration,
         mcp_transport=mcp_transport,
     )
@@ -1980,6 +2052,24 @@ def create_app(
         status_code = 404 if error.code.endswith("_not_found") else 409
         return _json_error(status_code, error.code, "MCP administration rejected.")
 
+    @app.exception_handler(ExternalTargetError)
+    async def external_target_failure(
+        _request: Request, error: ExternalTargetError
+    ) -> JSONResponse:
+        status_code = {
+            "target_not_found": 404,
+            "endpoint_not_allowed": 422,
+            "target_unreachable": 503,
+            "authentication_failed": 502,
+            "invalid_kodi_response": 502,
+            "unsupported_kodi_version": 409,
+            "identity_mismatch": 409,
+            "needs_reverification": 409,
+            "secret_unavailable": 503,
+            "verification_required": 409,
+        }.get(error.code, 409)
+        return _json_error(status_code, error.code, "External target request rejected.")
+
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request) -> Response:
         token = request.cookies.get(settings.web_session_cookie_name)
@@ -2095,6 +2185,24 @@ def create_app(
                     )
                     for client in context.mcp_administration.list_clients()
                 },
+            },
+        )
+
+    @app.get("/external-targets", response_class=HTMLResponse)
+    async def external_targets_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "external-targets.html",
+            {
+                "csrf_token": authenticated.csrf_token,
+                "targets": context.external_targets.list_targets(),
+                "allowed_ports": settings.external_target_allowed_ports,
+                "test_loopback_enabled": (
+                    settings.external_target_test_loopback_enabled
+                ),
             },
         )
 
@@ -2773,6 +2881,125 @@ def create_app(
         return context.mcp_administration.assign_target_preset(
             target_id, payload.preset_id
         )
+
+    @app.get("/api/external-targets", response_model=list[ExternalTargetRead])
+    def list_external_targets(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[ExternalTargetRead]:
+        return context.external_targets.list_targets()
+
+    @app.post(
+        "/api/external-targets",
+        response_model=ExternalTargetRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def register_external_target(
+        payload: ExternalTargetRegistrationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.external_targets.register(
+            logical_name=payload.logical_name,
+            protocol_kind=payload.protocol_kind,
+            host=payload.host,
+            port=payload.port,
+            authentication_mode=payload.authentication_mode,
+            configured_capabilities=payload.configured_capabilities,
+            username=payload.username,
+            password=payload.password,
+        )
+
+    @app.get("/api/external-targets/{target_id}", response_model=ExternalTargetRead)
+    def get_external_target(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ExternalTargetRead:
+        return context.external_targets.get(target_id)
+
+    @app.get(
+        "/api/external-targets/{target_id}/events",
+        response_model=list[ExternalTargetEventRead],
+    )
+    def list_external_target_events(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[ExternalTargetEventRead]:
+        return context.external_targets.events(target_id)
+
+    @app.put(
+        "/api/external-targets/{target_id}/endpoint",
+        response_model=ExternalTargetRead,
+    )
+    def edit_external_target_endpoint(
+        target_id: UUID,
+        payload: ExternalTargetEndpointRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.external_targets.edit_endpoint(
+            target_id,
+            protocol_kind=payload.protocol_kind,
+            host=payload.host,
+            port=payload.port,
+        )
+
+    @app.post(
+        "/api/external-targets/{target_id}/credentials",
+        response_model=ExternalTargetRead,
+    )
+    def rotate_external_target_credentials(
+        target_id: UUID,
+        payload: ExternalTargetCredentialRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.external_targets.rotate_credentials(
+            target_id,
+            authentication_mode=payload.authentication_mode,
+            username=payload.username,
+            password=payload.password,
+        )
+
+    @app.post(
+        "/api/external-targets/{target_id}/probe",
+        response_model=ExternalTargetRead,
+    )
+    def probe_external_target(
+        target_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.external_targets.probe(target_id)
+
+    @app.post(
+        "/api/external-targets/{target_id}/confirm",
+        response_model=ExternalTargetRead,
+    )
+    def confirm_external_target(
+        target_id: UUID,
+        payload: ExternalTargetConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.external_targets.confirm(target_id, payload.observation_id)
+
+    @app.post(
+        "/api/external-targets/{target_id}/enabled",
+        response_model=ExternalTargetRead,
+    )
+    def set_external_target_enabled(
+        target_id: UUID,
+        payload: ExternalTargetEnabledRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.external_targets.set_enabled(target_id, enabled=payload.enabled)
+
+    @app.post(
+        "/api/external-targets/{target_id}/deactivate",
+        response_model=ExternalTargetRead,
+    )
+    def deactivate_external_target(
+        target_id: UUID,
+        _payload: AgentWorkspacePromotionConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalTargetRead:
+        return context.external_targets.deactivate(target_id)
 
     @app.get("/api/runtime-matrix", response_model=RuntimeMatrixResponse)
     def runtime_matrix(

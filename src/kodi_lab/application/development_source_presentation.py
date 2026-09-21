@@ -93,6 +93,8 @@ class DevelopmentSourcePresentationService:
                 target = TargetRepository(session).get(instance_id)
                 if instance is None or target is None:
                     continue
+                if target.kodi_version is None:
+                    raise RuntimeError("managed target has no Kodi version")
                 revision = RuntimeRevisionRepository(session).get(
                     instance.runtime_revision_id
                 )

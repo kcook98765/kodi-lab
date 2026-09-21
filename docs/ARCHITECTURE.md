@@ -2083,3 +2083,34 @@ repository/ZIP publication, arbitrary filesystem/test/command, generic
 JSON-RPC/add-on execution, Docker/raw-broker, external-development target or
 production-target authority. Phase 13 begins with external-development-target
 architecture review, not implementation or production testing.
+
+## Phase 13 Slice 1 external-development boundary
+
+External Kodi registrations reuse `targets.id` and have exactly one
+`external_kodi_targets` subtype row. The target type constraint admits only
+`managed` and `external_development`; production is structurally absent. The
+subtype separates disabled/enabled/deactivated administration,
+unverified/verified/re-verification/identity-mismatch trust, and current
+reachability/authentication/capability observation. Append-only bounded probe
+observations and semantic events remain distinct from current projection.
+
+Only authenticated Web administrators cross this boundary. Registration,
+endpoint and credential changes, fixed read-only probe, exact observation
+confirmation, enable/disable and durable deactivation are same-origin and
+CSRF-protected. The MCP registry remains the exact fifteen tools and all
+existing target adapters and grant/policy administration remain managed-only.
+
+Slice 1 accepts canonical IP literals, not URLs or hostnames. Private RFC1918
+IPv4 is allowed except the managed-lab network; IPv6 is allowed only inside
+operator-configured ULA prefixes. Server-configured ports default to `8080`.
+Loopback is unavailable unless an explicit test setting is enabled. The
+verifier constructs the scheme and `/jsonrpc`, connects directly with no
+ambient proxy, follows no redirects, and makes only bounded fixed read-only
+calls. HTTPS uses normal CA and IP-name validation; there is no `verify=false`
+or self-signed pin path in this slice.
+
+Username/password credentials are AES-256-GCM files below the protected data
+root, keyed by explicit deployment configuration. Database state holds only a
+random opaque UUID reference and key-version-bound ciphertext metadata remains
+outside SQLite. No-auth LAN mode is explicit. Password authentication over HTTP
+is displayed with a warning because it is transport-visible on that LAN.

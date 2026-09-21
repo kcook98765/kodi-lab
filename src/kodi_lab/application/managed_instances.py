@@ -254,6 +254,8 @@ class ManagedInstanceService:
         reason = eligibility.reason
         assert reason is not None
         if reason is RuntimeIneligibilityReason.INCOMPATIBLE_RELEASE:
+            if target.kodi_version is None:
+                raise RuntimeError("managed target has no Kodi version")
             raise KodiVersionIncompatibleError(
                 target_id=target.id,
                 runtime_definition_id=definition.id,

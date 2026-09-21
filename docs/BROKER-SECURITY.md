@@ -638,3 +638,12 @@ container details from trusted state. MCP cannot select or invoke source apply,
 rollback, copy, reload, log capture, broker methods, paths, containers,
 commands, Docker operations, Git or repository publication. The mandatory
 durable verification child and existing source-success boundary are unchanged.
+
+## Phase 13 Slice 1 has no broker authority
+
+External-development registration and native read-only JSON-RPC verification
+are unprivileged application/Web functions. Slice 1 adds no broker operation,
+caller, path, Docker access, lifecycle action, bridge installation, deployment,
+execution or production authority. The verifier receives only the persisted
+structured endpoint and a credential recovered by the application secret
+facility; it cannot invoke the broker.

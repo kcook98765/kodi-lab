@@ -118,6 +118,15 @@ from kodi_lab.domain.development_sources import (
     validate_addon_id,
     validate_observed_metadata,
 )
+from kodi_lab.domain.external_targets import (
+    EXTERNAL_CAPABILITY_VALUES,
+    ExternalAdministrativeState,
+    ExternalAuthenticationMode,
+    ExternalCapability,
+    ExternalObservationState,
+    ExternalProtocolKind,
+    ExternalVerificationState,
+)
 from kodi_lab.domain.fixtures import (
     FixtureContentCategory,
     FixtureDefinition,
@@ -212,6 +221,7 @@ from kodi_lab.domain.snapshots import (
 )
 
 __all__ = [
+    "EXTERNAL_CAPABILITY_VALUES",
     "KODI_RUNTIME_VALIDATION_CONTRACT",
     "MAX_ADDON_ID",
     "MAX_ADDON_NAME",
@@ -308,6 +318,12 @@ __all__ = [
     "DevelopmentSourceSmokeTestOverallResult",
     "DevelopmentSourceSmokeTestPostProvenance",
     "EffectiveValidationState",
+    "ExternalAdministrativeState",
+    "ExternalAuthenticationMode",
+    "ExternalCapability",
+    "ExternalObservationState",
+    "ExternalProtocolKind",
+    "ExternalVerificationState",
     "FixtureContentCategory",
     "FixtureDefinition",
     "FixtureSizeCategory",

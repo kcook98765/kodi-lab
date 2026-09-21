@@ -1372,3 +1372,24 @@ modern stdio and bounded legacy HTTP share the same services and replay state.
 No shell, Git/GitHub, repository or ZIP publication, arbitrary command/test,
 generic execution, raw filesystem, external target or production target is
 added. Phase 13 is the separate external-development-target architecture gate.
+
+## Phase 13 Slice 1 checkpoint
+
+**Slice 1: COMPLETE. Phase 13: PARTIAL.** Migration
+`0044_external_development_targets` adds the external-development subtype,
+durable observations/events, closed capability storage and generic target
+foreign keys while preserving every existing managed UUID, grant and preset
+assignment. Destructive downgrade refuses populated external state.
+
+Web administrators can register a structured private-LAN IP endpoint, store or
+rotate a protected credential, run the fixed native read-only Kodi probe,
+inspect its bounded evidence, explicitly confirm it, enable/disable it and
+durably deactivate it. New targets are disabled/unverified and probe success is
+not activation. Endpoint, credential or important observed identity changes
+block effective use pending confirmation.
+
+Hostname/DNS, self-signed TLS pinning, MCP use of external targets, bridge
+pairing, screenshot, workspace deployment, fixed execution, external lifecycle
+control, LAN-development proof and production policy remain future work. The
+exact fifteen-tool MCP catalog and managed-only target eligibility are frozen
+through Slice 1.
