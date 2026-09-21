@@ -2114,3 +2114,46 @@ root, keyed by explicit deployment configuration. Database state holds only a
 random opaque UUID reference and key-version-bound ciphertext metadata remains
 outside SQLite. No-auth LAN mode is explicit. Password authentication over HTTP
 is displayed with a warning because it is transport-visible on that LAN.
+
+## Phase 13 Slice 2 external semantic target adapters
+
+MCP target authorization now resolves one semantic `KodiTargetAdapterService`
+after current client permission, exact common target grant and target preset
+policy checks. Managed UUIDs select the existing runtime-status, inventory and
+browser-remote services. External-development UUIDs select the fixed native
+adapter only when the subtype is enabled, verified, not mismatched or awaiting
+re-verification, the current structured endpoint still matches confirmed
+address evidence, and the required capability is present in both configured
+and verified sets.
+
+The registry widens only `target_list`, `target_status`, `addon_list` and
+`remote_action` to external development. Discovery uses confirmed stored state
+and therefore does not hide a granted target solely because it is temporarily
+unreachable. Status performs an on-demand Ping/application identity check;
+inventory obtains current application identity and fixed paged
+`Addons.GetAddons`; remote performs a fresh identity check immediately before
+the existing closed semantic action mapping. There is no background polling.
+All external requests construct `/jsonrpc`, ignore environment proxies, reject
+redirects, use bounded body/JSON/time limits and send credentials only to the
+validated IP-literal endpoint.
+
+The verification probe establishes `addon_inventory` with one bounded
+read-only inventory page. It establishes `semantic_remote` only when fixed
+read-only `JSONRPC.Introspect` calls prove every method needed by the closed
+action mapping. Missing methods leave the capability unverified; Kodi version
+is not capability evidence. MCP never triggers capability establishment.
+
+The Phase 11 receipt remains the remote replay authority. Its durable pending
+claim precedes the fresh identity check. Current client permission, exact grant,
+target policy, state and capability are re-authorized after that check and
+immediately before mutation. Response loss after possible send becomes durable
+ambiguity and duplicates never resend. Proven connect failure is a bounded
+pre-send failure. Native work is limited to eight concurrent operations
+globally and one operation per exact external target, with at most 1,024
+retained target gates.
+
+Screenshot, workspace deployment, workspace execution and promotion retain
+internal managed target-class eligibility. No bridge, pairing, endpoint input,
+raw JSON-RPC, lifecycle, filesystem, production or registration authority is
+added to MCP. Modern HTTP, modern stdio and bounded legacy HTTP all enter the
+same adapter, authorization and replay services.

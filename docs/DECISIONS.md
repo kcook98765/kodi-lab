@@ -3793,3 +3793,42 @@ authority.
   establish only `target_inspect`; configuration or observation grants no MCP
   authority. Effective use requires future class eligibility and authorization
   in addition to configured and verified capability intersection.
+
+## D-0287: Existing semantic tools use one target-adapter boundary
+- Status: accepted Phase 13 Slice 2.
+- Decision: `target_list`, `target_status`, `addon_list` and `remote_action`
+  admit verified `external_development` targets through one application-owned
+  `KodiTargetAdapterService`. It selects the existing managed adapter or the
+  fixed external native adapter below MCP registry and authorization. Tool
+  handlers contain no caller-selectable protocol or external special case.
+  Screenshot, workspace deployment/execution, promotion, bridge, lifecycle,
+  raw JSON-RPC and production remain internal-only or absent. The catalog and
+  every tool schema remain exactly the existing fifteen.
+
+## D-0288: External capability is configured maximum intersected with proof
+- Status: accepted Phase 13 Slice 2.
+- Decision: effective external authority is valid credential, enabled client,
+  tool permission, exact target grant, target preset policy, external-
+  development class, enabled and verified state, current identity, configured
+  maximum and verified technical capability. No dimension substitutes for
+  another. `addon_inventory` is proved by one bounded read-only
+  `Addons.GetAddons` page. `semantic_remote` is proved without mutation by
+  fixed per-method `JSONRPC.Introspect` requests covering the complete closed
+  semantic mapping; Kodi version alone is never proof. MCP cannot establish or
+  confirm capability. Listing uses stored confirmed evidence, while status and
+  inventory recheck identity on demand and remote control always rechecks
+  identity immediately before dispatch.
+
+## D-0289: External remote control retains the Phase 11 replay barrier
+- Status: accepted Phase 13 Slice 2.
+- Decision: external control uses the unchanged client/request UUID receipt as
+  a durable pre-dispatch marker and the unchanged closed action vocabulary.
+  Exact terminal duplicates replay; changed parameters conflict; pending,
+  post-send transport loss and malformed/lost acknowledgements are ambiguous
+  and never redispatched. Current client permission, grant, target policy,
+  class/state and capability are re-authorized after the fresh identity check
+  and immediately before mutation. A connect failure that proves no connection
+  was made is a definite pre-send failure, while any failure after bytes may
+  have reached Kodi is conservative ambiguity. One operation per external
+  target and a bounded global native-operation pool prevent slow targets from
+  consuming unbounded workers.

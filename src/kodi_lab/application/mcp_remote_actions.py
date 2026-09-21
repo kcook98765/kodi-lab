@@ -73,6 +73,7 @@ class _RemoteService(Protocol):
         *,
         actor: RemoteActorContext | None = None,
         invocation_id: UUID | None = None,
+        before_dispatch: Callable[[], None] | None = None,
     ) -> BrowserRemoteResult: ...
 
 
@@ -112,6 +113,7 @@ class McpRemoteActionReceiptService:
         target_id: UUID,
         request_id: UUID,
         action: BrowserRemoteAction,
+        before_dispatch: Callable[[], None] | None = None,
     ) -> McpRemoteActionResult:
         claim = self._claim(
             client_id=client_id,
@@ -137,6 +139,7 @@ class McpRemoteActionReceiptService:
                 action,
                 actor=actor,
                 invocation_id=UUID(claim.row.id),
+                before_dispatch=before_dispatch,
             )
         except BrowserRemoteError as error:
             state = (

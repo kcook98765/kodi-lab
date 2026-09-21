@@ -16,6 +16,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import (
     Body,
     Depends,
@@ -235,6 +236,7 @@ from kodi_lab.application.mcp_administration import (
 )
 from kodi_lab.application.mcp_promotion_requests import McpPromotionRequestService
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionReceiptService
+from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
 from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentService,
 )
@@ -898,6 +900,7 @@ def create_app(
     browser_remote_adapter_factory: RemoteAdapterFactory | None = None,
     managed_live_display_service: ManagedLiveDisplayService | None = None,
     external_target_service: ExternalTargetAdministrationService | None = None,
+    external_target_transport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
 
@@ -952,9 +955,6 @@ def create_app(
         adapter_factory=(browser_remote_adapter_factory or KodiBrowserRemoteAdapter),
     )
     remote_rate_limiter = browser_remote_rate_limiter or BrowserRemoteRateLimiter()
-    remote_receipts = McpRemoteActionReceiptService(
-        session_factory, browser_remote, remote_rate_limiter
-    )
     agent_workspaces = agent_workspace_service or AgentWorkspaceService(
         session_factory,
         data_root=settings.data_root,
@@ -991,33 +991,49 @@ def create_app(
         retention=mcp_workspace_retention,
         development=mcp_workspace_development,
     )
+    external_endpoint_policy = ExternalEndpointPolicy(
+        allowed_ports=settings.external_target_allowed_ports,
+        ipv6_ula_networks=settings.external_target_ipv6_ula_networks,
+        test_loopback_enabled=settings.external_target_test_loopback_enabled,
+    )
+    external_credential_store = ExternalCredentialStore(
+        settings.data_root / "secrets" / "external-targets",
+        master_key=decode_master_key(
+            None
+            if settings.external_target_master_key is None
+            else settings.external_target_master_key.get_secret_value()
+        ),
+        key_version=settings.external_target_master_key_version,
+    )
     external_targets = external_target_service or ExternalTargetAdministrationService(
         session_factory,
-        endpoint_policy=ExternalEndpointPolicy(
-            allowed_ports=settings.external_target_allowed_ports,
-            ipv6_ula_networks=settings.external_target_ipv6_ula_networks,
-            test_loopback_enabled=settings.external_target_test_loopback_enabled,
-        ),
-        credential_store=ExternalCredentialStore(
-            settings.data_root / "secrets" / "external-targets",
-            master_key=decode_master_key(
-                None
-                if settings.external_target_master_key is None
-                else settings.external_target_master_key.get_secret_value()
-            ),
-            key_version=settings.external_target_master_key_version,
-        ),
+        endpoint_policy=external_endpoint_policy,
+        credential_store=external_credential_store,
     )
     mcp_registry = build_mcp_tool_registry()
+    managed_target_authority = InternalManagedTargetAuthorityProvider(
+        session_factory,
+        reconciliation=reconciliation,
+        screenshots=screenshots,
+        status=status_service,
+    )
+    mcp_target_adapters = KodiTargetAdapterService(
+        session_factory,
+        managed_status=status_service,
+        managed_inventory=addon_inventory,
+        managed_remote=browser_remote,
+        managed_authority=managed_target_authority,
+        endpoint_policy=external_endpoint_policy,
+        credential_store=external_credential_store,
+        external_transport=external_target_transport,
+    )
+    remote_receipts = McpRemoteActionReceiptService(
+        session_factory, mcp_target_adapters, remote_rate_limiter
+    )
     mcp_authorization = McpAuthorizationService(
         session_factory,
         mcp_registry,
-        targets=InternalManagedTargetAuthorityProvider(
-            session_factory,
-            reconciliation=reconciliation,
-            screenshots=screenshots,
-            status=status_service,
-        ),
+        targets=mcp_target_adapters,
     )
     live_display = managed_live_display_service or ManagedLiveDisplayService(
         broker, status_service, reconciliation, screenshots
@@ -1342,6 +1358,7 @@ def create_app(
             mcp_workspace_retention,
             mcp_workspace_development,
             mcp_promotion_requests,
+            target_adapters=mcp_target_adapters,
         ),
     )
     instance_detail = ManagedInstanceDetailService(

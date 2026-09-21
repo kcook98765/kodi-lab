@@ -196,3 +196,18 @@ separate states, bounded Kodi/protocol observations, configured/verified
 capabilities and timestamps. They never expose a password, Authorization
 header, secret reference, raw response, raw JSON-RPC, DNS data or socket error.
 Failures use the closed semantic external-target error vocabulary.
+
+## Phase 13 Slice 2 Web/MCP separation
+
+The existing Web MCP-client target grant and target-preset assignment routes
+now accept active external-development UUIDs through the same common target
+tables; no external-specific grant or preset is created. They remain
+administrator-session, Trusted Host, same-origin and CSRF protected. MCP has no
+registration, endpoint, credential, probe, confirmation, enablement, policy,
+grant or revocation route and cannot establish technical capability.
+
+MCP results retain existing schemas and omit endpoint, IP, port, authentication
+mode, secret reference, credentials and raw observation records. Native request
+failures and audits contain only bounded semantic classifications, client/
+credential/target UUIDs, tool/capability and mutation request UUID where
+applicable; Authorization and credential material are never logged.

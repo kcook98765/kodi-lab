@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run an isolated Web/native external-development Slice 1 proof."""
+"""Run an isolated Web/native external-development Slice 2 proof."""
 
 from __future__ import annotations
 
@@ -12,12 +12,13 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, ClassVar, cast
+from uuid import UUID
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 
-from kodi_lab.application.mcp_administration import READ_ONLY_INSPECTION_PRESET_ID
+from kodi_lab.application.mcp_administration import ADDON_DEVELOPMENT_PRESET_ID
 from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.config import Settings
 from kodi_lab.mcp.registry import build_mcp_tool_registry
@@ -46,6 +47,7 @@ def _require(condition: bool, message: str) -> None:
 class _KodiHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     methods: ClassVar[list[str]] = []
+    mutations: ClassVar[int] = 0
 
     def do_POST(self) -> None:
         _require(self.path == "/jsonrpc", "verifier used a non-canonical path")
@@ -77,6 +79,25 @@ class _KodiHandler(BaseHTTPRequestHandler):
                     "tagversion": "",
                 },
             }
+        elif method == "Addons.GetAddons":
+            result = {
+                "addons": [
+                    {
+                        "addonid": "plugin.video.proof",
+                        "name": "Proof",
+                        "version": "1.0.0",
+                        "enabled": True,
+                        "type": "xbmc.python.pluginsource",
+                    }
+                ],
+                "limits": {"start": 0, "end": 1, "total": 1},
+            }
+        elif method == "JSONRPC.Introspect":
+            requested = request["params"]["filter"]["id"]
+            result = {"methods": {requested: {"type": "method"}}}
+        elif method == "Input.Home":
+            type(self).mutations += 1
+            result = "OK"
         else:
             raise RuntimeError("verifier called an unapproved JSON-RPC method")
         body = json.dumps(
@@ -119,6 +140,7 @@ def _mcp_call(
 
 def main() -> None:
     _KodiHandler.methods = []
+    _KodiHandler.mutations = 0
     server = ThreadingHTTPServer(("127.0.0.1", 0), _KodiHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -245,22 +267,63 @@ def main() -> None:
                     context = cast(FastAPI, client.app).state.kodi_lab
                     administration = context.mcp_administration
                     principal = administration.create_client(
-                        display_name="Phase 13 non-exposure proof",
-                        preset_id=READ_ONLY_INSPECTION_PRESET_ID,
+                        display_name="Phase 13 external MCP proof",
+                        preset_id=ADDON_DEVELOPMENT_PRESET_ID,
                     )
+                    administration.assign_target_preset(
+                        UUID(target_id), ADDON_DEVELOPMENT_PRESET_ID
+                    )
+                    administration.grant_target(principal.id, UUID(target_id))
                     token = administration.issue_credential(principal.id).token
                     listed = _mcp_call(client, token, "target_list", {})
                     _require(
-                        listed["result"]["structuredContent"]["targets"] == [],
-                        "external target leaked into MCP target_list",
+                        listed["result"]["structuredContent"]["targets"][0]["target_id"]
+                        == target_id,
+                        "granted external target was not discoverable",
                     )
                     status = _mcp_call(
                         client, token, "target_status", {"target_id": target_id}
                     )
                     _require(
-                        status["result"].get("isError") is True,
-                        "MCP accepted an external target",
+                        status["result"].get("isError") is not True,
+                        "external target status failed",
                     )
+                    addons = _mcp_call(
+                        client, token, "addon_list", {"target_id": target_id}
+                    )
+                    _require(
+                        addons["result"]["structuredContent"]["addons"][0]["addon_id"]
+                        == "plugin.video.proof",
+                        "external add-on inventory failed",
+                    )
+                    remote_arguments = {
+                        "request_id": "4f86bc6b-95d1-4e7d-b34b-1f7f76e820a1",
+                        "target_id": target_id,
+                        "action": "home",
+                    }
+                    first_remote = _mcp_call(
+                        client, token, "remote_action", remote_arguments
+                    )
+                    replay_remote = _mcp_call(
+                        client, token, "remote_action", remote_arguments
+                    )
+                    _require(
+                        first_remote["result"]["structuredContent"]
+                        == replay_remote["result"]["structuredContent"]
+                        and _KodiHandler.mutations == 1,
+                        "external remote replay failed: "
+                        f"first={first_remote!r} replay={replay_remote!r} "
+                        f"mutations={_KodiHandler.mutations}",
+                    )
+                    administration.remove_target_grant(principal.id, UUID(target_id))
+                    denied = _mcp_call(
+                        client, token, "target_status", {"target_id": target_id}
+                    )
+                    _require(
+                        denied["result"].get("isError") is True,
+                        "grant revocation did not deny immediately",
+                    )
+                    administration.grant_target(principal.id, UUID(target_id))
 
                     client.post(
                         f"/api/external-targets/{target_id}/enabled",
@@ -310,13 +373,8 @@ def main() -> None:
                 "deactivation did not retire the active secret",
             )
             _require(
-                _KodiHandler.methods
-                == [
-                    "JSONRPC.Ping",
-                    "JSONRPC.Version",
-                    "Application.GetProperties",
-                ],
-                "probe used an unexpected method sequence",
+                "JSONRPC.Introspect" in _KodiHandler.methods,
+                "remote capability was not read-only verified",
             )
             _require(
                 len(tuple(build_mcp_tool_registry().names())) == 15,
@@ -328,9 +386,10 @@ def main() -> None:
                         "result": "passed",
                         "target_id": target_id,
                         "kodi_version": "21.3",
-                        "probe_methods": _KodiHandler.methods,
+                        "probe_method_count": len(_KodiHandler.methods),
                         "mcp_tool_count": 15,
-                        "mcp_external_visible": False,
+                        "mcp_external_visible": True,
+                        "remote_mutation_count": _KodiHandler.mutations,
                         "final_state": "deactivated",
                     },
                     sort_keys=True,

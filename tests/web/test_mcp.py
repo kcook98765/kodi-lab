@@ -51,7 +51,16 @@ from kodi_lab.storage.models import (
     TargetRow,
 )
 
-from .conftest import INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
+from .conftest import (
+    EXTERNAL_TARGET_ID,
+    INSTANCE_ID,
+    ORIGIN,
+    REVISION_ID,
+    FakeBroker,
+    FakeExternalKodi,
+    login,
+    seed_external_target,
+)
 
 PROTOCOL = "2026-07-28"
 LEGACY_PROTOCOL = "2025-11-25"
@@ -487,6 +496,105 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
         for method, version, _session in observed
     )
     assert all(session is None for _method, _version, session in observed)
+
+
+def test_external_target_modern_legacy_status_inventory_and_replay_parity(
+    client: TestClient,
+    database: sessionmaker[Session],
+    external_kodi: FakeExternalKodi,
+) -> None:
+    seed_external_target(database)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="External HTTP parity",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.assign_target_preset(EXTERNAL_TARGET_ID, FULL_LAB_CONTROL_PRESET_ID)
+    administration.grant_target(mcp_client.id, EXTERNAL_TARGET_ID)
+    token = administration.issue_credential(mcp_client.id).token
+
+    for tool in ("target_status", "addon_list"):
+        params = {
+            "name": tool,
+            "arguments": {"target_id": str(EXTERNAL_TARGET_ID)},
+        }
+        modern = _post(client, token, "tools/call", params=params).json()["result"]
+        legacy = _legacy_post(client, token, "tools/call", params=params).json()[
+            "result"
+        ]
+        assert modern["isError"] is legacy["isError"] is False
+        modern_content = dict(modern["structuredContent"])
+        legacy_content = dict(legacy["structuredContent"])
+        modern_content.pop("observed_at", None)
+        legacy_content.pop("observed_at", None)
+        assert modern_content == legacy_content
+
+    arguments = {
+        "request_id": str(uuid4()),
+        "target_id": str(EXTERNAL_TARGET_ID),
+        "action": "home",
+    }
+    modern = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "remote_action", "arguments": arguments},
+    ).json()["result"]
+    legacy = _legacy_post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "remote_action", "arguments": arguments},
+    ).json()["result"]
+    assert modern["isError"] is legacy["isError"] is False
+    assert modern["structuredContent"] == legacy["structuredContent"]
+    assert external_kodi.mutations == 1
+
+
+def test_external_remote_rechecks_revocation_after_identity_before_dispatch(
+    client: TestClient,
+    database: sessionmaker[Session],
+    external_kodi: FakeExternalKodi,
+) -> None:
+    seed_external_target(database)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="External pre-dispatch recheck",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.assign_target_preset(EXTERNAL_TARGET_ID, FULL_LAB_CONTROL_PRESET_ID)
+    administration.grant_target(mcp_client.id, EXTERNAL_TARGET_ID)
+    token = administration.issue_credential(mcp_client.id).token
+
+    def revoke() -> None:
+        administration.remove_target_grant(mcp_client.id, EXTERNAL_TARGET_ID)
+
+    external_kodi.on_identity = revoke
+    arguments = {
+        "request_id": str(uuid4()),
+        "target_id": str(EXTERNAL_TARGET_ID),
+        "action": "home",
+    }
+
+    first = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "remote_action", "arguments": arguments},
+    ).json()["result"]
+    replay = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "remote_action", "arguments": arguments},
+    ).json()["result"]
+    assert first["isError"] is replay["isError"] is True
+    assert (
+        first["structuredContent"]
+        == replay["structuredContent"]
+        == {"error": "target_not_found_or_not_authorized"}
+    )
+    assert external_kodi.mutations == 0
 
 
 def test_observation_tools_are_bounded_native_and_retain_latest_on_failure(

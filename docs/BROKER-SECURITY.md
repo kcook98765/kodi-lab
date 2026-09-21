@@ -647,3 +647,14 @@ caller, path, Docker access, lifecycle action, bridge installation, deployment,
 execution or production authority. The verifier receives only the persisted
 structured endpoint and a credential recovered by the application secret
 facility; it cannot invoke the broker.
+
+## Phase 13 Slice 2 has no new broker authority
+
+External target status, add-on inventory and semantic remote control remain
+unprivileged direct native JSON-RPC operations. The application resolves the
+persisted target and protected credential, validates the fixed endpoint, and
+selects a closed semantic adapter only after the complete MCP authority
+intersection. It cannot call the broker or select a broker method, container,
+path, command, lifecycle action, bridge, deployment or execution operation.
+Existing managed-target tools continue through their existing services and
+broker boundaries unchanged.

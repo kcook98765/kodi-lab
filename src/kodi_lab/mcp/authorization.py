@@ -41,6 +41,7 @@ from kodi_lab.storage.models import (
     McpClientTargetGrantRow,
     McpPresetPermissionRow,
     McpTargetPresetAssignmentRow,
+    TargetRow,
 )
 from kodi_lab.storage.repositories import (
     AgentWorkspaceRepository,
@@ -84,7 +85,7 @@ class InternalManagedTargetAuthorityProvider:
         self._status = status
 
     def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
-        capabilities = {"managed_runtime_status", "addon_inventory"}
+        capabilities = {"managed_runtime_status", "target_inspect", "addon_inventory"}
         states: set[str] = set()
         instance = None
         if self._session_factory is not None:
@@ -185,9 +186,9 @@ class McpAuthorizationService:
                 McpClientTargetGrantRow,
                 {"client_id": str(principal.client_id), "target_id": str(target_id)},
             )
-            instance = session.get(ManagedInstanceRow, str(target_id))
+            target = session.get(TargetRow, str(target_id))
             assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
-            if grant is None or instance is None or assignment is None:
+            if grant is None or target is None or assignment is None:
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
             client_permissions = self._permissions(session, client.preset_id)
             target_permissions = self._permissions(session, assignment.preset_id)
@@ -195,7 +196,7 @@ class McpAuthorizationService:
                 client_permissions.intersection(target_permissions)
             ):
                 raise McpAuthorizationError("permission_denied")
-        technical = self._targets.resolve(target_id)
+        technical = self._technical(target_id)
         if technical.target_class not in definition.allowed_target_classes:
             raise McpAuthorizationError("permission_denied")
         if (
@@ -426,7 +427,7 @@ class McpAuthorizationService:
                     if tool_name == "promotion_request"
                     else "deployment_not_allowed"
                 )
-        technical = self._targets.resolve(target_id)
+        technical = self._technical(target_id)
         if technical.target_class not in definition.allowed_target_classes:
             raise McpAuthorizationError(
                 "promotion_not_allowed"
@@ -470,6 +471,25 @@ class McpAuthorizationService:
         ):
             raise McpAuthorizationError("permission_denied")
         return client
+
+    def _technical(self, target_id: UUID) -> TargetTechnicalAuthority:
+        try:
+            return self._targets.resolve(target_id)
+        except McpAuthorizationError:
+            raise
+        except Exception as error:
+            code = getattr(error, "code", "target_not_found_or_not_authorized")
+            if code not in {
+                "authentication_failed",
+                "capability_unavailable",
+                "identity_mismatch",
+                "needs_reverification",
+                "permission_denied",
+                "target_not_found_or_not_authorized",
+                "target_unreachable",
+            }:
+                code = "target_not_found_or_not_authorized"
+            raise McpAuthorizationError(code) from error
 
     def invoke_unscoped(
         self,

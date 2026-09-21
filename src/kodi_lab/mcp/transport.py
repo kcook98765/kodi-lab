@@ -903,6 +903,7 @@ def build_mcp_http_transport(
             elif params.name == "remote_action":
                 parsed_remote = _RemoteActionInput.model_validate(arguments)
                 target_id = parsed_remote.target_id
+                request_id = parsed_remote.request_id
                 result = await asyncio.to_thread(
                     tools.remote_action,
                     principal,
@@ -928,7 +929,9 @@ def build_mcp_http_transport(
             elif params.name == "target_status":
                 parsed_status = _TargetStatusInput.model_validate(arguments)
                 target_id = parsed_status.target_id
-                result = tools.target_status(principal, target_id=target_id)
+                result = await asyncio.to_thread(
+                    tools.target_status, principal, target_id=target_id
+                )
             elif params.name == "development_source_list":
                 parsed_sources = _DevelopmentSourceListInput.model_validate(arguments)
                 result = tools.development_source_list(
@@ -1182,12 +1185,14 @@ def _audit(
 ) -> None:
     logger.info(
         "mcp_request client_id=%s credential_id=%s tool=%s target_id=%s "
+        "capability=%s "
         "source_id=%s workspace_id=%s request_id=%s generation=%s plan_id=%s "
         "started_at=%s completed_at=%s outcome=%s",
         principal.client_id,
         principal.credential_id,
         tool_name,
         target_id,
+        _tool_capability(tool_name),
         source_id,
         workspace_id,
         request_id,
@@ -1197,6 +1202,15 @@ def _audit(
         _timestamp(),
         outcome,
     )
+
+
+def _tool_capability(tool_name: str) -> str:
+    return {
+        "target_list": "target_inspect",
+        "target_status": "target_inspect",
+        "addon_list": "addon_inventory",
+        "remote_action": "semantic_remote",
+    }.get(tool_name, "not_applicable")
 
 
 def _timestamp() -> str:

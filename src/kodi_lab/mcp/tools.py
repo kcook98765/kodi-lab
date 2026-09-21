@@ -39,6 +39,10 @@ from kodi_lab.application.mcp_remote_actions import (
     McpRemoteActionReceiptService,
     McpRemoteActionResult,
 )
+from kodi_lab.application.mcp_target_adapters import (
+    KodiTargetAdapterError,
+    KodiTargetAdapterService,
+)
 from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentError,
     McpWorkspaceDevelopmentService,
@@ -390,6 +394,7 @@ class McpTargetToolService:
         workspace_retention: McpWorkspaceRetentionService | None = None,
         workspace_development: McpWorkspaceDevelopmentService | None = None,
         promotion_requests: McpPromotionRequestService | None = None,
+        target_adapters: KodiTargetAdapterService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -402,6 +407,7 @@ class McpTargetToolService:
         self._workspace_retention = workspace_retention
         self._workspace_development = workspace_development
         self._promotion_requests = promotion_requests
+        self._target_adapters = target_adapters
         self._active_edit_lock = threading.Lock()
         self._active_edits: set[UUID] = set()
         self._validation_lock = threading.Lock()
@@ -842,6 +848,10 @@ class McpTargetToolService:
         self._authorization.authorize_target(principal, "remote_action", target_id)
         if self._remote_actions is None:
             raise McpAuthorizationError("capability_unavailable")
+
+        def reauthorize() -> None:
+            self._authorization.authorize_target(principal, "remote_action", target_id)
+
         try:
             result = self._remote_actions.invoke(
                 client_id=principal.client_id,
@@ -849,6 +859,7 @@ class McpTargetToolService:
                 target_id=target_id,
                 request_id=request_id,
                 action=action,
+                before_dispatch=reauthorize,
             )
         except McpRemoteActionReceiptError as error:
             raise McpAuthorizationError(error.code) from error
@@ -881,9 +892,15 @@ class McpTargetToolService:
         ):
             raise McpAuthorizationError("permission_denied")
         try:
-            inventory = self._addon_inventory.get(target_id)
+            inventory = (
+                self._addon_inventory.get(target_id)
+                if self._target_adapters is None
+                else self._target_adapters.addon_inventory(target_id)
+            )
         except ManagedInstanceNotFoundError as error:
             raise McpAuthorizationError("target_not_found_or_not_authorized") from error
+        except KodiTargetAdapterError as error:
+            raise McpAuthorizationError(error.code) from error
         if inventory.query_status is not AddonInventoryQueryStatus.AVAILABLE:
             raise McpAuthorizationError(
                 self._inventory_error(inventory.unavailable_reason)
@@ -1038,6 +1055,14 @@ class McpTargetToolService:
         return result
 
     def _summary(self, target_id: UUID) -> TargetSummary:
+        if self._target_adapters is not None:
+            try:
+                item = self._target_adapters.summary(target_id, fresh=True)
+            except KodiTargetAdapterError as error:
+                raise McpAuthorizationError(error.code) from error
+            return TargetSummary(
+                **{field: getattr(item, field) for field in TargetSummary.model_fields}
+            )
         try:
             status = self._status.get(target_id)
         except ManagedInstanceNotFoundError as error:
@@ -1052,6 +1077,20 @@ class McpTargetToolService:
     def _summaries(self, target_ids: list[UUID]) -> tuple[TargetSummary, ...]:
         if not target_ids:
             return ()
+        if self._target_adapters is not None:
+            try:
+                items = self._target_adapters.summaries(target_ids)
+            except KodiTargetAdapterError as error:
+                raise McpAuthorizationError(error.code) from error
+            return tuple(
+                TargetSummary(
+                    **{
+                        field: getattr(item, field)
+                        for field in TargetSummary.model_fields
+                    }
+                )
+                for item in items
+            )
         statuses = {
             item.managed_instance_id: item for item in self._status.list_statuses()
         }

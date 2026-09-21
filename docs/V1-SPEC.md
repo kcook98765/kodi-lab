@@ -1139,13 +1139,18 @@ Phase 14 — Production policy/approvals
 Phase 15 — Diagnostics/hardening  
 Phase 16 — Public release preparation
 
-Phase 13 starts with a constrained Slice 1: authenticated Web administrators
-may register only `external_development` Kodi targets, run bounded native
-read-only verification, explicitly confirm observed identity, and manage
-enable/disable/deactivation. The external subtype reuses the common target UUID;
-credentials are protected outside SQLite. External-production type, MCP use of
-external targets, bridge pairing, screenshots, deployment, execution and
-lifecycle control remain unavailable until later accepted slices.
+Phase 13 starts with constrained external-development slices. Slice 1 lets
+authenticated Web administrators register an `external_development` Kodi,
+perform bounded native read-only verification, explicitly confirm observed
+identity, and manage enable/disable/deactivation. Slice 2 lets the existing
+`target_list`, `target_status`, `addon_list` and closed `remote_action` tools
+use an exactly granted, enabled, verified, identity-matching target through a
+fixed native adapter. Configured capability is only a maximum and must
+intersect read-only technical proof, target policy, client permission and exact
+grant. The common target UUID and fifteen-tool catalog remain unchanged;
+credentials remain protected outside SQLite. External-production type, bridge
+pairing, screenshots, deployment, execution and lifecycle control remain
+unavailable.
 
 ## 48. Recommended module boundaries
 

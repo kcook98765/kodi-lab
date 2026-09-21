@@ -14,7 +14,6 @@ from kodi_lab.application.external_targets import (
 )
 from kodi_lab.application.mcp_administration import (
     READ_ONLY_INSPECTION_PRESET_ID,
-    McpAdministrationError,
     McpAdministrationService,
 )
 from kodi_lab.domain import (
@@ -104,7 +103,7 @@ def _register(
     )
 
 
-def test_registration_probe_confirmation_enable_and_mcp_non_exposure(
+def test_registration_probe_confirmation_enable_and_mcp_administration_eligibility(
     external_service: tuple[
         ExternalTargetAdministrationService, sessionmaker[Session], FakeVerifier
     ],
@@ -135,11 +134,11 @@ def test_registration_probe_confirmation_enable_and_mcp_non_exposure(
     client = administration.create_client(
         display_name="read only", preset_id=READ_ONLY_INSPECTION_PRESET_ID
     )
-    assert created.target_id not in {
+    assert created.target_id in {
         item.target_id for item in administration.list_target_policies()
     }
-    with pytest.raises(McpAdministrationError, match="managed_target_not_found"):
-        administration.grant_target(client.id, created.target_id)
+    granted = administration.grant_target(client.id, created.target_id)
+    assert granted.target_grants == (created.target_id,)
     assert tuple(build_mcp_tool_registry().names()) == (
         "addon_list",
         "development_source_list",

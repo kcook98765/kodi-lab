@@ -47,7 +47,15 @@ from kodi_lab.mcp.stdio_proxy import (
 )
 from kodi_lab.storage.models import McpCredentialRow, McpPresetRow
 
-from .conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
+from .conftest import (
+    EXTERNAL_TARGET_ID,
+    INSTANCE_ID,
+    ORIGIN,
+    FakeBroker,
+    FakeExternalKodi,
+    login,
+    seed_external_target,
+)
 
 STDIO_EXECUTABLE = Path(sys.executable).with_name("kodi-lab-mcp-stdio")
 
@@ -472,6 +480,62 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
                 ]
 
         asyncio.run(exercise())
+
+
+def test_external_target_http_stdio_status_inventory_and_replay_parity(
+    client: TestClient,
+    database: sessionmaker[Session],
+    external_kodi: FakeExternalKodi,
+) -> None:
+    seed_external_target(database)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="External stdio parity",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.assign_target_preset(EXTERNAL_TARGET_ID, FULL_LAB_CONTROL_PRESET_ID)
+    administration.grant_target(mcp_client.id, EXTERNAL_TARGET_ID)
+    token = administration.issue_credential(mcp_client.id).token
+
+    with _live_loopback_server(client.app) as (endpoint, _capture):
+
+        async def exercise() -> None:
+            parameters = StdioServerParameters(
+                command=str(STDIO_EXECUTABLE),
+                env={
+                    TOKEN_ENVIRONMENT_VARIABLE: token,
+                    ENDPOINT_ENVIRONMENT_VARIABLE: endpoint,
+                },
+                cwd=Path.cwd(),
+            )
+            async with (
+                _direct_client(endpoint, token) as direct,
+                Client(parameters, mode="auto", cache=None) as stdio,
+            ):
+                for tool in ("target_status", "addon_list"):
+                    arguments = {"target_id": str(EXTERNAL_TARGET_ID)}
+                    direct_result = await direct.call_tool(tool, arguments)
+                    stdio_result = await stdio.call_tool(tool, arguments)
+                    assert not direct_result.is_error and not stdio_result.is_error
+                    direct_content = dict(direct_result.structured_content or {})
+                    stdio_content = dict(stdio_result.structured_content or {})
+                    direct_content.pop("observed_at", None)
+                    stdio_content.pop("observed_at", None)
+                    assert direct_content == stdio_content
+
+                remote_arguments = {
+                    "request_id": str(uuid4()),
+                    "target_id": str(EXTERNAL_TARGET_ID),
+                    "action": "home",
+                }
+                first = await direct.call_tool("remote_action", remote_arguments)
+                replay = await stdio.call_tool("remote_action", remote_arguments)
+                assert not first.is_error and not replay.is_error
+                assert first.structured_content == replay.structured_content
+
+        asyncio.run(exercise())
+
+    assert external_kodi.mutations == 1
 
 
 def test_development_inspection_is_identical_over_modern_http_and_stdio(

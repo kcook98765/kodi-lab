@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+from collections.abc import Callable
 from enum import StrEnum
 from typing import Protocol, cast
 from uuid import UUID
@@ -81,6 +82,20 @@ _DIRECT_REQUESTS: dict[BrowserRemoteAction, tuple[str, dict[str, object] | None]
     ),
     BrowserRemoteAction.MUTE_TOGGLE: ("Application.SetMute", {"mute": "toggle"}),
 }
+
+SEMANTIC_REMOTE_METHODS = frozenset(
+    {
+        *(method for method, _params in _DIRECT_REQUESTS.values()),
+        "Player.GetActivePlayers",
+        "Player.PlayPause",
+        "Player.Stop",
+        "Player.GoTo",
+    }
+)
+
+type SemanticRemoteRequest = Callable[
+    [str, str, dict[str, object] | None, bool], object
+]
 
 
 class RemoteKodiRejectedError(RuntimeError):
@@ -167,79 +182,18 @@ class KodiBrowserRemoteAdapter:
         self._transport = transport or BoundedRemoteHttpTransport()
 
     def dispatch(self, action: BrowserRemoteAction, invocation_id: UUID) -> None:
-        params: dict[str, object] | None
-        if action in PLAYER_ACTIONS:
-            player_id = self._active_player(invocation_id)
-            method, params = self._player_request(action, player_id)
-        else:
-            method, params = _DIRECT_REQUESTS[action]
-        result = self._request(
-            f"remote-{invocation_id}", method, params, ambiguous_on_transport=True
+        dispatch_semantic_remote(self._semantic_request, action, invocation_id)
+
+    def _semantic_request(
+        self,
+        request_id: str,
+        method: str,
+        params: dict[str, object] | None,
+        mutation: bool,
+    ) -> object:
+        return self._request(
+            request_id, method, params, ambiguous_on_transport=mutation
         )
-        if not self._valid_result(action, result):
-            raise RemoteKodiRejectedError("Kodi did not acknowledge the remote action")
-
-    @staticmethod
-    def _valid_result(action: BrowserRemoteAction, result: object) -> bool:
-        if action is BrowserRemoteAction.PLAY_PAUSE:
-            return (
-                isinstance(result, dict)
-                and set(result) == {"speed"}
-                and isinstance(result.get("speed"), int)
-                and not isinstance(result.get("speed"), bool)
-            )
-        if action in {BrowserRemoteAction.VOLUME_UP, BrowserRemoteAction.VOLUME_DOWN}:
-            return (
-                isinstance(result, int)
-                and not isinstance(result, bool)
-                and 0 <= result <= 100
-            )
-        if action is BrowserRemoteAction.MUTE_TOGGLE:
-            return isinstance(result, bool)
-        return result == "OK"
-
-    def _active_player(self, invocation_id: UUID) -> int:
-        result = self._request(
-            f"remote-player-{invocation_id}",
-            "Player.GetActivePlayers",
-            None,
-            ambiguous_on_transport=False,
-        )
-        if not isinstance(result, list) or any(
-            not isinstance(item, dict) for item in result
-        ):
-            raise RemoteKodiRejectedError("Active-player response is invalid")
-        candidates: list[tuple[int, int]] = []
-        priority = {"video": 0, "audio": 1, "picture": 2}
-        for item in result:
-            player_id = item.get("playerid")
-            player_type = item.get("type")
-            if (
-                not isinstance(player_id, int)
-                or isinstance(player_id, bool)
-                or player_id < 0
-                or not isinstance(player_type, str)
-                or player_type not in priority
-            ):
-                raise RemoteKodiRejectedError("Active-player entry is invalid")
-            candidates.append((priority[player_type], player_id))
-        if not candidates:
-            raise RemoteNoActivePlayerError("No Kodi player is active")
-        return min(candidates)[1]
-
-    @staticmethod
-    def _player_request(
-        action: BrowserRemoteAction, player_id: int
-    ) -> tuple[str, dict[str, object]]:
-        if action is BrowserRemoteAction.PLAY_PAUSE:
-            return "Player.PlayPause", {"playerid": player_id}
-        if action is BrowserRemoteAction.STOP:
-            return "Player.Stop", {"playerid": player_id}
-        if action is BrowserRemoteAction.PREVIOUS:
-            return "Player.GoTo", {"playerid": player_id, "to": "previous"}
-        if action is BrowserRemoteAction.NEXT:
-            return "Player.GoTo", {"playerid": player_id, "to": "next"}
-        raise AssertionError("non-player action reached player mapping")
 
     def _request(
         self,
@@ -285,6 +239,87 @@ class KodiBrowserRemoteAdapter:
         if "error" in document:
             raise RemoteKodiRejectedError("Kodi rejected the remote action")
         return cast(dict[str, object], document)["result"]
+
+
+def dispatch_semantic_remote(
+    request: SemanticRemoteRequest,
+    action: BrowserRemoteAction,
+    invocation_id: UUID,
+) -> None:
+    """Dispatch the one shared closed semantic action mapping."""
+
+    params: dict[str, object] | None
+    if action in PLAYER_ACTIONS:
+        player_id = _active_player(request, invocation_id)
+        method, params = _player_request(action, player_id)
+    else:
+        method, params = _DIRECT_REQUESTS[action]
+    result = request(f"remote-{invocation_id}", method, params, True)
+    if not _valid_result(action, result):
+        raise RemoteKodiRejectedError("Kodi did not acknowledge the remote action")
+
+
+def _valid_result(action: BrowserRemoteAction, result: object) -> bool:
+    if action is BrowserRemoteAction.PLAY_PAUSE:
+        return (
+            isinstance(result, dict)
+            and set(result) == {"speed"}
+            and isinstance(result.get("speed"), int)
+            and not isinstance(result.get("speed"), bool)
+        )
+    if action in {BrowserRemoteAction.VOLUME_UP, BrowserRemoteAction.VOLUME_DOWN}:
+        return (
+            isinstance(result, int)
+            and not isinstance(result, bool)
+            and 0 <= result <= 100
+        )
+    if action is BrowserRemoteAction.MUTE_TOGGLE:
+        return isinstance(result, bool)
+    return result == "OK"
+
+
+def _active_player(request: SemanticRemoteRequest, invocation_id: UUID) -> int:
+    result = request(
+        f"remote-player-{invocation_id}",
+        "Player.GetActivePlayers",
+        None,
+        False,
+    )
+    if not isinstance(result, list) or any(
+        not isinstance(item, dict) for item in result
+    ):
+        raise RemoteKodiRejectedError("Active-player response is invalid")
+    candidates: list[tuple[int, int]] = []
+    priority = {"video": 0, "audio": 1, "picture": 2}
+    for item in result:
+        player_id = item.get("playerid")
+        player_type = item.get("type")
+        if (
+            not isinstance(player_id, int)
+            or isinstance(player_id, bool)
+            or player_id < 0
+            or not isinstance(player_type, str)
+            or player_type not in priority
+        ):
+            raise RemoteKodiRejectedError("Active-player entry is invalid")
+        candidates.append((priority[player_type], player_id))
+    if not candidates:
+        raise RemoteNoActivePlayerError("No Kodi player is active")
+    return min(candidates)[1]
+
+
+def _player_request(
+    action: BrowserRemoteAction, player_id: int
+) -> tuple[str, dict[str, object]]:
+    if action is BrowserRemoteAction.PLAY_PAUSE:
+        return "Player.PlayPause", {"playerid": player_id}
+    if action is BrowserRemoteAction.STOP:
+        return "Player.Stop", {"playerid": player_id}
+    if action is BrowserRemoteAction.PREVIOUS:
+        return "Player.GoTo", {"playerid": player_id, "to": "previous"}
+    if action is BrowserRemoteAction.NEXT:
+        return "Player.GoTo", {"playerid": player_id, "to": "next"}
+    raise AssertionError("non-player action reached player mapping")
 
 
 def fixed_request_mapping() -> dict[BrowserRemoteAction, tuple[str, object]]:

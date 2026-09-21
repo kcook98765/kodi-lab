@@ -6,13 +6,30 @@ import ipaddress
 import json
 import time
 from dataclasses import dataclass
-from typing import Any
-from uuid import uuid4
+from typing import Any, cast
+from uuid import UUID, uuid4
 
 import httpx
 
 from kodi_lab.domain import ExternalProtocolKind
+from kodi_lab.kodi.addons import (
+    INVENTORY_PAGE_SIZE,
+    MAX_INVENTORY_ITEMS,
+    KodiAddonInventoryAdapter,
+    KodiAddonInventoryLimitExceededError,
+    KodiAddonInventoryMalformedDataError,
+    KodiAddonInventoryRecord,
+    KodiAddonInventoryResult,
+    KodiAddonInventoryUnsupportedResponseError,
+)
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
+from kodi_lab.kodi.remote import (
+    SEMANTIC_REMOTE_METHODS,
+    BrowserRemoteAction,
+    RemoteActionAmbiguousError,
+    RemoteKodiRejectedError,
+    dispatch_semantic_remote,
+)
 from kodi_lab.storage.secrets import ExternalKodiCredential
 
 MAX_EXTERNAL_RESPONSE_BYTES = 65_536
@@ -36,6 +53,13 @@ class ExternalProbeError(RuntimeError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
+
+
+class _JsonRpcMethodUnavailable:
+    pass
+
+
+_METHOD_UNAVAILABLE = _JsonRpcMethodUnavailable()
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +221,17 @@ class NativeExternalKodiVerifier:
                     {"properties": ["name", "version"]},
                     started,
                 )
+                verified: list[str] = []
+                if "target_inspect" in configured_capabilities:
+                    verified.append("target_inspect")
+                if "addon_inventory" in configured_capabilities and self._probe_addons(
+                    client, endpoint, started
+                ):
+                    verified.append("addon_inventory")
+                if "semantic_remote" in configured_capabilities and self._probe_remote(
+                    client, endpoint, started
+                ):
+                    verified.append("semantic_remote")
         except ExternalProbeError:
             raise
         except (httpx.TimeoutException, httpx.NetworkError) as error:
@@ -211,16 +246,79 @@ class NativeExternalKodiVerifier:
             raise ExternalProbeError("unsupported_kodi_version")
         if identity.name.strip().lower() != "kodi":
             raise ExternalProbeError("invalid_kodi_response")
-        verified = (
-            ("target_inspect",) if "target_inspect" in configured_capabilities else ()
-        )
         return ExternalKodiProbeResult(
             addresses=(endpoint.address,),
             kodi_name=identity.name,
             kodi_version=release.canonical,
             protocol_version=protocol_version,
-            verified_capabilities=verified,
+            verified_capabilities=tuple(verified),
         )
+
+    def _probe_addons(
+        self,
+        client: httpx.Client,
+        endpoint: ValidatedExternalEndpoint,
+        started: float,
+    ) -> bool:
+        result = self._call(
+            client,
+            endpoint,
+            "Addons.GetAddons",
+            {
+                "type": "unknown",
+                "installed": True,
+                "enabled": "all",
+                "properties": ["name", "version", "enabled"],
+                "limits": {"start": 0, "end": 1},
+            },
+            started,
+            allow_method_error=True,
+        )
+        if result is _METHOD_UNAVAILABLE or not isinstance(result, dict):
+            return False
+        addons = result.get("addons", [])
+        limits = result.get("limits")
+        return (
+            set(result) <= {"addons", "limits"}
+            and isinstance(addons, list)
+            and len(addons) <= 1
+            and isinstance(limits, dict)
+            and set(limits) == {"start", "end", "total"}
+            and type(limits.get("start")) is int
+            and type(limits.get("end")) is int
+            and type(limits.get("total")) is int
+            and limits["start"] == 0
+            and limits["end"] == len(addons)
+            and limits["total"] >= len(addons)
+        )
+
+    def _probe_remote(
+        self,
+        client: httpx.Client,
+        endpoint: ValidatedExternalEndpoint,
+        started: float,
+    ) -> bool:
+        for method in sorted(SEMANTIC_REMOTE_METHODS):
+            result = self._call(
+                client,
+                endpoint,
+                "JSONRPC.Introspect",
+                {
+                    "getdescriptions": False,
+                    "getmetadata": False,
+                    "filter": {"id": method, "type": "method"},
+                },
+                started,
+                allow_method_error=True,
+            )
+            if (
+                result is _METHOD_UNAVAILABLE
+                or not isinstance(result, dict)
+                or not isinstance(result.get("methods"), dict)
+                or method not in result["methods"]
+            ):
+                return False
+        return True
 
     def _call(
         self,
@@ -229,6 +327,8 @@ class NativeExternalKodiVerifier:
         method: str,
         params: dict[str, object] | None,
         started: float,
+        *,
+        allow_method_error: bool = False,
     ) -> Any:
         remaining = self._total_timeout - (time.monotonic() - started)
         if remaining <= 0:
@@ -271,10 +371,15 @@ class NativeExternalKodiVerifier:
         self._validate_json_shape(document)
         if (
             not isinstance(document, dict)
-            or set(document) != {"jsonrpc", "id", "result"}
             or document.get("jsonrpc") != "2.0"
             or document.get("id") != request_id
         ):
+            raise ExternalProbeError("invalid_kodi_response")
+        if set(document) == {"jsonrpc", "id", "error"}:
+            if allow_method_error and isinstance(document.get("error"), dict):
+                return _METHOD_UNAVAILABLE
+            raise ExternalProbeError("invalid_kodi_response")
+        if set(document) != {"jsonrpc", "id", "result"}:
             raise ExternalProbeError("invalid_kodi_response")
         return document["result"]
 
@@ -351,3 +456,258 @@ class NativeExternalKodiVerifier:
                 stack.extend((item, depth + 1) for item in current)
             elif isinstance(current, str) and len(current) > 16_384:
                 raise ExternalProbeError("invalid_kodi_response")
+
+
+class NativeExternalKodiAdapter:
+    """Fixed native read/control adapter for one already validated endpoint."""
+
+    def __init__(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        credential: ExternalKodiCredential | None,
+        *,
+        connect_timeout: float = 1.0,
+        response_timeout: float = 2.0,
+        total_timeout: float = 6.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._endpoint = endpoint
+        self._credential = credential
+        self._verifier = NativeExternalKodiVerifier(
+            connect_timeout=connect_timeout,
+            response_timeout=response_timeout,
+            total_timeout=total_timeout,
+            transport=transport,
+        )
+        self._transport = transport
+        self._connect_timeout = connect_timeout
+        self._response_timeout = response_timeout
+        self._total_timeout = total_timeout
+
+    def get_identity(self) -> KodiApplicationIdentity:
+        started = time.monotonic()
+        try:
+            with self._client() as client:
+                ping = self._verifier._call(
+                    client, self._endpoint, "JSONRPC.Ping", None, started
+                )
+                if ping != "pong":
+                    raise ExternalProbeError("invalid_kodi_response")
+                result = self._verifier._call(
+                    client,
+                    self._endpoint,
+                    "Application.GetProperties",
+                    {"properties": ["name", "version"]},
+                    started,
+                )
+        except ExternalProbeError:
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as error:
+            raise ExternalProbeError("target_unreachable") from error
+        return self._verifier._identity(result)
+
+    def get_inventory(self) -> KodiAddonInventoryResult:
+        started = time.monotonic()
+        try:
+            with self._client() as client:
+                identity_result = self._verifier._call(
+                    client,
+                    self._endpoint,
+                    "Application.GetProperties",
+                    {"properties": ["name", "version"]},
+                    started,
+                )
+                identity = self._verifier._identity(identity_result)
+                records: list[KodiAddonInventoryRecord] = []
+                seen: set[str] = set()
+                expected_total: int | None = None
+                start = 0
+                while expected_total is None or start < expected_total:
+                    end = min(start + INVENTORY_PAGE_SIZE, MAX_INVENTORY_ITEMS)
+                    result = self._verifier._call(
+                        client,
+                        self._endpoint,
+                        "Addons.GetAddons",
+                        {
+                            "type": "unknown",
+                            "installed": True,
+                            "enabled": "all",
+                            "properties": ["name", "version", "enabled"],
+                            "limits": {"start": start, "end": end},
+                        },
+                        started,
+                    )
+                    if not isinstance(result, dict) or not set(result) <= {
+                        "addons",
+                        "limits",
+                    }:
+                        raise KodiAddonInventoryUnsupportedResponseError(
+                            "external inventory result is unsupported"
+                        )
+                    items = result.get("addons", [])
+                    limits = result.get("limits")
+                    if not isinstance(items, list) or not isinstance(limits, dict):
+                        raise KodiAddonInventoryUnsupportedResponseError(
+                            "external inventory page is unsupported"
+                        )
+                    values = tuple(limits.get(key) for key in ("start", "end", "total"))
+                    if set(limits) != {"start", "end", "total"} or any(
+                        type(value) is not int or value < 0 for value in values
+                    ):
+                        raise KodiAddonInventoryUnsupportedResponseError(
+                            "external inventory limits are unsupported"
+                        )
+                    returned_start, returned_end, returned_total = cast(
+                        tuple[int, int, int], values
+                    )
+                    if returned_total > MAX_INVENTORY_ITEMS:
+                        raise KodiAddonInventoryLimitExceededError(
+                            "external inventory exceeds the fixed limit"
+                        )
+                    if expected_total is None:
+                        expected_total = returned_total
+                    if (
+                        returned_total != expected_total
+                        or returned_start != start
+                        or returned_end != start + len(items)
+                        or returned_end > returned_total
+                        or len(items) > INVENTORY_PAGE_SIZE
+                        or (returned_end == start and returned_end < returned_total)
+                    ):
+                        raise KodiAddonInventoryUnsupportedResponseError(
+                            "external inventory pagination is inconsistent"
+                        )
+                    for item in items:
+                        record = KodiAddonInventoryAdapter._normalize_item(item)
+                        if record.addon_id in seen:
+                            raise KodiAddonInventoryMalformedDataError(
+                                "external inventory contains duplicate IDs"
+                            )
+                        seen.add(record.addon_id)
+                        records.append(record)
+                    start = returned_end
+        except (
+            KodiAddonInventoryLimitExceededError,
+            KodiAddonInventoryMalformedDataError,
+            KodiAddonInventoryUnsupportedResponseError,
+            ExternalProbeError,
+        ):
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as error:
+            raise ExternalProbeError("target_unreachable") from error
+        if expected_total is None or len(records) != expected_total:
+            raise KodiAddonInventoryUnsupportedResponseError(
+                "external inventory is incomplete"
+            )
+        return KodiAddonInventoryResult(
+            identity=identity,
+            items=tuple(sorted(records, key=lambda item: item.addon_id)),
+        )
+
+    def dispatch(self, action: BrowserRemoteAction, invocation_id: UUID) -> None:
+        with self._client() as client:
+            dispatch_semantic_remote(
+                lambda request_id, method, params, mutation: self._remote_request(
+                    client, request_id, method, params, mutation
+                ),
+                action,
+                invocation_id,
+            )
+
+    def _client(self) -> httpx.Client:
+        auth = (
+            None
+            if self._credential is None
+            else httpx.BasicAuth(self._credential.username, self._credential.password)
+        )
+        return httpx.Client(
+            auth=auth,
+            follow_redirects=False,
+            trust_env=False,
+            verify=True,
+            transport=self._transport,
+        )
+
+    def _remote_request(
+        self,
+        client: httpx.Client,
+        request_id: str,
+        method: str,
+        params: dict[str, object] | None,
+        mutation: bool,
+    ) -> object:
+        body: dict[str, object] = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+        }
+        if params is not None:
+            body["params"] = params
+        timeout = httpx.Timeout(self._response_timeout, connect=self._connect_timeout)
+        try:
+            with client.stream(
+                "POST", self._endpoint.url, json=body, timeout=timeout
+            ) as response:
+                if response.status_code in {401, 403}:
+                    raise ExternalProbeError("authentication_failed")
+                if 300 <= response.status_code < 400:
+                    raise ExternalProbeError("endpoint_not_allowed")
+                if response.status_code != 200:
+                    if mutation:
+                        raise RemoteKodiRejectedError(
+                            "Kodi rejected the fixed remote action"
+                        )
+                    raise ExternalProbeError("invalid_kodi_response")
+                chunks: list[bytes] = []
+                size = 0
+                for chunk in response.iter_bytes():
+                    size += len(chunk)
+                    if size > MAX_EXTERNAL_RESPONSE_BYTES:
+                        if mutation:
+                            raise RemoteActionAmbiguousError(
+                                "remote response exceeded its bound"
+                            )
+                        raise ExternalProbeError("invalid_kodi_response")
+                    chunks.append(chunk)
+        except (
+            ExternalProbeError,
+            RemoteActionAmbiguousError,
+            RemoteKodiRejectedError,
+        ):
+            raise
+        except (httpx.ConnectError, httpx.ConnectTimeout) as error:
+            raise ExternalProbeError("target_unreachable") from error
+        except (
+            httpx.TimeoutException,
+            httpx.NetworkError,
+            httpx.ProtocolError,
+        ) as error:
+            if mutation:
+                raise RemoteActionAmbiguousError(
+                    "Kodi may have received the remote action"
+                ) from error
+            raise ExternalProbeError("target_unreachable") from error
+        try:
+            document = json.loads(b"".join(chunks))
+            self._verifier._validate_json_shape(document)
+        except (UnicodeDecodeError, json.JSONDecodeError, ExternalProbeError) as error:
+            if mutation:
+                raise RemoteActionAmbiguousError(
+                    "Kodi acknowledgement was malformed"
+                ) from error
+            raise ExternalProbeError("invalid_kodi_response") from error
+        if (
+            not isinstance(document, dict)
+            or document.get("jsonrpc") != "2.0"
+            or document.get("id") != request_id
+            or set(document)
+            not in ({"jsonrpc", "id", "result"}, {"jsonrpc", "id", "error"})
+        ):
+            if mutation:
+                raise RemoteActionAmbiguousError(
+                    "Kodi acknowledgement envelope was invalid"
+                )
+            raise ExternalProbeError("invalid_kodi_response")
+        if "error" in document:
+            raise RemoteKodiRejectedError("Kodi rejected the fixed remote action")
+        return document["result"]

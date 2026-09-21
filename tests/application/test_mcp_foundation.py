@@ -723,7 +723,22 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     assert remote.permissions == frozenset({"target.control"})
     assert remote.effect is ToolEffect.MUTATING
     assert remote.rate_class is ToolRateClass.REMOTE_CONTROL
-    assert remote.allowed_target_classes == frozenset({TargetClass.INTERNAL_LAB})
+    assert remote.allowed_target_classes == frozenset(
+        {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+    )
+    for name in ("target_list", "target_status", "addon_list"):
+        assert registry.require(name).allowed_target_classes == frozenset(
+            {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+        )
+    for name in (
+        "screenshot_capture",
+        "workspace_deploy",
+        "workspace_execute",
+        "promotion_request",
+    ):
+        assert registry.require(name).allowed_target_classes == frozenset(
+            {TargetClass.INTERNAL_LAB}
+        )
     assert not remote.production_eligible
     for name in (
         "development_source_list",

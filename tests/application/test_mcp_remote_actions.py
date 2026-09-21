@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -52,7 +52,10 @@ class FakeRemote:
         *,
         actor: RemoteActorContext | None = None,
         invocation_id: UUID | None = None,
+        before_dispatch: Callable[[], None] | None = None,
     ) -> BrowserRemoteResult:
+        if before_dispatch is not None:
+            before_dispatch()
         assert actor is not None and invocation_id is not None
         self.calls.append((target_id, action, actor, invocation_id))
         if self.entered is not None:

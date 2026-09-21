@@ -1393,3 +1393,30 @@ pairing, screenshot, workspace deployment, fixed execution, external lifecycle
 control, LAN-development proof and production policy remain future work. The
 exact fifteen-tool MCP catalog and managed-only target eligibility are frozen
 through Slice 1.
+
+## Phase 13 Slice 2 checkpoint
+
+**Slice 2: COMPLETE. Phase 13: PARTIAL.** No migration follows
+`0044_external_development_targets`. The existing `target_list`,
+`target_status`, `addon_list` and `remote_action` schemas now accept an exactly
+granted external-development target only through the shared semantic adapter
+boundary and the complete current permission, grant, policy, class, state,
+identity and configured-intersect-verified capability decision.
+
+The native verification probe establishes add-on inventory through a fixed
+bounded read-only page and semantic remote support through exact read-only
+method introspection, never through a mutation or Kodi version inference.
+Discovery uses confirmed state without network polling. Status and inventory
+perform on-demand identity checks; remote performs a fresh identity check
+before its fixed action. External work is globally bounded and serialized per
+target. The existing durable Phase 11 receipt prevents duplicate mutation
+across modern HTTP, modern stdio and bounded legacy HTTP, including ambiguous
+post-send failure.
+
+The production catalog remains exactly fifteen tools. Read-only Inspection can
+use external discovery/status/inventory when independently granted and allowed;
+its permission still excludes control. Add-on Development and Full Lab Control
+can use the four tools only within the same intersection. Screenshot,
+workspace deploy/execute and promotion remain internal-only. Bridge pairing,
+external screenshot/deployment/execution, LAN-development proof and formal
+closeout remain future work.

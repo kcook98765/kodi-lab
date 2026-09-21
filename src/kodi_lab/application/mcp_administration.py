@@ -20,10 +20,11 @@ from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentService,
 )
 from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionService
-from kodi_lab.domain import TargetType
+from kodi_lab.domain import ExternalAdministrativeState, TargetType
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentSourceRow,
+    ExternalKodiTargetRow,
     McpAgentWorkspaceBindingRow,
     McpClientDevelopmentSourceGrantRow,
     McpClientRow,
@@ -537,7 +538,7 @@ class McpAdministrationService:
         now = self._clock()
         with self._session_factory.begin() as session:
             self._require_client(session, client_id)
-            self._require_managed_target(session, target_id)
+            self._require_mcp_target(session, target_id)
             key = {"client_id": str(client_id), "target_id": str(target_id)}
             if session.get(McpClientTargetGrantRow, key) is None:
                 session.add(McpClientTargetGrantRow(**key, created_at=_to_text(now)))
@@ -727,7 +728,7 @@ class McpAdministrationService:
     ) -> McpTargetPolicyRead:
         now = self._clock()
         with self._session_factory.begin() as session:
-            self._require_managed_target(session, target_id)
+            self._require_mcp_target(session, target_id)
             self._require_assignable_preset(session, preset_id)
             row = session.get(McpTargetPresetAssignmentRow, str(target_id))
             if row is None:
@@ -763,7 +764,11 @@ class McpAdministrationService:
         with self._session_factory() as session:
             targets = session.scalars(
                 select(TargetRow)
-                .where(TargetRow.target_type == TargetType.MANAGED)
+                .where(
+                    TargetRow.target_type.in_(
+                        [TargetType.MANAGED, TargetType.EXTERNAL_DEVELOPMENT]
+                    )
+                )
                 .order_by(TargetRow.name, TargetRow.id)
             ).all()
             return [self._target_policy_read(session, row) for row in targets]
@@ -771,8 +776,19 @@ class McpAdministrationService:
     def get_target_policy(self, target_id: UUID) -> McpTargetPolicyRead:
         with self._session_factory() as session:
             target = session.get(TargetRow, str(target_id))
-            if target is None or target.target_type is not TargetType.MANAGED:
+            if target is None or target.target_type not in {
+                TargetType.MANAGED,
+                TargetType.EXTERNAL_DEVELOPMENT,
+            }:
                 raise McpAdministrationError("managed_target_not_found")
+            if target.target_type is TargetType.EXTERNAL_DEVELOPMENT:
+                external = session.get(ExternalKodiTargetRow, target.id)
+                if (
+                    external is None
+                    or external.administrative_state
+                    is ExternalAdministrativeState.DEACTIVATED
+                ):
+                    raise McpAdministrationError("managed_target_not_found")
             return self._target_policy_read(session, target)
 
     def _target_policy_read(
@@ -839,6 +855,23 @@ class McpAdministrationService:
         target = session.get(TargetRow, str(target_id))
         if target is None or target.target_type is not TargetType.MANAGED:
             raise McpAdministrationError("managed_target_not_found")
+
+    @staticmethod
+    def _require_mcp_target(session: Session, target_id: UUID) -> None:
+        target = session.get(TargetRow, str(target_id))
+        if target is None:
+            raise McpAdministrationError("managed_target_not_found")
+        if target.target_type is TargetType.MANAGED:
+            return
+        if target.target_type is TargetType.EXTERNAL_DEVELOPMENT:
+            external = session.get(ExternalKodiTargetRow, str(target_id))
+            if (
+                external is not None
+                and external.administrative_state
+                is not ExternalAdministrativeState.DEACTIVATED
+            ):
+                return
+        raise McpAdministrationError("managed_target_not_found")
 
     @staticmethod
     def _require_assignable_preset(session: Session, preset_id: UUID) -> McpPresetRow:
