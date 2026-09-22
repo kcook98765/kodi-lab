@@ -2486,6 +2486,15 @@ transition events, transient dispatch audit/rate state and a second closed
 production receipt-binding shape. Existing navigation rows remain navigation
 rows with their exact 4A fields and replay identity.
 
+Migration `0052_production_policy_revision_binding` makes the target policy
+revision one aggregate transition counter rather than a flush-order side
+effect. Application publication advances it once before binding the native
+row; direct native changes without that binding fail closed. Material policy
+updates require the exact next revision, while a permanent high-water row
+prevents deletion/recreation from restoring an earlier revision. Successful
+reverification publishes the new pending observation and designation state in
+one transaction without advancing the identity generation again.
+
 The approval is the immutable pre-dispatch intent record, while the Phase 11
 receipt remains authoritative after consumption. Intent binds exact client,
 initiating credential, target, action, canonical payload digest/revision,

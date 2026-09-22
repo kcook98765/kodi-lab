@@ -19,6 +19,7 @@ from kodi_lab.domain import (
 from kodi_lab.kodi.external import (
     ExternalEndpointPolicy,
     ExternalKodiProbeResult,
+    ExternalProbeError,
     ValidatedExternalEndpoint,
 )
 from kodi_lab.storage.engine import create_session_factory
@@ -35,6 +36,7 @@ class FakeProductionVerifier:
     def __init__(self) -> None:
         self.name = "Kodi"
         self.version = "21.3"
+        self.error: str | None = None
 
     def probe(
         self,
@@ -42,6 +44,8 @@ class FakeProductionVerifier:
         credential: ExternalKodiCredential | None,
         configured: frozenset[str],
     ) -> ExternalKodiProbeResult:
+        if self.error is not None:
+            raise ExternalProbeError(self.error)
         capabilities = tuple(
             item for item in ("target_inspect", "addon_inventory") if item in configured
         )
@@ -221,6 +225,57 @@ def test_configuration_and_identity_drift_increment_generation_and_fail_closed(
     database_path = factory.kw["bind"].url.database
     assert database_path is not None
     assert b"production-secret-not-for-sqlite" not in Path(database_path).read_bytes()
+
+
+def test_observation_revision_semantics_are_exact_and_generation_is_independent(
+    production_service: ProductionServiceFixture,
+) -> None:
+    service, _development, _factory, verifier = production_service
+    created = _register(service)
+    assert created.production_policy is not None
+    assert created.production_policy.policy_revision == 1
+
+    first = service.probe(created.target_id)
+    assert first.production_policy is not None
+    assert first.production_policy.policy_revision == 2
+    assert first.production_policy.identity_generation == 1
+    repeated = service.probe(created.target_id)
+    assert repeated.production_policy is not None
+    assert repeated.production_policy.policy_revision == 3
+    assert repeated.production_policy.identity_generation == 1
+
+    unchanged = service.set_enabled(created.target_id, enabled=False)
+    assert unchanged.production_policy is not None
+    assert unchanged.production_policy.policy_revision == 3
+
+    rotated = service.rotate_credentials(
+        created.target_id,
+        authentication_mode=ExternalAuthenticationMode.USERNAME_PASSWORD,
+        username="replacement",
+        password="replacement-secret",
+    )
+    assert rotated.production_policy is not None
+    assert rotated.production_policy.policy_revision == 4
+    assert rotated.production_policy.identity_generation == 2
+    assert rotated.production_policy.designation_state.value == "invalidated"
+
+    reverified_observation = service.probe(created.target_id)
+    assert reverified_observation.production_policy is not None
+    assert reverified_observation.production_policy.policy_revision == 5
+    assert reverified_observation.production_policy.identity_generation == 2
+    assert (
+        reverified_observation.production_policy.designation_state.value
+        == "pending_native_identity"
+    )
+
+    verifier.error = "target_unreachable"
+    with pytest.raises(ExternalTargetError, match="target_unreachable"):
+        service.probe(created.target_id)
+    failed = service.get(created.target_id)
+    assert failed.production_policy is not None
+    assert failed.production_policy.policy_revision == 6
+    assert failed.production_policy.identity_generation == 2
+    assert failed.pending_observation_id is None
 
 
 def test_global_epoch_and_per_target_suspension_are_deny_only(

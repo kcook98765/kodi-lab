@@ -3,7 +3,7 @@ import shutil
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
@@ -16,7 +16,11 @@ from sqlalchemy.exc import IntegrityError
 from kodi_lab.application.external_bridges import ExternalBridgeService
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
 from kodi_lab.domain import ExternalAuthenticationMode, ExternalProtocolKind, TargetType
-from kodi_lab.kodi.external import ExternalEndpointPolicy
+from kodi_lab.kodi.external import (
+    ExternalEndpointPolicy,
+    ExternalKodiProbeResult,
+    ValidatedExternalEndpoint,
+)
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore, ExternalCredentialStore
 
@@ -145,7 +149,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0051_production_transient_approvals",)
+        ).fetchone() == ("0052_production_policy_revision_binding",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -223,6 +227,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "reviewed_bridge_builds",
         "external_development_source_baselines",
         "external_production_policies",
+        "external_production_policy_revision_guards",
         "production_bridge_http_acknowledgements",
         "production_native_control_http_acknowledgements",
         "production_mutation_control",
@@ -5062,21 +5067,33 @@ def test_0047_external_production_foundation_upgrade_and_empty_round_trip(
                 ),
                 {"id": preserved_id},
             )
-    factory = create_session_factory(engine)
-    development = ExternalTargetAdministrationService(
-        factory,
-        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
-        credential_store=ExternalCredentialStore(
-            tmp_path / "development-secrets", master_key=None, key_version=1
-        ),
-    ).register(
-        logical_name="Development policy binding proof",
-        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
-        host="192.168.50.19",
-        port=8080,
-        authentication_mode=ExternalAuthenticationMode.NONE,
-        configured_capabilities={"target_inspect"},
-    )
+    development_id = str(uuid4())
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets (id,name,target_type,kodi_version,availability,"
+                "health,connection_state) VALUES (:id,'Development policy binding "
+                "proof','external_development',NULL,'unavailable','warning',"
+                "'disconnected')"
+            ),
+            {"id": development_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_kodi_targets (target_id,protocol_kind,host,port,"
+                "authentication_mode,secret_reference,configured_capabilities_json,"
+                "verified_capabilities_json,administrative_state,verification_state,"
+                "observation_state,verified_addresses_json,verified_kodi_name,"
+                "verified_kodi_version,observed_kodi_name,observed_kodi_version,"
+                "observed_protocol_version,pending_observation_id,created_at,"
+                "verified_at,deactivated_at,last_observed_at) VALUES "
+                "(:id,'jsonrpc_http','192.168.50.19',8080,'none',NULL,"
+                "'[\"target_inspect\"]','[]','disabled','unverified',NULL,'[]',"
+                "NULL,NULL,NULL,NULL,NULL,NULL,'2026-09-21T00:00:00.000000Z',"
+                "NULL,NULL,NULL)"
+            ),
+            {"id": development_id},
+        )
     with (
         engine.begin() as connection,
         pytest.raises(
@@ -5094,7 +5111,7 @@ def test_0047_external_production_foundation_upgrade_and_empty_round_trip(
                 "1,1,1,NULL,NULL,NULL,'2026-09-21T00:00:00.000000Z',"
                 "'2026-09-21T00:00:00.000000Z')"
             ),
-            {"id": str(development.target_id)},
+            {"id": development_id},
         )
     engine.dispose()
 
@@ -5236,10 +5253,11 @@ def test_0048_scope_constraints_are_generation_bound_and_history_is_immutable(
                 "verification_state,observation_state,verified_addresses_json,"
                 "verified_kodi_name,verified_kodi_version,observed_kodi_name,"
                 "observed_kodi_version,observed_protocol_version,"
-                "pending_observation_id,created_at,verified_at,deactivated_at,"
+                "pending_observation_id,production_policy_revision,created_at,"
+                "verified_at,deactivated_at,"
                 "last_observed_at) VALUES (:id,'jsonrpc_http','192.168.50.10',"
                 "8080,'none',NULL,'[\"target_inspect\"]','[]','disabled',"
-                "'unverified',NULL,'[]',NULL,NULL,NULL,NULL,NULL,NULL,:at,NULL,NULL,NULL)"
+                "'unverified',NULL,'[]',NULL,NULL,NULL,NULL,NULL,NULL,1,:at,NULL,NULL,NULL)"
             ),
             {"id": target_id, "at": timestamp},
         )
@@ -6213,5 +6231,288 @@ def test_0051_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     }
     assert "grant_id" not in {
         column["name"] for column in inspector.get_columns("mcp_client_target_grants")
+    }
+    engine.dispose()
+
+
+def test_0052_stage_a_reverification_publication_is_atomic_and_exact(
+    migration_templates: MigrationTemplateStore, tmp_path: Path
+) -> None:
+    database_path = tmp_path / "stage-a-copy.db"
+    migration_templates.clone("head", database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
+    factory = create_session_factory(engine)
+    target_id = UUID("de8cefbd-1179-4978-a687-108e82f5b893")
+    at = "2026-09-22T20:00:00.000000Z"
+    values = {"target": str(target_id), "at": at}
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets (id,name,target_type,kodi_version,availability,"
+                "health,connection_state) VALUES (:target,'Production Kodi 19.5',"
+                "'external_production','19.5','unavailable','warning','disconnected')"
+            ),
+            values,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_kodi_targets (target_id,protocol_kind,host,port,"
+                "authentication_mode,secret_reference,configured_capabilities_json,"
+                "verified_capabilities_json,administrative_state,verification_state,"
+                "observation_state,verified_addresses_json,verified_kodi_name,"
+                "verified_kodi_version,observed_kodi_name,observed_kodi_version,"
+                "observed_protocol_version,pending_observation_id,"
+                "production_policy_revision,created_at,verified_at,deactivated_at,"
+                "last_observed_at) VALUES (:target,'jsonrpc_http','192.168.50.135',"
+                "8080,'none',NULL,'[\"target_inspect\"]','[]','disabled',"
+                "'needs_reverification',NULL,'[]','Kodi','19.5','Kodi','19.5',"
+                "'13.0.0',NULL,3,:at,NULL,NULL,:at)"
+            ),
+            values,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_production_policies (target_id,"
+                "designation_state,confirmed_observation_id,"
+                "confirmed_observation_digest,identity_generation,policy_revision,"
+                "mutations_suspended,designation_confirmed_by,"
+                "designation_confirmed_at,designation_invalidated_at,created_at,"
+                "updated_at) VALUES (:target,'invalidated',NULL,NULL,2,3,1,NULL,NULL,"
+                ":at,:at,:at)"
+            ),
+            values,
+        )
+
+    class SuccessfulObservation:
+        def probe(
+            self,
+            endpoint: ValidatedExternalEndpoint,
+            credential: object,
+            configured: frozenset[str],
+        ) -> ExternalKodiProbeResult:
+            return ExternalKodiProbeResult(
+                addresses=(endpoint.address,),
+                kodi_name="Kodi",
+                kodi_version="19.5",
+                protocol_version="13.0.0",
+                verified_capabilities=tuple(sorted(configured)),
+            )
+
+    service = ExternalTargetAdministrationService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "stage-a-secrets", master_key=None, key_version=1
+        ),
+        verifier=SuccessfulObservation(),  # type: ignore[arg-type]
+        target_type=TargetType.EXTERNAL_PRODUCTION,
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TRIGGER inject_stage_a_publication_failure BEFORE UPDATE ON "
+                "external_kodi_targets WHEN NEW.target_id='"
+                "de8cefbd-1179-4978-a687-108e82f5b893' BEGIN SELECT "
+                "RAISE(ABORT,'injected_publication_failure'); END"
+            )
+        )
+    with pytest.raises(IntegrityError, match="injected_publication_failure"):
+        service.probe(target_id)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT p.identity_generation,p.policy_revision,p.designation_state,"
+                "e.verification_state,e.administrative_state,e.pending_observation_id "
+                "FROM external_production_policies p JOIN external_kodi_targets e "
+                "ON e.target_id=p.target_id WHERE p.target_id=:target"
+            ),
+            values,
+        ).one() == (2, 3, "invalidated", "needs_reverification", "disabled", None)
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM external_kodi_target_observations "
+                    "WHERE target_id=:target"
+                ),
+                values,
+            )
+            == 0
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM external_kodi_target_events WHERE "
+                    "target_id=:target AND event_kind='probe_attempted'"
+                ),
+                values,
+            )
+            == 1
+        )
+    with engine.begin() as connection:
+        connection.execute(text("DROP TRIGGER inject_stage_a_publication_failure"))
+
+    observed = service.probe(target_id)
+    assert observed.pending_observation_id is not None
+    assert observed.administrative_state.value == "disabled"
+    assert observed.verification_state.value == "needs_reverification"
+    assert observed.production_policy is not None
+    assert (
+        observed.production_policy.designation_state.value == "pending_native_identity"
+    )
+    assert observed.production_policy.identity_generation == 2
+    assert observed.production_policy.policy_revision == 4
+    assert observed.production_policy.mutations_suspended is True
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM external_kodi_target_observations "
+                    "WHERE target_id=:target"
+                ),
+                values,
+            )
+            == 1
+        )
+        for table in (
+            "mcp_client_target_grants",
+            "mcp_target_preset_assignments",
+            "mcp_production_target_scopes",
+            "external_bridge_pairings",
+        ):
+            assert (
+                connection.scalar(
+                    text(f"SELECT COUNT(*) FROM {table} WHERE target_id=:target"),
+                    values,
+                )
+                == 0
+            )
+        assert connection.execute(
+            text(
+                "SELECT production_mutations_blocked,policy_epoch FROM "
+                "production_mutation_control WHERE id=1"
+            )
+        ).one() == (1, 1)
+    engine.dispose()
+
+
+def test_0052_direct_state_guards_reject_revision_bypass_and_recreation(
+    migration_templates: MigrationTemplateStore, tmp_path: Path
+) -> None:
+    database_path = tmp_path / "revision-guards.db"
+    migration_templates.clone("head", database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
+    values = {
+        "target": "54000000-0000-4000-8000-000000000001",
+        "at": "2026-09-22T20:00:00.000000Z",
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets (id,name,target_type,kodi_version,availability,"
+                "health,connection_state) VALUES (:target,'guarded production',"
+                "'external_production',NULL,'unavailable','warning','disconnected')"
+            ),
+            values,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_kodi_targets (target_id,protocol_kind,host,port,"
+                "authentication_mode,secret_reference,configured_capabilities_json,"
+                "verified_capabilities_json,administrative_state,verification_state,"
+                "observation_state,verified_addresses_json,verified_kodi_name,"
+                "verified_kodi_version,observed_kodi_name,observed_kodi_version,"
+                "observed_protocol_version,pending_observation_id,"
+                "production_policy_revision,created_at,verified_at,deactivated_at,"
+                "last_observed_at) VALUES (:target,'jsonrpc_http','192.168.50.54',"
+                "8080,'none',NULL,'[\"target_inspect\"]','[]','disabled',"
+                "'unverified',NULL,'[]',NULL,NULL,NULL,NULL,NULL,NULL,3,:at,NULL,NULL,NULL)"
+            ),
+            values,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_production_policies (target_id,"
+                "designation_state,confirmed_observation_id,"
+                "confirmed_observation_digest,identity_generation,policy_revision,"
+                "mutations_suspended,designation_confirmed_by,"
+                "designation_confirmed_at,designation_invalidated_at,created_at,"
+                "updated_at) VALUES (:target,'invalidated',NULL,NULL,2,3,1,NULL,NULL,"
+                ":at,:at,:at)"
+            ),
+            values,
+        )
+        with pytest.raises(IntegrityError, match="production_policy_revision_required"):
+            connection.execute(
+                text(
+                    "UPDATE external_production_policies SET designation_state="
+                    "'pending_native_identity' WHERE target_id=:target"
+                ),
+                values,
+            )
+        with pytest.raises(
+            IntegrityError, match="production_policy_revision_not_monotonic"
+        ):
+            connection.execute(
+                text(
+                    "UPDATE external_production_policies SET policy_revision=2 "
+                    "WHERE target_id=:target"
+                ),
+                values,
+            )
+        with pytest.raises(IntegrityError, match="production_policy_revision_required"):
+            connection.execute(
+                text(
+                    "UPDATE external_kodi_targets SET administrative_state='enabled' "
+                    "WHERE target_id=:target"
+                ),
+                values,
+            )
+        with connection.begin_nested(), pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "DELETE FROM external_production_policies WHERE target_id=:target"
+                ),
+                values,
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO external_production_policies (target_id,"
+                    "designation_state,confirmed_observation_id,"
+                    "confirmed_observation_digest,identity_generation,policy_revision,"
+                    "mutations_suspended,designation_confirmed_by,"
+                    "designation_confirmed_at,designation_invalidated_at,created_at,"
+                    "updated_at) VALUES (:target,'invalidated',NULL,NULL,2,1,1,NULL,"
+                    "NULL,:at,:at,:at)"
+                ),
+                values,
+            )
+    engine.dispose()
+
+
+def test_0052_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0051_production_transient_approvals"
+    )
+    command.upgrade(config, "0052_production_policy_revision_binding")
+    engine = create_database_engine(database_url)
+    assert (
+        "external_production_policy_revision_guards"
+        in inspect(engine).get_table_names()
+    )
+    assert "production_policy_revision" in {
+        column["name"]
+        for column in inspect(engine).get_columns("external_kodi_targets")
+    }
+    engine.dispose()
+
+    command.downgrade(config, "0051_production_transient_approvals")
+    engine = create_database_engine(database_url)
+    assert (
+        "external_production_policy_revision_guards"
+        not in inspect(engine).get_table_names()
+    )
+    assert "production_policy_revision" not in {
+        column["name"]
+        for column in inspect(engine).get_columns("external_kodi_targets")
     }
     engine.dispose()

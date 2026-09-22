@@ -39,6 +39,7 @@ from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
     evaluate_production_inspection_state,
 )
+from kodi_lab.application.production_policy import bind_external_production_transition
 from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
 from kodi_lab.application.screenshots import (
     ManagedScreenshotService,
@@ -899,7 +900,6 @@ class KodiTargetAdapterService:
             row.pending_observation_id = str(observation_id)
             row.last_observed_at = timestamp
             policy.identity_generation += 1
-            policy.policy_revision += 1
             policy.designation_state = ProductionDesignationState.INVALIDATED
             policy.confirmed_observation_id = None
             policy.confirmed_observation_digest = None
@@ -907,7 +907,7 @@ class KodiTargetAdapterService:
             policy.designation_confirmed_at = None
             policy.designation_invalidated_at = timestamp
             policy.mutations_suspended = True
-            policy.updated_at = timestamp
+            bind_external_production_transition(session, row, policy, now=now)
             target.availability = TargetAvailability.UNAVAILABLE
             target.health = HealthStatus.ERROR
             target.connection_state = ConnectionState.CONNECTED

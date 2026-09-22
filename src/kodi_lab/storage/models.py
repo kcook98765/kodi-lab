@@ -1186,6 +1186,10 @@ class ExternalKodiTargetRow(Base):
             name="external_target_pending_observation_shape",
         ),
         CheckConstraint(
+            "production_policy_revision IS NULL OR production_policy_revision >= 1",
+            name="external_target_production_revision_positive",
+        ),
+        CheckConstraint(
             "(administrative_state = 'deactivated' AND deactivated_at IS NOT NULL "
             "AND secret_reference IS NULL) OR "
             "(administrative_state <> 'deactivated' AND deactivated_at IS NULL)",
@@ -1266,6 +1270,7 @@ class ExternalKodiTargetRow(Base):
     pending_observation_id: Mapped[str | None] = mapped_column(
         String(36),
     )
+    production_policy_revision: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     verified_at: Mapped[str | None] = mapped_column(String(27))
     deactivated_at: Mapped[str | None] = mapped_column(String(27))
@@ -1417,6 +1422,25 @@ class ExternalProductionPolicyRow(Base):
     designation_invalidated_at: Mapped[str | None] = mapped_column(String(27))
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ExternalProductionPolicyRevisionGuardRow(Base):
+    """Permanent high-water mark preventing policy revision recreation."""
+
+    __tablename__ = "external_production_policy_revision_guards"
+    __table_args__ = (
+        CheckConstraint(
+            "maximum_policy_revision >= 1",
+            name="external_production_policy_revision_guard_positive",
+        ),
+    )
+
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("targets.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    maximum_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class ProductionMutationControlRow(Base):
@@ -6456,6 +6480,24 @@ class McpProductionNavigationAuditRow(Base):
     completed_at: Mapped[str | None] = mapped_column(String(27))
 
 
+_EXTERNAL_PRODUCTION_MATERIAL_UPDATE = (
+    "NEW.administrative_state<>OLD.administrative_state OR "
+    "NEW.protocol_kind<>OLD.protocol_kind OR NEW.host<>OLD.host OR "
+    "NEW.port<>OLD.port OR NEW.authentication_mode<>OLD.authentication_mode OR "
+    "NEW.secret_reference IS NOT OLD.secret_reference OR "
+    "NEW.configured_capabilities_json<>OLD.configured_capabilities_json OR "
+    "NEW.verified_capabilities_json<>OLD.verified_capabilities_json OR "
+    "NEW.verification_state<>OLD.verification_state OR "
+    "NEW.verified_addresses_json<>OLD.verified_addresses_json OR "
+    "NEW.verified_kodi_name IS NOT OLD.verified_kodi_name OR "
+    "NEW.verified_kodi_version IS NOT OLD.verified_kodi_version OR "
+    "NEW.observed_kodi_name IS NOT OLD.observed_kodi_name OR "
+    "NEW.observed_kodi_version IS NOT OLD.observed_kodi_version OR "
+    "NEW.observed_protocol_version IS NOT OLD.observed_protocol_version OR "
+    "NEW.pending_observation_id IS NOT OLD.pending_observation_id"
+)
+
+
 _SLICE4B_CREATE_ALL_TRIGGERS = (
     "CREATE TRIGGER trg_mcp_client_target_grant_identity_once "
     "AFTER INSERT ON mcp_client_target_grants BEGIN "
@@ -6482,31 +6524,55 @@ _SLICE4B_CREATE_ALL_TRIGGERS = (
     "external_production_policies WHEN EXISTS(SELECT 1 FROM "
     "production_operation_approvals WHERE target_id=OLD.target_id) BEGIN "
     "SELECT RAISE(ABORT, 'production_approval_authority_protected'); END",
-    "CREATE TRIGGER trg_external_production_administrative_revision AFTER UPDATE OF "
-    "administrative_state ON external_kodi_targets WHEN "
-    "NEW.administrative_state<>OLD.administrative_state AND "
-    "COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')="
-    "'external_production' BEGIN UPDATE external_production_policies SET "
-    "policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END",
-    "CREATE TRIGGER trg_external_production_native_material_revision AFTER UPDATE ON "
-    "external_kodi_targets WHEN COALESCE((SELECT target_type FROM targets WHERE "
-    "id=NEW.target_id),'')='external_production' AND "
-    "(NEW.protocol_kind<>OLD.protocol_kind "
-    "OR NEW.host<>OLD.host OR NEW.port<>OLD.port OR "
-    "NEW.authentication_mode<>OLD.authentication_mode OR NEW.secret_reference IS NOT "
-    "OLD.secret_reference OR NEW.configured_capabilities_json<>"
-    "OLD.configured_capabilities_json OR NEW.verified_capabilities_json<>"
-    "OLD.verified_capabilities_json OR "
-    "NEW.verification_state<>OLD.verification_state OR "
-    "NEW.verified_addresses_json<>OLD.verified_addresses_json OR "
-    "NEW.verified_kodi_name IS NOT OLD.verified_kodi_name OR "
-    "NEW.verified_kodi_version IS "
-    "NOT OLD.verified_kodi_version OR NEW.observed_kodi_name IS NOT "
-    "OLD.observed_kodi_name OR NEW.observed_kodi_version IS NOT "
-    "OLD.observed_kodi_version OR NEW.observed_protocol_version IS NOT "
-    "OLD.observed_protocol_version OR NEW.pending_observation_id IS NOT "
-    "OLD.pending_observation_id) BEGIN UPDATE external_production_policies SET "
-    "policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END",
+    "CREATE TRIGGER trg_external_production_policy_revision_monotonic BEFORE UPDATE "
+    "OF policy_revision ON external_production_policies WHEN "
+    "NEW.policy_revision<OLD.policy_revision BEGIN SELECT RAISE(ABORT, "
+    "'production_policy_revision_not_monotonic'); END",
+    "CREATE TRIGGER trg_external_production_policy_material_revision BEFORE UPDATE "
+    "ON external_production_policies WHEN (NEW.designation_state<>"
+    "OLD.designation_state OR NEW.confirmed_observation_id IS NOT "
+    "OLD.confirmed_observation_id OR NEW.confirmed_observation_digest IS NOT "
+    "OLD.confirmed_observation_digest OR NEW.identity_generation<>"
+    "OLD.identity_generation OR NEW.mutations_suspended<>OLD.mutations_suspended OR "
+    "NEW.updated_at<>OLD.updated_at) AND NEW.policy_revision<>OLD.policy_revision+1 "
+    "BEGIN SELECT RAISE(ABORT, 'production_policy_revision_required'); END",
+    "CREATE TRIGGER trg_external_production_policy_guard_insert AFTER INSERT ON "
+    "external_production_policies BEGIN INSERT INTO "
+    "external_production_policy_revision_guards "
+    "(target_id,maximum_policy_revision) VALUES "
+    "(NEW.target_id,NEW.policy_revision); END",
+    "CREATE TRIGGER trg_external_production_policy_guard_advance AFTER UPDATE OF "
+    "policy_revision ON external_production_policies WHEN "
+    "NEW.policy_revision>OLD.policy_revision BEGIN UPDATE "
+    "external_production_policy_revision_guards SET maximum_policy_revision="
+    "NEW.policy_revision WHERE target_id=NEW.target_id; END",
+    "CREATE TRIGGER trg_external_production_policy_guard_immutable BEFORE UPDATE ON "
+    "external_production_policy_revision_guards WHEN NEW.target_id<>OLD.target_id OR "
+    "NEW.maximum_policy_revision<=OLD.maximum_policy_revision BEGIN SELECT "
+    "RAISE(ABORT, 'production_policy_revision_not_monotonic'); END",
+    "CREATE TRIGGER trg_external_production_policy_guard_no_delete BEFORE DELETE ON "
+    "external_production_policy_revision_guards BEGIN SELECT RAISE(ABORT, "
+    "'production_policy_revision_not_monotonic'); END",
+    "CREATE TRIGGER trg_external_production_revision_binding_insert BEFORE INSERT ON "
+    "external_kodi_targets WHEN (COALESCE((SELECT target_type FROM targets WHERE "
+    "id=NEW.target_id),'')='external_production') <> "
+    "(NEW.production_policy_revision IS NOT NULL) BEGIN SELECT RAISE(ABORT, "
+    "'production_policy_revision_required'); END",
+    f"CREATE TRIGGER trg_external_production_revision_binding_material BEFORE UPDATE "
+    f"ON external_kodi_targets WHEN COALESCE((SELECT target_type FROM targets WHERE "
+    f"id=NEW.target_id),'')='external_production' AND "
+    f"({_EXTERNAL_PRODUCTION_MATERIAL_UPDATE}) "
+    f"AND (NEW.production_policy_revision IS NULL OR "
+    f"NEW.production_policy_revision<=COALESCE(OLD.production_policy_revision,0) OR "
+    f"NEW.production_policy_revision<>COALESCE((SELECT policy_revision FROM "
+    f"external_production_policies WHERE target_id=NEW.target_id),0)) BEGIN SELECT "
+    f"RAISE(ABORT, 'production_policy_revision_required'); END",
+    f"CREATE TRIGGER trg_external_production_revision_binding_immutable BEFORE UPDATE "
+    f"ON external_kodi_targets WHEN (NEW.production_policy_revision IS NOT "
+    f"OLD.production_policy_revision AND NOT ({_EXTERNAL_PRODUCTION_MATERIAL_UPDATE})) "
+    f"OR (COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')<>"
+    f"'external_production' AND NEW.production_policy_revision IS NOT NULL) BEGIN "
+    f"SELECT RAISE(ABORT, 'production_policy_revision_required'); END",
     "CREATE TRIGGER trg_production_target_preset_revision_insert AFTER INSERT ON "
     "mcp_target_preset_assignments WHEN COALESCE((SELECT target_type FROM targets "
     "WHERE id=NEW.target_id),'')='external_production' BEGIN UPDATE "

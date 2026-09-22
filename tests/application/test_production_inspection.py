@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from contextlib import ExitStack
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
@@ -30,6 +31,10 @@ from kodi_lab.application.production_inspection import (
     PRODUCTION_INSPECTION_PRESET_ID,
     ProductionInspectionError,
     ProductionReadRateLimiter,
+)
+from kodi_lab.application.production_policy import (
+    advance_production_policy,
+    bind_external_production_transition,
 )
 from kodi_lab.domain import (
     ExternalAdministrativeState,
@@ -357,8 +362,10 @@ def test_mutation_vetoes_do_not_block_reads_but_target_state_does(
 
     with env.factory.begin() as session:
         row = session.get(ExternalKodiTargetRow, str(env.target_id))
-        assert row is not None
+        policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
+        assert row is not None and policy is not None
         row.administrative_state = ExternalAdministrativeState.DISABLED
+        bind_external_production_transition(session, row, policy, now=datetime.now(UTC))
     with pytest.raises(McpAuthorizationError, match="target_disabled"):
         env.authorization.authorize_target(
             env.principal, "target_status", env.target_id
@@ -373,6 +380,7 @@ def test_invalidated_designation_and_missing_capability_are_denied(
         policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
         assert policy is not None
         policy.designation_state = ProductionDesignationState.INVALIDATED
+        advance_production_policy(policy, now=datetime.now(UTC))
     with pytest.raises(McpAuthorizationError, match="production_policy_not_confirmed"):
         env.authorization.authorize_target(
             env.principal, "target_status", env.target_id
@@ -384,6 +392,7 @@ def test_invalidated_designation_and_missing_capability_are_denied(
         assert policy is not None and row is not None
         policy.designation_state = ProductionDesignationState.CONFIRMED
         row.configured_capabilities_json = '["target_inspect"]'
+        bind_external_production_transition(session, row, policy, now=datetime.now(UTC))
     with pytest.raises(McpAuthorizationError, match="capability_unavailable"):
         env.authorization.authorize_target(env.principal, "addon_list", env.target_id)
 
@@ -425,6 +434,7 @@ def test_old_generation_scope_is_visible_as_stale_and_never_reactivates(
         policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
         assert policy is not None
         policy.identity_generation = 2
+        advance_production_policy(policy, now=datetime.now(UTC))
     scopes = env.administration.list_production_inspection_scopes(
         client_id=env.client_id, target_id=env.target_id
     )
@@ -499,6 +509,7 @@ def test_generation_change_during_read_suppresses_result(
                     )
                     assert policy is not None
                     policy.identity_generation += 1
+                    advance_production_policy(policy, now=datetime.now(UTC))
                 changed = True
         return httpx.Response(
             200,

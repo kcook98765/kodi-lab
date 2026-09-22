@@ -41,6 +41,7 @@ from kodi_lab.application.production_navigation import (
     ProductionNavigationRateLimiter,
     classify_production_action,
 )
+from kodi_lab.application.production_policy import advance_production_policy
 from kodi_lab.domain import (
     ConnectionState,
     ExternalAdministrativeState,
@@ -134,6 +135,7 @@ def _authority_environment(
             observed_kodi_version="21.3",
             observed_protocol_version="13.0.0",
             pending_observation_id=str(observation_id),
+            production_policy_revision=1,
             created_at=NOW,
             verified_at=NOW,
             deactivated_at=None,
@@ -391,6 +393,7 @@ def test_navigation_rejects_stale_or_revoked_authority(
                 policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
                 assert policy is not None
                 policy.identity_generation += 1
+                advance_production_policy(policy, now=datetime.now(UTC))
             elif authority_change == "bridge_revision":
                 bridge = session.get(ExternalBridgePairingRow, str(env.target_id))
                 assert bridge is not None

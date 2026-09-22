@@ -23,6 +23,10 @@ from kodi_lab.application.mcp_remote_actions import (
     McpRemoteActionResult,
 )
 from kodi_lab.application.production_inspection import PRODUCTION_VISUAL_PRESET_ID
+from kodi_lab.application.production_policy import (
+    advance_production_policy,
+    bind_external_production_transition,
+)
 from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalError,
     ProductionApprovalRequiredResult,
@@ -492,7 +496,7 @@ def test_exact_authority_changes_leave_old_approval_unusable(
                 policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
                 assert policy is not None
                 policy.identity_generation += 1
-                policy.policy_revision += 1
+                advance_production_policy(policy, now=datetime.now(UTC))
             elif change == "bridge_revision":
                 pairing = session.get(ExternalBridgePairingRow, str(env.target_id))
                 assert pairing is not None
@@ -506,25 +510,29 @@ def test_exact_authority_changes_leave_old_approval_unusable(
                 build.retired_at = "2026-09-21T12:01:00.000000Z"
             elif change == "capability":
                 external = session.get(ExternalKodiTargetRow, str(env.target_id))
-                assert external is not None
+                policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
+                assert external is not None and policy is not None
                 external.verified_capabilities_json = '["target_inspect"]'
+                bind_external_production_transition(
+                    session, external, policy, now=datetime.now(UTC)
+                )
             elif change == "http_acknowledgement":
                 policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
                 assert policy is not None
-                policy.policy_revision += 1
+                advance_production_policy(policy, now=datetime.now(UTC))
             elif change == "target_enablement":
                 external = session.get(ExternalKodiTargetRow, str(env.target_id))
                 policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
                 assert external is not None and policy is not None
                 external.administrative_state = ExternalAdministrativeState.DISABLED
-                external.administrative_state = ExternalAdministrativeState.ENABLED
-                policy.policy_revision += 2
+                bind_external_production_transition(
+                    session, external, policy, now=datetime.now(UTC)
+                )
             elif change == "target_suspension":
                 policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
                 assert policy is not None
                 policy.mutations_suspended = True
-                policy.mutations_suspended = False
-                policy.policy_revision += 2
+                advance_production_policy(policy, now=datetime.now(UTC))
         if change == "http_acknowledgement":
             env.acknowledgement.acknowledge(env.target_id)
 

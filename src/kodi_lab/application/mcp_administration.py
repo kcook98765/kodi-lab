@@ -1233,6 +1233,11 @@ class McpAdministrationService:
             assert target is not None
             if (
                 target.target_type is TargetType.EXTERNAL_PRODUCTION
+                and session.get(ExternalProductionPolicyRow, target.id) is None
+            ):
+                raise McpAdministrationError("production_scope_target_invalid")
+            if (
+                target.target_type is TargetType.EXTERNAL_PRODUCTION
                 and preset_id
                 not in {
                     PRODUCTION_INSPECTION_PRESET_ID,
@@ -1264,14 +1269,6 @@ class McpAdministrationService:
                 row.preset_id = str(preset_id)
                 row.assigned_at = _to_text(now)
                 if previous_id != preset_id:
-                    if target.target_type is TargetType.EXTERNAL_PRODUCTION:
-                        policy = session.get(ExternalProductionPolicyRow, target.id)
-                        if policy is None:
-                            raise McpAdministrationError(
-                                "production_scope_target_invalid"
-                            )
-                        policy.policy_revision += 1
-                        policy.updated_at = _to_text(now)
                     self._event(
                         session,
                         "target_preset_unassigned",
@@ -1286,12 +1283,6 @@ class McpAdministrationService:
                 target_id=target_id,
                 preset_id=preset_id,
             )
-            if row is None and target.target_type is TargetType.EXTERNAL_PRODUCTION:
-                policy = session.get(ExternalProductionPolicyRow, target.id)
-                if policy is None:
-                    raise McpAdministrationError("production_scope_target_invalid")
-                policy.policy_revision += 1
-                policy.updated_at = _to_text(now)
         return self.get_target_policy(target_id)
 
     def list_target_policies(self) -> list[McpTargetPolicyRead]:

@@ -238,6 +238,14 @@ closed transient receipt-binding shape. It seeds no scope, approval, grant,
 assignment or authority and refuses destructive downgrade while 4B authority
 or history would be lost.
 
+Migration `0052_production_policy_revision_binding` remediates the Stage A
+successful-observation publication boundary. One coherent material production
+transition advances target `policy_revision` exactly once, and the native row
+binds that revision before publication. Database guards reject unbound native
+state, material designation changes without the exact increment, decrements,
+and delete/reinsert attempts that would restore an older revision. Successful
+reverification does not advance the already-changed identity generation.
+
 ## Slice 3 reviewed bridge and visual inspection
 
 Migration `0049_production_bridge_visual` reuses Phase 13 bridge protocol v1,

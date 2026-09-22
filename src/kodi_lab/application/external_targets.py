@@ -12,6 +12,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.production_inspection import production_observation_digest
+from kodi_lab.application.production_policy import (
+    advance_production_policy,
+    bind_external_production_transition,
+)
 from kodi_lab.domain import (
     EXTERNAL_CAPABILITY_VALUES,
     ConnectionState,
@@ -60,6 +64,15 @@ type ExternalProbeConfiguration = tuple[
     str | None,
     str,
 ]
+
+
+def _production_policy(
+    session: Session, target_id: UUID | str
+) -> ExternalProductionPolicyRow | None:
+    # Policy lookup must not flush a dirty native row before its revision binding
+    # has been prepared.
+    with session.no_autoflush:
+        return session.get(ExternalProductionPolicyRow, str(target_id))
 
 
 class ExternalTargetError(ValueError):
@@ -269,6 +282,11 @@ class ExternalTargetAdministrationService:
                         observed_kodi_version=None,
                         observed_protocol_version=None,
                         pending_observation_id=None,
+                        production_policy_revision=(
+                            1
+                            if self._target_type is TargetType.EXTERNAL_PRODUCTION
+                            else None
+                        ),
                         created_at=_to_text(now),
                         verified_at=None,
                         deactivated_at=None,
@@ -386,6 +404,9 @@ class ExternalTargetAdministrationService:
                 self._invalidate_production_policy(
                     session, target_id, now, force_generation=True
                 )
+                policy = _production_policy(session, target_id)
+                if policy is not None:
+                    bind_external_production_transition(session, row, policy, now=now)
                 target.availability = TargetAvailability.UNAVAILABLE
                 target.connection_state = ConnectionState.DISCONNECTED
                 target.health = HealthStatus.WARNING
@@ -425,6 +446,9 @@ class ExternalTargetAdministrationService:
                 self._invalidate_production_policy(
                     session, target_id, now, force_generation=True
                 )
+                policy = _production_policy(session, target_id)
+                if policy is not None:
+                    bind_external_production_transition(session, row, policy, now=now)
                 self._event(session, target_id, "credential_rotated", now)
                 self._event(session, target_id, "reverification_required", now)
         except Exception:
@@ -508,7 +532,7 @@ class ExternalTargetAdministrationService:
             target.kodi_version = observation.kodi_version
             target.health = HealthStatus.HEALTHY
             target.connection_state = ConnectionState.CONNECTED
-            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            policy = _production_policy(session, target_id)
             if (
                 policy is not None
                 and policy.designation_state is not ProductionDesignationState.CONFIRMED
@@ -516,8 +540,8 @@ class ExternalTargetAdministrationService:
                 policy.designation_state = (
                     ProductionDesignationState.PENDING_CONFIRMATION
                 )
-                policy.policy_revision += 1
-                policy.updated_at = _to_text(now)
+            if policy is not None:
+                bind_external_production_transition(session, row, policy, now=now)
             self._event(
                 session,
                 target_id,
@@ -547,7 +571,7 @@ class ExternalTargetAdministrationService:
         now = self._clock()
         with self._session_factory.begin() as session:
             _target, row = self._require_mutable(session, target_id)
-            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            policy = _production_policy(session, target_id)
             observation = session.get(
                 ExternalKodiTargetObservationRow, str(observation_id)
             )
@@ -573,8 +597,7 @@ class ExternalTargetAdministrationService:
             policy.designation_confirmed_by = administrator
             policy.designation_confirmed_at = _to_text(now)
             policy.designation_invalidated_at = None
-            policy.policy_revision += 1
-            policy.updated_at = _to_text(now)
+            advance_production_policy(policy, now=now)
             self._event(
                 session,
                 target_id,
@@ -652,13 +675,12 @@ class ExternalTargetAdministrationService:
         now = self._clock()
         with self._session_factory.begin() as session:
             _target, _row = self._require_mutable(session, target_id)
-            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            policy = _production_policy(session, target_id)
             if policy is None:
                 raise ExternalTargetError("production_policy_missing")
             if policy.mutations_suspended != suspended:
                 policy.mutations_suspended = suspended
-                policy.policy_revision += 1
-                policy.updated_at = _to_text(now)
+                advance_production_policy(policy, now=now)
                 self._cancel_live_approvals(session, now=now, target_id=target_id)
                 self._event(
                     session,
@@ -686,7 +708,7 @@ class ExternalTargetAdministrationService:
                     raise ExternalTargetError("identity_mismatch")
                 if row.verification_state is not ExternalVerificationState.VERIFIED:
                     raise ExternalTargetError("verification_required")
-                policy = session.get(ExternalProductionPolicyRow, str(target_id))
+                policy = _production_policy(session, target_id)
                 if target.target_type is TargetType.EXTERNAL_PRODUCTION and (
                     policy is None
                     or policy.designation_state
@@ -704,11 +726,10 @@ class ExternalTargetAdministrationService:
                 target.target_type is TargetType.EXTERNAL_PRODUCTION
                 and row.administrative_state is not previous_state
             ):
-                policy = session.get(ExternalProductionPolicyRow, str(target_id))
+                policy = _production_policy(session, target_id)
                 if policy is None:
                     raise ExternalTargetError("production_policy_missing")
-                policy.policy_revision += 1
-                policy.updated_at = _to_text(now)
+                bind_external_production_transition(session, row, policy, now=now)
                 self._cancel_live_approvals(session, now=now, target_id=target_id)
         return self.get(target_id)
 
@@ -723,12 +744,11 @@ class ExternalTargetAdministrationService:
             row.secret_reference = None
             row.administrative_state = ExternalAdministrativeState.DEACTIVATED
             row.deactivated_at = _to_text(now)
-            policy = session.get(ExternalProductionPolicyRow, str(target_id))
+            policy = _production_policy(session, target_id)
             if policy is not None:
                 policy.designation_state = ProductionDesignationState.DEACTIVATED
                 policy.mutations_suspended = True
-                policy.policy_revision += 1
-                policy.updated_at = _to_text(now)
+                bind_external_production_transition(session, row, policy, now=now)
                 self._cancel_live_approvals(session, now=now, target_id=target_id)
             target.availability = TargetAvailability.UNAVAILABLE
             target.connection_state = ConnectionState.DISCONNECTED
@@ -824,11 +844,16 @@ class ExternalTargetAdministrationService:
                 return
             row.observation_state = outcome
             row.last_observed_at = _to_text(completed)
+            production_material_changed = row.pending_observation_id is not None
             row.pending_observation_id = None
             if row.verification_state is ExternalVerificationState.VERIFIED:
+                production_material_changed = True
                 row.verification_state = ExternalVerificationState.NEEDS_REVERIFICATION
                 self._invalidate_production_policy(session, target_id, completed)
                 self._event(session, target_id, "reverification_required", completed)
+            policy = _production_policy(session, target_id)
+            if policy is not None and production_material_changed:
+                bind_external_production_transition(session, row, policy, now=completed)
             target.connection_state = ConnectionState.DISCONNECTED
             target.health = HealthStatus.ERROR
             self._event(
@@ -897,9 +922,8 @@ class ExternalTargetAdministrationService:
                     completed,
                     identity_mismatch=True,
                 )
-            elif session.get(ExternalProductionPolicyRow, str(target_id)) is not None:
-                policy = session.get(ExternalProductionPolicyRow, str(target_id))
-                assert policy is not None
+            policy = _production_policy(session, target_id)
+            if not mismatch and policy is not None:
                 if policy.designation_state in {
                     ProductionDesignationState.PENDING_NATIVE_IDENTITY,
                     ProductionDesignationState.INVALIDATED,
@@ -907,7 +931,6 @@ class ExternalTargetAdministrationService:
                     policy.designation_state = (
                         ProductionDesignationState.PENDING_NATIVE_IDENTITY
                     )
-                policy.updated_at = _to_text(completed)
                 self._event(
                     session,
                     target_id,
@@ -915,6 +938,8 @@ class ExternalTargetAdministrationService:
                     completed,
                     observation_id=observation_id,
                 )
+            if policy is not None:
+                bind_external_production_transition(session, row, policy, now=completed)
             target.connection_state = ConnectionState.CONNECTED
             target.health = HealthStatus.WARNING
             self._event(
@@ -949,7 +974,7 @@ class ExternalTargetAdministrationService:
         identity_mismatch: bool = False,
         force_generation: bool = False,
     ) -> None:
-        policy = session.get(ExternalProductionPolicyRow, str(target_id))
+        policy = _production_policy(session, target_id)
         if policy is None:
             return
         already_invalid = (
@@ -959,7 +984,6 @@ class ExternalTargetAdministrationService:
         if already_invalid and not force_generation:
             return
         policy.identity_generation += 1
-        policy.policy_revision += 1
         policy.designation_state = ProductionDesignationState.INVALIDATED
         policy.confirmed_observation_id = None
         policy.confirmed_observation_digest = None
@@ -967,7 +991,6 @@ class ExternalTargetAdministrationService:
         policy.designation_confirmed_at = None
         policy.designation_invalidated_at = _to_text(now)
         policy.mutations_suspended = True
-        policy.updated_at = _to_text(now)
         self._event(
             session,
             target_id,
@@ -995,7 +1018,7 @@ class ExternalTargetAdministrationService:
             raise ExternalTargetError("target_not_found")
         if (
             target.target_type is TargetType.EXTERNAL_PRODUCTION
-            and session.get(ExternalProductionPolicyRow, str(target_id)) is None
+            and _production_policy(session, target_id) is None
         ):
             raise ExternalTargetError("production_policy_missing")
         if row.administrative_state is ExternalAdministrativeState.DEACTIVATED:
@@ -1071,7 +1094,7 @@ class ExternalTargetAdministrationService:
         assert created is not None
         production_policy = None
         if target.target_type is TargetType.EXTERNAL_PRODUCTION:
-            policy = session.get(ExternalProductionPolicyRow, row.target_id)
+            policy = _production_policy(session, row.target_id)
             if policy is None:
                 raise ExternalTargetError("production_policy_missing")
             production_policy = self._production_policy_read(row, policy)
