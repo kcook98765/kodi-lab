@@ -1,26 +1,25 @@
 # Kodi Lab
 
-Kodi Lab is a self-hosted environment for developing and testing isolated Kodi
-installations. The repository currently includes the Phase 1 domain/storage
-core, the completed Phase 2 restricted-broker foundation, the first Phase 3
-single-runtime slice, and the initial authenticated Phase 4 localhost Web UI.
-The broker exposes
-only typed health/capability calls and bounded semantic inventory, provision,
-start, stop, and deprovision operations for exactly owned disposable containers.
-It does not expose raw Docker access. The first Kodi 21.3 runtime uses a fixed
-process-health observation and unprivileged, bounded JSON-RPC readiness path.
-The Web slice uses a locally bootstrapped administrator, opaque server-side
-sessions, CSRF/origin protection, semantic lifecycle actions, and ephemeral
-readiness polling. Additional runtimes and broader product surfaces remain later
-work.
+Kodi Lab is a self-hosted Web-administered environment for developing, testing
+and safely inspecting isolated or remote Kodi installations. It supports the
+curated Kodi 19.5, 20.5, 21.3 and Kodi 22 Beta 2 managed runtimes, synthetic
+fixtures, reset/snapshot workflows, browser screenshots/remote control,
+uploaded-ZIP and registered-source development, protected agent workspaces,
+reviewed promotion, external-development targets and least-authority production
+targets. The restricted broker exposes semantic operations for owned resources,
+never raw Docker access.
 
-Phase 8 also includes a narrow uploaded-ZIP first slice. An authenticated upload
-is validated into an immutable private artifact, then an asynchronous managed
-operation may install one absent Python video plugin on a healthy disposable
-suppression runtime. This is Lab-controlled validated filesystem
-materialization—not Kodi's native Install-from-ZIP installer. It performs no
-replacement, upgrade, enablement, execution, dependency/repository action, bind
-mount, or caller-directed filesystem/JSON-RPC operation.
+Web administration owns infrastructure, registration, credentials, presets,
+grants, production scopes, pairing, approvals and lifecycle. MCP is a stateless
+target/development interface with explicit target UUIDs, bounded schemas,
+durable replay safety and no shell, Git, Docker, caller-owned paths, arbitrary
+execution or raw JSON-RPC.
+
+Phases 1-13 and Phase 14 Slices 1-3, 4A and 4B are complete. Phase 14 overall is
+PARTIAL pending exact production bridge artifact review, explicitly authorized
+live Stage A-D validation, independent closeout audit and a final authoritative
+gate. Phase 15 diagnostics/hardening and Phase 16 public release preparation
+have not begun.
 
 [`docs/V1-SPEC.md`](docs/V1-SPEC.md) is the authoritative v1 product and
 architecture specification. [`docs/PROJECT-HANDOFF.md`](docs/PROJECT-HANDOFF.md)
@@ -71,7 +70,7 @@ tool still requires an explicit `target_id`; stdio creates no selected target or
 session. See [`docs/PHASE11-MCP.md`](docs/PHASE11-MCP.md) for security and
 client configuration details.
 
-The current production catalog is exactly `addon_list`,
+The authoritative V1 MCP catalog is exactly `addon_list`,
 `development_source_list`, `promotion_request`, `remote_action`, `screenshot_capture`, `target_list`,
 `target_status`, `workspace_create`, `workspace_deploy`, `workspace_edit`,
 `workspace_execute`, `workspace_read`, `workspace_status`, `workspace_tree`, and
@@ -161,3 +160,42 @@ DevelopmentSource baseline in Web before deployment and use only Web receipt
 reconciliation after ambiguity. With HTTP,
 HMAC protects integrity but PNG bytes are cleartext to observers on that LAN;
 use normally validated HTTPS when confidentiality is required.
+
+## Production targets
+
+Phase 14 keeps production separate from external development. Exactly five of
+the fifteen MCP tools are production-eligible: `target_list`, `target_status`,
+`addon_list`, `screenshot_capture` and `remote_action`. Production has no
+workspace/deployment tool. Native inspection, bridge-backed visual inspection
+and remote control each require exact Web-assigned presets, grants and current
+generation/revision-bound scopes.
+
+Production remote control is server-owned and semantic. Standing authority can
+permit only `up`, `down`, `left`, `right`, `back`, `home` and `info`.
+`play_pause`, `stop`, `previous`, `next`, `volume_up`, `volume_down` and
+`mute_toggle` require one-shot Web approval. `context_menu` and `select` are
+always prohibited. Mutation vetoes start blocked, exact request replay cannot
+dispatch twice, and ambiguity stops rather than retries.
+
+The production bridge supplies identity and bounded screenshots, not arbitrary
+control. Operators manually install an exact reviewed release ZIP after
+checking its published SHA-256; Web then registers the reviewed build, pairs
+with a show-once token and explicitly confirms provenance. Kodi Lab does not
+install/update production software or own Kodi/host lifecycle. Automatic bridge
+updates, hosted-repository bootstrap, generic production add-on installation,
+raw JSON-RPC, shell/SSH/filesystem access and workspace deployment to production
+are outside V1 authority.
+
+Bridge 1.1.7 remains exact Phase 13 review evidence, but its packaged README
+and metadata describe development-only use. Correcting those bytes changes the
+reviewed ZIP digest, so live production validation requires a separately
+reviewed corrected successor; none is created or published by this preparation
+slice. See the [bridge trust model](docs/BRIDGE.md),
+[production operations](docs/PRODUCTION-OPERATIONS.md), the
+[non-executed validation runbook](docs/PHASE14-VALIDATION-RUNBOOK.md) and the
+[redacted evidence template](docs/PHASE14-EVIDENCE-TEMPLATE.md).
+
+Kodi Lab follows least authority: start with Production Inspection, add visual
+authority only for screenshots, and use Production Remote Kodi only when
+bounded control is deliberately intended. Production screenshot pixels are not
+durably retained by Kodi Lab, although a receiving MCP client may persist them.

@@ -1721,3 +1721,45 @@ Standing navigation and all sixteen external-development actions remain
 unchanged; production `context_menu` and `select` remain prohibited. No
 deployment, execution, lifecycle, support-addon, shell, filesystem, SSH or raw
 JSON-RPC authority is added, and no subsequent Phase 14 work is begun.
+
+## Phase 14 production validation preparation checkpoint
+
+**Documentation/package analysis prepared. Phase 14: PARTIAL.** The canonical
+V1 contract is now the implemented exact fifteen-tool catalog; production
+eligibility is exactly `target_list`, `target_status`, `addon_list`,
+`screenshot_capture` and `remote_action`. Older speculative logs, diagnostics,
+library, raw JSON-RPC, hosted-repository, production installation/deployment and
+lifecycle language is narrowed, rejected or assigned post-V1 ownership.
+
+Production support-addon deployment is deferred post-V1 and is not a Phase 14
+completion blocker. V1 bootstrap is operator-owned manual installation of an
+exact reviewed release ZIP plus published checksum/provenance. Kodi Lab owns
+only reviewed-build registration, one-time pairing, explicit provenance
+confirmation and revision-bound scopes. A future bridge updater/deployer needs
+a new architecture/security gate; generic production deployment and automatic
+upgrade remain outside authority.
+
+Package analysis found that deterministic 1.1.7 includes its README and
+`addon.xml`, both of which describe development-only use. Correcting either
+changes the reviewed ZIP hash while wording alone does not change the embedded
+fingerprint formula. Therefore 1.1.7 stays historical Phase 13 evidence but is
+not silently relabelled as a corrected production artifact. The minimal
+recommended packaging-only successor is 1.1.8 with synchronized version,
+recomputed fingerprint/checksum, independent review and a new reviewed-build
+record. This checkpoint creates or publishes no successor.
+
+Phase 14 closeout requires the accepted documentation/boundary reconciliation,
+an exact reviewed production artifact, later explicitly authorized successful
+Stages A-D, independent closeout audit and one final authoritative gate. No
+stage, LAN/production contact, publication, tag, remote or Phase 15 work occurs
+at this checkpoint.
+
+Phase 15 remains **Diagnostics/hardening** and owns bounded operational
+diagnostics, hardening, performance and remaining operational validation under
+its future gate. It does not implicitly expand the V1 MCP/production catalog.
+Phase 16 remains **Public release preparation** and owns the supported public
+installation mechanism (including Compose unless canonically replaced),
+release packaging, first public SemVer, artifact/checksum publication, public
+documentation and release checklist. Repository version `0.0.0` remains the
+unreleased-development sentinel until Phase 16 determines and validates
+`1.0.0`.

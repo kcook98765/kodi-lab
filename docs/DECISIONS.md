@@ -4377,6 +4377,55 @@ approvals atomically with the governing revision transition.
   audit relationships remain protected and capacity-consuming. Only coherent
   terminal bundles older than policy retention are deleted atomically.
 
+## D-0360: The implemented fifteen-tool catalog is the V1 contract
+- Status: accepted Phase 14 validation preparation.
+- Decision: V1 has exactly `target_list`, `target_status`, `addon_list`,
+  `screenshot_capture`, `remote_action`, `development_source_list`,
+  `workspace_create`, `workspace_status`, `workspace_tree`, `workspace_read`,
+  `workspace_edit`, `workspace_validate`, `workspace_deploy`,
+  `workspace_execute` and `promotion_request`. Exactly the first five named
+  target tools are production-eligible. Earlier candidate logs, diagnostics,
+  library, raw JSON-RPC, installer or lifecycle tools are not implied V1 gaps.
+  Production gains no deployment tool.
+
+## D-0361: Production bridge installation stays operator-owned
+- Status: accepted Phase 14 validation preparation.
+- Decision: support-addon deployment is deferred post-V1 and is not a Phase 14
+  completion blocker. V1 bootstrap is manual operator installation of one exact
+  reviewed release ZIP after published checksum verification. Kodi Lab owns
+  reviewed-build registration, possession pairing, explicit provenance
+  confirmation and revision-bound authority, but not installation, Kodi/host
+  lifecycle or automatic upgrades. Any updater/deployer requires a new
+  architecture and security gate; generic production deployment remains
+  rejected.
+- Rationale: installation establishes bytes under operator authority while the
+  separate Lab trust ceremony proves only the exact installed identity it is
+  permitted to use. Combining them would make the identity/screenshot bridge a
+  generic software-management channel.
+
+## D-0362: Corrected production bridge metadata requires a reviewed successor
+- Status: accepted Phase 14 validation preparation; successor implementation
+  and publication deferred.
+- Decision: deterministic 1.1.7 includes both its README and `addon.xml` in the
+  exact ZIP digest. Those packaged files describe external-development-only use
+  and the README explicitly rejects production. Correcting either changes the
+  ZIP SHA-256. Wording alone does not change the hard-coded semantic fingerprint,
+  but reviewed production identity binds both values, so old hashes cannot be
+  claimed for modified bytes. Keep 1.1.7 as historical Phase 13 evidence and
+  require a separately authorized, independently reviewed packaging successor
+  before production Stage B. The minimal recommended transition is 1.1.8 with
+  synchronized descriptor/code version, recomputed semantic fingerprint and
+  deterministic ZIP checksum, fresh review and a new reviewed-build record.
+
+## D-0363: Compose and the first public SemVer belong to Phase 16
+- Status: accepted Phase 14 validation preparation.
+- Decision: no Compose definition or superseding documented public install
+  mechanism exists at this checkpoint. Clean public installation remains a V1
+  release acceptance item owned by Phase 16, not a Phase 14 closeout blocker.
+  Static package version `0.0.0` remains the unreleased-development sentinel;
+  Phase 16 owns selecting and validating `1.0.0`, public artifacts, checksums,
+  installation docs and the release checklist.
+
 ## Phase 14 Slice 2 formal completion record
 
 - Status: **Phase 14 Slice 2 — Read-only production inspection: COMPLETE**;

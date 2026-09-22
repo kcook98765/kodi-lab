@@ -414,8 +414,51 @@ capacity-consuming. Durable audit contains bounded semantic identifiers,
 digests, revisions, transitions and outcomes only—never secrets, endpoints,
 raw JSON/JSON-RPC, responses, paths or pixels.
 
-## Remaining Phase 14 work
+## Production bootstrap and deferred deployment
 
-Production support-addon deployment and any later explicitly reviewed Phase 14
-scope remain separate work. Slice 4B does not authorize deployment, execution,
-lifecycle, shell, filesystem, SSH, raw JSON-RPC or real production contact.
+Production support-addon deployment is deferred post-V1 and is not a Phase 14
+completion blocker. V1 uses a release ZIP with published checksum/provenance,
+manually installed by the operator through ordinary Kodi procedures. Kodi Lab
+then owns only Web reviewed-build registration, a one-time pairing token,
+explicit installed provenance confirmation and revision-bound scopes. This
+keeps installation and Kodi/host lifecycle under operator authority and keeps
+the bridge an identity/screenshot component rather than an arbitrary control or
+software-management channel. Production control still uses bounded native
+semantic calls.
+
+Any future bridge updater/deployer requires a new post-V1 architecture and
+security gate. Automatic bridge upgrades and generic production add-on
+deployment remain outside product authority. A hosted Kodi repository is
+optional and is not required for Phase 14 or V1 production validation.
+
+## Bridge 1.1.7 artifact decision
+
+The deterministic 1.1.7 archive includes the bridge README and `addon.xml`.
+Editing either changes ZIP SHA-256
+`a632f26ac7d6f2fb908577d4c75c9afc344ab138c1803f87132abefcf9c99a5c`.
+Their wording is not an input to the hard-coded semantic fingerprint
+`3f9eea79fcf03c3bd2d24e4aab8a61ffa98ed093e1c1185d9e9a3911d41b7486`,
+but production reviewed-build identity binds both digests. The package README
+explicitly says never to use 1.1.7 with production and `addon.xml` describes
+external-development-only use. Consequently the existing 1.1.7 package/hash
+remains exact Phase 13 review evidence but cannot remain the authoritative
+corrected production Stage B artifact.
+
+The minimal recommended transition is a packaging-only 1.1.8 successor with
+synchronized descriptor/code version, recomputed semantic fingerprint and ZIP
+checksum, independent package/source review and a new Web reviewed-build
+record. This preparation does not edit/package/version/publish that successor.
+
+## Validation and closeout preparation
+
+The operator guide is [PRODUCTION-OPERATIONS.md](PRODUCTION-OPERATIONS.md).
+The non-executed validation procedure is
+[PHASE14-VALIDATION-RUNBOOK.md](PHASE14-VALIDATION-RUNBOOK.md), with the
+redacted [PHASE14-EVIDENCE-TEMPLATE.md](PHASE14-EVIDENCE-TEMPLATE.md).
+
+Phase 14 may close only after V1 boundary reconciliation, production/manual
+bridge documentation, resolution and review of the exact production artifact,
+later explicitly authorized successful Stage A-D execution, an independent
+Phase 14 closeout audit and one final authoritative repository gate. Phase 14
+remains **PARTIAL**. Slice 4B does not authorize deployment, execution,
+lifecycle, shell, filesystem, SSH, raw JSON-RPC, live validation or Phase 15.

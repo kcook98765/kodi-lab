@@ -10,7 +10,11 @@ Versioning: Semantic Versioning
 
 Kodi Lab is a self-hosted development and testing environment for creating, running, inspecting, debugging, and comparing isolated Kodi installations.
 
-It provides managed Kodi instances, synthetic libraries, snapshots, add-on deployment workflows, visual access, diagnostics, and integrated MCP access suitable for human developers and AI coding agents.
+It provides managed Kodi instances, synthetic libraries, snapshots, bounded
+add-on development workflows, visual access, Web administration, and an
+integrated least-authority MCP surface suitable for human developers and AI
+coding agents. General diagnostics remain Phase 15 work rather than an implied
+MCP capability.
 
 The web interface is the primary administration surface.
 
@@ -33,11 +37,53 @@ v1 must provide:
 - protected agent working copies and reviewable patch-back;
 - integrated MCP;
 - remote LAN Kodi targets;
-- production/development policies and approvals;
-- logging, history, diagnostics;
+- production/development policies and one-shot transient approvals;
+- bounded history and audit; broader logs/diagnostics are Phase 15;
 - restricted container-management broker;
 - SQLite metadata;
-- Docker Compose deployment.
+- a public installation shape finalized during Phase 16 release preparation;
+  the original Compose requirement remains the preferred release candidate but
+  is not a Phase 14 requirement.
+
+### 2.1 Current normative V1 MCP and production contract
+
+This section supersedes the broader speculative MCP catalog and production
+capabilities retained later in this document as design history.
+
+The authoritative V1 MCP catalog contains exactly fifteen tools:
+
+- `target_list`
+- `target_status`
+- `addon_list`
+- `screenshot_capture`
+- `remote_action`
+- `development_source_list`
+- `workspace_create`
+- `workspace_status`
+- `workspace_tree`
+- `workspace_read`
+- `workspace_edit`
+- `workspace_validate`
+- `workspace_deploy`
+- `workspace_execute`
+- `promotion_request`
+
+Exactly five are production-eligible: `target_list`, `target_status`,
+`addon_list`, `screenshot_capture`, and `remote_action`. Production has no
+deployment tool. Raw JSON-RPC, production logs/diagnostics/library queries,
+generic add-on installation/update, production lifecycle, host lifecycle,
+shell, SSH, generic filesystem access, user-development workspace deployment
+to production, and broad persistent Kodi-settings mutation are outside the V1
+production authority. The seven standing production actions are `up`, `down`,
+`left`, `right`, `back`, `home`, and `info`; the seven transient actions require
+one-shot Web approval; `context_menu` and `select` are always prohibited.
+
+Production bridge bootstrap is manual installation of an exact reviewed ZIP
+whose published checksum and provenance are registered and confirmed through
+Web administration. A hosted Kodi repository is optional post-V1 convenience,
+not a production bootstrap dependency. Kodi Lab does not automatically install
+or update its bridge on production. Any future updater/deployer requires a new
+architecture and security gate.
 
 ## 3. Important product boundary
 
@@ -54,15 +100,16 @@ Web UI owns infrastructure administration such as:
 - ports/network topology;
 - trusted custom build controls.
 
-MCP owns target interaction and agent-development workflows such as:
-- JSON-RPC;
+MCP owns the implemented bounded target interaction and agent-development
+workflows such as:
+- server-owned semantic target inspection and control;
 - playback/navigation;
-- library query/mutation;
-- logs/screenshots/diagnostics;
-- Kodi/add-on settings according to policy;
-- approved add-on install/update;
-- managed development working copies;
-- bug reproduction and cross-version comparison prompts.
+- bounded add-on inventory and screenshots;
+- approved development-target add-on workflows through the closed workspace
+  services;
+- managed development working copies; and
+- client-orchestrated bug reproduction/cross-version comparison using only the
+  authorized tools; the server supplies no V1 prompt catalog.
 
 Do not expand MCP into a second lab-admin API merely because an operation exists in the web UI.
 
@@ -121,15 +168,19 @@ Supporting storage:
 - artifacts;
 - logs;
 - screenshot cache;
-- hosted Kodi repository.
+- optional hosted Kodi repository (POST-V1 distribution convenience, not a
+  production bridge requirement).
 
 ## 6. Deployment
 
-Canonical public v1 install:
-- versioned GHCR images;
-- versioned Docker Compose file.
+Phase 16 owns the canonical public V1 installation contract. The original
+release target remains versioned GHCR images plus a versioned Docker Compose
+file, but no Compose definition exists at the Phase 14 checkpoint. Therefore
+Compose is a Phase 16 release-packaging acceptance item, not a Phase 14
+closeout blocker and not a supported install mechanism that may be claimed
+today.
 
-Also provide:
+Phase 16 should also provide:
 - Git clone + Compose for contributors/development;
 - GitHub release archives;
 - checksums;
@@ -144,7 +195,11 @@ Host policy:
 
 ## 7. Releases
 
-Use SemVer.
+Use SemVer for public releases. The repository's static `0.0.0` package version
+is an unreleased-development sentinel, not a published compatibility promise.
+Phase 16 release preparation owns selecting `1.0.0`, synchronizing package and
+artifact versions, and performing the release checklist; Phase 14 does not
+change the public version.
 Stable images: exact version plus `latest`.
 Prerelease images: exact prerelease plus `edge`.
 `latest` must never point to beta/RC.
@@ -261,7 +316,8 @@ Do not require users to manage many service ports.
 Main web/application process must not have unrestricted Docker-socket access.
 Use a narrow broker exposing only explicitly required operations.
 
-Core API/service methods should be domain-oriented:
+Core API/service methods should be domain-oriented. This historical list is
+illustrative architecture, not a list of implemented public or MCP authority:
 - create_instance
 - start_instance
 - stop_instance
@@ -269,7 +325,7 @@ Core API/service methods should be domain-oriented:
 - install_addon
 - sync_dev_source
 - restore_snapshot
-- query_library
+- query_library (POST-V1 candidate)
 
 Do not expose Docker primitives as public business API.
 
@@ -303,7 +359,10 @@ Capabilities describe technical support.
 Policy describes permission.
 Unsupported controls are hidden/disabled with explanation.
 
-Example capabilities:
+Example capabilities below are historical design vocabulary, not current V1
+authority. Implemented registries and Section 2.1 are normative; in particular
+`raw_jsonrpc`, generic log access, generic filesystem reads, and generic add-on
+installation are rejected for production V1:
 - jsonrpc
 - screenshots
 - interactive_display
@@ -640,6 +699,11 @@ Optional keyboard capture off by default; send-full-text preferred over detailed
 
 ## 28. History/logging/diagnostics
 
+The durable semantic history already implemented remains V1. The broader
+logging and diagnostic-bundle design below is **POST-V1 / Phase 15 work** and
+does not add tools to the authoritative fifteen-tool catalog. Native production
+log access and one-call MCP diagnostics are not V1 capabilities.
+
 Persistent activity history:
 - lifecycle;
 - snapshots;
@@ -659,7 +723,7 @@ Logging:
 - one structured Kodi Lab application log with subsystem/category;
 - native per-instance Kodi logs.
 
-One-click diagnostic bundle in v1:
+Candidate Phase 15 one-click diagnostic bundle:
 - application/runtime versions;
 - relevant logs;
 - target metadata;
@@ -736,26 +800,19 @@ Discovery is target-independent and reflects only current client-preset
 permission. Exact grants, target policy, capability, and current state are
 recomputed for every call; discovery is never authorization.
 
-Flat explicit names preferred:
-- target_list
-- player_state
-- playback_pause
-- library_search
-- addon_install
-- log_search
-- screenshot_capture
-- jsonrpc_call
+The implemented flat catalog is the exact fifteen-tool list in Section 2.1.
+Earlier candidate names such as `player_state`, `library_search`,
+`addon_install`, `log_search`, and `jsonrpc_call` were never V1 commitments and
+are not implied missing tools. Raw JSON-RPC, lifecycle, production deployment,
+production logs/diagnostics and production library queries are rejected V1
+authority, not discoverable hidden methods.
 
-MCP tool/API schema has separate explicit version.
-
-Phase 11 retains Kodi Lab schema version `1` and exposes exactly `addon_list`,
-`remote_action`, `screenshot_capture`, `target_list`, and `target_status`.
-Add-on inventory is bounded and path-free. Screenshot capture returns native
-`image/png` MCP content plus compact semantic metadata while updating the
-existing durable latest-screenshot cache. Remote action is the existing closed
-semantic control surface with durable client/request replay protection. Raw
-JSON-RPC, lifecycle, diagnostics, external targets, and the richer semantic
-catalog remain later phases or separately scheduled expansion.
+Phase 11 originally exposed five tools. Phases 12 through 14 expanded behavior
+under the same schema and finalized the fifteen-tool V1 catalog. Add-on
+inventory remains bounded and path-free. Screenshot capture returns native
+`image/png` MCP content plus compact semantic metadata. Remote action remains
+the closed semantic control surface with durable client/request replay
+protection.
 
 ## 32. MCP baseline/presets
 
@@ -784,40 +841,28 @@ Effective access is intersection.
 
 ## 33. Managed development policy
 
-Optimize for low-friction agents.
-May allow:
-- broad Kodi JSON-RPC;
-- library mutations;
-- addon install/uninstall;
-- broad addon settings;
-- broad ordinary Kodi settings;
-- raw JSON-RPC;
-- working-copy edits;
-- logs/screenshots;
-- navigation/playback;
-- approved dev filesystem writes.
-
-Avoid unnecessary confirmations for normal dev-target operations.
+V1 managed development is the least-authority fifteen-tool contract. It
+supports bounded workspace inspection/create/edit/validate, exact approved
+deployment, fixed execution, Web-reviewed promotion requests, bounded target
+inspection/screenshots and closed semantic remote actions according to exact
+preset, grant and target policy. It exposes no shell, Git, Docker, arbitrary
+execution, arbitrary filesystem path, arbitrary add-on install/uninstall, raw
+JSON-RPC, general library mutation, general log retrieval or broad settings
+mutation. The older broader list is retained in history only as a POST-V1
+candidate set requiring separate architecture gates.
 
 ## 34. Production remote policy
 
-Conservative defaults:
-Allowed:
-- read-only inspection;
-- logs;
-- playback/navigation;
-- safe library queries;
-- Kodi Lab repo refresh;
-- approved support-addon updates.
+Production V1 is the exact five-tool subset in Section 2.1. Read-only status
+and bounded add-on inventory use native semantic calls; screenshots require the
+reviewed bridge and visual scope; navigation and the seven transient actions
+use bounded native semantic calls. The transient actions require exact one-shot
+Web approval.
 
-Blocked by default:
-- arbitrary addon install/remove;
-- broad settings;
-- destructive library mutation;
-- raw JSON-RPC;
-- arbitrary filesystem writes.
-
-Users may explicitly broaden.
+Production logs, library queries, repository refresh, support-addon updates,
+deployment, arbitrary add-on install/remove, settings mutation, library
+mutation, raw JSON-RPC and filesystem writes are unavailable. Presets, grants,
+scopes or approvals cannot broaden this closed server-owned vocabulary.
 
 ## 35. Remote Kodi
 
@@ -834,27 +879,26 @@ Capability levels:
 - plain JSON-RPC;
 - bridge-enhanced.
 
-Initial production repo/bridge bootstrap manual.
-Kodi Lab shows local repo URL/instructions.
-
-After bootstrap, may automate:
-- own repo refresh;
-- Kodi Lab/MCP support-addon updates.
-
-Verify:
-- JSON-RPC;
-- repo presence;
-- bridge presence/version.
+Production bridge bootstrap is manual operator installation of an exact
+reviewed release ZIP after checksum verification. Kodi Lab verifies native
+identity separately, registers the reviewed build in Web administration, pairs
+with a show-once token and requires explicit provenance confirmation. There is
+no repository prerequisite, automatic refresh, bridge update or production
+support-addon deployment. Future bridge deployment/update capability requires
+a new post-V1 architecture and security gate.
 
 ## 36. Hosted Kodi repository
 
-Kodi Lab hosts canonical local repository endpoint containing Kodi Lab/MCP support add-ons required by bridge functionality.
-
-Reuse concepts proven by existing Kodi MCP deployment, but no exact API compatibility requirement.
+**POST-V1 optional distribution convenience.** A hosted Kodi repository is not
+required for Phase 14, V1 production validation, or bridge functionality.
+Canonical V1 bridge distribution is a release ZIP with published checksum and
+provenance. Generic repository-driven production installation/update and
+automatic bridge upgrade remain outside Kodi Lab product authority.
 
 ## 37. MCP add-on sources
 
-Managed Dev may install/update only from sources explicitly configured for target:
+Managed development add-on workflows may use only closed, explicitly
+configured sources:
 - Lab repo;
 - uploaded ZIP;
 - registered dev source;
@@ -862,146 +906,52 @@ Managed Dev may install/update only from sources explicitly configured for targe
 
 Arbitrary unregistered URLs/files blocked.
 
-Managed Dev may uninstall approved dev/test add-ons.
-Production remote cannot arbitrarily uninstall by default.
+The current implementation supports the bounded Phase 8 and Phase 12/13 flows;
+this list does not create a generic MCP installer. Production cannot install,
+update or uninstall add-ons at all through Kodi Lab V1.
 
 ## 38. Kodi settings/library/raw JSON-RPC
 
-Managed Dev:
-- broad ordinary Kodi settings read/write;
-- broad library mutations;
-- unrestricted raw Kodi JSON-RPC.
-
-Production:
-- editable writable settings allowlist;
-- high-impact settings may require approval;
-- raw JSON-RPC disabled by default.
-
-Record prior setting values where practical and support one-level restore.
-
-Library coverage:
-- movies;
-- TV;
-- seasons;
-- episodes;
-- music videos;
-- files;
-- playlists;
-- metadata.
-
-Search supports compound filters, sort, limit/offset; default page size 25; one primary sort key initially.
-
-Mutations may include scan/clean, watched/resume, playlist and reliable item edits, policy-controlled.
-
-Audit raw JSON-RPC method/params/result/error; redact secrets; audit result may truncate while caller gets full result where practical.
+The earlier broad settings, library search/mutation and raw JSON-RPC proposal is
+**rejected for production V1** and is not part of the implemented MCP catalog
+for managed or external-development targets either. Kodi Lab uses fixed native
+JSON-RPC methods internally behind semantic services; callers cannot supply a
+method, player ID, raw parameters or raw protocol payload. Broad persistent
+Kodi-settings mutation is likewise outside V1. Any future library/settings
+surface is POST-V1 work requiring its own bounded vocabulary, privacy model,
+audit design and architecture/security gate.
 
 ## 39. GUI/playback/logs/diagnostics/events
 
-GUI:
-- active window/dialog/focused control normalized;
-- optional raw details;
-- direct GUI/window actions where supported;
-- production defaults to basic navigation.
+V1 GUI/playback MCP authority is only the closed `remote_action` vocabulary.
+Production standing actions and one-shot transient actions are enumerated in
+Section 2.1; seek, speed, stream/subtitle selection, repeat/shuffle, raw window
+selection and normalized player-state tools are not V1. Screenshot behavior is
+the implemented `screenshot_capture` contract, not a general authenticated
+file/reference service.
 
-Playback:
-- play/pause/stop;
-- seek;
-- speed;
-- next/prev;
-- stream/subtitle select;
-- volume/mute;
-- repeat/shuffle;
-- normalized fresh player state.
-
-Logs:
-- current and previous Kodi log;
-- substring and regex search;
-- default ~50 matches, 2 context lines;
-- small inline, large authenticated file reference;
-- `[REDACTED]` for obvious secrets;
-- production log access enabled by default and audited.
-
-One-call MCP diagnostics:
-- Kodi version/health;
-- bridge/repo;
-- policy/preset;
-- addon summary;
-- recent errors;
-- screenshot metadata;
-- relevant history.
-
-Screenshots:
-- fresh capture request;
-- authenticated retrievable image reference;
-- stale cached fallback with age if unavailable.
-
-Events v1:
-- playback start/stop/pause;
-- library scan start/complete;
-- addon install/enable/disable;
-- GUI window/dialog changes.
-Streaming preferred, polling fallback with ~15-minute retention.
-No event-triggered automation engine.
-
-Resources:
-- target status/capabilities;
-- current/previous logs;
-- current screenshot;
-- instance config summary;
-- installed addon inventory.
+MCP log search, native log download, one-call diagnostics, event streaming and
+diagnostic resources are **POST-V1 / Phase 15 candidates**. Production log
+access is not enabled. Phase 15 may add internal/Web operational diagnostics
+without changing the fifteen-tool V1 catalog; any MCP expansion requires a
+separate explicit catalog decision.
 
 ## 40. MCP prompts
 
-Built-in immutable prompts:
-1. Inspect/health selected target.
-2. Diagnose addon install/launch failure.
-3. Compare behavior across versions.
-4. Reproduce bug with logs/screenshots/GUI/library/addon state.
-
-Users duplicate/customize.
-Typed parameters.
-Clients only see executable prompts.
-Prompt run history parent + child tool calls.
-
-Cross-version prompt guides agent loop; no hidden matrix orchestrator.
-
-Bug repro inputs:
-- description;
-- optional addon ID;
-- expected/actual;
-- preferred targets.
-
-No separate repro-artifact subsystem required v1.
+The original built-in prompt proposal is **POST-V1**. The V1 MCP server exposes
+the exact tools in Section 2.1 and makes no prompt, log, library or hidden matrix
+orchestration commitment.
 
 ## 41. Approvals
 
-Production blocked-but-eligible action creates pending approval in web UI.
-Client retries after approval.
-No MCP inline bypass.
-
-Approval types:
-- one-time;
-- time-limited;
-- permanent.
-
-Pending expiry default 15m configurable.
-One-time binds exact params.
-Timed/permanent capability-level.
-Target-specific and initially client/session-specific.
-Exact duplicate pending requests reuse same request.
-
-Approval card:
-- target;
-- client/session;
-- capability/action;
-- summary;
-- parameters;
-- scope;
-- expandable raw params.
-
-Client preset prohibition cannot be bypassed by approval.
-Revocation affects new calls immediately; running call may finish.
-Persistent audit includes approver, timestamps, expiry/revocation/outcome.
+Only the seven transient production actions use V1 approvals. MCP creates or
+replays one exact pending request and cannot approve it. Authenticated Web
+administration may approve once, deny or cancel; the client then retries the
+same request UUID and exact action. Pending lifetime is at most fifteen minutes
+and an approval is dispatchable for at most five minutes. There are no timed or
+permanent capability approvals, bearer approval tokens, MCP approval methods or
+raw-parameter cards. Consumption and receipt claim are atomic; ambiguity after
+claim means stop, never retry with a new request.
 
 ## 42. Instance presets/cloning
 
@@ -1077,14 +1027,20 @@ MCP public-v1 gate:
 - remote target;
 - Production and Development policy;
 - allowed/blocked/approval behavior;
-- meaningful parity with existing Kodi MCP capabilities.
+- the exact fifteen-tool contract in Section 2.1; parity with an older Kodi MCP
+  tool set is explicitly not required.
 
 Manual capability checklist acceptable initially; automate later.
 
 ## 46. Core public-v1 acceptance
 
-Must include at least:
-- clean Compose deployment;
+The following list is reconciled to the implemented V1 contract. Phase 16 owns
+public packaging/installation acceptance; Phase 15 owns the remaining
+operational diagnostics/hardening. Neither is a Phase 14 implementation slice.
+
+Must include at least by public release:
+- one documented clean public installation path; the planned Compose path is a
+  Phase 16 deliverable and is not yet present;
 - first-run setup;
 - curated four-version creation/readiness;
 - stop/restart/reset/delete;
@@ -1096,20 +1052,22 @@ Must include at least:
 - dev source attach/sync;
 - agent working copy and patch-back;
 - health;
-- logs/diagnostic bundle;
+- Phase 15 operational diagnostics/hardening evidence; no MCP diagnostic tool
+  is implied;
 - required web workflows;
-- MCP list/select and normal Kodi operations;
-- approved dev add-on install/update;
-- logs/screenshots/diagnostics/raw JSON-RPC according to policy;
-- remote registration/plain JSON-RPC;
-- bridge-enhanced remote;
+- the exact fifteen-tool MCP catalog in Section 2.1;
+- approved bounded development add-on workflows;
+- screenshots and closed semantic actions according to policy; MCP logs,
+  diagnostics and raw JSON-RPC are not V1 requirements;
+- remote registration with fixed native semantic JSON-RPC calls;
+- exact reviewed release-ZIP bridge bootstrap with checksum/provenance;
 - production restrictions and approvals;
 - token lifecycle;
 - audit;
 - migration tests;
 - no unrestricted Docker socket;
 - no secret leakage;
-- install/upgrade docs.
+- manual install/upgrade/rollback docs.
 
 ## 47. Implementation phases
 
@@ -1369,3 +1327,53 @@ The independent completion audit closes Slice 4B with permanent one-use grant
 identity, monotonic direct-state revision, atomic policy-cancellation and
 coherent approval/receipt retention guards; it does not authorize a later
 Phase 14 slice.
+
+## 56. Phase 14 validation and closeout boundary
+
+Production support-addon deployment is formally deferred post-V1. It is not a
+Phase 14 completion blocker. Production V1 bootstrap is ordinary operator-
+owned manual installation of an exact reviewed bridge release ZIP after
+checksum verification. Kodi Lab then establishes only its own trust: Web
+reviewed-build registration, one-time pairing, explicit installed provenance
+confirmation and revision-bound scopes. Separating installation authority from
+product trust avoids turning the bridge into a generic deployment or lifecycle
+channel. Any future bridge updater/deployer requires a new architecture and
+security gate; automatic upgrades and generic production deployment remain
+outside authority.
+
+The Phase 13 reviewed 1.1.7 archive has a deterministic exact ZIP hash and a
+separate embedded semantic fingerprint. Its packaged README says never to use
+the add-on with production and its `addon.xml` summary says external-
+development-only. Correcting either packaged file changes the exact ZIP hash;
+wording alone does not change the hard-coded semantic fingerprint. Therefore
+1.1.7 remains historical Phase 13 evidence but cannot silently be represented
+as the corrected production release artifact. The minimal recommendation is a
+1.1.8 packaging-only successor with a synchronized version constant, newly
+computed deterministic ZIP hash and semantic fingerprint, fresh independent
+source/package review, and a newly registered reviewed-build record. This
+specification does not authorize that version change or publication.
+
+Phase 14 may close only after:
+
+1. this V1 boundary reconciliation and the production/manual bridge operator
+   documentation are accepted;
+2. the exact production bridge artifact decision is resolved through its
+   separate review gate;
+3. Stages A through D are executed later under explicit live-validation
+   authorization and produce bounded redacted evidence;
+4. an independent Phase 14 closeout audit reproduces the required invariants;
+5. one authoritative final repository gate passes after the final content
+   change.
+
+Until then Phase 14 is **PARTIAL**. Stage A-D execution, live production/LAN
+contact, bridge publication, support-addon deployment and Phase 15 work are not
+authorized by this preparation slice.
+
+Phase 15 remains Diagnostics/hardening: bounded operational diagnostics,
+performance, security hardening and remaining operational validation as its
+canonical phase gate determines. It must not silently expand the V1 MCP or
+production catalog. Phase 16 remains Public release preparation: public
+installation/Compose ownership, release packaging, the first public SemVer,
+artifact/checksum/provenance publication, public documentation and release
+checklist. The static project version stays `0.0.0` until that release gate
+selects and validates `1.0.0`.

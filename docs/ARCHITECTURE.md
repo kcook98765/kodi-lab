@@ -2542,3 +2542,36 @@ eight live/client and 128 live/global caps. Dispatch is one/5 seconds/client-
 target, burst one, one target and one global in flight. Coherent old terminal
 bundles alone expire atomically; all live, pending, ambiguous, malformed or
 incoherent relationships remain protected and capacity-consuming.
+
+## Phase 14 production bridge distribution and bootstrap
+
+The production bridge is an identity and screenshot support component, not a
+control, lifecycle or generic deployment channel. Production commands continue
+to use the native adapter's fixed server-owned semantic mappings. Production
+accepts only an exact active Web-reviewed build, one-time possession pairing,
+explicit installed provenance confirmation and current revision-bound scopes.
+A bridge identity/build mismatch suspends bridge-dependent visual and control
+authority; native read-only inspection remains independent where its own trust
+intersection is still coherent.
+
+V1 distribution is a release ZIP plus a published checksum and provenance.
+The operator obtains, verifies and manually installs the package through
+ordinary Kodi procedures. Kodi Lab neither installs nor updates it and owns no
+production or host lifecycle. Production support-addon deployment is deferred
+post-V1 and is not a Phase 14 completion blocker. A hosted Kodi repository is
+optional future distribution convenience. Any automatic or semantic bridge
+updater/deployer requires a new architecture and security gate; generic
+production deployment remains outside authority.
+
+The deterministic builder includes every file under
+`bridge/service.kodi_lab_bridge`, including README and `addon.xml`, in the ZIP
+SHA-256. The semantic fingerprint is separately embedded from add-on version,
+protocol and capability identity. A documentation/metadata-only package edit
+therefore changes the ZIP digest even if the old semantic fingerprint formula
+would not notice the wording. Reviewed-build identity binds both values.
+Because 1.1.7's packaged wording excludes production, it remains historical
+Phase 13 evidence and must not be relabelled as corrected production bytes.
+The minimal recommended packaging successor is 1.1.8, requiring synchronized
+version/fingerprint constants, a new deterministic checksum, independent
+review and a new reviewed-build record before live Stage B. That successor is
+not created or published by Phase 14 validation preparation.
