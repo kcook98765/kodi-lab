@@ -2573,5 +2573,10 @@ Because 1.1.7's packaged wording excludes production, it remains historical
 Phase 13 evidence and must not be relabelled as corrected production bytes.
 The minimal recommended packaging successor is 1.1.8, requiring synchronized
 version/fingerprint constants, a new deterministic checksum, independent
-review and a new reviewed-build record before live Stage B. That successor is
-not created or published by Phase 14 validation preparation.
+review and a new reviewed-build record before live Stage B. The local candidate
+now has ZIP SHA-256
+`20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
+and semantic fingerprint
+`4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`.
+It is not published, registered or installed; those boundaries remain outside
+the packaging slice.

@@ -27,10 +27,10 @@ import xbmcvfs
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.7"
+ADDON_VERSION = "1.1.8"
 CAPABILITIES = ["screenshot", "workspace_deployment"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.7|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
+    b"kodi-lab-narrow-bridge|1.1.8|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ADDON_ROOT = "special://home/addons"

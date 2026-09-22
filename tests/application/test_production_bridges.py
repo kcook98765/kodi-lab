@@ -66,6 +66,44 @@ class _Verifier:
         )
 
 
+def test_reviewed_build_service_represents_exact_bridge_1_1_8(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'reviewed-1.1.8.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    bridges = ExternalBridgeService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(
+            allowed_ports=(8765,), test_loopback_enabled=True
+        ),
+        secret_store=ExternalBridgeSecretStore(
+            tmp_path / "reviewed-secrets", master_key=b"b" * 32, key_version=1
+        ),
+    )
+
+    reviewed = bridges.register_reviewed_build(
+        semantic_fingerprint=(
+            "4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a"
+        ),
+        zip_sha256=("20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762"),
+        addon_id="service.kodi_lab_bridge",
+        addon_version="1.1.8",
+        protocol_version="1",
+        capabilities=("screenshot", "workspace_deployment"),
+        supported_kodi_versions=("19.5", "20.5", "21.3", "22.0"),
+        source_reference="local production-validation candidate",
+        administrator_reference="deterministic_test",
+    )
+
+    assert reviewed.addon_version == "1.1.8"
+    assert reviewed.capabilities == ("screenshot", "workspace_deployment")
+    assert reviewed.supported_kodi_versions == ("19.5", "20.5", "21.3", "22.0")
+    assert reviewed.state == "active"
+    assert bridges.list_reviewed_builds() == [reviewed]
+    engine.dispose()
+
+
 def _decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=")
 

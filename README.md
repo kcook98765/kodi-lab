@@ -188,9 +188,10 @@ are outside V1 authority.
 
 Bridge 1.1.7 remains exact Phase 13 review evidence, but its packaged README
 and metadata describe development-only use. Correcting those bytes changes the
-reviewed ZIP digest, so live production validation requires a separately
-reviewed corrected successor; none is created or published by this preparation
-slice. See the [bridge trust model](docs/BRIDGE.md),
+reviewed ZIP digest. Bridge 1.1.8 is the local packaging-only corrected
+candidate; it is not published, Web-registered or installed on production, and
+Stage A-D remain unexecuted. Stage B must use its exact independently accepted
+artifact. See the [bridge trust model](docs/BRIDGE.md),
 [production operations](docs/PRODUCTION-OPERATIONS.md), the
 [non-executed validation runbook](docs/PHASE14-VALIDATION-RUNBOOK.md) and the
 [redacted evidence template](docs/PHASE14-EVIDENCE-TEMPLATE.md).

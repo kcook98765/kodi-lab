@@ -431,7 +431,7 @@ security gate. Automatic bridge upgrades and generic production add-on
 deployment remain outside product authority. A hosted Kodi repository is
 optional and is not required for Phase 14 or V1 production validation.
 
-## Bridge 1.1.7 artifact decision
+## Bridge 1.1.7 history and 1.1.8 candidate
 
 The deterministic 1.1.7 archive includes the bridge README and `addon.xml`.
 Editing either changes ZIP SHA-256
@@ -447,7 +447,13 @@ corrected production Stage B artifact.
 The minimal recommended transition is a packaging-only 1.1.8 successor with
 synchronized descriptor/code version, recomputed semantic fingerprint and ZIP
 checksum, independent package/source review and a new Web reviewed-build
-record. This preparation does not edit/package/version/publish that successor.
+record. That local successor is now built with no protocol, capability or
+substantive executable-behavior change. Its exact ZIP SHA-256 is
+`20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
+and its semantic fingerprint is
+`4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`.
+It has not been published, Web-registered, installed on production or used for
+Stage A-D. Stage B must use these exact reviewed 1.1.8 bytes after acceptance.
 
 ## Validation and closeout preparation
 

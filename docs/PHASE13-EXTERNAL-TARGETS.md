@@ -415,7 +415,12 @@ identity, but Phase 14 closeout preparation found that the packaged README and
 bytes changes the reviewed ZIP digest, so 1.1.7 remains exact Phase 13 evidence
 and is not the corrected production distribution. A separately reviewed
 packaging successor is required before production Stage B; 1.1.8 is the minimum
-recommended transition. Operators must explicitly register the new reviewed
+recommended transition. The local 1.1.8 candidate has ZIP SHA-256
+`20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
+and semantic fingerprint
+`4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`;
+it has not been installed on production. Stage B must use that exact artifact
+after independent review. Operators must explicitly register its reviewed
 ZIP/fingerprint provenance in Web administration, enter a new show-once token
 locally, inspect the observed bridge identity, and make the separate installed-
 production-target confirmation. Migration never pre-approves a build, and

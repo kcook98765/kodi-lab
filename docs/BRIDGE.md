@@ -55,6 +55,24 @@ Bridge 1.1.7's packaged wording says external-development-only/never production.
 Changing that wording changes the ZIP SHA-256 even though it does not by itself
 change the hard-coded semantic fingerprint formula. Because reviewed builds
 bind both, 1.1.7 remains historical Phase 13 evidence and must not be relabelled
-as corrected production bytes. A separately reviewed successor is required
-before production Stage B; the minimum recommended version is 1.1.8. No such
-package is created or published by this documentation slice.
+as corrected production bytes. Its historical ZIP SHA-256 is
+`a632f26ac7d6f2fb908577d4c75c9afc344ab138c1803f87132abefcf9c99a5c`
+and semantic fingerprint is
+`3f9eea79fcf03c3bd2d24e4aab8a61ffa98ed093e1c1185d9e9a3911d41b7486`.
+
+Bridge 1.1.8 is the packaging-only production-validation candidate. Its runtime
+source differs from reviewed 1.1.7 only in the package-version identity input;
+protocol and capability behavior are unchanged. Builder
+`kodi-lab-narrow-bridge-zip-v1` produces:
+
+- ZIP: `service.kodi_lab_bridge-1.1.8.zip`
+- ZIP SHA-256:
+  `20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
+- semantic fingerprint:
+  `4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`
+- protocol/capabilities: `1`; `screenshot`, `workspace_deployment`
+- supported Kodi versions: `19.5`, `20.5`, `21.3`, and the `22.0` line
+
+Build locally with `.venv/bin/python scripts/build_narrow_bridge.py`; compare
+the entire lowercase SHA-256 before review or use. The candidate has not been
+installed on production, Web-registered, published or used for Stage B.

@@ -21,11 +21,15 @@ reviewing or preparing this runbook. Do not inject failures on production.
 - Do not deploy software, use SSH/shell/filesystem authority, restart Kodi,
   change host lifecycle, issue raw JSON-RPC or use a production workspace.
 
-Stage B-D currently have an artifact prerequisite: an exact corrected bridge
-successor must be independently reviewed, checksummed and Web-registered. The
-old deterministic 1.1.7 package remains Phase 13 evidence but is not the
-corrected production artifact. Stop before Stage B if that prerequisite is not
-satisfied.
+Stage B-D have an artifact prerequisite. Bridge 1.1.7 remains Phase 13 evidence
+and is not the corrected production artifact. The packaging-only 1.1.8
+candidate is `service.kodi_lab_bridge-1.1.8.zip`, ZIP SHA-256
+`20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
+and semantic fingerprint
+`4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`.
+It has not been installed on production or Web-registered. Stop before Stage B
+unless independent artifact review is accepted and the exact 1.1.8 bytes are
+available; reviewed-build registration remains an explicit Stage B action.
 
 ## Stage A — Inspection
 

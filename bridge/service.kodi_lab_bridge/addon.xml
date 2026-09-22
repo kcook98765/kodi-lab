@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="service.kodi_lab_bridge" name="Kodi Lab Narrow Bridge" version="1.1.7" provider-name="Kodi Lab">
+<addon id="service.kodi_lab_bridge" name="Kodi Lab Narrow Bridge" version="1.1.8" provider-name="Kodi Lab">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
   </requires>
   <extension point="xbmc.service" library="service.py" start="login"/>
   <extension point="xbmc.addon.metadata">
-    <summary lang="en_GB">Authenticated narrow bridge for Kodi Lab external development targets</summary>
-    <description lang="en_GB">Exposes only identity, capability verification, bounded screenshots, and exact content-addressed workspace deployment.</description>
+    <summary lang="en_GB">Authenticated narrow bridge for Kodi Lab external-development and reviewed production targets</summary>
+    <description lang="en_GB">Provides identity, capability verification and bounded screenshots; approved external-development targets may also use exact content-addressed workspace deployment.</description>
     <platform>all</platform>
     <license>MIT</license>
   </extension>

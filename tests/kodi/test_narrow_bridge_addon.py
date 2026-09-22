@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import binascii
 import hashlib
-import io
 import json
 import os
 import runpy
@@ -30,9 +29,27 @@ from kodi_lab.kodi.bridge import (
     timestamp_text,
 )
 from kodi_lab.kodi.screenshots import validate_external_png
+from scripts.build_narrow_bridge import (
+    BUILDER_ID,
+    NORMALIZED_TIMESTAMP,
+    build_archive,
+    package_entries,
+)
 
 ADDON_ROOT = Path(__file__).parents[2] / "bridge" / "service.kodi_lab_bridge"
 ADDON = ADDON_ROOT / "narrow_bridge.py"
+HISTORICAL_1_1_7_ZIP_SHA256 = (
+    "a632f26ac7d6f2fb908577d4c75c9afc344ab138c1803f87132abefcf9c99a5c"
+)
+HISTORICAL_1_1_7_SEMANTIC_FINGERPRINT = (
+    "3f9eea79fcf03c3bd2d24e4aab8a61ffa98ed093e1c1185d9e9a3911d41b7486"
+)
+BRIDGE_1_1_8_SEMANTIC_FINGERPRINT = (
+    "4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a"
+)
+BRIDGE_1_1_8_ZIP_SHA256 = (
+    "20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762"
+)
 
 
 def _module(name: str, **values: object) -> ModuleType:
@@ -153,6 +170,7 @@ def test_addon_protocol_is_closed_and_crypto_matches_lab(
 ) -> None:
     bridge = _load(monkeypatch)
     assert bridge["PROTOCOL"] == BRIDGE_PROTOCOL_VERSION
+    assert bridge["ENDPOINT"] == "/kodi-lab/bridge/v1"
     assert bridge["ADDON_ID"] == BRIDGE_ADDON_ID
     assert bridge["OPERATIONS"] == {
         "bridge_identity",
@@ -211,11 +229,8 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.7"
-    assert (
-        bridge["BUILD_FINGERPRINT"]
-        == "3f9eea79fcf03c3bd2d24e4aab8a61ffa98ed093e1c1185d9e9a3911d41b7486"
-    )
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.8"
+    assert bridge["BUILD_FINGERPRINT"] == BRIDGE_1_1_8_SEMANTIC_FINGERPRINT
     dependency = descriptor.find("./requires/import")
     assert dependency is not None and dependency.attrib == {
         "addon": "xbmc.python",
@@ -261,34 +276,93 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
         assert f'msgctxt "#{message_id}"' in catalog
 
 
-def test_deterministic_1_1_7_review_archive_matches_known_sha256() -> None:
-    output = io.BytesIO()
-    timestamp = (2026, 9, 21, 0, 0, 0)
-    entries = [
-        "",
-        *sorted(
-            path.relative_to(ADDON_ROOT).as_posix() + ("/" if path.is_dir() else "")
-            for path in ADDON_ROOT.rglob("*")
-            if "__pycache__" not in path.parts
-        ),
-    ]
-    with zipfile.ZipFile(output, "w") as archive:
-        for relative in entries:
-            info = zipfile.ZipInfo(f"service.kodi_lab_bridge/{relative}", timestamp)
-            info.create_system = 3
-            if relative == "" or relative.endswith("/"):
-                info.external_attr = (0o40755 << 16) | 0x10
-                info.compress_type = zipfile.ZIP_STORED
-                content = b""
-            else:
-                info.external_attr = 0o100644 << 16
-                info.compress_type = zipfile.ZIP_DEFLATED
-                cast(Any, info)._compresslevel = 9
-                content = (ADDON_ROOT / relative).read_bytes()
-            archive.writestr(info, content)
-    assert hashlib.sha256(output.getvalue()).hexdigest() == (
+def test_1_1_7_historical_review_identity_is_preserved() -> None:
+    historical_input = (
+        b"kodi-lab-narrow-bridge|1.1.7|protocol-1|identity,capabilities,"
+        b"gui-screenshot,workspace-deployment"
+    )
+    assert hashlib.sha256(historical_input).hexdigest() == (
+        HISTORICAL_1_1_7_SEMANTIC_FINGERPRINT
+    )
+    assert HISTORICAL_1_1_7_ZIP_SHA256 == (
         "a632f26ac7d6f2fb908577d4c75c9afc344ab138c1803f87132abefcf9c99a5c"
     )
+
+
+def test_1_1_8_runtime_source_diff_is_version_identity_only() -> None:
+    current = ADDON.read_bytes()
+    assert current.count(b"1.1.8") == 2
+    normalized = current.replace(b"1.1.8", b"1.1.7")
+    assert hashlib.sha256(normalized).hexdigest() == (
+        "0e2a7098236569246f57a09854e372fdb1e5aafe737021a9b84c3e7b5084744a"
+    )
+
+
+def test_deterministic_1_1_8_review_archive_matches_known_sha256(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.zip"
+    second = tmp_path / "second.zip"
+    assert BUILDER_ID == "kodi-lab-narrow-bridge-zip-v1"
+    first_digest = build_archive(ADDON_ROOT, first)
+    second_digest = build_archive(ADDON_ROOT, second)
+    assert first.read_bytes() == second.read_bytes()
+    assert first_digest == second_digest == BRIDGE_1_1_8_ZIP_SHA256
+
+    expected = (
+        "",
+        "README.md",
+        "addon.xml",
+        "narrow_bridge.py",
+        "resources/",
+        "resources/language/",
+        "resources/language/resource.language.en_gb/",
+        "resources/language/resource.language.en_gb/strings.po",
+        "resources/settings.xml",
+        "service.py",
+    )
+    assert package_entries(ADDON_ROOT) == expected
+    with zipfile.ZipFile(first) as archive:
+        assert tuple(info.filename for info in archive.infolist()) == tuple(
+            f"service.kodi_lab_bridge/{relative}" for relative in expected
+        )
+        for info in archive.infolist():
+            relative = info.filename.removeprefix("service.kodi_lab_bridge/")
+            directory = relative == "" or relative.endswith("/")
+            assert info.date_time == NORMALIZED_TIMESTAMP
+            assert info.create_system == 3
+            assert info.external_attr >> 16 == (0o40755 if directory else 0o100644)
+            assert info.compress_type == (
+                zipfile.ZIP_STORED if directory else zipfile.ZIP_DEFLATED
+            )
+
+
+def test_packaged_metadata_describes_bounded_development_and_production_use() -> None:
+    descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
+    summary = descriptor.findtext("./extension[@point='xbmc.addon.metadata']/summary")
+    description = descriptor.findtext(
+        "./extension[@point='xbmc.addon.metadata']/description"
+    )
+    assert summary is not None and "external-development" in summary
+    assert "reviewed production" in summary
+    assert description is not None and "bounded screenshots" in description
+    assert "external-development targets" in description
+
+    readme = " ".join((ADDON_ROOT / "README.md").read_text().split())
+    for statement in (
+        "Installation is manual",
+        "exact independently reviewed ZIP and checksum",
+        "show-once pairing token",
+        "least-authority scopes",
+        "identity anchor",
+        "no production remote-control",
+        "does not automatically install or update",
+        "no filesystem browsing",
+        "raw JSON-RPC proxy",
+        "host lifecycle access",
+    ):
+        assert statement in readme
+    assert "Production uses only `screenshot`" in readme
 
 
 def test_addon_inspection_uses_kodi_20_compatible_detail_properties(

@@ -7,6 +7,13 @@ network responses.
 
 ## Validation identity
 
+Expected bridge candidate before Stage B: add-on `service.kodi_lab_bridge`
+version `1.1.8`, ZIP SHA-256
+`20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`,
+semantic fingerprint
+`4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`.
+Stop if the independently accepted artifact differs.
+
 - Date/time window (bounded):
 - Validator:
 - Repository commit:

@@ -1,17 +1,27 @@
 # Kodi Lab narrow bridge
 
-This ordinary Kodi service add-on supports the authenticated Phase 13 bridge.
-Install it only on an approved development Kodi. Configure the server-
-allowlisted bridge port and enter the one-time pairing token locally; pairing,
-confirmation, capability verification, source baseline establishment and
-reconciliation are performed from the Kodi Lab Web administrator interface.
+This ordinary Kodi service add-on provides an authenticated identity anchor,
+capability verification and bounded screenshots for approved Kodi Lab
+external-development targets and reviewed production targets. Installation is
+manual. Configure only the administrator-allowlisted bridge port, enter the
+show-once pairing token locally and complete pairing and explicit provenance
+confirmation in Kodi Lab Web administration.
 
-Protocol 1 advertises `screenshot` and `workspace_deployment`. Deployment is a
-closed, pathless operation for one copied Python video plug-in: Kodi Lab sends
-an exact manifest and referenced content chunks, while the add-on derives the
-destination from `special://home/addons` and the descriptor add-on ID. It does
-not provide filesystem browsing, arbitrary upload/install, URL install,
-JSON-RPC proxying, shell, restart, profile or host lifecycle access.
+Production use requires the exact independently reviewed ZIP and checksum,
+reviewed-build registration, one-time pairing and current revision-bound
+least-authority scopes. The bridge carries no production remote-control,
+deployment, update or lifecycle authority. Production control uses separate
+fixed server-owned native Kodi actions; this is not an arbitrary production
+command channel.
+
+Protocol 1 advertises `screenshot` and `workspace_deployment`. Production uses
+only `screenshot`. On an approved external-development target, deployment is a
+closed, pathless operation for one exactly authorized copied Python video
+plug-in: Kodi Lab sends an exact manifest and referenced content chunks while
+the add-on derives the destination from `special://home/addons` and the
+descriptor add-on ID. It provides no filesystem browsing, arbitrary
+upload/install, URL install, raw JSON-RPC proxy, shell, restart, profile or host
+lifecycle access.
 
 Screenshot captures the full Kodi GUI through
 `TakeScreenshot(<bridge-owned-path>,sync)`. The add-on alone creates an
@@ -55,4 +65,6 @@ work. Read-only and content-addressed deployment messages may be evicted from
 the ledger because their handlers independently reject conflicts and are
 idempotent; legacy ledger entries are treated as protected until they expire.
 Use a trusted network or normal certificate-validated HTTPS where required.
-Never configure this add-on against the production Kodi target.
+Kodi Lab does not automatically install or update this add-on. Follow the
+canonical Kodi Lab bridge and production-validation documentation for the
+detailed operating and recovery procedures.

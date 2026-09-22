@@ -36,7 +36,16 @@ Bridge 1.1.7 remains exact Phase 13 review evidence, but its packaged README
 and metadata describe external-development-only use. Correcting those packaged
 bytes changes its ZIP digest. Phase 14 production Stage B therefore requires a
 separately reviewed corrected successor; the minimum recommended transition is
-1.1.8. Do not claim the 1.1.7 checksum for changed bytes.
+1.1.8. Its local reviewed-candidate identity is:
+
+- filename: `service.kodi_lab_bridge-1.1.8.zip`
+- ZIP SHA-256:
+  `20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
+- semantic fingerprint:
+  `4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`
+
+Do not claim the 1.1.7 checksum for changed bytes. The 1.1.8 candidate has not
+yet been installed on production or registered as a live reviewed build.
 
 ## Manual production bridge installation and onboarding
 

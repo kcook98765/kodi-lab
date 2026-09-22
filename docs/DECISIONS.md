@@ -4404,8 +4404,8 @@ approvals atomically with the governing revision transition.
   generic software-management channel.
 
 ## D-0362: Corrected production bridge metadata requires a reviewed successor
-- Status: accepted Phase 14 validation preparation; successor implementation
-  and publication deferred.
+- Status: accepted; packaging successor implemented and locally reviewed,
+  publication and production use deferred.
 - Decision: deterministic 1.1.7 includes both its README and `addon.xml` in the
   exact ZIP digest. Those packaged files describe external-development-only use
   and the README explicitly rejects production. Correcting either changes the
@@ -4425,6 +4425,28 @@ approvals atomically with the governing revision transition.
   Static package version `0.0.0` remains the unreleased-development sentinel;
   Phase 16 owns selecting and validating `1.0.0`, public artifacts, checksums,
   installation docs and the release checklist.
+
+## D-0364: Bridge 1.1.8 is the packaging-only production-validation candidate
+- Status: accepted packaging/review slice; live registration and validation
+  deferred.
+- Decision: 1.1.8 corrects only packaged operator documentation and metadata,
+  plus the synchronized add-on/fingerprint version identity. Runtime source,
+  after normalizing the two version literals, is byte-identical to reviewed
+  1.1.7. Protocol 1, the fixed endpoint, pairing/HMAC/replay behavior, exact
+  operations, screenshot safety, persistent bridge UUID and advertised
+  `screenshot` plus `workspace_deployment` capabilities are unchanged.
+  Production uses only screenshot; workspace deployment remains restricted to
+  external development.
+- Identity: deterministic builder `kodi-lab-narrow-bridge-zip-v1` produces
+  `service.kodi_lab_bridge-1.1.8.zip` with ZIP SHA-256
+  `20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
+  and semantic fingerprint
+  `4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`.
+  The version-bearing semantic identity deliberately changes; README and
+  descriptor wording are ZIP inputs but are not fingerprint inputs.
+- Boundary: no live reviewed-build record, install, publication, tag, LAN or
+  production contact, Stage A-D execution, deployment/update authority or
+  Phase 15/16 work is authorized by this decision. Phase 14 remains PARTIAL.
 
 ## Phase 14 Slice 2 formal completion record
 

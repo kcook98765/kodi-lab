@@ -1763,3 +1763,21 @@ release packaging, first public SemVer, artifact/checksum publication, public
 documentation and release checklist. Repository version `0.0.0` remains the
 unreleased-development sentinel until Phase 16 determines and validates
 `1.0.0`.
+
+## Bridge 1.1.8 packaging/review checkpoint
+
+**Packaging candidate ready; Phase 14: PARTIAL.** Bridge 1.1.8 corrects the
+packaged README and descriptor for external-development and reviewed production
+use. Only synchronized version identity changes in runtime source; protocol,
+operations, authentication, replay, screenshot safety, external-development
+deployment and capability advertisement remain unchanged. Deterministic builder
+`kodi-lab-narrow-bridge-zip-v1` records ZIP SHA-256
+`20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
+and semantic fingerprint
+`4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`.
+
+The candidate is not published, Web-registered or installed on production.
+Stage A-D remain unexecuted; accepted independent artifact review is required
+before Stage B uses the exact 1.1.8 ZIP. This checkpoint begins neither Phase
+15 nor Phase 16 and adds no installation, update or production deployment
+authority.
