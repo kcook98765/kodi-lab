@@ -3232,11 +3232,12 @@ authority.
   endpoints and runtime/container/network data are excluded. A new target UUID
   inherits no authority; reuse of the same client request ID still conflicts by
   design.
-- Bounds: claim-time cleanup retains 30 days, after which request IDs may be
-  reused. Hard limits are 10,000 receipts/client and 100,000 globally; saturation
-  refuses new protected work. There is no daemon, MCP/Web delete surface, manual
-  replay action, lifecycle authority, external target, or production-control
-  policy in this decision.
+- Bounds: claim-time cleanup retains coherent completed receipts for 30 days,
+  after which those request IDs may be reused. Pending or ambiguous identity is
+  protected because age cannot prove no dispatch. Hard limits are 10,000
+  receipts/client and 100,000 globally; saturation refuses new protected work.
+  There is no daemon, MCP/Web delete surface, manual replay action, lifecycle
+  authority, external target, or production-control policy in this decision.
 
 ## D-0235: V1 custom presets are immutable built-in snapshots
 
@@ -4287,7 +4288,9 @@ authority.
   one-to-one immutable production binding for operation class, native/bridge/
   policy/mutation revisions, scopes, presets, grant and applicable HTTP
   acknowledgement. Required bounded audit is transactional with claim.
-  Pending/ambiguous and binding evidence is protected; capacity never evicts it.
+  Pending, ambiguous or incoherent evidence is protected and capacity never
+  evicts it. Only coherent completed base, binding and audit rows expire
+  atomically after the Phase 11 30-day replay window.
 
 ## D-0349: Native HTTP production control requires separate exact consent
 - Status: accepted Phase 14 Slice 4A.
@@ -4355,7 +4358,7 @@ authority.
   deployment, workspace, execution, lifecycle or other production authority
   was added. No real Kodi or LAN host was contacted, and Slice 4 was not begun.
 
-## Phase 14 Slice 4A implementation completion record
+## Phase 14 Slice 4A formal completion record
 
 - Status: **Phase 14 Slice 4A — Constrained production navigation: COMPLETE**;
   Phase 14 remains **PARTIAL**.
@@ -4363,6 +4366,12 @@ authority.
   action-aware five-tool production registry, deterministic local/mock native
   and bridge evidence, protected receipt/audit proof and authoritative repository
   validation.
+- Independent remediation: formal audit of implementation checkpoint
+  `f5c4f5e8756043ba27a10019ee8a1bb86d42fdf7` found that retention permanently
+  protected completed production bindings while generic cleanup was not
+  terminal-state-aware. Cleanup now expires only coherent completed base,
+  binding and audit evidence atomically after 30 days; pending, ambiguous,
+  missing and mismatched evidence remains protected and capacity-consuming.
 - Boundary: production permits exactly seven standing navigation actions. The
   seven transient actions are hard denied, `context_menu`/`select` remain
   prohibited, and no approval, deployment, execution, lifecycle, shell,

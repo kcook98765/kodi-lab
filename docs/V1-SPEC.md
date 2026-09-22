@@ -1317,6 +1317,8 @@ Native HTTP control requires separate immutable Web acknowledgement of the
 unprotected native transport; HTTPS retains normal certificate validation.
 Phase 11 replay remains client/request scoped and cross-transport, with an
 immutable production authority binding and protected pending/ambiguous history.
+Only coherent completed base, binding and audit evidence expires atomically
+after the Phase 11 30-day replay window; malformed relationships fail closed.
 Navigation is two actions/second/client-target with burst three, one in flight
 per target and four globally beneath the external ceiling. No approval queue,
 transient control, deployment, execution, lifecycle, shell, filesystem, SSH,

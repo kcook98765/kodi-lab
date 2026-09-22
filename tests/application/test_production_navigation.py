@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -600,6 +600,148 @@ def test_production_receipt_replay_binding_audit_and_capacity(tmp_path: Path) ->
         )
 
 
+def test_production_retention_prunes_only_coherent_completed_evidence(
+    tmp_path: Path,
+) -> None:
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'retention.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    remote = _Remote()
+    now = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
+    service = McpRemoteActionReceiptService(
+        factory,
+        cast(Any, remote),
+        _OuterLimiter(),
+        clock=lambda: now,
+        retention=timedelta(days=30),
+        production_rate_limiter=ProductionNavigationRateLimiter(
+            clock=lambda: now.timestamp()
+        ),
+    )
+    client_id, credential_id, target_id = uuid4(), uuid4(), uuid4()
+    authority = _authority()
+    completed_request = uuid4()
+    completed = service.invoke_production(
+        client_id=client_id,
+        credential_id=credential_id,
+        target_id=target_id,
+        request_id=completed_request,
+        action=BrowserRemoteAction.HOME,
+        authorize_new=lambda: authority,
+    )
+    missing_audit = service.invoke_production(
+        client_id=client_id,
+        credential_id=credential_id,
+        target_id=target_id,
+        request_id=uuid4(),
+        action=BrowserRemoteAction.HOME,
+        authorize_new=lambda: authority,
+    )
+    missing_binding = service.invoke_production(
+        client_id=client_id,
+        credential_id=credential_id,
+        target_id=target_id,
+        request_id=uuid4(),
+        action=BrowserRemoteAction.HOME,
+        authorize_new=lambda: authority,
+    )
+    with factory.begin() as session:
+        missing_audit_row = session.get(
+            McpProductionNavigationAuditRow, str(missing_audit.invocation_id)
+        )
+        missing_binding_row = session.get(
+            McpProductionRemoteReceiptBindingRow,
+            str(missing_binding.invocation_id),
+        )
+        assert missing_audit_row is not None and missing_binding_row is not None
+        session.delete(missing_audit_row)
+        session.delete(missing_binding_row)
+        session.add(
+            McpRemoteActionReceiptRow(
+                id=str(uuid4()),
+                client_id=str(client_id),
+                credential_id=str(credential_id),
+                target_id=str(target_id),
+                request_id=str(uuid4()),
+                action=BrowserRemoteAction.HOME.value,
+                created_at="2026-08-01T12:00:00.000000Z",
+                state="pending",
+                final_result=None,
+                completed_at=None,
+                screenshot_refresh_result=None,
+                screenshot_capture_id=None,
+                screenshot_captured_at=None,
+            )
+        )
+        session.add(
+            McpRemoteActionReceiptRow(
+                id=str(uuid4()),
+                client_id=str(client_id),
+                credential_id=str(credential_id),
+                target_id=str(target_id),
+                request_id=str(uuid4()),
+                action=BrowserRemoteAction.HOME.value,
+                created_at="2026-08-01T12:00:00.000000Z",
+                state="ambiguous",
+                final_result="remote_action_ambiguous",
+                completed_at="2026-08-01T12:00:01.000000Z",
+                screenshot_refresh_result="not_requested",
+                screenshot_capture_id=None,
+                screenshot_captured_at=None,
+            )
+        )
+    now += timedelta(days=30, microseconds=1)
+    replacement = service.invoke_production(
+        client_id=client_id,
+        credential_id=credential_id,
+        target_id=target_id,
+        request_id=completed_request,
+        action=BrowserRemoteAction.HOME,
+        authorize_new=lambda: authority,
+    )
+    assert replacement.invocation_id != completed.invocation_id
+    assert remote.sends == 4
+    with factory() as session:
+        assert (
+            session.get(
+                McpProductionRemoteReceiptBindingRow, str(completed.invocation_id)
+            )
+            is None
+        )
+        assert (
+            session.get(
+                McpProductionRemoteReceiptBindingRow,
+                str(missing_audit.invocation_id),
+            )
+            is not None
+        )
+        assert (
+            session.get(
+                McpProductionNavigationAuditRow,
+                str(missing_binding.invocation_id),
+            )
+            is not None
+        )
+        assert (
+            session.get(McpRemoteActionReceiptRow, str(missing_audit.invocation_id))
+            is not None
+        )
+        assert (
+            session.get(McpRemoteActionReceiptRow, str(missing_binding.invocation_id))
+            is not None
+        )
+        assert (
+            session.get(McpProductionNavigationAuditRow, str(completed.invocation_id))
+            is None
+        )
+        retained = session.scalars(
+            select(McpRemoteActionReceiptRow).where(
+                McpRemoteActionReceiptRow.state.in_(("pending", "ambiguous"))
+            )
+        ).all()
+        assert {row.state for row in retained} == {"pending", "ambiguous"}
+
+
 def test_ambiguous_production_receipt_is_never_redispatched(tmp_path: Path) -> None:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'ambiguous.db'}")
     Base.metadata.create_all(engine)
@@ -647,6 +789,36 @@ def test_ambiguous_production_receipt_is_never_redispatched(tmp_path: Path) -> N
         assert binding is not None
 
 
+def test_acknowledged_native_rejection_is_terminal_and_not_redispatched(
+    tmp_path: Path,
+) -> None:
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'rejected.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    remote = _Remote()
+    remote.error = "remote_kodi_rejected"
+    service = McpRemoteActionReceiptService(factory, cast(Any, remote), _OuterLimiter())
+    request_id = uuid4()
+    authority = _authority()
+    arguments: dict[str, Any] = {
+        "client_id": uuid4(),
+        "credential_id": uuid4(),
+        "target_id": uuid4(),
+        "request_id": request_id,
+        "action": BrowserRemoteAction.HOME,
+        "authorize_new": lambda: authority,
+    }
+    for _ in range(2):
+        with pytest.raises(McpRemoteActionReceiptError, match="remote_kodi_rejected"):
+            service.invoke_production(**arguments)
+    assert remote.calls == 1
+    with factory() as session:
+        audit = session.scalar(select(McpProductionNavigationAuditRow))
+        assert audit is not None
+        assert audit.state == "completed"
+        assert audit.dispatch_classification == "acknowledged"
+
+
 def test_veto_after_claim_is_terminal_without_send(tmp_path: Path) -> None:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'late-veto.db'}")
     Base.metadata.create_all(engine)
@@ -681,6 +853,60 @@ def test_veto_after_claim_is_terminal_without_send(tmp_path: Path) -> None:
         assert receipt is not None
         assert receipt.state == "completed"
         assert receipt.final_result == "production_mutations_blocked"
+
+
+def test_veto_after_acknowledged_send_is_historical_and_never_retried(
+    tmp_path: Path,
+) -> None:
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'post-send-veto.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    remote = _Remote()
+    service = McpRemoteActionReceiptService(factory, cast(Any, remote), _OuterLimiter())
+    authority = _authority()
+    checks = 0
+
+    def authorize() -> ProductionNavigationAuthority:
+        nonlocal checks
+        checks += 1
+        if checks > 2:
+            raise McpRemoteActionReceiptError("production_mutations_blocked")
+        return authority
+
+    client_id, credential_id, target_id, request_id = (
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        uuid4(),
+    )
+    first = service.invoke_production(
+        client_id=client_id,
+        credential_id=credential_id,
+        target_id=target_id,
+        request_id=request_id,
+        action=BrowserRemoteAction.HOME,
+        authorize_new=authorize,
+    )
+    assert first.outcome == "authority_changed_after_dispatch"
+
+    def no_current_authority() -> ProductionNavigationAuthority:
+        raise AssertionError("terminal history must not reauthorize")
+
+    replay = service.invoke_production(
+        client_id=client_id,
+        credential_id=uuid4(),
+        target_id=target_id,
+        request_id=request_id,
+        action=BrowserRemoteAction.HOME,
+        authorize_new=no_current_authority,
+    )
+    assert replay == first
+    assert remote.sends == 1
+    with factory() as session:
+        audit = session.scalar(select(McpProductionNavigationAuditRow))
+        assert audit is not None
+        assert audit.dispatch_classification == "acknowledged"
+        assert audit.outcome == "authority_changed_after_dispatch"
 
 
 def test_required_audit_failure_blocks_dispatch(tmp_path: Path) -> None:

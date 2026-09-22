@@ -5690,3 +5690,92 @@ def test_0050_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
             == 0
         )
     engine.dispose()
+
+
+def test_0050_allows_atomic_cleanup_only_for_coherent_terminal_navigation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0049_production_bridge_visual"
+    )
+    command.upgrade(config, "0050_production_navigation")
+    engine = create_database_engine(database_url)
+    ids = {
+        "receipt": "51000000-0000-4000-8000-000000000001",
+        "client": "51000000-0000-4000-8000-000000000002",
+        "credential": "51000000-0000-4000-8000-000000000003",
+        "target": "51000000-0000-4000-8000-000000000004",
+        "request": "51000000-0000-4000-8000-000000000005",
+        "inspect": "51000000-0000-4000-8000-000000000006",
+        "navigate": "51000000-0000-4000-8000-000000000007",
+        "at": "2026-08-01T12:00:00.000000Z",
+        "done": "2026-08-01T12:00:01.000000Z",
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO mcp_remote_action_receipts "
+                "(id,client_id,credential_id,target_id,request_id,action,created_at,"
+                "state,final_result,completed_at,screenshot_refresh_result,"
+                "screenshot_capture_id,screenshot_captured_at) VALUES "
+                "(:receipt,:client,:credential,:target,:request,'home',:at,'completed',"
+                "'succeeded',:done,'not_requested',NULL,NULL)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_production_remote_receipt_bindings "
+                "(receipt_id,operation_class,native_identity_generation,"
+                "bridge_trust_revision,target_policy_revision,mutation_control_epoch,"
+                "inspect_scope_id,navigate_scope_id,client_preset_id,target_preset_id,"
+                "generic_grant_created_at,native_http_acknowledgement_id) VALUES "
+                "(:receipt,'navigation',1,1,1,1,:inspect,:navigate,"
+                "'11000000-0000-4000-8000-000000000004',"
+                "'11000000-0000-4000-8000-000000000004',:at,NULL)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_production_navigation_audits "
+                "(receipt_id,client_id,credential_id,target_id,request_id,action,"
+                "operation_class,native_identity_generation,bridge_trust_revision,"
+                "target_policy_revision,mutation_control_epoch,inspect_scope_id,"
+                "navigate_scope_id,state,outcome,dispatch_classification,requested_at,"
+                "completed_at) VALUES (:receipt,:client,:credential,:target,:request,"
+                "'home','navigation',1,1,1,1,:inspect,:navigate,'completed','succeeded',"
+                "'acknowledged',:at,:done)"
+            ),
+            ids,
+        )
+        with pytest.raises(IntegrityError, match="production_remote_receipt_protected"):
+            connection.execute(
+                text("DELETE FROM mcp_remote_action_receipts WHERE id=:receipt"), ids
+            )
+        connection.execute(
+            text(
+                "DELETE FROM mcp_production_remote_receipt_bindings "
+                "WHERE receipt_id=:receipt"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "DELETE FROM mcp_production_navigation_audits WHERE receipt_id=:receipt"
+            ),
+            ids,
+        )
+        connection.execute(
+            text("DELETE FROM mcp_remote_action_receipts WHERE id=:receipt"), ids
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_remote_action_receipts WHERE id=:receipt"
+                ),
+                ids,
+            )
+            == 0
+        )
+    engine.dispose()

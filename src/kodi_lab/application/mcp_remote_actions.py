@@ -9,7 +9,7 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -34,6 +34,7 @@ from kodi_lab.storage.models import (
 REMOTE_RECEIPT_RETENTION = timedelta(days=30)
 REMOTE_RECEIPT_MAX_PER_CLIENT = 10_000
 REMOTE_RECEIPT_MAX_GLOBAL = 100_000
+REMOTE_RECEIPT_CLEANUP_BATCH = 500
 
 
 def _to_text(value: datetime) -> str:
@@ -187,7 +188,10 @@ class McpRemoteActionReceiptService:
         """Replay terminal history first; authorize and bind only genuinely new work."""
 
         existing = self._existing(client_id, request_id)
-        if existing is not None:
+        cutoff = _to_text(self._clock() - self._retention)
+        if existing is not None and (
+            existing.state != "completed" or existing.created_at >= cutoff
+        ):
             return self._replay(existing, target_id=target_id, action=action)
         authority = authorize_new()
         claim = self._claim(
@@ -278,17 +282,7 @@ class McpRemoteActionReceiptService:
         invocation_id = uuid4()
         try:
             with self._sessions.begin() as session:
-                session.execute(
-                    delete(McpRemoteActionReceiptRow).where(
-                        McpRemoteActionReceiptRow.created_at < cutoff,
-                        ~select(McpProductionRemoteReceiptBindingRow.receipt_id)
-                        .where(
-                            McpProductionRemoteReceiptBindingRow.receipt_id
-                            == McpRemoteActionReceiptRow.id
-                        )
-                        .exists(),
-                    )
-                )
+                self._cleanup_expired(session, cutoff)
                 existing = session.scalar(
                     select(McpRemoteActionReceiptRow).where(
                         McpRemoteActionReceiptRow.client_id == str(client_id),
@@ -413,6 +407,130 @@ class McpRemoteActionReceiptService:
                 session.expunge(existing)
                 return _Claim(existing, False)
 
+    @staticmethod
+    def _cleanup_expired(session: Session, cutoff: str) -> None:
+        """Delete only coherent completed replay evidence after its retention."""
+
+        production_ids = tuple(
+            session.scalars(
+                select(McpRemoteActionReceiptRow.id)
+                .join(
+                    McpProductionRemoteReceiptBindingRow,
+                    McpProductionRemoteReceiptBindingRow.receipt_id
+                    == McpRemoteActionReceiptRow.id,
+                )
+                .join(
+                    McpProductionNavigationAuditRow,
+                    McpProductionNavigationAuditRow.receipt_id
+                    == McpRemoteActionReceiptRow.id,
+                )
+                .where(
+                    McpRemoteActionReceiptRow.created_at < cutoff,
+                    McpRemoteActionReceiptRow.state == "completed",
+                    McpRemoteActionReceiptRow.final_result.is_not(None),
+                    McpRemoteActionReceiptRow.completed_at.is_not(None),
+                    McpRemoteActionReceiptRow.screenshot_refresh_result.is_not(None),
+                    McpProductionNavigationAuditRow.client_id
+                    == McpRemoteActionReceiptRow.client_id,
+                    McpProductionNavigationAuditRow.credential_id
+                    == McpRemoteActionReceiptRow.credential_id,
+                    McpProductionNavigationAuditRow.target_id
+                    == McpRemoteActionReceiptRow.target_id,
+                    McpProductionNavigationAuditRow.request_id
+                    == McpRemoteActionReceiptRow.request_id,
+                    McpProductionNavigationAuditRow.action
+                    == McpRemoteActionReceiptRow.action,
+                    McpProductionNavigationAuditRow.operation_class
+                    == McpProductionRemoteReceiptBindingRow.operation_class,
+                    McpProductionNavigationAuditRow.native_identity_generation
+                    == McpProductionRemoteReceiptBindingRow.native_identity_generation,
+                    McpProductionNavigationAuditRow.bridge_trust_revision
+                    == McpProductionRemoteReceiptBindingRow.bridge_trust_revision,
+                    McpProductionNavigationAuditRow.target_policy_revision
+                    == McpProductionRemoteReceiptBindingRow.target_policy_revision,
+                    McpProductionNavigationAuditRow.mutation_control_epoch
+                    == McpProductionRemoteReceiptBindingRow.mutation_control_epoch,
+                    McpProductionNavigationAuditRow.inspect_scope_id
+                    == McpProductionRemoteReceiptBindingRow.inspect_scope_id,
+                    McpProductionNavigationAuditRow.navigate_scope_id
+                    == McpProductionRemoteReceiptBindingRow.navigate_scope_id,
+                    McpProductionNavigationAuditRow.state == "completed",
+                    McpProductionNavigationAuditRow.outcome
+                    == McpRemoteActionReceiptRow.final_result,
+                    McpProductionNavigationAuditRow.requested_at
+                    == McpRemoteActionReceiptRow.created_at,
+                    McpProductionNavigationAuditRow.completed_at
+                    == McpRemoteActionReceiptRow.completed_at,
+                    or_(
+                        and_(
+                            McpRemoteActionReceiptRow.final_result.in_(
+                                (
+                                    "succeeded",
+                                    "authority_changed_after_dispatch",
+                                    "remote_kodi_rejected",
+                                )
+                            ),
+                            McpProductionNavigationAuditRow.dispatch_classification
+                            == "acknowledged",
+                        ),
+                        and_(
+                            ~McpRemoteActionReceiptRow.final_result.in_(
+                                (
+                                    "succeeded",
+                                    "authority_changed_after_dispatch",
+                                    "remote_kodi_rejected",
+                                )
+                            ),
+                            McpProductionNavigationAuditRow.dispatch_classification
+                            == "not_dispatched",
+                        ),
+                    ),
+                )
+                .order_by(
+                    McpRemoteActionReceiptRow.created_at,
+                    McpRemoteActionReceiptRow.id,
+                )
+                .limit(REMOTE_RECEIPT_CLEANUP_BATCH)
+            ).all()
+        )
+        if production_ids:
+            # The migration triggers require this order. The surrounding claim
+            # transaction makes removal of binding, audit and replay key atomic.
+            session.execute(
+                delete(McpProductionRemoteReceiptBindingRow).where(
+                    McpProductionRemoteReceiptBindingRow.receipt_id.in_(production_ids)
+                )
+            )
+            session.execute(
+                delete(McpProductionNavigationAuditRow).where(
+                    McpProductionNavigationAuditRow.receipt_id.in_(production_ids)
+                )
+            )
+            session.execute(
+                delete(McpRemoteActionReceiptRow).where(
+                    McpRemoteActionReceiptRow.id.in_(production_ids)
+                )
+            )
+
+        session.execute(
+            delete(McpRemoteActionReceiptRow).where(
+                McpRemoteActionReceiptRow.created_at < cutoff,
+                McpRemoteActionReceiptRow.state == "completed",
+                ~select(McpProductionRemoteReceiptBindingRow.receipt_id)
+                .where(
+                    McpProductionRemoteReceiptBindingRow.receipt_id
+                    == McpRemoteActionReceiptRow.id
+                )
+                .exists(),
+                ~select(McpProductionNavigationAuditRow.receipt_id)
+                .where(
+                    McpProductionNavigationAuditRow.receipt_id
+                    == McpRemoteActionReceiptRow.id
+                )
+                .exists(),
+            )
+        )
+
     def _replay(
         self,
         row: McpRemoteActionReceiptRow,
@@ -474,7 +592,11 @@ class McpRemoteActionReceiptService:
                 audit.state = state
                 audit.outcome = code
                 audit.dispatch_classification = (
-                    "ambiguous" if state == "ambiguous" else "not_dispatched"
+                    "ambiguous"
+                    if state == "ambiguous"
+                    else "acknowledged"
+                    if code == "remote_kodi_rejected"
+                    else "not_dispatched"
                 )
                 audit.completed_at = _to_text(now)
 

@@ -120,9 +120,10 @@ by `(client_id, request_id)`. Exact completed replay returns stored semantic
 output without rate consumption, Kodi dispatch, or screenshot refresh. Pending
 or uncertain replay returns `remote_action_ambiguous`; a target/action mismatch
 returns `request_id_conflict`. Credential rotation retains the client namespace.
-Receipts survive target deletion, retain no foreign runtime or transport detail,
-expire after 30 days through opportunistic cleanup, and are capped at 10,000 per
-client and 100,000 globally. Saturation returns
+Receipts survive target deletion and retain no foreign runtime or transport
+detail. Coherent completed receipts expire after 30 days through opportunistic
+cleanup; pending or ambiguous receipts remain protected and capacity-consuming.
+The table is capped at 10,000 per client and 100,000 globally. Saturation returns
 `remote_action_receipt_capacity`; clients and Web administrators cannot delete
 or manually replay receipts.
 
@@ -213,9 +214,12 @@ bridge revision, policy/epoch, inspect/navigate scopes, exact presets, grant and
 applicable native-HTTP acknowledgement before dispatch. Terminal replay is
 historical retrieval for the same authenticated enabled client and does not
 require current scope, generation, bridge reachability or clear mutation veto.
-Pending/ambiguous production receipts never redispatch and are protected from
-retention cleanup. Action-aware policy permits only seven standing navigation
-values; future transient and prohibited values never reach adapter dispatch.
+Pending/ambiguous or incoherent production receipts never redispatch and are
+protected from retention cleanup. Only a coherent completed base receipt,
+production binding and matching terminal audit expire atomically after the
+ordinary 30-day retention window. Action-aware policy permits only seven
+standing navigation values; future transient and prohibited values never reach
+adapter dispatch.
 
 ## Formal completion record
 

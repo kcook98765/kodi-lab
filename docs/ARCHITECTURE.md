@@ -1700,12 +1700,13 @@ ambiguous. An unexpected result-publication failure leaves `pending`. Concurrent
 claimants are serialized by the database uniqueness constraint: exactly one may
 enter rate admission and the remote service.
 
-Receipts are retained for 30 days. Opportunistic claim-time cleanup removes rows
-older than that fixed window; request IDs may be reused only after expiry. A
-hard ceiling of 10,000 rows per client and 100,000 globally rejects new work as
-`remote_action_receipt_capacity` rather than dispatching without protection.
-There is no cleanup daemon and neither MCP nor Web exposes receipt deletion or a
-manual replay button.
+Coherent completed receipts are retained for 30 days. Opportunistic claim-time
+cleanup removes only those terminal rows after the fixed window; pending or
+ambiguous rows remain protected because age cannot prove that dispatch did not
+occur. A hard ceiling of 10,000 rows per client and 100,000 globally rejects new
+work as `remote_action_receipt_capacity` rather than dispatching without
+protection. There is no cleanup daemon and neither MCP nor Web exposes receipt
+deletion or a manual replay button.
 
 HTTP and stdio share the same `/mcp` authority, database, client namespace, and
 receipt service. Direct deterministic proof covers response-loss replay,
@@ -2464,6 +2465,8 @@ grant and applicable native-HTTP acknowledgement. Claim and required bounded
 semantic audit commit before dispatch. Terminal replay checks current
 authentication and the same enabled durable client only; pending/ambiguous work
 never redispatches and protected evidence cannot be pruned into a duplicate.
+Only mutually coherent completed base, binding and audit rows expire atomically
+after 30 days; malformed or uncertain relationships remain capacity-consuming.
 
 HTTP native control has separate exact immutable Web consent because bridge
 HMAC does not protect native JSON-RPC and HTTP provides no transport security.

@@ -14,7 +14,10 @@ bridge replay aliasing, volatile-pixel retention on metadata-commit failure and
 failed production token retention. Slice 3 is formally complete only with those
 fail-closed defenses.
 Slice 4A adds only constrained production navigation under the accepted action-
-aware architecture. Its deterministic proof likewise contacted no LAN or
+aware architecture. Its independent completion audit found and remediated the
+receipt cleanup boundary: only coherent completed base/binding/audit evidence
+can now expire atomically, while pending, ambiguous and malformed relationships
+remain protected. Its deterministic proof likewise contacted no LAN or
 production Kodi.
 
 Included:
@@ -333,9 +336,11 @@ ordinary certificate validation.
 Replay lookup precedes new-work rate charge. Navigation is two actions/second
 per durable client-target with burst three, one mutation per target and four
 globally beneath the eight-operation external-native ceiling. Admission is
-immediate with no queue. Production bindings and bounded audit are protected;
-pending and ambiguous base receipts cannot be pruned to permit duplication and
-capacity exhaustion rejects new work.
+immediate with no queue. Pending, ambiguous or incoherent production evidence is
+protected and continues to consume capacity. Only a coherent completed base
+receipt, binding and matching audit expire atomically after 30 days; cleanup
+cannot prune uncertainty into a duplicate, and capacity exhaustion rejects new
+work.
 
 Web administration exposes only preset assignment, navigate grant/revoke,
 dependency/revision/veto status and native-HTTP acknowledgement. There is no Web

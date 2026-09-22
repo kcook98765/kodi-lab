@@ -1096,9 +1096,9 @@ and Full Lab Control only and creates the durable action-receipt table. Read-onl
 Inspection is unchanged; Production Remote Kodi remains empty/unassignable.
 Receipts are unique by durable client UUID plus request UUID, record credential
 UUID only for first-attempt audit, survive target deletion without cascading,
-and contain only bounded semantic state/result/refresh metadata. Retention is 30
-days with claim-time cleanup, a 10,000/client ceiling and a 100,000 global
-ceiling.
+and contain only bounded semantic state/result/refresh metadata. Coherent
+completed receipts retain 30 days with claim-time cleanup; pending or ambiguous
+identity remains protected. Capacity is 10,000/client and 100,000 global.
 
 Authorization precedes both new claims and duplicate reads. A new `pending`
 receipt commits before the existing shared remote limiter and before one call to
@@ -1648,7 +1648,7 @@ Migration `0049` and the shared services now fail closed for those cases while
 preserving Phase 13 behavior. Slice 3 is formally **COMPLETE**; Phase 14 remains
 **PARTIAL**, no LAN or production Kodi was contacted, and Slice 4 was not begun.
 
-## Phase 14 Slice 4A checkpoint
+## Phase 14 Slice 4A formal completion checkpoint
 
 **Slice 4A: COMPLETE. Phase 14: PARTIAL.** Migration
 `0050_production_navigation` activates the exact Production Remote Kodi maximum,
@@ -1657,6 +1657,11 @@ acknowledgement history, immutable production bindings on Phase 11 remote
 receipts and bounded semantic navigation audit. It seeds no scope, grant,
 assignment, acknowledgement or mutation authority and refuses destructive
 downgrade while authority/history exists.
+
+The independent completion audit remediated retention to permit atomic expiry
+only for coherent completed base/binding/audit evidence after 30 days. Pending,
+ambiguous, missing, mismatched or malformed relationships remain protected and
+count toward capacity so cleanup cannot reopen a mutation request identity.
 
 The shared `remote_action` registry entry is now the fifth production-eligible
 tool, but centralized classification permits only up/down/left/right/back/home/
