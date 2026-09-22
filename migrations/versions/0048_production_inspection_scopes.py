@@ -105,6 +105,12 @@ def upgrade() -> None:
         "BEFORE DELETE ON mcp_production_target_scopes "
         "BEGIN SELECT RAISE(ABORT, 'production_inspection_scope_immutable'); END"
     )
+    op.execute(
+        "CREATE TRIGGER trg_external_production_identity_generation_monotonic "
+        "BEFORE UPDATE OF identity_generation ON external_production_policies "
+        "WHEN NEW.identity_generation < OLD.identity_generation "
+        "BEGIN SELECT RAISE(ABORT, 'production_identity_generation_not_monotonic'); END"
+    )
 
     presets = sa.table(
         "mcp_presets",
@@ -191,6 +197,7 @@ def downgrade() -> None:
     op.execute("DROP TRIGGER trg_mcp_production_scope_no_delete")
     op.execute("DROP TRIGGER trg_mcp_production_scope_immutable")
     op.execute("DROP TRIGGER trg_mcp_production_scope_binding_insert")
+    op.execute("DROP TRIGGER trg_external_production_identity_generation_monotonic")
     op.drop_index(
         "uq_mcp_production_scope_active",
         table_name="mcp_production_target_scopes",

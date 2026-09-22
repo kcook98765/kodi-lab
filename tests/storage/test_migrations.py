@@ -5320,6 +5320,23 @@ def test_0048_scope_constraints_are_generation_bound_and_history_is_immutable(
                     "at": timestamp,
                 },
             )
+        connection.execute(
+            text(
+                "UPDATE external_production_policies SET identity_generation=2 "
+                "WHERE target_id=:id"
+            ),
+            {"id": target_id},
+        )
+        with pytest.raises(
+            IntegrityError, match="production_identity_generation_not_monotonic"
+        ):
+            connection.execute(
+                text(
+                    "UPDATE external_production_policies SET identity_generation=1 "
+                    "WHERE target_id=:id"
+                ),
+                {"id": target_id},
+            )
         with pytest.raises(
             IntegrityError, match="production_inspection_scope_immutable"
         ):

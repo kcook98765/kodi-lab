@@ -1565,12 +1565,15 @@ scoped slices; support-addon deployment requires a separate architecture review.
 
 ## Phase 14 Slice 2 checkpoint
 
-**Slice 2: read-only production inspection implemented. Phase 14: PARTIAL.**
-Migration `0048_production_inspection_scopes` adds durable generation-bound
-`inspect` scopes, active-scope uniqueness, terminal revocation, exact
-production-policy binding and the immutable assignable `Production Inspection`
-built-in. That preset contains only `target.inspect`, cannot be cloned and is
-the only accepted production client/target preset.
+**Slice 2: COMPLETE. Phase 14: PARTIAL.** Independent formal completion audit
+accepted the read-only production-inspection boundary after remediating one
+generation-downgrade hazard. Migration `0048_production_inspection_scopes`
+adds durable generation-bound `inspect` scopes, active-scope uniqueness,
+terminal revocation, exact
+production-policy binding, database-monotonic identity generation and the
+immutable assignable `Production Inspection` built-in. That preset contains
+only `target.inspect`, cannot be cloned and is the only accepted production
+client/target preset.
 
 The shared MCP authorization service now evaluates the complete production
 intersection for stored discovery and before and after direct reads. Only
@@ -1592,3 +1595,5 @@ or revoke a current-generation inspection scope under existing authenticated
 session, Host, Origin and CSRF controls. No production bridge, screenshot,
 remote control, approval, deployment, workspace, lifecycle or MCP authority
 administration was added, and no real target or LAN host was contacted.
+The formal review likewise used deterministic local/mock evidence only and did
+not begin Slice 3.

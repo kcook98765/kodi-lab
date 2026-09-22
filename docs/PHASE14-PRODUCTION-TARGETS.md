@@ -2,9 +2,13 @@
 
 ## Slice 1 and Slice 2 status and scope
 
-Slice 1 establishes production representation and trust policy only. Phase 14
-Slice 2 adds bounded read-only inspection. Phase 14 remains partial. No real
-Kodi or LAN host was contacted during either implementation.
+**Slice 1: COMPLETE. Slice 2: COMPLETE. Phase 14: PARTIAL.** Slice 1
+establishes production representation and trust policy only. Slice 2 adds
+bounded read-only inspection. Independent Slice 2 completion audit found and
+remediated one generation-downgrade hazard by making production identity
+generation database-monotonic; retained old scopes therefore cannot regain
+effect through malformed rollback. No real Kodi or LAN host was contacted
+during implementation or formal review.
 
 Included:
 
@@ -188,9 +192,9 @@ ORM relationship ordering.
 Migration `0048_production_inspection_scopes` preserves every Slice 1 row,
 creates the generation-bound scope table and indexes/triggers, seeds Production
 Inspection plus its sole permission, constrains production target-preset
-assignment, and adds bounded scope/generation fields to semantic MCP events.
-Downgrade refuses when scope history, new-preset assignments or scope events
-would be lost.
+assignment, rejects identity-generation decreases, and adds bounded
+scope/generation fields to semantic MCP events. Downgrade refuses when scope
+history, new-preset assignments or scope events would be lost.
 
 ## Remaining Phase 14 work
 

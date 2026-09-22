@@ -4158,3 +4158,20 @@ authority.
   administration with Trusted Host, same-origin and CSRF enforcement. MCP gains
   no grant management, bridge, screenshot, control, approval, deployment,
   workspace or lifecycle administration.
+
+## Phase 14 Slice 2 formal completion record
+
+- Status: **Phase 14 Slice 2 — Read-only production inspection: COMPLETE**;
+  Phase 14 remains **PARTIAL**.
+- Review basis: independent formal review of implementation checkpoint
+  `1188562a64428af45c83ea325f496bb7fac4c5b9`, Alembic head
+  `0048_production_inspection_scopes`, the exact fifteen-tool catalog and
+  deterministic local/mock evidence only.
+- Remediation: the review reproduced that a malformed identity-generation
+  decrement could make retained old scope history current again. Migration
+  `0048` now rejects generation decreases, preserving D-0323's permanent stale
+  generation boundary; focused migration and production/transport/workspace
+  regressions and the final authoritative gate passed.
+- Deferred boundary: no bridge, screenshot, control, approval, support-addon
+  deployment, workspace, lifecycle or other production authority was added.
+  No real Kodi or LAN host was contacted, and Slice 3 was not begun.
