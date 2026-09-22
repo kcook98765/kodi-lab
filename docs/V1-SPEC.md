@@ -1295,3 +1295,30 @@ Only `screenshot` is accepted as production bridge capability even when a
 reviewed bridge advertises development deployment features. The other eleven
 tools, especially `remote_action`, workspace/deployment/execution, approvals and
 lifecycle, remain denied. Phase 14 remains partial.
+
+## 54. Phase 14 constrained production navigation boundary
+
+Slice 4A makes the existing `remote_action` the fifth of exactly fifteen
+production-eligible tools while retaining centralized server-owned action
+policy. Production permits only `up`, `down`, `left`, `right`, `back`, `home`
+and `info`. `context_menu` and `select` are prohibited, while playback, track
+and volume actions remain hard denied pending separately reviewed Slice 4B.
+External development retains the complete sixteen-action vocabulary.
+
+New dispatch requires the exact non-clonable Production Remote Kodi maximum on
+client and target, generic grant, active current inspect and navigate scopes,
+current native generation and reviewed bridge revision, verified semantic-
+remote capability, clear global and target mutation vetoes, durable receipt/
+audit capacity and fresh bridge/native identity followed by immediate
+reauthorization. The bridge authenticates identity only; the fixed semantic
+command is sent once over the native adapter and never retried.
+
+Native HTTP control requires separate immutable Web acknowledgement of the
+unprotected native transport; HTTPS retains normal certificate validation.
+Phase 11 replay remains client/request scoped and cross-transport, with an
+immutable production authority binding and protected pending/ambiguous history.
+Navigation is two actions/second/client-target with burst three, one in flight
+per target and four globally beneath the external ceiling. No approval queue,
+transient control, deployment, execution, lifecycle, shell, filesystem, SSH,
+arbitrary JSON-RPC or support-add-on deployment is added. Phase 14 remains
+partial.

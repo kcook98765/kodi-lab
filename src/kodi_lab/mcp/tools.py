@@ -59,6 +59,7 @@ from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
     evaluate_production_visual_state,
 )
+from kodi_lab.application.production_navigation import ProductionNavigationAuthority
 from kodi_lab.application.production_screenshots import (
     ProductionScreenshotError,
     ProductionScreenshotService,
@@ -855,9 +856,31 @@ class McpTargetToolService:
         request_id: UUID,
         action: BrowserRemoteAction,
     ) -> McpRemoteActionResult:
-        self._authorization.authorize_target(principal, "remote_action", target_id)
         if self._remote_actions is None:
             raise McpAuthorizationError("capability_unavailable")
+
+        if self._authorization.is_production_target(target_id):
+
+            def authorize_new() -> ProductionNavigationAuthority:
+                return self._authorization.authorize_production_navigation(
+                    principal, target_id, action
+                )
+
+            try:
+                result = self._remote_actions.invoke_production(
+                    client_id=principal.client_id,
+                    credential_id=principal.credential_id,
+                    target_id=target_id,
+                    request_id=request_id,
+                    action=action,
+                    authorize_new=authorize_new,
+                )
+            except McpRemoteActionReceiptError as error:
+                raise McpAuthorizationError(error.code) from error
+            self._require_bounded(result)
+            return result
+
+        self._authorization.authorize_target(principal, "remote_action", target_id)
 
         def reauthorize() -> None:
             self._authorization.authorize_target(principal, "remote_action", target_id)

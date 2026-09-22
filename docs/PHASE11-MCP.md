@@ -92,8 +92,9 @@ behavior remains unchanged; bridge administration never enters MCP and the
 catalog remains fifteen tools.
 
 Built-in Add-on Development, Read-only Inspection and Full Lab Control presets
-contain both `target.inspect` and `target.visual`. Production Remote Kodi remains
-empty and unassignable. A client with only `target.inspect` discovers
+contain both `target.inspect` and `target.visual`. Phase 14 Slice 4A later
+activates the non-clonable Production Remote Kodi maximum only for external
+production. A client with only `target.inspect` discovers
 `addon_list`, `target_list` and `target_status`; `target.visual` additionally
 reveals `screenshot_capture`. Discovery does not replace invocation-time exact
 grant, target policy, target-class, capability or state checks.
@@ -103,8 +104,9 @@ grant, target policy, target-class, capability or state checks.
 `remote_action` requires `target.control` and exactly `request_id` UUID,
 `target_id`, and the existing closed semantic action enum. Add-on Development
 and Full Lab Control contain `target.control`; Read-only Inspection does not.
-Production Remote Kodi remains empty/unassignable. Discovery uses current client
-preset permission, while every invocation and duplicate replay rechecks current
+Phase 14 Slice 4A activates exact Production Remote Kodi for the seven-action
+production navigation subset. Discovery uses current client preset permission,
+while every new non-production invocation rechecks current
 credential/client state, exact grant, target policy, internal target class,
 semantic-remote capability and running/ready/reconciled state.
 
@@ -142,7 +144,8 @@ Web administration can clone Add-on Development, Read-only Inspection, or Full
 Lab Control into a custom preset. The administrator supplies only a 1–120
 character trimmed unique display name and the built-in UUID. Kodi Lab creates a
 new UUID and copies the built-in's current server-known permissions. Production
-Remote Kodi stays inactive/unassignable and cannot be cloned in V1.
+Remote Kodi cannot be cloned. Phase 14 Slice 4A later makes that exact built-in
+assignable only for external-production targets.
 
 The permission snapshot is immutable: there is no per-permission editor,
 rename, deletion, conversion, or custom-from-custom clone. A later permission
@@ -201,6 +204,18 @@ audio/embedded content, OAuth, tasks, and MRTR are explicit exclusions.
 Phase 11 is **implementation-complete pending formal review**. This is not a
 formal COMPLETE declaration and does not freeze later Kodi tool expansion
 through the established registry and service boundary.
+
+## Phase 14 Slice 4A production replay addendum
+
+Production reuses the same `(client_id, request_id)` base receipt and all
+transports share it. A one-to-one immutable binding records native generation,
+bridge revision, policy/epoch, inspect/navigate scopes, exact presets, grant and
+applicable native-HTTP acknowledgement before dispatch. Terminal replay is
+historical retrieval for the same authenticated enabled client and does not
+require current scope, generation, bridge reachability or clear mutation veto.
+Pending/ambiguous production receipts never redispatch and are protected from
+retention cleanup. Action-aware policy permits only seven standing navigation
+values; future transient and prohibited values never reach adapter dispatch.
 
 ## Formal completion record
 

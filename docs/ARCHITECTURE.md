@@ -2433,3 +2433,42 @@ preview or raw response. Metadata-only audit may retain target/client/request/
 bridge UUIDs, generations/revisions, dimensions, encoded size, digest, outcome
 and timestamps. The existing managed durable screenshot cache and
 external-development semantics are unchanged.
+
+## Phase 14 Slice 4A constrained production navigation
+
+Migration `0050_production_navigation` activates the exact immutable,
+non-clonable Production Remote Kodi built-in as a production-only maximum with
+`target.inspect`, `target.visual` and `target.control`. It extends immutable
+production scopes with `navigate`, bound to current native generation and
+reviewed bridge revision and effective only beside current inspect. Inspect
+revocation terminates active visual and navigate dependents atomically.
+
+The unchanged sixteen-action semantic vocabulary is classified centrally:
+seven standing navigation actions, seven future approval actions and two V1-
+prohibited actions. Only navigation reaches production adapter dispatch.
+`remote_action` becomes the fifth production-eligible registry entry, but
+registry status alone grants nothing and all transports share authorization.
+
+New navigation intersects current credential/client, exact client and target
+maximum, `target.control`, generic grant, inspect and navigate scopes, coherent
+native and bridge trust, verified semantic capability, reviewed build, clear
+mutation vetoes, admission, receipt/audit capacity and fresh identity. The
+bridge performs one authenticated read-only identity proof as an anchor. Native
+control then performs Ping, protocol and application identity, exact fixed-
+method introspection, immediate durable-state reauthorization and one fixed
+native send under one aggregate deadline.
+
+The Phase 11 client/request receipt remains the replay barrier. A one-to-one
+production row binds generations, revisions, policy/epoch, scopes, presets,
+grant and applicable native-HTTP acknowledgement. Claim and required bounded
+semantic audit commit before dispatch. Terminal replay checks current
+authentication and the same enabled durable client only; pending/ambiguous work
+never redispatches and protected evidence cannot be pruned into a duplicate.
+
+HTTP native control has separate exact immutable Web consent because bridge
+HMAC does not protect native JSON-RPC and HTTP provides no transport security.
+HTTPS uses normal certificate validation. New navigation is limited to two
+actions/second/client-target with burst three, one in flight per target and four
+globally below the eight-operation external ceiling, with no queue. Slice 4A
+adds no Web dispatch, approval queue, playback/volume authority, broker action,
+deployment, execution, lifecycle, shell, filesystem, SSH or arbitrary JSON-RPC.

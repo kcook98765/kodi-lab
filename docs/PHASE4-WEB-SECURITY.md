@@ -289,3 +289,25 @@ state and administrator/timestamps. They label current active, old-generation
 stale and terminal revoked rows without exposing endpoint, port, authentication,
 credential/secret reference, confirmed-observation UUID/digest, raw JSON-RPC or
 bridge state. Semantic events carry only bounded UUID/generation metadata.
+
+## Phase 14 Slice 4A production navigation administration
+
+Production Remote Kodi assignment, navigate-scope grant/revoke and native-HTTP
+control acknowledgement are authenticated-Web-only mutations with Trusted Host,
+strict same-origin and CSRF enforcement. The page shows the inspect dependency,
+current native generation, bridge revision/reviewed build, effective navigation
+state and both mutation vetoes. It provides no remote-action dispatch button.
+
+HTTP acknowledgement requires exact confirmation text explaining that native
+production JSON-RPC control is sent over HTTP, bridge HMAC does not protect that
+separate transport, and HTTP supplies no confidentiality or integrity beyond
+network assumptions. The server derives and stores the target, generation,
+literal endpoint, policy revisions and digest. HTTPS continues normal
+certificate validation and has no acknowledgement or certificate bypass.
+
+MCP cannot assign presets, create/revoke scope, acknowledge risk or clear a
+mutation veto. No approval queue, transient-control request, playback control,
+deployment, execution, lifecycle, shell or generic endpoint/method form is
+added. Web and audit projections contain bounded semantic identifiers only and
+never credentials, Authorization headers, raw JSON-RPC/responses, bridge secret,
+screenshot or filesystem path.

@@ -570,7 +570,7 @@ def test_production_native_timeout_is_target_unreachable(
         env.tools.target_status(env.principal, target_id=env.target_id)
 
 
-def test_registry_allows_exactly_four_production_tools() -> None:
+def test_registry_allows_exactly_five_production_tools() -> None:
     registry = build_mcp_tool_registry()
     eligible = {
         definition.name
@@ -584,6 +584,7 @@ def test_registry_allows_exactly_four_production_tools() -> None:
         "target_status",
         "addon_list",
         "screenshot_capture",
+        "remote_action",
     }
 
 

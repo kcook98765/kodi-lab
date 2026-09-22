@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -450,7 +450,8 @@ class KodiTargetAdapterService:
         invocation_id: UUID | None = None,
         before_dispatch: Callable[[], None] | None = None,
     ) -> BrowserRemoteResult:
-        if self._target_type(target_id) is TargetType.MANAGED:
+        target_type = self._target_type(target_id)
+        if target_type is TargetType.MANAGED:
             self._before_dispatch(before_dispatch)
             return self._managed_remote.invoke(
                 target_id,
@@ -462,15 +463,48 @@ class KodiTargetAdapterService:
             raise BrowserRemoteError(
                 "remote_action_conflict", "Missing invocation identity."
             )
-        snapshot = self._external_snapshot(
-            target_id, required_capability="semantic_remote", load_secret=True
+        snapshot = (
+            self._production_snapshot(
+                target_id,
+                required_capabilities=frozenset({"target_inspect", "semantic_remote"}),
+                load_secret=True,
+            )
+            if target_type is TargetType.EXTERNAL_PRODUCTION
+            else self._external_snapshot(
+                target_id, required_capability="semantic_remote", load_secret=True
+            )
         )
         try:
-            with self._gate.enter(target_id):
+            production_gate = (
+                self._production_gate.enter(target_id)
+                if target_type is TargetType.EXTERNAL_PRODUCTION
+                else nullcontext()
+            )
+            with self._gate.enter(target_id), production_gate:
+                if target_type is TargetType.EXTERNAL_PRODUCTION:
+                    if self._external_bridges is None:
+                        raise KodiTargetAdapterError("bridge_not_paired")
+                    try:
+                        self._external_bridges.authenticate_production_identity(
+                            target_id
+                        )
+                    except ExternalBridgeServiceError as error:
+                        raise KodiTargetAdapterError(error.code) from error
                 adapter = self._external_adapter(snapshot)
-                self._require_identity(snapshot, adapter)
-                self._before_dispatch(before_dispatch)
-                adapter.dispatch(action, invocation_id)
+                if target_type is TargetType.EXTERNAL_PRODUCTION:
+                    adapter = self._production_adapter(snapshot)
+                    adapter.dispatch_production(
+                        action,
+                        invocation_id,
+                        validate_identity=lambda result: (
+                            self._require_production_identity(snapshot, result)
+                        ),
+                        before_dispatch=lambda: self._before_dispatch(before_dispatch),
+                    )
+                else:
+                    self._require_identity(snapshot, adapter)
+                    self._before_dispatch(before_dispatch)
+                    adapter.dispatch(action, invocation_id)
         except KodiTargetAdapterError as error:
             raise BrowserRemoteError(
                 error.code, "External target is unavailable."
@@ -567,6 +601,9 @@ class KodiTargetAdapterService:
                 "identity_mismatch",
                 "needs_reverification",
                 "permission_denied",
+                "production_authority_changed",
+                "production_mutations_blocked",
+                "production_target_mutations_suspended",
                 "target_not_found_or_not_authorized",
                 "target_unreachable",
             }:
@@ -880,6 +917,8 @@ class KodiTargetAdapterService:
         tools = ["target_status"]
         if "addon_inventory" in snapshot.capabilities:
             tools.append("addon_list")
+        if "semantic_remote" in snapshot.capabilities:
+            tools.append("remote_action")
         if "semantic_remote" in snapshot.capabilities:
             tools.append("remote_action")
         if (

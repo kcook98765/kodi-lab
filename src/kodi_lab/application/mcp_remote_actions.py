@@ -19,8 +19,17 @@ from kodi_lab.application.browser_remote import (
     RemoteActorContext,
     ScreenshotRefreshResult,
 )
+from kodi_lab.application.production_inspection import ProductionInspectionError
+from kodi_lab.application.production_navigation import (
+    ProductionNavigationAuthority,
+    ProductionNavigationRateLimiter,
+)
 from kodi_lab.kodi.remote import BrowserRemoteAction
-from kodi_lab.storage.models import McpRemoteActionReceiptRow
+from kodi_lab.storage.models import (
+    McpProductionNavigationAuditRow,
+    McpProductionRemoteReceiptBindingRow,
+    McpRemoteActionReceiptRow,
+)
 
 REMOTE_RECEIPT_RETENTION = timedelta(days=30)
 REMOTE_RECEIPT_MAX_PER_CLIENT = 10_000
@@ -94,6 +103,7 @@ class McpRemoteActionReceiptService:
         retention: timedelta = REMOTE_RECEIPT_RETENTION,
         max_per_client: int = REMOTE_RECEIPT_MAX_PER_CLIENT,
         max_global: int = REMOTE_RECEIPT_MAX_GLOBAL,
+        production_rate_limiter: ProductionNavigationRateLimiter | None = None,
     ) -> None:
         if retention <= timedelta(0) or max_per_client < 1 or max_global < 1:
             raise ValueError("remote receipt bounds must be positive")
@@ -104,6 +114,9 @@ class McpRemoteActionReceiptService:
         self._retention = retention
         self._max_per_client = max_per_client
         self._max_global = max_global
+        self._production_rate_limiter = (
+            production_rate_limiter or ProductionNavigationRateLimiter()
+        )
 
     def invoke(
         self,
@@ -161,6 +174,95 @@ class McpRemoteActionReceiptService:
             raise McpRemoteActionReceiptError("remote_action_ambiguous") from error
         return self._result(row)
 
+    def invoke_production(
+        self,
+        *,
+        client_id: UUID,
+        credential_id: UUID,
+        target_id: UUID,
+        request_id: UUID,
+        action: BrowserRemoteAction,
+        authorize_new: Callable[[], ProductionNavigationAuthority],
+    ) -> McpRemoteActionResult:
+        """Replay terminal history first; authorize and bind only genuinely new work."""
+
+        existing = self._existing(client_id, request_id)
+        if existing is not None:
+            return self._replay(existing, target_id=target_id, action=action)
+        authority = authorize_new()
+        claim = self._claim(
+            client_id=client_id,
+            credential_id=credential_id,
+            target_id=target_id,
+            request_id=request_id,
+            action=action,
+            production_authority=authority,
+        )
+        if not claim.created:
+            return self._replay(claim.row, target_id=target_id, action=action)
+        try:
+            self._production_rate_limiter.require_allowed(client_id, target_id)
+            self._rate_limiter.require_allowed(f"mcp:{client_id}", target_id)
+        except (ProductionInspectionError, BrowserRemoteError) as error:
+            code = "rate_limited"
+            self._finalize_error(claim.row.id, code, state="completed")
+            raise McpRemoteActionReceiptError(code) from error
+
+        def reauthorize() -> None:
+            current = authorize_new()
+            if current != authority:
+                raise McpRemoteActionReceiptError("production_authority_changed")
+
+        actor = RemoteActorContext.mcp_client(client_id)
+        try:
+            result = self._remote.invoke(
+                target_id,
+                action,
+                actor=actor,
+                invocation_id=UUID(claim.row.id),
+                before_dispatch=reauthorize,
+            )
+        except BrowserRemoteError as error:
+            state = (
+                "ambiguous" if error.code == "remote_action_ambiguous" else "completed"
+            )
+            try:
+                self._finalize_error(claim.row.id, error.code, state=state)
+            except (SQLAlchemyError, RuntimeError):
+                raise McpRemoteActionReceiptError("remote_action_ambiguous") from error
+            raise McpRemoteActionReceiptError(error.code) from error
+        except McpRemoteActionReceiptError as error:
+            self._finalize_error(claim.row.id, error.code, state="completed")
+            raise
+        except Exception as error:
+            raise McpRemoteActionReceiptError("remote_action_ambiguous") from error
+
+        try:
+            try:
+                reauthorize()
+            except Exception:
+                result = result.model_copy(
+                    update={"result": "authority_changed_after_dispatch"}
+                )
+            row = self._finalize_success(claim.row.id, result)
+        except (SQLAlchemyError, RuntimeError) as error:
+            raise McpRemoteActionReceiptError("remote_action_ambiguous") from error
+        return self._result(row)
+
+    def _existing(
+        self, client_id: UUID, request_id: UUID
+    ) -> McpRemoteActionReceiptRow | None:
+        with self._sessions() as session:
+            row = session.scalar(
+                select(McpRemoteActionReceiptRow).where(
+                    McpRemoteActionReceiptRow.client_id == str(client_id),
+                    McpRemoteActionReceiptRow.request_id == str(request_id),
+                )
+            )
+            if row is not None:
+                session.expunge(row)
+            return row
+
     def _claim(
         self,
         *,
@@ -169,6 +271,7 @@ class McpRemoteActionReceiptService:
         target_id: UUID,
         request_id: UUID,
         action: BrowserRemoteAction,
+        production_authority: ProductionNavigationAuthority | None = None,
     ) -> _Claim:
         now = self._clock()
         cutoff = _to_text(now - self._retention)
@@ -177,7 +280,13 @@ class McpRemoteActionReceiptService:
             with self._sessions.begin() as session:
                 session.execute(
                     delete(McpRemoteActionReceiptRow).where(
-                        McpRemoteActionReceiptRow.created_at < cutoff
+                        McpRemoteActionReceiptRow.created_at < cutoff,
+                        ~select(McpProductionRemoteReceiptBindingRow.receipt_id)
+                        .where(
+                            McpProductionRemoteReceiptBindingRow.receipt_id
+                            == McpRemoteActionReceiptRow.id
+                        )
+                        .exists(),
                     )
                 )
                 existing = session.scalar(
@@ -218,6 +327,75 @@ class McpRemoteActionReceiptService:
                 )
                 session.add(row)
                 session.flush()
+                if production_authority is not None:
+                    session.add(
+                        McpProductionRemoteReceiptBindingRow(
+                            receipt_id=row.id,
+                            operation_class="navigation",
+                            native_identity_generation=(
+                                production_authority.native_identity_generation
+                            ),
+                            bridge_trust_revision=(
+                                production_authority.bridge_trust_revision
+                            ),
+                            target_policy_revision=(
+                                production_authority.target_policy_revision
+                            ),
+                            mutation_control_epoch=(
+                                production_authority.mutation_control_epoch
+                            ),
+                            inspect_scope_id=str(production_authority.inspect_scope_id),
+                            navigate_scope_id=str(
+                                production_authority.navigate_scope_id
+                            ),
+                            client_preset_id=str(production_authority.client_preset_id),
+                            target_preset_id=str(production_authority.target_preset_id),
+                            generic_grant_created_at=(
+                                production_authority.generic_grant_created_at
+                            ),
+                            native_http_acknowledgement_id=(
+                                None
+                                if production_authority.native_http_acknowledgement_id
+                                is None
+                                else str(
+                                    production_authority.native_http_acknowledgement_id
+                                )
+                            ),
+                        )
+                    )
+                    session.add(
+                        McpProductionNavigationAuditRow(
+                            receipt_id=row.id,
+                            client_id=str(client_id),
+                            credential_id=str(credential_id),
+                            target_id=str(target_id),
+                            request_id=str(request_id),
+                            action=action.value,
+                            operation_class="navigation",
+                            native_identity_generation=(
+                                production_authority.native_identity_generation
+                            ),
+                            bridge_trust_revision=(
+                                production_authority.bridge_trust_revision
+                            ),
+                            target_policy_revision=(
+                                production_authority.target_policy_revision
+                            ),
+                            mutation_control_epoch=(
+                                production_authority.mutation_control_epoch
+                            ),
+                            inspect_scope_id=str(production_authority.inspect_scope_id),
+                            navigate_scope_id=str(
+                                production_authority.navigate_scope_id
+                            ),
+                            state="pending",
+                            outcome="pending",
+                            dispatch_classification="not_dispatched",
+                            requested_at=_to_text(now),
+                            completed_at=None,
+                        )
+                    )
+                    session.flush()
                 session.expunge(row)
                 return _Claim(row, True)
         except IntegrityError:
@@ -246,7 +424,7 @@ class McpRemoteActionReceiptService:
             raise McpRemoteActionReceiptError("request_id_conflict")
         if row.state != "completed":
             raise McpRemoteActionReceiptError("remote_action_ambiguous")
-        if row.final_result != "succeeded":
+        if row.final_result not in {"succeeded", "authority_changed_after_dispatch"}:
             raise McpRemoteActionReceiptError(
                 row.final_result or "remote_action_ambiguous"
             )
@@ -262,7 +440,7 @@ class McpRemoteActionReceiptService:
             if row is None or row.state != "pending":
                 raise RuntimeError("remote action receipt lost pending ownership")
             row.state = "completed"
-            row.final_result = "succeeded"
+            row.final_result = result.result
             row.completed_at = _to_text(completed_at)
             row.screenshot_refresh_result = refresh.result
             row.screenshot_capture_id = (
@@ -271,6 +449,12 @@ class McpRemoteActionReceiptService:
             row.screenshot_captured_at = (
                 None if refresh.captured_at is None else _to_text(refresh.captured_at)
             )
+            audit = session.get(McpProductionNavigationAuditRow, receipt_id)
+            if audit is not None:
+                audit.state = "completed"
+                audit.outcome = result.result
+                audit.dispatch_classification = "acknowledged"
+                audit.completed_at = _to_text(completed_at)
             session.flush()
             session.expunge(row)
             return row
@@ -285,6 +469,14 @@ class McpRemoteActionReceiptService:
             row.final_result = code
             row.completed_at = _to_text(now)
             row.screenshot_refresh_result = "not_requested"
+            audit = session.get(McpProductionNavigationAuditRow, receipt_id)
+            if audit is not None:
+                audit.state = state
+                audit.outcome = code
+                audit.dispatch_classification = (
+                    "ambiguous" if state == "ambiguous" else "not_dispatched"
+                )
+                audit.completed_at = _to_text(now)
 
     @staticmethod
     def _result(row: McpRemoteActionReceiptRow) -> McpRemoteActionResult:

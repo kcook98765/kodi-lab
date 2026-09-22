@@ -163,13 +163,17 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             permissions=frozenset({"target.control"}),
             effect=ToolEffect.MUTATING,
             allowed_target_classes=frozenset(
-                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+                {
+                    TargetClass.INTERNAL_LAB,
+                    TargetClass.EXTERNAL_DEVELOPMENT,
+                    TargetClass.EXTERNAL_PRODUCTION,
+                }
             ),
             required_capabilities=frozenset({"semantic_remote"}),
             required_states=frozenset({"running", "ready", "reconciled"}),
             rate_class=ToolRateClass.REMOTE_CONTROL,
             adapter="kodi_target.remote.invoke_replay_safe",
-            production_eligible=False,
+            production_eligible=True,
             target_scope_required=True,
             scope=ToolScope.TARGET,
         )

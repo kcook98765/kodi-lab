@@ -44,7 +44,7 @@
           <label>Authentication <select name="authentication_mode"><option value="none">No authentication</option><option value="username_password">Username and password</option></select></label>
           <label>Username <input name="username" maxlength="256" autocomplete="off"></label>
           <label>Password <input name="password" type="password" maxlength="1024" autocomplete="new-password"></label>
-          <fieldset><legend>Read-only configured maximum</legend><label><input type="checkbox" name="capability" value="target_inspect" checked> target_inspect</label><label><input type="checkbox" name="capability" value="addon_inventory"> addon_inventory</label><label><input type="checkbox" name="capability" value="screenshot"> screenshot</label></fieldset>
+          <fieldset><legend>Configured semantic maximum</legend><label><input type="checkbox" name="capability" value="target_inspect" checked> target_inspect</label><label><input type="checkbox" name="capability" value="addon_inventory"> addon_inventory</label><label><input type="checkbox" name="capability" value="screenshot"> screenshot</label><label><input type="checkbox" name="capability" value="semantic_remote"> semantic_remote (seven-action navigation only after independent authority)</label></fieldset>
           <button type="submit">Create disabled, unverified production target</button>
         </form>
       </section>
@@ -53,6 +53,7 @@
         {% for target in targets %}
         {% set policy = target.production_policy %}
         {% set bridge = bridge_statuses.get(target.target_id) %}
+        {% set native_control_ack = native_control_acknowledgements.get(target.target_id) %}
         <article data-target-id="{{ target.target_id }}">
           <h3>{{ target.logical_name }}</h3>
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
@@ -62,6 +63,8 @@
           <p>Kodi: {{ target.kodi_name or 'not observed' }} {{ target.kodi_version or '' }} · observation {{ target.pending_observation_id or 'none' }}</p>
           <p>Per-target production mutations: <strong>{{ 'suspended' if policy.mutations_suspended else 'not suspended (grants no authority)' }}</strong></p>
           <p>Bridge: <strong>{{ bridge.pairing_state.value if bridge else 'unpaired' }}</strong> · native generation {{ policy.identity_generation }} · bridge trust revision {{ bridge.production_bridge_trust_revision if bridge and bridge.production_bridge_trust_revision else 'none' }} · build {{ bridge.reviewed_build_id if bridge and bridge.reviewed_build_id else 'unreviewed' }}</p>
+          <p>Native HTTP production control acknowledgement: <strong>{{ native_control_ack.acknowledgement_id if native_control_ack else ('not required for HTTPS' if target.protocol_kind.value == 'jsonrpc_https' else 'missing') }}</strong></p>
+          <p>Navigation scopes: {% for scope in production_scopes if scope.target_id == target.target_id and scope.scope == 'navigate' %}{{ scope.client_id }}={{ scope.effective_state }} (generation {{ scope.identity_generation }}, bridge revision {{ scope.bridge_trust_revision }}){% if not loop.last %}; {% endif %}{% else %}none{% endfor %}. Inspect is an independent prerequisite; visual is not required.</p>
           {% if bridge and bridge.observed_bridge_id %}<p>Observed bridge identity: UUID {{ bridge.observed_bridge_id }} · protocol {{ bridge.observed_protocol_version }} · add-on {{ bridge.observed_addon_id }} {{ bridge.observed_addon_version }} · Kodi {{ bridge.observed_kodi_version }} · semantic fingerprint {{ bridge.observed_build_fingerprint }} · capabilities {{ bridge.observed_capabilities | join(', ') }}</p>{% endif %}
           {% if target.administrative_state.value != 'deactivated' %}
           <button type="button" data-action="probe">Run native read-only probe</button>
@@ -72,6 +75,7 @@
           <button type="button" data-action="deactivate" class="destructive">Deactivate</button>
           {% if target.administrative_state.value == 'enabled' and target.verification_state.value == 'verified' and policy.designation_state.value == 'confirmed' %}
           {% if target.protocol_kind.value == 'jsonrpc_http' %}<form data-http-ack><label>Bridge port <select name="bridge_port">{% for port in bridge_allowed_ports %}<option value="{{ port }}">{{ port }}</option>{% endfor %}</select></label><button type="submit">Acknowledge exact HTTP transport risk</button></form>{% endif %}
+          {% if target.protocol_kind.value == 'jsonrpc_http' and 'semantic_remote' in target.configured_capabilities %}<form data-native-control-http-ack><button type="submit">Acknowledge exact native HTTP production-control risk</button></form>{% endif %}
           <form data-pairing-token><label>Bridge port <select name="bridge_port">{% for port in bridge_allowed_ports %}<option value="{{ port }}">{{ port }}</option>{% endfor %}</select></label><button type="submit">Generate show-once pairing token</button></form>
           <p data-token hidden></p>
           <button type="button" data-action="bridge-pair">Attempt possession pairing</button>

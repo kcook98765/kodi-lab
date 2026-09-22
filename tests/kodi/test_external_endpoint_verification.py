@@ -367,6 +367,110 @@ def test_external_remote_expired_deadline_before_send_is_definite() -> None:
     assert calls == 0
 
 
+def test_production_remote_uses_exact_preamble_method_proof_and_one_send() -> None:
+    seen: list[str] = []
+    reauthorized = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        document = json.loads(request.content)
+        method = document["method"]
+        seen.append(method)
+        if method == "JSONRPC.Ping":
+            result: object = "pong"
+        elif method == "JSONRPC.Version":
+            result = {"version": {"major": 13, "minor": 0, "patch": 0}}
+        elif method == "Application.GetProperties":
+            result = {
+                "name": "Kodi",
+                "version": {"major": 21, "minor": 3, "tag": "stable"},
+            }
+        elif method == "JSONRPC.Introspect":
+            requested = document["params"]["filter"]["id"]
+            result = {"methods": {requested: {"type": "method"}}}
+        elif method == "Input.Home":
+            assert reauthorized
+            result = "OK"
+        else:
+            raise AssertionError(f"unexpected method {method}")
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": document["id"], "result": result},
+        )
+
+    adapter = NativeExternalKodiAdapter(
+        ValidatedExternalEndpoint(
+            ExternalProtocolKind.JSONRPC_HTTP, "192.168.1.9", 8080
+        ),
+        None,
+        transport=httpx.MockTransport(handler),
+    )
+
+    def validate_identity(result: object) -> None:
+        identity = result.identity  # type: ignore[attr-defined]
+        assert identity.name == "Kodi"
+        assert identity.kodi_release.canonical == "21.3"
+
+    def reauthorize() -> None:
+        nonlocal reauthorized
+        reauthorized = True
+
+    adapter.dispatch_production(
+        BrowserRemoteAction.HOME,
+        UUID("14000000-0000-4000-8000-000000000004"),
+        validate_identity=validate_identity,
+        before_dispatch=reauthorize,
+    )
+    assert seen == [
+        "JSONRPC.Ping",
+        "JSONRPC.Version",
+        "Application.GetProperties",
+        "JSONRPC.Introspect",
+        "Input.Home",
+    ]
+
+
+def test_production_remote_capability_loss_is_definite_and_sends_no_action() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        document = json.loads(request.content)
+        method = document["method"]
+        seen.append(method)
+        if method == "JSONRPC.Ping":
+            result: object = "pong"
+        elif method == "JSONRPC.Version":
+            result = {"version": {"major": 13, "minor": 0, "patch": 0}}
+        elif method == "Application.GetProperties":
+            result = {
+                "name": "Kodi",
+                "version": {"major": 21, "minor": 3, "tag": "stable"},
+            }
+        else:
+            result = {"methods": {}}
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": document["id"], "result": result},
+        )
+
+    adapter = NativeExternalKodiAdapter(
+        ValidatedExternalEndpoint(
+            ExternalProtocolKind.JSONRPC_HTTP, "192.168.1.9", 8080
+        ),
+        None,
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ExternalProbeError, match="capability_unavailable"):
+        adapter.dispatch_production(
+            BrowserRemoteAction.HOME,
+            UUID("14000000-0000-4000-8000-000000000005"),
+            validate_identity=lambda _result: None,
+            before_dispatch=lambda: pytest.fail(
+                "must not reauthorize unsupported action"
+            ),
+        )
+    assert "Input.Home" not in seen
+
+
 def test_no_hostname_resolution_or_mixed_dns_answer_path_exists(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

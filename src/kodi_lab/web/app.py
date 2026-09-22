@@ -260,6 +260,11 @@ from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
 )
+from kodi_lab.application.production_inspection import ProductionInspectionError
+from kodi_lab.application.production_navigation import (
+    ProductionNativeControlAcknowledgementRead,
+    ProductionNativeControlAcknowledgementService,
+)
 from kodi_lab.application.production_screenshots import ProductionScreenshotService
 from kodi_lab.application.promotion_verifications import (
     PromotionVerificationError,
@@ -875,6 +880,17 @@ class ProductionBridgeHttpAcknowledgementRequest(BaseModel):
     ]
 
 
+class ProductionNativeControlHttpAcknowledgementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    acknowledgement: Literal[
+        "I acknowledge that native JSON-RPC production control is sent over "
+        "HTTP; bridge HMAC does not protect that separate transport, and HTTP "
+        "provides no transport confidentiality or integrity beyond the network."
+    ]
+
+
 class ExternalBaselineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -961,6 +977,9 @@ class WebApplicationContext:
     external_targets: ExternalTargetAdministrationService
     production_targets: ExternalTargetAdministrationService
     external_bridges: ExternalBridgeService
+    production_native_control_acknowledgements: (
+        ProductionNativeControlAcknowledgementService
+    )
     mcp_administration: McpAdministrationService
     mcp_transport: McpHttpTransport
 
@@ -1193,6 +1212,9 @@ def create_app(
     )
     production_screenshots = ProductionScreenshotService(
         session_factory, external_bridges
+    )
+    production_native_control_acknowledgements = (
+        ProductionNativeControlAcknowledgementService(session_factory)
     )
     live_display = managed_live_display_service or ManagedLiveDisplayService(
         broker, status_service, reconciliation, screenshots
@@ -1616,6 +1638,9 @@ def create_app(
         external_targets=external_targets,
         production_targets=production_targets,
         external_bridges=external_bridges,
+        production_native_control_acknowledgements=(
+            production_native_control_acknowledgements
+        ),
         mcp_administration=mcp_administration,
         mcp_transport=mcp_transport,
     )
@@ -2268,6 +2293,17 @@ def create_app(
         }.get(error.code, 409)
         return _json_error(status_code, error.code, "External bridge request rejected.")
 
+    @app.exception_handler(ProductionInspectionError)
+    async def production_control_acknowledgement_failure(
+        _request: Request, error: ProductionInspectionError
+    ) -> JSONResponse:
+        status_code = (
+            422 if error.code == "transport_acknowledgement_not_required" else 409
+        )
+        return _json_error(
+            status_code, error.code, "Production control acknowledgement rejected."
+        )
+
     @app.exception_handler(McpWorkspaceDevelopmentError)
     async def external_development_failure(
         _request: Request, error: McpWorkspaceDevelopmentError
@@ -2437,11 +2473,22 @@ def create_app(
     ) -> Response:
         targets = context.production_targets.list_targets()
         bridge_statuses: dict[UUID, ExternalBridgeStatus] = {}
+        native_control_acknowledgements: dict[
+            UUID, ProductionNativeControlAcknowledgementRead
+        ] = {}
         for target in targets:
             with suppress(ExternalBridgeServiceError):
                 bridge_statuses[target.target_id] = context.external_bridges.status(
                     target.target_id
                 )
+            with suppress(ProductionInspectionError):
+                acknowledgement = (
+                    context.production_native_control_acknowledgements.current(
+                        target.target_id
+                    )
+                )
+                if acknowledgement is not None:
+                    native_control_acknowledgements[target.target_id] = acknowledgement
         return templates.TemplateResponse(
             request,
             "production-targets.html",
@@ -2449,6 +2496,10 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
                 "targets": targets,
                 "bridge_statuses": bridge_statuses,
+                "native_control_acknowledgements": (native_control_acknowledgements),
+                "production_scopes": (
+                    context.mcp_administration.list_production_inspection_scopes()
+                ),
                 "reviewed_builds": context.external_bridges.list_reviewed_builds(),
                 "mutation_control": context.production_targets.mutation_control(),
                 "allowed_ports": settings.external_target_allowed_ports,
@@ -3098,6 +3149,24 @@ def create_app(
         )
 
     @app.post(
+        "/api/mcp/clients/{client_id}/targets/{target_id}/production-navigate-scopes",
+        response_model=McpProductionScopeRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def grant_mcp_production_navigate_scope(
+        client_id: UUID,
+        target_id: UUID,
+        payload: McpProductionVisualScopeGrantRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpProductionScopeRead:
+        return context.mcp_administration.grant_production_navigate_scope(
+            client_id,
+            target_id,
+            identity_generation=payload.identity_generation,
+            bridge_trust_revision=payload.bridge_trust_revision,
+        )
+
+    @app.post(
         "/api/mcp/production-inspection-scopes/{scope_id}/revoke",
         response_model=McpProductionScopeRead,
     )
@@ -3582,6 +3651,18 @@ def create_app(
         return context.external_bridges.acknowledge_production_http_risk(
             target_id, bridge_port=payload.bridge_port
         )
+
+    @app.post(
+        "/api/production-targets/{target_id}/native-control/http-acknowledgements",
+        response_model=ProductionNativeControlAcknowledgementRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def acknowledge_production_native_control_http_risk(
+        target_id: UUID,
+        _payload: ProductionNativeControlHttpAcknowledgementRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ProductionNativeControlAcknowledgementRead:
+        return context.production_native_control_acknowledgements.acknowledge(target_id)
 
     @app.post(
         "/api/production-targets/{target_id}/bridge/pairing-token",

@@ -4245,6 +4245,76 @@ authority.
   including `remote_action`, remain denied across HTTP, stdio and compatibility
   HTTP.
 
+## D-0343: Production Remote Kodi is the exact production control maximum
+- Status: accepted Phase 14 Slice 4A.
+- Decision: built-in UUID `11000000-0000-4000-8000-000000000004` is immutable,
+  assignable, non-clonable, production-only and has exactly `target.inspect`,
+  `target.visual` and `target.control`. It is a maximum, not a grant; generic
+  grant and independent inspect, visual and navigate scopes remain mandatory.
+
+## D-0344: Production action taxonomy is closed
+- Status: accepted Phase 14 Slice 4A.
+- Decision: `up`, `down`, `left`, `right`, `back`, `home` and `info` are standing
+  navigation. `play_pause`, `stop`, `previous`, `next`, `volume_up`,
+  `volume_down` and `mute_toggle` are future approval actions and are hard
+  denied in 4A. `context_menu` and `select` are prohibited in V1 production.
+  External development retains all sixteen existing semantic actions.
+
+## D-0345: Navigate authority binds inspect, native generation and bridge revision
+- Status: accepted Phase 14 Slice 4A.
+- Decision: immutable `navigate` requires active current `inspect` and binds
+  exact client, target, native generation and reviewed bridge trust revision.
+  Inspect revocation atomically revokes navigate dependents. Revoked or stale
+  rows never revive; regrant uses a new UUID.
+
+## D-0346: Production remote eligibility is action-aware and server-owned
+- Status: accepted Phase 14 Slice 4A.
+- Decision: `remote_action` is production-eligible in the shared registry, but
+  centralized semantic policy beneath it permits only D-0344 navigation before
+  adapter dispatch. Transports cannot select a method or fork policy, and the
+  adapter sends only fixed mappings.
+
+## D-0347: Both production mutation vetoes govern navigation
+- Status: accepted Phase 14 Slice 4A.
+- Decision: new work checks the global mutation block and per-target suspension
+  before receipt claim and immediately before native send. Pre-send change is
+  terminal with no mutation; possible post-send loss is ambiguous and never
+  retried. Same-client terminal historical replay remains retrievable.
+
+## D-0348: Production receipts durably bind governing authority
+- Status: accepted Phase 14 Slice 4A.
+- Decision: the Phase 11 base receipt remains the replay identity and gains a
+  one-to-one immutable production binding for operation class, native/bridge/
+  policy/mutation revisions, scopes, presets, grant and applicable HTTP
+  acknowledgement. Required bounded audit is transactional with claim.
+  Pending/ambiguous and binding evidence is protected; capacity never evicts it.
+
+## D-0349: Native HTTP production control requires separate exact consent
+- Status: accepted Phase 14 Slice 4A.
+- Decision: native HTTP control acknowledgement binds target, native generation,
+  protocol, literal IP, native port, endpoint digest and production/transport
+  policy revisions. It states bridge HMAC does not protect native JSON-RPC and
+  HTTP adds no confidentiality or integrity. HTTPS uses normal certificate
+  validation and has no acknowledgement or bypass.
+
+## D-0350 and D-0351: Reserved for Slice 4B approval machinery
+- Status: reserved; not implemented.
+- Decision: these numbers are held for transient-control request/approval
+  decisions. Slice 4A creates no approval, queue or transient-control schema.
+
+## D-0352: Production navigation uses lower immediate admission limits
+- Status: accepted Phase 14 Slice 4A.
+- Decision: navigation is two actions per second per durable client-target with
+  burst three, one mutation in flight per target and four globally beneath the
+  existing eight external-native operations. Admission is immediate, queues do
+  not grow and replay lookup precedes new-work charging.
+
+## D-0353: Slice 4A and Slice 4B are independently audited boundaries
+- Status: accepted Phase 14 Slice 4A.
+- Decision: 4A contains only standing navigation. 4B remains separate future
+  architecture, implementation and audit for transient approvals. Completion
+  of 4A grants no playback, volume, approval, deployment or lifecycle authority.
+
 ## Phase 14 Slice 2 formal completion record
 
 - Status: **Phase 14 Slice 2 — Read-only production inspection: COMPLETE**;
@@ -4284,3 +4354,17 @@ authority.
 - Deferred boundary: no production remote control, approval, support-addon
   deployment, workspace, execution, lifecycle or other production authority
   was added. No real Kodi or LAN host was contacted, and Slice 4 was not begun.
+
+## Phase 14 Slice 4A implementation completion record
+
+- Status: **Phase 14 Slice 4A — Constrained production navigation: COMPLETE**;
+  Phase 14 remains **PARTIAL**.
+- Basis: migration `0050_production_navigation`, exact fifteen-tool catalog,
+  action-aware five-tool production registry, deterministic local/mock native
+  and bridge evidence, protected receipt/audit proof and authoritative repository
+  validation.
+- Boundary: production permits exactly seven standing navigation actions. The
+  seven transient actions are hard denied, `context_menu`/`select` remain
+  prohibited, and no approval, deployment, execution, lifecycle, shell,
+  filesystem, SSH, arbitrary JSON-RPC or support-add-on authority was added.
+- Isolation: no real Kodi or LAN host was contacted and Slice 4B was not begun.

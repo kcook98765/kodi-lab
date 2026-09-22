@@ -268,7 +268,7 @@ def test_revoke_rotate_disable_and_grant_cascade_recompute_current_state(
     assert administration.get_client(client.id).target_grants == ()
 
 
-def test_builtin_presets_are_deterministic_and_production_is_unassignable(
+def test_builtin_presets_activate_exact_non_clonable_production_remote_maximum(
     mcp_database: sessionmaker[Session],
 ) -> None:
     administration = McpAdministrationService(mcp_database)
@@ -310,20 +310,27 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
         "target.visual",
     )
     assert permissions[PRODUCTION_INSPECTION_PRESET_ID] == ("target.inspect",)
-    assert production.permissions == ()
-    assert not production.assignable
-    with pytest.raises(McpAdministrationError, match="mcp_preset_not_assignable"):
+    assert production.permissions == (
+        "target.control",
+        "target.inspect",
+        "target.visual",
+    )
+    assert production.assignable
+    assert (
         administration.create_client(
             display_name="Production", preset_id=PRODUCTION_REMOTE_KODI_PRESET_ID
-        )
+        ).preset.id
+        == PRODUCTION_REMOTE_KODI_PRESET_ID
+    )
 
 
-def test_only_four_of_fifteen_tools_are_production_inspection_eligible() -> None:
+def test_exactly_five_of_fifteen_tools_are_production_eligible() -> None:
     registry = build_mcp_tool_registry()
     assert len(registry.names()) == 15
     eligible = {
         "addon_list",
         "screenshot_capture",
+        "remote_action",
         "target_list",
         "target_status",
     }
@@ -766,7 +773,11 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     assert remote.effect is ToolEffect.MUTATING
     assert remote.rate_class is ToolRateClass.REMOTE_CONTROL
     assert remote.allowed_target_classes == frozenset(
-        {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+        {
+            TargetClass.INTERNAL_LAB,
+            TargetClass.EXTERNAL_DEVELOPMENT,
+            TargetClass.EXTERNAL_PRODUCTION,
+        }
     )
     for name in (
         "target_list",
@@ -789,7 +800,7 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         assert registry.require(name).allowed_target_classes == frozenset(
             {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
         )
-    assert not remote.production_eligible
+    assert remote.production_eligible
     for name in (
         "development_source_list",
         "workspace_read",

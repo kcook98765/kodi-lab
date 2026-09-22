@@ -751,3 +751,14 @@ not a production-specific capture implementation. Kodi Lab stores production
 pixels only in process memory; metadata-only receipt/audit never reaches the
 broker. Protected managed runtimes, production roots and broker fingerprints
 remain isolated, and no LAN or production host was contacted.
+
+## Phase 14 Slice 4A has no broker authority
+
+Constrained navigation uses the existing SSRF-bounded native JSON-RPC adapter
+with a closed semantic mapping. Bridge use is a fixed authenticated identity
+read only; no control command passes through the bridge. Slice 4A adds no broker
+request, allowlist entry, socket message, privileged caller, host path, managed
+runtime/container action, Docker access, support-add-on deployment or lifecycle
+operation. Production roots and protected managed fingerprints remain outside
+the native adapter. Deterministic tests used mock transports only and contacted
+no LAN or production host.

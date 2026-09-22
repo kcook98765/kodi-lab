@@ -1447,12 +1447,12 @@ class McpProductionTargetScopeRow(Base):
             name="mcp_production_scope_identity_valid",
         ),
         CheckConstraint(
-            "scope IN ('inspect','visual')",
+            "scope IN ('inspect','visual','navigate')",
             name="mcp_production_scope_value_closed",
         ),
         CheckConstraint(
             "(scope='inspect' AND bridge_trust_revision IS NULL) OR "
-            "(scope='visual' AND bridge_trust_revision>=1)",
+            "(scope IN ('visual','navigate') AND bridge_trust_revision>=1)",
             name="mcp_production_scope_bridge_binding",
         ),
         CheckConstraint(
@@ -1791,6 +1791,62 @@ class ProductionBridgeHttpAcknowledgementRow(Base):
     native_port: Mapped[int] = mapped_column(Integer, nullable=False)
     bridge_port: Mapped[int] = mapped_column(Integer, nullable=False)
     endpoint_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    transport_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    acknowledged_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    acknowledged_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ProductionNativeControlHttpAcknowledgementRow(Base):
+    """Immutable exact native-HTTP production-control risk acknowledgement."""
+
+    __tablename__ = "production_native_control_http_acknowledgements"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND identity_generation>=1 AND policy_revision>=1 "
+            "AND transport_policy_revision>=1",
+            name="production_native_control_ack_generations_positive",
+        ),
+        CheckConstraint(
+            "protocol='jsonrpc_http' AND length(ip_literal) BETWEEN 2 AND 64 "
+            "AND native_port BETWEEN 1 AND 65535",
+            name="production_native_control_ack_endpoint_valid",
+        ),
+        CheckConstraint(
+            "length(endpoint_digest)=64 AND endpoint_digest NOT GLOB '*[^0-9a-f]*'",
+            name="production_native_control_ack_digest_sha256",
+        ),
+        CheckConstraint(
+            "length(acknowledged_by) BETWEEN 1 AND 64 AND length(acknowledged_at)=27",
+            name="production_native_control_ack_administrator_bounded",
+        ),
+        UniqueConstraint(
+            "target_id",
+            "identity_generation",
+            "policy_revision",
+            "endpoint_digest",
+            "transport_policy_revision",
+            name="uq_production_native_control_http_ack_binding",
+        ),
+        Index(
+            "ix_production_native_control_http_ack_target",
+            "target_id",
+            "identity_generation",
+            "policy_revision",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_production_policies.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    protocol: Mapped[str] = mapped_column(String(16), nullable=False)
+    ip_literal: Mapped[str] = mapped_column(String(64), nullable=False)
+    native_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    endpoint_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     transport_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     acknowledged_by: Mapped[str] = mapped_column(String(64), nullable=False)
     acknowledged_at: Mapped[str] = mapped_column(String(27), nullable=False)
@@ -5972,3 +6028,124 @@ class McpRemoteActionReceiptRow(Base):
     screenshot_captured_at: Mapped[str | None] = mapped_column(
         String(27), nullable=True
     )
+
+
+class McpProductionRemoteReceiptBindingRow(Base):
+    """Immutable production authority snapshot for one base remote receipt."""
+
+    __tablename__ = "mcp_production_remote_receipt_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "length(receipt_id)=36 AND operation_class='navigation'",
+            name="mcp_production_remote_binding_identity_valid",
+        ),
+        CheckConstraint(
+            "native_identity_generation>=1 AND bridge_trust_revision>=1 "
+            "AND target_policy_revision>=1 AND mutation_control_epoch>=1",
+            name="mcp_production_remote_binding_revisions_positive",
+        ),
+        CheckConstraint(
+            "length(inspect_scope_id)=36 AND length(navigate_scope_id)=36 "
+            "AND length(client_preset_id)=36 AND length(target_preset_id)=36",
+            name="mcp_production_remote_binding_authority_shapes",
+        ),
+        CheckConstraint(
+            "length(generic_grant_created_at)=27 AND "
+            "(native_http_acknowledgement_id IS NULL OR "
+            "length(native_http_acknowledgement_id)=36)",
+            name="mcp_production_remote_binding_optional_shapes",
+        ),
+        Index(
+            "ix_mcp_production_remote_binding_scopes",
+            "inspect_scope_id",
+            "navigate_scope_id",
+        ),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("mcp_remote_action_receipts.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    operation_class: Mapped[str] = mapped_column(String(16), nullable=False)
+    native_identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_trust_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    mutation_control_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
+    inspect_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    navigate_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    client_preset_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_preset_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generic_grant_created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    native_http_acknowledgement_id: Mapped[str | None] = mapped_column(String(36))
+
+
+class McpProductionNavigationAuditRow(Base):
+    """Bounded semantic audit for one production navigation receipt."""
+
+    __tablename__ = "mcp_production_navigation_audits"
+    __table_args__ = (
+        CheckConstraint(
+            "length(receipt_id)=36 AND length(client_id)=36 "
+            "AND length(credential_id)=36 AND length(target_id)=36 "
+            "AND length(request_id)=36",
+            name="mcp_production_navigation_audit_uuid_shapes",
+        ),
+        CheckConstraint(
+            "operation_class='navigation' AND action IN "
+            "('up','down','left','right','back','home','info')",
+            name="mcp_production_navigation_audit_semantics_closed",
+        ),
+        CheckConstraint(
+            "native_identity_generation>=1 AND bridge_trust_revision>=1 "
+            "AND target_policy_revision>=1 AND mutation_control_epoch>=1 "
+            "AND length(inspect_scope_id)=36 AND length(navigate_scope_id)=36",
+            name="mcp_production_navigation_audit_authority_valid",
+        ),
+        CheckConstraint(
+            "state IN ('pending','completed','ambiguous') AND "
+            "dispatch_classification IN "
+            "('not_dispatched','acknowledged','ambiguous')",
+            name="mcp_production_navigation_audit_outcome_closed",
+        ),
+        CheckConstraint(
+            "length(outcome) BETWEEN 1 AND 64 AND outcome=lower(outcome) "
+            "AND outcome=trim(outcome)",
+            name="mcp_production_navigation_audit_outcome_bounded",
+        ),
+        CheckConstraint(
+            "length(requested_at)=27 AND "
+            "(completed_at IS NULL OR length(completed_at)=27) AND "
+            "((state='pending' AND completed_at IS NULL) OR "
+            "(state IN ('completed','ambiguous') AND completed_at IS NOT NULL))",
+            name="mcp_production_navigation_audit_timestamps_valid",
+        ),
+        Index(
+            "ix_mcp_production_navigation_audit_target_time",
+            "target_id",
+            "requested_at",
+        ),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("mcp_remote_action_receipts.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    credential_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    operation_class: Mapped[str] = mapped_column(String(16), nullable=False)
+    native_identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_trust_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    mutation_control_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
+    inspect_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    navigate_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+    dispatch_classification: Mapped[str] = mapped_column(String(16), nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(27))

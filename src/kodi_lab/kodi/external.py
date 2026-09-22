@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -33,6 +34,7 @@ from kodi_lab.kodi.remote import (
     RemoteActionAmbiguousError,
     RemoteKodiRejectedError,
     dispatch_semantic_remote,
+    fixed_request_mapping,
 )
 from kodi_lab.storage.secrets import ExternalKodiCredential
 
@@ -725,6 +727,60 @@ class NativeExternalKodiAdapter:
             dispatch_semantic_remote(
                 lambda request_id, method, params, mutation: self._remote_request(
                     client, request_id, method, params, mutation, started
+                ),
+                action,
+                invocation_id,
+            )
+
+    def dispatch_production(
+        self,
+        action: BrowserRemoteAction,
+        invocation_id: UUID,
+        *,
+        validate_identity: Callable[[ProductionKodiIdentityResult], None],
+        before_dispatch: Callable[[], None],
+    ) -> None:
+        """Preamble, exact-method proof, fresh reauthorization, then one send."""
+
+        started = time.monotonic()
+        with self._client() as client:
+            identity, protocol_version = self._production_preamble(client, started)
+            validate_identity(
+                ProductionKodiIdentityResult(
+                    identity=identity, protocol_version=protocol_version
+                )
+            )
+            method = fixed_request_mapping()[action][0]
+            introspection = self._verifier._call(
+                client,
+                self._endpoint,
+                "JSONRPC.Introspect",
+                {
+                    "getdescriptions": False,
+                    "getmetadata": False,
+                    "filter": {"id": method, "type": "method"},
+                },
+                started,
+                allow_method_error=True,
+            )
+            if (
+                introspection is _METHOD_UNAVAILABLE
+                or not isinstance(introspection, dict)
+                or not isinstance(introspection.get("methods"), dict)
+                or method not in introspection["methods"]
+            ):
+                raise ExternalProbeError("capability_unavailable")
+            before_dispatch()
+            dispatch_semantic_remote(
+                lambda request_id, request_method, params, mutation: (
+                    self._remote_request(
+                        client,
+                        request_id,
+                        request_method,
+                        params,
+                        mutation,
+                        started,
+                    )
                 ),
                 action,
                 invocation_id,

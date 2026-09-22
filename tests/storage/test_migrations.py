@@ -145,7 +145,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0049_production_bridge_visual",)
+        ).fetchone() == ("0050_production_navigation",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -224,6 +224,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "external_development_source_baselines",
         "external_production_policies",
         "production_bridge_http_acknowledgements",
+        "production_native_control_http_acknowledgements",
         "production_mutation_control",
         "global_heavy_operation_lease",
         "managed_instances",
@@ -236,6 +237,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_development_requests",
         "mcp_presets",
         "mcp_production_screenshot_receipts",
+        "mcp_production_navigation_audits",
+        "mcp_production_remote_receipt_bindings",
         "mcp_production_target_scopes",
         "mcp_preset_permissions",
         "mcp_remote_action_receipts",
@@ -5558,3 +5561,132 @@ def test_0049_bridge_revision_is_monotonic_and_visual_history_blocks_downgrade(
     engine.dispose()
     with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
         command.downgrade(config, "0048_production_inspection_scopes")
+
+
+def test_0050_navigation_schema_preset_and_protected_history(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0049_production_bridge_visual"
+    )
+    command.upgrade(config, "0050_production_navigation")
+    engine = create_database_engine(database_url)
+    assert {
+        "production_native_control_http_acknowledgements",
+        "mcp_production_remote_receipt_bindings",
+        "mcp_production_navigation_audits",
+    } <= set(inspect(engine).get_table_names())
+    timestamp = "2026-09-21T12:00:00.000000Z"
+    receipt_id = "50000000-0000-4000-8000-000000000001"
+    ids = {
+        "receipt": receipt_id,
+        "client": "50000000-0000-4000-8000-000000000002",
+        "credential": "50000000-0000-4000-8000-000000000003",
+        "target": "50000000-0000-4000-8000-000000000004",
+        "request": "50000000-0000-4000-8000-000000000005",
+        "inspect": "50000000-0000-4000-8000-000000000006",
+        "navigate": "50000000-0000-4000-8000-000000000007",
+        "at": timestamp,
+    }
+    with engine.begin() as connection:
+        assert connection.execute(
+            text(
+                "SELECT display_name,builtin,assignable FROM mcp_presets "
+                "WHERE id='11000000-0000-4000-8000-000000000004'"
+            )
+        ).one() == ("Production Remote Kodi", 1, 1)
+        assert [
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT permission FROM mcp_preset_permissions "
+                    "WHERE preset_id='11000000-0000-4000-8000-000000000004' "
+                    "ORDER BY permission"
+                )
+            ).all()
+        ] == ["target.control", "target.inspect", "target.visual"]
+        connection.execute(
+            text(
+                "INSERT INTO mcp_remote_action_receipts "
+                "(id,client_id,credential_id,target_id,request_id,action,created_at,"
+                "state,final_result,completed_at,screenshot_refresh_result,"
+                "screenshot_capture_id,screenshot_captured_at) VALUES "
+                "(:receipt,:client,:credential,:target,:request,'home',:at,'pending',"
+                "NULL,NULL,NULL,NULL,NULL)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_production_remote_receipt_bindings "
+                "(receipt_id,operation_class,native_identity_generation,"
+                "bridge_trust_revision,target_policy_revision,mutation_control_epoch,"
+                "inspect_scope_id,navigate_scope_id,client_preset_id,target_preset_id,"
+                "generic_grant_created_at,native_http_acknowledgement_id) VALUES "
+                "(:receipt,'navigation',1,1,1,1,:inspect,:navigate,"
+                "'11000000-0000-4000-8000-000000000004',"
+                "'11000000-0000-4000-8000-000000000004',:at,NULL)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_production_navigation_audits "
+                "(receipt_id,client_id,credential_id,target_id,request_id,action,"
+                "operation_class,native_identity_generation,bridge_trust_revision,"
+                "target_policy_revision,mutation_control_epoch,inspect_scope_id,"
+                "navigate_scope_id,state,outcome,dispatch_classification,requested_at,"
+                "completed_at) VALUES (:receipt,:client,:credential,:target,:request,"
+                "'home','navigation',1,1,1,1,:inspect,:navigate,'pending','pending',"
+                "'not_dispatched',:at,NULL)"
+            ),
+            ids,
+        )
+        with pytest.raises(IntegrityError, match="production_remote_binding_protected"):
+            connection.execute(
+                text(
+                    "DELETE FROM mcp_production_remote_receipt_bindings "
+                    "WHERE receipt_id=:receipt"
+                ),
+                ids,
+            )
+        with pytest.raises(IntegrityError, match="production_remote_receipt_protected"):
+            connection.execute(
+                text("DELETE FROM mcp_remote_action_receipts WHERE id=:receipt"), ids
+            )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
+        command.downgrade(config, "0049_production_bridge_visual")
+
+
+def test_0050_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0049_production_bridge_visual"
+    )
+    command.upgrade(config, "0050_production_navigation")
+    command.downgrade(config, "0049_production_bridge_visual")
+    engine = create_database_engine(database_url)
+    assert (
+        "mcp_production_remote_receipt_bindings"
+        not in inspect(engine).get_table_names()
+    )
+    with engine.connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT assignable FROM mcp_presets "
+                    "WHERE id='11000000-0000-4000-8000-000000000004'"
+                )
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM mcp_preset_permissions "
+                    "WHERE preset_id='11000000-0000-4000-8000-000000000004'"
+                )
+            )
+            == 0
+        )
+    engine.dispose()

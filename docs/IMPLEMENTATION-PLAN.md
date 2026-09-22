@@ -1647,3 +1647,29 @@ metadata-commit failure, and retained failed production pairing tokens.
 Migration `0049` and the shared services now fail closed for those cases while
 preserving Phase 13 behavior. Slice 3 is formally **COMPLETE**; Phase 14 remains
 **PARTIAL**, no LAN or production Kodi was contacted, and Slice 4 was not begun.
+
+## Phase 14 Slice 4A checkpoint
+
+**Slice 4A: COMPLETE. Phase 14: PARTIAL.** Migration
+`0050_production_navigation` activates the exact Production Remote Kodi maximum,
+adds generation/revision-bound navigate scopes, separate native-HTTP control
+acknowledgement history, immutable production bindings on Phase 11 remote
+receipts and bounded semantic navigation audit. It seeds no scope, grant,
+assignment, acknowledgement or mutation authority and refuses destructive
+downgrade while authority/history exists.
+
+The shared `remote_action` registry entry is now the fifth production-eligible
+tool, but centralized classification permits only up/down/left/right/back/home/
+info. Context menu and select are prohibited; seven playback/track/volume
+actions remain hard denied. External development retains all sixteen. Fresh
+bridge identity anchoring, native identity/method preflight, immediate
+reauthorization, both mutation vetoes, 2/s burst-three admission and one-target/
+four-global concurrency govern every new one-attempt native dispatch.
+
+Web administration can assign the exact maximum, grant/revoke navigate scope
+and create/display exact native-HTTP control acknowledgement. There is no Web
+dispatch button or MCP grant management. Deterministic local/mock proof covers
+taxonomy, stale authority, vetoes, replay/ambiguity, migration protection and
+native preamble without LAN or production contact. Slice 4B approvals and all
+playback/volume, deployment, execution, lifecycle, shell, filesystem, SSH and
+arbitrary JSON-RPC authority remain unimplemented.

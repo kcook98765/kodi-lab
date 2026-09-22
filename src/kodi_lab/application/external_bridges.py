@@ -1026,6 +1026,31 @@ class ExternalBridgeService:
         except ExternalBridgeServiceError:
             return False
 
+    def authenticate_production_identity(self, target_id: UUID) -> None:
+        """Fresh fixed read-only bridge identity proof; never a command channel."""
+
+        snapshot = self._active_snapshot(
+            target_id, require_production_http_acknowledgement=False
+        )
+        if snapshot.target_type is not TargetType.EXTERNAL_PRODUCTION:
+            raise ExternalBridgeServiceError("bridge_not_paired")
+        try:
+            identity = self._client.identity(
+                snapshot.endpoint,
+                bridge_port=snapshot.bridge_port,
+                target_id=target_id,
+                bridge_id=snapshot.bridge_id,
+                secret=self._read_secret(snapshot),
+            )
+        except ExternalBridgeError as error:
+            self._publish_reachability(target_id, error.code)
+            raise ExternalBridgeServiceError(error.code) from error
+        try:
+            self._require_pinned_identity(snapshot, identity)
+        except ExternalBridgeServiceError:
+            self._invalidate_identity(target_id, "bridge_identity_mismatch")
+            raise
+
     def inspect_addon(self, target_id: UUID, addon_id: str) -> BridgeAddonTree:
         with self._deployment_gate.enter(target_id):
             snapshot = self._active_snapshot(
@@ -1466,6 +1491,7 @@ class ExternalBridgeService:
         *,
         allow_needs_reverification: bool = False,
         required_capability: str | None = None,
+        require_production_http_acknowledgement: bool = True,
     ) -> _Snapshot:
         with self._sessions() as session:
             external = self._require_native_verified(session, target_id)
@@ -1531,14 +1557,15 @@ class ExternalBridgeService:
                     )
                     if reviewed is None or reviewed.state != "active":
                         raise ExternalBridgeServiceError("bridge_build_not_reviewed")
-                self._require_http_acknowledgement(
-                    session,
-                    external,
-                    target_id,
-                    row.bridge_port,
-                    policy.identity_generation,
-                    row.production_bridge_trust_revision,
-                )
+                if require_production_http_acknowledgement:
+                    self._require_http_acknowledgement(
+                        session,
+                        external,
+                        target_id,
+                        row.bridge_port,
+                        policy.identity_generation,
+                        row.production_bridge_trust_revision,
+                    )
             return _Snapshot(
                 target_id=target_id,
                 endpoint=endpoint,

@@ -1,8 +1,8 @@
 # Phase 14 — External Production Targets
 
-## Slice 1 through Slice 3 status and scope
+## Slice 1 through Slice 4A status and scope
 
-**Slice 1: COMPLETE. Slice 2: COMPLETE. Slice 3: COMPLETE. Phase 14: PARTIAL.** Slice 1
+**Slices 1, 2, 3 and 4A: COMPLETE. Phase 14: PARTIAL.** Slice 1
 establishes production representation and trust policy only. Slice 2 adds
 bounded read-only inspection. Independent Slice 2 completion audit found and
 remediated one generation-downgrade hazard by making production identity
@@ -13,6 +13,9 @@ likewise found and remediated bridge-revision deletion/reuse, cross-client
 bridge replay aliasing, volatile-pixel retention on metadata-commit failure and
 failed production token retention. Slice 3 is formally complete only with those
 fail-closed defenses.
+Slice 4A adds only constrained production navigation under the accepted action-
+aware architecture. Its deterministic proof likewise contacted no LAN or
+production Kodi.
 
 Included:
 
@@ -36,11 +39,15 @@ Included:
 - independent monotonic bridge trust revision and exact HTTP-risk history;
 - generation/revision-bound visual scopes and Production Visual Inspection;
 - replay-safe, rate/concurrency-bounded memory-only production screenshots;
-- exactly four production-eligible tools in the unchanged fifteen-tool catalog.
+- immutable navigate scope and exact Production Remote Kodi maximum;
+- replay-safe, veto/rate/concurrency-bounded seven-action navigation;
+- separate exact native-HTTP control acknowledgement; and
+- exactly five production-eligible tools in the unchanged fifteen-tool catalog.
 
 Excluded:
 
-- navigation/control, `remote_action` and production approvals;
+- transient playback/volume control and production approvals;
+- production `context_menu` and `select`;
 - DevelopmentSource baseline, workspace deployment/execution or promotion;
 - support-addon deployment;
 - lifecycle, restart, shell, SSH, generic filesystem or raw JSON-RPC; and
@@ -122,9 +129,9 @@ paths, raw JSON-RPC or bridge secrets.
 The registry remains exactly fifteen tools. Slice 2 replaces only the direct
 target blanket veto with the production inspection evaluator described below.
 The workspace-target veto remains absolute, so indirect workspace deployment,
-execution and promotion stay unavailable. The dormant Production Remote Kodi
-preset remains unassignable and has no effective access. Existing managed and
-external-development behavior is unchanged.
+execution and promotion stay unavailable. Production Remote Kodi is assignable
+only as the exact Slice 4A maximum and grants no operation without independent
+scopes. Existing managed and external-development behavior is unchanged.
 
 ## Slice 2 production inspection authority
 
@@ -204,7 +211,14 @@ assignment, rejects identity-generation decreases, and adds bounded
 scope/generation fields to semantic MCP events. Downgrade refuses when scope
 history, new-preset assignments or scope events would be lost.
 
-## Remaining Phase 14 work
+Migration `0050_production_navigation` preserves existing scopes while adding
+the closed `navigate` value and bridge binding, activates the exact remote
+preset permissions and production-only assignment guards, and creates native-
+control acknowledgement, receipt-binding and bounded audit storage with
+immutability/protected-retention triggers. Slice 4A changes only the existing
+`remote_action` production eligibility in application registry metadata. It seeds no scope,
+grant, assignment, acknowledgement or mutation authority and refuses downgrade
+while any Slice 4A authority or history would be lost.
 
 ## Slice 3 reviewed bridge and visual inspection
 
@@ -276,15 +290,63 @@ dimensions, size, digest, outcome and timestamp metadata. The Web warns that
 screenshots can contain personal/media information and the receiving MCP client
 may persist them outside Kodi Lab.
 
-The catalog remains exactly fifteen and production eligibility is exactly
-`target_list`, `target_status`, `addon_list`, `screenshot_capture`. The other
-eleven, including `remote_action` and every workspace/deployment/execution path,
-remain denied. Deterministic tests use local/mock endpoints only; no production
-Kodi or LAN host was contacted.
+## Slice 4A constrained production navigation
+
+Migration `0050_production_navigation` extends the immutable scope vocabulary
+with `navigate`. Each row binds exact client, target, native generation and
+current reviewed bridge revision, requires active current inspect when created
+and used, and is terminal after revocation. Inspect revocation atomically
+revokes active visual and navigate dependents. Rollback of generation or bridge
+revision cannot make retained history effective.
+
+The exact built-in Production Remote Kodi UUID is activated as immutable,
+assignable, non-clonable and production-only with maximum permissions
+`target.inspect`, `target.visual` and `target.control`. It is not self-granting.
+Inspection, screenshots and navigation still require their independent scope
+intersections. Narrower Production Inspection or Production Visual Inspection
+clients can safely use only their smaller intersection against a target
+assigned the remote maximum.
+
+The existing sixteen remote actions are centrally classified. Production
+allows only `up`, `down`, `left`, `right`, `back`, `home` and `info`.
+`context_menu` and `select` are prohibited, and `play_pause`, `stop`,
+`previous`, `next`, `volume_up`, `volume_down` and `mute_toggle` are hard denied
+until separately reviewed Slice 4B. External development remains unchanged.
+
+Every new navigation claim binds current credential/client, exact presets,
+generic grant, inspect/navigate scope UUIDs, native generation, bridge revision,
+target policy revision, mutation epoch and applicable native-HTTP control
+acknowledgement into the existing Phase 11 receipt. The required bounded audit
+is created in the same transaction. Terminal exact replay is historical lookup
+for the same enabled authenticated client; changed target/action conflicts and
+pending/ambiguous work never redispatches.
+
+Both mutation vetoes are checked before claim and after fresh bridge/native
+preflight immediately before send. The bridge supplies authenticated identity
+only and receives no control command. Native preflight uses Ping, protocol and
+application identity plus exact semantic-method introspection under one
+aggregate deadline, then sends one fixed mapped method without retry. HTTP
+requires separate immutable Web acknowledgement that bridge HMAC does not
+protect native JSON-RPC and HTTP adds no transport security. HTTPS retains
+ordinary certificate validation.
+
+Replay lookup precedes new-work rate charge. Navigation is two actions/second
+per durable client-target with burst three, one mutation per target and four
+globally beneath the eight-operation external-native ceiling. Admission is
+immediate with no queue. Production bindings and bounded audit are protected;
+pending and ambiguous base receipts cannot be pruned to permit duplication and
+capacity exhaustion rejects new work.
+
+Web administration exposes only preset assignment, navigate grant/revoke,
+dependency/revision/veto status and native-HTTP acknowledgement. There is no Web
+remote button or MCP grant management. The production registry is exactly
+`target_list`, `target_status`, `addon_list`, `screenshot_capture` and
+`remote_action`; the other ten tools remain denied. Local/mock tests only were
+used and no production Kodi or LAN host was contacted.
 
 ## Remaining Phase 14 work
 
-Later independently scoped work may add constrained control and transient
-approval semantics. Production support-addon deployment remains subject to a
-separate architecture review. Slice 3 does not authorize Slice 4, navigation,
-control, deployment, execution, lifecycle or real production contact.
+Slice 4B may add separately reviewed transient request/approval semantics.
+Production support-addon deployment remains subject to separate architecture.
+Slice 4A does not authorize playback/volume, approvals, deployment, execution,
+lifecycle, shell, filesystem, SSH, raw JSON-RPC or real production contact.
