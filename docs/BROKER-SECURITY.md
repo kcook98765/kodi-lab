@@ -734,3 +734,20 @@ advances generation and invalidates designation. It does not restart, repair or
 otherwise mutate Kodi. Protected managed runtimes, production roots and broker
 fingerprints remain isolated. No LAN or production host was contacted for this
 slice.
+
+## Phase 14 Slice 3 has no broker authority
+
+Reviewed-build administration, bridge possession/confirmation, transport-risk
+acknowledgement and screenshot replay are unprivileged application/database
+operations over the existing Phase 13 fixed bridge endpoint. They add no broker
+request, allowlist entry, socket message, privileged caller, Docker/container
+operation, runtime path, installation or lifecycle action.
+
+The bridge still owns its unpredictable transient beneath
+`special://temp/kodi-lab-bridge`, invokes only fixed GUI `TakeScreenshot`,
+validates/reads/deletes that exact safe file and exposes no caller path or
+filesystem method. Production adds policy around the same protocol and backend,
+not a production-specific capture implementation. Kodi Lab stores production
+pixels only in process memory; metadata-only receipt/audit never reaches the
+broker. Protected managed runtimes, production roots and broker fingerprints
+remain isolated, and no LAN or production host was contacted.

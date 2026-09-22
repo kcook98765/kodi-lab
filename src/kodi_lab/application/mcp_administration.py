@@ -23,13 +23,17 @@ from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionSe
 from kodi_lab.application.production_inspection import (
     PRODUCTION_INSPECTION_PRESET_ID,
     PRODUCTION_INSPECTION_PRESET_NAME,
+    PRODUCTION_VISUAL_PRESET_ID,
+    PRODUCTION_VISUAL_PRESET_NAME,
     ProductionInspectionError,
     evaluate_production_inspection_state,
+    evaluate_production_visual_state,
 )
 from kodi_lab.domain import ExternalAdministrativeState, TargetType
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentSourceRow,
+    ExternalBridgePairingRow,
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
     McpAgentWorkspaceBindingRow,
@@ -88,6 +92,12 @@ _BUILTINS = (
         PRODUCTION_INSPECTION_PRESET_NAME,
         True,
         ("target.inspect",),
+    ),
+    (
+        PRODUCTION_VISUAL_PRESET_ID,
+        PRODUCTION_VISUAL_PRESET_NAME,
+        True,
+        ("target.inspect", "target.visual"),
     ),
 )
 
@@ -199,7 +209,9 @@ class McpProductionScopeRead(BaseModel):
     target_id: UUID
     identity_generation: int = Field(ge=1)
     current_identity_generation: int = Field(ge=1)
-    scope: str = Field(pattern="^inspect$")
+    bridge_trust_revision: int | None = Field(default=None, ge=1)
+    current_bridge_trust_revision: int | None = Field(default=None, ge=1)
+    scope: str = Field(pattern="^(inspect|visual)$")
     state: str = Field(pattern="^(active|revoked)$")
     effective_state: str = Field(pattern="^(active|stale|revoked)$")
     created_at: datetime
@@ -621,9 +633,10 @@ class McpAdministrationService:
         try:
             with self._session_factory.begin() as session:
                 client = self._require_client(session, client_id)
-                if not client.enabled or client.preset_id != str(
-                    PRODUCTION_INSPECTION_PRESET_ID
-                ):
+                if not client.enabled or client.preset_id not in {
+                    str(PRODUCTION_INSPECTION_PRESET_ID),
+                    str(PRODUCTION_VISUAL_PRESET_ID),
+                }:
                     raise McpAdministrationError("production_scope_client_invalid")
                 target = session.get(TargetRow, str(target_id))
                 assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
@@ -635,7 +648,11 @@ class McpAdministrationService:
                     target is None
                     or target.target_type is not TargetType.EXTERNAL_PRODUCTION
                     or assignment is None
-                    or assignment.preset_id != str(PRODUCTION_INSPECTION_PRESET_ID)
+                    or assignment.preset_id
+                    not in {
+                        str(PRODUCTION_INSPECTION_PRESET_ID),
+                        str(PRODUCTION_VISUAL_PRESET_ID),
+                    }
                     or grant is None
                 ):
                     raise McpAdministrationError("production_scope_target_invalid")
@@ -656,6 +673,7 @@ class McpAdministrationService:
                     client_id=str(client_id),
                     target_id=str(target_id),
                     identity_generation=identity_generation,
+                    bridge_trust_revision=None,
                     scope="inspect",
                     state="active",
                     created_at=_to_text(now),
@@ -667,6 +685,89 @@ class McpAdministrationService:
                 self._event(
                     session,
                     "production_inspection_scope_granted",
+                    now,
+                    client_id=client_id,
+                    target_id=target_id,
+                    production_scope_id=scope_id,
+                    identity_generation=identity_generation,
+                )
+        except IntegrityError as error:
+            raise McpAdministrationError("production_scope_already_active") from error
+        return self.get_production_inspection_scope(scope_id)
+
+    def grant_production_visual_scope(
+        self,
+        client_id: UUID,
+        target_id: UUID,
+        *,
+        identity_generation: int,
+        bridge_trust_revision: int,
+        administrator_reference: str = "local_administrator",
+    ) -> McpProductionScopeRead:
+        """Grant screenshot authority only atop a current active inspect scope."""
+
+        if identity_generation < 1 or bridge_trust_revision < 1:
+            raise McpAdministrationError("production_scope_generation_invalid")
+        administrator = self._administrator(administrator_reference)
+        now = self._clock()
+        scope_id = uuid4()
+        try:
+            with self._session_factory.begin() as session:
+                client = self._require_client(session, client_id)
+                assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+                grant = session.get(
+                    McpClientTargetGrantRow,
+                    {"client_id": str(client_id), "target_id": str(target_id)},
+                )
+                if (
+                    not client.enabled
+                    or client.preset_id != str(PRODUCTION_VISUAL_PRESET_ID)
+                    or assignment is None
+                    or assignment.preset_id != str(PRODUCTION_VISUAL_PRESET_ID)
+                    or grant is None
+                ):
+                    raise McpAdministrationError("production_scope_target_invalid")
+                try:
+                    state = evaluate_production_visual_state(session, target_id)
+                except ProductionInspectionError as error:
+                    raise McpAdministrationError(
+                        "production_scope_target_invalid"
+                    ) from error
+                if (
+                    state.identity_generation != identity_generation
+                    or state.bridge_trust_revision != bridge_trust_revision
+                ):
+                    raise McpAdministrationError("production_scope_generation_invalid")
+                inspect = session.scalar(
+                    select(McpProductionTargetScopeRow).where(
+                        McpProductionTargetScopeRow.client_id == str(client_id),
+                        McpProductionTargetScopeRow.target_id == str(target_id),
+                        McpProductionTargetScopeRow.identity_generation
+                        == identity_generation,
+                        McpProductionTargetScopeRow.scope == "inspect",
+                        McpProductionTargetScopeRow.state == "active",
+                    )
+                )
+                if inspect is None:
+                    raise McpAdministrationError("production_scope_target_invalid")
+                session.add(
+                    McpProductionTargetScopeRow(
+                        id=str(scope_id),
+                        client_id=str(client_id),
+                        target_id=str(target_id),
+                        identity_generation=identity_generation,
+                        bridge_trust_revision=bridge_trust_revision,
+                        scope="visual",
+                        state="active",
+                        created_at=_to_text(now),
+                        created_by=administrator,
+                        revoked_at=None,
+                        revoked_by=None,
+                    )
+                )
+                self._event(
+                    session,
+                    "production_visual_scope_granted",
                     now,
                     client_id=client_id,
                     target_id=target_id,
@@ -702,6 +803,30 @@ class McpAdministrationService:
                     production_scope_id=scope_id,
                     identity_generation=row.identity_generation,
                 )
+                if row.scope == "inspect":
+                    dependents = session.scalars(
+                        select(McpProductionTargetScopeRow).where(
+                            McpProductionTargetScopeRow.client_id == row.client_id,
+                            McpProductionTargetScopeRow.target_id == row.target_id,
+                            McpProductionTargetScopeRow.identity_generation
+                            == row.identity_generation,
+                            McpProductionTargetScopeRow.scope == "visual",
+                            McpProductionTargetScopeRow.state == "active",
+                        )
+                    ).all()
+                    for dependent in dependents:
+                        dependent.state = "revoked"
+                        dependent.revoked_at = _to_text(now)
+                        dependent.revoked_by = administrator
+                        self._event(
+                            session,
+                            "production_visual_scope_revoked",
+                            now,
+                            client_id=UUID(dependent.client_id),
+                            target_id=UUID(dependent.target_id),
+                            production_scope_id=UUID(dependent.id),
+                            identity_generation=dependent.identity_generation,
+                        )
         return self.get_production_inspection_scope(scope_id)
 
     def get_production_inspection_scope(self, scope_id: UUID) -> McpProductionScopeRead:
@@ -902,10 +1027,12 @@ class McpAdministrationService:
             assert target is not None
             if (
                 target.target_type is TargetType.EXTERNAL_PRODUCTION
-                and preset_id != PRODUCTION_INSPECTION_PRESET_ID
+                and preset_id
+                not in {PRODUCTION_INSPECTION_PRESET_ID, PRODUCTION_VISUAL_PRESET_ID}
             ) or (
                 target.target_type is not TargetType.EXTERNAL_PRODUCTION
-                and preset_id == PRODUCTION_INSPECTION_PRESET_ID
+                and preset_id
+                in {PRODUCTION_INSPECTION_PRESET_ID, PRODUCTION_VISUAL_PRESET_ID}
             ):
                 raise McpAdministrationError("mcp_preset_not_assignable")
             self._require_assignable_preset(session, preset_id)
@@ -1092,7 +1219,8 @@ class McpAdministrationService:
             row is None
             or not row.builtin
             or not row.assignable
-            or preset_id == PRODUCTION_INSPECTION_PRESET_ID
+            or preset_id
+            in {PRODUCTION_INSPECTION_PRESET_ID, PRODUCTION_VISUAL_PRESET_ID}
         ):
             raise McpAdministrationError("mcp_preset_template_invalid")
         return row
@@ -1109,13 +1237,21 @@ class McpAdministrationService:
         session: Session, row: McpProductionTargetScopeRow
     ) -> McpProductionScopeRead:
         policy = session.get(ExternalProductionPolicyRow, row.target_id)
+        pairing = session.get(ExternalBridgePairingRow, row.target_id)
         if policy is None:
             raise McpAdministrationError("production_scope_target_invalid")
+        current_bridge_revision = (
+            None if pairing is None else pairing.production_bridge_trust_revision
+        )
         effective = (
             "revoked"
             if row.state == "revoked"
             else "active"
             if row.identity_generation == policy.identity_generation
+            and (
+                row.scope == "inspect"
+                or row.bridge_trust_revision == current_bridge_revision
+            )
             else "stale"
         )
         return McpProductionScopeRead(
@@ -1124,6 +1260,8 @@ class McpAdministrationService:
             target_id=UUID(row.target_id),
             identity_generation=row.identity_generation,
             current_identity_generation=policy.identity_generation,
+            bridge_trust_revision=row.bridge_trust_revision,
+            current_bridge_trust_revision=current_bridge_revision,
             scope=row.scope,
             state=row.state,
             effective_state=effective,

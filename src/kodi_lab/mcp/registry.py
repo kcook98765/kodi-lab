@@ -203,13 +203,17 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             permissions=frozenset({"target.visual"}),
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset(
-                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+                {
+                    TargetClass.INTERNAL_LAB,
+                    TargetClass.EXTERNAL_DEVELOPMENT,
+                    TargetClass.EXTERNAL_PRODUCTION,
+                }
             ),
             required_capabilities=frozenset({"screenshot"}),
             required_states=frozenset({"reconciled"}),
             rate_class=ToolRateClass.VISUAL_CAPTURE,
             adapter="kodi_target.screenshot.capture",
-            production_eligible=False,
+            production_eligible=True,
             target_scope_required=True,
             scope=ToolScope.TARGET,
         )

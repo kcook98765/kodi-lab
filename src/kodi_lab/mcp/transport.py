@@ -211,6 +211,7 @@ class _ScreenshotCaptureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_id: UUID
+    request_id: UUID | None = None
 
 
 class _RemoteActionInput(BaseModel):
@@ -918,6 +919,7 @@ def build_mcp_http_transport(
                     tools.screenshot_capture,
                     principal,
                     target_id=target_id,
+                    request_id=parsed_screenshot.request_id,
                 )
             elif params.name == "target_list":
                 parsed_list = _TargetListInput.model_validate(arguments)

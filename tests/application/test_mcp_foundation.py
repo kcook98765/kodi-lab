@@ -278,6 +278,7 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
         "Full Lab Control",
         "Production Inspection",
         "Production Remote Kodi",
+        "Production Visual Inspection",
         "Read-only Inspection",
     ]
     production = next(
@@ -317,10 +318,15 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
         )
 
 
-def test_only_three_of_fifteen_tools_are_production_inspection_eligible() -> None:
+def test_only_four_of_fifteen_tools_are_production_inspection_eligible() -> None:
     registry = build_mcp_tool_registry()
     assert len(registry.names()) == 15
-    eligible = {"addon_list", "target_list", "target_status"}
+    eligible = {
+        "addon_list",
+        "screenshot_capture",
+        "target_list",
+        "target_status",
+    }
     for name in registry.names():
         definition = registry.require(name)
         assert (
@@ -762,17 +768,18 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     assert remote.allowed_target_classes == frozenset(
         {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
     )
-    for name in ("target_list", "target_status", "addon_list"):
+    for name in (
+        "target_list",
+        "target_status",
+        "addon_list",
+        "screenshot_capture",
+    ):
         assert registry.require(name).allowed_target_classes == frozenset(
             {
                 TargetClass.INTERNAL_LAB,
                 TargetClass.EXTERNAL_DEVELOPMENT,
                 TargetClass.EXTERNAL_PRODUCTION,
             }
-        )
-    for name in ("screenshot_capture",):
-        assert registry.require(name).allowed_target_classes == frozenset(
-            {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
         )
     for name in (
         "workspace_deploy",

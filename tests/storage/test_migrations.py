@@ -145,7 +145,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0048_production_inspection_scopes",)
+        ).fetchone() == ("0049_production_bridge_visual",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -220,8 +220,10 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "external_bridge_deployment_receipts",
         "external_bridge_pairings",
         "external_bridge_request_receipts",
+        "reviewed_bridge_builds",
         "external_development_source_baselines",
         "external_production_policies",
+        "production_bridge_http_acknowledgements",
         "production_mutation_control",
         "global_heavy_operation_lease",
         "managed_instances",
@@ -233,6 +235,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_credentials",
         "mcp_development_requests",
         "mcp_presets",
+        "mcp_production_screenshot_receipts",
         "mcp_production_target_scopes",
         "mcp_preset_permissions",
         "mcp_remote_action_receipts",
@@ -5347,3 +5350,194 @@ def test_0048_scope_constraints_are_generation_bound_and_history_is_immutable(
     engine.dispose()
     with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
         command.downgrade(config, "0047_external_production_policy")
+
+
+def test_0049_production_bridge_visual_fresh_upgrade_and_guarded_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0048_production_inspection_scopes"
+    )
+    command.upgrade(config, "0049_production_bridge_visual")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        "reviewed_bridge_builds",
+        "production_bridge_http_acknowledgements",
+        "mcp_production_screenshot_receipts",
+    } <= set(inspector.get_table_names())
+    assert "bridge_trust_revision" in {
+        item["name"] for item in inspector.get_columns("mcp_production_target_scopes")
+    }
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM reviewed_bridge_builds")) == 0
+        )
+        assert connection.execute(
+            text(
+                "SELECT display_name,builtin,assignable FROM mcp_presets "
+                "WHERE id='11000000-0000-4000-8000-000000000006'"
+            )
+        ).one() == ("Production Visual Inspection", 1, 1)
+        assert [
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT permission FROM mcp_preset_permissions "
+                    "WHERE preset_id='11000000-0000-4000-8000-000000000006' "
+                    "ORDER BY permission"
+                )
+            ).all()
+        ] == ["target.inspect", "target.visual"]
+    engine.dispose()
+    command.downgrade(config, "0048_production_inspection_scopes")
+
+
+def test_0049_bridge_revision_is_monotonic_and_visual_history_blocks_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision="head")
+    engine = create_database_engine(database_url)
+    factory = create_session_factory(engine)
+    service = ExternalTargetAdministrationService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "visual-secrets", master_key=None, key_version=1
+        ),
+        target_type=TargetType.EXTERNAL_PRODUCTION,
+    )
+    target = service.register(
+        logical_name="Production visual migration proof",
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host="192.168.50.30",
+        port=8080,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"target_inspect", "screenshot"},
+    )
+    target_id = str(target.target_id)
+    client_id = "49000000-0000-4000-8000-000000000001"
+    build_id = "49000000-0000-4000-8000-000000000002"
+    timestamp = "2026-09-21T12:00:00.000000Z"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO reviewed_bridge_builds "
+                "(id,semantic_fingerprint,zip_sha256,addon_id,addon_version,"
+                "protocol_version,capabilities_json,supported_kodi_versions_json,"
+                "source_reference,reviewed_by,reviewed_at,state,retired_by,retired_at) "
+                "VALUES (:id,:fingerprint,:zip,'service.kodi_lab_bridge','1.1.7','1',"
+                "'[\"screenshot\"]','[\"21.3\"]','local review','admin',:at,"
+                "'active',NULL,NULL)"
+            ),
+            {"id": build_id, "fingerprint": "a" * 64, "zip": "b" * 64, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_bridge_pairings "
+                "(target_id,bridge_port,pairing_state,reachability_state,"
+                "pairing_token_reference,bridge_secret_reference,pairing_token_expires_at,"
+                "observed_bridge_id,observed_protocol_version,observed_addon_id,"
+                "observed_addon_version,observed_kodi_version,observed_build_fingerprint,"
+                "observed_capabilities_json,pinned_bridge_id,pinned_protocol_version,"
+                "pinned_addon_id,pinned_addon_version,pinned_kodi_version,"
+                "pinned_build_fingerprint,verified_capabilities_json,endpoint_revision_digest,"
+                "token_generated_at,pairing_attempted_at,paired_at,verified_at,revoked_at,"
+                "production_identity_generation,production_bridge_trust_revision,"
+                "reviewed_build_id,production_confirmed_by,production_confirmed_at) "
+                "VALUES (:target,8090,'paired','reachable',NULL,:secret,NULL,"
+                ":bridge,'1',"
+                "'service.kodi_lab_bridge','1.1.7','21.3',:fingerprint,'[\"screenshot\"]',"
+                ":bridge,'1','service.kodi_lab_bridge','1.1.7','21.3',:fingerprint,"
+                "'[\"screenshot\"]',:digest,NULL,NULL,:at,:at,NULL,1,2,:build,'admin',:at)"
+            ),
+            {
+                "target": target_id,
+                "secret": "49000000-0000-4000-8000-000000000003",
+                "bridge": "49000000-0000-4000-8000-000000000004",
+                "fingerprint": "a" * 64,
+                "digest": "c" * 64,
+                "build": build_id,
+                "at": timestamp,
+            },
+        )
+        with pytest.raises(
+            IntegrityError, match="production_bridge_trust_revision_not_monotonic"
+        ):
+            connection.execute(
+                text(
+                    "UPDATE external_bridge_pairings "
+                    "SET production_bridge_trust_revision=1 WHERE target_id=:target"
+                ),
+                {"target": target_id},
+            )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "UPDATE external_bridge_pairings "
+                    "SET production_bridge_trust_revision=0 WHERE target_id=:target"
+                ),
+                {"target": target_id},
+            )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients "
+                "(id,display_name,enabled,preset_id,created_at,last_used_at,"
+                "disabled_at) "
+                "VALUES (:id,'visual',1,'11000000-0000-4000-8000-000000000006',"
+                ":at,NULL,NULL)"
+            ),
+            {"id": client_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_production_target_scopes "
+                "(id,client_id,target_id,identity_generation,bridge_trust_revision,"
+                "scope,state,created_at,created_by,revoked_at,revoked_by) VALUES "
+                "('49000000-0000-4000-8000-000000000005',:client,:target,1,NULL,"
+                "'inspect','active',:at,'admin',NULL,NULL)"
+            ),
+            {"client": client_id, "target": target_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_production_target_scopes "
+                "(id,client_id,target_id,identity_generation,bridge_trust_revision,"
+                "scope,state,created_at,created_by,revoked_at,revoked_by) VALUES "
+                "('49000000-0000-4000-8000-000000000006',:client,:target,1,2,"
+                "'visual','active',:at,'admin',NULL,NULL)"
+            ),
+            {"client": client_id, "target": target_id, "at": timestamp},
+        )
+        screenshot_request_id = "49000000-0000-4000-8000-000000000007"
+        connection.execute(
+            text(
+                "INSERT INTO mcp_production_screenshot_receipts "
+                "(client_id,request_id,target_id,parameter_digest,"
+                "identity_generation,bridge_trust_revision,bridge_request_id,"
+                "state,response_digest,byte_size,width,height,created_at,"
+                "completed_at,expires_at) VALUES "
+                "(:client,:request,:target,:digest,1,2,:request,'pending',"
+                "NULL,NULL,NULL,NULL,:at,NULL,'2099-09-21T12:00:00.000000Z')"
+            ),
+            {
+                "client": client_id,
+                "request": screenshot_request_id,
+                "target": target_id,
+                "digest": "d" * 64,
+                "at": timestamp,
+            },
+        )
+        with pytest.raises(
+            IntegrityError, match="production_screenshot_receipt_protected"
+        ):
+            connection.execute(
+                text(
+                    "DELETE FROM mcp_production_screenshot_receipts "
+                    "WHERE client_id=:client AND request_id=:request"
+                ),
+                {"client": client_id, "request": screenshot_request_id},
+            )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
+        command.downgrade(config, "0048_production_inspection_scopes")

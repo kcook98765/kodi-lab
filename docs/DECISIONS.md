@@ -4159,6 +4159,92 @@ authority.
   no grant management, bridge, screenshot, control, approval, deployment,
   workspace or lifecycle administration.
 
+## D-0331: Production bridge trust is Web-only and independently revision-bound
+- Status: accepted Phase 14 Slice 3.
+- Decision: production pairing, confirmation, reverification and revocation are
+  authenticated-Web administration. Each confirmed production bridge owns a
+  positive monotonic `production_bridge_trust_revision` independent of native
+  `identity_generation`; bridge-only drift stales visual authority but not
+  native inspection, while native generation drift invalidates both.
+
+## D-0332: Only explicitly reviewed bridge builds are production eligible
+- Status: accepted Phase 14 Slice 3.
+- Decision: an active immutable reviewed-build record binds semantic
+  fingerprint, exact ZIP SHA-256, add-on/protocol versions, declared
+  capabilities, Kodi versions, source reference, reviewer and time. Migration
+  seeds no approval; source constants and known 1.1.7 evidence are not trust.
+
+## D-0333: Production pairing requires possession and installed-target confirmation
+- Status: accepted Phase 14 Slice 3.
+- Decision: the Phase 13 one-time possession exchange is followed by exact
+  active-build matching and a separate explicit Web confirmation of installed
+  target identity and reviewed provenance. Pairing alone grants no MCP scope.
+
+## D-0334: Production visual authority uses separate inspect and visual scopes
+- Status: accepted Phase 14 Slice 3.
+- Decision: immutable `inspect` rows remain native-generation-only. A separate
+  `visual` row additionally binds the current bridge revision and requires a
+  current inspect row. Inspect revocation atomically revokes active dependent
+  visual rows; stale or revoked history never becomes effective again.
+
+## D-0335: Production Visual Inspection is the sole screenshot preset
+- Status: accepted Phase 14 Slice 3.
+- Decision: the immutable assignable, non-clonable production-only preset has
+  exactly `target.inspect` and `target.visual`. Both client and target must use
+  it for screenshots. Existing/custom/full-control/development/dormant presets
+  cannot authorize production pixels.
+
+## D-0336: Production screenshots require the complete native and bridge intersection
+- Status: accepted Phase 14 Slice 3.
+- Decision: `screenshot_capture` publishes production pixels only after exact
+  credential/client/preset/grant/inspect/visual/generation/revision/target/
+  bridge/review/capability/transport checks and a fresh post-capture durable
+  authorization check. Revocation during capture discards bytes.
+
+## D-0337: Private-LAN HTTP requires exact configuration-bound acknowledgement
+- Status: accepted Phase 14 Slice 3.
+- Decision: immutable acknowledgement history binds target, native generation,
+  bridge revision, protocol, IP literal, native and bridge ports, endpoint
+  digest, transport-policy revision, administrator and time. HTTPS uses normal
+  certificate validation and needs no HTTP acknowledgement.
+
+## D-0338: Production screenshot identity is durable and cannot silently recapture
+- Status: accepted Phase 14 Slice 3.
+- Decision: production requires a client-scoped UUID bound to target and
+  canonical parameters. Lookup precedes dispatch admission. Exact live replay
+  returns identical in-memory pixels; durable completion without live pixels
+  returns `screenshot_replay_unavailable`. Pending/ambiguous identities and
+  protected bridge replay entries are never evicted to admit new work.
+
+## D-0339: Production bridge capability maximum is screenshot only
+- Status: accepted Phase 14 Slice 3.
+- Decision: production records all reviewed advertised capabilities but only
+  `screenshot` can become verified production bridge authority. Advertised
+  workspace deployment or future capabilities remain denied without weakening
+  external-development behavior.
+
+## D-0340: Production screenshot pixels are memory-only
+- Status: accepted Phase 14 Slice 3.
+- Decision: Kodi Lab persists no production pixels, base64 response, thumbnail
+  or preview. Durable receipt/audit data is bounded metadata: UUIDs,
+  generations/revisions, dimensions, encoded size, SHA-256, outcome and time.
+  The Web warns that the receiving MCP client may persist pixels independently.
+
+## D-0341: Native and bridge trust generations are independent
+- Status: accepted Phase 14 Slice 3.
+- Decision: bridge unavailability, drift or revocation denies only visual use;
+  native target list/status/inventory remains available while native trust is
+  coherent. Native-generation change deletes Lab bridge authority and stales
+  inspect, visual and HTTP acknowledgement bindings.
+
+## D-0342: Slice 3 adds no tool and exactly four of fifteen are production eligible
+- Status: accepted Phase 14 Slice 3.
+- Decision: only `target_list`, `target_status`, `addon_list` and the existing
+  `screenshot_capture` admit production. `screenshot_capture` alone gains the
+  optional UUID schema field, required only for production. The other eleven,
+  including `remote_action`, remain denied across HTTP, stdio and compatibility
+  HTTP.
+
 ## Phase 14 Slice 2 formal completion record
 
 - Status: **Phase 14 Slice 2 — Read-only production inspection: COMPLETE**;

@@ -407,3 +407,10 @@ native-observation mechanics beneath a distinct immutable
 the completed Phase 13 external-development authority, bridge protocol,
 workspace semantics or live compatibility claims. Production remains excluded
 from MCP and from every Phase 13 bridge/deployment path.
+
+Phase 14 Slice 3 later reuses this exact bridge v1 protocol and final 1.1.7
+package under a separate production policy layer. Operators must explicitly
+register the reviewed ZIP/fingerprint provenance in Web administration, enter a
+new show-once token locally, inspect the observed bridge identity, and make the
+separate installed-production-target confirmation. Migration never pre-approves
+1.1.7, and production policy ignores its `workspace_deployment` capability.

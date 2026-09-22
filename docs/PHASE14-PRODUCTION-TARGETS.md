@@ -1,8 +1,8 @@
 # Phase 14 — External Production Targets
 
-## Slice 1 and Slice 2 status and scope
+## Slice 1 through Slice 3 status and scope
 
-**Slice 1: COMPLETE. Slice 2: COMPLETE. Phase 14: PARTIAL.** Slice 1
+**Slice 1: COMPLETE. Slice 2: COMPLETE. Slice 3: COMPLETE. Phase 14: PARTIAL.** Slice 1
 establishes production representation and trust policy only. Slice 2 adds
 bounded read-only inspection. Independent Slice 2 completion audit found and
 remediated one generation-downgrade hazard by making production identity
@@ -28,11 +28,15 @@ Included:
   bounded `addon_list`;
 - production-only read rate and concurrency admission; and
 - Web-only production preset/grant/scope administration.
+- explicitly reviewed bridge-build provenance and Web-only production pairing;
+- independent monotonic bridge trust revision and exact HTTP-risk history;
+- generation/revision-bound visual scopes and Production Visual Inspection;
+- replay-safe, rate/concurrency-bounded memory-only production screenshots;
+- exactly four production-eligible tools in the unchanged fifteen-tool catalog.
 
 Excluded:
 
-- bridge pairing, screenshots or navigation/control;
-- `remote_action` and production approvals;
+- navigation/control, `remote_action` and production approvals;
 - DevelopmentSource baseline, workspace deployment/execution or promotion;
 - support-addon deployment;
 - lifecycle, restart, shell, SSH, generic filesystem or raw JSON-RPC; and
@@ -198,7 +202,74 @@ history, new-preset assignments or scope events would be lost.
 
 ## Remaining Phase 14 work
 
-Later independently scoped work may add reviewed bridge/screenshot architecture,
-constrained control and transient approval semantics. Production support-addon
-deployment remains subject to a separate architecture review. Slice 2 does not
-authorize Slice 3 or any real production contact.
+## Slice 3 reviewed bridge and visual inspection
+
+Migration `0049_production_bridge_visual` reuses Phase 13 bridge protocol v1,
+`external_bridge_pairings`, protected AEAD secret files, replay receipts and
+semantic events. It adds no parallel protocol and no automatic bridge update.
+Production accepts only an administrator-created active reviewed-build record
+binding exact ZIP SHA-256, semantic fingerprint, add-on/protocol versions,
+declared capabilities, supported Kodi versions, source reference, reviewer and
+time. No build, including deterministic 1.1.7, is migration-approved.
+
+Production bridge trust has a positive monotonic revision independent of native
+identity generation. Pairing requires enabled coherent production-native trust,
+configured screenshot maximum, a show-once target/purpose-bound 256-bit token,
+the existing mutual possession exchange, exact active reviewed-build match and
+a separate explicit installed-target/provenance confirmation. HTTP additionally
+requires immutable exact configuration-bound risk acknowledgement; HTTPS uses
+normal CA validation. Pairing grants no MCP authority.
+
+Bridge UUID change or native endpoint/credential/generation change deletes the
+Lab-held bridge secret and requires fresh pairing. Build, add-on, protocol or
+Kodi drift advances bridge revision and requires explicit review. Screenshot
+capability loss advances revision and denies capture. Extra advertised
+capabilities are recorded but production policy verifies only `screenshot`.
+Bridge-only failure leaves native inspection effective; native drift invalidates
+all native and visual bindings.
+
+`mcp_production_target_scopes` now admits separate immutable `inspect` and
+`visual` rows. Visual binds exact client, target, native generation and current
+bridge revision and requires a current inspect row both when granted and used.
+Inspect revocation atomically terminates dependent visual rows. The immutable
+`Production Visual Inspection` built-in has exactly `target.inspect` and
+`target.visual`, is production-only and non-clonable, and is the only production
+screenshot preset. Inspection-only clients may still inspect a target assigned
+the visual preset through the safe effective intersection.
+
+The existing `screenshot_capture` becomes the fourth production-eligible tool
+without changing its adapter identity or read-only classification. Its sole
+schema addition is optional `request_id`; production requires it while managed
+and external-development remain backward compatible. Complete preflight and
+fresh post-capture checks intersect credential, exact presets, generic grant,
+inspect and visual scopes, current generations, production/native state,
+reviewed paired reachable bridge, screenshot capability and current HTTP
+acknowledgement. Authority loss during capture suppresses pixels.
+
+Client-scoped durable production replay binds request UUID, target and canonical
+parameters before dispatch. Replay lookup precedes one-per-30-second
+client-target admission and the one-global-production-capture gate. Exact live
+replay returns identical memory-cached pixels without another bridge capture;
+terminal identity whose pixels are unavailable returns
+`screenshot_replay_unavailable`. Pending/ambiguous identities cannot be evicted
+or converted into fresh capture. Existing per-target bridge serialization and
+bridge protected replay semantics remain authoritative.
+
+Kodi Lab stores no production pixels, base64, thumbnail, preview or raw bridge
+response. Durable receipt/audit contains only bounded UUID/generation/revision,
+dimensions, size, digest, outcome and timestamp metadata. The Web warns that
+screenshots can contain personal/media information and the receiving MCP client
+may persist them outside Kodi Lab.
+
+The catalog remains exactly fifteen and production eligibility is exactly
+`target_list`, `target_status`, `addon_list`, `screenshot_capture`. The other
+eleven, including `remote_action` and every workspace/deployment/execution path,
+remain denied. Deterministic tests use local/mock endpoints only; no production
+Kodi or LAN host was contacted.
+
+## Remaining Phase 14 work
+
+Later independently scoped work may add constrained control and transient
+approval semantics. Production support-addon deployment remains subject to a
+separate architecture review. Slice 3 does not authorize Slice 4, navigation,
+control, deployment, execution, lifecycle or real production contact.

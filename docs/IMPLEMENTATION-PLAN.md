@@ -1597,3 +1597,44 @@ remote control, approval, deployment, workspace, lifecycle or MCP authority
 administration was added, and no real target or LAN host was contacted.
 The formal review likewise used deterministic local/mock evidence only and did
 not begin Slice 3.
+
+## Phase 14 Slice 3 checkpoint
+
+**Slice 3: COMPLETE. Phase 14: PARTIAL.** Migration
+`0049_production_bridge_visual` adds explicit immutable reviewed-build
+provenance, production bindings on the shared bridge pairing, monotonic bridge
+trust revision, exact HTTP-risk acknowledgement history, revision-bound visual
+scopes, the immutable Production Visual Inspection preset and durable
+content-free production screenshot replay receipts. It seeds no approved build
+and creates no parallel bridge protocol.
+
+Production Web administration now registers/retires reviewed builds, records
+exact HTTP acknowledgement, performs the existing possession ceremony, confirms
+installed bridge identity/provenance, reverifies/revokes bridge authority, and
+grants/revokes visual scopes. Endpoint/credential/native-generation changes and
+explicit revocation delete Lab-held bridge secrets as required. Bridge-only
+drift advances only bridge revision, so native production inspection remains
+independent.
+
+The existing `screenshot_capture` alone gains optional `request_id`, required
+for production. The complete authorization intersection includes exact visual
+preset, generic grant, current inspect plus visual scopes, native generation,
+bridge revision, coherent target/designation, active reviewed paired bridge,
+screenshot capability and current HTTP acknowledgement before dispatch and
+again before pixel publication. Mutation kill switches do not govern this
+observational path.
+
+Client-scoped replay lookup precedes new-dispatch admission. Live exact replay
+returns identical in-memory pixels; terminal receipts without pixels fail
+`screenshot_replay_unavailable` and cannot recapture. New production capture is
+one per 30 seconds per client-target and one globally, below existing per-target
+bridge serialization, with immediate rejection/no queue. Kodi Lab persists
+metadata only and no production image bytes.
+
+The registry remains fifteen tools and production eligibility is exactly
+`target_list`, `target_status`, `addon_list`, `screenshot_capture`; the other
+eleven remain denied. Managed and external-development behavior remains
+backward compatible. Deterministic local/mock validation covered pairing,
+provenance, revisions/scopes, transport binding, replay/rate/privacy and final
+bridge 1.1.7 identity without contacting any LAN or production Kodi. No Slice 4
+work was begun.

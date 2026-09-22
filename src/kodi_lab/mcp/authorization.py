@@ -15,9 +15,12 @@ from kodi_lab.application.mcp_administration import McpPrincipal
 from kodi_lab.application.production_inspection import (
     PRODUCTION_INSPECTION_PRESET_ID,
     PRODUCTION_INSPECTION_PRESET_NAME,
+    PRODUCTION_VISUAL_PRESET_ID,
+    PRODUCTION_VISUAL_PRESET_NAME,
     ProductionInspectionError,
     ProductionReadRateLimiter,
     evaluate_production_inspection_state,
+    evaluate_production_visual_state,
 )
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.application.runtime_status import (
@@ -169,16 +172,20 @@ class McpAuthorizationService:
         permissions = self._client_permissions(principal.client_id)
         if not definition.permissions.issubset(permissions):
             raise McpAuthorizationError("permission_denied")
-        if (
-            tool_name == "target_list"
-            and principal.preset_id == PRODUCTION_INSPECTION_PRESET_ID
-        ):
+        if tool_name == "target_list" and principal.preset_id in {
+            PRODUCTION_INSPECTION_PRESET_ID,
+            PRODUCTION_VISUAL_PRESET_ID,
+        }:
             with self._session_factory() as session:
                 client = session.get(McpClientRow, str(principal.client_id))
                 if (
                     client is None
                     or not client.enabled
-                    or client.preset_id != str(PRODUCTION_INSPECTION_PRESET_ID)
+                    or client.preset_id
+                    not in {
+                        str(PRODUCTION_INSPECTION_PRESET_ID),
+                        str(PRODUCTION_VISUAL_PRESET_ID),
+                    }
                 ):
                     raise McpAuthorizationError("permission_denied")
                 self._require_current_credential(session, principal, client)
@@ -230,6 +237,11 @@ class McpAuthorizationService:
                     assignment=assignment,
                 )
                 return definition
+            if client.preset_id in {
+                str(PRODUCTION_INSPECTION_PRESET_ID),
+                str(PRODUCTION_VISUAL_PRESET_ID),
+            }:
+                raise McpAuthorizationError("permission_denied")
             client_permissions = self._permissions(session, client.preset_id)
             target_permissions = self._permissions(session, assignment.preset_id)
             if not definition.permissions.issubset(
@@ -526,25 +538,86 @@ class McpAuthorizationService:
         if (
             not definition.production_eligible
             or TargetClass.EXTERNAL_PRODUCTION not in definition.allowed_target_classes
-            or definition.name not in {"target_list", "target_status", "addon_list"}
+            or definition.name
+            not in {
+                "target_list",
+                "target_status",
+                "addon_list",
+                "screenshot_capture",
+            }
         ):
             raise McpAuthorizationError("permission_denied")
+        visual = definition.name == "screenshot_capture"
+        client_preset = (
+            PRODUCTION_VISUAL_PRESET_ID
+            if visual
+            else UUID(client.preset_id)
+            if client.preset_id
+            in {
+                str(PRODUCTION_INSPECTION_PRESET_ID),
+                str(PRODUCTION_VISUAL_PRESET_ID),
+            }
+            else None
+        )
+        allowed_target_presets = (
+            {str(PRODUCTION_VISUAL_PRESET_ID)}
+            if visual
+            else {
+                str(PRODUCTION_INSPECTION_PRESET_ID),
+                str(PRODUCTION_VISUAL_PRESET_ID),
+            }
+        )
         if (
             client.id != str(principal.client_id)
             or not client.enabled
-            or client.preset_id != str(PRODUCTION_INSPECTION_PRESET_ID)
-            or principal.preset_id != PRODUCTION_INSPECTION_PRESET_ID
-            or assignment.preset_id != str(PRODUCTION_INSPECTION_PRESET_ID)
+            or client_preset is None
+            or client.preset_id != str(client_preset)
+            or principal.preset_id != client_preset
+            or assignment.preset_id not in allowed_target_presets
         ):
             raise McpAuthorizationError("permission_denied")
-        preset = session.get(McpPresetRow, str(PRODUCTION_INSPECTION_PRESET_ID))
+        preset = session.get(McpPresetRow, str(client_preset))
+        expected_name = (
+            PRODUCTION_VISUAL_PRESET_NAME
+            if visual
+            else (
+                PRODUCTION_VISUAL_PRESET_NAME
+                if client_preset == PRODUCTION_VISUAL_PRESET_ID
+                else PRODUCTION_INSPECTION_PRESET_NAME
+            )
+        )
+        expected_permissions = (
+            frozenset({"target.inspect", "target.visual"})
+            if client_preset == PRODUCTION_VISUAL_PRESET_ID
+            else frozenset({"target.inspect"})
+        )
         if (
             preset is None
             or not preset.builtin
             or not preset.assignable
-            or preset.display_name != PRODUCTION_INSPECTION_PRESET_NAME
-            or self._permissions(session, preset.id) != frozenset({"target.inspect"})
-            or not definition.permissions.issubset(frozenset({"target.inspect"}))
+            or preset.display_name != expected_name
+            or self._permissions(session, preset.id) != expected_permissions
+            or not definition.permissions.issubset(expected_permissions)
+        ):
+            raise McpAuthorizationError("permission_denied")
+        target_preset = session.get(McpPresetRow, assignment.preset_id)
+        target_expected_name = (
+            PRODUCTION_VISUAL_PRESET_NAME
+            if assignment.preset_id == str(PRODUCTION_VISUAL_PRESET_ID)
+            else PRODUCTION_INSPECTION_PRESET_NAME
+        )
+        target_expected_permissions = (
+            frozenset({"target.inspect", "target.visual"})
+            if assignment.preset_id == str(PRODUCTION_VISUAL_PRESET_ID)
+            else frozenset({"target.inspect"})
+        )
+        if (
+            target_preset is None
+            or not target_preset.builtin
+            or not target_preset.assignable
+            or target_preset.display_name != target_expected_name
+            or self._permissions(session, target_preset.id)
+            != target_expected_permissions
         ):
             raise McpAuthorizationError("permission_denied")
         self._require_current_credential(session, principal, client)
@@ -552,7 +625,11 @@ class McpAuthorizationService:
             state = evaluate_production_inspection_state(
                 session,
                 UUID(target.id),
-                required_capabilities=definition.required_capabilities,
+                required_capabilities=(
+                    frozenset({"target_inspect"})
+                    if visual
+                    else definition.required_capabilities
+                ),
             )
         except ProductionInspectionError as error:
             raise McpAuthorizationError(error.code) from error
@@ -568,6 +645,27 @@ class McpAuthorizationService:
         )
         if scope is None:
             raise McpAuthorizationError("target_not_found_or_not_authorized")
+        if visual:
+            try:
+                visual_state = evaluate_production_visual_state(
+                    session, UUID(target.id)
+                )
+            except ProductionInspectionError as error:
+                raise McpAuthorizationError(error.code) from error
+            visual_scope = session.scalar(
+                select(McpProductionTargetScopeRow).where(
+                    McpProductionTargetScopeRow.client_id == client.id,
+                    McpProductionTargetScopeRow.target_id == target.id,
+                    McpProductionTargetScopeRow.identity_generation
+                    == visual_state.identity_generation,
+                    McpProductionTargetScopeRow.bridge_trust_revision
+                    == visual_state.bridge_trust_revision,
+                    McpProductionTargetScopeRow.scope == "visual",
+                    McpProductionTargetScopeRow.state == "active",
+                )
+            )
+            if visual_scope is None:
+                raise McpAuthorizationError("target_not_found_or_not_authorized")
 
     def _require_current_credential(
         self, session: Session, principal: McpPrincipal, client: McpClientRow
@@ -638,10 +736,10 @@ class McpAuthorizationService:
         """Authorize from current durable state before entering an adapter."""
 
         self.authorize_unscoped(principal, tool_name)
-        if (
-            tool_name == "target_list"
-            and principal.preset_id == PRODUCTION_INSPECTION_PRESET_ID
-        ):
+        if tool_name == "target_list" and principal.preset_id in {
+            PRODUCTION_INSPECTION_PRESET_ID,
+            PRODUCTION_VISUAL_PRESET_ID,
+        }:
             try:
                 self._production_rates.require_target_list(principal.client_id)
             except ProductionInspectionError as error:
@@ -654,6 +752,8 @@ class McpAuthorizationService:
         tool_name: str,
         target_id: UUID,
         adapter: Callable[[], _ResultT],
+        *,
+        post_authorization_failure: Callable[[], None] | None = None,
     ) -> _ResultT:
         """Apply the complete target intersection before adapter execution."""
 
@@ -681,7 +781,12 @@ class McpAuthorizationService:
         if production:
             # A result is not publishable unless the entire durable authority
             # intersection still holds after the fresh native read.
-            self.authorize_target(principal, tool_name, target_id)
+            try:
+                self.authorize_target(principal, tool_name, target_id)
+            except Exception:
+                if post_authorization_failure is not None:
+                    post_authorization_failure()
+                raise
         return result
 
     def _is_production_target(self, target_id: UUID) -> bool:

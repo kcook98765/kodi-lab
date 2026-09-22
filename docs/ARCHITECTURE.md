@@ -2382,3 +2382,54 @@ modern stdio and compatibility HTTP continue through the same registry,
 authorization, adapter and schemas. The catalog remains exactly fifteen;
 screenshots, remote control, bridges, approvals and later Phase 14 work remain
 out of scope.
+
+## Phase 14 Slice 3 production bridge and screenshot authority
+
+Production reuses the Phase 13 bridge v1 endpoint, possession exchange, HMAC
+envelopes, protected secret store, replay ledger, GUI `TakeScreenshot` backend
+and strict PNG validation. A Web-only reviewed-build registry is the provenance
+root; package fingerprints embedded in source or migration data grant nothing.
+The production pairing row binds exact active reviewed build, current native
+identity generation, endpoint digest and an independent positive monotonic
+bridge trust revision after explicit installed-target confirmation.
+
+Native and bridge trust form two axes. Native generation drift invalidates
+inspection and visual scopes, acknowledgement and pairing and retires the Lab
+bridge secret. Bridge-only identity/capability/build drift advances only bridge
+revision, suspends visual authority and leaves native inspection coherent.
+Temporary unreachability denies screenshots without rewriting native trust.
+
+Private HTTP acknowledgement is immutable exact history over target, native
+generation, bridge revision, protocol, literal address, native/bridge ports,
+endpoint digest and transport-policy revision. HTTPS uses ordinary certificate
+validation. Direct connections keep redirects, DNS and ambient proxies absent;
+HMAC authenticates/integrity-protects HTTP but supplies no confidentiality.
+
+The `Production Visual Inspection` built-in and separate `visual` scope add a
+second authority dimension above current `inspect`. Screenshot evaluation is:
+
+`credential ∩ enabled client ∩ exact visual preset ∩ generic grant ∩ active`
+` inspect scope ∩ active visual scope ∩ current native generation ∩ current`
+` bridge revision ∩ coherent production native trust ∩ paired reachable`
+` reviewed bridge ∩ screenshot-only policy ∩ HTTP acknowledgement ∩ postcheck`.
+
+Inspect-only clients remain valid against a visual-capable target when their
+own preset and scope intersection contains only inspection. Revoking inspect
+atomically revokes active dependent visual rows. Old generations/revisions and
+revoked rows remain durable and permanently inert.
+
+Production `screenshot_capture` requires a client-scoped UUID. A durable
+content-free receipt binds target and canonical parameter digest before rate or
+concurrency admission. Exact replay consults current authority, then returns
+the same process-memory pixels when available. Durable completion without live
+pixels fails `screenshot_replay_unavailable`; pending/ambiguous identities and
+protected bridge requests never become a fresh capture. New dispatch is one per
+30 seconds per client-target, one production capture globally and one per
+target, with immediate rejection and no queue.
+
+Pixels cross only the authenticated bridge response and MCP response memory.
+SQLite and the filesystem contain no production image, base64, thumbnail,
+preview or raw response. Metadata-only audit may retain target/client/request/
+bridge UUIDs, generations/revisions, dimensions, encoded size, digest, outcome
+and timestamps. The existing managed durable screenshot cache and
+external-development semantics are unchanged.

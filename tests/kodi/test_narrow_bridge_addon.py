@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import binascii
 import hashlib
+import io
 import json
 import os
 import runpy
@@ -10,6 +11,7 @@ import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
+import zipfile
 import zlib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -210,6 +212,10 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
     assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.7"
+    assert (
+        bridge["BUILD_FINGERPRINT"]
+        == "3f9eea79fcf03c3bd2d24e4aab8a61ffa98ed093e1c1185d9e9a3911d41b7486"
+    )
     dependency = descriptor.find("./requires/import")
     assert dependency is not None and dependency.attrib == {
         "addon": "xbmc.python",
@@ -253,6 +259,36 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     ).read_text()
     for message_id in labels | helps:
         assert f'msgctxt "#{message_id}"' in catalog
+
+
+def test_deterministic_1_1_7_review_archive_matches_known_sha256() -> None:
+    output = io.BytesIO()
+    timestamp = (2026, 9, 21, 0, 0, 0)
+    entries = [
+        "",
+        *sorted(
+            path.relative_to(ADDON_ROOT).as_posix() + ("/" if path.is_dir() else "")
+            for path in ADDON_ROOT.rglob("*")
+            if "__pycache__" not in path.parts
+        ),
+    ]
+    with zipfile.ZipFile(output, "w") as archive:
+        for relative in entries:
+            info = zipfile.ZipInfo(f"service.kodi_lab_bridge/{relative}", timestamp)
+            info.create_system = 3
+            if relative == "" or relative.endswith("/"):
+                info.external_attr = (0o40755 << 16) | 0x10
+                info.compress_type = zipfile.ZIP_STORED
+                content = b""
+            else:
+                info.external_attr = 0o100644 << 16
+                info.compress_type = zipfile.ZIP_DEFLATED
+                cast(Any, info)._compresslevel = 9
+                content = (ADDON_ROOT / relative).read_bytes()
+            archive.writestr(info, content)
+    assert hashlib.sha256(output.getvalue()).hexdigest() == (
+        "a632f26ac7d6f2fb908577d4c75c9afc344ab138c1803f87132abefcf9c99a5c"
+    )
 
 
 def test_addon_inspection_uses_kodi_20_compatible_detail_properties(

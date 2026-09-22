@@ -1266,3 +1266,32 @@ retry. Global and per-target mutation switches do not block inspection. Scope,
 preset and grant administration is Web-only. The other twelve tools,
 workspace-target paths, bridge/screenshot/control, approvals, deployment and
 lifecycle remain unavailable. Phase 14 remains partial.
+
+## 53. Phase 14 production visual inspection boundary
+
+Slice 3 reuses bridge protocol v1 and final Phase 13 GUI screenshot capture.
+Production pairing is Web-only and requires coherent native production trust,
+an active explicitly reviewed package record, one-time possession proof,
+configuration-bound HTTP acknowledgement when applicable, and separate exact
+installed-target/provenance confirmation. Bridge trust has a positive monotonic
+revision independent of native identity generation; pairing alone grants no MCP
+authority.
+
+An immutable `visual` scope binds exact client, production target, native
+generation and bridge revision and is effective only beside a current active
+`inspect` scope. The production-only, assignable, non-clonable `Production
+Visual Inspection` preset contains exactly `target.inspect` and
+`target.visual`; no other preset can publish production screenshot pixels.
+
+The existing `screenshot_capture` is the fourth of exactly fifteen
+production-eligible tools. Its optional UUID `request_id` is required for
+production and backward-compatible elsewhere. Durable client/target/parameter
+identity and bridge replay protection prevent silent recapture. Replay resolves
+before one-per-30-second client-target and one-global-capture admission. Pixels
+are memory-only and are withheld unless the entire native/bridge/scope/registry
+intersection remains valid after capture.
+
+Only `screenshot` is accepted as production bridge capability even when a
+reviewed bridge advertises development deployment features. The other eleven
+tools, especially `remote_action`, workspace/deployment/execution, approvals and
+lifecycle, remain denied. Phase 14 remains partial.

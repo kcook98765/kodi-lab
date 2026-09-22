@@ -501,7 +501,9 @@ class KodiTargetAdapterService:
             screenshot_refresh=ScreenshotRefreshResult(result="not_requested"),
         )
 
-    def capture_screenshot(self, target_id: UUID) -> KodiTargetScreenshotData:
+    def capture_screenshot(
+        self, target_id: UUID, *, request_id: UUID | None = None
+    ) -> KodiTargetScreenshotData:
         if self._target_type(target_id) is TargetType.MANAGED:
             managed_screenshots = self._managed_screenshots
             if managed_screenshots is None:
@@ -535,7 +537,9 @@ class KodiTargetAdapterService:
         if external_bridges is None:
             raise KodiTargetAdapterError("bridge_not_paired")
         try:
-            external_result = external_bridges.capture_screenshot(target_id)
+            external_result = external_bridges.capture_screenshot(
+                target_id, request_id=request_id
+            )
         except ExternalBridgeServiceError as error:
             raise KodiTargetAdapterError(error.code) from error
         return KodiTargetScreenshotData(
@@ -772,6 +776,10 @@ class KodiTargetAdapterService:
             version=version,
             protocol_version=result.protocol_version,
         )
+        if self._external_bridges is not None:
+            self._external_bridges.invalidate_production_native_identity(
+                snapshot.target_id
+            )
         raise KodiTargetAdapterError("identity_mismatch")
 
     def _record_production_identity_mismatch(

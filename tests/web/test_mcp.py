@@ -215,7 +215,10 @@ def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
         "cursor",
         "limit",
     }
-    assert set(schemas["screenshot_capture"]["properties"]) == {"target_id"}
+    assert set(schemas["screenshot_capture"]["properties"]) == {
+        "target_id",
+        "request_id",
+    }
     assert schemas["screenshot_capture"]["required"] == ["target_id"]
 
     target_list = _post(

@@ -55,6 +55,14 @@ from kodi_lab.application.mcp_workspace_mutations import (
     WorkspaceCreateResult,
 )
 from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionService
+from kodi_lab.application.production_inspection import (
+    ProductionInspectionError,
+    evaluate_production_visual_state,
+)
+from kodi_lab.application.production_screenshots import (
+    ProductionScreenshotError,
+    ProductionScreenshotService,
+)
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -63,12 +71,12 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotService,
     ScreenshotServiceError,
 )
-from kodi_lab.domain import AgentWorkspace
+from kodi_lab.domain import AgentWorkspace, TargetType
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION
-from kodi_lab.storage.models import ManagedInstanceRow
+from kodi_lab.storage.models import ManagedInstanceRow, TargetRow
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
 MAX_MCP_RESPONSE_BYTES = 64 * 1024
@@ -395,6 +403,7 @@ class McpTargetToolService:
         workspace_development: McpWorkspaceDevelopmentService | None = None,
         promotion_requests: McpPromotionRequestService | None = None,
         target_adapters: KodiTargetAdapterService | None = None,
+        production_screenshots: ProductionScreenshotService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -408,6 +417,7 @@ class McpTargetToolService:
         self._workspace_development = workspace_development
         self._promotion_requests = promotion_requests
         self._target_adapters = target_adapters
+        self._production_screenshots = production_screenshots
         self._active_edit_lock = threading.Lock()
         self._active_edits: set[UUID] = set()
         self._validation_lock = threading.Lock()
@@ -945,16 +955,36 @@ class McpTargetToolService:
         return result
 
     def screenshot_capture(
-        self, principal: McpPrincipal, *, target_id: UUID
+        self,
+        principal: McpPrincipal,
+        *,
+        target_id: UUID,
+        request_id: UUID | None = None,
     ) -> ScreenshotToolResult:
+        production_screenshots = self._production_screenshots
         return self._authorization.invoke_target(
             principal,
             "screenshot_capture",
             target_id,
-            lambda: self._screenshot_capture_authorized(target_id),
+            lambda: self._screenshot_capture_authorized(
+                principal, target_id, request_id=request_id
+            ),
+            post_authorization_failure=(
+                None
+                if request_id is None or production_screenshots is None
+                else lambda: production_screenshots.discard_pixels(
+                    target_id, request_id
+                )
+            ),
         )
 
-    def _screenshot_capture_authorized(self, target_id: UUID) -> ScreenshotToolResult:
+    def _screenshot_capture_authorized(
+        self,
+        principal: McpPrincipal,
+        target_id: UUID,
+        *,
+        request_id: UUID | None,
+    ) -> ScreenshotToolResult:
         capture_id: UUID
         captured_at: datetime | None
         width: int | None
@@ -962,9 +992,48 @@ class McpTargetToolService:
         mime_type: str | None
         png: bytes
         byte_size: int | None
-        if self._target_adapters is not None:
+        with self._session_factory() as session:
+            target = session.get(TargetRow, str(target_id))
+            production = bool(
+                target is not None
+                and target.target_type is TargetType.EXTERNAL_PRODUCTION
+            )
+            if production:
+                try:
+                    visual_state = evaluate_production_visual_state(session, target_id)
+                except ProductionInspectionError as error:
+                    raise McpAuthorizationError(error.code) from error
+            else:
+                visual_state = None
+        if production:
+            if request_id is None:
+                raise McpAuthorizationError("request_id_required")
+            if self._production_screenshots is None or visual_state is None:
+                raise McpAuthorizationError("screenshot_capture_unavailable")
             try:
-                adapted = self._target_adapters.capture_screenshot(target_id)
+                production_result = self._production_screenshots.capture(
+                    client_id=principal.client_id,
+                    target_id=target_id,
+                    request_id=request_id,
+                    identity_generation=visual_state.identity_generation,
+                    bridge_trust_revision=visual_state.bridge_trust_revision,
+                )
+            except ProductionScreenshotError as error:
+                raise McpAuthorizationError(
+                    self._screenshot_error(error.code)
+                ) from error
+            capture_id = production_result.capture_id
+            captured_at = production_result.captured_at
+            width = production_result.width
+            height = production_result.height
+            mime_type = "image/png"
+            png = production_result.png
+            byte_size = production_result.byte_size
+        elif self._target_adapters is not None:
+            try:
+                adapted = self._target_adapters.capture_screenshot(
+                    target_id, request_id=request_id
+                )
             except KodiTargetAdapterError as error:
                 raise McpAuthorizationError(
                     self._screenshot_error(error.code)
@@ -1435,12 +1504,21 @@ class McpTargetToolService:
         return {
             "screenshot_unsupported": "capability_unavailable",
             "bridge_not_paired": "capability_unavailable",
+            "bridge_reverification_required": "bridge_reverification_required",
+            "bridge_build_not_reviewed": "bridge_build_not_reviewed",
+            "transport_acknowledgement_required": (
+                "transport_acknowledgement_required"
+            ),
             "bridge_capability_unavailable": "capability_unavailable",
             "bridge_unreachable": "screenshot_capture_unavailable",
             "bridge_authentication_failed": "screenshot_capture_unavailable",
             "bridge_identity_mismatch": "screenshot_capture_unavailable",
             "bridge_protocol_unsupported": "screenshot_capture_unavailable",
             "bridge_replay_rejected": "screenshot_capture_unavailable",
+            "request_id_required": "request_id_required",
+            "request_id_conflict": "request_id_conflict",
+            "screenshot_replay_unavailable": "screenshot_replay_unavailable",
+            "rate_limited": "rate_limited",
             "screenshot_invalid": "screenshot_invalid_result",
             "screenshot_too_large": "response_too_large",
             "visual_instance_not_running": "target_not_running",

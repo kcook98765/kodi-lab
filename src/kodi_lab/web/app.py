@@ -195,6 +195,8 @@ from kodi_lab.application.external_bridges import (
     ExternalBridgeServiceError,
     ExternalBridgeStatus,
     PairingTokenResult,
+    ProductionHttpAcknowledgementRead,
+    ReviewedBridgeBuildRead,
 )
 from kodi_lab.application.external_targets import (
     ExternalTargetAdministrationService,
@@ -258,6 +260,7 @@ from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
 )
+from kodi_lab.application.production_screenshots import ProductionScreenshotService
 from kodi_lab.application.promotion_verifications import (
     PromotionVerificationError,
     PromotionVerificationService,
@@ -746,6 +749,13 @@ class McpProductionScopeGrantRequest(BaseModel):
     identity_generation: int = Field(ge=1)
 
 
+class McpProductionVisualScopeGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identity_generation: int = Field(ge=1)
+    bridge_trust_revision: int = Field(ge=1)
+
+
 class McpCredentialIssueRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -828,6 +838,41 @@ class ExternalBridgeConfirmedRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirmed: Literal[True]
+
+
+class ProductionBridgeConfirmationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    acknowledgement: Literal[
+        "I confirm this bridge is installed on the production Kodi target and "
+        "the displayed bridge identity and package provenance match the reviewed "
+        "package."
+    ]
+
+
+class ReviewedBridgeBuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    semantic_fingerprint: str = Field(min_length=64, max_length=64)
+    zip_sha256: str = Field(min_length=64, max_length=64)
+    addon_id: str = Field(min_length=1, max_length=128)
+    addon_version: str = Field(min_length=1, max_length=64)
+    protocol_version: str = Field(min_length=1, max_length=16)
+    capabilities: tuple[str, ...] = Field(min_length=1, max_length=2)
+    supported_kodi_versions: tuple[str, ...] = Field(min_length=1, max_length=8)
+    source_reference: str = Field(min_length=1, max_length=512)
+
+
+class ProductionBridgeHttpAcknowledgementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    bridge_port: int = Field(ge=1, le=65_535)
+    acknowledgement: Literal[
+        "I acknowledge that private-LAN HTTP protects authenticity and integrity "
+        "but does not provide screenshot confidentiality."
+    ]
 
 
 class ExternalBaselineRequest(BaseModel):
@@ -1145,6 +1190,9 @@ def create_app(
         session_factory,
         mcp_registry,
         targets=mcp_target_adapters,
+    )
+    production_screenshots = ProductionScreenshotService(
+        session_factory, external_bridges
     )
     live_display = managed_live_display_service or ManagedLiveDisplayService(
         broker, status_service, reconciliation, screenshots
@@ -1470,6 +1518,7 @@ def create_app(
             mcp_workspace_development,
             mcp_promotion_requests,
             target_adapters=mcp_target_adapters,
+            production_screenshots=production_screenshots,
         ),
     )
     instance_detail = ManagedInstanceDetailService(
@@ -2324,6 +2373,13 @@ def create_app(
         request: Request,
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
+        production_bridge_statuses: dict[UUID, ExternalBridgeStatus] = {}
+        for target in context.mcp_administration.list_target_policies():
+            if target.target_class == "external_production":
+                with suppress(ExternalBridgeServiceError):
+                    production_bridge_statuses[target.target_id] = (
+                        context.external_bridges.status(target.target_id)
+                    )
         return templates.TemplateResponse(
             request,
             "mcp-clients.html",
@@ -2335,6 +2391,7 @@ def create_app(
                 "production_scopes": (
                     context.mcp_administration.list_production_inspection_scopes()
                 ),
+                "production_bridge_statuses": production_bridge_statuses,
                 "development_sources": (
                     context.development_source_administration.list_sources()
                 ),
@@ -2378,17 +2435,27 @@ def create_app(
         request: Request,
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
+        targets = context.production_targets.list_targets()
+        bridge_statuses: dict[UUID, ExternalBridgeStatus] = {}
+        for target in targets:
+            with suppress(ExternalBridgeServiceError):
+                bridge_statuses[target.target_id] = context.external_bridges.status(
+                    target.target_id
+                )
         return templates.TemplateResponse(
             request,
             "production-targets.html",
             {
                 "csrf_token": authenticated.csrf_token,
-                "targets": context.production_targets.list_targets(),
+                "targets": targets,
+                "bridge_statuses": bridge_statuses,
+                "reviewed_builds": context.external_bridges.list_reviewed_builds(),
                 "mutation_control": context.production_targets.mutation_control(),
                 "allowed_ports": settings.external_target_allowed_ports,
                 "test_loopback_enabled": (
                     settings.external_target_test_loopback_enabled
                 ),
+                "bridge_allowed_ports": settings.external_bridge_allowed_ports,
             },
         )
 
@@ -3013,6 +3080,24 @@ def create_app(
         )
 
     @app.post(
+        "/api/mcp/clients/{client_id}/targets/{target_id}/production-visual-scopes",
+        response_model=McpProductionScopeRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def grant_mcp_production_visual_scope(
+        client_id: UUID,
+        target_id: UUID,
+        payload: McpProductionVisualScopeGrantRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpProductionScopeRead:
+        return context.mcp_administration.grant_production_visual_scope(
+            client_id,
+            target_id,
+            identity_generation=payload.identity_generation,
+            bridge_trust_revision=payload.bridge_trust_revision,
+        )
+
+    @app.post(
         "/api/mcp/production-inspection-scopes/{scope_id}/revoke",
         response_model=McpProductionScopeRead,
     )
@@ -3321,12 +3406,14 @@ def create_app(
         payload: ExternalTargetEndpointRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
-        return context.production_targets.edit_endpoint(
+        result = context.production_targets.edit_endpoint(
             target_id,
             protocol_kind=payload.protocol_kind,
             host=payload.host,
             port=payload.port,
         )
+        context.external_bridges.invalidate_production_native_identity(target_id)
+        return result
 
     @app.post(
         "/api/production-targets/{target_id}/credentials",
@@ -3337,12 +3424,14 @@ def create_app(
         payload: ExternalTargetCredentialRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
-        return context.production_targets.rotate_credentials(
+        result = context.production_targets.rotate_credentials(
             target_id,
             authentication_mode=payload.authentication_mode,
             username=payload.username,
             password=payload.password,
         )
+        context.external_bridges.invalidate_production_native_identity(target_id)
+        return result
 
     @app.post(
         "/api/production-targets/{target_id}/probe",
@@ -3353,7 +3442,16 @@ def create_app(
         _body: EmptyActionRequest = Body(),
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
-        return context.production_targets.probe(target_id)
+        before = context.production_targets.get(target_id)
+        result = context.production_targets.probe(target_id)
+        if (
+            before.production_policy is not None
+            and result.production_policy is not None
+            and before.production_policy.identity_generation
+            != result.production_policy.identity_generation
+        ):
+            context.external_bridges.invalidate_production_native_identity(target_id)
+        return result
 
     @app.post(
         "/api/production-targets/{target_id}/confirm-native",
@@ -3414,7 +3512,134 @@ def create_app(
         _payload: AgentWorkspacePromotionConfirmationRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
+        try:
+            context.external_bridges.revoke(target_id)
+        except ExternalBridgeServiceError as error:
+            if error.code != "bridge_not_paired":
+                raise
         return context.production_targets.deactivate(target_id)
+
+    @app.get(
+        "/api/production-bridge-builds",
+        response_model=list[ReviewedBridgeBuildRead],
+    )
+    def list_production_bridge_builds(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[ReviewedBridgeBuildRead]:
+        return context.external_bridges.list_reviewed_builds()
+
+    @app.post(
+        "/api/production-bridge-builds",
+        response_model=ReviewedBridgeBuildRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def register_production_bridge_build(
+        payload: ReviewedBridgeBuildRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReviewedBridgeBuildRead:
+        return context.external_bridges.register_reviewed_build(
+            semantic_fingerprint=payload.semantic_fingerprint,
+            zip_sha256=payload.zip_sha256,
+            addon_id=payload.addon_id,
+            addon_version=payload.addon_version,
+            protocol_version=payload.protocol_version,
+            capabilities=payload.capabilities,
+            supported_kodi_versions=payload.supported_kodi_versions,
+            source_reference=payload.source_reference,
+        )
+
+    @app.post(
+        "/api/production-bridge-builds/{build_id}/retire",
+        response_model=ReviewedBridgeBuildRead,
+    )
+    def retire_production_bridge_build(
+        build_id: UUID,
+        _payload: ExternalBridgeConfirmedRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReviewedBridgeBuildRead:
+        return context.external_bridges.retire_reviewed_build(build_id)
+
+    @app.get(
+        "/api/production-targets/{target_id}/bridge",
+        response_model=ExternalBridgeStatus,
+    )
+    def get_production_bridge_status(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.status(target_id)
+
+    @app.post(
+        "/api/production-targets/{target_id}/bridge/http-acknowledgements",
+        response_model=ProductionHttpAcknowledgementRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def acknowledge_production_bridge_http_risk(
+        target_id: UUID,
+        payload: ProductionBridgeHttpAcknowledgementRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ProductionHttpAcknowledgementRead:
+        return context.external_bridges.acknowledge_production_http_risk(
+            target_id, bridge_port=payload.bridge_port
+        )
+
+    @app.post(
+        "/api/production-targets/{target_id}/bridge/pairing-token",
+        response_model=PairingTokenResult,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def generate_production_bridge_pairing_token(
+        target_id: UUID,
+        payload: ExternalBridgePairingTokenRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> PairingTokenResult:
+        return context.external_bridges.generate_pairing_token(
+            target_id, bridge_port=payload.bridge_port
+        )
+
+    @app.post(
+        "/api/production-targets/{target_id}/bridge/pair",
+        response_model=ExternalBridgeStatus,
+    )
+    def pair_production_bridge(
+        target_id: UUID,
+        _payload: ExternalBridgeConfirmedRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.attempt_pairing(target_id)
+
+    @app.post(
+        "/api/production-targets/{target_id}/bridge/confirm",
+        response_model=ExternalBridgeStatus,
+    )
+    def confirm_production_bridge(
+        target_id: UUID,
+        _payload: ProductionBridgeConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.confirm_pairing(target_id)
+
+    @app.post(
+        "/api/production-targets/{target_id}/bridge/reverify",
+        response_model=ExternalBridgeStatus,
+    )
+    def reverify_production_bridge(
+        target_id: UUID,
+        _payload: ExternalBridgeConfirmedRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.reverify(target_id)
+
+    @app.post(
+        "/api/production-targets/{target_id}/bridge/revoke",
+        response_model=ExternalBridgeStatus,
+    )
+    def revoke_production_bridge(
+        target_id: UUID,
+        _payload: ExternalBridgeConfirmedRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalBridgeStatus:
+        return context.external_bridges.revoke(target_id)
 
     @app.get(
         "/api/external-targets/{target_id}/bridge",

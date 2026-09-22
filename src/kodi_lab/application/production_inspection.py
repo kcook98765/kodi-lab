@@ -10,6 +10,7 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
@@ -20,14 +21,20 @@ from kodi_lab.domain import (
     TargetType,
 )
 from kodi_lab.storage.models import (
+    ExternalBridgePairingRow,
     ExternalKodiTargetObservationRow,
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
+    ProductionBridgeHttpAcknowledgementRow,
+    ReviewedBridgeBuildRow,
     TargetRow,
 )
 
 PRODUCTION_INSPECTION_PRESET_ID = UUID("11000000-0000-4000-8000-000000000005")
 PRODUCTION_INSPECTION_PRESET_NAME = "Production Inspection"
+PRODUCTION_VISUAL_PRESET_ID = UUID("11000000-0000-4000-8000-000000000006")
+PRODUCTION_VISUAL_PRESET_NAME = "Production Visual Inspection"
+PRODUCTION_TRANSPORT_POLICY_REVISION = 1
 
 
 class ProductionInspectionError(PermissionError):
@@ -45,6 +52,13 @@ class ProductionInspectionState:
     kodi_version: str
     protocol_version: str
     capabilities: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class ProductionVisualState:
+    identity_generation: int
+    bridge_trust_revision: int
+    bridge_id: UUID
 
 
 def production_observation_digest(
@@ -156,6 +170,113 @@ def evaluate_production_inspection_state(
         kodi_version=observation.kodi_version,
         protocol_version=observation.protocol_version,
         capabilities=capabilities,
+    )
+
+
+def evaluate_production_visual_state(
+    session: Session, target_id: UUID
+) -> ProductionVisualState:
+    """Evaluate production bridge trust without network activity or pixels."""
+
+    native = evaluate_production_inspection_state(
+        session,
+        target_id,
+        required_capabilities=frozenset({"target_inspect"}),
+    )
+    external = session.get(ExternalKodiTargetRow, str(target_id))
+    pairing = session.get(ExternalBridgePairingRow, str(target_id))
+    if external is None or pairing is None:
+        raise ProductionInspectionError("bridge_not_paired")
+    if pairing.pairing_state.value == "needs_reverification":
+        raise ProductionInspectionError("bridge_reverification_required")
+    if pairing.pairing_state.value != "paired":
+        raise ProductionInspectionError("bridge_not_paired")
+    if pairing.reachability_state.value != "reachable":
+        raise ProductionInspectionError("bridge_not_paired")
+    if (
+        pairing.production_identity_generation != native.identity_generation
+        or pairing.production_bridge_trust_revision is None
+        or pairing.production_bridge_trust_revision < 1
+        or pairing.reviewed_build_id is None
+        or pairing.production_confirmed_at is None
+        or pairing.pinned_bridge_id is None
+        or pairing.pinned_build_fingerprint is None
+        or pairing.pinned_addon_id is None
+        or pairing.pinned_addon_version is None
+        or pairing.pinned_protocol_version is None
+        or pairing.pinned_kodi_version is None
+        or pairing.bridge_port is None
+        or pairing.endpoint_revision_digest is None
+    ):
+        raise ProductionInspectionError("bridge_reverification_required")
+    try:
+        configured = _closed_set(external.configured_capabilities_json)
+        verified = _closed_set(pairing.verified_capabilities_json)
+        declared = _closed_set(pairing.observed_capabilities_json)
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ProductionInspectionError("bridge_reverification_required") from error
+    if "screenshot" not in configured or "screenshot" not in verified:
+        raise ProductionInspectionError("capability_unavailable")
+    # Production policy maximum is screenshot only. Extra advertised technical
+    # capabilities are recorded, but never become production authority.
+    if not verified <= frozenset({"screenshot"}):
+        raise ProductionInspectionError("bridge_reverification_required")
+    reviewed = session.get(ReviewedBridgeBuildRow, pairing.reviewed_build_id)
+    if reviewed is None or reviewed.state != "active":
+        raise ProductionInspectionError("bridge_build_not_reviewed")
+    if (
+        reviewed.semantic_fingerprint != pairing.pinned_build_fingerprint
+        or reviewed.addon_id != pairing.pinned_addon_id
+        or reviewed.addon_version != pairing.pinned_addon_version
+        or reviewed.protocol_version != pairing.pinned_protocol_version
+        or pairing.pinned_kodi_version
+        not in _closed_set(reviewed.supported_kodi_versions_json)
+        or "screenshot" not in _closed_set(reviewed.capabilities_json)
+        or "screenshot" not in declared
+    ):
+        raise ProductionInspectionError("bridge_build_not_reviewed")
+    endpoint_digest = hashlib.sha256(
+        json.dumps(
+            {
+                "bridge_port": pairing.bridge_port,
+                "host": external.host,
+                "native_port": external.port,
+                "protocol": external.protocol_kind.value,
+                "verified_addresses": external.verified_addresses_json,
+                "verified_kodi_name": external.verified_kodi_name,
+                "verified_kodi_version": external.verified_kodi_version,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if pairing.endpoint_revision_digest != endpoint_digest:
+        raise ProductionInspectionError("bridge_reverification_required")
+    if external.protocol_kind.value == "jsonrpc_http":
+        acknowledgement = session.scalar(
+            select(ProductionBridgeHttpAcknowledgementRow).where(
+                ProductionBridgeHttpAcknowledgementRow.target_id == str(target_id),
+                ProductionBridgeHttpAcknowledgementRow.identity_generation
+                == native.identity_generation,
+                ProductionBridgeHttpAcknowledgementRow.bridge_trust_revision
+                == pairing.production_bridge_trust_revision,
+                ProductionBridgeHttpAcknowledgementRow.protocol == "jsonrpc_http",
+                ProductionBridgeHttpAcknowledgementRow.ip_literal == external.host,
+                ProductionBridgeHttpAcknowledgementRow.native_port == external.port,
+                ProductionBridgeHttpAcknowledgementRow.bridge_port
+                == pairing.bridge_port,
+                ProductionBridgeHttpAcknowledgementRow.endpoint_digest
+                == endpoint_digest,
+                ProductionBridgeHttpAcknowledgementRow.transport_policy_revision
+                == PRODUCTION_TRANSPORT_POLICY_REVISION,
+            )
+        )
+        if acknowledgement is None:
+            raise ProductionInspectionError("transport_acknowledgement_required")
+    return ProductionVisualState(
+        identity_generation=native.identity_generation,
+        bridge_trust_revision=pairing.production_bridge_trust_revision,
+        bridge_id=UUID(pairing.pinned_bridge_id),
     )
 
 

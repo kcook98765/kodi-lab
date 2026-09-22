@@ -216,6 +216,7 @@ class ExternalTargetAdministrationService:
         if self._target_type is TargetType.EXTERNAL_PRODUCTION and not capabilities <= {
             "target_inspect",
             "addon_inventory",
+            "screenshot",
         }:
             raise ExternalTargetError("endpoint_not_allowed")
         target_id = uuid4()

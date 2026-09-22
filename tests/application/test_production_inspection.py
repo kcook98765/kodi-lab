@@ -570,7 +570,7 @@ def test_production_native_timeout_is_target_unreachable(
         env.tools.target_status(env.principal, target_id=env.target_id)
 
 
-def test_registry_allows_only_three_production_tools() -> None:
+def test_registry_allows_exactly_four_production_tools() -> None:
     registry = build_mcp_tool_registry()
     eligible = {
         definition.name
@@ -579,7 +579,12 @@ def test_registry_allows_only_three_production_tools() -> None:
         and TargetClass.EXTERNAL_PRODUCTION in definition.allowed_target_classes
     }
     assert len(registry.names()) == 15
-    assert eligible == {"target_list", "target_status", "addon_list"}
+    assert eligible == {
+        "target_list",
+        "target_status",
+        "addon_list",
+        "screenshot_capture",
+    }
 
 
 def test_production_read_rate_maps_are_bounded_and_idle_only() -> None:

@@ -19,10 +19,20 @@
     event.preventDefault(); const form = new FormData(event.currentTarget);
     await request("/api/production-targets", "POST", {logical_name: form.get("logical_name"), protocol_kind: form.get("protocol_kind"), host: form.get("host"), port: Number(form.get("port")), authentication_mode: form.get("authentication_mode"), configured_capabilities: form.getAll("capability"), username: form.get("username") || null, password: form.get("password") || null}); location.reload();
   }));
+  root.querySelector("[data-reviewed-build]")?.addEventListener("submit", (event) => run(async () => {
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    await request("/api/production-bridge-builds", "POST", {semantic_fingerprint: form.get("semantic_fingerprint"), zip_sha256: form.get("zip_sha256"), addon_id: form.get("addon_id"), addon_version: form.get("addon_version"), protocol_version: form.get("protocol_version"), capabilities: String(form.get("capabilities")).split(","), supported_kodi_versions: String(form.get("supported_kodi_versions")).split(",").map((item) => item.trim()).filter(Boolean), source_reference: form.get("source_reference")}); location.reload();
+  }));
+  root.querySelectorAll("[data-retire-build]").forEach((button) => button.addEventListener("click", () => run(async () => {
+    if (!confirm("Retire this reviewed build and suspend dependent production visual authority?")) return;
+    await request(`/api/production-bridge-builds/${button.dataset.retireBuild}/retire`, "POST", {confirmed: true}); location.reload();
+  })));
   root.querySelectorAll("[data-target-id]").forEach((card) => {
     const id = card.dataset.targetId;
     card.querySelector("[data-endpoint]")?.addEventListener("submit", (event) => run(async () => { event.preventDefault(); const form = new FormData(event.currentTarget); await request(`/api/production-targets/${id}/endpoint`, "PUT", {protocol_kind: form.get("protocol_kind"), host: form.get("host"), port: Number(form.get("port"))}); location.reload(); }));
     card.querySelector("[data-credentials]")?.addEventListener("submit", (event) => run(async () => { event.preventDefault(); const form = new FormData(event.currentTarget); await request(`/api/production-targets/${id}/credentials`, "POST", {authentication_mode: form.get("authentication_mode"), username: form.get("username") || null, password: form.get("password") || null}); location.reload(); }));
+    card.querySelector("[data-http-ack]")?.addEventListener("submit", (event) => run(async () => { event.preventDefault(); const form = new FormData(event.currentTarget); if (!confirm("Acknowledge that HTTP screenshot pixels are not confidential on the private LAN for this exact configuration?")) return; await request(`/api/production-targets/${id}/bridge/http-acknowledgements`, "POST", {confirmed: true, bridge_port: Number(form.get("bridge_port")), acknowledgement: "I acknowledge that private-LAN HTTP protects authenticity and integrity but does not provide screenshot confidentiality."}); location.reload(); }));
+    card.querySelector("[data-pairing-token]")?.addEventListener("submit", (event) => run(async () => { event.preventDefault(); const form = new FormData(event.currentTarget); const result = await request(`/api/production-targets/${id}/bridge/pairing-token`, "POST", {confirmed: true, bridge_port: Number(form.get("bridge_port"))}); const output = card.querySelector("[data-token]"); output.textContent = `Show-once token: ${result.token} (expires ${result.expires_at})`; output.hidden = false; }));
     card.addEventListener("click", (event) => run(async () => {
       const button = event.target.closest("button[data-action]"); if (!button) return;
       const action = button.dataset.action; const observationId = button.dataset.observationId;
@@ -32,6 +42,10 @@
       if (action === "toggle") await request(`/api/production-targets/${id}/enabled`, "POST", {enabled: button.dataset.enabled !== "true"});
       if (action === "suspension") await request(`/api/production-targets/${id}/mutation-suspension`, "POST", {suspended: button.dataset.suspended !== "true"});
       if (action === "deactivate" && confirm("Deactivate this production target permanently and retire its credentials?")) await request(`/api/production-targets/${id}/deactivate`, "POST", {confirmed: true});
+      if (action === "bridge-pair") await request(`/api/production-targets/${id}/bridge/pair`, "POST", {confirmed: true});
+      if (action === "bridge-confirm" && confirm("I confirm this bridge is installed on the production Kodi target and the displayed bridge identity and package provenance match the reviewed package.")) await request(`/api/production-targets/${id}/bridge/confirm`, "POST", {confirmed: true, acknowledgement: "I confirm this bridge is installed on the production Kodi target and the displayed bridge identity and package provenance match the reviewed package."});
+      if (action === "bridge-reverify") await request(`/api/production-targets/${id}/bridge/reverify`, "POST", {confirmed: true});
+      if (action === "bridge-revoke" && confirm("Revoke the production bridge and delete the Lab-held bridge secret?")) await request(`/api/production-targets/${id}/bridge/revoke`, "POST", {confirmed: true});
       location.reload();
     }));
   });

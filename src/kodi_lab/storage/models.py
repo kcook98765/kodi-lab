@@ -1446,7 +1446,15 @@ class McpProductionTargetScopeRow(Base):
             "length(id)=36 AND identity_generation>=1",
             name="mcp_production_scope_identity_valid",
         ),
-        CheckConstraint("scope='inspect'", name="mcp_production_scope_value_closed"),
+        CheckConstraint(
+            "scope IN ('inspect','visual')",
+            name="mcp_production_scope_value_closed",
+        ),
+        CheckConstraint(
+            "(scope='inspect' AND bridge_trust_revision IS NULL) OR "
+            "(scope='visual' AND bridge_trust_revision>=1)",
+            name="mcp_production_scope_bridge_binding",
+        ),
         CheckConstraint(
             "state IN ('active','revoked')",
             name="mcp_production_scope_state_closed",
@@ -1495,6 +1503,7 @@ class McpProductionTargetScopeRow(Base):
         nullable=False,
     )
     identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_trust_revision: Mapped[int | None] = mapped_column(Integer)
     scope: Mapped[str] = mapped_column(String(16), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
@@ -1585,6 +1594,22 @@ class ExternalBridgePairingRow(Base):
             "pairing_state NOT IN ('paired','needs_reverification')",
             name="external_bridge_active_identity_complete",
         ),
+        CheckConstraint(
+            "(production_identity_generation IS NULL AND "
+            "reviewed_build_id IS NULL AND production_confirmed_by IS NULL AND "
+            "production_confirmed_at IS NULL) OR "
+            "(production_identity_generation>=1 AND "
+            "production_bridge_trust_revision>=1 AND reviewed_build_id IS NOT NULL "
+            "AND production_confirmed_by IS NOT NULL AND "
+            "length(production_confirmed_by) BETWEEN 1 AND 64 AND "
+            "length(production_confirmed_at)=27)",
+            name="external_bridge_production_binding_complete",
+        ),
+        CheckConstraint(
+            "production_bridge_trust_revision IS NULL OR "
+            "production_bridge_trust_revision>=1",
+            name="external_bridge_production_revision_positive",
+        ),
         Index(
             "ix_external_bridge_pairing_state",
             "pairing_state",
@@ -1641,6 +1666,134 @@ class ExternalBridgePairingRow(Base):
     paired_at: Mapped[str | None] = mapped_column(String(27))
     verified_at: Mapped[str | None] = mapped_column(String(27))
     revoked_at: Mapped[str | None] = mapped_column(String(27))
+    production_identity_generation: Mapped[int | None] = mapped_column(Integer)
+    production_bridge_trust_revision: Mapped[int | None] = mapped_column(Integer)
+    reviewed_build_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("reviewed_bridge_builds.id", ondelete="RESTRICT")
+    )
+    production_confirmed_by: Mapped[str | None] = mapped_column(String(64))
+    production_confirmed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class ReviewedBridgeBuildRow(Base):
+    """Administrator-reviewed immutable production bridge provenance."""
+
+    __tablename__ = "reviewed_bridge_builds"
+    __table_args__ = (
+        CheckConstraint("length(id)=36", name="reviewed_bridge_build_id_shape"),
+        CheckConstraint(
+            "length(semantic_fingerprint)=64 AND "
+            "semantic_fingerprint NOT GLOB '*[^0-9a-f]*' AND "
+            "length(zip_sha256)=64 AND zip_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="reviewed_bridge_build_digests_sha256",
+        ),
+        CheckConstraint(
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 64 AND "
+            "length(protocol_version) BETWEEN 1 AND 16",
+            name="reviewed_bridge_build_identity_bounded",
+        ),
+        CheckConstraint(
+            "capabilities_json IN "
+            '(\'["screenshot"]\',\'["screenshot","workspace_deployment"]\') '
+            "AND length(supported_kodi_versions_json) BETWEEN 5 AND 256",
+            name="reviewed_bridge_build_sets_bounded",
+        ),
+        CheckConstraint(
+            "length(source_reference) BETWEEN 1 AND 512 AND "
+            "length(reviewed_by) BETWEEN 1 AND 64 AND length(reviewed_at)=27",
+            name="reviewed_bridge_build_provenance_bounded",
+        ),
+        CheckConstraint(
+            "state IN ('active','retired') AND "
+            "((state='active' AND retired_by IS NULL AND retired_at IS NULL) OR "
+            "(state='retired' AND retired_by IS NOT NULL AND retired_at IS NOT NULL))",
+            name="reviewed_bridge_build_state_consistent",
+        ),
+        UniqueConstraint(
+            "semantic_fingerprint",
+            "addon_id",
+            "addon_version",
+            "protocol_version",
+            name="uq_reviewed_bridge_semantic_identity",
+        ),
+        UniqueConstraint("zip_sha256", name="uq_reviewed_bridge_zip_sha256"),
+        Index("ix_reviewed_bridge_build_state", "state", "semantic_fingerprint"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    semantic_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    zip_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    protocol_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    capabilities_json: Mapped[str] = mapped_column(String(256), nullable=False)
+    supported_kodi_versions_json: Mapped[str] = mapped_column(
+        String(256), nullable=False
+    )
+    source_reference: Mapped[str] = mapped_column(String(512), nullable=False)
+    reviewed_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    reviewed_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    retired_by: Mapped[str | None] = mapped_column(String(64))
+    retired_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class ProductionBridgeHttpAcknowledgementRow(Base):
+    """Immutable exact private-HTTP production bridge risk acknowledgement."""
+
+    __tablename__ = "production_bridge_http_acknowledgements"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND identity_generation>=1 AND "
+            "bridge_trust_revision>=1 AND transport_policy_revision>=1",
+            name="production_bridge_ack_generations_positive",
+        ),
+        CheckConstraint(
+            "protocol='jsonrpc_http' AND length(ip_literal) BETWEEN 2 AND 64 "
+            "AND native_port BETWEEN 1 AND 65535 AND bridge_port BETWEEN 1 AND 65535",
+            name="production_bridge_ack_endpoint_valid",
+        ),
+        CheckConstraint(
+            "length(endpoint_digest)=64 AND endpoint_digest NOT GLOB '*[^0-9a-f]*'",
+            name="production_bridge_ack_digest_sha256",
+        ),
+        CheckConstraint(
+            "length(acknowledged_by) BETWEEN 1 AND 64 AND length(acknowledged_at)=27",
+            name="production_bridge_ack_administrator_bounded",
+        ),
+        UniqueConstraint(
+            "target_id",
+            "identity_generation",
+            "bridge_trust_revision",
+            "endpoint_digest",
+            "transport_policy_revision",
+            name="uq_production_bridge_http_ack_binding",
+        ),
+        Index(
+            "ix_production_bridge_http_ack_target",
+            "target_id",
+            "identity_generation",
+            "bridge_trust_revision",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_production_policies.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_trust_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    protocol: Mapped[str] = mapped_column(String(16), nullable=False)
+    ip_literal: Mapped[str] = mapped_column(String(64), nullable=False)
+    native_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    endpoint_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    transport_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    acknowledged_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    acknowledged_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
 class ExternalBridgeRequestReceiptRow(Base):
@@ -1705,6 +1858,85 @@ class ExternalBridgeRequestReceiptRow(Base):
     request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     nonce: Mapped[str] = mapped_column(String(43), nullable=False)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    response_digest: Mapped[str | None] = mapped_column(String(64))
+    byte_size: Mapped[int | None] = mapped_column(Integer)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(27))
+    expires_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class McpProductionScreenshotReceiptRow(Base):
+    """Durable production screenshot replay identity; pixels are never stored."""
+
+    __tablename__ = "mcp_production_screenshot_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(client_id)=36 AND length(request_id)=36 AND "
+            "length(target_id)=36 AND length(bridge_request_id)=36",
+            name="production_screenshot_receipt_uuid_lengths",
+        ),
+        CheckConstraint(
+            "length(parameter_digest)=64 AND "
+            "parameter_digest NOT GLOB '*[^0-9a-f]*' AND "
+            "identity_generation>=1 AND bridge_trust_revision>=1",
+            name="production_screenshot_receipt_binding_valid",
+        ),
+        CheckConstraint(
+            "state IN ('pending','completed','ambiguous','rejected')",
+            name="production_screenshot_receipt_state_closed",
+        ),
+        CheckConstraint(
+            "response_digest IS NULL OR (length(response_digest)=64 AND "
+            "response_digest NOT GLOB '*[^0-9a-f]*')",
+            name="production_screenshot_receipt_digest_sha256",
+        ),
+        CheckConstraint(
+            "byte_size IS NULL OR byte_size BETWEEN 1 AND 8388608",
+            name="production_screenshot_receipt_size_bounded",
+        ),
+        CheckConstraint(
+            "(width IS NULL AND height IS NULL) OR "
+            "(width BETWEEN 1 AND 4096 AND height BETWEEN 1 AND 2160)",
+            name="production_screenshot_receipt_dimensions_bounded",
+        ),
+        CheckConstraint(
+            "length(created_at)=27 AND length(expires_at)=27 AND "
+            "(completed_at IS NULL OR length(completed_at)=27)",
+            name="production_screenshot_receipt_timestamps_format",
+        ),
+        CheckConstraint(
+            "(state='pending' AND completed_at IS NULL AND response_digest IS NULL "
+            "AND byte_size IS NULL AND width IS NULL AND height IS NULL) OR "
+            "(state='completed' AND completed_at IS NOT NULL AND "
+            "response_digest IS NOT NULL AND byte_size IS NOT NULL AND "
+            "width IS NOT NULL AND height IS NOT NULL) OR "
+            "(state IN ('ambiguous','rejected') AND completed_at IS NOT NULL)",
+            name="production_screenshot_receipt_terminal_coherent",
+        ),
+        Index(
+            "ix_production_screenshot_receipt_capacity",
+            "expires_at",
+            "state",
+            "target_id",
+        ),
+    )
+
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="RESTRICT"), primary_key=True
+    )
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_production_policies.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    parameter_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_trust_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_request_id: Mapped[str] = mapped_column(String(36), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     response_digest: Mapped[str | None] = mapped_column(String(64))
     byte_size: Mapped[int | None] = mapped_column(Integer)
@@ -1866,7 +2098,10 @@ class ExternalBridgeEventRow(Base):
             "'screenshot_requested','screenshot_completed','screenshot_failed',"
             "'baseline_established','baseline_invalidated','deployment_requested',"
             "'deployment_completed','deployment_failed','deployment_reconciled',"
-            "'execution_completed','execution_failed')",
+            "'execution_completed','execution_failed','production_build_reviewed',"
+            "'production_build_retired','production_transport_acknowledged',"
+            "'production_bridge_confirmed',"
+            "'production_bridge_revision_advanced')",
             name="external_bridge_event_kind_closed",
         ),
         CheckConstraint(
