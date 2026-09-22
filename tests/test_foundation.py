@@ -196,6 +196,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "managed_instance_mutation_leases",
         "mcp_clients",
         "mcp_client_target_grants",
+        "mcp_client_target_grant_identities",
         "mcp_client_development_source_grants",
         "mcp_agent_workspace_bindings",
         "mcp_credentials",

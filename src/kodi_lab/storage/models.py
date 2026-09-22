@@ -3,6 +3,7 @@
 from enum import StrEnum
 
 from sqlalchemy import (
+    DDL,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -5453,6 +5455,24 @@ class McpClientTargetGrantRow(Base):
     grant_id: Mapped[str] = mapped_column(String(36), nullable=False)
 
 
+class McpClientTargetGrantIdentityRow(Base):
+    """Permanent one-use identity ledger for generic client-target grants."""
+
+    __tablename__ = "mcp_client_target_grant_identities"
+    __table_args__ = (
+        CheckConstraint(
+            "length(grant_id)=36 AND length(client_id)=36 AND length(target_id)=36 "
+            "AND length(created_at)=27",
+            name="mcp_client_target_grant_identity_shapes",
+        ),
+    )
+
+    grant_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class McpClientDevelopmentSourceGrantRow(Base):
     """Exact MCP client-to-DevelopmentSource grant; never a wildcard."""
 
@@ -6077,6 +6097,12 @@ class McpProductionRemoteReceiptBindingRow(Base):
             "navigate_scope_id",
             "transient_scope_id",
         ),
+        Index(
+            "uq_mcp_production_remote_binding_approval",
+            "approval_id",
+            unique=True,
+            sqlite_where=text("approval_id IS NOT NULL"),
+        ),
     )
 
     receipt_id: Mapped[str] = mapped_column(
@@ -6130,7 +6156,7 @@ class ProductionOperationApprovalRow(Base):
         CheckConstraint(
             "length(generic_grant_id)=36 AND length(client_preset_id)=36 "
             "AND length(target_preset_id)=36 AND length(inspect_scope_id)=36 "
-            "AND length(transient_scope_id)=36",
+            "AND length(transient_scope_id)=36 AND length(reviewed_build_id)=36",
             name="production_approval_authority_uuid_shapes",
         ),
         CheckConstraint(
@@ -6158,6 +6184,13 @@ class ProductionOperationApprovalRow(Base):
             name="production_approval_timestamps_valid",
         ),
         CheckConstraint(
+            "julianday(pending_expires_at)-julianday(created_at)<=900.001/86400.0 "
+            "AND (approved_dispatch_expires_at IS NULL OR "
+            "julianday(approved_dispatch_expires_at)-julianday(approved_at)"
+            "<=300.001/86400.0)",
+            name="production_approval_ttl_bounded",
+        ),
+        CheckConstraint(
             "(state='pending' AND terminal_reason IS NULL AND approved_at IS NULL "
             "AND approved_dispatch_expires_at IS NULL "
             "AND approving_administrator IS NULL "
@@ -6182,6 +6215,12 @@ class ProductionOperationApprovalRow(Base):
         ),
         UniqueConstraint(
             "client_id", "request_id", name="uq_production_approval_client_request"
+        ),
+        Index(
+            "uq_production_approval_linked_receipt",
+            "linked_remote_receipt_id",
+            unique=True,
+            sqlite_where=text("linked_remote_receipt_id IS NOT NULL"),
         ),
         Index("ix_production_approval_queue", "state", "pending_expires_at"),
         Index("ix_production_approval_client_history", "client_id", "created_at", "id"),
@@ -6208,7 +6247,7 @@ class ProductionOperationApprovalRow(Base):
     inspect_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
     transient_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
     native_http_acknowledgement_id: Mapped[str | None] = mapped_column(String(36))
-    reviewed_build_id: Mapped[str | None] = mapped_column(String(36))
+    reviewed_build_id: Mapped[str] = mapped_column(String(36), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     terminal_reason: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
@@ -6311,6 +6350,7 @@ class ProductionTransientDispatchAuditRow(Base):
             name="production_transient_audit_timestamps_valid",
         ),
         Index("ix_production_transient_audit_target_time", "target_id", "requested_at"),
+        UniqueConstraint("approval_id", name="uq_production_transient_audit_approval"),
     )
 
     receipt_id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -6414,3 +6454,79 @@ class McpProductionNavigationAuditRow(Base):
     dispatch_classification: Mapped[str] = mapped_column(String(16), nullable=False)
     requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
     completed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+_SLICE4B_CREATE_ALL_TRIGGERS = (
+    "CREATE TRIGGER trg_mcp_client_target_grant_identity_once "
+    "AFTER INSERT ON mcp_client_target_grants BEGIN "
+    "INSERT INTO mcp_client_target_grant_identities "
+    "(grant_id,client_id,target_id,created_at) VALUES "
+    "(NEW.grant_id,NEW.client_id,NEW.target_id,NEW.created_at); END",
+    "CREATE TRIGGER trg_mcp_client_target_grant_identity_history_immutable "
+    "BEFORE UPDATE ON mcp_client_target_grant_identities BEGIN "
+    "SELECT RAISE(ABORT, 'mcp_client_target_grant_identity_reused'); END",
+    "CREATE TRIGGER trg_mcp_client_target_grant_identity_history_no_delete "
+    "BEFORE DELETE ON mcp_client_target_grant_identities BEGIN "
+    "SELECT RAISE(ABORT, 'mcp_client_target_grant_identity_reused'); END",
+    "CREATE TRIGGER trg_production_mutation_epoch_no_delete BEFORE DELETE ON "
+    "production_mutation_control BEGIN SELECT RAISE(ABORT, "
+    "'production_mutation_epoch_invalid'); END",
+    "CREATE TRIGGER trg_mcp_credential_approval_no_delete BEFORE DELETE ON "
+    "mcp_credentials WHEN EXISTS(SELECT 1 FROM production_operation_approvals "
+    "WHERE credential_id=OLD.id) BEGIN SELECT RAISE(ABORT, "
+    "'production_approval_authority_protected'); END",
+    "CREATE TRIGGER trg_mcp_client_approval_no_delete BEFORE DELETE ON mcp_clients "
+    "WHEN EXISTS(SELECT 1 FROM production_operation_approvals WHERE client_id=OLD.id) "
+    "BEGIN SELECT RAISE(ABORT, 'production_approval_authority_protected'); END",
+    "CREATE TRIGGER trg_production_policy_approval_no_delete BEFORE DELETE ON "
+    "external_production_policies WHEN EXISTS(SELECT 1 FROM "
+    "production_operation_approvals WHERE target_id=OLD.target_id) BEGIN "
+    "SELECT RAISE(ABORT, 'production_approval_authority_protected'); END",
+    "CREATE TRIGGER trg_external_production_administrative_revision AFTER UPDATE OF "
+    "administrative_state ON external_kodi_targets WHEN "
+    "NEW.administrative_state<>OLD.administrative_state AND "
+    "COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')="
+    "'external_production' BEGIN UPDATE external_production_policies SET "
+    "policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END",
+    "CREATE TRIGGER trg_external_production_native_material_revision AFTER UPDATE ON "
+    "external_kodi_targets WHEN COALESCE((SELECT target_type FROM targets WHERE "
+    "id=NEW.target_id),'')='external_production' AND "
+    "(NEW.protocol_kind<>OLD.protocol_kind "
+    "OR NEW.host<>OLD.host OR NEW.port<>OLD.port OR "
+    "NEW.authentication_mode<>OLD.authentication_mode OR NEW.secret_reference IS NOT "
+    "OLD.secret_reference OR NEW.configured_capabilities_json<>"
+    "OLD.configured_capabilities_json OR NEW.verified_capabilities_json<>"
+    "OLD.verified_capabilities_json OR "
+    "NEW.verification_state<>OLD.verification_state OR "
+    "NEW.verified_addresses_json<>OLD.verified_addresses_json OR "
+    "NEW.verified_kodi_name IS NOT OLD.verified_kodi_name OR "
+    "NEW.verified_kodi_version IS "
+    "NOT OLD.verified_kodi_version OR NEW.observed_kodi_name IS NOT "
+    "OLD.observed_kodi_name OR NEW.observed_kodi_version IS NOT "
+    "OLD.observed_kodi_version OR NEW.observed_protocol_version IS NOT "
+    "OLD.observed_protocol_version OR NEW.pending_observation_id IS NOT "
+    "OLD.pending_observation_id) BEGIN UPDATE external_production_policies SET "
+    "policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END",
+    "CREATE TRIGGER trg_production_target_preset_revision_insert AFTER INSERT ON "
+    "mcp_target_preset_assignments WHEN COALESCE((SELECT target_type FROM targets "
+    "WHERE id=NEW.target_id),'')='external_production' BEGIN UPDATE "
+    "external_production_policies SET policy_revision=policy_revision+1 WHERE "
+    "target_id=NEW.target_id; END",
+    "CREATE TRIGGER trg_production_target_preset_revision_update AFTER UPDATE OF "
+    "preset_id ON mcp_target_preset_assignments WHEN NEW.preset_id<>OLD.preset_id AND "
+    "COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')="
+    "'external_production' BEGIN UPDATE external_production_policies SET "
+    "policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END",
+    "CREATE TRIGGER trg_production_target_preset_revision_delete AFTER DELETE ON "
+    "mcp_target_preset_assignments WHEN COALESCE((SELECT target_type FROM targets "
+    "WHERE id=OLD.target_id),'')='external_production' BEGIN UPDATE "
+    "external_production_policies SET policy_revision=policy_revision+1 WHERE "
+    "target_id=OLD.target_id; END",
+)
+
+for _trigger_sql in _SLICE4B_CREATE_ALL_TRIGGERS:
+    event.listen(
+        Base.metadata,
+        "after_create",
+        DDL(_trigger_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )

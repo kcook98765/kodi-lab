@@ -1030,7 +1030,9 @@ class ExternalBridgeService:
         """Fresh fixed read-only bridge identity proof; never a command channel."""
 
         snapshot = self._active_snapshot(
-            target_id, require_production_http_acknowledgement=False
+            target_id,
+            allow_transient_unreachable=True,
+            require_production_http_acknowledgement=False,
         )
         if snapshot.target_type is not TargetType.EXTERNAL_PRODUCTION:
             raise ExternalBridgeServiceError("bridge_not_paired")
@@ -1050,6 +1052,7 @@ class ExternalBridgeService:
         except ExternalBridgeServiceError:
             self._invalidate_identity(target_id, "bridge_identity_mismatch")
             raise
+        self._publish_authenticated_reachable(snapshot)
 
     def inspect_addon(self, target_id: UUID, addon_id: str) -> BridgeAddonTree:
         with self._deployment_gate.enter(target_id):
@@ -1490,6 +1493,7 @@ class ExternalBridgeService:
         target_id: UUID,
         *,
         allow_needs_reverification: bool = False,
+        allow_transient_unreachable: bool = False,
         required_capability: str | None = None,
         require_production_http_acknowledgement: bool = True,
     ) -> _Snapshot:
@@ -1519,6 +1523,11 @@ class ExternalBridgeService:
                     not allow_needs_reverification
                     and row.reachability_state
                     is not ExternalBridgeReachabilityState.REACHABLE
+                    and not (
+                        allow_transient_unreachable
+                        and row.reachability_state
+                        is ExternalBridgeReachabilityState.UNREACHABLE
+                    )
                 )
                 or (
                     not allow_needs_reverification
@@ -1797,6 +1806,25 @@ class ExternalBridgeService:
             row = session.get(ExternalBridgePairingRow, str(target_id))
             if row is not None:
                 row.reachability_state = self._reachability(code)
+
+    def _publish_authenticated_reachable(self, snapshot: _Snapshot) -> None:
+        """Restore reachability only for the same still-paired trusted identity."""
+
+        with self._sessions.begin() as session:
+            row = session.get(ExternalBridgePairingRow, str(snapshot.target_id))
+            if (
+                row is None
+                or row.pairing_state is not ExternalBridgePairingState.PAIRED
+                or row.bridge_port != snapshot.bridge_port
+                or row.pinned_bridge_id != str(snapshot.bridge_id)
+                or row.bridge_secret_reference != str(snapshot.secret_reference)
+                or row.endpoint_revision_digest != snapshot.endpoint_digest
+                or row.production_identity_generation != snapshot.identity_generation
+                or row.production_bridge_trust_revision
+                != snapshot.bridge_trust_revision
+            ):
+                raise ExternalBridgeServiceError("bridge_reverification_required")
+            row.reachability_state = ExternalBridgeReachabilityState.REACHABLE
 
     def _invalidate_identity(self, target_id: UUID, classification: str) -> None:
         now = self._clock()

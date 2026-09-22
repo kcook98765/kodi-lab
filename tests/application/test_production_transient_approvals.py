@@ -4,13 +4,16 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event
 from typing import Any, Never
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import IntegrityError
 
+from kodi_lab.application.browser_remote import BrowserRemoteError
+from kodi_lab.application.external_targets import ExternalTargetAdministrationService
 from kodi_lab.application.mcp_administration import (
     FULL_LAB_CONTROL_PRESET_ID,
     PRODUCTION_REMOTE_KODI_PRESET_ID,
@@ -27,12 +30,14 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionTransientApprovalService,
     ProductionTransientResult,
 )
-from kodi_lab.domain import ExternalAdministrativeState
+from kodi_lab.domain import ExternalAdministrativeState, TargetType
+from kodi_lab.kodi.external import ExternalEndpointPolicy
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.storage.models import (
     ExternalBridgePairingRow,
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
+    McpClientTargetGrantRow,
     McpCredentialRow,
     McpProductionRemoteReceiptBindingRow,
     McpRemoteActionReceiptRow,
@@ -42,6 +47,7 @@ from kodi_lab.storage.models import (
     ProductionTransientDispatchAuditRow,
     ReviewedBridgeBuildRow,
 )
+from kodi_lab.storage.secrets import ExternalCredentialStore
 from tests.application.test_production_navigation import (
     BUILD_ID,
     _authority_environment,
@@ -337,6 +343,85 @@ def test_authority_resurrection_and_mutation_epoch_cannot_revive_approval(
     assert remote.sends == 0
 
 
+def test_mutation_policy_transitions_atomically_cancel_live_approvals(
+    tmp_path: Path,
+) -> None:
+    env, _scope, clock, remote, _preflight, service = _service(tmp_path)
+    administration = ExternalTargetAdministrationService(
+        env.factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "policy-secrets", master_key=b"m" * 32, key_version=1
+        ),
+        target_type=TargetType.EXTERNAL_PRODUCTION,
+        clock=clock,
+    )
+
+    first = _request(service, env, uuid4())
+    assert isinstance(first, ProductionApprovalRequiredResult)
+    service.approve(first.approval_id, action=BrowserRemoteAction.PLAY_PAUSE)
+    administration.set_mutation_block(blocked=True)
+    assert service.get(first.approval_id).state == "cancelled"
+    blocked_epoch = administration.mutation_control().policy_epoch
+
+    administration.set_mutation_block(blocked=False)
+    assert administration.mutation_control().policy_epoch == blocked_epoch + 1
+    assert service.get(first.approval_id).state == "cancelled"
+
+    clock.advance(timedelta(seconds=31))
+    second = _request(service, env, uuid4())
+    assert isinstance(second, ProductionApprovalRequiredResult)
+    administration.set_target_mutation_suspension(env.target_id, suspended=True)
+    assert service.get(second.approval_id).state == "cancelled"
+    administration.set_target_mutation_suspension(env.target_id, suspended=False)
+    assert service.get(second.approval_id).state == "cancelled"
+    assert remote.sends == 0
+
+
+def test_direct_grant_identity_reuse_and_mutation_epoch_replacement_fail_closed(
+    tmp_path: Path,
+) -> None:
+    env, _scope, _clock, remote, _preflight, service = _service(tmp_path)
+    pending = _request(service, env, uuid4())
+    assert isinstance(pending, ProductionApprovalRequiredResult)
+    service.approve(pending.approval_id, action=BrowserRemoteAction.PLAY_PAUSE)
+
+    with env.factory.begin() as session:
+        grant = session.get(
+            McpClientTargetGrantRow,
+            {"client_id": str(env.client_id), "target_id": str(env.target_id)},
+        )
+        assert grant is not None
+        old_grant_id = grant.grant_id
+        old_created_at = grant.created_at
+        session.delete(grant)
+    with (
+        pytest.raises(IntegrityError, match="UNIQUE constraint failed"),
+        env.factory.begin() as session,
+    ):
+        session.add(
+            McpClientTargetGrantRow(
+                client_id=str(env.client_id),
+                target_id=str(env.target_id),
+                grant_id=old_grant_id,
+                created_at=old_created_at,
+            )
+        )
+    with (
+        pytest.raises(IntegrityError, match="production_mutation_epoch_invalid"),
+        env.factory.begin() as session,
+    ):
+        mutation = session.get(ProductionMutationControlRow, 1)
+        assert mutation is not None
+        session.delete(mutation)
+
+    env.administration.grant_target(env.client_id, env.target_id)
+    with pytest.raises(ProductionApprovalError, match="authority_changed"):
+        _request(service, env, pending.request_id)
+    assert service.get(pending.approval_id).state == "cancelled"
+    assert remote.sends == 0
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -492,13 +577,27 @@ def test_live_capacity_and_durable_dispatch_interval_fail_immediately(
 
 
 def test_concurrent_exact_consumption_has_one_claim_and_one_dispatch(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env, _scope, _clock, remote, _preflight, service = _service(tmp_path)
     request_id = uuid4()
     pending = _request(service, env, request_id)
     assert isinstance(pending, ProductionApprovalRequiredResult)
     service.approve(pending.approval_id, action=BrowserRemoteAction.PLAY_PAUSE)
+
+    dispatch_entered = Event()
+    dispatch_release = Event()
+    original_invoke = remote.invoke
+
+    def blocking_invoke(*args: Any, **kwargs: Any) -> Any:
+        dispatch_entered.set()
+        if not dispatch_release.wait(timeout=5):
+            raise AssertionError(
+                "concurrent replay did not observe the pending receipt"
+            )
+        return original_invoke(*args, **kwargs)
+
+    monkeypatch.setattr(remote, "invoke", blocking_invoke)
 
     def invoke() -> str:
         try:
@@ -509,7 +608,14 @@ def test_concurrent_exact_consumption_has_one_claim_and_one_dispatch(
             return error.code
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        outcomes = sorted(executor.map(lambda _index: invoke(), range(2)))
+        winner = executor.submit(invoke)
+        assert dispatch_entered.wait(timeout=5)
+        loser = executor.submit(invoke)
+        try:
+            loser_outcome = loser.result(timeout=5)
+        finally:
+            dispatch_release.set()
+        outcomes = sorted((winner.result(timeout=5), loser_outcome))
 
     assert outcomes == ["remote_action_ambiguous", "succeeded"]
     assert remote.sends == 1
@@ -551,6 +657,106 @@ def test_atomic_claim_rollback_leaves_approval_retryable_and_no_receipt(
     result = _request(service, env, request_id)
     assert isinstance(result, McpRemoteActionResult)
     assert result.outcome == "succeeded"
+    assert remote.sends == 1
+
+
+@pytest.mark.parametrize(
+    ("failure_point", "trigger_sql"),
+    [
+        (
+            "before_receipt",
+            "CREATE TRIGGER fail_atomic BEFORE INSERT ON mcp_remote_action_receipts ",
+        ),
+        (
+            "after_receipt",
+            "CREATE TRIGGER fail_atomic AFTER INSERT ON mcp_remote_action_receipts ",
+        ),
+        (
+            "after_binding",
+            "CREATE TRIGGER fail_atomic AFTER INSERT ON "
+            "mcp_production_remote_receipt_bindings ",
+        ),
+        (
+            "after_dispatch_audit",
+            "CREATE TRIGGER fail_atomic AFTER INSERT ON "
+            "production_transient_dispatch_audits ",
+        ),
+        (
+            "after_approval_update",
+            "CREATE TRIGGER fail_atomic AFTER UPDATE ON production_operation_approvals "
+            "WHEN NEW.state='consumed' ",
+        ),
+        (
+            "after_event",
+            "CREATE TRIGGER fail_atomic AFTER INSERT ON "
+            "production_approval_transition_events WHEN NEW.event_kind='consumed' ",
+        ),
+        ("during_commit", None),
+    ],
+)
+def test_atomic_claim_failure_points_roll_back_coherently(
+    tmp_path: Path, failure_point: str, trigger_sql: str | None
+) -> None:
+    env, _scope, _clock, remote, _preflight, service = _service(
+        tmp_path / failure_point
+    )
+    request_id = uuid4()
+    pending = _request(service, env, request_id)
+    assert isinstance(pending, ProductionApprovalRequiredResult)
+    service.approve(pending.approval_id, action=BrowserRemoteAction.PLAY_PAUSE)
+
+    commit_listener = None
+    if trigger_sql is not None:
+        with env.factory.begin() as session:
+            session.execute(
+                text(
+                    trigger_sql
+                    + "BEGIN SELECT RAISE(ABORT, 'injected atomic failure'); END"
+                )
+            )
+    else:
+
+        def fail_consumed_commit(session: Any) -> None:
+            approval = session.get(
+                ProductionOperationApprovalRow, str(pending.approval_id)
+            )
+            if approval is not None and approval.state == "consumed":
+                raise RuntimeError("injected commit failure")
+
+        commit_listener = fail_consumed_commit
+        event.listen(env.factory.class_, "before_commit", commit_listener)
+
+    with pytest.raises((IntegrityError, RuntimeError), match="injected"):
+        _request(service, env, request_id)
+    if commit_listener is not None:
+        event.remove(env.factory.class_, "before_commit", commit_listener)
+    else:
+        with env.factory.begin() as session:
+            session.execute(text("DROP TRIGGER fail_atomic"))
+
+    with env.factory() as session:
+        approval = session.get(ProductionOperationApprovalRow, str(pending.approval_id))
+        assert approval is not None and approval.state == "approved"
+        assert (
+            session.scalar(select(func.count()).select_from(McpRemoteActionReceiptRow))
+            == 0
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(McpProductionRemoteReceiptBindingRow)
+            )
+            == 0
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ProductionTransientDispatchAuditRow)
+            )
+            == 0
+        )
+    assert remote.sends == 0
+    retry = _request(service, env, request_id)
+    assert isinstance(retry, McpRemoteActionResult)
+    assert retry.outcome == "succeeded"
     assert remote.sends == 1
 
 
@@ -597,6 +803,67 @@ def test_post_commit_crash_leaves_protected_receipt_and_never_redispatches(
     with pytest.raises(ProductionApprovalError, match="remote_action_ambiguous"):
         _request(service, env, request_id)
     assert remote.calls == 1
+
+
+@pytest.mark.parametrize("veto", ["global", "target"])
+def test_immediate_post_commit_veto_is_definite_and_never_sends(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, veto: str
+) -> None:
+    env, _scope, _clock, remote, _preflight, service = _service(tmp_path / veto)
+    request_id = uuid4()
+    pending = _request(service, env, request_id)
+    assert isinstance(pending, ProductionApprovalRequiredResult)
+    service.approve(pending.approval_id, action=BrowserRemoteAction.PLAY_PAUSE)
+
+    def veto_before_send(
+        target_id: UUID, action: BrowserRemoteAction, **kwargs: Any
+    ) -> Never:
+        remote.calls += 1
+        with env.factory.begin() as session:
+            if veto == "global":
+                mutation = session.get(ProductionMutationControlRow, 1)
+                assert mutation is not None
+                mutation.production_mutations_blocked = True
+                mutation.policy_epoch += 1
+            else:
+                policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
+                assert policy is not None
+                policy.mutations_suspended = True
+                policy.policy_revision += 1
+        with pytest.raises(ProductionApprovalError, match="mutation_policy_changed"):
+            kwargs["before_dispatch"]()
+        raise BrowserRemoteError(
+            "production_mutations_blocked"
+            if veto == "global"
+            else "production_target_mutations_suspended",
+            "injected immediate veto",
+        )
+
+    monkeypatch.setattr(remote, "invoke", veto_before_send)
+    expected = (
+        "production_mutations_blocked"
+        if veto == "global"
+        else "production_target_mutations_suspended"
+    )
+    with pytest.raises(ProductionApprovalError, match=expected):
+        _request(service, env, request_id)
+    with env.factory() as session:
+        approval = session.get(ProductionOperationApprovalRow, str(pending.approval_id))
+        assert approval is not None and approval.state == "consumed"
+        receipt = session.get(
+            McpRemoteActionReceiptRow, approval.linked_remote_receipt_id
+        )
+        audit = session.get(
+            ProductionTransientDispatchAuditRow, approval.linked_remote_receipt_id
+        )
+        assert receipt is not None and receipt.state == "completed"
+        assert receipt.final_result == expected
+        assert audit is not None and audit.state == "completed"
+        assert audit.dispatch_classification == "not_dispatched"
+    with pytest.raises(ProductionApprovalError, match=expected):
+        _request(service, env, request_id)
+    assert remote.calls == 1
+    assert remote.sends == 0
 
 
 def test_retention_deletes_only_coherent_terminal_bundles_atomically(
@@ -678,6 +945,25 @@ def test_retention_protects_unobserved_pending_and_consumed_pending_receipt(
         credential = session.get(McpCredentialRow, str(env.principal.credential_id))
         assert credential is not None
         credential.expires_at = None
+    malformed = _request(service, env, uuid4())
+    assert isinstance(malformed, ProductionApprovalRequiredResult)
+    service.deny(malformed.approval_id)
+    with env.factory.begin() as session:
+        session.add(
+            ProductionApprovalTransitionEventRow(
+                id=str(uuid4()),
+                approval_id=str(malformed.approval_id),
+                event_kind="approved",
+                from_state="pending",
+                to_state="approved",
+                terminal_reason=None,
+                actor_kind="web_admin",
+                actor_reference="malformed_fixture",
+                linked_remote_receipt_id=None,
+                occurred_at="2026-09-21T12:00:00.000000Z",
+            )
+        )
+    clock.advance(timedelta(seconds=31))
     untouched = _request(service, env, uuid4())
     assert isinstance(untouched, ProductionApprovalRequiredResult)
     clock.advance(timedelta(seconds=31))
@@ -696,6 +982,10 @@ def test_retention_protects_unobserved_pending_and_consumed_pending_receipt(
         consumed_row = session.get(
             ProductionOperationApprovalRow, str(consumed.approval_id)
         )
+        malformed_row = session.get(
+            ProductionOperationApprovalRow, str(malformed.approval_id)
+        )
+        assert malformed_row is not None and malformed_row.state == "denied"
         assert pending_row is not None and pending_row.state == "pending"
         assert consumed_row is not None and consumed_row.state == "consumed"
         receipt = session.get(

@@ -30,6 +30,7 @@ from kodi_lab.domain import (
     ExternalProtocolKind,
     TargetType,
 )
+from kodi_lab.kodi.bridge import ExternalBridgeError
 from kodi_lab.kodi.external import (
     ExternalEndpointPolicy,
     ExternalKodiProbeResult,
@@ -159,6 +160,23 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
         assert paired.reviewed_build_id == reviewed.build_id
         assert paired.production_identity_generation == 1
         assert paired.production_bridge_trust_revision == 1
+        bridge_client = cast(Any, bridges)._client
+        identity = bridge_client.identity
+        attempts = 0
+
+        def fail_once(*args: object, **kwargs: object) -> object:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise ExternalBridgeError("bridge_unreachable")
+            return identity(*args, **kwargs)
+
+        monkeypatch.setattr(bridge_client, "identity", fail_once)
+        with pytest.raises(ExternalBridgeServiceError, match="bridge_unreachable"):
+            bridges.authenticate_production_identity(target_id)
+        assert bridges.status(target_id).reachability_state.value == "unreachable"
+        bridges.authenticate_production_identity(target_id)
+        assert bridges.status(target_id).reachability_state.value == "reachable"
         # Technical expansion is observed but cannot create production
         # deployment authority or disturb the reviewed screenshot subset.
         fake.capabilities.append("workspace_deployment")

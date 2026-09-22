@@ -89,6 +89,30 @@ def upgrade() -> None:
     op.execute(
         "CREATE TRIGGER trg_mcp_client_target_grant_identity_immutable BEFORE UPDATE OF grant_id ON mcp_client_target_grants WHEN NEW.grant_id<>OLD.grant_id BEGIN SELECT RAISE(ABORT, 'mcp_client_target_grant_identity_immutable'); END"
     )
+    op.create_table(
+        "mcp_client_target_grant_identities",
+        sa.Column("grant_id", sa.String(36), nullable=False),
+        sa.Column("client_id", sa.String(36), nullable=False),
+        sa.Column("target_id", sa.String(36), nullable=False),
+        sa.Column("created_at", sa.String(27), nullable=False),
+        sa.CheckConstraint(
+            "length(grant_id)=36 AND length(client_id)=36 AND length(target_id)=36 AND length(created_at)=27",
+            name="mcp_client_target_grant_identity_shapes",
+        ),
+        sa.PrimaryKeyConstraint("grant_id"),
+    )
+    op.execute(
+        "INSERT INTO mcp_client_target_grant_identities (grant_id,client_id,target_id,created_at) SELECT grant_id,client_id,target_id,created_at FROM mcp_client_target_grants"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_mcp_client_target_grant_identity_once AFTER INSERT ON mcp_client_target_grants BEGIN INSERT INTO mcp_client_target_grant_identities (grant_id,client_id,target_id,created_at) VALUES (NEW.grant_id,NEW.client_id,NEW.target_id,NEW.created_at); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_mcp_client_target_grant_identity_history_immutable BEFORE UPDATE ON mcp_client_target_grant_identities BEGIN SELECT RAISE(ABORT, 'mcp_client_target_grant_identity_reused'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_mcp_client_target_grant_identity_history_no_delete BEFORE DELETE ON mcp_client_target_grant_identities BEGIN SELECT RAISE(ABORT, 'mcp_client_target_grant_identity_reused'); END"
+    )
 
     op.execute("DROP TRIGGER trg_mcp_production_scope_no_delete")
     op.execute("DROP TRIGGER trg_mcp_production_scope_immutable")
@@ -175,6 +199,13 @@ def upgrade() -> None:
         "mcp_production_remote_receipt_bindings",
         ["inspect_scope_id", "navigate_scope_id", "transient_scope_id"],
     )
+    op.create_index(
+        "uq_mcp_production_remote_binding_approval",
+        "mcp_production_remote_receipt_bindings",
+        ["approval_id"],
+        unique=True,
+        sqlite_where=sa.text("approval_id IS NOT NULL"),
+    )
 
     op.create_table(
         "production_operation_approvals",
@@ -198,7 +229,7 @@ def upgrade() -> None:
         sa.Column("inspect_scope_id", sa.String(36), nullable=False),
         sa.Column("transient_scope_id", sa.String(36), nullable=False),
         sa.Column("native_http_acknowledgement_id", sa.String(36)),
-        sa.Column("reviewed_build_id", sa.String(36)),
+        sa.Column("reviewed_build_id", sa.String(36), nullable=False),
         sa.Column("state", sa.String(16), nullable=False),
         sa.Column("terminal_reason", sa.String(32)),
         sa.Column("created_at", sa.String(27), nullable=False),
@@ -225,7 +256,7 @@ def upgrade() -> None:
             name="production_approval_revisions_positive",
         ),
         sa.CheckConstraint(
-            "length(generic_grant_id)=36 AND length(client_preset_id)=36 AND length(target_preset_id)=36 AND length(inspect_scope_id)=36 AND length(transient_scope_id)=36",
+            "length(generic_grant_id)=36 AND length(client_preset_id)=36 AND length(target_preset_id)=36 AND length(inspect_scope_id)=36 AND length(transient_scope_id)=36 AND length(reviewed_build_id)=36",
             name="production_approval_authority_uuid_shapes",
         ),
         sa.CheckConstraint(
@@ -243,6 +274,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "length(created_at)=27 AND length(pending_expires_at)=27 AND pending_expires_at>created_at AND (approved_at IS NULL OR length(approved_at)=27) AND (approved_dispatch_expires_at IS NULL OR length(approved_dispatch_expires_at)=27) AND (consumed_at IS NULL OR length(consumed_at)=27)",
             name="production_approval_timestamps_valid",
+        ),
+        sa.CheckConstraint(
+            "julianday(pending_expires_at)-julianday(created_at)<=900.001/86400.0 AND (approved_dispatch_expires_at IS NULL OR julianday(approved_dispatch_expires_at)-julianday(approved_at)<=300.001/86400.0)",
+            name="production_approval_ttl_bounded",
         ),
         sa.CheckConstraint(
             "(state='pending' AND terminal_reason IS NULL AND approved_at IS NULL AND approved_dispatch_expires_at IS NULL AND approving_administrator IS NULL AND consumed_at IS NULL AND linked_remote_receipt_id IS NULL) OR (state='approved' AND terminal_reason IS NULL AND approved_at IS NOT NULL AND approved_dispatch_expires_at IS NOT NULL AND approving_administrator IS NOT NULL AND consumed_at IS NULL AND linked_remote_receipt_id IS NULL) OR (state IN ('denied','cancelled','expired') AND terminal_reason IS NOT NULL AND consumed_at IS NULL AND linked_remote_receipt_id IS NULL) OR (state='consumed' AND terminal_reason IS NULL AND approved_at IS NOT NULL AND approved_dispatch_expires_at IS NOT NULL AND approving_administrator IS NOT NULL AND consumed_at IS NOT NULL AND length(linked_remote_receipt_id)=36)",
@@ -271,6 +306,13 @@ def upgrade() -> None:
         "ix_production_approval_target_state",
         "production_operation_approvals",
         ["target_id", "state"],
+    )
+    op.create_index(
+        "uq_production_approval_linked_receipt",
+        "production_operation_approvals",
+        ["linked_remote_receipt_id"],
+        unique=True,
+        sqlite_where=sa.text("linked_remote_receipt_id IS NOT NULL"),
     )
 
     op.create_table(
@@ -357,6 +399,9 @@ def upgrade() -> None:
             "length(requested_at)=27 AND (completed_at IS NULL OR length(completed_at)=27)",
             name="production_transient_audit_timestamps_valid",
         ),
+        sa.UniqueConstraint(
+            "approval_id", name="uq_production_transient_audit_approval"
+        ),
         sa.PrimaryKeyConstraint("receipt_id"),
     )
     op.create_index(
@@ -384,7 +429,7 @@ def upgrade() -> None:
         "CREATE TRIGGER trg_production_approval_transition BEFORE UPDATE ON production_operation_approvals WHEN NEW.id<>OLD.id OR NEW.client_id<>OLD.client_id OR NEW.credential_id<>OLD.credential_id OR NEW.target_id<>OLD.target_id OR NEW.tool<>OLD.tool OR NEW.action<>OLD.action OR NEW.payload_sha256<>OLD.payload_sha256 OR NEW.canonicalization_revision<>OLD.canonicalization_revision OR NEW.request_id<>OLD.request_id OR NEW.native_identity_generation<>OLD.native_identity_generation OR NEW.bridge_trust_revision<>OLD.bridge_trust_revision OR NEW.target_policy_revision<>OLD.target_policy_revision OR NEW.mutation_control_epoch<>OLD.mutation_control_epoch OR NEW.client_authority_revision<>OLD.client_authority_revision OR NEW.generic_grant_id<>OLD.generic_grant_id OR NEW.client_preset_id<>OLD.client_preset_id OR NEW.target_preset_id<>OLD.target_preset_id OR NEW.inspect_scope_id<>OLD.inspect_scope_id OR NEW.transient_scope_id<>OLD.transient_scope_id OR NEW.native_http_acknowledgement_id IS NOT OLD.native_http_acknowledgement_id OR NEW.reviewed_build_id IS NOT OLD.reviewed_build_id OR NEW.created_at<>OLD.created_at OR NEW.pending_expires_at<>OLD.pending_expires_at OR NOT ((OLD.state='pending' AND NEW.state IN ('approved','denied','cancelled','expired')) OR (OLD.state='approved' AND NEW.state IN ('consumed','cancelled','expired'))) BEGIN SELECT RAISE(ABORT, 'production_approval_transition_invalid'); END"
     )
     op.execute(
-        "CREATE TRIGGER trg_production_approval_no_delete BEFORE DELETE ON production_operation_approvals WHEN NOT ((OLD.state IN ('denied','cancelled','expired') AND OLD.linked_remote_receipt_id IS NULL AND EXISTS(SELECT 1 FROM production_approval_transition_events e WHERE e.approval_id=OLD.id AND e.event_kind='requested' AND e.to_state='pending') AND EXISTS(SELECT 1 FROM production_approval_transition_events e WHERE e.approval_id=OLD.id AND e.to_state=OLD.state)) OR (OLD.state='consumed' AND EXISTS(SELECT 1 FROM mcp_remote_action_receipts r JOIN production_transient_dispatch_audits a ON a.receipt_id=r.id WHERE r.id=OLD.linked_remote_receipt_id AND r.state='completed' AND a.approval_id=OLD.id AND a.state='completed'))) BEGIN SELECT RAISE(ABORT, 'production_approval_protected'); END"
+        "CREATE TRIGGER trg_production_approval_no_delete BEFORE DELETE ON production_operation_approvals WHEN NOT ((OLD.state IN ('denied','cancelled','expired') AND OLD.linked_remote_receipt_id IS NULL AND EXISTS(SELECT 1 FROM production_approval_transition_events e WHERE e.approval_id=OLD.id AND e.event_kind='requested' AND e.to_state='pending') AND EXISTS(SELECT 1 FROM production_approval_transition_events e WHERE e.approval_id=OLD.id AND e.to_state=OLD.state)) OR (OLD.state='consumed' AND OLD.linked_remote_receipt_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM mcp_remote_action_receipts r WHERE r.id=OLD.linked_remote_receipt_id) AND NOT EXISTS(SELECT 1 FROM mcp_production_remote_receipt_bindings b WHERE b.receipt_id=OLD.linked_remote_receipt_id OR b.approval_id=OLD.id) AND NOT EXISTS(SELECT 1 FROM production_transient_dispatch_audits a WHERE a.receipt_id=OLD.linked_remote_receipt_id OR a.approval_id=OLD.id) AND EXISTS(SELECT 1 FROM production_approval_transition_events e WHERE e.approval_id=OLD.id AND e.event_kind='requested' AND e.to_state='pending') AND EXISTS(SELECT 1 FROM production_approval_transition_events e WHERE e.approval_id=OLD.id AND e.event_kind='consumed' AND e.to_state='consumed' AND e.linked_remote_receipt_id=OLD.linked_remote_receipt_id))) BEGIN SELECT RAISE(ABORT, 'production_approval_protected'); END"
     )
     op.execute(
         "CREATE TRIGGER trg_production_approval_event_immutable BEFORE UPDATE ON production_approval_transition_events BEGIN SELECT RAISE(ABORT, 'production_approval_event_immutable'); END"
@@ -398,6 +443,15 @@ def upgrade() -> None:
     op.execute(
         "CREATE TRIGGER trg_production_transient_audit_no_delete BEFORE DELETE ON production_transient_dispatch_audits WHEN NOT EXISTS(SELECT 1 FROM mcp_remote_action_receipts r WHERE r.id=OLD.receipt_id AND r.state='completed' AND OLD.state='completed' AND OLD.outcome=r.final_result AND OLD.requested_at=r.created_at AND OLD.completed_at=r.completed_at) BEGIN SELECT RAISE(ABORT, 'production_transient_audit_protected'); END"
     )
+    op.execute(
+        "CREATE TRIGGER trg_production_transient_binding_insert BEFORE INSERT ON mcp_production_remote_receipt_bindings WHEN NEW.operation_class='transient_control' AND NOT EXISTS(SELECT 1 FROM production_operation_approvals a JOIN mcp_remote_action_receipts r ON r.id=NEW.receipt_id WHERE a.id=NEW.approval_id AND a.state='approved' AND a.linked_remote_receipt_id IS NULL AND a.client_id=r.client_id AND a.credential_id=r.credential_id AND a.target_id=r.target_id AND a.request_id=r.request_id AND a.action=r.action AND r.state='pending' AND a.native_identity_generation=NEW.native_identity_generation AND a.bridge_trust_revision=NEW.bridge_trust_revision AND a.target_policy_revision=NEW.target_policy_revision AND a.mutation_control_epoch=NEW.mutation_control_epoch AND a.inspect_scope_id=NEW.inspect_scope_id AND a.transient_scope_id=NEW.transient_scope_id AND a.client_preset_id=NEW.client_preset_id AND a.target_preset_id=NEW.target_preset_id AND a.generic_grant_id=NEW.generic_grant_id AND a.native_http_acknowledgement_id IS NEW.native_http_acknowledgement_id) BEGIN SELECT RAISE(ABORT, 'production_transient_binding_invalid'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_production_transient_audit_insert BEFORE INSERT ON production_transient_dispatch_audits WHEN NOT EXISTS(SELECT 1 FROM production_operation_approvals a JOIN mcp_remote_action_receipts r ON r.id=NEW.receipt_id JOIN mcp_production_remote_receipt_bindings b ON b.receipt_id=r.id WHERE a.id=NEW.approval_id AND a.state='approved' AND a.linked_remote_receipt_id IS NULL AND b.operation_class='transient_control' AND b.approval_id=a.id AND a.client_id=NEW.client_id AND a.credential_id=NEW.credential_id AND a.target_id=NEW.target_id AND a.request_id=NEW.request_id AND a.action=NEW.action AND a.payload_sha256=NEW.payload_sha256 AND a.canonicalization_revision=NEW.canonicalization_revision AND r.client_id=NEW.client_id AND r.credential_id=NEW.credential_id AND r.target_id=NEW.target_id AND r.request_id=NEW.request_id AND r.action=NEW.action AND r.state='pending' AND NEW.state='pending' AND NEW.outcome='pending' AND NEW.dispatch_classification='not_dispatched' AND NEW.requested_at=r.created_at AND NEW.completed_at IS NULL) BEGIN SELECT RAISE(ABORT, 'production_transient_audit_invalid'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_production_approval_consumption_binding BEFORE UPDATE ON production_operation_approvals WHEN OLD.state='approved' AND NEW.state='consumed' AND NOT EXISTS(SELECT 1 FROM mcp_remote_action_receipts r JOIN mcp_production_remote_receipt_bindings b ON b.receipt_id=r.id JOIN production_transient_dispatch_audits a ON a.receipt_id=r.id WHERE r.id=NEW.linked_remote_receipt_id AND b.operation_class='transient_control' AND b.approval_id=NEW.id AND a.approval_id=NEW.id AND r.client_id=NEW.client_id AND r.credential_id=NEW.credential_id AND r.target_id=NEW.target_id AND r.request_id=NEW.request_id AND r.action=NEW.action AND r.state='pending' AND a.client_id=NEW.client_id AND a.credential_id=NEW.credential_id AND a.target_id=NEW.target_id AND a.request_id=NEW.request_id AND a.action=NEW.action AND a.payload_sha256=NEW.payload_sha256 AND a.canonicalization_revision=NEW.canonicalization_revision AND a.state='pending') BEGIN SELECT RAISE(ABORT, 'production_approval_consumption_invalid'); END"
+    )
     _binding_triggers()
 
     op.execute(
@@ -408,6 +462,33 @@ def upgrade() -> None:
     )
     op.execute(
         "CREATE TRIGGER trg_production_mutation_epoch_monotonic BEFORE UPDATE ON production_mutation_control WHEN NEW.policy_epoch<OLD.policy_epoch OR (NEW.production_mutations_blocked<>OLD.production_mutations_blocked AND NEW.policy_epoch<=OLD.policy_epoch) OR (NEW.production_mutations_blocked=OLD.production_mutations_blocked AND NEW.policy_epoch<>OLD.policy_epoch) BEGIN SELECT RAISE(ABORT, 'production_mutation_epoch_invalid'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_production_mutation_epoch_no_delete BEFORE DELETE ON production_mutation_control BEGIN SELECT RAISE(ABORT, 'production_mutation_epoch_invalid'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_mcp_credential_approval_no_delete BEFORE DELETE ON mcp_credentials WHEN EXISTS(SELECT 1 FROM production_operation_approvals WHERE credential_id=OLD.id) BEGIN SELECT RAISE(ABORT, 'production_approval_authority_protected'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_mcp_client_approval_no_delete BEFORE DELETE ON mcp_clients WHEN EXISTS(SELECT 1 FROM production_operation_approvals WHERE client_id=OLD.id) BEGIN SELECT RAISE(ABORT, 'production_approval_authority_protected'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_production_policy_approval_no_delete BEFORE DELETE ON external_production_policies WHEN EXISTS(SELECT 1 FROM production_operation_approvals WHERE target_id=OLD.target_id) BEGIN SELECT RAISE(ABORT, 'production_approval_authority_protected'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_external_production_administrative_revision AFTER UPDATE OF administrative_state ON external_kodi_targets WHEN NEW.administrative_state<>OLD.administrative_state AND COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')='external_production' BEGIN UPDATE external_production_policies SET policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_external_production_native_material_revision AFTER UPDATE ON external_kodi_targets WHEN COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')='external_production' AND (NEW.protocol_kind<>OLD.protocol_kind OR NEW.host<>OLD.host OR NEW.port<>OLD.port OR NEW.authentication_mode<>OLD.authentication_mode OR NEW.secret_reference IS NOT OLD.secret_reference OR NEW.configured_capabilities_json<>OLD.configured_capabilities_json OR NEW.verified_capabilities_json<>OLD.verified_capabilities_json OR NEW.verification_state<>OLD.verification_state OR NEW.verified_addresses_json<>OLD.verified_addresses_json OR NEW.verified_kodi_name IS NOT OLD.verified_kodi_name OR NEW.verified_kodi_version IS NOT OLD.verified_kodi_version OR NEW.observed_kodi_name IS NOT OLD.observed_kodi_name OR NEW.observed_kodi_version IS NOT OLD.observed_kodi_version OR NEW.observed_protocol_version IS NOT OLD.observed_protocol_version OR NEW.pending_observation_id IS NOT OLD.pending_observation_id) BEGIN UPDATE external_production_policies SET policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_production_target_preset_revision_insert AFTER INSERT ON mcp_target_preset_assignments WHEN COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')='external_production' BEGIN UPDATE external_production_policies SET policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_production_target_preset_revision_update AFTER UPDATE OF preset_id ON mcp_target_preset_assignments WHEN NEW.preset_id<>OLD.preset_id AND COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')='external_production' BEGIN UPDATE external_production_policies SET policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_production_target_preset_revision_delete AFTER DELETE ON mcp_target_preset_assignments WHEN COALESCE((SELECT target_type FROM targets WHERE id=OLD.target_id),'')='external_production' BEGIN UPDATE external_production_policies SET policy_revision=policy_revision+1 WHERE target_id=OLD.target_id; END"
     )
 
 
@@ -421,7 +502,8 @@ def downgrade() -> None:
             "OR EXISTS(SELECT 1 FROM production_transient_dispatch_audits) "
             "OR EXISTS(SELECT 1 FROM production_approval_creation_rates) "
             "OR EXISTS(SELECT 1 FROM production_transient_dispatch_rates) "
-            "OR EXISTS(SELECT 1 FROM mcp_client_target_grants)"
+            "OR EXISTS(SELECT 1 FROM mcp_client_target_grants) "
+            "OR EXISTS(SELECT 1 FROM mcp_client_target_grant_identities)"
         )
     ).scalar_one()
     if populated:
@@ -430,6 +512,15 @@ def downgrade() -> None:
         )
 
     for trigger in (
+        "trg_production_target_preset_revision_delete",
+        "trg_production_target_preset_revision_update",
+        "trg_production_target_preset_revision_insert",
+        "trg_external_production_administrative_revision",
+        "trg_external_production_native_material_revision",
+        "trg_production_policy_approval_no_delete",
+        "trg_mcp_client_approval_no_delete",
+        "trg_mcp_credential_approval_no_delete",
+        "trg_production_mutation_epoch_no_delete",
         "trg_production_mutation_epoch_monotonic",
         "trg_external_production_policy_material_revision",
         "trg_external_production_policy_revision_monotonic",
@@ -438,6 +529,9 @@ def downgrade() -> None:
         "trg_mcp_production_remote_receipt_protected",
         "trg_production_transient_audit_no_delete",
         "trg_production_transient_audit_terminal",
+        "trg_production_approval_consumption_binding",
+        "trg_production_transient_audit_insert",
+        "trg_production_transient_binding_insert",
         "trg_production_approval_event_no_delete",
         "trg_production_approval_event_immutable",
         "trg_production_approval_no_delete",
@@ -461,6 +555,10 @@ def downgrade() -> None:
         table_name="production_operation_approvals",
     )
     op.drop_index(
+        "uq_production_approval_linked_receipt",
+        table_name="production_operation_approvals",
+    )
+    op.drop_index(
         "ix_production_approval_client_history",
         table_name="production_operation_approvals",
     )
@@ -471,6 +569,10 @@ def downgrade() -> None:
 
     op.drop_index(
         "ix_mcp_production_remote_binding_scopes",
+        table_name="mcp_production_remote_receipt_bindings",
+    )
+    op.drop_index(
+        "uq_mcp_production_remote_binding_approval",
         table_name="mcp_production_remote_receipt_bindings",
     )
     with op.batch_alter_table(
@@ -542,6 +644,10 @@ def downgrade() -> None:
         "CREATE TRIGGER trg_mcp_production_scope_no_delete BEFORE DELETE ON mcp_production_target_scopes BEGIN SELECT RAISE(ABORT, 'production_inspection_scope_immutable'); END"
     )
 
+    op.execute("DROP TRIGGER trg_mcp_client_target_grant_identity_history_no_delete")
+    op.execute("DROP TRIGGER trg_mcp_client_target_grant_identity_history_immutable")
+    op.execute("DROP TRIGGER trg_mcp_client_target_grant_identity_once")
+    op.drop_table("mcp_client_target_grant_identities")
     op.execute("DROP TRIGGER trg_mcp_client_target_grant_identity_immutable")
     with op.batch_alter_table("mcp_client_target_grants", recreate="always") as batch:
         batch.drop_constraint("uq_mcp_client_target_grant_id", type_="unique")

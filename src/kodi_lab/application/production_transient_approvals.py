@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -693,6 +693,7 @@ class ProductionTransientApprovalService:
                             ),
                         )
                     )
+                    session.flush()
                     session.add(
                         ProductionTransientDispatchAuditRow(
                             receipt_id=str(receipt_id),
@@ -711,6 +712,7 @@ class ProductionTransientApprovalService:
                             completed_at=None,
                         )
                     )
+                    session.flush()
                     row.state = "consumed"
                     row.consumed_at = _text(now)
                     row.linked_remote_receipt_id = str(receipt_id)
@@ -1076,9 +1078,7 @@ class ProductionTransientApprovalService:
                     ProductionApprovalTransitionEventRow.approval_id == row.id
                 )
             ).all()
-            requested = sum(event.event_kind == "requested" for event in events) == 1
-            terminal = sum(event.to_state == row.state for event in events) == 1
-            if not requested or not terminal:
+            if not self._coherent_transition_history(row, events):
                 continue
             if row.state != "consumed":
                 if row.linked_remote_receipt_id is not None:
@@ -1104,22 +1104,122 @@ class ProductionTransientApprovalService:
                 or binding is None
                 or audit is None
                 or receipt.state != "completed"
+                or receipt.client_id != row.client_id
+                or receipt.credential_id != row.credential_id
+                or receipt.target_id != row.target_id
+                or receipt.request_id != row.request_id
+                or receipt.action != row.action
+                or receipt.final_result is None
+                or receipt.completed_at is None
+                or receipt.screenshot_refresh_result is None
                 or binding.operation_class != "transient_control"
                 or binding.approval_id != row.id
+                or binding.native_identity_generation != row.native_identity_generation
+                or binding.bridge_trust_revision != row.bridge_trust_revision
+                or binding.target_policy_revision != row.target_policy_revision
+                or binding.mutation_control_epoch != row.mutation_control_epoch
+                or binding.inspect_scope_id != row.inspect_scope_id
+                or binding.navigate_scope_id is not None
+                or binding.transient_scope_id != row.transient_scope_id
+                or binding.client_preset_id != row.client_preset_id
+                or binding.target_preset_id != row.target_preset_id
+                or binding.generic_grant_id != row.generic_grant_id
+                or binding.native_http_acknowledgement_id
+                != row.native_http_acknowledgement_id
                 or audit.approval_id != row.id
+                or audit.client_id != row.client_id
+                or audit.credential_id != row.credential_id
+                or audit.target_id != row.target_id
+                or audit.request_id != row.request_id
+                or audit.action != row.action
+                or audit.payload_sha256 != row.payload_sha256
+                or audit.canonicalization_revision != row.canonicalization_revision
                 or audit.state != "completed"
                 or audit.outcome != receipt.final_result
+                or audit.requested_at != receipt.created_at
                 or audit.completed_at != receipt.completed_at
+                or audit.dispatch_classification
+                != (
+                    "acknowledged"
+                    if receipt.final_result
+                    in {
+                        "succeeded",
+                        "authority_changed_after_dispatch",
+                        "remote_kodi_rejected",
+                    }
+                    else "not_dispatched"
+                )
             ):
                 continue
+            session.delete(binding)
+            session.flush()
+            session.delete(audit)
+            session.flush()
+            session.delete(receipt)
+            session.flush()
             session.delete(row)
             session.flush()
             for event in events:
                 session.delete(event)
-            session.delete(binding)
-            session.delete(audit)
-            session.flush()
-            session.delete(receipt)
+
+    @staticmethod
+    def _coherent_transition_history(
+        row: ProductionOperationApprovalRow,
+        events: Sequence[ProductionApprovalTransitionEventRow],
+    ) -> bool:
+        requested = [
+            event
+            for event in events
+            if event.event_kind == "requested"
+            and event.from_state is None
+            and event.to_state == "pending"
+            and event.terminal_reason is None
+            and event.linked_remote_receipt_id is None
+        ]
+        if len(requested) != 1:
+            return False
+        approved = [
+            event
+            for event in events
+            if event.event_kind == "approved"
+            and event.from_state == "pending"
+            and event.to_state == "approved"
+            and event.terminal_reason is None
+            and event.linked_remote_receipt_id is None
+        ]
+        terminal = [
+            event
+            for event in events
+            if event.event_kind == row.state
+            and event.from_state in {"pending", "approved"}
+            and event.to_state == row.state
+            and event.terminal_reason == row.terminal_reason
+            and event.linked_remote_receipt_id is None
+        ]
+        if row.state == "consumed":
+            consumed = [
+                event
+                for event in events
+                if event.event_kind == "consumed"
+                and event.from_state == "approved"
+                and event.to_state == "consumed"
+                and event.terminal_reason is None
+                and event.linked_remote_receipt_id == row.linked_remote_receipt_id
+            ]
+            return len(events) == 3 and len(approved) == 1 and len(consumed) == 1
+        if row.state == "denied":
+            return (
+                len(events) == 2
+                and not approved
+                and len(terminal) == 1
+                and terminal[0].from_state == "pending"
+            )
+        if row.state in {"cancelled", "expired"} and len(terminal) == 1:
+            from_approved = terminal[0].from_state == "approved"
+            return len(events) == (3 if from_approved else 2) and len(approved) == (
+                1 if from_approved else 0
+            )
+        return False
 
     @staticmethod
     def _require_creation_capacity(session: Session, client_id: UUID) -> None:

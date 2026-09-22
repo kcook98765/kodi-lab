@@ -1365,3 +1365,7 @@ history is bounded to 1,000/client and 10,000 globally with approximately
 30-day retention. Live, pending, ambiguous, malformed or incoherent evidence is
 never evicted. Slice 4B adds no deployment, execution, lifecycle, support-addon,
 shell, filesystem, SSH or arbitrary JSON-RPC authority. Phase 14 remains partial.
+The independent completion audit closes Slice 4B with permanent one-use grant
+identity, monotonic direct-state revision, atomic policy-cancellation and
+coherent approval/receipt retention guards; it does not authorize a later
+Phase 14 slice.

@@ -2479,7 +2479,8 @@ deployment, execution, lifecycle, shell, filesystem, SSH or arbitrary JSON-RPC.
 ## Phase 14 Slice 4B one-shot transient production approvals
 
 Migration `0051_production_transient_approvals` adds immutable generic grant
-UUIDs, positive monotonic client authority revision, the generation/revision-
+UUIDs backed by a permanent one-use identity ledger, positive monotonic client
+authority revision, the generation/revision-
 bound `request_transient_control` scope, durable approvals and append-only
 transition events, transient dispatch audit/rate state and a second closed
 production receipt-binding shape. Existing navigation rows remain navigation
@@ -2493,7 +2494,9 @@ revisions, client authority revision, generic grant UUID, exact presets, inspect
 and transient scope UUIDs, applicable HTTP acknowledgement and reviewed build.
 Client rename and credential administration do not perturb the client authority
 revision; enablement and preset assignment do. Grant/scope/credential changes
-are detected by their exact identities.
+are detected by their exact identities. Deleting a grant cannot delete its
+identity ledger entry, so direct remove/reinsert cannot reuse an approval-bound
+UUID.
 
 MCP request processing classifies prohibited actions before any receipt or
 approval work. It then resolves an existing base receipt, then an existing
@@ -2509,14 +2512,18 @@ Approval requires the exact displayed action and clear global/target vetoes;
 deny and cancel remain available while blocked. Pending can become approved,
 denied, cancelled or expired; approved can become consumed, cancelled or
 expired. No terminal state reopens. Pending and approved deadlines are persisted
-and never extended.
+and never extended. A mutation block, target suspension, target disablement or
+deactivation advances its governing revision and cancels affected live
+approvals in the same Web transaction.
 
 An approved retry first authenticates the bridge identity and performs native
 Ping, JSON-RPC version, application identity and action-specific method
 introspection without mutation. Temporary reachability failure returns a
 bounded error while preserving approval. Definitive identity, protocol, build,
 capability or durable-authority mismatch cancels it. The original deadline
-continues in both cases.
+continues in both cases. A successful authenticated retry after transient bridge
+unreachability restores only reachability state after revalidating the exact
+pinned bridge identity and authority revisions.
 
 One serialized SQLite claim transaction re-reads approval and all authority,
 checks deadlines and vetoes, enforces durable admission, inserts the base

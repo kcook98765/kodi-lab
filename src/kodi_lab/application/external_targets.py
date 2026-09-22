@@ -41,7 +41,9 @@ from kodi_lab.storage.models import (
     McpClientTargetGrantRow,
     McpSecurityEventRow,
     McpTargetPresetAssignmentRow,
+    ProductionApprovalTransitionEventRow,
     ProductionMutationControlRow,
+    ProductionOperationApprovalRow,
     TargetRow,
 )
 from kodi_lab.storage.secrets import (
@@ -618,6 +620,7 @@ class ExternalTargetAdministrationService:
                 row.policy_epoch += 1
                 row.updated_by = administrator
                 row.updated_at = _to_text(now)
+                self._cancel_live_approvals(session, now=now)
                 session.add(
                     McpSecurityEventRow(
                         id=str(uuid4()),
@@ -656,6 +659,7 @@ class ExternalTargetAdministrationService:
                 policy.mutations_suspended = suspended
                 policy.policy_revision += 1
                 policy.updated_at = _to_text(now)
+                self._cancel_live_approvals(session, now=now, target_id=target_id)
                 self._event(
                     session,
                     target_id,
@@ -705,6 +709,7 @@ class ExternalTargetAdministrationService:
                     raise ExternalTargetError("production_policy_missing")
                 policy.policy_revision += 1
                 policy.updated_at = _to_text(now)
+                self._cancel_live_approvals(session, now=now, target_id=target_id)
         return self.get(target_id)
 
     def deactivate(self, target_id: UUID) -> ExternalTargetRead:
@@ -724,6 +729,7 @@ class ExternalTargetAdministrationService:
                 policy.mutations_suspended = True
                 policy.policy_revision += 1
                 policy.updated_at = _to_text(now)
+                self._cancel_live_approvals(session, now=now, target_id=target_id)
             target.availability = TargetAvailability.UNAVAILABLE
             target.connection_state = ConnectionState.DISCONNECTED
             target.health = HealthStatus.WARNING
@@ -741,6 +747,36 @@ class ExternalTargetAdministrationService:
         if old_reference is not None:
             self._credential_store.retire(old_reference)
         return self.get(target_id)
+
+    @staticmethod
+    def _cancel_live_approvals(
+        session: Session, *, now: datetime, target_id: UUID | None = None
+    ) -> None:
+        statement = select(ProductionOperationApprovalRow).where(
+            ProductionOperationApprovalRow.state.in_(("pending", "approved"))
+        )
+        if target_id is not None:
+            statement = statement.where(
+                ProductionOperationApprovalRow.target_id == str(target_id)
+            )
+        for approval in session.scalars(statement).all():
+            previous = approval.state
+            approval.state = "cancelled"
+            approval.terminal_reason = "mutation_policy_changed"
+            session.add(
+                ProductionApprovalTransitionEventRow(
+                    id=str(uuid4()),
+                    approval_id=approval.id,
+                    event_kind="cancelled",
+                    from_state=previous,
+                    to_state="cancelled",
+                    terminal_reason="mutation_policy_changed",
+                    actor_kind="system",
+                    actor_reference="mutation_policy",
+                    linked_remote_receipt_id=None,
+                    occurred_at=_to_text(now),
+                )
+            )
 
     def _publish_failure(
         self,

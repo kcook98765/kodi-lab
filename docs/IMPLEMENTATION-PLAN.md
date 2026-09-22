@@ -1679,11 +1679,12 @@ native preamble without LAN or production contact. At that 4A checkpoint,
 Slice 4B approvals and all playback/volume, deployment, execution, lifecycle,
 shell, filesystem, SSH and arbitrary JSON-RPC authority remained unimplemented.
 
-## Phase 14 Slice 4B implementation completion checkpoint
+## Phase 14 Slice 4B formal completion checkpoint
 
 **Slice 4B: COMPLETE. Phase 14: PARTIAL.** Migration
 `0051_production_transient_approvals` adds immutable generic grant UUIDs,
-positive monotonic client authority revision, the current-generation/current-
+including a permanent one-use grant-identity ledger, positive monotonic client
+authority revision, the current-generation/current-
 bridge `request_transient_control` scope, durable approval/transition/audit/rate
 storage and the closed transient production receipt-binding form. No authority
 row is seeded and destructive downgrade refuses when 4B authority/history
@@ -1706,6 +1707,15 @@ reopens approval or redispatches the receipt. Local/mock tests cover request,
 decision, expiry, authority resurrection, veto, reachability, concurrency,
 post-commit loss, replay, migration preservation and Web/MCP schema boundaries
 without LAN or production contact.
+
+The independent audit of checkpoint
+`579d377e0e2a4e56b9baaddf1c8d02f74c06005e` reproduced and remediated grant-ID
+reuse after direct removal, mutation-epoch replacement, incomplete direct
+target-policy revision coverage, non-recovering temporary bridge reachability,
+non-atomic mutation-policy cancellation and insufficient relationship/cleanup
+coherence. Focused adversarial proof and the final authoritative repository gate
+passed on the remediated content. This closes Slice 4B only; it does not begin
+support-addon deployment or any later Phase 14 slice.
 
 Standing navigation and all sixteen external-development actions remain
 unchanged; production `context_menu` and `select` remain prohibited. No

@@ -231,6 +231,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "managed_screenshots",
         "mcp_clients",
         "mcp_client_target_grants",
+        "mcp_client_target_grant_identities",
         "mcp_client_development_source_grants",
         "mcp_agent_workspace_bindings",
         "mcp_credentials",
@@ -5801,7 +5802,17 @@ def test_0051_preserves_navigation_and_assigns_safe_grant_identity(
         "receipt": "52000000-0000-4000-8000-000000000005",
         "inspect": "52000000-0000-4000-8000-000000000006",
         "navigate": "52000000-0000-4000-8000-000000000007",
+        "approval": "52000000-0000-4000-8000-000000000008",
+        "transient_receipt": "52000000-0000-4000-8000-000000000009",
+        "transient_request": "52000000-0000-4000-8000-000000000010",
+        "transient": "52000000-0000-4000-8000-000000000011",
+        "requested_event": "52000000-0000-4000-8000-000000000012",
+        "approved_event": "52000000-0000-4000-8000-000000000013",
+        "consumed_event": "52000000-0000-4000-8000-000000000014",
+        "reviewed_build": "52000000-0000-4000-8000-000000000015",
         "at": "2026-09-21T12:00:00.000000Z",
+        "pending_expiry": "2026-09-21T12:15:00.000000Z",
+        "dispatch_expiry": "2026-09-21T12:05:00.000000Z",
     }
     with engine.begin() as connection:
         connection.execute(
@@ -5982,6 +5993,207 @@ def test_0051_preserves_navigation_and_assigns_safe_grant_identity(
                 ),
                 ids,
             )
+        assert connection.execute(
+            text(
+                "SELECT client_id,target_id,created_at FROM "
+                "mcp_client_target_grant_identities WHERE grant_id=:grant_id"
+            ),
+            {**ids, "grant_id": grant_id},
+        ).one() == (ids["client"], ids["target"], ids["at"])
+        connection.execute(
+            text(
+                "INSERT INTO production_operation_approvals "
+                "(id,client_id,credential_id,target_id,tool,action,payload_sha256,"
+                "canonicalization_revision,request_id,native_identity_generation,"
+                "bridge_trust_revision,target_policy_revision,mutation_control_epoch,"
+                "client_authority_revision,generic_grant_id,client_preset_id,"
+                "target_preset_id,inspect_scope_id,transient_scope_id,"
+                "native_http_acknowledgement_id,reviewed_build_id,state,"
+                "terminal_reason,created_at,pending_expires_at,approved_at,"
+                "approved_dispatch_expires_at,approving_administrator,consumed_at,"
+                "linked_remote_receipt_id) VALUES "
+                "(:approval,:client,:credential,:target,'remote_action','play_pause',"
+                "'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',"
+                "1,:transient_request,1,1,2,2,2,:grant_id,"
+                "'11000000-0000-4000-8000-000000000004',"
+                "'11000000-0000-4000-8000-000000000004',:inspect,:transient,NULL,"
+                ":reviewed_build,'approved',NULL,:at,:pending_expiry,:at,"
+                ":dispatch_expiry,'auditor',NULL,NULL)"
+            ),
+            {**ids, "grant_id": grant_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO production_approval_transition_events "
+                "(id,approval_id,event_kind,from_state,to_state,terminal_reason,"
+                "actor_kind,actor_reference,linked_remote_receipt_id,occurred_at) "
+                "VALUES (:requested_event,:approval,'requested',NULL,'pending',NULL,"
+                "'mcp_client',:client,NULL,:at),"
+                "(:approved_event,:approval,'approved','pending','approved',NULL,"
+                "'web_admin','auditor',NULL,:at)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_remote_action_receipts "
+                "(id,client_id,credential_id,target_id,request_id,action,created_at,"
+                "state,final_result,completed_at,screenshot_refresh_result,"
+                "screenshot_capture_id,screenshot_captured_at) VALUES "
+                "(:transient_receipt,:client,:credential,:target,:transient_request,"
+                "'play_pause',:at,'pending',NULL,NULL,NULL,NULL,NULL)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_production_remote_receipt_bindings "
+                "(receipt_id,operation_class,native_identity_generation,"
+                "bridge_trust_revision,target_policy_revision,mutation_control_epoch,"
+                "inspect_scope_id,navigate_scope_id,transient_scope_id,approval_id,"
+                "client_preset_id,target_preset_id,generic_grant_created_at,"
+                "generic_grant_id,native_http_acknowledgement_id) VALUES "
+                "(:transient_receipt,'transient_control',1,1,2,2,:inspect,NULL,"
+                ":transient,:approval,'11000000-0000-4000-8000-000000000004',"
+                "'11000000-0000-4000-8000-000000000004',:at,:grant_id,NULL)"
+            ),
+            {**ids, "grant_id": grant_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO production_transient_dispatch_audits "
+                "(receipt_id,approval_id,client_id,credential_id,target_id,request_id,"
+                "action,payload_sha256,canonicalization_revision,state,outcome,"
+                "dispatch_classification,requested_at,completed_at) VALUES "
+                "(:transient_receipt,:approval,:client,:credential,:target,"
+                ":transient_request,'play_pause',"
+                "'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',"
+                "1,'pending','pending','not_dispatched',:at,NULL)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "UPDATE production_operation_approvals SET state='consumed',"
+                "consumed_at=:at,linked_remote_receipt_id=:transient_receipt "
+                "WHERE id=:approval"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO production_approval_transition_events "
+                "(id,approval_id,event_kind,from_state,to_state,terminal_reason,"
+                "actor_kind,actor_reference,linked_remote_receipt_id,occurred_at) "
+                "VALUES (:consumed_event,:approval,'consumed','approved','consumed',"
+                "NULL,'system','atomic_consumer',:transient_receipt,:at)"
+            ),
+            ids,
+        )
+        for statement, error in (
+            (
+                "DELETE FROM production_operation_approvals WHERE id=:approval",
+                "production_approval_protected",
+            ),
+            (
+                "UPDATE production_operation_approvals SET id=:reviewed_build "
+                "WHERE id=:approval",
+                "production_approval_transition_invalid",
+            ),
+            (
+                "UPDATE production_operation_approvals "
+                "SET linked_remote_receipt_id=:reviewed_build WHERE id=:approval",
+                "production_approval_transition_invalid",
+            ),
+            (
+                "DELETE FROM mcp_remote_action_receipts WHERE id=:transient_receipt",
+                "production_remote_receipt_protected",
+            ),
+            (
+                "UPDATE mcp_production_remote_receipt_bindings "
+                "SET approval_id=:reviewed_build WHERE receipt_id=:transient_receipt",
+                "production_remote_binding_immutable",
+            ),
+        ):
+            with pytest.raises(IntegrityError, match=error):
+                connection.execute(text(statement), ids)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "DELETE FROM mcp_client_target_grants "
+                "WHERE client_id=:client AND target_id=:target"
+            ),
+            ids,
+        )
+    with (
+        pytest.raises(IntegrityError, match="UNIQUE constraint failed"),
+        engine.begin() as connection,
+    ):
+        connection.execute(
+            text(
+                "INSERT INTO mcp_client_target_grants "
+                "(client_id,target_id,grant_id,created_at) "
+                "VALUES (:client,:target,:grant_id,:at)"
+            ),
+            {**ids, "grant_id": grant_id},
+        )
+    with (
+        pytest.raises(IntegrityError, match="production_mutation_epoch_invalid"),
+        engine.begin() as connection,
+    ):
+        connection.execute(text("DELETE FROM production_mutation_control WHERE id=1"))
+    with engine.begin() as connection:
+        before = connection.scalar(
+            text(
+                "SELECT policy_revision FROM external_production_policies "
+                "WHERE target_id=:target"
+            ),
+            ids,
+        )
+        assert isinstance(before, int)
+        connection.execute(
+            text(
+                "UPDATE external_kodi_targets SET administrative_state='enabled' "
+                "WHERE target_id=:target"
+            ),
+            ids,
+        )
+        after_enable = connection.scalar(
+            text(
+                "SELECT policy_revision FROM external_production_policies "
+                "WHERE target_id=:target"
+            ),
+            ids,
+        )
+        assert after_enable == before + 1
+        connection.execute(
+            text(
+                "INSERT INTO mcp_target_preset_assignments "
+                "(target_id,preset_id,assigned_at) VALUES "
+                "(:target,'11000000-0000-4000-8000-000000000004',:at)"
+            ),
+            ids,
+        )
+        after_assignment = connection.scalar(
+            text(
+                "SELECT policy_revision FROM external_production_policies "
+                "WHERE target_id=:target"
+            ),
+            ids,
+        )
+        assert after_assignment == after_enable + 1
+        connection.execute(
+            text("DELETE FROM mcp_target_preset_assignments WHERE target_id=:target"),
+            ids,
+        )
+        after_removal = connection.scalar(
+            text(
+                "SELECT policy_revision FROM external_production_policies "
+                "WHERE target_id=:target"
+            ),
+            ids,
+        )
+        assert after_removal == after_assignment + 1
     engine.dispose()
     with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
         command.downgrade(config, "0050_production_navigation")

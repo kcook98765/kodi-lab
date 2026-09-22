@@ -4342,7 +4342,9 @@ authority.
 - Decision: positive monotonic `mcp_clients.authority_revision` advances only
   for enabled-state or preset changes. Credential, immutable generic grant and
   production-scope identity are bound directly. Generic target grants receive
-  immutable UUIDs; remove/regrant can never revive an old approval.
+  immutable UUIDs recorded in a permanent one-use identity ledger; direct
+  delete/reinsert and normal remove/regrant can never reuse an old identity or
+  revive an old approval.
 
 ## D-0356: Approval deadlines are bounded and terminal states cannot reopen
 - Status: accepted Phase 14 Slice 4B.
@@ -4356,7 +4358,10 @@ authority.
 - Decision: exact credential/client/preset/grant/scope/native/bridge/build/
   capability/acknowledgement/policy/epoch changes cancel live approval with a
   closed semantic reason. A temporary bridge or native reachability failure
-  before claim leaves an approved row intact until its original deadline.
+before claim leaves an approved row intact until its original deadline, and a
+fresh exact authenticated bridge retry may restore reachability. Web mutation
+block, target suspension, disablement and deactivation cancel affected live
+approvals atomically with the governing revision transition.
 
 ## D-0358: Post-commit/pre-send loss is accepted at-most-once behavior
 - Status: accepted Phase 14 Slice 4B.
@@ -4447,3 +4452,28 @@ authority.
   deployment remain unavailable.
 - Isolation: no real Kodi or LAN host was contacted and no later Phase 14 work
   was begun.
+
+## Phase 14 Slice 4B formal completion record
+
+- Status: **Phase 14 Slice 4B — One-shot transient production approvals:
+  COMPLETE**; Phase 14 remains **PARTIAL**.
+- Review basis: independent formal review of implementation checkpoint
+  `579d377e0e2a4e56b9baaddf1c8d02f74c06005e`, Alembic head
+  `0051_production_transient_approvals`, the unchanged exact fifteen-tool
+  catalog and deterministic local/disposable evidence only.
+- Independent remediation: the audit reproduced direct reuse of a removed
+  generic grant UUID, deletion/recreation of the global mutation epoch, stale
+  target-policy revision paths, bridge unreachability that could not recover,
+  non-atomic live-approval invalidation and insufficient malformed retention/
+  approval-receipt relationship guards. Completion remediation adds a permanent
+  grant-identity ledger, monotonic direct-state guards, atomic Web cancellation,
+  exact authenticated reachability recovery, one-to-one durable approval/
+  receipt/audit constraints and stricter coherent cleanup.
+- Validation: deterministic tests cover direct-state resurrection, temporary
+  recovery, every atomic-claim rollback point including commit, concurrent
+  consumption, immediate post-commit veto, post-commit loss, replay, retention,
+  migration preservation and unchanged transport/workspace boundaries; the
+  authoritative final repository gate passed on final content.
+- Boundary: no production host or LAN contact, Stage D, support-addon
+  deployment, later Phase 14 work, publication, tag or remote was used or
+  begun.
