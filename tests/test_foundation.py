@@ -201,6 +201,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "mcp_workspace_deployment_operations",
         "mcp_workspace_execution_operations",
         "mcp_presets",
+        "mcp_production_target_scopes",
         "mcp_preset_permissions",
         "mcp_remote_action_receipts",
         "mcp_security_events",

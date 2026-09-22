@@ -92,6 +92,18 @@ class ExternalKodiProbeResult:
     verified_capabilities: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ProductionKodiIdentityResult:
+    identity: KodiApplicationIdentity
+    protocol_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProductionKodiInventoryResult:
+    inventory: KodiAddonInventoryResult
+    protocol_version: str
+
+
 class ExternalEndpointPolicy:
     """Closed IP-literal-only private-LAN policy for Phase 13 Slice 1."""
 
@@ -540,6 +552,21 @@ class NativeExternalKodiAdapter:
             raise ExternalProbeError("target_unreachable") from error
         return self._verifier._identity(result)
 
+    def get_production_identity(self) -> ProductionKodiIdentityResult:
+        """Run the exact three-call production identity preamble."""
+
+        started = time.monotonic()
+        try:
+            with self._client() as client:
+                identity, protocol_version = self._production_preamble(client, started)
+        except ExternalProbeError:
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as error:
+            raise ExternalProbeError("target_unreachable") from error
+        return ProductionKodiIdentityResult(
+            identity=identity, protocol_version=protocol_version
+        )
+
     def get_inventory(self) -> KodiAddonInventoryResult:
         started = time.monotonic()
         try:
@@ -552,74 +579,7 @@ class NativeExternalKodiAdapter:
                     started,
                 )
                 identity = self._verifier._identity(identity_result)
-                records: list[KodiAddonInventoryRecord] = []
-                seen: set[str] = set()
-                expected_total: int | None = None
-                start = 0
-                while expected_total is None or start < expected_total:
-                    end = min(start + INVENTORY_PAGE_SIZE, MAX_INVENTORY_ITEMS)
-                    result = self._verifier._call(
-                        client,
-                        self._endpoint,
-                        "Addons.GetAddons",
-                        {
-                            "type": "unknown",
-                            "installed": True,
-                            "enabled": "all",
-                            "properties": ["name", "version", "enabled"],
-                            "limits": {"start": start, "end": end},
-                        },
-                        started,
-                    )
-                    if not isinstance(result, dict) or not set(result) <= {
-                        "addons",
-                        "limits",
-                    }:
-                        raise KodiAddonInventoryUnsupportedResponseError(
-                            "external inventory result is unsupported"
-                        )
-                    items = result.get("addons", [])
-                    limits = result.get("limits")
-                    if not isinstance(items, list) or not isinstance(limits, dict):
-                        raise KodiAddonInventoryUnsupportedResponseError(
-                            "external inventory page is unsupported"
-                        )
-                    values = tuple(limits.get(key) for key in ("start", "end", "total"))
-                    if set(limits) != {"start", "end", "total"} or any(
-                        type(value) is not int or value < 0 for value in values
-                    ):
-                        raise KodiAddonInventoryUnsupportedResponseError(
-                            "external inventory limits are unsupported"
-                        )
-                    returned_start, returned_end, returned_total = cast(
-                        tuple[int, int, int], values
-                    )
-                    if returned_total > MAX_INVENTORY_ITEMS:
-                        raise KodiAddonInventoryLimitExceededError(
-                            "external inventory exceeds the fixed limit"
-                        )
-                    if expected_total is None:
-                        expected_total = returned_total
-                    if (
-                        returned_total != expected_total
-                        or returned_start != start
-                        or returned_end != start + len(items)
-                        or returned_end > returned_total
-                        or len(items) > INVENTORY_PAGE_SIZE
-                        or (returned_end == start and returned_end < returned_total)
-                    ):
-                        raise KodiAddonInventoryUnsupportedResponseError(
-                            "external inventory pagination is inconsistent"
-                        )
-                    for item in items:
-                        record = KodiAddonInventoryAdapter._normalize_item(item)
-                        if record.addon_id in seen:
-                            raise KodiAddonInventoryMalformedDataError(
-                                "external inventory contains duplicate IDs"
-                            )
-                        seen.add(record.addon_id)
-                        records.append(record)
-                    start = returned_end
+                records = self._inventory_pages(client, started)
         except (
             KodiAddonInventoryLimitExceededError,
             KodiAddonInventoryMalformedDataError,
@@ -629,14 +589,135 @@ class NativeExternalKodiAdapter:
             raise
         except (httpx.TimeoutException, httpx.NetworkError) as error:
             raise ExternalProbeError("target_unreachable") from error
-        if expected_total is None or len(records) != expected_total:
-            raise KodiAddonInventoryUnsupportedResponseError(
-                "external inventory is incomplete"
-            )
         return KodiAddonInventoryResult(
             identity=identity,
             items=tuple(sorted(records, key=lambda item: item.addon_id)),
         )
+
+    def get_production_inventory(self) -> ProductionKodiInventoryResult:
+        """Run the production identity preamble then fixed bounded inventory."""
+
+        started = time.monotonic()
+        try:
+            with self._client() as client:
+                identity, protocol_version = self._production_preamble(client, started)
+                records = self._inventory_pages(client, started)
+        except (
+            KodiAddonInventoryLimitExceededError,
+            KodiAddonInventoryMalformedDataError,
+            KodiAddonInventoryUnsupportedResponseError,
+            ExternalProbeError,
+        ):
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as error:
+            raise ExternalProbeError("target_unreachable") from error
+        return ProductionKodiInventoryResult(
+            inventory=KodiAddonInventoryResult(
+                identity=identity,
+                items=tuple(sorted(records, key=lambda item: item.addon_id)),
+            ),
+            protocol_version=protocol_version,
+        )
+
+    def _production_preamble(
+        self, client: httpx.Client, started: float
+    ) -> tuple[KodiApplicationIdentity, str]:
+        ping = self._verifier._call(
+            client, self._endpoint, "JSONRPC.Ping", None, started
+        )
+        if ping != "pong":
+            raise ExternalProbeError("invalid_kodi_response")
+        protocol = self._verifier._call(
+            client, self._endpoint, "JSONRPC.Version", None, started
+        )
+        identity_result = self._verifier._call(
+            client,
+            self._endpoint,
+            "Application.GetProperties",
+            {"properties": ["name", "version"]},
+            started,
+        )
+        return (
+            self._verifier._identity(identity_result),
+            self._verifier._protocol_version(protocol),
+        )
+
+    def _inventory_pages(
+        self, client: httpx.Client, started: float
+    ) -> list[KodiAddonInventoryRecord]:
+        records: list[KodiAddonInventoryRecord] = []
+        seen: set[str] = set()
+        expected_total: int | None = None
+        start = 0
+        while expected_total is None or start < expected_total:
+            end = min(start + INVENTORY_PAGE_SIZE, MAX_INVENTORY_ITEMS)
+            result = self._verifier._call(
+                client,
+                self._endpoint,
+                "Addons.GetAddons",
+                {
+                    "type": "unknown",
+                    "installed": True,
+                    "enabled": "all",
+                    "properties": ["name", "version", "enabled"],
+                    "limits": {"start": start, "end": end},
+                },
+                started,
+            )
+            if not isinstance(result, dict) or not set(result) <= {
+                "addons",
+                "limits",
+            }:
+                raise KodiAddonInventoryUnsupportedResponseError(
+                    "external inventory result is unsupported"
+                )
+            items = result.get("addons", [])
+            limits = result.get("limits")
+            if not isinstance(items, list) or not isinstance(limits, dict):
+                raise KodiAddonInventoryUnsupportedResponseError(
+                    "external inventory page is unsupported"
+                )
+            values = tuple(limits.get(key) for key in ("start", "end", "total"))
+            if set(limits) != {"start", "end", "total"} or any(
+                type(value) is not int or value < 0 for value in values
+            ):
+                raise KodiAddonInventoryUnsupportedResponseError(
+                    "external inventory limits are unsupported"
+                )
+            returned_start, returned_end, returned_total = cast(
+                tuple[int, int, int], values
+            )
+            if returned_total > MAX_INVENTORY_ITEMS:
+                raise KodiAddonInventoryLimitExceededError(
+                    "external inventory exceeds the fixed limit"
+                )
+            if expected_total is None:
+                expected_total = returned_total
+            if (
+                returned_total != expected_total
+                or returned_start != start
+                or returned_end != start + len(items)
+                or returned_end > returned_total
+                or len(items) > INVENTORY_PAGE_SIZE
+                or (returned_end == start and returned_end < returned_total)
+            ):
+                raise KodiAddonInventoryUnsupportedResponseError(
+                    "external inventory pagination is inconsistent"
+                )
+            for item in items:
+                record = KodiAddonInventoryAdapter._normalize_item(item)
+                if record.addon_id in seen:
+                    raise KodiAddonInventoryMalformedDataError(
+                        "external inventory contains duplicate IDs"
+                    )
+                seen.add(record.addon_id)
+                records.append(record)
+            start = returned_end
+        if expected_total is None or len(records) != expected_total:
+            raise KodiAddonInventoryUnsupportedResponseError(
+                "external inventory is incomplete"
+            )
+        return records
 
     def dispatch(self, action: BrowserRemoteAction, invocation_id: UUID) -> None:
         started = time.monotonic()

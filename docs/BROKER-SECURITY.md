@@ -719,3 +719,18 @@ switches are deny-only policy state and cannot invoke the broker.
 
 No production target was contacted. Production data/runtime roots and protected
 managed resources remain outside the external-production representation.
+
+## Phase 14 Slice 2 has no broker authority
+
+Production inspection uses the existing SSRF-bounded native `/jsonrpc` adapter
+only. It adds no broker request, allowlist entry, socket message, privileged
+caller, Docker/container operation, runtime path or lifecycle action. Add-on
+inventory is a fixed native semantic read and never performs a filesystem
+lookup. The four-production/eight-external concurrency gates are ordinary
+application admission controls, not broker capacity or privilege.
+
+Identity mismatch changes only local trust metadata: it disables the target,
+advances generation and invalidates designation. It does not restart, repair or
+otherwise mutate Kodi. Protected managed runtimes, production roots and broker
+fingerprints remain isolated. No LAN or production host was contacted for this
+slice.

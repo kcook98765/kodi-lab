@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol, TypeVar
 from uuid import UUID
 
@@ -11,6 +12,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_administration import McpPrincipal
+from kodi_lab.application.production_inspection import (
+    PRODUCTION_INSPECTION_PRESET_ID,
+    PRODUCTION_INSPECTION_PRESET_NAME,
+    ProductionInspectionError,
+    ProductionReadRateLimiter,
+    evaluate_production_inspection_state,
+)
 from kodi_lab.application.reconciliation import ManagedInstanceReconciliationService
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatusService,
@@ -40,7 +48,10 @@ from kodi_lab.storage.models import (
     McpClientDevelopmentSourceGrantRow,
     McpClientRow,
     McpClientTargetGrantRow,
+    McpCredentialRow,
     McpPresetPermissionRow,
+    McpPresetRow,
+    McpProductionTargetScopeRow,
     McpTargetPresetAssignmentRow,
     TargetRow,
 )
@@ -136,10 +147,14 @@ class McpAuthorizationService:
         registry: McpToolRegistry,
         *,
         targets: TargetAuthorityProvider | None = None,
+        production_rates: ProductionReadRateLimiter | None = None,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._session_factory = session_factory
         self._registry = registry
         self._targets = targets or InternalManagedTargetAuthorityProvider()
+        self._production_rates = production_rates or ProductionReadRateLimiter()
+        self._clock = clock
 
     def discoverable_tools(self, principal: McpPrincipal) -> tuple[str, ...]:
         permissions = self._client_permissions(principal.client_id)
@@ -154,6 +169,19 @@ class McpAuthorizationService:
         permissions = self._client_permissions(principal.client_id)
         if not definition.permissions.issubset(permissions):
             raise McpAuthorizationError("permission_denied")
+        if (
+            tool_name == "target_list"
+            and principal.preset_id == PRODUCTION_INSPECTION_PRESET_ID
+        ):
+            with self._session_factory() as session:
+                client = session.get(McpClientRow, str(principal.client_id))
+                if (
+                    client is None
+                    or not client.enabled
+                    or client.preset_id != str(PRODUCTION_INSPECTION_PRESET_ID)
+                ):
+                    raise McpAuthorizationError("permission_denied")
+                self._require_current_credential(session, principal, client)
         return definition
 
     def authorize_target(
@@ -192,7 +220,16 @@ class McpAuthorizationService:
             assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
             if grant is None or target is None or assignment is None:
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
-            self._enforce_target_class_veto(target)
+            if target.target_type is TargetType.EXTERNAL_PRODUCTION:
+                self._evaluate_production_inspection(
+                    session,
+                    principal=principal,
+                    definition=definition,
+                    client=client,
+                    target=target,
+                    assignment=assignment,
+                )
+                return definition
             client_permissions = self._permissions(session, client.preset_id)
             target_permissions = self._permissions(session, assignment.preset_id)
             if not definition.permissions.issubset(
@@ -421,7 +458,7 @@ class McpAuthorizationService:
                 raise McpAuthorizationError("workspace_not_found_or_not_authorized")
             if target_grant is None or target is None or assignment is None:
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
-            self._enforce_target_class_veto(target, tool_name=tool_name)
+            self._enforce_workspace_production_veto(target, tool_name=tool_name)
             client_permissions = self._permissions(session, client.preset_id)
             if not definition.permissions.issubset(
                 client_permissions.intersection(target_permissions)
@@ -458,10 +495,10 @@ class McpAuthorizationService:
         return workspace
 
     @staticmethod
-    def _enforce_target_class_veto(
+    def _enforce_workspace_production_veto(
         target: TargetRow, *, tool_name: str | None = None
     ) -> None:
-        """One fail-closed Slice-1 veto shared by target and workspace paths."""
+        """Workspace-target paths remain absolutely production-ineligible."""
 
         if target.target_type not in {
             TargetType.EXTERNAL_PRODUCTION,
@@ -473,6 +510,86 @@ class McpAuthorizationService:
         if tool_name in {"workspace_deploy", "workspace_execute"}:
             raise McpAuthorizationError("deployment_not_allowed")
         raise McpAuthorizationError("permission_denied")
+
+    def _evaluate_production_inspection(
+        self,
+        session: Session,
+        *,
+        principal: McpPrincipal,
+        definition: McpToolDefinition,
+        client: McpClientRow,
+        target: TargetRow,
+        assignment: McpTargetPresetAssignmentRow,
+    ) -> None:
+        """One complete durable evaluator for every production read phase."""
+
+        if (
+            not definition.production_eligible
+            or TargetClass.EXTERNAL_PRODUCTION not in definition.allowed_target_classes
+            or definition.name not in {"target_list", "target_status", "addon_list"}
+        ):
+            raise McpAuthorizationError("permission_denied")
+        if (
+            client.id != str(principal.client_id)
+            or not client.enabled
+            or client.preset_id != str(PRODUCTION_INSPECTION_PRESET_ID)
+            or principal.preset_id != PRODUCTION_INSPECTION_PRESET_ID
+            or assignment.preset_id != str(PRODUCTION_INSPECTION_PRESET_ID)
+        ):
+            raise McpAuthorizationError("permission_denied")
+        preset = session.get(McpPresetRow, str(PRODUCTION_INSPECTION_PRESET_ID))
+        if (
+            preset is None
+            or not preset.builtin
+            or not preset.assignable
+            or preset.display_name != PRODUCTION_INSPECTION_PRESET_NAME
+            or self._permissions(session, preset.id) != frozenset({"target.inspect"})
+            or not definition.permissions.issubset(frozenset({"target.inspect"}))
+        ):
+            raise McpAuthorizationError("permission_denied")
+        self._require_current_credential(session, principal, client)
+        try:
+            state = evaluate_production_inspection_state(
+                session,
+                UUID(target.id),
+                required_capabilities=definition.required_capabilities,
+            )
+        except ProductionInspectionError as error:
+            raise McpAuthorizationError(error.code) from error
+        scope = session.scalar(
+            select(McpProductionTargetScopeRow).where(
+                McpProductionTargetScopeRow.client_id == client.id,
+                McpProductionTargetScopeRow.target_id == target.id,
+                McpProductionTargetScopeRow.identity_generation
+                == state.identity_generation,
+                McpProductionTargetScopeRow.scope == "inspect",
+                McpProductionTargetScopeRow.state == "active",
+            )
+        )
+        if scope is None:
+            raise McpAuthorizationError("target_not_found_or_not_authorized")
+
+    def _require_current_credential(
+        self, session: Session, principal: McpPrincipal, client: McpClientRow
+    ) -> None:
+        credential = session.get(McpCredentialRow, str(principal.credential_id))
+        try:
+            expires_at = (
+                None
+                if credential is None or credential.expires_at is None
+                else datetime.fromisoformat(
+                    credential.expires_at.replace("Z", "+00:00")
+                )
+            )
+        except ValueError as error:
+            raise McpAuthorizationError("permission_denied") from error
+        if (
+            credential is None
+            or credential.client_id != client.id
+            or credential.revoked_at is not None
+            or (expires_at is not None and expires_at <= self._clock())
+        ):
+            raise McpAuthorizationError("permission_denied")
 
     def _require_client_permission(
         self,
@@ -521,6 +638,14 @@ class McpAuthorizationService:
         """Authorize from current durable state before entering an adapter."""
 
         self.authorize_unscoped(principal, tool_name)
+        if (
+            tool_name == "target_list"
+            and principal.preset_id == PRODUCTION_INSPECTION_PRESET_ID
+        ):
+            try:
+                self._production_rates.require_target_list(principal.client_id)
+            except ProductionInspectionError as error:
+                raise McpAuthorizationError(error.code) from error
         return adapter()
 
     def invoke_target(
@@ -533,7 +658,39 @@ class McpAuthorizationService:
         """Apply the complete target intersection before adapter execution."""
 
         self.authorize_target(principal, tool_name, target_id)
-        return adapter()
+        production = self._is_production_target(target_id)
+        if production:
+            try:
+                self._production_rates.require_target_read(
+                    tool_name, principal.client_id, target_id
+                )
+            except ProductionInspectionError as error:
+                raise McpAuthorizationError(error.code) from error
+        try:
+            result = adapter()
+        except McpAuthorizationError as error:
+            if production and error.code != "identity_mismatch":
+                # Even bounded failure classifications are not disclosed after
+                # durable production authority changes during network work.
+                self.authorize_target(principal, tool_name, target_id)
+            raise
+        except Exception:
+            if production:
+                self.authorize_target(principal, tool_name, target_id)
+            raise
+        if production:
+            # A result is not publishable unless the entire durable authority
+            # intersection still holds after the fresh native read.
+            self.authorize_target(principal, tool_name, target_id)
+        return result
+
+    def _is_production_target(self, target_id: UUID) -> bool:
+        with self._session_factory() as session:
+            target = session.get(TargetRow, str(target_id))
+            return bool(
+                target is not None
+                and target.target_type is TargetType.EXTERNAL_PRODUCTION
+            )
 
     def granted_target_ids(self, principal: McpPrincipal) -> tuple[UUID, ...]:
         with self._session_factory() as session:

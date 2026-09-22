@@ -1437,6 +1437,72 @@ class ProductionMutationControlRow(Base):
     updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
+class McpProductionTargetScopeRow(Base):
+    """Immutable generation-bound production inspection authority."""
+
+    __tablename__ = "mcp_production_target_scopes"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND identity_generation>=1",
+            name="mcp_production_scope_identity_valid",
+        ),
+        CheckConstraint("scope='inspect'", name="mcp_production_scope_value_closed"),
+        CheckConstraint(
+            "state IN ('active','revoked')",
+            name="mcp_production_scope_state_closed",
+        ),
+        CheckConstraint(
+            "(state='active' AND revoked_at IS NULL AND revoked_by IS NULL) OR "
+            "(state='revoked' AND revoked_at IS NOT NULL AND revoked_by IS NOT NULL)",
+            name="mcp_production_scope_revocation_consistent",
+        ),
+        CheckConstraint(
+            "length(created_at)=27 AND "
+            "(revoked_at IS NULL OR "
+            "(length(revoked_at)=27 AND revoked_at>=created_at))",
+            name="mcp_production_scope_timestamps_valid",
+        ),
+        CheckConstraint(
+            "length(created_by) BETWEEN 1 AND 64 AND "
+            "(revoked_by IS NULL OR length(revoked_by) BETWEEN 1 AND 64)",
+            name="mcp_production_scope_administrators_bounded",
+        ),
+        Index("ix_mcp_production_scope_client", "client_id", "state"),
+        Index(
+            "ix_mcp_production_scope_target_generation",
+            "target_id",
+            "identity_generation",
+            "state",
+        ),
+        Index(
+            "uq_mcp_production_scope_active",
+            "client_id",
+            "target_id",
+            "identity_generation",
+            "scope",
+            unique=True,
+            sqlite_where=text("state='active'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="RESTRICT"), nullable=False
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_production_policies.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    revoked_at: Mapped[str | None] = mapped_column(String(27))
+    revoked_by: Mapped[str | None] = mapped_column(String(64))
+
+
 class ExternalBridgePairingRow(Base):
     """Pinned optional bridge identity and protected-secret references."""
 
@@ -5586,6 +5652,8 @@ class McpSecurityEventRow(Base):
     development_source_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     preset_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    production_scope_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    identity_generation: Mapped[int | None] = mapped_column(Integer, nullable=True)
     occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 

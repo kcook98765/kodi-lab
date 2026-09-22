@@ -145,7 +145,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0047_external_production_policy",)
+        ).fetchone() == ("0048_production_inspection_scopes",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -233,6 +233,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_credentials",
         "mcp_development_requests",
         "mcp_presets",
+        "mcp_production_target_scopes",
         "mcp_preset_permissions",
         "mcp_remote_action_receipts",
         "mcp_security_events",
@@ -5130,3 +5131,202 @@ def test_0047_orders_production_parent_subtype_policy_on_upgraded_schema(
             {"id": str(created.target_id)},
         ).one() == ("external_production", str(created.target_id), 1)
     engine.dispose()
+
+
+def test_0048_production_inspection_scope_upgrade_and_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0047_external_production_policy"
+    )
+    command.upgrade(config, "0048_production_inspection_scopes")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "mcp_production_target_scopes" in inspector.get_table_names()
+    assert {"production_scope_id", "identity_generation"} <= {
+        item["name"] for item in inspector.get_columns("mcp_security_events")
+    }
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT display_name,builtin,assignable FROM mcp_presets "
+                "WHERE id='11000000-0000-4000-8000-000000000005'"
+            )
+        ).one() == ("Production Inspection", 1, 1)
+        assert connection.execute(
+            text(
+                "SELECT permission FROM mcp_preset_permissions "
+                "WHERE preset_id='11000000-0000-4000-8000-000000000005'"
+            )
+        ).one() == ("target.inspect",)
+    engine.dispose()
+
+    command.downgrade(config, "0047_external_production_policy")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "mcp_production_target_scopes" not in inspector.get_table_names()
+    assert "production_scope_id" not in {
+        item["name"] for item in inspector.get_columns("mcp_security_events")
+    }
+    engine.dispose()
+
+
+def test_0048_downgrade_refuses_new_preset_assignments(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision="head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients "
+                "(id,display_name,enabled,preset_id,created_at,"
+                "last_used_at,disabled_at) "
+                "VALUES ('48000000-0000-4000-8000-000000000001','production',1,"
+                "'11000000-0000-4000-8000-000000000005',"
+                "'2026-09-21T00:00:00.000000Z',NULL,NULL)"
+            )
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
+        command.downgrade(config, "0047_external_production_policy")
+
+
+def test_0048_scope_constraints_are_generation_bound_and_history_is_immutable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision="head")
+    engine = create_database_engine(database_url)
+    target_id = "48000000-0000-4000-8000-000000000010"
+    client_id = "48000000-0000-4000-8000-000000000011"
+    first_scope = "48000000-0000-4000-8000-000000000012"
+    second_scope = "48000000-0000-4000-8000-000000000013"
+    timestamp = "2026-09-21T00:00:00.000000Z"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets "
+                "(id,name,target_type,kodi_version,availability,health,"
+                "connection_state) "
+                "VALUES (:id,'production','external_production',NULL,"
+                "'unavailable','warning','disconnected')"
+            ),
+            {"id": target_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_kodi_targets "
+                "(target_id,protocol_kind,host,port,authentication_mode,"
+                "secret_reference,configured_capabilities_json,"
+                "verified_capabilities_json,administrative_state,"
+                "verification_state,observation_state,verified_addresses_json,"
+                "verified_kodi_name,verified_kodi_version,observed_kodi_name,"
+                "observed_kodi_version,observed_protocol_version,"
+                "pending_observation_id,created_at,verified_at,deactivated_at,"
+                "last_observed_at) VALUES (:id,'jsonrpc_http','192.168.50.10',"
+                "8080,'none',NULL,'[\"target_inspect\"]','[]','disabled',"
+                "'unverified',NULL,'[]',NULL,NULL,NULL,NULL,NULL,NULL,:at,NULL,NULL,NULL)"
+            ),
+            {"id": target_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_production_policies "
+                "(target_id,designation_state,confirmed_observation_id,"
+                "confirmed_observation_digest,identity_generation,policy_revision,"
+                "mutations_suspended,designation_confirmed_by,"
+                "designation_confirmed_at,designation_invalidated_at,created_at,"
+                "updated_at) VALUES (:id,'pending_native_identity',NULL,NULL,1,1,"
+                "1,NULL,NULL,NULL,:at,:at)"
+            ),
+            {"id": target_id, "at": timestamp},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients "
+                "(id,display_name,enabled,preset_id,created_at,"
+                "last_used_at,disabled_at) "
+                "VALUES (:id,'reader',1,"
+                "'11000000-0000-4000-8000-000000000005',:at,NULL,NULL)"
+            ),
+            {"id": client_id, "at": timestamp},
+        )
+        scope_sql = text(
+            "INSERT INTO mcp_production_target_scopes "
+            "(id,client_id,target_id,identity_generation,scope,state,created_at,"
+            "created_by,revoked_at,revoked_by) VALUES "
+            "(:id,:client,:target,:generation,'inspect','active',:at,'admin',NULL,NULL)"
+        )
+        connection.execute(
+            scope_sql,
+            {
+                "id": first_scope,
+                "client": client_id,
+                "target": target_id,
+                "generation": 1,
+                "at": timestamp,
+            },
+        )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                scope_sql,
+                {
+                    "id": second_scope,
+                    "client": client_id,
+                    "target": target_id,
+                    "generation": 1,
+                    "at": timestamp,
+                },
+            )
+        with pytest.raises(
+            IntegrityError, match="production_inspection_scope_immutable"
+        ):
+            connection.execute(
+                text(
+                    "UPDATE mcp_production_target_scopes SET identity_generation=2 "
+                    "WHERE id=:id"
+                ),
+                {"id": first_scope},
+            )
+        connection.execute(
+            text(
+                "UPDATE mcp_production_target_scopes SET state='revoked',"
+                "revoked_at=:at,revoked_by='admin' WHERE id=:id"
+            ),
+            {"id": first_scope, "at": timestamp},
+        )
+        connection.execute(
+            scope_sql,
+            {
+                "id": second_scope,
+                "client": client_id,
+                "target": target_id,
+                "generation": 1,
+                "at": timestamp,
+            },
+        )
+        with pytest.raises(
+            IntegrityError, match="production_inspection_scope_binding_invalid"
+        ):
+            connection.execute(
+                scope_sql,
+                {
+                    "id": "48000000-0000-4000-8000-000000000014",
+                    "client": client_id,
+                    "target": target_id,
+                    "generation": 2,
+                    "at": timestamp,
+                },
+            )
+        with pytest.raises(
+            IntegrityError, match="production_inspection_scope_immutable"
+        ):
+            connection.execute(
+                text("DELETE FROM mcp_production_target_scopes WHERE id=:id"),
+                {"id": second_scope},
+            )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
+        command.downgrade(config, "0047_external_production_policy")

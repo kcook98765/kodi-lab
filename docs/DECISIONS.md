@@ -4093,3 +4093,68 @@ authority.
   tools, and Slice 1 exposes production administration only through
   authenticated Web routes. Later capabilities, if accepted, must fit the
   existing semantic tool catalog and centralized production veto.
+
+## D-0323: Production inspection authority is generation-bound
+- Status: accepted Phase 14 Slice 2.
+- Decision: `mcp_production_target_scopes` grants only the closed `inspect`
+  scope to one exact client, production target and current positive identity
+  generation. The ordinary client-target grant remains independently required.
+  Revocation is terminal, regrant creates a new UUID, and old generations remain
+  durable history but can never become effective again.
+
+## D-0324: Production Inspection is a dedicated immutable preset
+- Status: accepted Phase 14 Slice 2.
+- Decision: production reads require the exact assignable built-in `Production
+  Inspection` preset with only `target.inspect`, on both client and target.
+  It cannot be cloned. Read-only Inspection, Add-on Development, Full Lab
+  Control, custom presets and dormant Production Remote Kodi do not authorize
+  production inspection.
+
+## D-0325: Only three existing tools inspect production
+- Status: accepted Phase 14 Slice 2.
+- Decision: only `target_list`, `target_status` and `addon_list` admit
+  `external_production`, and only as read-only production-eligible registry
+  entries. The other twelve tools remain production-ineligible. No tool or
+  MCP input/output schema is added; the catalog remains exactly fifteen.
+
+## D-0326: Direct production reads require fresh native identity
+- Status: accepted Phase 14 Slice 2.
+- Decision: every direct production read performs `JSONRPC.Ping`,
+  `JSONRPC.Version` and `Application.GetProperties(name,version)` before status
+  or inventory is publishable. The complete durable authority intersection is
+  re-evaluated after network work. Exact identity drift atomically records a
+  bounded mismatch, disables the target, advances generation once, invalidates
+  designation and suspends mutation authority without changing Kodi.
+
+## D-0327: Production discovery is exact and private
+- Status: accepted Phase 14 Slice 2.
+- Decision: `target_list` uses confirmed stored trust only and omits every
+  production target lacking the complete grant, scope, generation, preset,
+  policy, state and capability intersection. It makes no network call and
+  exposes no endpoint, authentication, secret, observation or bridge data and
+  makes no fresh reachability claim.
+
+## D-0328: Production reads have separate bounded admission and no retry
+- Status: accepted Phase 14 Slice 2.
+- Decision: target listing is limited to two requests per second per client
+  with burst two; status to one per five seconds per client-target; and add-on
+  inventory to one per thirty seconds per client-target. Maps retain at most
+  1,024 idle-expiring server-UUID keys without active eviction. Native reads
+  are one per target and four globally beneath the existing eight-operation
+  external ceiling. Rejection is immediate and the server never retries.
+
+## D-0329: Mutation vetoes do not govern pure inspection
+- Status: accepted Phase 14 Slice 2.
+- Decision: the global `production_mutations_blocked` switch and per-target
+  mutation suspension remain mutation-only deny controls. They are deliberately
+  absent from the production inspection evaluator. Target disablement,
+  designation invalidation, reverification/mismatch state and stale generation
+  still deny reads.
+
+## D-0330: Production inspection administration is Web-only
+- Status: accepted Phase 14 Slice 2.
+- Decision: exact preset assignment, generic target grant, current-generation
+  inspect-scope creation and terminal revocation use authenticated Web
+  administration with Trusted Host, same-origin and CSRF enforcement. MCP gains
+  no grant management, bridge, screenshot, control, approval, deployment,
+  workspace or lifecycle administration.

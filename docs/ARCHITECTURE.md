@@ -2324,3 +2324,61 @@ and managed plus external-development behavior is unchanged. Administration is
 Web-only, uses the existing private-IP literal and protected-secret boundary,
 and creates no broker operation, DNS/WAN/SSH, shell, generic filesystem, raw
 JSON-RPC or lifecycle authority.
+
+## Phase 14 Slice 2 read-only production inspection
+
+Migration `0048_production_inspection_scopes` adds one immutable, revocable
+`inspect` scope bound to client UUID, production target UUID and exact current
+identity generation. It intersects with—not replaces—the ordinary target grant.
+The exact immutable built-in `Production Inspection` preset carries only
+`target.inspect`, is required on both client and target, and cannot be cloned.
+Old-generation and revoked rows remain durable but are ineffective.
+
+One centralized direct-target evaluator replaces the Slice 1 direct blanket
+veto. It checks current credential/client, exact built-in identities and
+permissions, generic grant, active current-generation scope, registry
+eligibility, mandatory policy, enabled/verified native trust, confirmed
+designation, confirmed-observation digest and internal coherence, plus the
+configured/verified capability intersection. It evaluates stored state for
+listing and both before and after each direct native read. The separate
+workspace-target veto remains absolute, so production inspection cannot become
+workspace, deployment, execution or promotion authority.
+
+Only `target_list`, `target_status` and `addon_list` add
+`external_production` registry eligibility. Listing is stored-only and omits
+ineligible production targets without disclosing unavailable entries. Its
+projection contains logical identity, trusted Kodi version, semantic
+inspection readiness and a bounded tool-capability summary; process and JSON-RPC
+freshness are explicitly unknown/not checked. Endpoint, port, authentication,
+secret and observation material are absent.
+
+Direct status performs exactly Ping, JSON-RPC protocol version and application
+name/version reads with one-second connect, two-second response and four-second
+aggregate deadlines. Inventory performs the same preamble, then fixed 64-item
+`Addons.GetAddons` pages up to 2,048 records, requesting only name, version and
+enabled properties plus Kodi's required ID/type response fields. MCP pagination
+remains capped at 100 and the existing sub-64-KiB semantic response, raw-body,
+JSON depth/node/string and path-free output bounds remain authoritative. There
+is no bridge or filesystem dependency.
+
+Live name, version or JSON-RPC protocol drift is local trust revocation only:
+one bounded mismatch observation is committed, the target is disabled,
+generation advances exactly once, designation is invalidated and target
+mutations are suspended. Kodi is not repaired or mutated. Every successful
+network result is withheld unless the post-read authority/generation evaluation
+still succeeds.
+
+Production listing admits two requests per second per client with burst two;
+status one per five seconds per client-target; and inventory one per thirty
+seconds per client-target. Bounded idle-expiring maps key server-derived UUIDs.
+Native production work is one per target and four globally beneath the shared
+eight-operation external ceiling, with immediate rejection and no queue or
+server retry. Global and per-target mutation vetoes are intentionally absent
+from this pure-read evaluator.
+
+Preset, target-grant and generation-bound scope administration remains Web-only
+behind the existing session, Host, Origin and CSRF controls. Modern HTTP,
+modern stdio and compatibility HTTP continue through the same registry,
+authorization, adapter and schemas. The catalog remains exactly fifteen;
+screenshots, remote control, bridges, approvals and later Phase 14 work remain
+out of scope.

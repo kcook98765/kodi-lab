@@ -59,6 +59,8 @@
       if (action === "issue") showToken(await request(`/api/mcp/clients/${id}/credentials`, "POST", {expiration_seconds: lifetime()}));
       if (action === "grant") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}`, "POST");
       if (action === "remove-grant") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}`, "DELETE");
+      if (action === "grant-production-scope") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}/production-inspection-scopes`, "POST", {identity_generation: Number(button.dataset.generation)});
+      if (action === "revoke-production-scope") await request(`/api/mcp/production-inspection-scopes/${button.dataset.scopeId}/revoke`, "POST");
       if (action === "grant-source") await request(`/api/mcp/clients/${id}/development-sources/${button.dataset.sourceId}`, "POST");
       if (action === "revoke-source") await request(`/api/mcp/clients/${id}/development-sources/${button.dataset.sourceId}`, "DELETE");
       if (action === "bind-workspace") await request(`/api/mcp/clients/${id}/workspaces/${button.dataset.workspaceId}/binding`, "POST");

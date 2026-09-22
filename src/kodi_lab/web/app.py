@@ -238,6 +238,7 @@ from kodi_lab.application.mcp_administration import (
     McpEligibleWorkspaceRead,
     McpIssuedCredential,
     McpPresetRead,
+    McpProductionScopeRead,
     McpTargetPolicyRead,
     McpWorkspaceBindingRead,
 )
@@ -737,6 +738,12 @@ class McpPresetAssignmentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     preset_id: UUID
+
+
+class McpProductionScopeGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identity_generation: int = Field(ge=1)
 
 
 class McpCredentialIssueRequest(BaseModel):
@@ -2325,6 +2332,9 @@ def create_app(
                 "clients": context.mcp_administration.list_clients(),
                 "presets": context.mcp_administration.list_presets(),
                 "targets": context.mcp_administration.list_target_policies(),
+                "production_scopes": (
+                    context.mcp_administration.list_production_inspection_scopes()
+                ),
                 "development_sources": (
                     context.development_source_administration.list_sources()
                 ),
@@ -2971,6 +2981,46 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> McpClientRead:
         return context.mcp_administration.remove_target_grant(client_id, target_id)
+
+    @app.get(
+        "/api/mcp/production-inspection-scopes",
+        response_model=list[McpProductionScopeRead],
+    )
+    def list_mcp_production_inspection_scopes(
+        client_id: UUID | None = None,
+        target_id: UUID | None = None,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[McpProductionScopeRead]:
+        return context.mcp_administration.list_production_inspection_scopes(
+            client_id=client_id, target_id=target_id
+        )
+
+    @app.post(
+        "/api/mcp/clients/{client_id}/targets/{target_id}/production-inspection-scopes",
+        response_model=McpProductionScopeRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def grant_mcp_production_inspection_scope(
+        client_id: UUID,
+        target_id: UUID,
+        payload: McpProductionScopeGrantRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpProductionScopeRead:
+        return context.mcp_administration.grant_production_inspection_scope(
+            client_id,
+            target_id,
+            identity_generation=payload.identity_generation,
+        )
+
+    @app.post(
+        "/api/mcp/production-inspection-scopes/{scope_id}/revoke",
+        response_model=McpProductionScopeRead,
+    )
+    def revoke_mcp_production_inspection_scope(
+        scope_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpProductionScopeRead:
+        return context.mcp_administration.revoke_production_inspection_scope(scope_id)
 
     @app.get(
         "/api/mcp/clients/{client_id}/development-sources",

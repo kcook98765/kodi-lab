@@ -1243,3 +1243,26 @@ approval, workspace, deployment, execution, promotion, lifecycle, DNS/WAN/SSH,
 shell, filesystem or raw JSON-RPC capability. The MCP catalog remains exactly
 fifteen tools and one shared authorization veto denies production through both
 direct target and workspace-target paths.
+
+## 52. Phase 14 read-only production inspection boundary
+
+Slice 2 permits only the existing `target_list`, `target_status` and
+`addon_list` tools against `external_production`. Authority requires a current
+credential/enabled client, the exact immutable Production Inspection client
+and target preset, `target.inspect`, exact generic grant, active current-
+generation inspect scope, confirmed production policy/native identity/
+designation, enabled verified coherent target state, required configured and
+verified capabilities, registry eligibility and post-network reauthorization.
+
+Listing uses stored trust and reveals no ineligible production target or
+network/credential/observation detail. Direct status and inventory perform a
+fixed fresh native identity preamble with bounded deadlines; inventory retains
+64-record native pages, 2,048-record total, 100-record MCP page and path-free
+sub-64-KiB semantic output. Identity drift revokes local trust and advances the
+generation once without changing Kodi.
+
+Production read rates and concurrency are separate and bounded, with no server
+retry. Global and per-target mutation switches do not block inspection. Scope,
+preset and grant administration is Web-only. The other twelve tools,
+workspace-target paths, bridge/screenshot/control, approvals, deployment and
+lifecycle remain unavailable. Phase 14 remains partial.

@@ -274,3 +274,18 @@ revision. Endpoint/credential edits, enable/disable, deactivation, global block
 and per-target suspension are Web-only. No production MCP grant, preset,
 bridge, screenshot, remote action, approval, workspace, deployment, execution,
 promotion or lifecycle route is introduced.
+
+## Phase 14 Slice 2 production inspection administration
+
+Production Inspection client/target preset assignment, exact generic target
+grant, current-generation inspect-scope creation and terminal scope revocation
+are Web-only. Reads require the ordinary authenticated administrator session;
+mutations additionally require Trusted Host, strict same-origin and CSRF
+validation. MCP bearer credentials do not authenticate these administration
+routes and no MCP grant-management tool exists.
+
+Scope projections expose only client/target/scope UUIDs, generation, closed
+state and administrator/timestamps. They label current active, old-generation
+stale and terminal revoked rows without exposing endpoint, port, authentication,
+credential/secret reference, confirmed-observation UUID/digest, raw JSON-RPC or
+bridge state. Semantic events carry only bounded UUID/generation metadata.

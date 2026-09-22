@@ -20,11 +20,18 @@ from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentService,
 )
 from kodi_lab.application.mcp_workspace_retention import McpWorkspaceRetentionService
+from kodi_lab.application.production_inspection import (
+    PRODUCTION_INSPECTION_PRESET_ID,
+    PRODUCTION_INSPECTION_PRESET_NAME,
+    ProductionInspectionError,
+    evaluate_production_inspection_state,
+)
 from kodi_lab.domain import ExternalAdministrativeState, TargetType
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentSourceRow,
     ExternalKodiTargetRow,
+    ExternalProductionPolicyRow,
     McpAgentWorkspaceBindingRow,
     McpClientDevelopmentSourceGrantRow,
     McpClientRow,
@@ -32,6 +39,7 @@ from kodi_lab.storage.models import (
     McpCredentialRow,
     McpPresetPermissionRow,
     McpPresetRow,
+    McpProductionTargetScopeRow,
     McpSecurityEventRow,
     McpTargetPresetAssignmentRow,
     TargetRow,
@@ -75,6 +83,12 @@ _BUILTINS = (
         _DEVELOPMENT_PERMISSIONS,
     ),
     (PRODUCTION_REMOTE_KODI_PRESET_ID, "Production Remote Kodi", False, ()),
+    (
+        PRODUCTION_INSPECTION_PRESET_ID,
+        PRODUCTION_INSPECTION_PRESET_NAME,
+        True,
+        ("target.inspect",),
+    ),
 )
 
 
@@ -170,7 +184,28 @@ class McpTargetPolicyRead(BaseModel):
 
     target_id: UUID
     target_name: str = Field(max_length=256)
+    target_class: str = Field(
+        pattern="^(managed|external_development|external_production)$"
+    )
+    identity_generation: int | None = Field(default=None, ge=1)
     preset: McpPresetRead | None
+
+
+class McpProductionScopeRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scope_id: UUID
+    client_id: UUID
+    target_id: UUID
+    identity_generation: int = Field(ge=1)
+    current_identity_generation: int = Field(ge=1)
+    scope: str = Field(pattern="^inspect$")
+    state: str = Field(pattern="^(active|revoked)$")
+    effective_state: str = Field(pattern="^(active|stale|revoked)$")
+    created_at: datetime
+    created_by: str = Field(max_length=64)
+    revoked_at: datetime | None
+    revoked_by: str | None = Field(default=None, max_length=64)
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,6 +603,140 @@ class McpAdministrationService:
                 )
         return self.get_client(client_id)
 
+    def grant_production_inspection_scope(
+        self,
+        client_id: UUID,
+        target_id: UUID,
+        *,
+        identity_generation: int,
+        administrator_reference: str = "local_administrator",
+    ) -> McpProductionScopeRead:
+        """Create one immutable scope for the exact current production identity."""
+
+        if identity_generation < 1:
+            raise McpAdministrationError("production_scope_generation_invalid")
+        administrator = self._administrator(administrator_reference)
+        now = self._clock()
+        scope_id = uuid4()
+        try:
+            with self._session_factory.begin() as session:
+                client = self._require_client(session, client_id)
+                if not client.enabled or client.preset_id != str(
+                    PRODUCTION_INSPECTION_PRESET_ID
+                ):
+                    raise McpAdministrationError("production_scope_client_invalid")
+                target = session.get(TargetRow, str(target_id))
+                assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+                grant = session.get(
+                    McpClientTargetGrantRow,
+                    {"client_id": str(client_id), "target_id": str(target_id)},
+                )
+                if (
+                    target is None
+                    or target.target_type is not TargetType.EXTERNAL_PRODUCTION
+                    or assignment is None
+                    or assignment.preset_id != str(PRODUCTION_INSPECTION_PRESET_ID)
+                    or grant is None
+                ):
+                    raise McpAdministrationError("production_scope_target_invalid")
+                try:
+                    state = evaluate_production_inspection_state(
+                        session,
+                        target_id,
+                        required_capabilities=frozenset({"target_inspect"}),
+                    )
+                except ProductionInspectionError as error:
+                    raise McpAdministrationError(
+                        "production_scope_target_invalid"
+                    ) from error
+                if state.identity_generation != identity_generation:
+                    raise McpAdministrationError("production_scope_generation_invalid")
+                row = McpProductionTargetScopeRow(
+                    id=str(scope_id),
+                    client_id=str(client_id),
+                    target_id=str(target_id),
+                    identity_generation=identity_generation,
+                    scope="inspect",
+                    state="active",
+                    created_at=_to_text(now),
+                    created_by=administrator,
+                    revoked_at=None,
+                    revoked_by=None,
+                )
+                session.add(row)
+                self._event(
+                    session,
+                    "production_inspection_scope_granted",
+                    now,
+                    client_id=client_id,
+                    target_id=target_id,
+                    production_scope_id=scope_id,
+                    identity_generation=identity_generation,
+                )
+        except IntegrityError as error:
+            raise McpAdministrationError("production_scope_already_active") from error
+        return self.get_production_inspection_scope(scope_id)
+
+    def revoke_production_inspection_scope(
+        self,
+        scope_id: UUID,
+        *,
+        administrator_reference: str = "local_administrator",
+    ) -> McpProductionScopeRead:
+        administrator = self._administrator(administrator_reference)
+        now = self._clock()
+        with self._session_factory.begin() as session:
+            row = session.get(McpProductionTargetScopeRow, str(scope_id))
+            if row is None:
+                raise McpAdministrationError("production_scope_not_found")
+            if row.state == "active":
+                row.state = "revoked"
+                row.revoked_at = _to_text(now)
+                row.revoked_by = administrator
+                self._event(
+                    session,
+                    "production_inspection_scope_revoked",
+                    now,
+                    client_id=UUID(row.client_id),
+                    target_id=UUID(row.target_id),
+                    production_scope_id=scope_id,
+                    identity_generation=row.identity_generation,
+                )
+        return self.get_production_inspection_scope(scope_id)
+
+    def get_production_inspection_scope(self, scope_id: UUID) -> McpProductionScopeRead:
+        with self._session_factory() as session:
+            row = session.get(McpProductionTargetScopeRow, str(scope_id))
+            if row is None:
+                raise McpAdministrationError("production_scope_not_found")
+            return self._production_scope_read(session, row)
+
+    def list_production_inspection_scopes(
+        self,
+        *,
+        client_id: UUID | None = None,
+        target_id: UUID | None = None,
+    ) -> list[McpProductionScopeRead]:
+        with self._session_factory() as session:
+            statement = select(McpProductionTargetScopeRow)
+            if client_id is not None:
+                statement = statement.where(
+                    McpProductionTargetScopeRow.client_id == str(client_id)
+                )
+            if target_id is not None:
+                statement = statement.where(
+                    McpProductionTargetScopeRow.target_id == str(target_id)
+                )
+            rows = session.scalars(
+                statement.order_by(
+                    McpProductionTargetScopeRow.created_at,
+                    McpProductionTargetScopeRow.id,
+                ).limit(1001)
+            ).all()
+            if len(rows) > 1000:
+                raise McpAdministrationError("production_scope_result_too_large")
+            return [self._production_scope_read(session, row) for row in rows]
+
     def grant_development_source(
         self, client_id: UUID, source_id: UUID
     ) -> McpClientRead:
@@ -729,6 +898,16 @@ class McpAdministrationService:
         now = self._clock()
         with self._session_factory.begin() as session:
             self._require_mcp_target(session, target_id)
+            target = session.get(TargetRow, str(target_id))
+            assert target is not None
+            if (
+                target.target_type is TargetType.EXTERNAL_PRODUCTION
+                and preset_id != PRODUCTION_INSPECTION_PRESET_ID
+            ) or (
+                target.target_type is not TargetType.EXTERNAL_PRODUCTION
+                and preset_id == PRODUCTION_INSPECTION_PRESET_ID
+            ):
+                raise McpAdministrationError("mcp_preset_not_assignable")
             self._require_assignable_preset(session, preset_id)
             row = session.get(McpTargetPresetAssignmentRow, str(target_id))
             if row is None:
@@ -766,7 +945,11 @@ class McpAdministrationService:
                 select(TargetRow)
                 .where(
                     TargetRow.target_type.in_(
-                        [TargetType.MANAGED, TargetType.EXTERNAL_DEVELOPMENT]
+                        [
+                            TargetType.MANAGED,
+                            TargetType.EXTERNAL_DEVELOPMENT,
+                            TargetType.EXTERNAL_PRODUCTION,
+                        ]
                     )
                 )
                 .order_by(TargetRow.name, TargetRow.id)
@@ -779,9 +962,13 @@ class McpAdministrationService:
             if target is None or target.target_type not in {
                 TargetType.MANAGED,
                 TargetType.EXTERNAL_DEVELOPMENT,
+                TargetType.EXTERNAL_PRODUCTION,
             }:
                 raise McpAdministrationError("managed_target_not_found")
-            if target.target_type is TargetType.EXTERNAL_DEVELOPMENT:
+            if target.target_type in {
+                TargetType.EXTERNAL_DEVELOPMENT,
+                TargetType.EXTERNAL_PRODUCTION,
+            }:
                 external = session.get(ExternalKodiTargetRow, target.id)
                 if (
                     external is None
@@ -802,8 +989,23 @@ class McpAdministrationService:
                 raise RuntimeError("MCP target preset assignment is corrupt")
             preset = self._preset_read(session, preset_row)
         return McpTargetPolicyRead(
-            target_id=UUID(target.id), target_name=target.name, preset=preset
+            target_id=UUID(target.id),
+            target_name=target.name,
+            target_class=target.target_type.value,
+            identity_generation=(
+                None
+                if target.target_type is not TargetType.EXTERNAL_PRODUCTION
+                else self._production_generation(session, target.id)
+            ),
+            preset=preset,
         )
+
+    @staticmethod
+    def _production_generation(session: Session, target_id: str) -> int:
+        policy = session.get(ExternalProductionPolicyRow, target_id)
+        if policy is None:
+            raise RuntimeError("production target policy is missing")
+        return policy.identity_generation
 
     @staticmethod
     def _name(value: str) -> str:
@@ -863,7 +1065,10 @@ class McpAdministrationService:
             raise McpAdministrationError("managed_target_not_found")
         if target.target_type is TargetType.MANAGED:
             return
-        if target.target_type is TargetType.EXTERNAL_DEVELOPMENT:
+        if target.target_type in {
+            TargetType.EXTERNAL_DEVELOPMENT,
+            TargetType.EXTERNAL_PRODUCTION,
+        }:
             external = session.get(ExternalKodiTargetRow, str(target_id))
             if (
                 external is not None
@@ -883,9 +1088,50 @@ class McpAdministrationService:
     @staticmethod
     def _require_clone_template(session: Session, preset_id: UUID) -> McpPresetRow:
         row = session.get(McpPresetRow, str(preset_id))
-        if row is None or not row.builtin or not row.assignable:
+        if (
+            row is None
+            or not row.builtin
+            or not row.assignable
+            or preset_id == PRODUCTION_INSPECTION_PRESET_ID
+        ):
             raise McpAdministrationError("mcp_preset_template_invalid")
         return row
+
+    @staticmethod
+    def _administrator(value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 64:
+            raise McpAdministrationError("production_scope_administrator_invalid")
+        return normalized
+
+    @staticmethod
+    def _production_scope_read(
+        session: Session, row: McpProductionTargetScopeRow
+    ) -> McpProductionScopeRead:
+        policy = session.get(ExternalProductionPolicyRow, row.target_id)
+        if policy is None:
+            raise McpAdministrationError("production_scope_target_invalid")
+        effective = (
+            "revoked"
+            if row.state == "revoked"
+            else "active"
+            if row.identity_generation == policy.identity_generation
+            else "stale"
+        )
+        return McpProductionScopeRead(
+            scope_id=UUID(row.id),
+            client_id=UUID(row.client_id),
+            target_id=UUID(row.target_id),
+            identity_generation=row.identity_generation,
+            current_identity_generation=policy.identity_generation,
+            scope=row.scope,
+            state=row.state,
+            effective_state=effective,
+            created_at=_from_required_text(row.created_at),
+            created_by=row.created_by,
+            revoked_at=_from_text(row.revoked_at),
+            revoked_by=row.revoked_by,
+        )
 
     def _preset_read(self, session: Session, row: McpPresetRow) -> McpPresetRead:
         permissions = tuple(
@@ -1037,6 +1283,8 @@ class McpAdministrationService:
         preset_id: UUID | None = None,
         development_source_id: UUID | None = None,
         workspace_id: UUID | None = None,
+        production_scope_id: UUID | None = None,
+        identity_generation: int | None = None,
     ) -> None:
         session.add(
             McpSecurityEventRow(
@@ -1053,6 +1301,10 @@ class McpAdministrationService:
                     else str(development_source_id)
                 ),
                 workspace_id=None if workspace_id is None else str(workspace_id),
+                production_scope_id=(
+                    None if production_scope_id is None else str(production_scope_id)
+                ),
+                identity_generation=identity_generation,
                 occurred_at=_to_text(now),
             )
         )

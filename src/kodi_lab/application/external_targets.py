@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -12,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.production_inspection import production_observation_digest
 from kodi_lab.domain import (
     EXTERNAL_CAPABILITY_VALUES,
     ConnectionState,
@@ -562,7 +562,7 @@ class ExternalTargetAdministrationService:
             administrator = administrator_reference.strip()
             if not administrator or len(administrator) > 64:
                 raise ExternalTargetError("production_designation_required")
-            digest = self._observation_digest(row, observation)
+            digest = production_observation_digest(row, observation)
             policy.designation_state = ProductionDesignationState.CONFIRMED
             policy.confirmed_observation_id = str(observation_id)
             policy.confirmed_observation_digest = digest
@@ -929,29 +929,6 @@ class ExternalTargetAdministrationService:
                 "identity_mismatch" if identity_mismatch else "configuration_changed"
             ),
         )
-
-    @staticmethod
-    def _observation_digest(
-        row: ExternalKodiTargetRow, observation: ExternalKodiTargetObservationRow
-    ) -> str:
-        encoded = json.dumps(
-            {
-                "addresses": json.loads(observation.addresses_json),
-                "capabilities": json.loads(observation.verified_capabilities_json),
-                "completed_at": observation.completed_at,
-                "host": row.host,
-                "kodi_name": observation.kodi_name,
-                "kodi_version": observation.kodi_version,
-                "observation_id": observation.id,
-                "port": row.port,
-                "protocol_kind": row.protocol_kind.value,
-                "protocol_version": observation.protocol_version,
-                "target_id": observation.target_id,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
 
     @staticmethod
     def _require_reverification(row: ExternalKodiTargetRow) -> None:

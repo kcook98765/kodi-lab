@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
 from kodi_lab.application.mcp_administration import READ_ONLY_INSPECTION_PRESET_ID
+from kodi_lab.application.production_inspection import PRODUCTION_INSPECTION_PRESET_ID
 from kodi_lab.kodi.external import ExternalKodiProbeResult
 
 from .conftest import ORIGIN, login
@@ -73,17 +74,21 @@ def test_production_web_flow_is_separate_two_step_and_web_only(
         "registered_disabled_unverified"
     )
     assert client.get(f"/api/external-targets/{target_id}").status_code == 404
-    assert target_id not in {
+    assert target_id in {
         item["target_id"] for item in client.get("/api/mcp/target-policies").json()
     }
-    assert (
-        client.post(
-            f"/api/mcp/target-policies/{target_id}",
-            json={"preset_id": str(READ_ONLY_INSPECTION_PRESET_ID)},
-            headers=_headers(csrf),
-        ).status_code
-        == 404
+    wrong_policy = client.post(
+        f"/api/mcp/target-policies/{target_id}",
+        json={"preset_id": str(READ_ONLY_INSPECTION_PRESET_ID)},
+        headers=_headers(csrf),
     )
+    assert wrong_policy.status_code == 409
+    assigned_policy = client.post(
+        f"/api/mcp/target-policies/{target_id}",
+        json={"preset_id": str(PRODUCTION_INSPECTION_PRESET_ID)},
+        headers=_headers(csrf),
+    )
+    assert assigned_policy.status_code == 200
 
     app = cast(FastAPI, client.app)
     service = cast(
@@ -145,6 +150,55 @@ def test_production_web_flow_is_separate_two_step_and_web_only(
         headers=_headers(csrf),
     ).json()
     assert enabled["production_policy"]["lifecycle_state"] == "enabled_read_only"
+
+    created_client = client.post(
+        "/api/mcp/clients",
+        json={
+            "display_name": "Production reader",
+            "preset_id": str(PRODUCTION_INSPECTION_PRESET_ID),
+        },
+        headers=_headers(csrf),
+    )
+    assert created_client.status_code == 201
+    client_id = created_client.json()["id"]
+    granted = client.post(
+        f"/api/mcp/clients/{client_id}/targets/{target_id}",
+        headers=_headers(csrf),
+    )
+    assert granted.status_code == 200
+    scope_url = (
+        f"/api/mcp/clients/{client_id}/targets/{target_id}/production-inspection-scopes"
+    )
+    assert client.post(scope_url, json={"identity_generation": 1}).status_code == 403
+    scope = client.post(
+        scope_url,
+        json={"identity_generation": 1},
+        headers=_headers(csrf),
+    )
+    assert scope.status_code == 201
+    scope_body = scope.json()
+    assert scope_body["effective_state"] == "active"
+    assert set(scope_body) == {
+        "scope_id",
+        "client_id",
+        "target_id",
+        "identity_generation",
+        "current_identity_generation",
+        "scope",
+        "state",
+        "effective_state",
+        "created_at",
+        "created_by",
+        "revoked_at",
+        "revoked_by",
+    }
+    assert "192.168.50.40" not in scope.text
+    revoked = client.post(
+        f"/api/mcp/production-inspection-scopes/{scope_body['scope_id']}/revoke",
+        headers=_headers(csrf),
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["effective_state"] == "revoked"
 
 
 def test_production_mutation_controls_are_csrf_protected_and_epoch_monotonic(

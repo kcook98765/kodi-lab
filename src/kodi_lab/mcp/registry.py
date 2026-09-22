@@ -181,13 +181,17 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             permissions=frozenset({"target.inspect"}),
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset(
-                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+                {
+                    TargetClass.INTERNAL_LAB,
+                    TargetClass.EXTERNAL_DEVELOPMENT,
+                    TargetClass.EXTERNAL_PRODUCTION,
+                }
             ),
-            required_capabilities=frozenset({"addon_inventory"}),
+            required_capabilities=frozenset({"target_inspect", "addon_inventory"}),
             required_states=frozenset({"reconciled"}),
             rate_class=ToolRateClass.READ_BOUNDED,
             adapter="kodi_target.addon_inventory.list",
-            production_eligible=False,
+            production_eligible=True,
             target_scope_required=True,
             scope=ToolScope.TARGET,
         )
@@ -217,13 +221,17 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             permissions=frozenset({"target.inspect"}),
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset(
-                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+                {
+                    TargetClass.INTERNAL_LAB,
+                    TargetClass.EXTERNAL_DEVELOPMENT,
+                    TargetClass.EXTERNAL_PRODUCTION,
+                }
             ),
             required_capabilities=frozenset({"target_inspect"}),
             required_states=frozenset(),
             rate_class=ToolRateClass.READ_LIGHT,
             adapter="kodi_target.status.list",
-            production_eligible=False,
+            production_eligible=True,
             target_scope_required=False,
             scope=ToolScope.GLOBAL,
         )
@@ -235,13 +243,17 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             permissions=frozenset({"target.inspect"}),
             effect=ToolEffect.READ_ONLY,
             allowed_target_classes=frozenset(
-                {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
+                {
+                    TargetClass.INTERNAL_LAB,
+                    TargetClass.EXTERNAL_DEVELOPMENT,
+                    TargetClass.EXTERNAL_PRODUCTION,
+                }
             ),
             required_capabilities=frozenset({"target_inspect"}),
             required_states=frozenset(),
             rate_class=ToolRateClass.READ_LIGHT,
             adapter="kodi_target.status.get",
-            production_eligible=False,
+            production_eligible=True,
             target_scope_required=True,
             scope=ToolScope.TARGET,
         )

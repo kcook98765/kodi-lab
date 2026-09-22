@@ -1562,3 +1562,33 @@ not reachable through inspection, control, workspace deployment/execution or
 promotion paths. No real host was contacted. Later production inspection,
 bridge/screenshot, constrained control and approval work requires separately
 scoped slices; support-addon deployment requires a separate architecture review.
+
+## Phase 14 Slice 2 checkpoint
+
+**Slice 2: read-only production inspection implemented. Phase 14: PARTIAL.**
+Migration `0048_production_inspection_scopes` adds durable generation-bound
+`inspect` scopes, active-scope uniqueness, terminal revocation, exact
+production-policy binding and the immutable assignable `Production Inspection`
+built-in. That preset contains only `target.inspect`, cannot be cloned and is
+the only accepted production client/target preset.
+
+The shared MCP authorization service now evaluates the complete production
+intersection for stored discovery and before and after direct reads. Only
+`target_list`, `target_status` and `addon_list` are production-eligible; the
+other twelve tools and every workspace-target path remain denied. Listing is
+stored-only/private. Direct reads use fixed native `/jsonrpc` identity checks,
+and inventory retains fixed paging/property/output bounds. Identity drift
+records bounded evidence and atomically disables, increments generation,
+invalidates designation and suspends future mutation authority.
+
+Production-only UUID-keyed rate maps and nested native gates implement the
+accepted 2/s list, 5-second status and 30-second inventory intervals, one read
+per target and four production reads globally beneath the existing eight
+external operations. There is no server retry. Mutation vetoes remain
+mutation-only and do not suppress valid inspection.
+
+Web administration can assign the exact preset and generic grant and can create
+or revoke a current-generation inspection scope under existing authenticated
+session, Host, Origin and CSRF controls. No production bridge, screenshot,
+remote control, approval, deployment, workspace, lifecycle or MCP authority
+administration was added, and no real target or LAN host was contacted.

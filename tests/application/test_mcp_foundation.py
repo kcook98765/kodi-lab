@@ -25,6 +25,7 @@ from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpPrincipal,
 )
+from kodi_lab.application.production_inspection import PRODUCTION_INSPECTION_PRESET_ID
 from kodi_lab.application.screenshots import ManagedScreenshotService
 from kodi_lab.kodi.screenshots import SUPPORTED_SCREENSHOT_RUNTIME_PROFILES
 from kodi_lab.mcp.authorization import (
@@ -275,6 +276,7 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
     assert [item.display_name for item in presets] == [
         "Add-on Development",
         "Full Lab Control",
+        "Production Inspection",
         "Production Remote Kodi",
         "Read-only Inspection",
     ]
@@ -306,6 +308,7 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
         "target.inspect",
         "target.visual",
     )
+    assert permissions[PRODUCTION_INSPECTION_PRESET_ID] == ("target.inspect",)
     assert production.permissions == ()
     assert not production.assignable
     with pytest.raises(McpAdministrationError, match="mcp_preset_not_assignable"):
@@ -314,13 +317,16 @@ def test_builtin_presets_are_deterministic_and_production_is_unassignable(
         )
 
 
-def test_all_fifteen_tools_and_central_target_veto_deny_production() -> None:
+def test_only_three_of_fifteen_tools_are_production_inspection_eligible() -> None:
     registry = build_mcp_tool_registry()
     assert len(registry.names()) == 15
+    eligible = {"addon_list", "target_list", "target_status"}
     for name in registry.names():
         definition = registry.require(name)
-        assert TargetClass.EXTERNAL_PRODUCTION not in definition.allowed_target_classes
-        assert definition.production_eligible is False
+        assert (
+            TargetClass.EXTERNAL_PRODUCTION in definition.allowed_target_classes
+        ) is (name in eligible)
+        assert definition.production_eligible is (name in eligible)
 
     target = TargetRow(
         id="14000000-0000-4000-8000-000000000001",
@@ -339,7 +345,7 @@ def test_all_fifteen_tools_and_central_target_veto_deny_production() -> None:
         ("promotion_request", "promotion_not_allowed"),
     ):
         with pytest.raises(McpAuthorizationError, match=expected):
-            McpAuthorizationService._enforce_target_class_veto(
+            McpAuthorizationService._enforce_workspace_production_veto(
                 target, tool_name=tool_name
             )
 
@@ -756,7 +762,15 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
     assert remote.allowed_target_classes == frozenset(
         {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
     )
-    for name in ("target_list", "target_status", "addon_list", "screenshot_capture"):
+    for name in ("target_list", "target_status", "addon_list"):
+        assert registry.require(name).allowed_target_classes == frozenset(
+            {
+                TargetClass.INTERNAL_LAB,
+                TargetClass.EXTERNAL_DEVELOPMENT,
+                TargetClass.EXTERNAL_PRODUCTION,
+            }
+        )
+    for name in ("screenshot_capture",):
         assert registry.require(name).allowed_target_classes == frozenset(
             {TargetClass.INTERNAL_LAB, TargetClass.EXTERNAL_DEVELOPMENT}
         )
