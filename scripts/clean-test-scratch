@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Safely identify or remove dead Kodi Lab snapshot-test scratch roots."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import stat
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+PREFIX = "kodi-lab-snapshot-tests."
+MARKER = ".kodi-lab-test-scratch.json"
+
+
+def process_start_ticks(pid: int) -> int | None:
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text()
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        return None
+    fields_after_name = raw[raw.rfind(")") + 2 :].split()
+    if len(fields_after_name) < 20:
+        return None
+    return int(fields_after_name[19])
+
+
+def load_candidate(path: Path, parent: Path) -> dict[str, Any] | None:
+    try:
+        metadata = path.stat(follow_symlinks=False)
+        marker = path / MARKER
+        marker_metadata = marker.stat(follow_symlinks=False)
+        document = json.loads(marker.read_text())
+    except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+        return None
+    if (
+        path.parent != parent
+        or path.is_symlink()
+        or not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+        or marker.is_symlink()
+        or not stat.S_ISREG(marker_metadata.st_mode)
+        or marker_metadata.st_uid != os.getuid()
+        or document.get("schema") != 1
+        or document.get("kind") != "kodi-lab-snapshot-test-scratch"
+        or document.get("uid") != os.getuid()
+        or document.get("root") != str(path)
+        or not isinstance(document.get("pid"), int)
+        or not isinstance(document.get("process_start_ticks"), int)
+    ):
+        return None
+    return document
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--parent",
+        type=Path,
+        default=Path(os.environ.get("KODI_LAB_TEST_SNAPSHOT_SCRATCH_PARENT", "/tmp")),
+    )
+    parser.add_argument("--minimum-age-seconds", type=int, default=3600)
+    parser.add_argument(
+        "--delete",
+        action="store_true",
+        help="remove validated dead roots; the default is a dry run",
+    )
+    args = parser.parse_args()
+    parent = args.parent
+    if (
+        not parent.is_absolute()
+        or parent.is_symlink()
+        or not parent.is_dir()
+        or args.minimum_age_seconds < 0
+    ):
+        parser.error("parent and minimum age must be safe")
+
+    found = 0
+    removed = 0
+    now = time.time()
+    for path in sorted(parent.glob(f"{PREFIX}*")):
+        document = load_candidate(path, parent)
+        if document is None:
+            print(f"skip unvalidated: {path}", file=sys.stderr)
+            continue
+        age = now - path.stat(follow_symlinks=False).st_mtime
+        pid = document["pid"]
+        live = process_start_ticks(pid) == document["process_start_ticks"]
+        if live:
+            print(f"skip live pid {pid}: {path}")
+            continue
+        if age < args.minimum_age_seconds:
+            print(f"skip age {age:.0f}s: {path}")
+            continue
+        found += 1
+        if args.delete:
+            shutil.rmtree(path)
+            removed += 1
+            print(f"removed: {path}")
+        else:
+            print(f"dead candidate: {path}")
+    print(f"validated dead roots: {found}; removed: {removed}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -5,6 +5,27 @@ suite, Ruff formatting and linting, strict mypy, package build, Alembic history,
 and the package/configuration import. Performance work must not remove, skip, or
 make any part of that gate optional.
 
+The gate keeps ordinary pytest temporary files on `/dev/shm` when at least 1 GiB
+is available. Snapshot publication tests use a separate private, run-owned
+scratch directory under `/tmp` by default so the production 2 GiB snapshot
+free-space reserve is evaluated against a suitable filesystem without moving
+thousands of SQLite and fixture operations off tmpfs. Set
+`KODI_LAB_TEST_SNAPSHOT_SCRATCH_PARENT` to select another suitable parent. The
+gate removes only the exact roots it creates, including after ordinary failure
+or interruption. Direct focused pytest runs use the same snapshot fixture and
+create their own private scratch root.
+
+An uncatchable termination can leave a scratch root behind. Run
+`./scripts/clean-test-scratch` to list only same-user, marker-validated, dead
+roots older than one hour. Add `--delete` to remove those validated candidates.
+The command rejects symlinks, live matching PID/start-time identities, foreign
+owners, permissive roots, malformed markers, and unrelated names.
+
+Each gate stage reports elapsed time. The full pytest stage has a 900-second
+watchdog by default; `KODI_LAB_CHECK_PYTEST_TIMEOUT_SECONDS` may raise that bound
+for a known slower environment. A timeout is a harness failure to diagnose, not
+permission to skip tests or reduce snapshot storage safety.
+
 ## Migration fixture architecture
 
 Migration tests use a session-scoped `MigrationTemplateStore`. At session start,

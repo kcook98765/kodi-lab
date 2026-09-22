@@ -10,6 +10,34 @@ fi
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$repo_root"
 
+total_started_at=$SECONDS
+check_tmpdir=""
+pytest_tmpdir=""
+snapshot_scratch_root=""
+cleanup() {
+    if [[ -n "$pytest_tmpdir" ]]; then
+        chmod -R u+rwX -- "$pytest_tmpdir" 2>/dev/null || true
+        rm -rf -- "$pytest_tmpdir"
+    fi
+    if [[ -n "$snapshot_scratch_root" ]]; then
+        chmod -R u+rwX -- "$snapshot_scratch_root" 2>/dev/null || true
+        rm -rf -- "$snapshot_scratch_root"
+    fi
+    if [[ -n "$check_tmpdir" ]]; then
+        rm -rf -- "$check_tmpdir"
+    fi
+}
+trap cleanup EXIT
+
+snapshot_scratch_parent="${KODI_LAB_TEST_SNAPSHOT_SCRATCH_PARENT:-/tmp}"
+if [[ "$snapshot_scratch_parent" != /* ]] \
+    || [[ ! -d "$snapshot_scratch_parent" ]] \
+    || [[ -L "$snapshot_scratch_parent" ]] \
+    || [[ ! -w "$snapshot_scratch_parent" ]]; then
+    echo "Snapshot test scratch parent must be an absolute, writable, non-symlink directory." >&2
+    exit 1
+fi
+
 check_tmpdir="$(mktemp -d)"
 pytest_tmp_parent="${TMPDIR:-/tmp}"
 if [[ -d /dev/shm && -w /dev/shm ]] \
@@ -18,20 +46,73 @@ if [[ -d /dev/shm && -w /dev/shm ]] \
     pytest_tmp_parent="/dev/shm"
 fi
 pytest_tmpdir="$(mktemp -d --tmpdir="$pytest_tmp_parent" klp.XXXXXXXX)"
-cleanup() {
-    chmod -R u+rwX -- "$pytest_tmpdir" 2>/dev/null || true
-    rm -rf -- "$check_tmpdir" "$pytest_tmpdir"
-}
-trap cleanup EXIT
+snapshot_scratch_root="$(
+    mktemp -d \
+        --tmpdir="$snapshot_scratch_parent" \
+        kodi-lab-snapshot-tests.XXXXXXXX
+)"
+chmod 700 -- "$snapshot_scratch_root"
+export KODI_LAB_TEST_SNAPSHOT_SCRATCH_ROOT="$snapshot_scratch_root"
+
+snapshot_free_bytes="$(df -B1 --output=avail "$snapshot_scratch_root" | tail -n 1)"
+snapshot_min_free_bytes="$(
+    uv run --locked python -c \
+        'from kodi_lab.snapshot.storage import MIN_FREE_BYTES; print(MIN_FREE_BYTES)'
+)"
+if (( snapshot_free_bytes < snapshot_min_free_bytes )); then
+    echo "Snapshot test scratch storage has ${snapshot_free_bytes} bytes free; ${snapshot_min_free_bytes} are required." >&2
+    exit 1
+fi
+
+printf 'pytest temp root: %s (%s bytes free)\n' \
+    "$pytest_tmpdir" \
+    "$(df -B1 --output=avail "$pytest_tmpdir" | tail -n 1)"
+printf 'snapshot scratch root: %s (%s bytes free)\n' \
+    "$snapshot_scratch_root" \
+    "$snapshot_free_bytes"
 
 run_check() {
     local name="$1"
     shift
     printf '\n==> %s\n' "$name"
-    "$@"
+    local started_at=$SECONDS
+    local status=0
+    if "$@"; then
+        status=0
+    else
+        status=$?
+    fi
+    local elapsed=$((SECONDS - started_at))
+    printf '<== %s: %dm%02ds (status %d)\n' \
+        "$name" "$((elapsed / 60))" "$((elapsed % 60))" "$status"
+    return "$status"
 }
 
-run_check "pytest" uv run --locked pytest --basetemp "$pytest_tmpdir"
+pytest_timeout_seconds="${KODI_LAB_CHECK_PYTEST_TIMEOUT_SECONDS:-900}"
+if [[ ! "$pytest_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+    echo "KODI_LAB_CHECK_PYTEST_TIMEOUT_SECONDS must be a positive integer." >&2
+    exit 1
+fi
+
+run_pytest() {
+    local status=0
+    if timeout \
+        --foreground \
+        --signal=TERM \
+        --kill-after=30s \
+        "${pytest_timeout_seconds}s" \
+        uv run --locked pytest --basetemp "$pytest_tmpdir"; then
+        return 0
+    else
+        status=$?
+    fi
+    if (( status == 124 || status == 137 )); then
+        echo "pytest exceeded the ${pytest_timeout_seconds}-second check timeout." >&2
+    fi
+    return "$status"
+}
+
+run_check "pytest" run_pytest
 run_check "Ruff format" uv run --locked ruff format --check .
 run_check "Ruff lint" uv run --locked ruff check .
 run_check "mypy" uv run --locked mypy src tests migrations
@@ -44,4 +125,6 @@ run_check \
     uv run --locked python -c \
     'import kodi_lab; from kodi_lab.config import Settings; print(kodi_lab.__version__, Settings(_env_file=None).database_url)'
 
-printf '\nAll foundation checks passed.\n'
+gate_elapsed=$((SECONDS - total_started_at))
+printf '\nAll foundation checks passed in %dm%02ds.\n' \
+    "$((gate_elapsed / 60))" "$((gate_elapsed % 60))"

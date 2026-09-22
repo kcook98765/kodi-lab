@@ -39,6 +39,13 @@ REVISION_ID = UUID("92000000-0000-4000-8000-000000000003")
 CONTAINER_ID = "a" * 64
 
 
+@pytest.fixture(name="tmp_path")
+def snapshot_tmp_path(snapshot_data_root: Path) -> Path:
+    """Keep snapshot publication data on its reserve-capable scratch filesystem."""
+
+    return snapshot_data_root
+
+
 def context() -> SnapshotCaptureContext:
     return SnapshotCaptureContext(
         snapshot_id=SNAPSHOT_ID,
