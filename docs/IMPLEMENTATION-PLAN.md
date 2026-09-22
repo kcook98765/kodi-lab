@@ -1638,3 +1638,12 @@ backward compatible. Deterministic local/mock validation covered pairing,
 provenance, revisions/scopes, transport binding, replay/rate/privacy and final
 bridge 1.1.7 identity without contacting any LAN or production Kodi. No Slice 4
 work was begun.
+
+Independent formal audit at checkpoint
+`7cefda8c151b2334741883e784970f86886be3bb` reproduced and remediated four
+completion blockers: deletable/reusable bridge revision state, cross-client
+aliasing of a bridge replay UUID, retained volatile pixels after a required
+metadata-commit failure, and retained failed production pairing tokens.
+Migration `0049` and the shared services now fail closed for those cases while
+preserving Phase 13 behavior. Slice 3 is formally **COMPLETE**; Phase 14 remains
+**PARTIAL**, no LAN or production Kodi was contacted, and Slice 4 was not begun.

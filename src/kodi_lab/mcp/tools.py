@@ -973,7 +973,7 @@ class McpTargetToolService:
                 None
                 if request_id is None or production_screenshots is None
                 else lambda: production_screenshots.discard_pixels(
-                    target_id, request_id
+                    principal.client_id, target_id, request_id
                 )
             ),
         )

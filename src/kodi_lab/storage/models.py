@@ -1916,6 +1916,11 @@ class McpProductionScreenshotReceiptRow(Base):
             "(state IN ('ambiguous','rejected') AND completed_at IS NOT NULL)",
             name="production_screenshot_receipt_terminal_coherent",
         ),
+        UniqueConstraint(
+            "target_id",
+            "bridge_request_id",
+            name="uq_production_screenshot_bridge_request",
+        ),
         Index(
             "ix_production_screenshot_receipt_capacity",
             "expires_at",

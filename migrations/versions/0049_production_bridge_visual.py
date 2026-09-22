@@ -106,6 +106,12 @@ def upgrade() -> None:
         "CREATE TRIGGER trg_production_bridge_revision_monotonic BEFORE UPDATE OF production_bridge_trust_revision ON external_bridge_pairings WHEN OLD.production_bridge_trust_revision IS NOT NULL AND (NEW.production_bridge_trust_revision IS NULL OR NEW.production_bridge_trust_revision < OLD.production_bridge_trust_revision) BEGIN SELECT RAISE(ABORT, 'production_bridge_trust_revision_not_monotonic'); END"
     )
     op.execute(
+        "CREATE TRIGGER trg_production_bridge_revision_no_delete BEFORE DELETE ON external_bridge_pairings WHEN OLD.production_bridge_trust_revision IS NOT NULL BEGIN SELECT RAISE(ABORT, 'production_bridge_trust_revision_not_monotonic'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_production_bridge_revision_no_replace BEFORE INSERT ON external_bridge_pairings WHEN EXISTS(SELECT 1 FROM external_bridge_pairings p WHERE p.target_id=NEW.target_id AND p.production_bridge_trust_revision IS NOT NULL) BEGIN SELECT RAISE(ABORT, 'production_bridge_trust_revision_not_monotonic'); END"
+    )
+    op.execute(
         "CREATE TRIGGER trg_production_bridge_binding_insert BEFORE INSERT ON external_bridge_pairings WHEN NEW.production_identity_generation IS NOT NULL AND (COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')<>'external_production' OR COALESCE((SELECT identity_generation FROM external_production_policies WHERE target_id=NEW.target_id),0)<>NEW.production_identity_generation OR COALESCE((SELECT state FROM reviewed_bridge_builds WHERE id=NEW.reviewed_build_id),'')<>'active') BEGIN SELECT RAISE(ABORT, 'production_bridge_binding_invalid'); END"
     )
     op.execute(
@@ -287,6 +293,11 @@ def upgrade() -> None:
             ["external_production_policies.target_id"],
             ondelete="RESTRICT",
         ),
+        sa.UniqueConstraint(
+            "target_id",
+            "bridge_request_id",
+            name="uq_production_screenshot_bridge_request",
+        ),
         sa.PrimaryKeyConstraint("client_id", "request_id"),
     )
     op.create_index(
@@ -376,6 +387,8 @@ def downgrade() -> None:
     op.drop_table("production_bridge_http_acknowledgements")
     op.execute("DROP TRIGGER trg_production_bridge_binding_update")
     op.execute("DROP TRIGGER trg_production_bridge_binding_insert")
+    op.execute("DROP TRIGGER trg_production_bridge_revision_no_replace")
+    op.execute("DROP TRIGGER trg_production_bridge_revision_no_delete")
     op.execute("DROP TRIGGER trg_production_bridge_revision_monotonic")
     with op.batch_alter_table("external_bridge_pairings", recreate="always") as batch:
         batch.drop_constraint(

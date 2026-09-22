@@ -816,6 +816,16 @@ class ExternalBridgeService:
             row = session.get(ExternalBridgePairingRow, str(target_id))
             if row is None:
                 raise ExternalBridgeServiceError("bridge_not_paired")
+            if (
+                row.pairing_state is ExternalBridgePairingState.REVOKED
+                and row.pairing_token_reference is None
+                and row.bridge_secret_reference is None
+                and row.production_identity_generation is None
+                and row.reviewed_build_id is None
+            ):
+                return self._project(
+                    target_id, self._require_external(session, target_id), row
+                )
             for value in (
                 row.pairing_token_reference,
                 row.bridge_secret_reference,
@@ -861,6 +871,14 @@ class ExternalBridgeService:
                 target is None
                 or target.target_type is not TargetType.EXTERNAL_PRODUCTION
                 or row is None
+            ):
+                return
+            if (
+                row.pairing_state is ExternalBridgePairingState.REVOKED
+                and row.pairing_token_reference is None
+                and row.bridge_secret_reference is None
+                and row.production_identity_generation is None
+                and row.reviewed_build_id is None
             ):
                 return
             for value in (
@@ -1723,9 +1741,19 @@ class ExternalBridgeService:
 
     def _pairing_failed(self, target_id: UUID, code: str) -> None:
         now = self._clock()
+        token_reference: UUID | None = None
         with self._sessions.begin() as session:
             row = session.get(ExternalBridgePairingRow, str(target_id))
+            target = session.get(TargetRow, str(target_id))
             if row is not None:
+                if (
+                    target is not None
+                    and target.target_type is TargetType.EXTERNAL_PRODUCTION
+                    and row.pairing_token_reference is not None
+                ):
+                    token_reference = UUID(row.pairing_token_reference)
+                    row.pairing_token_reference = None
+                    row.pairing_token_expires_at = None
                 row.reachability_state = self._reachability(code)
                 self._event(
                     session,
@@ -1734,6 +1762,8 @@ class ExternalBridgeService:
                     now,
                     classification=code,
                 )
+        if token_reference is not None:
+            self._secrets.retire(token_reference)
 
     def _publish_reachability(self, target_id: UUID, code: str) -> None:
         with self._sessions.begin() as session:
@@ -1746,12 +1776,18 @@ class ExternalBridgeService:
         with self._sessions.begin() as session:
             row = session.get(ExternalBridgePairingRow, str(target_id))
             if row is not None:
+                advance_revision = (
+                    row.pairing_state is ExternalBridgePairingState.PAIRED
+                )
                 row.pairing_state = ExternalBridgePairingState.NEEDS_REVERIFICATION
                 row.reachability_state = (
                     ExternalBridgeReachabilityState.IDENTITY_MISMATCH
                 )
                 row.verified_capabilities_json = "[]"
-                if row.production_bridge_trust_revision is not None:
+                if (
+                    advance_revision
+                    and row.production_bridge_trust_revision is not None
+                ):
                     row.production_bridge_trust_revision += 1
                 self._event(
                     session,

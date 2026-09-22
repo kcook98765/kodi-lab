@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -73,17 +73,22 @@ class ProductionScreenshotService:
                 raise ProductionScreenshotError("screenshot_replay_unavailable")
             if existing.state in {"ambiguous", "rejected"}:
                 raise ProductionScreenshotError("screenshot_replay_unavailable")
+            bridge_request_id = UUID(existing.bridge_request_id)
             try:
                 result = self._bridges.capture_screenshot(
-                    target_id, request_id=request_id
+                    target_id, request_id=bridge_request_id
                 )
             except ExternalBridgeServiceError as error:
                 raise ProductionScreenshotError(error.code) from error
-            self._complete(client_id, request_id, result)
-            return result
+            try:
+                self._complete(client_id, request_id, result)
+            except Exception:
+                self._bridges.discard_production_pixels(target_id, bridge_request_id)
+                raise
+            return self._client_result(result, request_id)
 
         now = self._clock()
-        self._claim(
+        bridge_request_id = self._claim(
             client_id=client_id,
             target_id=target_id,
             request_id=request_id,
@@ -94,16 +99,28 @@ class ProductionScreenshotService:
         )
         try:
             self._admit_new(client_id, target_id)
-            result = self._bridges.capture_screenshot(target_id, request_id=request_id)
+            result = self._bridges.capture_screenshot(
+                target_id, request_id=bridge_request_id
+            )
         except (ExternalBridgeServiceError, ProductionScreenshotError) as error:
             code = getattr(error, "code", "screenshot_capture_failed")
             self._fail(client_id, request_id, code)
             raise ProductionScreenshotError(code) from error
-        self._complete(client_id, request_id, result)
-        return result
+        try:
+            self._complete(client_id, request_id, result)
+        except Exception:
+            self._bridges.discard_production_pixels(target_id, bridge_request_id)
+            raise
+        return self._client_result(result, request_id)
 
-    def discard_pixels(self, target_id: UUID, request_id: UUID) -> None:
-        self._bridges.discard_production_pixels(target_id, request_id)
+    def discard_pixels(
+        self, client_id: UUID, target_id: UUID, request_id: UUID
+    ) -> None:
+        receipt = self._receipt(client_id, request_id)
+        if receipt is not None:
+            self._bridges.discard_production_pixels(
+                target_id, UUID(receipt.bridge_request_id)
+            )
 
     @staticmethod
     def parameter_digest(target_id: UUID) -> str:
@@ -144,7 +161,8 @@ class ProductionScreenshotService:
         identity_generation: int,
         bridge_trust_revision: int,
         now: datetime,
-    ) -> None:
+    ) -> UUID:
+        bridge_request_id = uuid4()
         with self._sessions.begin() as session:
             session.execute(
                 delete(McpProductionScreenshotReceiptRow).where(
@@ -177,7 +195,7 @@ class ProductionScreenshotService:
                     parameter_digest=parameter_digest,
                     identity_generation=identity_generation,
                     bridge_trust_revision=bridge_trust_revision,
-                    bridge_request_id=str(request_id),
+                    bridge_request_id=str(bridge_request_id),
                     state="pending",
                     response_digest=None,
                     byte_size=None,
@@ -188,6 +206,7 @@ class ProductionScreenshotService:
                     expires_at=self._text(now + PRODUCTION_SCREENSHOT_RECEIPT_TTL),
                 )
             )
+        return bridge_request_id
 
     def _receipt(
         self, client_id: UUID, request_id: UUID
@@ -245,6 +264,22 @@ class ProductionScreenshotService:
                     else "rejected"
                 )
                 row.completed_at = self._text(self._clock())
+
+    @staticmethod
+    def _client_result(
+        result: ExternalScreenshotCapture, request_id: UUID
+    ) -> ExternalScreenshotCapture:
+        return ExternalScreenshotCapture(
+            capture_id=request_id,
+            target_id=result.target_id,
+            bridge_id=result.bridge_id,
+            captured_at=result.captured_at,
+            width=result.width,
+            height=result.height,
+            byte_size=result.byte_size,
+            digest=result.digest,
+            png=result.png,
+        )
 
     @staticmethod
     def _text(value: datetime) -> str:

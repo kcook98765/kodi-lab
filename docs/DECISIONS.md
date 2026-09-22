@@ -4261,3 +4261,26 @@ authority.
 - Deferred boundary: no bridge, screenshot, control, approval, support-addon
   deployment, workspace, lifecycle or other production authority was added.
   No real Kodi or LAN host was contacted, and Slice 3 was not begun.
+
+## Phase 14 Slice 3 formal completion record
+
+- Status: **Phase 14 Slice 3 — Production bridge and screenshots: COMPLETE**;
+  Phase 14 remains **PARTIAL**.
+- Review basis: independent formal review of implementation checkpoint
+  `7cefda8c151b2334741883e784970f86886be3bb`, Alembic head
+  `0049_production_bridge_visual`, the exact fifteen-tool catalog, bridge 1.1.7
+  package/source identity and deterministic local/mock evidence only.
+- Remediation: the review reproduced four fail-closed defects. Migration `0049`
+  now forbids deletion or replacement of a production bridge revision row and
+  forbids two clients from sharing one target/bridge replay UUID. The service
+  derives a separate durable bridge request UUID per client receipt, discards
+  volatile pixels if the required production metadata commit fails, and retires
+  a failed production show-once pairing token. Repeated bridge invalidation is
+  revision-idempotent once authority is already suspended.
+- Validation: focused provenance/pairing/revision/scope/replay/privacy,
+  production-inspection, Phase 13 compatibility, HTTP/stdio/compatibility,
+  migration and bridge-backend suites passed before the final authoritative
+  repository gate.
+- Deferred boundary: no production remote control, approval, support-addon
+  deployment, workspace, execution, lifecycle or other production authority
+  was added. No real Kodi or LAN host was contacted, and Slice 4 was not begun.

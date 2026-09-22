@@ -8,7 +8,11 @@ bounded read-only inspection. Independent Slice 2 completion audit found and
 remediated one generation-downgrade hazard by making production identity
 generation database-monotonic; retained old scopes therefore cannot regain
 effect through malformed rollback. No real Kodi or LAN host was contacted
-during implementation or formal review.
+during implementation or formal review. Independent Slice 3 completion audit
+likewise found and remediated bridge-revision deletion/reuse, cross-client
+bridge replay aliasing, volatile-pixel retention on metadata-commit failure and
+failed production token retention. Slice 3 is formally complete only with those
+fail-closed defenses.
 
 Included:
 
@@ -220,6 +224,11 @@ a separate explicit installed-target/provenance confirmation. HTTP additionally
 requires immutable exact configuration-bound risk acknowledgement; HTTPS uses
 normal CA validation. Pairing grants no MCP authority.
 
+The revision-bearing production pairing row cannot be deleted or replaced;
+malformed direct state therefore cannot roll the revision back and revive an
+old visual scope. Repeated drift invalidation advances once when current bridge
+authority is first suspended, not again for the same already-suspended state.
+
 Bridge UUID change or native endpoint/credential/generation change deletes the
 Lab-held bridge secret and requires fresh pairing. Build, add-on, protocol or
 Kodi drift advances bridge revision and requires explicit review. Screenshot
@@ -254,6 +263,12 @@ terminal identity whose pixels are unavailable returns
 `screenshot_replay_unavailable`. Pending/ambiguous identities cannot be evicted
 or converted into fresh capture. Existing per-target bridge serialization and
 bridge protected replay semantics remain authoritative.
+
+Each client receipt owns a distinct durable internal bridge request UUID, so an
+equal caller UUID from another client cannot address or receive the first
+client's cached bridge response. Failure to commit required terminal production
+metadata discards the volatile pixels while retaining the protected bridge
+identity, preventing both publication and recapture.
 
 Kodi Lab stores no production pixels, base64, thumbnail, preview or raw bridge
 response. Durable receipt/audit contains only bounded UUID/generation/revision,

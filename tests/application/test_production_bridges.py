@@ -113,6 +113,7 @@ def _production_target(
 
 
 def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'production-bridge.db'}")
@@ -229,6 +230,82 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
         assert first.png == replay.png
         assert first.metadata == replay.metadata
         assert fake.capture_count == 1
+        # Caller replay identity is client-scoped. Reusing the same caller UUID
+        # from another authorized client must create a distinct protected bridge
+        # request rather than disclose the first client's cached response.
+        second_client = administration.create_client(
+            display_name="Second production visual reader",
+            preset_id=PRODUCTION_VISUAL_PRESET_ID,
+        )
+        second_credential = administration.issue_credential(second_client.id)
+        administration.grant_target(second_client.id, target_id)
+        administration.grant_production_inspection_scope(
+            second_client.id, target_id, identity_generation=1
+        )
+        administration.grant_production_visual_scope(
+            second_client.id,
+            target_id,
+            identity_generation=1,
+            bridge_trust_revision=1,
+        )
+        second_principal = McpAuthenticationService(factory).authenticate(
+            second_credential.token
+        )
+        assert second_principal is not None
+        second = tools.screenshot_capture(
+            second_principal, target_id=target_id, request_id=request_id
+        )
+        assert second.metadata.capture_id == request_id
+        assert fake.capture_count == 2
+        with factory() as session:
+            bridge_request_ids = session.scalars(
+                text(
+                    "SELECT bridge_request_id FROM mcp_production_screenshot_receipts "
+                    "WHERE request_id=:request ORDER BY client_id"
+                ),
+                {"request": str(request_id)},
+            ).all()
+        assert len(bridge_request_ids) == len(set(bridge_request_ids)) == 2
+
+        # A required metadata commit failure after capture discards volatile
+        # pixels while preserving the completed bridge replay identity.
+        audit_client = administration.create_client(
+            display_name="Audit failure reader",
+            preset_id=PRODUCTION_VISUAL_PRESET_ID,
+        )
+        audit_request = uuid4()
+
+        def fail_metadata_commit(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("forced metadata failure")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(screenshots, "_complete", fail_metadata_commit)
+            with pytest.raises(RuntimeError, match="forced metadata failure"):
+                screenshots.capture(
+                    client_id=audit_client.id,
+                    target_id=target_id,
+                    request_id=audit_request,
+                    identity_generation=1,
+                    bridge_trust_revision=1,
+                )
+        with factory() as session:
+            protected_bridge_request = session.scalar(
+                text(
+                    "SELECT bridge_request_id FROM mcp_production_screenshot_receipts "
+                    "WHERE client_id=:client AND request_id=:request"
+                ),
+                {
+                    "client": str(audit_client.id),
+                    "request": str(audit_request),
+                },
+            )
+        assert protected_bridge_request is not None
+        with pytest.raises(
+            ExternalBridgeServiceError, match="screenshot_replay_unavailable"
+        ):
+            bridges.capture_screenshot(
+                target_id, request_id=UUID(protected_bridge_request)
+            )
         with pytest.raises(
             ProductionScreenshotError, match="screenshot_replay_unavailable"
         ):
@@ -239,7 +316,7 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
                 identity_generation=1,
                 bridge_trust_revision=2,
             )
-        assert fake.capture_count == 1
+        assert fake.capture_count == 3
         restarted_bridges = ExternalBridgeService(
             factory,
             endpoint_policy=ExternalEndpointPolicy(
@@ -260,7 +337,7 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
                 identity_generation=1,
                 bridge_trust_revision=1,
             )
-        assert fake.capture_count == 1
+        assert fake.capture_count == 3
         with pytest.raises(McpAuthorizationError, match="rate_limited"):
             tools.screenshot_capture(principal, target_id=target_id, request_id=uuid4())
 
@@ -306,6 +383,49 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
                         "WHERE response_digest IS NOT NULL"
                     )
                 )
-                == 1
+                == 2
             )
+    engine.dispose()
+
+
+def test_failed_production_pairing_retires_the_show_once_token(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'failed-pairing.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id, _credentials = _production_target(factory, tmp_path)
+    secret_root = tmp_path / "failed-pairing-secrets"
+
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        fake.capabilities = ["screenshot"]
+        bridges = ExternalBridgeService(
+            factory,
+            endpoint_policy=ExternalEndpointPolicy(
+                allowed_ports=(fake.port,), test_loopback_enabled=True
+            ),
+            secret_store=ExternalBridgeSecretStore(
+                secret_root, master_key=b"b" * 32, key_version=1
+            ),
+        )
+        bridges.register_reviewed_build(
+            semantic_fingerprint=fake.build_fingerprint,
+            zip_sha256="a" * 64,
+            addon_id="service.kodi_lab_bridge",
+            addon_version=fake.addon_version,
+            protocol_version=fake.protocol_version,
+            capabilities=tuple(fake.capabilities),
+            supported_kodi_versions=(fake.kodi_version,),
+            source_reference="deterministic local fixture",
+        )
+        bridges.acknowledge_production_http_risk(target_id, bridge_port=fake.port)
+        bridges.generate_pairing_token(target_id, bridge_port=fake.port)
+        assert len(list(secret_root.glob("*.json"))) == 1
+
+        with pytest.raises(ExternalBridgeServiceError):
+            bridges.attempt_pairing(target_id)
+
+        status = bridges.status(target_id)
+        assert not status.pairing_token_pending
+        assert list(secret_root.glob("*.json")) == []
     engine.dispose()

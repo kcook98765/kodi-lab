@@ -5471,6 +5471,23 @@ def test_0049_bridge_revision_is_monotonic_and_visual_history_blocks_downgrade(
                 ),
                 {"target": target_id},
             )
+        with pytest.raises(
+            IntegrityError, match="production_bridge_trust_revision_not_monotonic"
+        ):
+            connection.execute(
+                text("DELETE FROM external_bridge_pairings WHERE target_id=:target"),
+                {"target": target_id},
+            )
+        with pytest.raises(
+            IntegrityError, match="production_bridge_trust_revision_not_monotonic"
+        ):
+            connection.execute(
+                text(
+                    "INSERT OR REPLACE INTO external_bridge_pairings "
+                    "SELECT * FROM external_bridge_pairings WHERE target_id=:target"
+                ),
+                {"target": target_id},
+            )
         with pytest.raises(IntegrityError):
             connection.execute(
                 text(
