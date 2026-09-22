@@ -535,6 +535,33 @@ class KodiTargetAdapterService:
             screenshot_refresh=ScreenshotRefreshResult(result="not_requested"),
         )
 
+    def preflight_production_remote(
+        self, target_id: UUID, action: BrowserRemoteAction
+    ) -> None:
+        """Authenticate bridge/native identity and exact methods without mutation."""
+
+        if self._target_type(target_id) is not TargetType.EXTERNAL_PRODUCTION:
+            raise KodiTargetAdapterError("target_not_found_or_not_authorized")
+        snapshot = self._production_snapshot(
+            target_id,
+            required_capabilities=frozenset({"target_inspect", "semantic_remote"}),
+            load_secret=True,
+        )
+        if self._external_bridges is None:
+            raise KodiTargetAdapterError("bridge_not_paired")
+        try:
+            self._external_bridges.authenticate_production_identity(target_id)
+            self._production_adapter(snapshot).preflight_production(
+                action,
+                validate_identity=lambda result: self._require_production_identity(
+                    snapshot, result
+                ),
+            )
+        except ExternalBridgeServiceError as error:
+            raise KodiTargetAdapterError(error.code) from error
+        except ExternalProbeError as error:
+            raise KodiTargetAdapterError(error.code) from error
+
     def capture_screenshot(
         self, target_id: UUID, *, request_id: UUID | None = None
     ) -> KodiTargetScreenshotData:

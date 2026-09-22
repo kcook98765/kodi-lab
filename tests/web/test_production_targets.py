@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -8,7 +10,9 @@ from fastapi.testclient import TestClient
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
 from kodi_lab.application.mcp_administration import READ_ONLY_INSPECTION_PRESET_ID
 from kodi_lab.application.production_inspection import PRODUCTION_INSPECTION_PRESET_ID
+from kodi_lab.application.production_transient_approvals import ProductionApprovalRead
 from kodi_lab.kodi.external import ExternalKodiProbeResult
+from kodi_lab.kodi.remote import BrowserRemoteAction
 
 from .conftest import ORIGIN, login
 
@@ -223,3 +227,113 @@ def test_production_mutation_controls_are_csrf_protected_and_epoch_monotonic(
     ).json()
     assert cleared["production_mutations_blocked"] is False
     assert cleared["policy_epoch"] == 2
+
+
+def test_production_approval_queue_and_decisions_are_web_only_and_protected(
+    client: TestClient,
+) -> None:
+    approval_id = UUID("53000000-0000-4000-8000-000000000001")
+    now = datetime(2026, 9, 22, 12, tzinfo=UTC)
+    record = ProductionApprovalRead(
+        approval_id=approval_id,
+        target_id=UUID("53000000-0000-4000-8000-000000000002"),
+        target_name="Living room",
+        client_id=UUID("53000000-0000-4000-8000-000000000003"),
+        client_name="Production remote",
+        request_id=UUID("53000000-0000-4000-8000-000000000004"),
+        action=BrowserRemoteAction.PLAY_PAUSE,
+        state="pending",
+        terminal_reason=None,
+        created_at=now,
+        expires_at=now + timedelta(minutes=15),
+        trust_summary="native 1; bridge 2; policy 3",
+        global_mutations_blocked=False,
+        target_mutations_suspended=False,
+    )
+
+    class ApprovalAdministration:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, BrowserRemoteAction | None]] = []
+
+        def list_queue(self) -> list[ProductionApprovalRead]:
+            return [record]
+
+        def approve(
+            self, _approval_id: UUID, *, action: BrowserRemoteAction
+        ) -> ProductionApprovalRead:
+            self.calls.append(("approve", action))
+            return record.model_copy(update={"state": "approved"})
+
+        def deny(self, _approval_id: UUID) -> ProductionApprovalRead:
+            self.calls.append(("deny", None))
+            return record.model_copy(
+                update={"state": "denied", "terminal_reason": "administrator_denied"}
+            )
+
+        def cancel(self, _approval_id: UUID) -> ProductionApprovalRead:
+            self.calls.append(("cancel", None))
+            return record.model_copy(
+                update={
+                    "state": "cancelled",
+                    "terminal_reason": "administrator_cancelled",
+                }
+            )
+
+    app = cast(FastAPI, client.app)
+    administration = ApprovalAdministration()
+    object.__setattr__(
+        app.state.kodi_lab, "production_transient_approvals", administration
+    )
+    queue_url = "/api/production-operation-approvals"
+    decision_url = f"{queue_url}/{approval_id}"
+    assert client.get(queue_url).status_code == 401
+    csrf = login(client)
+    assert (
+        client.get(queue_url, headers={"Host": "attacker.invalid"}).status_code == 400
+    )
+    queue = client.get(queue_url)
+    assert queue.status_code == 200
+    assert queue.json()[0]["action"] == "play_pause"
+    assert (
+        client.post(
+            f"{decision_url}/approve",
+            json={"confirmed": True, "action": "play_pause"},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            f"{decision_url}/approve",
+            json={"confirmed": False, "action": "play_pause"},
+            headers=_headers(csrf),
+        ).status_code
+        == 422
+    )
+    approved = client.post(
+        f"{decision_url}/approve",
+        json={"confirmed": True, "action": "play_pause"},
+        headers=_headers(csrf),
+    )
+    assert approved.status_code == 200
+    assert approved.json()["action"] == "play_pause"
+    assert (
+        client.post(
+            f"{decision_url}/deny",
+            json={"confirmed": True},
+            headers=_headers(csrf),
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"{decision_url}/cancel",
+            json={"confirmed": True},
+            headers=_headers(csrf),
+        ).status_code
+        == 200
+    )
+    assert administration.calls == [
+        ("approve", BrowserRemoteAction.PLAY_PAUSE),
+        ("deny", None),
+        ("cancel", None),
+    ]

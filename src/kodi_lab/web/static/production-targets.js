@@ -15,6 +15,12 @@
     if (!confirm(blocked ? "Clear the global deny-only block? This grants no authority." : "Block all future production mutations?")) return;
     await request("/api/production-targets/mutation-control", "POST", {blocked: !blocked}); location.reload();
   }));
+  root.querySelectorAll("[data-approval-id]").forEach((card) => card.addEventListener("click", (event) => run(async () => {
+    const button = event.target.closest("button[data-approval-action-kind]"); if (!button) return;
+    const operation = button.dataset.approvalActionKind; const id = card.dataset.approvalId; const action = card.dataset.approvalAction;
+    if (operation === "approve" && !confirm(`Approve exactly one ${action} action?`)) return;
+    await request(`/api/production-operation-approvals/${id}/${operation}`, "POST", operation === "approve" ? {confirmed: true, action} : {confirmed: true}); location.reload();
+  })));
   root.querySelector("[data-register]")?.addEventListener("submit", (event) => run(async () => {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     await request("/api/production-targets", "POST", {logical_name: form.get("logical_name"), protocol_kind: form.get("protocol_kind"), host: form.get("host"), port: Number(form.get("port")), authentication_mode: form.get("authentication_mode"), configured_capabilities: form.getAll("capability"), username: form.get("username") || null, password: form.get("password") || null}); location.reload();

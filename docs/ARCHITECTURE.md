@@ -2475,3 +2475,63 @@ actions/second/client-target with burst three, one in flight per target and four
 globally below the eight-operation external ceiling, with no queue. Slice 4A
 adds no Web dispatch, approval queue, playback/volume authority, broker action,
 deployment, execution, lifecycle, shell, filesystem, SSH or arbitrary JSON-RPC.
+
+## Phase 14 Slice 4B one-shot transient production approvals
+
+Migration `0051_production_transient_approvals` adds immutable generic grant
+UUIDs, positive monotonic client authority revision, the generation/revision-
+bound `request_transient_control` scope, durable approvals and append-only
+transition events, transient dispatch audit/rate state and a second closed
+production receipt-binding shape. Existing navigation rows remain navigation
+rows with their exact 4A fields and replay identity.
+
+The approval is the immutable pre-dispatch intent record, while the Phase 11
+receipt remains authoritative after consumption. Intent binds exact client,
+initiating credential, target, action, canonical payload digest/revision,
+request UUID, native and bridge revisions, target policy and global mutation
+revisions, client authority revision, generic grant UUID, exact presets, inspect
+and transient scope UUIDs, applicable HTTP acknowledgement and reviewed build.
+Client rename and credential administration do not perturb the client authority
+revision; enablement and preset assignment do. Grant/scope/credential changes
+are detected by their exact identities.
+
+MCP request processing classifies prohibited actions before any receipt or
+approval work. It then resolves an existing base receipt, then an existing
+client/request approval. Only genuinely new work evaluates current production
+authority, both vetoes and durable approval admission before atomically writing
+one pending approval plus requested event. No receipt, native mutation or
+dispatch preflight occurs at request creation. The additive result exposes only
+approval/request/target UUIDs, exact semantic action, state and expiry.
+
+Authenticated Web administration lists bounded target/client/action/request/
+time/trust/veto projections and alone performs approve, deny and cancel.
+Approval requires the exact displayed action and clear global/target vetoes;
+deny and cancel remain available while blocked. Pending can become approved,
+denied, cancelled or expired; approved can become consumed, cancelled or
+expired. No terminal state reopens. Pending and approved deadlines are persisted
+and never extended.
+
+An approved retry first authenticates the bridge identity and performs native
+Ping, JSON-RPC version, application identity and action-specific method
+introspection without mutation. Temporary reachability failure returns a
+bounded error while preserving approval. Definitive identity, protocol, build,
+capability or durable-authority mismatch cancels it. The original deadline
+continues in both cases.
+
+One serialized SQLite claim transaction re-reads approval and all authority,
+checks deadlines and vetoes, enforces durable admission, inserts the base
+pending receipt and transient production binding/audit, records consumption and
+commits. Native dispatch is permitted only afterward. Immediate pre-send
+reauthorization can terminally classify definite non-dispatch; uncertainty
+preserves pending/ambiguous evidence. Crash before claim is retryable. Crash
+after commit is never redispatched and may intentionally lose the approved
+action. There is no recovery dispatcher.
+
+The fixed mappings remain server-owned: player selection is derived for
+`Player.PlayPause`, `Player.Stop` and `Player.GoTo`; volume/mute use
+`Application.SetVolume` and `Application.SetMute`. The bridge receives no
+command. Approval creation is one new request/30 seconds/client-target with
+eight live/client and 128 live/global caps. Dispatch is one/5 seconds/client-
+target, burst one, one target and one global in flight. Coherent old terminal
+bundles alone expire atomically; all live, pending, ambiguous, malformed or
+incoherent relationships remain protected and capacity-consuming.

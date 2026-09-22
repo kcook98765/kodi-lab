@@ -9,7 +9,7 @@
   <body>
     <main data-production-targets data-csrf-token="{{ csrf_token }}">
       <h1>Production Kodi targets</h1>
-      <p><strong>Production targets are a separate immutable class.</strong> Slice 4A permits only reviewed seven-action navigation through the exact Production Remote Kodi authority; transient control, approvals, deployment, workspaces, execution, and lifecycle remain unavailable.</p>
+      <p><strong>Production targets are a separate immutable class.</strong> Seven standing navigation actions require no approval. Seven playback and volume actions require one exact, one-shot Web approval; context menu and select remain prohibited.</p>
       <p>Private-LAN IP literals only; no DNS, WAN, redirects, ambient proxy, SSH, shell, filesystem, or raw JSON-RPC authority.</p>
       <p><strong>Privacy warning:</strong> production screenshots may contain personal or media information. Kodi Lab keeps pixels only in memory, but the receiving MCP client may persist them outside Kodi Lab.</p>
       <p class="error" data-error role="alert" hidden></p>
@@ -17,6 +17,20 @@
         <h2>Global mutation emergency control</h2>
         <p>State: <strong>{{ 'BLOCKED' if mutation_control.production_mutations_blocked else 'unblocked (grants no authority)' }}</strong> · policy epoch {{ mutation_control.policy_epoch }}. Clearing this deny-only control does not authorize any operation.</p>
         <button type="button" data-global-block data-blocked="{{ 'true' if mutation_control.production_mutations_blocked else 'false' }}">{{ 'Clear global block' if mutation_control.production_mutations_blocked else 'Block production mutations' }}</button>
+      </section>
+      <section>
+        <h2>One-shot transient-control approval queue</h2>
+        <p>Approval authorizes only the exact displayed action and request. It does not extend deadlines or grant standing control.</p>
+        {% for approval in approval_queue %}
+        <article data-approval-id="{{ approval.approval_id }}" data-approval-action="{{ approval.action.value }}">
+          <h3>{{ approval.target_name }} · {{ approval.client_name }}</h3>
+          <p>Exact action: <strong>{{ approval.action.value }}</strong> · request {{ approval.request_id }}</p>
+          <p>State {{ approval.state }} · created {{ approval.created_at }} · expires {{ approval.expires_at }}</p>
+          <p>{{ approval.trust_summary }} · global veto {{ 'blocked' if approval.global_mutations_blocked else 'clear' }} · target veto {{ 'suspended' if approval.target_mutations_suspended else 'clear' }}</p>
+          {% if approval.state == 'pending' %}<button type="button" data-approval-action-kind="approve">Approve exact {{ approval.action.value }}</button> <button type="button" data-approval-action-kind="deny">Deny</button>{% endif %}
+          {% if approval.state in ['pending','approved'] %}<button type="button" data-approval-action-kind="cancel">Cancel</button>{% endif %}
+        </article>
+        {% else %}<p>No live pending or approved operations.</p>{% endfor %}
       </section>
       <section>
         <h2>Reviewed production bridge builds</h2>
@@ -65,6 +79,7 @@
           <p>Bridge: <strong>{{ bridge.pairing_state.value if bridge else 'unpaired' }}</strong> · native generation {{ policy.identity_generation }} · bridge trust revision {{ bridge.production_bridge_trust_revision if bridge and bridge.production_bridge_trust_revision else 'none' }} · build {{ bridge.reviewed_build_id if bridge and bridge.reviewed_build_id else 'unreviewed' }}</p>
           <p>Native HTTP production control acknowledgement: <strong>{{ native_control_ack.acknowledgement_id if native_control_ack else ('not required for HTTPS' if target.protocol_kind.value == 'jsonrpc_https' else 'missing') }}</strong></p>
           <p>Navigation scopes: {% for scope in production_scopes if scope.target_id == target.target_id and scope.scope == 'navigate' %}{{ scope.client_id }}={{ scope.effective_state }} (generation {{ scope.identity_generation }}, bridge revision {{ scope.bridge_trust_revision }}){% if not loop.last %}; {% endif %}{% else %}none{% endfor %}. Inspect is an independent prerequisite; visual is not required.</p>
+          <p>Transient request scopes: {% for scope in production_scopes if scope.target_id == target.target_id and scope.scope == 'request_transient_control' %}{{ scope.client_id }}={{ scope.effective_state }} (generation {{ scope.identity_generation }}, bridge revision {{ scope.bridge_trust_revision }}){% if not loop.last %}; {% endif %}{% else %}none{% endfor %}. Every transient action still requires one-shot Web approval.</p>
           {% if bridge and bridge.observed_bridge_id %}<p>Observed bridge identity: UUID {{ bridge.observed_bridge_id }} · protocol {{ bridge.observed_protocol_version }} · add-on {{ bridge.observed_addon_id }} {{ bridge.observed_addon_version }} · Kodi {{ bridge.observed_kodi_version }} · semantic fingerprint {{ bridge.observed_build_fingerprint }} · capabilities {{ bridge.observed_capabilities | join(', ') }}</p>{% endif %}
           {% if target.administrative_state.value != 'deactivated' %}
           <button type="button" data-action="probe">Run native read-only probe</button>

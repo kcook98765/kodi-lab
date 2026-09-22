@@ -268,6 +268,52 @@ def test_revoke_rotate_disable_and_grant_cascade_recompute_current_state(
     assert administration.get_client(client.id).target_grants == ()
 
 
+def test_client_authority_revision_changes_only_for_enablement_and_preset(
+    mcp_database: sessionmaker[Session],
+) -> None:
+    administration = McpAdministrationService(
+        mcp_database, clock=MutableClock().utc, token_bytes=TokenSource()
+    )
+    client = administration.create_client(
+        display_name="Revision client", preset_id=READ_ONLY_INSPECTION_PRESET_ID
+    )
+    assert client.authority_revision == 1
+    assert administration.rename_client(client.id, "Renamed").authority_revision == 1
+    issued = administration.issue_credential(client.id)
+    assert administration.get_client(client.id).authority_revision == 1
+    administration.rotate_credential(client.id, issued.credential.id)
+    assert administration.get_client(client.id).authority_revision == 1
+
+    administration.grant_target(client.id, TARGET_ID)
+    with mcp_database() as session:
+        first = session.get(
+            McpClientTargetGrantRow,
+            {"client_id": str(client.id), "target_id": str(TARGET_ID)},
+        )
+        assert first is not None
+        first_grant_id = first.grant_id
+    assert administration.get_client(client.id).authority_revision == 1
+    administration.remove_target_grant(client.id, TARGET_ID)
+    administration.grant_target(client.id, TARGET_ID)
+    with mcp_database() as session:
+        second = session.get(
+            McpClientTargetGrantRow,
+            {"client_id": str(client.id), "target_id": str(TARGET_ID)},
+        )
+        assert second is not None
+        assert second.grant_id != first_grant_id
+    assert administration.get_client(client.id).authority_revision == 1
+
+    assert administration.set_client_enabled(client.id, False).authority_revision == 2
+    assert administration.set_client_enabled(client.id, True).authority_revision == 3
+    assert (
+        administration.assign_client_preset(
+            client.id, FULL_LAB_CONTROL_PRESET_ID
+        ).authority_revision
+        == 4
+    )
+
+
 def test_builtin_presets_activate_exact_non_clonable_production_remote_maximum(
     mcp_database: sessionmaker[Session],
 ) -> None:

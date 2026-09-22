@@ -62,6 +62,7 @@
       if (action === "grant-production-scope") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}/production-inspection-scopes`, "POST", {identity_generation: Number(button.dataset.generation)});
       if (action === "grant-production-visual-scope") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}/production-visual-scopes`, "POST", {identity_generation: Number(button.dataset.generation), bridge_trust_revision: Number(button.dataset.bridgeRevision)});
       if (action === "grant-production-navigate-scope") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}/production-navigate-scopes`, "POST", {identity_generation: Number(button.dataset.generation), bridge_trust_revision: Number(button.dataset.bridgeRevision)});
+      if (action === "grant-production-transient-scope") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}/production-transient-control-scopes`, "POST", {identity_generation: Number(button.dataset.generation), bridge_trust_revision: Number(button.dataset.bridgeRevision)});
       if (action === "revoke-production-scope") await request(`/api/mcp/production-inspection-scopes/${button.dataset.scopeId}/revoke`, "POST");
       if (action === "grant-source") await request(`/api/mcp/clients/${id}/development-sources/${button.dataset.sourceId}`, "POST");
       if (action === "revoke-source") await request(`/api/mcp/clients/${id}/development-sources/${button.dataset.sourceId}`, "DELETE");

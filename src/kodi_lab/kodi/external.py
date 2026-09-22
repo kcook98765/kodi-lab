@@ -750,7 +750,61 @@ class NativeExternalKodiAdapter:
                     identity=identity, protocol_version=protocol_version
                 )
             )
-            method = fixed_request_mapping()[action][0]
+            self._require_production_action_methods(client, action, started)
+            before_dispatch()
+            dispatch_semantic_remote(
+                lambda request_id, request_method, params, mutation: (
+                    self._remote_request(
+                        client,
+                        request_id,
+                        request_method,
+                        params,
+                        mutation,
+                        started,
+                    )
+                ),
+                action,
+                invocation_id,
+            )
+
+    def preflight_production(
+        self,
+        action: BrowserRemoteAction,
+        *,
+        validate_identity: Callable[[ProductionKodiIdentityResult], None],
+    ) -> None:
+        """Perform the complete production remote preflight without mutation."""
+
+        started = time.monotonic()
+        try:
+            with self._client() as client:
+                identity, protocol_version = self._production_preamble(client, started)
+                validate_identity(
+                    ProductionKodiIdentityResult(
+                        identity=identity, protocol_version=protocol_version
+                    )
+                )
+                self._require_production_action_methods(client, action, started)
+        except ExternalProbeError:
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as error:
+            raise ExternalProbeError("target_unreachable") from error
+
+    def _require_production_action_methods(
+        self,
+        client: httpx.Client,
+        action: BrowserRemoteAction,
+        started: float,
+    ) -> None:
+        methods = [fixed_request_mapping()[action][0]]
+        if action in {
+            BrowserRemoteAction.PLAY_PAUSE,
+            BrowserRemoteAction.STOP,
+            BrowserRemoteAction.PREVIOUS,
+            BrowserRemoteAction.NEXT,
+        }:
+            methods.insert(0, "Player.GetActivePlayers")
+        for method in methods:
             introspection = self._verifier._call(
                 client,
                 self._endpoint,
@@ -770,21 +824,6 @@ class NativeExternalKodiAdapter:
                 or method not in introspection["methods"]
             ):
                 raise ExternalProbeError("capability_unavailable")
-            before_dispatch()
-            dispatch_semantic_remote(
-                lambda request_id, request_method, params, mutation: (
-                    self._remote_request(
-                        client,
-                        request_id,
-                        request_method,
-                        params,
-                        mutation,
-                        started,
-                    )
-                ),
-                action,
-                invocation_id,
-            )
 
     def invoke_fixed_video_plugin(
         self, addon_id: str, invocation_id: UUID

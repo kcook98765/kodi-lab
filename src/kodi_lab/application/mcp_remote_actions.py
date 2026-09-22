@@ -29,6 +29,7 @@ from kodi_lab.storage.models import (
     McpProductionNavigationAuditRow,
     McpProductionRemoteReceiptBindingRow,
     McpRemoteActionReceiptRow,
+    ProductionTransientDispatchAuditRow,
 )
 
 REMOTE_RECEIPT_RETENTION = timedelta(days=30)
@@ -267,6 +268,65 @@ class McpRemoteActionReceiptService:
                 session.expunge(row)
             return row
 
+    def existing(
+        self, client_id: UUID, request_id: UUID
+    ) -> McpRemoteActionReceiptRow | None:
+        """Read one durable replay identity for approval-first orchestration."""
+
+        return self._existing(client_id, request_id)
+
+    def replay(
+        self,
+        row: McpRemoteActionReceiptRow,
+        *,
+        target_id: UUID,
+        action: BrowserRemoteAction,
+    ) -> McpRemoteActionResult:
+        return self._replay(row, target_id=target_id, action=action)
+
+    def dispatch_claimed_production(
+        self,
+        *,
+        receipt_id: UUID,
+        client_id: UUID,
+        target_id: UUID,
+        action: BrowserRemoteAction,
+        before_dispatch: Callable[[], None],
+    ) -> McpRemoteActionResult:
+        """Dispatch one already committed production receipt exactly once."""
+
+        try:
+            self._rate_limiter.require_allowed(f"mcp:{client_id}", target_id)
+        except BrowserRemoteError as error:
+            code = "rate_limited" if error.code == "visual_rate_limited" else error.code
+            self._finalize_error(str(receipt_id), code, state="completed")
+            raise McpRemoteActionReceiptError(code) from error
+        actor = RemoteActorContext.mcp_client(client_id)
+        try:
+            result = self._remote.invoke(
+                target_id,
+                action,
+                actor=actor,
+                invocation_id=receipt_id,
+                before_dispatch=before_dispatch,
+            )
+        except BrowserRemoteError as error:
+            state = (
+                "ambiguous" if error.code == "remote_action_ambiguous" else "completed"
+            )
+            try:
+                self._finalize_error(str(receipt_id), error.code, state=state)
+            except (SQLAlchemyError, RuntimeError):
+                raise McpRemoteActionReceiptError("remote_action_ambiguous") from error
+            raise McpRemoteActionReceiptError(error.code) from error
+        except Exception as error:
+            raise McpRemoteActionReceiptError("remote_action_ambiguous") from error
+        try:
+            row = self._finalize_success(str(receipt_id), result)
+        except (SQLAlchemyError, RuntimeError) as error:
+            raise McpRemoteActionReceiptError("remote_action_ambiguous") from error
+        return self._result(row)
+
     def _claim(
         self,
         *,
@@ -342,11 +402,14 @@ class McpRemoteActionReceiptService:
                             navigate_scope_id=str(
                                 production_authority.navigate_scope_id
                             ),
+                            transient_scope_id=None,
+                            approval_id=None,
                             client_preset_id=str(production_authority.client_preset_id),
                             target_preset_id=str(production_authority.target_preset_id),
                             generic_grant_created_at=(
                                 production_authority.generic_grant_created_at
                             ),
+                            generic_grant_id=str(production_authority.generic_grant_id),
                             native_http_acknowledgement_id=(
                                 None
                                 if production_authority.native_http_acknowledgement_id
@@ -573,6 +636,14 @@ class McpRemoteActionReceiptService:
                 audit.outcome = result.result
                 audit.dispatch_classification = "acknowledged"
                 audit.completed_at = _to_text(completed_at)
+            transient_audit = session.get(
+                ProductionTransientDispatchAuditRow, receipt_id
+            )
+            if transient_audit is not None:
+                transient_audit.state = "completed"
+                transient_audit.outcome = result.result
+                transient_audit.dispatch_classification = "acknowledged"
+                transient_audit.completed_at = _to_text(completed_at)
             session.flush()
             session.expunge(row)
             return row
@@ -599,6 +670,20 @@ class McpRemoteActionReceiptService:
                     else "not_dispatched"
                 )
                 audit.completed_at = _to_text(now)
+            transient_audit = session.get(
+                ProductionTransientDispatchAuditRow, receipt_id
+            )
+            if transient_audit is not None:
+                transient_audit.state = state
+                transient_audit.outcome = code
+                transient_audit.dispatch_classification = (
+                    "ambiguous"
+                    if state == "ambiguous"
+                    else "acknowledged"
+                    if code == "remote_kodi_rejected"
+                    else "not_dispatched"
+                )
+                transient_audit.completed_at = _to_text(now)
 
     @staticmethod
     def _result(row: McpRemoteActionReceiptRow) -> McpRemoteActionResult:

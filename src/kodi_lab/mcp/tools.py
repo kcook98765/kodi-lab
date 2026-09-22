@@ -59,10 +59,19 @@ from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
     evaluate_production_visual_state,
 )
-from kodi_lab.application.production_navigation import ProductionNavigationAuthority
+from kodi_lab.application.production_navigation import (
+    ProductionActionClass,
+    ProductionNavigationAuthority,
+    classify_production_action,
+)
 from kodi_lab.application.production_screenshots import (
     ProductionScreenshotError,
     ProductionScreenshotService,
+)
+from kodi_lab.application.production_transient_approvals import (
+    ProductionApprovalError,
+    ProductionTransientApprovalService,
+    ProductionTransientResult,
 )
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
@@ -405,6 +414,9 @@ class McpTargetToolService:
         promotion_requests: McpPromotionRequestService | None = None,
         target_adapters: KodiTargetAdapterService | None = None,
         production_screenshots: ProductionScreenshotService | None = None,
+        production_transient_approvals: (
+            ProductionTransientApprovalService | None
+        ) = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -419,6 +431,7 @@ class McpTargetToolService:
         self._promotion_requests = promotion_requests
         self._target_adapters = target_adapters
         self._production_screenshots = production_screenshots
+        self._production_transient_approvals = production_transient_approvals
         self._active_edit_lock = threading.Lock()
         self._active_edits: set[UUID] = set()
         self._validation_lock = threading.Lock()
@@ -855,11 +868,29 @@ class McpTargetToolService:
         target_id: UUID,
         request_id: UUID,
         action: BrowserRemoteAction,
-    ) -> McpRemoteActionResult:
+    ) -> McpRemoteActionResult | ProductionTransientResult:
         if self._remote_actions is None:
             raise McpAuthorizationError("capability_unavailable")
 
         if self._authorization.is_production_target(target_id):
+            action_class = classify_production_action(action)
+            if action_class is ProductionActionClass.PROHIBITED:
+                raise McpAuthorizationError("production_action_prohibited")
+            if action_class is ProductionActionClass.TRANSIENT_CONTROL:
+                if self._production_transient_approvals is None:
+                    raise McpAuthorizationError("capability_unavailable")
+                try:
+                    result = self._production_transient_approvals.invoke(
+                        client_id=principal.client_id,
+                        credential_id=principal.credential_id,
+                        target_id=target_id,
+                        request_id=request_id,
+                        action=action,
+                    )
+                except ProductionApprovalError as error:
+                    raise McpAuthorizationError(error.code) from error
+                self._require_bounded(result)
+                return result
 
             def authorize_new() -> ProductionNavigationAuthority:
                 return self._authorization.authorize_production_navigation(

@@ -1675,6 +1675,39 @@ Web administration can assign the exact maximum, grant/revoke navigate scope
 and create/display exact native-HTTP control acknowledgement. There is no Web
 dispatch button or MCP grant management. Deterministic local/mock proof covers
 taxonomy, stale authority, vetoes, replay/ambiguity, migration protection and
-native preamble without LAN or production contact. Slice 4B approvals and all
-playback/volume, deployment, execution, lifecycle, shell, filesystem, SSH and
-arbitrary JSON-RPC authority remain unimplemented.
+native preamble without LAN or production contact. At that 4A checkpoint,
+Slice 4B approvals and all playback/volume, deployment, execution, lifecycle,
+shell, filesystem, SSH and arbitrary JSON-RPC authority remained unimplemented.
+
+## Phase 14 Slice 4B implementation completion checkpoint
+
+**Slice 4B: COMPLETE. Phase 14: PARTIAL.** Migration
+`0051_production_transient_approvals` adds immutable generic grant UUIDs,
+positive monotonic client authority revision, the current-generation/current-
+bridge `request_transient_control` scope, durable approval/transition/audit/rate
+storage and the closed transient production receipt-binding form. No authority
+row is seeded and destructive downgrade refuses when 4B authority/history
+would be lost.
+
+The unchanged `remote_action` now returns a bounded additive
+`approval_required` form for genuinely new transient requests. Exact duplicate
+requests reuse approval state; changed semantics conflict. The authenticated
+Web queue alone approves, denies or cancels the exact displayed action. Pending
+and approved deadlines are capped at fifteen and five minutes respectively and
+never extend. Durable authority/policy change terminally cancels approval,
+while temporary reachability failure leaves it approved until the original
+deadline.
+
+Fresh bridge/native read-only preflight precedes one atomic SQLite claim that
+consumes approval and creates the Phase 11 receipt, immutable production
+binding, bounded semantic audit, consumed event and durable admission state.
+Native send occurs only after commit. Crash or uncertainty after commit never
+reopens approval or redispatches the receipt. Local/mock tests cover request,
+decision, expiry, authority resurrection, veto, reachability, concurrency,
+post-commit loss, replay, migration preservation and Web/MCP schema boundaries
+without LAN or production contact.
+
+Standing navigation and all sixteen external-development actions remain
+unchanged; production `context_menu` and `select` remain prohibited. No
+deployment, execution, lifecycle, support-addon, shell, filesystem, SSH or raw
+JSON-RPC authority is added, and no subsequent Phase 14 work is begun.

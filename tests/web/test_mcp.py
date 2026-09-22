@@ -844,6 +844,15 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "target_id",
         "action",
     }
+    assert remote["outputSchema"]["type"] == "object"
+    result_variants = {
+        item["$ref"].rsplit("/", 1)[-1] for item in remote["outputSchema"]["anyOf"]
+    }
+    assert result_variants == {
+        "McpRemoteActionResult",
+        "ProductionApprovalRequiredResult",
+        "ProductionApprovalTerminalResult",
+    }
     assert remote["annotations"] == {
         "destructiveHint": False,
         "idempotentHint": True,

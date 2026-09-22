@@ -1,8 +1,8 @@
 # Phase 14 — External Production Targets
 
-## Slice 1 through Slice 4A status and scope
+## Slice 1 through Slice 4B status and scope
 
-**Slices 1, 2, 3 and 4A: COMPLETE. Phase 14: PARTIAL.** Slice 1
+**Slices 1, 2, 3, 4A and 4B: COMPLETE. Phase 14: PARTIAL.** Slice 1
 establishes production representation and trust policy only. Slice 2 adds
 bounded read-only inspection. Independent Slice 2 completion audit found and
 remediated one generation-downgrade hazard by making production identity
@@ -19,6 +19,10 @@ receipt cleanup boundary: only coherent completed base/binding/audit evidence
 can now expire atomically, while pending, ambiguous and malformed relationships
 remain protected. Its deterministic proof likewise contacted no LAN or
 production Kodi.
+Slice 4B adds exact one-shot Web approval for the seven transient playback/
+track/volume semantics. Approval intent and consumption are durable, bounded
+and replay-safe; receipt claim is atomic with consumption before the one native
+send. Deterministic proof contacted no LAN or production Kodi.
 
 Included:
 
@@ -45,11 +49,14 @@ Included:
 - immutable navigate scope and exact Production Remote Kodi maximum;
 - replay-safe, veto/rate/concurrency-bounded seven-action navigation;
 - separate exact native-HTTP control acknowledgement; and
+- immutable transient-request scope and generic grant identity;
+- Web-only pending/approve/deny/cancel administration;
+- atomic one-shot transient approval consumption and Phase 11 receipt claim;
+- protected approval/receipt/audit retention and durable admission; and
 - exactly five production-eligible tools in the unchanged fifteen-tool catalog.
 
 Excluded:
 
-- transient playback/volume control and production approvals;
 - production `context_menu` and `select`;
 - DevelopmentSource baseline, workspace deployment/execution or promotion;
 - support-addon deployment;
@@ -223,6 +230,14 @@ immutability/protected-retention triggers. Slice 4A changes only the existing
 grant, assignment, acknowledgement or mutation authority and refuses downgrade
 while any Slice 4A authority or history would be lost.
 
+Migration `0051_production_transient_approvals` preserves every 4A receipt,
+adds deterministic immutable identities to existing generic grants, positive
+client authority revision, the `request_transient_control` scope, durable
+approval/event/audit/rate storage, monotonic revision/epoch guards and the
+closed transient receipt-binding shape. It seeds no scope, approval, grant,
+assignment or authority and refuses destructive downgrade while 4B authority
+or history would be lost.
+
 ## Slice 3 reviewed bridge and visual inspection
 
 Migration `0049_production_bridge_visual` reuses Phase 13 bridge protocol v1,
@@ -349,9 +364,58 @@ remote button or MCP grant management. The production registry is exactly
 `remote_action`; the other ten tools remain denied. Local/mock tests only were
 used and no production Kodi or LAN host was contacted.
 
+## Slice 4B one-shot transient production control
+
+Production now classifies the seven playback/track/volume actions as exact
+one-shot approval operations. The seven navigation actions remain standing;
+`context_menu` and `select` remain prohibited. A new approval request requires
+current inspect and `request_transient_control` scopes but neither navigate nor
+visual. Inspect revocation atomically revokes every active dependent scope.
+
+Each pending approval binds the initiating credential and immutable generic
+grant UUID plus client authority, client/target presets, native generation,
+bridge revision, policy revision, mutation epoch, exact scope UUIDs, reviewed
+build and applicable native-HTTP acknowledgement. Client authority revision
+advances only for enabled-state and preset changes. Target policy and global
+mutation revisions are monotonic, so disable/re-enable, suspend/resume and
+block/unblock cannot resurrect an old approval.
+
+MCP creates a pending row and same-transaction requested event only after full
+authority and veto admission. It creates no receipt, performs no mutation and
+runs no dispatch preflight. Exact duplicate returns the same bounded
+`approval_required`; changed target/action/digest conflicts. Web alone displays
+the exact action and bounded current trust/veto state and may approve, deny or
+cancel under the existing authenticated session, Trusted Host, Origin and CSRF
+controls. Approval cannot succeed while either veto is set; denial/cancellation
+remain available.
+
+Pending expiry is at most fifteen minutes. Web approval creates at most a five-
+minute dispatch deadline from that decision; neither deadline extends. Before
+claim, approved retry performs authenticated bridge identity and read-only
+native Ping/version/application/method preflight. Temporary reachability leaves
+approval approved; definitive identity/build/protocol/capability or durable
+authority change cancels it.
+
+Consumption, base pending receipt, transient production binding, semantic
+dispatch audit, consumed transition and durable admission commit in one SQLite
+transaction. Only then may the adapter recheck immediate vetoes and send the
+single fixed native mapping. Crash after commit but before send intentionally
+leaves a protected receipt and never dispatches on retry. Response-loss
+ambiguity also never redispatches; completed results replay historically across
+modern HTTP, stdio and compatibility HTTP.
+
+New approval admission is one/30 seconds/client-target, eight live/client and
+128 live/global. Transient dispatch is one/5 seconds/client-target, burst one,
+one target and one global in flight. Terminal history is bounded to
+1,000/client and 10,000 global at approximately 30 days. Only coherent terminal
+approval/receipt/binding/audit/event bundles expire atomically. Live, pending,
+ambiguous, missing, malformed or mismatched evidence remains protected and
+capacity-consuming. Durable audit contains bounded semantic identifiers,
+digests, revisions, transitions and outcomes only—never secrets, endpoints,
+raw JSON/JSON-RPC, responses, paths or pixels.
+
 ## Remaining Phase 14 work
 
-Slice 4B may add separately reviewed transient request/approval semantics.
-Production support-addon deployment remains subject to separate architecture.
-Slice 4A does not authorize playback/volume, approvals, deployment, execution,
+Production support-addon deployment and any later explicitly reviewed Phase 14
+scope remain separate work. Slice 4B does not authorize deployment, execution,
 lifecycle, shell, filesystem, SSH, raw JSON-RPC or real production contact.

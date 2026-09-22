@@ -7,7 +7,7 @@ import json
 import threading
 import time
 from collections.abc import Callable, Hashable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -33,7 +33,7 @@ PRODUCTION_NATIVE_CONTROL_TRANSPORT_POLICY_REVISION = 1
 
 class ProductionActionClass(StrEnum):
     NAVIGATION = "navigation"
-    FUTURE_TRANSIENT_CONTROL = "future_transient_control"
+    TRANSIENT_CONTROL = "transient_control"
     PROHIBITED = "prohibited"
 
 
@@ -48,7 +48,7 @@ PRODUCTION_NAVIGATION_ACTIONS = frozenset(
         BrowserRemoteAction.INFO,
     }
 )
-PRODUCTION_FUTURE_TRANSIENT_ACTIONS = frozenset(
+PRODUCTION_TRANSIENT_CONTROL_ACTIONS = frozenset(
     {
         BrowserRemoteAction.PLAY_PAUSE,
         BrowserRemoteAction.STOP,
@@ -69,8 +69,8 @@ def classify_production_action(action: BrowserRemoteAction) -> ProductionActionC
 
     if action in PRODUCTION_NAVIGATION_ACTIONS:
         return ProductionActionClass.NAVIGATION
-    if action in PRODUCTION_FUTURE_TRANSIENT_ACTIONS:
-        return ProductionActionClass.FUTURE_TRANSIENT_CONTROL
+    if action in PRODUCTION_TRANSIENT_CONTROL_ACTIONS:
+        return ProductionActionClass.TRANSIENT_CONTROL
     if action in PRODUCTION_PROHIBITED_ACTIONS:
         return ProductionActionClass.PROHIBITED
     raise AssertionError("unclassified BrowserRemoteAction")
@@ -87,7 +87,8 @@ class ProductionNavigationAuthority:
     client_preset_id: UUID
     target_preset_id: UUID
     generic_grant_created_at: str
-    native_http_acknowledgement_id: UUID | None
+    generic_grant_id: UUID = field(default_factory=lambda: UUID(int=0))
+    native_http_acknowledgement_id: UUID | None = None
 
 
 class ProductionNativeControlAcknowledgementRead(BaseModel):

@@ -471,6 +471,55 @@ def test_production_remote_capability_loss_is_definite_and_sends_no_action() -> 
     assert "Input.Home" not in seen
 
 
+def test_production_transient_preflight_proves_player_and_action_without_send() -> None:
+    seen: list[tuple[str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        document = json.loads(request.content)
+        method = document["method"]
+        requested = (
+            document["params"]["filter"]["id"]
+            if method == "JSONRPC.Introspect"
+            else None
+        )
+        seen.append((method, requested))
+        if method == "JSONRPC.Ping":
+            result: object = "pong"
+        elif method == "JSONRPC.Version":
+            result = {"version": {"major": 13, "minor": 0, "patch": 0}}
+        elif method == "Application.GetProperties":
+            result = {
+                "name": "Kodi",
+                "version": {"major": 21, "minor": 3, "tag": "stable"},
+            }
+        else:
+            assert requested is not None
+            result = {"methods": {requested: {"type": "method"}}}
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": document["id"], "result": result},
+        )
+
+    adapter = NativeExternalKodiAdapter(
+        ValidatedExternalEndpoint(
+            ExternalProtocolKind.JSONRPC_HTTP, "192.168.1.9", 8080
+        ),
+        None,
+        transport=httpx.MockTransport(handler),
+    )
+    adapter.preflight_production(
+        BrowserRemoteAction.PLAY_PAUSE,
+        validate_identity=lambda _result: None,
+    )
+    assert seen == [
+        ("JSONRPC.Ping", None),
+        ("JSONRPC.Version", None),
+        ("Application.GetProperties", None),
+        ("JSONRPC.Introspect", "Player.GetActivePlayers"),
+        ("JSONRPC.Introspect", "Player.PlayPause"),
+    ]
+
+
 def test_no_hostname_resolution_or_mixed_dns_answer_path_exists(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

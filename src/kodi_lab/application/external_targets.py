@@ -673,6 +673,7 @@ class ExternalTargetAdministrationService:
         now = self._clock()
         with self._session_factory.begin() as session:
             target, row = self._require_mutable(session, target_id)
+            previous_state = row.administrative_state
             if enabled:
                 if (
                     row.verification_state
@@ -695,6 +696,15 @@ class ExternalTargetAdministrationService:
                 row.administrative_state = ExternalAdministrativeState.DISABLED
                 target.availability = TargetAvailability.UNAVAILABLE
                 self._event(session, target_id, "disabled", now)
+            if (
+                target.target_type is TargetType.EXTERNAL_PRODUCTION
+                and row.administrative_state is not previous_state
+            ):
+                policy = session.get(ExternalProductionPolicyRow, str(target_id))
+                if policy is None:
+                    raise ExternalTargetError("production_policy_missing")
+                policy.policy_revision += 1
+                policy.updated_at = _to_text(now)
         return self.get(target_id)
 
     def deactivate(self, target_id: UUID) -> ExternalTargetRead:

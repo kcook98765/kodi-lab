@@ -337,6 +337,7 @@ class McpAuthorizationService:
                 client_preset_id=PRODUCTION_REMOTE_KODI_PRESET_ID,
                 target_preset_id=UUID(assignment.preset_id),
                 generic_grant_created_at=grant.created_at,
+                generic_grant_id=UUID(grant.grant_id),
                 native_http_acknowledgement_id=(
                     None if acknowledgement is None else UUID(acknowledgement.id)
                 ),

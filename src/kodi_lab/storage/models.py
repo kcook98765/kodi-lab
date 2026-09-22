@@ -1447,12 +1447,13 @@ class McpProductionTargetScopeRow(Base):
             name="mcp_production_scope_identity_valid",
         ),
         CheckConstraint(
-            "scope IN ('inspect','visual','navigate')",
+            "scope IN ('inspect','visual','navigate','request_transient_control')",
             name="mcp_production_scope_value_closed",
         ),
         CheckConstraint(
             "(scope='inspect' AND bridge_trust_revision IS NULL) OR "
-            "(scope IN ('visual','navigate') AND bridge_trust_revision>=1)",
+            "(scope IN ('visual','navigate','request_transient_control') "
+            "AND bridge_trust_revision>=1)",
             name="mcp_production_scope_bridge_binding",
         ),
         CheckConstraint(
@@ -1504,7 +1505,7 @@ class McpProductionTargetScopeRow(Base):
     )
     identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
     bridge_trust_revision: Mapped[int | None] = mapped_column(Integer)
-    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     created_by: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -5372,6 +5373,9 @@ class McpClientRow(Base):
             "AND length(disabled_at) = 27)",
             name="mcp_client_disabled_timestamp_consistent",
         ),
+        CheckConstraint(
+            "authority_revision >= 1", name="mcp_client_authority_revision_positive"
+        ),
         Index("ix_mcp_client_preset", "preset_id"),
     )
 
@@ -5384,6 +5388,7 @@ class McpClientRow(Base):
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     last_used_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
     disabled_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    authority_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
 class McpCredentialRow(Base):
@@ -5429,6 +5434,10 @@ class McpClientTargetGrantRow(Base):
         CheckConstraint(
             "length(created_at) = 27", name="mcp_client_target_grant_timestamp_format"
         ),
+        CheckConstraint(
+            "length(grant_id) = 36", name="mcp_client_target_grant_id_shape"
+        ),
+        UniqueConstraint("grant_id", name="uq_mcp_client_target_grant_id"),
         Index("ix_mcp_grant_target", "target_id"),
     )
 
@@ -5441,6 +5450,7 @@ class McpClientTargetGrantRow(Base):
         primary_key=True,
     )
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    grant_id: Mapped[str] = mapped_column(String(36), nullable=False)
 
 
 class McpClientDevelopmentSourceGrantRow(Base):
@@ -6036,7 +6046,8 @@ class McpProductionRemoteReceiptBindingRow(Base):
     __tablename__ = "mcp_production_remote_receipt_bindings"
     __table_args__ = (
         CheckConstraint(
-            "length(receipt_id)=36 AND operation_class='navigation'",
+            "length(receipt_id)=36 AND "
+            "operation_class IN ('navigation','transient_control')",
             name="mcp_production_remote_binding_identity_valid",
         ),
         CheckConstraint(
@@ -6045,8 +6056,13 @@ class McpProductionRemoteReceiptBindingRow(Base):
             name="mcp_production_remote_binding_revisions_positive",
         ),
         CheckConstraint(
-            "length(inspect_scope_id)=36 AND length(navigate_scope_id)=36 "
-            "AND length(client_preset_id)=36 AND length(target_preset_id)=36",
+            "length(inspect_scope_id)=36 "
+            "AND length(client_preset_id)=36 AND length(target_preset_id)=36 "
+            "AND length(generic_grant_id)=36 "
+            "AND ((operation_class='navigation' AND length(navigate_scope_id)=36 "
+            "AND transient_scope_id IS NULL AND approval_id IS NULL) OR "
+            "(operation_class='transient_control' AND navigate_scope_id IS NULL "
+            "AND length(transient_scope_id)=36 AND length(approval_id)=36))",
             name="mcp_production_remote_binding_authority_shapes",
         ),
         CheckConstraint(
@@ -6059,6 +6075,7 @@ class McpProductionRemoteReceiptBindingRow(Base):
             "ix_mcp_production_remote_binding_scopes",
             "inspect_scope_id",
             "navigate_scope_id",
+            "transient_scope_id",
         ),
     )
 
@@ -6073,11 +6090,259 @@ class McpProductionRemoteReceiptBindingRow(Base):
     target_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     mutation_control_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
     inspect_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    navigate_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    navigate_scope_id: Mapped[str | None] = mapped_column(String(36))
+    transient_scope_id: Mapped[str | None] = mapped_column(String(36))
+    approval_id: Mapped[str | None] = mapped_column(String(36))
     client_preset_id: Mapped[str] = mapped_column(String(36), nullable=False)
     target_preset_id: Mapped[str] = mapped_column(String(36), nullable=False)
     generic_grant_created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    generic_grant_id: Mapped[str] = mapped_column(String(36), nullable=False)
     native_http_acknowledgement_id: Mapped[str | None] = mapped_column(String(36))
+
+
+class ProductionOperationApprovalRow(Base):
+    """One durable, exact, one-shot production transient-control approval."""
+
+    __tablename__ = "production_operation_approvals"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND length(client_id)=36 AND length(credential_id)=36 "
+            "AND length(target_id)=36 AND length(request_id)=36",
+            name="production_approval_primary_uuid_shapes",
+        ),
+        CheckConstraint(
+            "tool='remote_action' AND action IN "
+            "('play_pause','stop','previous','next','volume_up','volume_down',"
+            "'mute_toggle')",
+            name="production_approval_semantics_closed",
+        ),
+        CheckConstraint(
+            "length(payload_sha256)=64 AND "
+            "payload_sha256 NOT GLOB '*[^0-9a-f]*' AND canonicalization_revision>=1",
+            name="production_approval_payload_digest_valid",
+        ),
+        CheckConstraint(
+            "native_identity_generation>=1 AND bridge_trust_revision>=1 "
+            "AND target_policy_revision>=1 AND mutation_control_epoch>=1 "
+            "AND client_authority_revision>=1",
+            name="production_approval_revisions_positive",
+        ),
+        CheckConstraint(
+            "length(generic_grant_id)=36 AND length(client_preset_id)=36 "
+            "AND length(target_preset_id)=36 AND length(inspect_scope_id)=36 "
+            "AND length(transient_scope_id)=36",
+            name="production_approval_authority_uuid_shapes",
+        ),
+        CheckConstraint(
+            "native_http_acknowledgement_id IS NULL OR "
+            "length(native_http_acknowledgement_id)=36",
+            name="production_approval_ack_shape",
+        ),
+        CheckConstraint(
+            "state IN ('pending','approved','denied','cancelled','expired','consumed')",
+            name="production_approval_state_closed",
+        ),
+        CheckConstraint(
+            "terminal_reason IS NULL OR terminal_reason IN "
+            "('administrator_denied','administrator_cancelled','authority_changed',"
+            "'mutation_policy_changed','capability_lost','expired')",
+            name="production_approval_terminal_reason_closed",
+        ),
+        CheckConstraint(
+            "length(created_at)=27 AND length(pending_expires_at)=27 "
+            "AND pending_expires_at>created_at "
+            "AND (approved_at IS NULL OR length(approved_at)=27) "
+            "AND (approved_dispatch_expires_at IS NULL OR "
+            "length(approved_dispatch_expires_at)=27) "
+            "AND (consumed_at IS NULL OR length(consumed_at)=27)",
+            name="production_approval_timestamps_valid",
+        ),
+        CheckConstraint(
+            "(state='pending' AND terminal_reason IS NULL AND approved_at IS NULL "
+            "AND approved_dispatch_expires_at IS NULL "
+            "AND approving_administrator IS NULL "
+            "AND consumed_at IS NULL AND linked_remote_receipt_id IS NULL) OR "
+            "(state='approved' AND terminal_reason IS NULL AND approved_at IS NOT NULL "
+            "AND approved_dispatch_expires_at IS NOT NULL "
+            "AND approving_administrator IS NOT NULL AND consumed_at IS NULL "
+            "AND linked_remote_receipt_id IS NULL) OR "
+            "(state IN ('denied','cancelled','expired') "
+            "AND terminal_reason IS NOT NULL "
+            "AND consumed_at IS NULL AND linked_remote_receipt_id IS NULL) OR "
+            "(state='consumed' AND terminal_reason IS NULL AND approved_at IS NOT NULL "
+            "AND approved_dispatch_expires_at IS NOT NULL "
+            "AND approving_administrator IS NOT NULL AND consumed_at IS NOT NULL "
+            "AND length(linked_remote_receipt_id)=36)",
+            name="production_approval_state_shape",
+        ),
+        CheckConstraint(
+            "approving_administrator IS NULL OR "
+            "length(approving_administrator) BETWEEN 1 AND 64",
+            name="production_approval_administrator_bounded",
+        ),
+        UniqueConstraint(
+            "client_id", "request_id", name="uq_production_approval_client_request"
+        ),
+        Index("ix_production_approval_queue", "state", "pending_expires_at"),
+        Index("ix_production_approval_client_history", "client_id", "created_at", "id"),
+        Index("ix_production_approval_target_state", "target_id", "state"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    credential_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    tool: Mapped[str] = mapped_column(String(32), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    canonicalization_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    native_identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_trust_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    mutation_control_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
+    client_authority_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    generic_grant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    client_preset_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_preset_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    inspect_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    transient_scope_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    native_http_acknowledgement_id: Mapped[str | None] = mapped_column(String(36))
+    reviewed_build_id: Mapped[str | None] = mapped_column(String(36))
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    terminal_reason: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    pending_expires_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    approved_at: Mapped[str | None] = mapped_column(String(27))
+    approved_dispatch_expires_at: Mapped[str | None] = mapped_column(String(27))
+    approving_administrator: Mapped[str | None] = mapped_column(String(64))
+    consumed_at: Mapped[str | None] = mapped_column(String(27))
+    linked_remote_receipt_id: Mapped[str | None] = mapped_column(String(36))
+
+
+class ProductionApprovalTransitionEventRow(Base):
+    """Append-only bounded semantic approval transition audit."""
+
+    __tablename__ = "production_approval_transition_events"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND length(approval_id)=36",
+            name="production_approval_event_uuid_shapes",
+        ),
+        CheckConstraint(
+            "from_state IS NULL OR from_state IN ('pending','approved')",
+            name="production_approval_event_from_state_closed",
+        ),
+        CheckConstraint(
+            "to_state IN "
+            "('pending','approved','denied','cancelled','expired','consumed')",
+            name="production_approval_event_to_state_closed",
+        ),
+        CheckConstraint(
+            "event_kind IN ('requested','approved','denied','cancelled','expired',"
+            "'consumed')",
+            name="production_approval_event_kind_closed",
+        ),
+        CheckConstraint(
+            "actor_kind IN ('mcp_client','web_admin','system') AND "
+            "length(actor_reference) BETWEEN 1 AND 64 AND length(occurred_at)=27",
+            name="production_approval_event_actor_bounded",
+        ),
+        CheckConstraint(
+            "terminal_reason IS NULL OR terminal_reason IN "
+            "('administrator_denied','administrator_cancelled','authority_changed',"
+            "'mutation_policy_changed','capability_lost','expired')",
+            name="production_approval_event_reason_closed",
+        ),
+        Index(
+            "ix_production_approval_event_approval_time",
+            "approval_id",
+            "occurred_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    approval_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    event_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    from_state: Mapped[str | None] = mapped_column(String(16))
+    to_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    terminal_reason: Mapped[str | None] = mapped_column(String(32))
+    actor_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_reference: Mapped[str] = mapped_column(String(64), nullable=False)
+    linked_remote_receipt_id: Mapped[str | None] = mapped_column(String(36))
+    occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ProductionTransientDispatchAuditRow(Base):
+    """Bounded semantic audit for one consumed transient approval."""
+
+    __tablename__ = "production_transient_dispatch_audits"
+    __table_args__ = (
+        CheckConstraint(
+            "length(receipt_id)=36 AND length(approval_id)=36 "
+            "AND length(client_id)=36 AND length(credential_id)=36 "
+            "AND length(target_id)=36 AND length(request_id)=36",
+            name="production_transient_audit_uuid_shapes",
+        ),
+        CheckConstraint(
+            "action IN ('play_pause','stop','previous','next','volume_up',"
+            "'volume_down','mute_toggle')",
+            name="production_transient_audit_action_closed",
+        ),
+        CheckConstraint(
+            "length(payload_sha256)=64 AND payload_sha256 NOT GLOB '*[^0-9a-f]*' "
+            "AND canonicalization_revision>=1",
+            name="production_transient_audit_digest_valid",
+        ),
+        CheckConstraint(
+            "state IN ('pending','completed','ambiguous') AND "
+            "dispatch_classification IN ('not_dispatched','acknowledged','ambiguous')",
+            name="production_transient_audit_state_closed",
+        ),
+        CheckConstraint(
+            "length(outcome) BETWEEN 1 AND 64 AND outcome=lower(outcome) "
+            "AND outcome=trim(outcome)",
+            name="production_transient_audit_outcome_bounded",
+        ),
+        CheckConstraint(
+            "length(requested_at)=27 AND "
+            "(completed_at IS NULL OR length(completed_at)=27)",
+            name="production_transient_audit_timestamps_valid",
+        ),
+        Index("ix_production_transient_audit_target_time", "target_id", "requested_at"),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    approval_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    credential_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    canonicalization_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+    dispatch_classification: Mapped[str] = mapped_column(String(16), nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class ProductionApprovalCreationRateRow(Base):
+    __tablename__ = "production_approval_creation_rates"
+
+    client_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    last_created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ProductionTransientDispatchRateRow(Base):
+    __tablename__ = "production_transient_dispatch_rates"
+
+    client_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    last_dispatched_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
 class McpProductionNavigationAuditRow(Base):

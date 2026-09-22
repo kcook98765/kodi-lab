@@ -1324,3 +1324,44 @@ per target and four globally beneath the external ceiling. No approval queue,
 transient control, deployment, execution, lifecycle, shell, filesystem, SSH,
 arbitrary JSON-RPC or support-add-on deployment is added. Phase 14 remains
 partial.
+
+## 55. Phase 14 one-shot transient production control boundary
+
+Slice 4B preserves the seven standing navigation actions and admits exactly
+seven approval-required actions: `play_pause`, `stop`, `previous`, `next`,
+`volume_up`, `volume_down` and `mute_toggle`. `context_menu` and `select` remain
+unconditionally prohibited. External-development retains all sixteen actions.
+The MCP catalog remains exactly fifteen tools and gains no approval tool.
+
+New transient requests require the exact Production Remote Kodi client and
+target maximum, current generic grant UUID, active current inspect and
+`request_transient_control` scope UUIDs, initiating credential, client authority
+revision, native generation, bridge revision, target policy revision, mutation
+epoch, reviewed build, semantic capability and applicable native-HTTP
+acknowledgement. Navigate and visual scopes are not required. MCP creates only a
+pending exact request record; authenticated Web administration alone may
+approve, deny or cancel it under Host, Origin and CSRF protection.
+
+Pending lifetime is at most fifteen minutes and the approved dispatch window is
+at most five minutes from approval. Neither can be extended. Before claim, the
+adapter performs fresh authenticated bridge identity and read-only native
+identity/version/method preflight. Temporary unreachability leaves approval
+approved; durable authority, policy, capability or identity change cancels it
+with a closed reason.
+
+Consumption, Phase 11 base receipt insertion, production transient binding,
+semantic dispatch audit, consumed event and durable admission state are one
+SQLite transaction. Only after commit may one fixed server-derived native
+mapping be sent. Crash after commit leaves a protected pending receipt and
+never redispatches, intentionally permitting an approved action not to occur.
+Exact duplicates replay approval state before consumption and the Phase 11
+receipt afterward; changed semantics conflict across modern HTTP, stdio and
+compatibility HTTP.
+
+New approvals are limited to one per thirty seconds/client-target, eight live
+per client and 128 globally. Transient claim is one per five seconds/client-
+target with burst one, one in flight per target and one globally. Terminal
+history is bounded to 1,000/client and 10,000 globally with approximately
+30-day retention. Live, pending, ambiguous, malformed or incoherent evidence is
+never evicted. Slice 4B adds no deployment, execution, lifecycle, support-addon,
+shell, filesystem, SSH or arbitrary JSON-RPC authority. Phase 14 remains partial.

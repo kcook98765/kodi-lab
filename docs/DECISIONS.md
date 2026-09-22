@@ -4300,10 +4300,21 @@ authority.
   HTTP adds no confidentiality or integrity. HTTPS uses normal certificate
   validation and has no acknowledgement or bypass.
 
-## D-0350 and D-0351: Reserved for Slice 4B approval machinery
-- Status: reserved; not implemented.
-- Decision: these numbers are held for transient-control request/approval
-  decisions. Slice 4A creates no approval, queue or transient-control schema.
+## D-0350: Seven transient production actions require one-shot Web approval
+- Status: accepted Phase 14 Slice 4B.
+- Decision: `play_pause`, `stop`, `previous`, `next`, `volume_up`,
+  `volume_down` and `mute_toggle` require an exact request-bound Web approval.
+  MCP may request and consume that one operation but has no queue, approval,
+  denial, cancellation or grant-management authority. `context_menu` and
+  `select` remain prohibited and no approval can override that classification.
+
+## D-0351: Approval consumption and the Phase 11 receipt claim are atomic
+- Status: accepted Phase 14 Slice 4B.
+- Decision: approved-state consumption, base remote receipt, immutable
+  production binding, bounded dispatch audit, consumed transition event and
+  durable rate state commit in one SQLite transaction before native send. A
+  rollback leaves the approval retryable; a committed pending receipt is the
+  permanent replay barrier even if the process dies before send.
 
 ## D-0352: Production navigation uses lower immediate admission limits
 - Status: accepted Phase 14 Slice 4A.
@@ -4314,9 +4325,52 @@ authority.
 
 ## D-0353: Slice 4A and Slice 4B are independently audited boundaries
 - Status: accepted Phase 14 Slice 4A.
-- Decision: 4A contains only standing navigation. 4B remains separate future
-  architecture, implementation and audit for transient approvals. Completion
-  of 4A grants no playback, volume, approval, deployment or lifecycle authority.
+- Decision: 4A contains only standing navigation. 4B is a separate architecture,
+  implementation and audit boundary for transient approvals. Completion of 4A
+  alone grants no playback, volume, approval, deployment or lifecycle authority.
+
+## D-0354: Transient request scope is immutable and depends only on inspect
+- Status: accepted Phase 14 Slice 4B.
+- Decision: `request_transient_control` binds exact client, production target,
+  native generation and reviewed bridge revision. Creation and use require an
+  active current inspect scope, exact Production Remote Kodi maxima and generic
+  grant; navigate and visual are not prerequisites. Inspect revocation
+  atomically revokes all active visual, navigate and transient-request rows.
+
+## D-0355: Client authority revision covers enablement and preset assignment
+- Status: accepted Phase 14 Slice 4B.
+- Decision: positive monotonic `mcp_clients.authority_revision` advances only
+  for enabled-state or preset changes. Credential, immutable generic grant and
+  production-scope identity are bound directly. Generic target grants receive
+  immutable UUIDs; remove/regrant can never revive an old approval.
+
+## D-0356: Approval deadlines are bounded and terminal states cannot reopen
+- Status: accepted Phase 14 Slice 4B.
+- Decision: pending lifetime is at most fifteen minutes and approval opens at
+  most five minutes from the Web decision. Configuration can shorten but no
+  retry, preflight failure, outage or revisit extends either deadline. Denied,
+  cancelled, expired and consumed rows are terminal.
+
+## D-0357: Policy change invalidates approval; temporary reachability does not
+- Status: accepted Phase 14 Slice 4B.
+- Decision: exact credential/client/preset/grant/scope/native/bridge/build/
+  capability/acknowledgement/policy/epoch changes cancel live approval with a
+  closed semantic reason. A temporary bridge or native reachability failure
+  before claim leaves an approved row intact until its original deadline.
+
+## D-0358: Post-commit/pre-send loss is accepted at-most-once behavior
+- Status: accepted Phase 14 Slice 4B.
+- Decision: after the atomic claim, no code path reopens or redispatches the
+  consumed approval. Crash before claim is retryable; crash after commit may
+  mean the approved action never occurs. Possible post-send response loss is
+  ambiguous. There is no recovery worker or deferred dispatcher.
+
+## D-0359: Approval retention protects uncertain and incoherent evidence
+- Status: accepted Phase 14 Slice 4B.
+- Decision: pending/approved approvals, consumed approvals linked to pending or
+  ambiguous receipts, and malformed, missing or mismatched approval/receipt/
+  audit relationships remain protected and capacity-consuming. Only coherent
+  terminal bundles older than policy retention are deleted atomically.
 
 ## Phase 14 Slice 2 formal completion record
 
@@ -4377,3 +4431,19 @@ authority.
   prohibited, and no approval, deployment, execution, lifecycle, shell,
   filesystem, SSH, arbitrary JSON-RPC or support-add-on authority was added.
 - Isolation: no real Kodi or LAN host was contacted and Slice 4B was not begun.
+
+## Phase 14 Slice 4B implementation completion record
+
+- Status: **Phase 14 Slice 4B — One-shot transient production approvals:
+  COMPLETE**; Phase 14 remains **PARTIAL**.
+- Basis: migration `0051_production_transient_approvals`, the unchanged exact
+  fifteen-tool catalog, additive `remote_action` approval results, Web-only
+  decisions, exact authority/revision bindings, atomic receipt claim and
+  deterministic local/mock lifecycle, replay, migration and isolation proof.
+- Boundary: production gains only the seven closed transient semantic actions
+  after exact one-shot approval. Standing navigation and external-development
+  behavior are unchanged; `context_menu`/`select`, deployment, execution,
+  lifecycle, shell, filesystem, SSH, arbitrary JSON-RPC and support-addon
+  deployment remain unavailable.
+- Isolation: no real Kodi or LAN host was contacted and no later Phase 14 work
+  was begun.

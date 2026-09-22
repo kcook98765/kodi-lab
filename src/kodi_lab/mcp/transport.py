@@ -35,7 +35,7 @@ from mcp_types.jsonrpc import (
     METHOD_NOT_FOUND,
     UNSUPPORTED_PROTOCOL_VERSION,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -51,6 +51,10 @@ from kodi_lab.application.mcp_workspace_development import (
     WorkspaceExecutionResult,
 )
 from kodi_lab.application.mcp_workspace_mutations import WorkspaceCreateResult
+from kodi_lab.application.production_transient_approvals import (
+    ProductionApprovalRequiredResult,
+    ProductionApprovalTerminalResult,
+)
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
@@ -657,6 +661,14 @@ def build_mcp_http_transport(
         idempotent_hint=True,
         open_world_hint=True,
     )
+    remote_action_output_schema = TypeAdapter(
+        McpRemoteActionResult
+        | ProductionApprovalRequiredResult
+        | ProductionApprovalTerminalResult
+    ).json_schema()
+    # MCP requires an object-root output schema; the additive result variants
+    # remain closed beneath the root-level anyOf.
+    remote_action_output_schema["type"] = "object"
     development_limiter = development_read_limiter or BoundedTokenBucketLimiter(
         rate=10.0,
         burst=20,
@@ -700,7 +712,7 @@ def build_mcp_http_transport(
                 "internal target."
             ),
             input_schema=_RemoteActionInput.model_json_schema(),
-            output_schema=McpRemoteActionResult.model_json_schema(),
+            output_schema=remote_action_output_schema,
             annotations=control_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
@@ -865,6 +877,8 @@ def build_mcp_http_transport(
             result: (
                 AddonListResult
                 | McpRemoteActionResult
+                | ProductionApprovalRequiredResult
+                | ProductionApprovalTerminalResult
                 | ScreenshotToolResult
                 | TargetListResult
                 | TargetStatusResult

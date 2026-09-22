@@ -266,6 +266,11 @@ from kodi_lab.application.production_navigation import (
     ProductionNativeControlAcknowledgementService,
 )
 from kodi_lab.application.production_screenshots import ProductionScreenshotService
+from kodi_lab.application.production_transient_approvals import (
+    ProductionApprovalError,
+    ProductionApprovalRead,
+    ProductionTransientApprovalService,
+)
 from kodi_lab.application.promotion_verifications import (
     PromotionVerificationError,
     PromotionVerificationService,
@@ -832,6 +837,19 @@ class ProductionTargetMutationSuspensionRequest(BaseModel):
     suspended: StrictBool
 
 
+class ProductionApprovalDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+
+
+class ProductionApprovalConfirmationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    action: BrowserRemoteAction
+
+
 class ExternalBridgePairingTokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -980,6 +998,7 @@ class WebApplicationContext:
     production_native_control_acknowledgements: (
         ProductionNativeControlAcknowledgementService
     )
+    production_transient_approvals: ProductionTransientApprovalService
     mcp_administration: McpAdministrationService
     mcp_transport: McpHttpTransport
 
@@ -1204,6 +1223,11 @@ def create_app(
     )
     remote_receipts = McpRemoteActionReceiptService(
         session_factory, mcp_target_adapters, remote_rate_limiter
+    )
+    production_transient_approvals = ProductionTransientApprovalService(
+        session_factory,
+        remote_receipts,
+        preflight=mcp_target_adapters.preflight_production_remote,
     )
     mcp_authorization = McpAuthorizationService(
         session_factory,
@@ -1541,6 +1565,7 @@ def create_app(
             mcp_promotion_requests,
             target_adapters=mcp_target_adapters,
             production_screenshots=production_screenshots,
+            production_transient_approvals=production_transient_approvals,
         ),
     )
     instance_detail = ManagedInstanceDetailService(
@@ -1641,6 +1666,7 @@ def create_app(
         production_native_control_acknowledgements=(
             production_native_control_acknowledgements
         ),
+        production_transient_approvals=production_transient_approvals,
         mcp_administration=mcp_administration,
         mcp_transport=mcp_transport,
     )
@@ -2304,6 +2330,15 @@ def create_app(
             status_code, error.code, "Production control acknowledgement rejected."
         )
 
+    @app.exception_handler(ProductionApprovalError)
+    async def production_approval_failure(
+        _request: Request, error: ProductionApprovalError
+    ) -> JSONResponse:
+        status_code = 404 if error.code == "approval_not_found" else 409
+        if error.code in {"bridge_unreachable", "target_unreachable"}:
+            status_code = 503
+        return _json_error(status_code, error.code, "Production approval rejected.")
+
     @app.exception_handler(McpWorkspaceDevelopmentError)
     async def external_development_failure(
         _request: Request, error: McpWorkspaceDevelopmentError
@@ -2500,6 +2535,7 @@ def create_app(
                 "production_scopes": (
                     context.mcp_administration.list_production_inspection_scopes()
                 ),
+                "approval_queue": context.production_transient_approvals.list_queue(),
                 "reviewed_builds": context.external_bridges.list_reviewed_builds(),
                 "mutation_control": context.production_targets.mutation_control(),
                 "allowed_ports": settings.external_target_allowed_ports,
@@ -3167,6 +3203,24 @@ def create_app(
         )
 
     @app.post(
+        "/api/mcp/clients/{client_id}/targets/{target_id}/production-transient-control-scopes",
+        response_model=McpProductionScopeRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def grant_mcp_production_transient_control_scope(
+        client_id: UUID,
+        target_id: UUID,
+        payload: McpProductionVisualScopeGrantRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpProductionScopeRead:
+        return context.mcp_administration.grant_production_transient_control_scope(
+            client_id,
+            target_id,
+            identity_generation=payload.identity_generation,
+            bridge_trust_revision=payload.bridge_trust_revision,
+        )
+
+    @app.post(
         "/api/mcp/production-inspection-scopes/{scope_id}/revoke",
         response_model=McpProductionScopeRead,
     )
@@ -3409,6 +3463,50 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[ExternalTargetRead]:
         return context.production_targets.list_targets()
+
+    @app.get(
+        "/api/production-operation-approvals",
+        response_model=list[ProductionApprovalRead],
+    )
+    def list_production_operation_approvals(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> list[ProductionApprovalRead]:
+        return context.production_transient_approvals.list_queue()
+
+    @app.post(
+        "/api/production-operation-approvals/{approval_id}/approve",
+        response_model=ProductionApprovalRead,
+    )
+    def approve_production_operation(
+        approval_id: UUID,
+        payload: ProductionApprovalConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ProductionApprovalRead:
+        return context.production_transient_approvals.approve(
+            approval_id, action=payload.action
+        )
+
+    @app.post(
+        "/api/production-operation-approvals/{approval_id}/deny",
+        response_model=ProductionApprovalRead,
+    )
+    def deny_production_operation(
+        approval_id: UUID,
+        _payload: ProductionApprovalDecisionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ProductionApprovalRead:
+        return context.production_transient_approvals.deny(approval_id)
+
+    @app.post(
+        "/api/production-operation-approvals/{approval_id}/cancel",
+        response_model=ProductionApprovalRead,
+    )
+    def cancel_production_operation(
+        approval_id: UUID,
+        _payload: ProductionApprovalDecisionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ProductionApprovalRead:
+        return context.production_transient_approvals.cancel(approval_id)
 
     @app.post(
         "/api/production-targets",

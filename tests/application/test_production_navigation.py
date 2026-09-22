@@ -32,9 +32,9 @@ from kodi_lab.application.production_inspection import (
     production_observation_digest,
 )
 from kodi_lab.application.production_navigation import (
-    PRODUCTION_FUTURE_TRANSIENT_ACTIONS,
     PRODUCTION_NAVIGATION_ACTIONS,
     PRODUCTION_PROHIBITED_ACTIONS,
+    PRODUCTION_TRANSIENT_CONTROL_ACTIONS,
     ProductionActionClass,
     ProductionNativeControlAcknowledgementService,
     ProductionNavigationAuthority,
@@ -314,7 +314,7 @@ def test_production_action_taxonomy_is_total_and_exact() -> None:
         BrowserRemoteAction.VOLUME_UP,
         BrowserRemoteAction.VOLUME_DOWN,
         BrowserRemoteAction.MUTE_TOGGLE,
-    } == PRODUCTION_FUTURE_TRANSIENT_ACTIONS
+    } == PRODUCTION_TRANSIENT_CONTROL_ACTIONS
     assert {
         classify_production_action(action) for action in BrowserRemoteAction
     } == set(ProductionActionClass)
@@ -336,7 +336,7 @@ def test_authorization_allows_exactly_seven_navigation_actions(
 @pytest.mark.parametrize(
     "action",
     sorted(
-        PRODUCTION_PROHIBITED_ACTIONS | PRODUCTION_FUTURE_TRANSIENT_ACTIONS, key=str
+        PRODUCTION_PROHIBITED_ACTIONS | PRODUCTION_TRANSIENT_CONTROL_ACTIONS, key=str
     ),
 )
 def test_authorization_hard_denies_prohibited_and_future_actions(

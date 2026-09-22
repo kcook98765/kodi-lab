@@ -221,6 +221,23 @@ ordinary 30-day retention window. Action-aware policy permits only seven
 standing navigation values; future transient and prohibited values never reach
 adapter dispatch.
 
+## Phase 14 Slice 4B production approval replay addendum
+
+For the seven transient production actions, a new exact client/request creates
+only an approval intent and requested transition. No Phase 11 receipt exists
+until Web approval is consumed. Exact duplicates return the same pending or
+terminal approval; changed target/action/digest conflicts.
+
+Consumption and receipt claim are one transaction: approval becomes consumed
+while the base pending receipt, transient production binding, semantic audit,
+consumed event and durable admission state are committed. After that commit the
+base receipt is authoritative across modern HTTP, stdio and compatibility HTTP.
+Pending or ambiguous replay never dispatches; coherent completion replays its
+historical result. A crash after commit but before native send therefore may
+lose the approved action but cannot cause a duplicate. Approval retention keeps
+all live, pending, ambiguous, missing, mismatched or malformed relationships
+protected; only coherent old terminal bundles expire atomically.
+
 ## Formal completion record
 
 **Phase 11 — MCP core: COMPLETE.** An independent closeout review accepted the

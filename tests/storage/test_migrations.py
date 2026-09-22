@@ -145,7 +145,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0050_production_navigation",)
+        ).fetchone() == ("0051_production_transient_approvals",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -240,6 +240,11 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_production_navigation_audits",
         "mcp_production_remote_receipt_bindings",
         "mcp_production_target_scopes",
+        "production_operation_approvals",
+        "production_approval_transition_events",
+        "production_transient_dispatch_audits",
+        "production_approval_creation_rates",
+        "production_transient_dispatch_rates",
         "mcp_preset_permissions",
         "mcp_remote_action_receipts",
         "mcp_security_events",
@@ -5328,8 +5333,8 @@ def test_0048_scope_constraints_are_generation_bound_and_history_is_immutable(
             )
         connection.execute(
             text(
-                "UPDATE external_production_policies SET identity_generation=2 "
-                "WHERE target_id=:id"
+                "UPDATE external_production_policies SET identity_generation=2,"
+                "policy_revision=2 WHERE target_id=:id"
             ),
             {"id": target_id},
         )
@@ -5338,8 +5343,8 @@ def test_0048_scope_constraints_are_generation_bound_and_history_is_immutable(
         ):
             connection.execute(
                 text(
-                    "UPDATE external_production_policies SET identity_generation=1 "
-                    "WHERE target_id=:id"
+                    "UPDATE external_production_policies SET identity_generation=1,"
+                    "policy_revision=3 WHERE target_id=:id"
                 ),
                 {"id": target_id},
             )
@@ -5778,4 +5783,223 @@ def test_0050_allows_atomic_cleanup_only_for_coherent_terminal_navigation(
             )
             == 0
         )
+    engine.dispose()
+
+
+def test_0051_preserves_navigation_and_assigns_safe_grant_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0050_production_navigation"
+    )
+    engine = create_database_engine(database_url)
+    ids = {
+        "client": "52000000-0000-4000-8000-000000000001",
+        "target": "52000000-0000-4000-8000-000000000002",
+        "credential": "52000000-0000-4000-8000-000000000003",
+        "request": "52000000-0000-4000-8000-000000000004",
+        "receipt": "52000000-0000-4000-8000-000000000005",
+        "inspect": "52000000-0000-4000-8000-000000000006",
+        "navigate": "52000000-0000-4000-8000-000000000007",
+        "at": "2026-09-21T12:00:00.000000Z",
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets (id,name,target_type,kodi_version,availability,"
+                "health,connection_state) VALUES (:target,'legacy navigation',"
+                "'external_production','21.3','available','healthy','connected')"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_clients (id,display_name,enabled,preset_id,created_at,"
+                "last_used_at,disabled_at) VALUES (:client,'legacy client',1,"
+                "'11000000-0000-4000-8000-000000000004',:at,NULL,NULL)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_kodi_targets (target_id,protocol_kind,host,port,"
+                "authentication_mode,secret_reference,configured_capabilities_json,"
+                "verified_capabilities_json,administrative_state,verification_state,"
+                "observation_state,verified_addresses_json,verified_kodi_name,"
+                "verified_kodi_version,observed_kodi_name,observed_kodi_version,"
+                "observed_protocol_version,pending_observation_id,created_at,"
+                "verified_at,deactivated_at,last_observed_at) VALUES "
+                "(:target,'jsonrpc_http','192.168.50.52',8080,'none',NULL,"
+                "'[\"target_inspect\",\"semantic_remote\"]','[]','disabled',"
+                "'unverified',NULL,'[]',NULL,NULL,NULL,NULL,NULL,NULL,:at,NULL,NULL,NULL)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_production_policies (target_id,"
+                "designation_state,confirmed_observation_id,"
+                "confirmed_observation_digest,identity_generation,policy_revision,"
+                "mutations_suspended,designation_confirmed_by,"
+                "designation_confirmed_at,designation_invalidated_at,created_at,"
+                "updated_at) VALUES (:target,'pending_native_identity',NULL,NULL,"
+                "1,1,1,NULL,NULL,NULL,:at,:at)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_client_target_grants (client_id,target_id,created_at) "
+                "VALUES (:client,:target,:at)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_remote_action_receipts (id,client_id,credential_id,"
+                "target_id,request_id,action,created_at,state,final_result,completed_at,"
+                "screenshot_refresh_result,screenshot_capture_id,"
+                "screenshot_captured_at) "
+                "VALUES (:receipt,:client,:credential,:target,:request,'home',:at,"
+                "'pending',NULL,NULL,NULL,NULL,NULL)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_production_remote_receipt_bindings (receipt_id,"
+                "operation_class,native_identity_generation,bridge_trust_revision,"
+                "target_policy_revision,mutation_control_epoch,inspect_scope_id,"
+                "navigate_scope_id,client_preset_id,target_preset_id,"
+                "generic_grant_created_at,native_http_acknowledgement_id) VALUES "
+                "(:receipt,'navigation',1,1,1,1,:inspect,:navigate,"
+                "'11000000-0000-4000-8000-000000000004',"
+                "'11000000-0000-4000-8000-000000000004',:at,NULL)"
+            ),
+            ids,
+        )
+    engine.dispose()
+
+    command.upgrade(config, "0051_production_transient_approvals")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        grant_id = connection.scalar(
+            text(
+                "SELECT grant_id FROM mcp_client_target_grants "
+                "WHERE client_id=:client AND target_id=:target"
+            ),
+            ids,
+        )
+        assert isinstance(grant_id, str) and len(grant_id) == 36
+        assert connection.execute(
+            text("SELECT authority_revision FROM mcp_clients WHERE id=:client"),
+            ids,
+        ).one() == (1,)
+        assert connection.execute(
+            text(
+                "SELECT operation_class,navigate_scope_id,transient_scope_id,"
+                "approval_id,generic_grant_created_at,generic_grant_id "
+                "FROM mcp_production_remote_receipt_bindings WHERE receipt_id=:receipt"
+            ),
+            ids,
+        ).one() == ("navigation", ids["navigate"], None, None, ids["at"], grant_id)
+        assert connection.execute(
+            text(
+                "SELECT action,state,created_at FROM mcp_remote_action_receipts "
+                "WHERE id=:receipt"
+            ),
+            ids,
+        ).one() == ("home", "pending", ids["at"])
+        with pytest.raises(
+            IntegrityError, match="mcp_client_authority_revision_invalid"
+        ):
+            connection.execute(
+                text(
+                    "UPDATE mcp_clients SET enabled=0,disabled_at=:at WHERE id=:client"
+                ),
+                ids,
+            )
+        with pytest.raises(IntegrityError, match="production_policy_revision_required"):
+            connection.execute(
+                text(
+                    "UPDATE external_production_policies SET mutations_suspended=0 "
+                    "WHERE target_id=:target"
+                ),
+                ids,
+            )
+        connection.execute(
+            text(
+                "UPDATE external_production_policies SET mutations_suspended=0,"
+                "policy_revision=2 WHERE target_id=:target"
+            ),
+            ids,
+        )
+        with pytest.raises(
+            IntegrityError, match="production_policy_revision_not_monotonic"
+        ):
+            connection.execute(
+                text(
+                    "UPDATE external_production_policies SET policy_revision=1 "
+                    "WHERE target_id=:target"
+                ),
+                ids,
+            )
+        with pytest.raises(IntegrityError, match="production_mutation_epoch_invalid"):
+            connection.execute(
+                text(
+                    "UPDATE production_mutation_control "
+                    "SET production_mutations_blocked=0 WHERE id=1"
+                )
+            )
+        connection.execute(
+            text(
+                "UPDATE production_mutation_control SET production_mutations_blocked=0,"
+                "policy_epoch=2 WHERE id=1"
+            )
+        )
+        with pytest.raises(IntegrityError, match="production_mutation_epoch_invalid"):
+            connection.execute(
+                text(
+                    "UPDATE production_mutation_control "
+                    "SET production_mutations_blocked=1,policy_epoch=1 WHERE id=1"
+                )
+            )
+        connection.execute(
+            text(
+                "UPDATE mcp_clients SET enabled=0,disabled_at=:at,authority_revision=2 "
+                "WHERE id=:client"
+            ),
+            ids,
+        )
+        with pytest.raises(
+            IntegrityError, match="mcp_client_authority_revision_invalid"
+        ):
+            connection.execute(
+                text(
+                    "UPDATE mcp_clients SET enabled=1,disabled_at=NULL,"
+                    "authority_revision=1 "
+                    "WHERE id=:client"
+                ),
+                ids,
+            )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
+        command.downgrade(config, "0050_production_navigation")
+
+
+def test_0051_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0050_production_navigation"
+    )
+    command.upgrade(config, "0051_production_transient_approvals")
+    command.downgrade(config, "0050_production_navigation")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "production_operation_approvals" not in inspector.get_table_names()
+    assert "authority_revision" not in {
+        column["name"] for column in inspector.get_columns("mcp_clients")
+    }
+    assert "grant_id" not in {
+        column["name"] for column in inspector.get_columns("mcp_client_target_grants")
+    }
     engine.dispose()
