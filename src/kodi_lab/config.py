@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     data_root: Path = Field(default=Path("/var/lib/kodi-lab"))
     runtime_root: Path = Field(default=Path("/run/kodi-lab"))
     development_root: Path | None = None
-    web_host: Literal["127.0.0.1"] = "127.0.0.1"
+    web_host: Literal["127.0.0.1", "10.251.0.10"] = "127.0.0.1"
     web_port: int = Field(default=8100, ge=1, le=65_535)
     web_session_cookie_name: Literal["kodi_lab_session"] = "kodi_lab_session"
     web_cookie_secure: Literal[False] = False
