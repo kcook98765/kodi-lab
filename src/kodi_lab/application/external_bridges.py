@@ -35,6 +35,7 @@ from kodi_lab.kodi.bridge import (
     BRIDGE_ADDON_ID,
     BRIDGE_PROTOCOL_VERSION,
     DEPLOYMENT_CHUNK_BYTES,
+    SCREENSHOT_ERROR_CODES,
     BridgeAddonTree,
     BridgeDeploymentReceipt,
     BridgeIdentity,
@@ -1359,7 +1360,9 @@ class ExternalBridgeService:
                             requested_at=requested_at,
                         )
                     except ExternalBridgeError as second:
-                        self._publish_reachability(target_id, second.code)
+                        self._publish_screenshot_failure_reachability(
+                            target_id, second.code
+                        )
                         self._fail_receipt(
                             target_id,
                             request_id,
@@ -1369,7 +1372,7 @@ class ExternalBridgeService:
                         )
                         raise ExternalBridgeServiceError(second.code) from second
                 else:
-                    self._publish_reachability(target_id, first.code)
+                    self._publish_screenshot_failure_reachability(target_id, first.code)
                     self._fail_receipt(
                         target_id, request_id, first.code, ambiguous=False
                     )
@@ -1806,6 +1809,12 @@ class ExternalBridgeService:
             row = session.get(ExternalBridgePairingRow, str(target_id))
             if row is not None:
                 row.reachability_state = self._reachability(code)
+
+    def _publish_screenshot_failure_reachability(
+        self, target_id: UUID, code: str
+    ) -> None:
+        if code not in SCREENSHOT_ERROR_CODES:
+            self._publish_reachability(target_id, code)
 
     def _publish_authenticated_reachable(self, snapshot: _Snapshot) -> None:
         """Restore reachability only for the same still-paired trusted identity."""

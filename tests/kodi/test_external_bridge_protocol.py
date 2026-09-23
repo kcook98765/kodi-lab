@@ -170,6 +170,37 @@ def test_authenticated_screenshot_error_is_distinct_from_authentication(
         assert fake.capture_count == 1
 
 
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.ReadError,
+        httpx.ReadTimeout,
+        httpx.WriteTimeout,
+    ],
+)
+def test_screenshot_transport_failures_remain_unreachable(
+    error_type: type[httpx.TransportError],
+) -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise error_type("fixture transport failure", request=request)
+
+    client = ExternalBridgeClient(transport=httpx.MockTransport(fail))
+    with pytest.raises(ExternalBridgeError) as raised:
+        client.capture_screenshot(
+            _endpoint(8765),
+            bridge_port=8765,
+            target_id=uuid4(),
+            bridge_id=uuid4(),
+            secret=os.urandom(32),
+            request_id=uuid4(),
+            nonce=b64url(os.urandom(32)),
+            requested_at=datetime.now(UTC),
+        )
+    assert raised.value.code == "bridge_unreachable"
+
+
 def test_authenticated_addon_inspection_error_is_not_replay_rejection() -> None:
     target_id = uuid4()
     bridge_id = uuid4()

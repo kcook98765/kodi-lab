@@ -469,11 +469,16 @@ class FakeExternalBridge:
             ) -> None:
                 assert owner.secret is not None
                 owner.capture_count += 1
-                if owner.tamper in {"capture_error", "capture_error_bad_signature"}:
+                screenshot_error = {
+                    "capture_error": "screenshot_capture_failed",
+                    "capture_error_invalid": "screenshot_invalid",
+                    "capture_error_bad_signature": "screenshot_capture_failed",
+                }.get(owner.tamper or "")
+                if screenshot_error is not None:
                     timestamp = timestamp_text(datetime.now(UTC))
                     nonce = b64url(os.urandom(32))
                     digest = hashlib.sha256(b"").hexdigest()
-                    status = "screenshot_capture_failed"
+                    status = screenshot_error
                     signature = response_signature(
                         owner.secret,
                         target_id=str(owner.target_id),

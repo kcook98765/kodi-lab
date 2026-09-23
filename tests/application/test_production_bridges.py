@@ -6,7 +6,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.external_bridges import (
@@ -20,7 +20,11 @@ from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
 )
 from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
-from kodi_lab.application.production_inspection import PRODUCTION_VISUAL_PRESET_ID
+from kodi_lab.application.production_inspection import (
+    PRODUCTION_VISUAL_PRESET_ID,
+    ProductionInspectionError,
+    evaluate_production_visual_state,
+)
 from kodi_lab.application.production_screenshots import (
     ProductionScreenshotError,
     ProductionScreenshotService,
@@ -41,7 +45,11 @@ from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
-from kodi_lab.storage.models import ProductionMutationControlRow
+from kodi_lab.storage.models import (
+    ExternalBridgeRequestReceiptRow,
+    McpProductionScreenshotReceiptRow,
+    ProductionMutationControlRow,
+)
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore, ExternalCredentialStore
 from tests.kodi.fake_external_bridge import FakeExternalBridge
 
@@ -149,6 +157,237 @@ def _production_target(
     )
     targets.set_enabled(target.target_id, enabled=True)
     return target.target_id, credentials
+
+
+def _pair_production_bridge(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+    target_id: UUID,
+    fake: FakeExternalBridge,
+) -> ExternalBridgeService:
+    fake.capabilities = ["screenshot"]
+    bridges = ExternalBridgeService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(
+            allowed_ports=(fake.port,), test_loopback_enabled=True
+        ),
+        secret_store=ExternalBridgeSecretStore(
+            tmp_path / "bridge-secrets", master_key=b"b" * 32, key_version=1
+        ),
+    )
+    reviewed = bridges.register_reviewed_build(
+        semantic_fingerprint=fake.build_fingerprint,
+        zip_sha256="a" * 64,
+        addon_id="service.kodi_lab_bridge",
+        addon_version=fake.addon_version,
+        protocol_version=fake.protocol_version,
+        capabilities=tuple(fake.capabilities),
+        supported_kodi_versions=(fake.kodi_version,),
+        source_reference="deterministic local fixture",
+    )
+    bridges.acknowledge_production_http_risk(target_id, bridge_port=fake.port)
+    token = bridges.generate_pairing_token(target_id, bridge_port=fake.port)
+    fake.token = _decode(token.token)
+    bridges.attempt_pairing(target_id)
+    paired = bridges.confirm_pairing(target_id)
+    assert paired.reviewed_build_id == reviewed.build_id
+    return bridges
+
+
+@pytest.mark.parametrize(
+    ("tamper", "code"),
+    [
+        ("capture_error_invalid", "screenshot_invalid"),
+        ("invalid_png", "screenshot_invalid"),
+        ("capture_error", "screenshot_capture_failed"),
+    ],
+)
+def test_screenshot_failure_rejects_receipts_without_losing_reachability(
+    tmp_path: Path, tamper: str, code: str
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'screenshot-failure.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id, _credentials = _production_target(factory, tmp_path)
+
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        bridges = _pair_production_bridge(factory, tmp_path, target_id, fake)
+        screenshots = ProductionScreenshotService(factory, bridges)
+        before = bridges.status(target_id)
+        with factory() as session:
+            visual_before = evaluate_production_visual_state(session, target_id)
+
+        fake.tamper = tamper
+        client_id = uuid4()
+        request_id = uuid4()
+        with pytest.raises(ProductionScreenshotError, match=code):
+            screenshots.capture(
+                client_id=client_id,
+                target_id=target_id,
+                request_id=request_id,
+                identity_generation=visual_before.identity_generation,
+                bridge_trust_revision=visual_before.bridge_trust_revision,
+            )
+
+        with factory() as session:
+            receipt = session.get(
+                McpProductionScreenshotReceiptRow,
+                {"client_id": str(client_id), "request_id": str(request_id)},
+            )
+            assert receipt is not None
+            bridge_receipt = session.get(
+                ExternalBridgeRequestReceiptRow,
+                {
+                    "target_id": str(target_id),
+                    "request_id": receipt.bridge_request_id,
+                },
+            )
+            assert receipt.state == "rejected"
+            assert receipt.response_digest is None
+            assert bridge_receipt is not None
+            assert bridge_receipt.state == "rejected"
+            assert bridge_receipt.response_digest is None
+            assert (
+                session.scalar(
+                    select(McpProductionScreenshotReceiptRow).where(
+                        McpProductionScreenshotReceiptRow.state == "completed"
+                    )
+                )
+                is None
+            )
+            assert evaluate_production_visual_state(session, target_id) == visual_before
+
+        after = bridges.status(target_id)
+        assert after.reachability_state.value == "reachable"
+        assert after.pairing_state == before.pairing_state
+        assert after.pinned_bridge_id == before.pinned_bridge_id
+        assert after.reviewed_build_id == before.reviewed_build_id
+        assert (
+            after.production_bridge_trust_revision
+            == before.production_bridge_trust_revision
+        )
+        assert after.production_confirmed_at == before.production_confirmed_at
+        assert cast(Any, bridges)._production_pixel_cache == {}
+        assert fake.capture_count == 1
+
+        with pytest.raises(
+            ProductionScreenshotError, match="screenshot_replay_unavailable"
+        ):
+            screenshots.capture(
+                client_id=client_id,
+                target_id=target_id,
+                request_id=request_id,
+                identity_generation=visual_before.identity_generation,
+                bridge_trust_revision=visual_before.bridge_trust_revision,
+            )
+        assert fake.capture_count == 1
+    engine.dispose()
+
+
+def test_screenshot_network_failure_still_marks_bridge_unreachable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'screenshot-network.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id, _credentials = _production_target(factory, tmp_path)
+
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        bridges = _pair_production_bridge(factory, tmp_path, target_id, fake)
+        screenshots = ProductionScreenshotService(factory, bridges)
+        bridge_client = cast(Any, bridges)._client
+        attempts = 0
+
+        def refuse_connection(*_args: object, **_kwargs: object) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise ExternalBridgeError("bridge_unreachable")
+
+        monkeypatch.setattr(bridge_client, "capture_screenshot", refuse_connection)
+        client_id = uuid4()
+        request_id = uuid4()
+        with pytest.raises(ProductionScreenshotError, match="bridge_unreachable"):
+            screenshots.capture(
+                client_id=client_id,
+                target_id=target_id,
+                request_id=request_id,
+                identity_generation=1,
+                bridge_trust_revision=1,
+            )
+
+        assert attempts == 2
+        assert bridges.status(target_id).reachability_state.value == "unreachable"
+        with factory() as session:
+            receipt = session.get(
+                McpProductionScreenshotReceiptRow,
+                {"client_id": str(client_id), "request_id": str(request_id)},
+            )
+            assert receipt is not None and receipt.state == "ambiguous"
+            bridge_receipt = session.get(
+                ExternalBridgeRequestReceiptRow,
+                {
+                    "target_id": str(target_id),
+                    "request_id": receipt.bridge_request_id,
+                },
+            )
+            assert bridge_receipt is not None and bridge_receipt.state == "ambiguous"
+            with pytest.raises(ProductionInspectionError, match="bridge_not_paired"):
+                evaluate_production_visual_state(session, target_id)
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("code", "reachability"),
+    [
+        ("bridge_authentication_failed", "authentication_failed"),
+        ("bridge_identity_mismatch", "identity_mismatch"),
+        ("bridge_protocol_unsupported", "protocol_unsupported"),
+    ],
+)
+def test_screenshot_trust_failures_keep_existing_fail_closed_classification(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    code: str,
+    reachability: str,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'screenshot-trust.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id, _credentials = _production_target(factory, tmp_path)
+
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        bridges = _pair_production_bridge(factory, tmp_path, target_id, fake)
+        screenshots = ProductionScreenshotService(factory, bridges)
+        before = bridges.status(target_id)
+
+        def fail_closed(*_args: object, **_kwargs: object) -> None:
+            raise ExternalBridgeError(code)
+
+        monkeypatch.setattr(
+            cast(Any, bridges)._client, "capture_screenshot", fail_closed
+        )
+        with pytest.raises(ProductionScreenshotError, match=code):
+            screenshots.capture(
+                client_id=uuid4(),
+                target_id=target_id,
+                request_id=uuid4(),
+                identity_generation=1,
+                bridge_trust_revision=1,
+            )
+
+        after = bridges.status(target_id)
+        assert after.reachability_state.value == reachability
+        assert after.pairing_state == before.pairing_state
+        assert (
+            after.production_bridge_trust_revision
+            == before.production_bridge_trust_revision
+        )
+        with (
+            factory() as session,
+            pytest.raises(ProductionInspectionError, match="bridge_not_paired"),
+        ):
+            evaluate_production_visual_state(session, target_id)
+    engine.dispose()
 
 
 def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(

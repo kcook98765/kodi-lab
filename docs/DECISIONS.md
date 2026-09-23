@@ -4491,6 +4491,18 @@ approvals atomically with the governing revision transition.
 - Future onboarding may suggest role-based maxima but may never silently
   approve them; Phase 16 onboarding remains deferred.
 
+## D-0367: Screenshot validity is distinct from bridge reachability
+- Status: accepted Phase 14 Lab-side remediation.
+- Decision: an authenticated screenshot operation failure or a returned payload
+  rejected by the existing bounded MIME, size, PNG or dimension validators
+  rejects the screenshot and its receipts without, by itself, changing an
+  otherwise current paired bridge from `reachable` to `unreachable`. No pixels
+  publish and the request is not retried. Connection, timeout and transport
+  failures retain the existing unreachable transition; authentication,
+  identity and protocol failures retain their existing distinct fail-closed
+  classifications. This changes neither screenshot validation nor bridge
+  pairing, reviewed-build, acknowledgement, scope or revision semantics.
+
 ## Phase 14 Slice 2 formal completion record
 
 - Status: **Phase 14 Slice 2 — Read-only production inspection: COMPLETE**;
