@@ -2598,7 +2598,9 @@ the packaging slice.
 Migration `0053_production_screenshot_capability_amendment` adds one immutable
 audit table whose vocabulary is exactly screenshot add/remove. The Web request
 accepts no other capability and uses optimistic comparison of the complete
-configured set and current policy revision. One successful transaction advances
+configured set and current policy revision. A database guard rejects every
+material production configured-set change without a matching valid amendment,
+so direct SQL cannot widen that vocabulary. One successful transaction advances
 the policy and high-water mark once, binds the native row to that new revision,
 and leaves identity generation and native verified evidence unchanged. The
 configured set remains an operator maximum rather than technical proof.

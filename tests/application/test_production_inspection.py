@@ -31,6 +31,7 @@ from kodi_lab.application.production_inspection import (
     PRODUCTION_INSPECTION_PRESET_ID,
     ProductionInspectionError,
     ProductionReadRateLimiter,
+    production_observation_digest,
 )
 from kodi_lab.application.production_policy import (
     advance_production_policy,
@@ -390,8 +391,16 @@ def test_invalidated_designation_and_missing_capability_are_denied(
         policy = session.get(ExternalProductionPolicyRow, str(env.target_id))
         row = session.get(ExternalKodiTargetRow, str(env.target_id))
         assert policy is not None and row is not None
+        observation = session.get(
+            ExternalKodiTargetObservationRow, policy.confirmed_observation_id
+        )
+        assert observation is not None
         policy.designation_state = ProductionDesignationState.CONFIRMED
-        row.configured_capabilities_json = '["target_inspect"]'
+        row.verified_capabilities_json = '["target_inspect"]'
+        observation.verified_capabilities_json = '["target_inspect"]'
+        policy.confirmed_observation_digest = production_observation_digest(
+            row, observation
+        )
         bind_external_production_transition(session, row, policy, now=datetime.now(UTC))
     with pytest.raises(McpAuthorizationError, match="capability_unavailable"):
         env.authorization.authorize_target(env.principal, "addon_list", env.target_id)

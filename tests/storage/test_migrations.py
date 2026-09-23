@@ -6833,6 +6833,27 @@ def test_0053_populated_upgrade_preserves_target_without_seeding_authority(
             )
             == 0
         )
+    with (
+        pytest.raises(IntegrityError, match="production_capability_amendment_required"),
+        engine.begin() as connection,
+    ):
+        connection.execute(
+            text(
+                "UPDATE external_production_policies SET policy_revision=2 "
+                "WHERE target_id=:target"
+            ),
+            {"target": str(target.target_id)},
+        )
+        connection.execute(
+            text(
+                "UPDATE external_kodi_targets SET "
+                "configured_capabilities_json="
+                '\'["addon_inventory","target_inspect",'
+                '"workspace_deployment"]\',production_policy_revision=2 '
+                "WHERE target_id=:target"
+            ),
+            {"target": str(target.target_id)},
+        )
     engine.dispose()
 
 
@@ -6852,7 +6873,8 @@ def test_0053_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
             text(
                 "SELECT name FROM sqlite_master WHERE type='trigger' AND "
                 "name LIKE 'trg_production_capability_amendment%' OR "
-                "name='trg_production_screenshot_removal_safe'"
+                "name IN ('trg_production_configured_capability_amendment_required',"
+                "'trg_production_screenshot_removal_safe')"
             )
         )
     }
@@ -6860,6 +6882,7 @@ def test_0053_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
         "trg_production_capability_amendment_insert",
         "trg_production_capability_amendment_immutable",
         "trg_production_capability_amendment_no_delete",
+        "trg_production_configured_capability_amendment_required",
         "trg_production_screenshot_removal_safe",
     }
     engine.dispose()

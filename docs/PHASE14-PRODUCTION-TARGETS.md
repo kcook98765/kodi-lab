@@ -250,7 +250,8 @@ reverification does not advance the already-changed identity generation.
 Migration `0053_production_screenshot_capability_amendment` adds the narrow
 authenticated-Web action for explicitly adding or removing only `screenshot`
 from the configured production maximum. It adds immutable exact add/remove
-audit history and a database guard requiring downstream bridge-derived
+audit history, a database guard requiring every material configured-set change
+to match that history, and a deeper guard requiring downstream bridge-derived
 authority to be tombstoned before removal. It seeds no capability, bridge,
 scope, acknowledgement, approval or other authority.
 

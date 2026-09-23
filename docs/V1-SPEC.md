@@ -1385,7 +1385,8 @@ An authenticated Web administrator may explicitly add or remove only the exact
 target's configured capability maximum. The request carries the complete
 expected configured set, expected policy revision and an exact human
 acknowledgement. It is not a generic capability editor, cannot change native
-verified evidence and has no MCP equivalent.
+verified evidence and has no MCP equivalent. The database rejects any material
+production configured-set change that lacks a matching valid amendment row.
 
 The configured set is only the operator-approved semantic maximum. Adding
 `screenshot` advances and binds the production policy revision once but does

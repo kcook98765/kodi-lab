@@ -4475,7 +4475,8 @@ approvals atomically with the governing revision transition.
   policy revision and exact human confirmation. Native verified capabilities
   do not change, bridge advertisement cannot enlarge the maximum, MCP has no
   administration route, and the fifteen-tool/five-production-tool boundaries
-  remain unchanged.
+  remain unchanged. A database guard requires every material production
+  configured-set change to match the immutable closed amendment history.
 - Addition: advance the production policy once, bind the native row and
   high-water mark to that result, retain identity generation and accepted native
   inspection, and create no bridge, visual, acknowledgement or screenshot

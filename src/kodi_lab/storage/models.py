@@ -6718,6 +6718,16 @@ _CAPABILITY_AMENDMENT_CREATE_TRIGGERS = (
     "CREATE TRIGGER trg_production_capability_amendment_no_delete BEFORE DELETE ON "
     "production_capability_amendments BEGIN SELECT RAISE(ABORT, "
     "'production_capability_amendment_immutable'); END",
+    "CREATE TRIGGER trg_production_configured_capability_amendment_required "
+    "BEFORE UPDATE OF configured_capabilities_json ON external_kodi_targets WHEN "
+    "NEW.configured_capabilities_json<>OLD.configured_capabilities_json AND "
+    "COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')="
+    "'external_production' AND NOT EXISTS(SELECT 1 FROM "
+    "production_capability_amendments a WHERE a.target_id=NEW.target_id AND "
+    "a.before_configured_json=OLD.configured_capabilities_json AND "
+    "a.after_configured_json=NEW.configured_capabilities_json AND "
+    "a.resulting_policy_revision=NEW.production_policy_revision) BEGIN SELECT "
+    "RAISE(ABORT, 'production_capability_amendment_required'); END",
     "CREATE TRIGGER trg_production_screenshot_removal_safe BEFORE UPDATE OF "
     "configured_capabilities_json ON external_kodi_targets WHEN "
     "EXISTS(SELECT 1 FROM json_each(OLD.configured_capabilities_json) WHERE "

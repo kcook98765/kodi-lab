@@ -310,6 +310,19 @@ def test_exact_current_state_add_is_8_7_8_to_9_9_9_and_preserves_stage_a(
             ),
         ):
             session.execute(text(statement))
+    with (
+        pytest.raises(IntegrityError, match="production_capability_amendment_invalid"),
+        sessions.begin() as session,
+    ):
+        session.execute(
+            text(
+                "INSERT OR REPLACE INTO production_capability_amendments "
+                "SELECT id,target_id,operation,capability,event_kind,"
+                "before_configured_json,after_configured_json,"
+                "resulting_policy_revision,actor,occurred_at FROM "
+                "production_capability_amendments"
+            )
+        )
 
 
 def test_add_cas_and_audit_failure_roll_back_without_partial_update(
@@ -363,6 +376,49 @@ def test_add_cas_and_audit_failure_roll_back_without_partial_update(
         assert external.production_policy_revision == 7
         assert policy.policy_revision == 8
         assert session.scalar(select(ProductionCapabilityAmendmentRow)) is None
+
+
+def test_direct_sql_configured_capability_changes_require_valid_amendment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sessions, amendments, _administration = _current_state(monkeypatch, tmp_path)
+    target = str(CURRENT_TARGET_ID)
+    for configured in (
+        '["addon_inventory","screenshot","target_inspect"]',
+        '["addon_inventory","target_inspect","workspace_deployment"]',
+    ):
+        with (
+            pytest.raises(
+                IntegrityError, match="production_capability_amendment_required"
+            ),
+            sessions.begin() as session,
+        ):
+            session.execute(
+                text(
+                    "UPDATE external_production_policies SET policy_revision=9 "
+                    "WHERE target_id=:target"
+                ),
+                {"target": target},
+            )
+            session.execute(
+                text(
+                    "UPDATE external_kodi_targets SET "
+                    "configured_capabilities_json=:configured,"
+                    "production_policy_revision=9 WHERE target_id=:target"
+                ),
+                {"configured": configured, "target": target},
+            )
+
+    result = amendments.amend_production_capability_maximum(
+        CURRENT_TARGET_ID,
+        operation="add",
+        capability="screenshot",
+        expected_configured_capabilities=frozenset(
+            {"target_inspect", "addon_inventory"}
+        ),
+        expected_policy_revision=8,
+    )
+    assert result.policy_revision == 9
 
 
 def test_remove_before_pairing_tombstones_and_readd_does_not_revive_history(
@@ -1000,3 +1056,113 @@ def test_two_simultaneous_add_amendments_have_exactly_one_winner(
         "configured_capabilities_stale",
         "capability_already_configured",
     }
+
+
+def test_two_simultaneous_remove_amendments_have_exactly_one_winner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sessions, amendments, _administration = _current_state(monkeypatch, tmp_path)
+    amendments.amend_production_capability_maximum(
+        CURRENT_TARGET_ID,
+        operation="add",
+        capability="screenshot",
+        expected_configured_capabilities=frozenset(
+            {"target_inspect", "addon_inventory"}
+        ),
+        expected_policy_revision=8,
+    )
+    barrier = Barrier(2)
+
+    def contend() -> str:
+        barrier.wait()
+        try:
+            amendments.amend_production_capability_maximum(
+                CURRENT_TARGET_ID,
+                operation="remove",
+                capability="screenshot",
+                expected_configured_capabilities=frozenset(
+                    {"target_inspect", "addon_inventory", "screenshot"}
+                ),
+                expected_policy_revision=9,
+            )
+        except ProductionCapabilityAmendmentError as error:
+            return error.code
+        return "winner"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(lambda _index: contend(), range(2)))
+    assert outcomes.count("winner") == 1
+    assert len(outcomes) == 2
+    with sessions() as session:
+        external = session.get(ExternalKodiTargetRow, str(CURRENT_TARGET_ID))
+        policy = session.get(ExternalProductionPolicyRow, str(CURRENT_TARGET_ID))
+        assert external is not None and policy is not None
+        assert external.configured_capabilities_json == (
+            '["addon_inventory","target_inspect"]'
+        )
+        assert external.production_policy_revision == 10
+        assert policy.policy_revision == 10
+        assert (
+            session.scalar(
+                select(ProductionCapabilityAmendmentRow).where(
+                    ProductionCapabilityAmendmentRow.operation == "remove"
+                )
+            )
+            is not None
+        )
+
+
+def test_simultaneous_add_remove_expectations_cannot_create_ambiguous_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sessions, amendments, _administration = _current_state(monkeypatch, tmp_path)
+    barrier = Barrier(2)
+
+    def add() -> str:
+        barrier.wait()
+        try:
+            amendments.amend_production_capability_maximum(
+                CURRENT_TARGET_ID,
+                operation="add",
+                capability="screenshot",
+                expected_configured_capabilities=frozenset(
+                    {"target_inspect", "addon_inventory"}
+                ),
+                expected_policy_revision=8,
+            )
+        except ProductionCapabilityAmendmentError as error:
+            return f"add:{error.code}"
+        return "add:winner"
+
+    def remove() -> str:
+        barrier.wait()
+        try:
+            amendments.amend_production_capability_maximum(
+                CURRENT_TARGET_ID,
+                operation="remove",
+                capability="screenshot",
+                expected_configured_capabilities=frozenset(
+                    {"target_inspect", "addon_inventory", "screenshot"}
+                ),
+                expected_policy_revision=8,
+            )
+        except ProductionCapabilityAmendmentError as error:
+            return f"remove:{error.code}"
+        return "remove:winner"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        add_result = executor.submit(add)
+        remove_result = executor.submit(remove)
+        outcomes = {add_result.result(), remove_result.result()}
+    assert "add:winner" in outcomes
+    assert any(result.startswith("remove:") for result in outcomes)
+    assert "remove:winner" not in outcomes
+    with sessions() as session:
+        external = session.get(ExternalKodiTargetRow, str(CURRENT_TARGET_ID))
+        policy = session.get(ExternalProductionPolicyRow, str(CURRENT_TARGET_ID))
+        assert external is not None and policy is not None
+        assert external.configured_capabilities_json == (
+            '["addon_inventory","screenshot","target_inspect"]'
+        )
+        assert external.production_policy_revision == 9
+        assert policy.policy_revision == 9
