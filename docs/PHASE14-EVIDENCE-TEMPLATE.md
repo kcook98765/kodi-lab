@@ -22,6 +22,8 @@ Stop if the independently accepted artifact differs.
 - Logical MCP client UUID:
 - Kodi version:
 - Transport classification (`http`/`https`, no endpoint):
+- `transport_location_hash` (redacted location identity; no raw endpoint):
+- `native_control_consent_digest` (when applicable):
 - Exact reviewed bridge add-on version:
 - Reviewed ZIP SHA-256:
 - Semantic build fingerprint:
@@ -42,11 +44,31 @@ Stop if the independently accepted artifact differs.
 
 - Start/end time:
 - Preset/grant/inspect-scope semantic state:
+- Transition classification: `native-material` / `policy-only` / `none`
+- Before revision tuple (`policy/native-bound/high-water`):
+- After revision tuple (`policy/native-bound/high-water`):
+- Policy revision monotonic and advanced exactly once when material: PASS/FAIL
+- High-water equals current policy revision: PASS/FAIL
+- Native-bound revision does not exceed policy revision: PASS/FAIL
+- If native-material, native-bound equals current policy revision: PASS/FAIL/N/A
+- If policy-only, native-bound remains the last native-material revision:
+  PASS/FAIL/N/A
+- Production designation classified policy-only: PASS/FAIL/N/A
+- Generation / verification / administrative state before and after:
 - `target_list` outcome and expected target present:
 - One `target_status` outcome:
 - One bounded `addon_list` page outcome/count:
 - Endpoint/credential/path disclosure absent: PASS/FAIL
 - Discrepancy/stop reason (if any):
+
+For the current validation sequence only, the expected designation evidence is
+`5/5/5 -> 6/5/6`, with generation unchanged, verification remaining `verified`,
+designation changing `pending_confirmation -> confirmed`, and administrative
+state remaining `disabled`. This is an example, not a general invariant.
+Immediate three-way equality after designation is not an acceptance criterion.
+Use only the distinct names `transport_location_hash` and
+`native_control_consent_digest`; do not record an ambiguous generic
+`endpoint_digest`.
 
 ## Stage B — Screenshot
 

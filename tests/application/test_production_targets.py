@@ -4,9 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Barrier
+from uuid import UUID
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -134,11 +136,42 @@ def _designate(
     created = _register(service)
     observed = service.probe(created.target_id)
     assert observed.pending_observation_id is not None
-    native = service.confirm(created.target_id, observed.pending_observation_id)
+    observation_id = observed.pending_observation_id
+    native = service.confirm(created.target_id, observation_id)
     designated = service.confirm_production_designation(
         created.target_id, observed.pending_observation_id
     )
     return native, designated
+
+
+def _revision_state(
+    factory: sessionmaker[Session], target_id: UUID
+) -> tuple[int, int, int]:
+    with factory() as session:
+        row = session.execute(
+            text(
+                "SELECT p.policy_revision,e.production_policy_revision,"
+                "g.maximum_policy_revision FROM external_production_policies p "
+                "JOIN external_kodi_targets e ON e.target_id=p.target_id "
+                "JOIN external_production_policy_revision_guards g "
+                "ON g.target_id=p.target_id WHERE p.target_id=:target"
+            ),
+            {"target": str(target_id)},
+        ).one()
+    return row[0], row[1], row[2]
+
+
+def _designation_event_count(factory: sessionmaker[Session], target_id: UUID) -> int:
+    with factory() as session:
+        return len(
+            session.scalars(
+                select(ExternalKodiTargetEventRow).where(
+                    ExternalKodiTargetEventRow.target_id == str(target_id),
+                    ExternalKodiTargetEventRow.event_kind
+                    == "production_designation_confirmed",
+                )
+            ).all()
+        )
 
 
 def test_production_registration_and_two_separate_confirmations(
@@ -182,6 +215,144 @@ def test_production_registration_and_two_separate_confirmations(
     enabled = service.set_enabled(created.target_id, enabled=True)
     assert enabled.production_policy is not None
     assert enabled.production_policy.lifecycle_state == "enabled_read_only"
+
+
+def test_designation_is_policy_only_and_enablement_rebinds_native_revision(
+    production_service: ProductionServiceFixture,
+) -> None:
+    service, _development, factory, _verifier = production_service
+    created = _register(service)
+    observed = service.probe(created.target_id)
+    assert observed.pending_observation_id is not None
+    native = service.confirm(created.target_id, observed.pending_observation_id)
+    assert native.production_policy is not None
+    revision = native.production_policy.policy_revision
+    generation = native.production_policy.identity_generation
+    assert _revision_state(factory, created.target_id) == (
+        revision,
+        revision,
+        revision,
+    )
+
+    designated = service.confirm_production_designation(
+        created.target_id, observed.pending_observation_id
+    )
+
+    assert designated.production_policy is not None
+    assert designated.production_policy.designation_state.value == "confirmed"
+    assert designated.production_policy.policy_revision == revision + 1
+    assert designated.production_policy.identity_generation == generation
+    assert designated.administrative_state.value == "disabled"
+    assert designated.verification_state.value == "verified"
+    assert _revision_state(factory, created.target_id) == (
+        revision + 1,
+        revision,
+        revision + 1,
+    )
+    assert _designation_event_count(factory, created.target_id) == 1
+
+    with pytest.raises(ExternalTargetError, match="production_designation_required"):
+        service.confirm_production_designation(
+            created.target_id, observed.pending_observation_id
+        )
+    assert _revision_state(factory, created.target_id) == (
+        revision + 1,
+        revision,
+        revision + 1,
+    )
+    assert _designation_event_count(factory, created.target_id) == 1
+
+    enabled = service.set_enabled(created.target_id, enabled=True)
+    assert enabled.production_policy is not None
+    assert enabled.production_policy.policy_revision == revision + 2
+    assert _revision_state(factory, created.target_id) == (
+        revision + 2,
+        revision + 2,
+        revision + 2,
+    )
+
+
+def test_designation_failure_rolls_back_policy_binding_high_water_and_event(
+    production_service: ProductionServiceFixture,
+) -> None:
+    service, _development, factory, _verifier = production_service
+    created = _register(service)
+    observed = service.probe(created.target_id)
+    assert observed.pending_observation_id is not None
+    native = service.confirm(created.target_id, observed.pending_observation_id)
+    assert native.production_policy is not None
+    before = _revision_state(factory, created.target_id)
+    before_events = _designation_event_count(factory, created.target_id)
+    engine = factory.kw["bind"]
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TRIGGER inject_designation_event_failure BEFORE INSERT ON "
+                "external_kodi_target_events WHEN NEW.event_kind="
+                "'production_designation_confirmed' BEGIN SELECT "
+                "RAISE(ABORT,'injected_designation_event_failure'); END"
+            )
+        )
+    try:
+        with pytest.raises(IntegrityError, match="injected_designation_event_failure"):
+            service.confirm_production_designation(
+                created.target_id, observed.pending_observation_id
+            )
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text("DROP TRIGGER inject_designation_event_failure"))
+
+    current = service.get(created.target_id)
+    assert current.production_policy is not None
+    assert current.production_policy.designation_state.value == "pending_confirmation"
+    assert _revision_state(factory, created.target_id) == before
+    assert _designation_event_count(factory, created.target_id) == before_events
+
+
+def test_concurrent_designation_has_one_winner_and_one_stale_loser(
+    production_service: ProductionServiceFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _development, factory, _verifier = production_service
+    created = _register(service)
+    observed = service.probe(created.target_id)
+    assert observed.pending_observation_id is not None
+    observation_id = observed.pending_observation_id
+    native = service.confirm(created.target_id, observation_id)
+    assert native.production_policy is not None
+    revision = native.production_policy.policy_revision
+    barrier = Barrier(2)
+    advance = advance_production_policy
+
+    def synchronized_advance(
+        policy: ExternalProductionPolicyRow, *, now: datetime
+    ) -> None:
+        barrier.wait(timeout=5)
+        advance(policy, now=now)
+
+    monkeypatch.setattr(
+        external_targets_module,
+        "advance_production_policy",
+        synchronized_advance,
+    )
+
+    def designate() -> str:
+        try:
+            service.confirm_production_designation(created.target_id, observation_id)
+        except StaleDataError:
+            return "stale"
+        return "committed"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _index: designate(), range(2)))
+
+    assert sorted(outcomes) == ["committed", "stale"]
+    assert _revision_state(factory, created.target_id) == (
+        revision + 1,
+        revision,
+        revision + 1,
+    )
+    assert _designation_event_count(factory, created.target_id) == 1
 
 
 def test_configuration_and_identity_drift_increment_generation_and_fail_closed(

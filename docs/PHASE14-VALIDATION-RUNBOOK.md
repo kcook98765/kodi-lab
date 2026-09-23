@@ -18,6 +18,22 @@ reviewing or preparing this runbook. Do not inject failures on production.
   ambiguous and ends validation. Never retry under a new request UUID.
 - Capture only the bounded redacted evidence in
   [PHASE14-EVIDENCE-TEMPLATE.md](PHASE14-EVIDENCE-TEMPLATE.md).
+- Record revision transitions as `policy/native-bound/high-water`. The current
+  policy revision must equal the permanent high-water, and the native-bound
+  revision must never exceed the current policy revision.
+- Classify each transition before evaluating it. A native-material transition
+  advances policy exactly once, binds the native row to that same revision and
+  leaves high-water equal to policy. A policy-only transition advances policy
+  exactly once and high-water with it while leaving the native binding at the
+  most recent native-material revision. Thus `native-bound <= policy` is valid;
+  immediate three-way equality is required only after a native-material
+  transition.
+- Production designation is policy-only. If the preceding coherent state is
+  `r/r/r`, designation must produce `(r+1)/r/(r+1)`, not three-way equality.
+- Keep digest names unambiguous in validation records: use
+  `transport_location_hash` for the redacted transport-location identity and
+  `native_control_consent_digest` for native-control consent. Do not collapse
+  them into generic `endpoint_digest` wording.
 - Do not deploy software, use SSH/shell/filesystem authority, restart Kodi,
   change host lifecycle, issue raw JSON-RPC or use a production workspace.
 
@@ -39,6 +55,13 @@ visual, navigate or transient scope is required. Keep both mutation vetoes set.
 
 1. Confirm the exact client/target/preset/grant/scope and current native
    production designation in Web administration.
+   When designation is performed for this validation, classify it as a
+   policy-only transition and verify generation and native binding do not
+   change, policy advances exactly once, and high-water equals the new policy.
+   For the current validation sequence the evidence transition is
+   `5/5/5 -> 6/5/6`; these absolute values are evidence for this sequence, not a
+   general invariant. The target remains verified and disabled. Do not require
+   immediate three-way equality after designation.
 2. Invoke `target_list` and confirm the one expected logical production target
    is present with no endpoint/credential/observation disclosure.
 3. Invoke `target_status` exactly once for that target and verify the bounded
@@ -46,6 +69,13 @@ visual, navigate or transient scope is required. Keep both mutation vetoes set.
 4. Invoke one bounded `addon_list` page and verify path-free bounded inventory.
 5. Record semantic outcomes and stop. Any mismatch or unexpected disclosure is
    a discrepancy; do not continue to Stage B.
+
+Stage A revision acceptance requires an exact-once monotonic policy increment,
+`high-water == policy`, and `native-bound <= policy`. Native binding equals the
+new policy revision only when the current transition is native-material;
+policy-only transitions may legitimately produce `(r+1)/r/(r+1)`. The prior
+Stage A STOP at `6/5/6` remains valid historical evidence, but is reconciled as
+a validation-expectation defect rather than a runtime or schema defect.
 
 ## Stage B — Screenshot
 

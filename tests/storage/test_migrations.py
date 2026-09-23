@@ -6449,6 +6449,15 @@ def test_0052_direct_state_guards_reject_revision_bypass_and_recreation(
                 ),
                 values,
             )
+        with pytest.raises(IntegrityError, match="production_policy_revision_required"):
+            connection.execute(
+                text(
+                    "UPDATE external_production_policies SET designation_state="
+                    "'pending_native_identity',policy_revision=5 "
+                    "WHERE target_id=:target"
+                ),
+                values,
+            )
         with pytest.raises(
             IntegrityError, match="production_policy_revision_not_monotonic"
         ):
@@ -6527,6 +6536,36 @@ def test_0052_direct_state_guards_reject_revision_bypass_and_recreation(
             ),
             values,
         ).one() == (3, 3)
+        with connection.begin_nested() as nested:
+            connection.execute(
+                text(
+                    "UPDATE external_production_policies SET designation_state="
+                    "'pending_native_identity',policy_revision=4 "
+                    "WHERE target_id=:target"
+                ),
+                values,
+            )
+            assert connection.execute(
+                text(
+                    "SELECT p.policy_revision,e.production_policy_revision,"
+                    "g.maximum_policy_revision FROM external_production_policies p "
+                    "JOIN external_kodi_targets e ON e.target_id=p.target_id "
+                    "JOIN external_production_policy_revision_guards g "
+                    "ON g.target_id=p.target_id WHERE p.target_id=:target"
+                ),
+                values,
+            ).one() == (4, 3, 4)
+            with pytest.raises(
+                IntegrityError, match="production_policy_revision_required"
+            ):
+                connection.execute(
+                    text(
+                        "UPDATE external_kodi_targets SET "
+                        "production_policy_revision=4 WHERE target_id=:target"
+                    ),
+                    values,
+                )
+            nested.rollback()
         with pytest.raises(IntegrityError):
             connection.execute(
                 text("DELETE FROM targets WHERE id=:target"),
@@ -6596,6 +6635,123 @@ def test_0052_direct_state_guards_reject_revision_bypass_and_recreation(
                 ),
                 values,
             )
+    engine.dispose()
+
+
+def test_0052_current_stage_a_6_5_6_state_reads_and_rebinds_on_enablement(
+    migration_templates: MigrationTemplateStore, tmp_path: Path
+) -> None:
+    database_path = tmp_path / "stage-a-6-5-6.db"
+    migration_templates.clone("head", database_path)
+    engine = create_database_engine(f"sqlite:///{database_path}")
+    factory = create_session_factory(engine)
+    target_id = UUID("56000000-0000-4000-8000-000000000001")
+    observation_id = UUID("56000000-0000-4000-8000-000000000002")
+    values = {
+        "target": str(target_id),
+        "observation": str(observation_id),
+        "at": "2026-09-22T21:00:00.000000Z",
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets (id,name,target_type,kodi_version,availability,"
+                "health,connection_state) VALUES (:target,'Stage A production',"
+                "'external_production','21.3','unavailable','healthy','connected')"
+            ),
+            values,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_kodi_targets (target_id,protocol_kind,host,port,"
+                "authentication_mode,secret_reference,configured_capabilities_json,"
+                "verified_capabilities_json,administrative_state,verification_state,"
+                "observation_state,verified_addresses_json,verified_kodi_name,"
+                "verified_kodi_version,observed_kodi_name,observed_kodi_version,"
+                "observed_protocol_version,pending_observation_id,"
+                "production_policy_revision,created_at,verified_at,deactivated_at,"
+                "last_observed_at) VALUES (:target,'jsonrpc_http','192.0.2.6',8080,"
+                "'none',NULL,'[\"target_inspect\"]','[\"target_inspect\"]',"
+                "'disabled','verified','reachable','[\"192.0.2.6\"]','Kodi','21.3',"
+                "'Kodi','21.3','13.0.0',:observation,5,:at,:at,NULL,:at)"
+            ),
+            values,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_kodi_target_observations (id,target_id,outcome,"
+                "addresses_json,kodi_name,kodi_version,protocol_version,"
+                "verified_capabilities_json,error_code,attempted_at,completed_at) "
+                "VALUES (:observation,:target,'reachable','[\"192.0.2.6\"]','Kodi',"
+                "'21.3','13.0.0','[\"target_inspect\"]',NULL,:at,:at)"
+            ),
+            values,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO external_production_policies (target_id,"
+                "designation_state,confirmed_observation_id,"
+                "confirmed_observation_digest,identity_generation,policy_revision,"
+                "mutations_suspended,designation_confirmed_by,"
+                "designation_confirmed_at,designation_invalidated_at,created_at,"
+                "updated_at) VALUES (:target,'confirmed',:observation,'"
+                + "a" * 64
+                + "',2,6,1,'local_administrator',:at,NULL,:at,:at)"
+            ),
+            values,
+        )
+
+    class NoContactVerifier:
+        def probe(
+            self,
+            endpoint: ValidatedExternalEndpoint,
+            credential: object,
+            configured: frozenset[str],
+        ) -> ExternalKodiProbeResult:
+            raise AssertionError("current-state compatibility must not probe")
+
+    service = ExternalTargetAdministrationService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "stage-a-6-5-6-secrets", master_key=None, key_version=1
+        ),
+        verifier=NoContactVerifier(),  # type: ignore[arg-type]
+        target_type=TargetType.EXTERNAL_PRODUCTION,
+    )
+    current = service.get(target_id)
+    assert current.production_policy is not None
+    assert current.production_policy.designation_state.value == "confirmed"
+    assert current.production_policy.policy_revision == 6
+    assert current.verification_state.value == "verified"
+    assert current.administrative_state.value == "disabled"
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT p.policy_revision,e.production_policy_revision,"
+                "g.maximum_policy_revision FROM external_production_policies p "
+                "JOIN external_kodi_targets e ON e.target_id=p.target_id "
+                "JOIN external_production_policy_revision_guards g "
+                "ON g.target_id=p.target_id WHERE p.target_id=:target"
+            ),
+            values,
+        ).one() == (6, 5, 6)
+
+    enabled = service.set_enabled(target_id, enabled=True)
+    assert enabled.production_policy is not None
+    assert enabled.production_policy.policy_revision == 7
+    assert enabled.verification_state.value == "verified"
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT p.policy_revision,e.production_policy_revision,"
+                "g.maximum_policy_revision FROM external_production_policies p "
+                "JOIN external_kodi_targets e ON e.target_id=p.target_id "
+                "JOIN external_production_policy_revision_guards g "
+                "ON g.target_id=p.target_id WHERE p.target_id=:target"
+            ),
+            values,
+        ).one() == (7, 7, 7)
     engine.dispose()
 
 
