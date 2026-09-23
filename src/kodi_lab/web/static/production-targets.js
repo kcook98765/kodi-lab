@@ -35,6 +35,22 @@
   })));
   root.querySelectorAll("[data-target-id]").forEach((card) => {
     const id = card.dataset.targetId;
+    card.querySelector("[data-capability-operation]")?.addEventListener("click", (event) => run(async () => {
+      const operation = event.currentTarget.dataset.capabilityOperation;
+      const warning = operation === "add"
+        ? "Add screenshot only to the operator-approved maximum? This creates no bridge trust, visual scope, acknowledgement, or screenshot authority."
+        : "Remove screenshot from the approved maximum? This permanently stales bridge-derived scopes, trust, pairing material, and live approvals; old authority cannot revive automatically.";
+      if (!confirm(warning)) return;
+      await request(`/api/production-targets/${id}/capability-amendments`, "POST", {
+        operation,
+        capability: "screenshot",
+        expected_configured_capabilities: card.dataset.configuredCapabilities.split(",").filter(Boolean),
+        expected_policy_revision: Number(card.dataset.policyRevision),
+        confirmed: true,
+        acknowledgement: "I confirm this exact screenshot capability amendment and its displayed consequences."
+      });
+      location.reload();
+    }));
     card.querySelector("[data-endpoint]")?.addEventListener("submit", (event) => run(async () => { event.preventDefault(); const form = new FormData(event.currentTarget); await request(`/api/production-targets/${id}/endpoint`, "PUT", {protocol_kind: form.get("protocol_kind"), host: form.get("host"), port: Number(form.get("port"))}); location.reload(); }));
     card.querySelector("[data-credentials]")?.addEventListener("submit", (event) => run(async () => { event.preventDefault(); const form = new FormData(event.currentTarget); await request(`/api/production-targets/${id}/credentials`, "POST", {authentication_mode: form.get("authentication_mode"), username: form.get("username") || null, password: form.get("password") || null}); location.reload(); }));
     card.querySelector("[data-http-ack]")?.addEventListener("submit", (event) => run(async () => { event.preventDefault(); const form = new FormData(event.currentTarget); if (!confirm("Acknowledge that HTTP screenshot pixels are not confidential on the private LAN for this exact configuration?")) return; await request(`/api/production-targets/${id}/bridge/http-acknowledgements`, "POST", {confirmed: true, bridge_port: Number(form.get("bridge_port")), acknowledgement: "I acknowledge that private-LAN HTTP protects authenticity and integrity but does not provide screenshot confidentiality."}); location.reload(); }));

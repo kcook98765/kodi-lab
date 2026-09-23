@@ -260,6 +260,11 @@ from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
 )
+from kodi_lab.application.production_capability_amendments import (
+    ProductionCapabilityAmendmentError,
+    ProductionCapabilityAmendmentRead,
+    ProductionCapabilityAmendmentService,
+)
 from kodi_lab.application.production_inspection import ProductionInspectionError
 from kodi_lab.application.production_navigation import (
     ProductionNativeControlAcknowledgementRead,
@@ -837,6 +842,22 @@ class ProductionTargetMutationSuspensionRequest(BaseModel):
     suspended: StrictBool
 
 
+class ProductionCapabilityAmendmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["add", "remove"]
+    capability: Literal["screenshot"]
+    expected_configured_capabilities: set[
+        Literal["target_inspect", "addon_inventory", "semantic_remote", "screenshot"]
+    ] = Field(min_length=1, max_length=4)
+    expected_policy_revision: int = Field(ge=1)
+    confirmed: Literal[True]
+    acknowledgement: Literal[
+        "I confirm this exact screenshot capability amendment and its displayed "
+        "consequences."
+    ]
+
+
 class ProductionApprovalDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -994,6 +1015,7 @@ class WebApplicationContext:
     live_display: ManagedLiveDisplayService
     external_targets: ExternalTargetAdministrationService
     production_targets: ExternalTargetAdministrationService
+    production_capability_amendments: ProductionCapabilityAmendmentService
     external_bridges: ExternalBridgeService
     production_native_control_acknowledgements: (
         ProductionNativeControlAcknowledgementService
@@ -1197,6 +1219,9 @@ def create_app(
             credential_store=external_credential_store,
             target_type=TargetType.EXTERNAL_PRODUCTION,
         )
+    )
+    production_capability_amendments = ProductionCapabilityAmendmentService(
+        session_factory, bridge_secrets=external_bridge_secret_store
     )
     mcp_registry = build_mcp_tool_registry()
     managed_target_authority = InternalManagedTargetAuthorityProvider(
@@ -1662,6 +1687,7 @@ def create_app(
         live_display=live_display,
         external_targets=external_targets,
         production_targets=production_targets,
+        production_capability_amendments=production_capability_amendments,
         external_bridges=external_bridges,
         production_native_control_acknowledgements=(
             production_native_control_acknowledgements
@@ -2318,6 +2344,23 @@ def create_app(
             "needs_reverification": 409,
         }.get(error.code, 409)
         return _json_error(status_code, error.code, "External bridge request rejected.")
+
+    @app.exception_handler(ProductionCapabilityAmendmentError)
+    async def production_capability_amendment_failure(
+        _request: Request, error: ProductionCapabilityAmendmentError
+    ) -> JSONResponse:
+        status_code = 404 if error.code == "target_not_found" else 409
+        if error.code in {
+            "capability_amendment_unsupported",
+            "configured_capabilities_invalid",
+            "capability_confirmation_required",
+        }:
+            status_code = 422
+        if error.code == "bridge_secret_retirement_failed":
+            status_code = 503
+        return _json_error(
+            status_code, error.code, "Production capability amendment rejected."
+        )
 
     @app.exception_handler(ProductionInspectionError)
     async def production_control_acknowledgement_failure(
@@ -3553,6 +3596,27 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> ExternalTargetRead:
         return context.production_targets.get(target_id)
+
+    @app.post(
+        "/api/production-targets/{target_id}/capability-amendments",
+        response_model=ProductionCapabilityAmendmentRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def amend_production_screenshot_capability(
+        target_id: UUID,
+        payload: ProductionCapabilityAmendmentRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ProductionCapabilityAmendmentRead:
+        amendments = context.production_capability_amendments
+        return amendments.amend_production_capability_maximum(
+            target_id,
+            operation=payload.operation,
+            capability=payload.capability,
+            expected_configured_capabilities=frozenset(
+                payload.expected_configured_capabilities
+            ),
+            expected_policy_revision=payload.expected_policy_revision,
+        )
 
     @app.get(
         "/api/production-targets/{target_id}/events",

@@ -247,6 +247,26 @@ and delete/reinsert or SQLite conflict-replacement attempts that would restore
 an older revision. Successful
 reverification does not advance the already-changed identity generation.
 
+Migration `0053_production_screenshot_capability_amendment` adds the narrow
+authenticated-Web action for explicitly adding or removing only `screenshot`
+from the configured production maximum. It adds immutable exact add/remove
+audit history and a database guard requiring downstream bridge-derived
+authority to be tombstoned before removal. It seeds no capability, bridge,
+scope, acknowledgement, approval or other authority.
+
+Adding screenshot changes only the configured maximum and advances/binds policy
+revision once. Native verified evidence, identity generation, designation,
+enablement and current native inspection remain unchanged. Pairing, reviewed
+bridge verification, visual scope and transport acknowledgement are still
+independent requirements; the amendment alone cannot produce pixels.
+
+Removing screenshot creates or advances a monotonic bridge tombstone, clears
+Lab pairing references, revokes bridge-derived scopes and cancels live transient
+approvals while retaining receipts, acknowledgements, grants, the preset,
+native inspection and reviewed-build history. Remove/re-add cannot revive any
+retained row. This amendment adds no MCP administration and does not change the
+fifteen-tool catalog or five-tool production subset.
+
 ## Slice 3 reviewed bridge and visual inspection
 
 Migration `0049_production_bridge_visual` reuses Phase 13 bridge protocol v1,

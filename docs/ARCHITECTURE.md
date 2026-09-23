@@ -2592,3 +2592,36 @@ and semantic fingerprint
 `4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`.
 It is not published, registered or installed; those boundaries remain outside
 the packaging slice.
+
+## Phase 14 Web-only screenshot capability amendment
+
+Migration `0053_production_screenshot_capability_amendment` adds one immutable
+audit table whose vocabulary is exactly screenshot add/remove. The Web request
+accepts no other capability and uses optimistic comparison of the complete
+configured set and current policy revision. One successful transaction advances
+the policy and high-water mark once, binds the native row to that new revision,
+and leaves identity generation and native verified evidence unchanged. The
+configured set remains an operator maximum rather than technical proof.
+
+Addition creates no bridge row, trust, verified bridge capability, HTTP
+acknowledgement, visual scope or screenshot receipt. Production effective
+capability remains the existing intersection, so a reviewed bridge may advertise
+`screenshot` plus `workspace_deployment` while only screenshot can intersect
+production policy and deployment remains production-ineligible.
+
+Removal first makes every bridge-derived authority inert inside the same
+transaction: pending tokens and Lab secret references are cleared, the bridge
+revision is created or advanced as a tombstone, current bridge trust is revoked,
+visual/navigate/transient-request scopes are terminally revoked and pending or
+approved transient operations are cancelled. The exact audit is inserted before
+the configured set changes. A database trigger rejects removal if the audit or
+any tombstone/revocation condition is missing. Protected secret files are
+retired after commit; because all database references were committed absent,
+an orphaned file cannot authenticate. Receipts, acknowledgements, generic grants,
+native inspect scopes, target preset/enablement and reviewed-build registration
+remain historical or independently effective as appropriate. Re-add changes
+only the maximum and cannot revive any stale bridge-derived row.
+
+The route is authenticated same-origin, CSRF-protected Web administration only.
+There is no MCP tool, schema, grant or approval-administration equivalent and
+the fifteen-tool catalog and five-tool production subset do not change.

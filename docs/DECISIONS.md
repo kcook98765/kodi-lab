@@ -4467,6 +4467,29 @@ approvals atomically with the governing revision transition.
   delete/reinsert and SQLite conflict replacement cannot restore an earlier
   revision. The database guards remain authoritative.
 
+## D-0366: Production screenshot maximum amendment is explicit and Web-only
+- Status: accepted and implemented as the bounded Phase 14 remediation.
+- Decision: `configured_capabilities` is the operator-approved closed semantic
+  maximum, not native or bridge proof. Authenticated Web administration may add
+  or remove only literal `screenshot` with an expected complete set, expected
+  policy revision and exact human confirmation. Native verified capabilities
+  do not change, bridge advertisement cannot enlarge the maximum, MCP has no
+  administration route, and the fifteen-tool/five-production-tool boundaries
+  remain unchanged.
+- Addition: advance the production policy once, bind the native row and
+  high-water mark to that result, retain identity generation and accepted native
+  inspection, and create no bridge, visual, acknowledgement or screenshot
+  authority.
+- Removal: atomically revoke or permanently stale bridge trust, pairing
+  material, visual/navigate/transient-request scopes and live transient
+  approvals while retaining receipts, acknowledgements, grants, native inspect
+  scope, preset, enablement, reviewed-build registration and immutable history.
+  A monotonic bridge tombstone and database removal guard prevent remove/re-add
+  resurrection. Post-commit secret-file residue has no authoritative database
+  reference.
+- Future onboarding may suggest role-based maxima but may never silently
+  approve them; Phase 16 onboarding remains deferred.
+
 ## Phase 14 Slice 2 formal completion record
 
 - Status: **Phase 14 Slice 2 — Read-only production inspection: COMPLETE**;

@@ -229,6 +229,159 @@ def test_production_mutation_controls_are_csrf_protected_and_epoch_monotonic(
     assert cleared["policy_epoch"] == 2
 
 
+def test_screenshot_capability_amendment_is_explicit_web_only_and_closed(
+    client: TestClient,
+) -> None:
+    csrf = login(client)
+    created = client.post(
+        "/api/production-targets",
+        json=_registration(),
+        headers=_headers(csrf),
+    ).json()
+    target_id = created["target_id"]
+    app = cast(FastAPI, client.app)
+    service = cast(
+        ExternalTargetAdministrationService, app.state.kodi_lab.production_targets
+    )
+    service._verifier = SuccessfulProductionVerifier()  # type: ignore[assignment]
+    observed = client.post(
+        f"/api/production-targets/{target_id}/probe",
+        json={},
+        headers=_headers(csrf),
+    ).json()
+    observation_id = observed["pending_observation_id"]
+    client.post(
+        f"/api/production-targets/{target_id}/confirm-native",
+        json={"confirmed": True, "observation_id": observation_id},
+        headers=_headers(csrf),
+    )
+    designated = client.post(
+        f"/api/production-targets/{target_id}/confirm-designation",
+        json={
+            "confirmed": True,
+            "observation_id": observation_id,
+            "acknowledgement": (
+                "I confirm this is a production Kodi target and mutations may "
+                "affect real user state."
+            ),
+        },
+        headers=_headers(csrf),
+    ).json()
+    enabled = client.post(
+        f"/api/production-targets/{target_id}/enabled",
+        json={"enabled": True},
+        headers=_headers(csrf),
+    ).json()
+    add_page = client.get("/production-targets")
+    assert "Add screenshot to approved maximum" in add_page.text
+    assert "does not establish screenshot authority" in add_page.text
+    revision = enabled["production_policy"]["policy_revision"]
+    payload = {
+        "operation": "add",
+        "capability": "screenshot",
+        "expected_configured_capabilities": [
+            "target_inspect",
+            "addon_inventory",
+        ],
+        "expected_policy_revision": revision,
+        "confirmed": True,
+        "acknowledgement": (
+            "I confirm this exact screenshot capability amendment and its displayed "
+            "consequences."
+        ),
+    }
+    url = f"/api/production-targets/{target_id}/capability-amendments"
+    assert client.post(url, json=payload, headers=ORIGIN).status_code == 403
+    assert (
+        client.post(
+            url,
+            json=payload,
+            headers={"Origin": "http://evil.invalid", "X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 403
+    )
+    client.cookies.clear()
+    assert client.post(url, json=payload, headers=_headers(csrf)).status_code == 401
+    csrf = login(client)
+    assert (
+        client.post(
+            url,
+            json={**payload, "confirmed": False},
+            headers=_headers(csrf),
+        ).status_code
+        == 422
+    )
+    for rejected in (
+        "workspace_deployment",
+        "fixed_execution",
+        "semantic_remote",
+        "arbitrary_capability",
+    ):
+        response = client.post(
+            url,
+            json={**payload, "capability": rejected},
+            headers=_headers(csrf),
+        )
+        assert response.status_code == 422
+
+    development_target = client.post(
+        "/api/external-targets",
+        json={**_registration(), "logical_name": "Development Kodi"},
+        headers=_headers(csrf),
+    ).json()["target_id"]
+    assert (
+        client.post(
+            f"/api/production-targets/{development_target}/capability-amendments",
+            json=payload,
+            headers=_headers(csrf),
+        ).status_code
+        == 404
+    )
+    managed_target = client.get("/api/instances").json()[0]["managed_instance_id"]
+    assert (
+        client.post(
+            f"/api/production-targets/{managed_target}/capability-amendments",
+            json=payload,
+            headers=_headers(csrf),
+        ).status_code
+        == 404
+    )
+
+    amended = client.post(url, json=payload, headers=_headers(csrf))
+    assert amended.status_code == 201
+    body = amended.json()
+    assert body["policy_revision"] == revision + 1
+    assert body["production_policy_revision_binding"] == revision + 1
+    assert body["native_verified_capabilities"] == [
+        "addon_inventory",
+        "target_inspect",
+    ]
+    assert body["event_kind"] == "production_capability_screenshot_added"
+    assert designated["production_policy"]["identity_generation"] == 1
+    after = client.get(f"/api/production-targets/{target_id}").json()
+    assert set(after["configured_capabilities"]) == {
+        "addon_inventory",
+        "screenshot",
+        "target_inspect",
+    }
+    assert set(after["verified_capabilities"]) == {
+        "addon_inventory",
+        "target_inspect",
+    }
+    bridge = client.get(f"/api/production-targets/{target_id}/bridge").json()
+    assert bridge["pairing_state"] == "unpaired"
+    assert bridge["production_bridge_trust_revision"] is None
+    assert bridge["verified_capabilities"] == []
+    page = client.get("/production-targets")
+    assert "operator-approved maximum" in page.text
+    assert "cannot revive automatically" in page.text
+    assert all(
+        "capability-amendments" not in getattr(route, "path", "")
+        for route in app.routes
+        if getattr(route, "path", "").startswith("/mcp")
+    )
+
+
 def test_production_approval_queue_and_decisions_are_web_only_and_protected(
     client: TestClient,
 ) -> None:

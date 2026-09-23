@@ -68,13 +68,26 @@
         {% set policy = target.production_policy %}
         {% set bridge = bridge_statuses.get(target.target_id) %}
         {% set native_control_ack = native_control_acknowledgements.get(target.target_id) %}
-        <article data-target-id="{{ target.target_id }}">
+        <article data-target-id="{{ target.target_id }}" data-policy-revision="{{ policy.policy_revision }}" data-configured-capabilities="{{ target.configured_capabilities | join(',') }}">
           <h3>{{ target.logical_name }}</h3>
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
           <p>Lifecycle: <strong>{{ policy.lifecycle_state }}</strong> · generation {{ policy.identity_generation }} · policy revision {{ policy.policy_revision }}</p>
           <p>Admin: {{ target.administrative_state.value }} · native verification: {{ target.verification_state.value }} · designation: {{ policy.designation_state.value }}</p>
           <p>Authentication: {{ target.authentication_mode.value }}{% if target.http_password_warning %} · <strong>Password authentication over HTTP is not confidential.</strong>{% endif %}</p>
           <p>Kodi: {{ target.kodi_name or 'not observed' }} {{ target.kodi_version or '' }} · observation {{ target.pending_observation_id or 'none' }}</p>
+          <section data-capability-amendment>
+            <h4>Screenshot capability maximum amendment</h4>
+            <p>Current operator-approved maximum: <strong>{{ target.configured_capabilities | join(', ') }}</strong>. Native verified evidence remains separately: <strong>{{ target.verified_capabilities | join(', ') }}</strong>.</p>
+            {% if 'screenshot' not in target.configured_capabilities %}
+            <p>Requested change: add <code>screenshot</code>. After: <strong>{{ (target.configured_capabilities + ('screenshot',)) | sort | join(', ') }}</strong>.</p>
+            <p>This only expands the operator-approved maximum. It does not establish screenshot authority; reviewed bridge pairing, verified bridge capability, HTTP acknowledgement where applicable, and visual authorization are still separately required.</p>
+            <button type="button" data-capability-operation="add">Add screenshot to approved maximum</button>
+            {% else %}
+            <p>Requested change: remove <code>screenshot</code>. After: <strong>{{ target.configured_capabilities | reject('equalto', 'screenshot') | join(', ') }}</strong>.</p>
+            <p>Removal invalidates current bridge-derived visual/control authority. Prior acknowledgements, scopes, bridge trust, pairing material, and approvals cannot revive automatically; receipts and immutable history remain.</p>
+            <button type="button" data-capability-operation="remove" class="destructive">Remove screenshot from approved maximum</button>
+            {% endif %}
+          </section>
           <p>Per-target production mutations: <strong>{{ 'suspended' if policy.mutations_suspended else 'not suspended (grants no authority)' }}</strong></p>
           <p>Bridge: <strong>{{ bridge.pairing_state.value if bridge else 'unpaired' }}</strong> · native generation {{ policy.identity_generation }} · bridge trust revision {{ bridge.production_bridge_trust_revision if bridge and bridge.production_bridge_trust_revision else 'none' }} · build {{ bridge.reviewed_build_id if bridge and bridge.reviewed_build_id else 'unreviewed' }}</p>
           <p>Native HTTP production control acknowledgement: <strong>{{ native_control_ack.acknowledgement_id if native_control_ack else ('not required for HTTPS' if target.protocol_kind.value == 'jsonrpc_https' else 'missing') }}</strong></p>

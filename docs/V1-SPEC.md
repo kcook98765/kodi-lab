@@ -1377,3 +1377,32 @@ installation/Compose ownership, release packaging, the first public SemVer,
 artifact/checksum/provenance publication, public documentation and release
 checklist. The static project version stays `0.0.0` until that release gate
 selects and validates `1.0.0`.
+
+## 57. Web-only production screenshot maximum amendment
+
+An authenticated Web administrator may explicitly add or remove only the exact
+`screenshot` member of an existing verified, confirmed and enabled production
+target's configured capability maximum. The request carries the complete
+expected configured set, expected policy revision and an exact human
+acknowledgement. It is not a generic capability editor, cannot change native
+verified evidence and has no MCP equivalent.
+
+The configured set is only the operator-approved semantic maximum. Adding
+`screenshot` advances and binds the production policy revision once but does
+not change identity generation, native verification, designation, enablement,
+inspection scope, bridge trust, bridge verification, visual scope, transport
+acknowledgement or receipt state. Screenshot authority remains the full
+configured maximum, reviewed bridge, verified bridge capability, preset,
+grant, scope, generation, revision and transport intersection.
+
+Removing `screenshot` advances that same revision once, writes an immutable
+exact audit, creates or advances a monotonic bridge tombstone, retires pairing
+material, revokes bridge trust and all current visual/navigate/transient-request
+scopes, and cancels pending or approved transient operations. Native inspection,
+the generic grant, current target preset, target enablement, reviewed-build
+registry, receipts, acknowledgements and immutable history remain. Retained
+history is permanently stale and remove/re-add cannot reactivate it.
+
+Future V1 onboarding may suggest role-based configured maxima, but it must
+never silently approve or enlarge one. Phase 16 onboarding is not implemented
+by this amendment.

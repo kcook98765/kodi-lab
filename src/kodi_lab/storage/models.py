@@ -1447,6 +1447,57 @@ class ExternalProductionPolicyRevisionGuardRow(Base):
     maximum_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class ProductionCapabilityAmendmentRow(Base):
+    """Immutable Web-admin audit for the screenshot-only production maximum."""
+
+    __tablename__ = "production_capability_amendments"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND operation IN ('add','remove') "
+            "AND capability='screenshot' AND "
+            "((operation='add' AND "
+            "event_kind='production_capability_screenshot_added') OR "
+            "(operation='remove' AND "
+            "event_kind='production_capability_screenshot_removed'))",
+            name="production_capability_amendment_semantics_closed",
+        ),
+        CheckConstraint(
+            "length(before_configured_json) BETWEEN 2 AND 512 AND "
+            "length(after_configured_json) BETWEEN 2 AND 512",
+            name="production_capability_amendment_sets_bounded",
+        ),
+        CheckConstraint(
+            "resulting_policy_revision>=1 AND length(actor) BETWEEN 1 AND 64 "
+            "AND length(occurred_at)=27",
+            name="production_capability_amendment_audit_bounded",
+        ),
+        UniqueConstraint(
+            "target_id",
+            "resulting_policy_revision",
+            name="uq_production_capability_amendment_revision",
+        ),
+        Index(
+            "ix_production_capability_amendment_target_time",
+            "target_id",
+            "occurred_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("targets.id", ondelete="RESTRICT"), nullable=False
+    )
+    operation: Mapped[str] = mapped_column(String(8), nullable=False)
+    capability: Mapped[str] = mapped_column(String(32), nullable=False)
+    event_kind: Mapped[str] = mapped_column(String(48), nullable=False)
+    before_configured_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    after_configured_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    resulting_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class ProductionMutationControlRow(Base):
     """Singleton deny-only global production mutation control."""
 
@@ -6614,6 +6665,84 @@ _SLICE4B_CREATE_ALL_TRIGGERS = (
 )
 
 for _trigger_sql in _SLICE4B_CREATE_ALL_TRIGGERS:
+    event.listen(
+        Base.metadata,
+        "after_create",
+        DDL(_trigger_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )
+
+
+_CAPABILITY_AMENDMENT_CREATE_TRIGGERS = (
+    "CREATE TRIGGER trg_production_capability_amendment_insert BEFORE INSERT ON "
+    "production_capability_amendments WHEN "
+    "COALESCE((SELECT target_type FROM targets WHERE id=NEW.target_id),'')<>"
+    "'external_production' OR NOT json_valid(NEW.before_configured_json) OR NOT "
+    "json_valid(NEW.after_configured_json) OR json_type(NEW.before_configured_json)"
+    "<>'array' OR json_type(NEW.after_configured_json)<>'array' OR EXISTS(SELECT 1 "
+    "FROM json_each(NEW.before_configured_json) WHERE type<>'text' OR value NOT IN "
+    "('target_inspect','addon_inventory','semantic_remote','screenshot')) OR "
+    "EXISTS(SELECT 1 FROM json_each(NEW.after_configured_json) WHERE type<>'text' "
+    "OR value NOT IN ('target_inspect','addon_inventory','semantic_remote',"
+    "'screenshot')) OR (SELECT count(*) FROM json_each(NEW.before_configured_json))"
+    "<>(SELECT count(DISTINCT value) FROM json_each(NEW.before_configured_json)) OR "
+    "(SELECT count(*) FROM json_each(NEW.after_configured_json))<>(SELECT "
+    "count(DISTINCT value) FROM json_each(NEW.after_configured_json)) OR "
+    "COALESCE((SELECT configured_capabilities_json FROM external_kodi_targets WHERE "
+    "target_id=NEW.target_id),'')<>NEW.before_configured_json OR COALESCE((SELECT "
+    "policy_revision FROM external_production_policies WHERE target_id=NEW.target_id),"
+    "0)<>NEW.resulting_policy_revision OR NOT (((NEW.operation='add') AND NOT "
+    "EXISTS(SELECT 1 FROM json_each(NEW.before_configured_json) WHERE "
+    "value='screenshot') AND EXISTS(SELECT 1 FROM "
+    "json_each(NEW.after_configured_json) WHERE value='screenshot') AND "
+    "json_array_length(NEW.after_configured_json)=json_array_length("
+    "NEW.before_configured_json)+1 AND NOT EXISTS(SELECT 1 FROM "
+    "json_each(NEW.before_configured_json) b WHERE NOT EXISTS(SELECT 1 FROM "
+    "json_each(NEW.after_configured_json) a WHERE a.value=b.value)) AND NOT "
+    "EXISTS(SELECT 1 FROM json_each(NEW.after_configured_json) a WHERE "
+    "a.value<>'screenshot' AND NOT EXISTS(SELECT 1 FROM "
+    "json_each(NEW.before_configured_json) b WHERE b.value=a.value))) OR "
+    "((NEW.operation='remove') AND EXISTS(SELECT 1 FROM "
+    "json_each(NEW.before_configured_json) WHERE value='screenshot') AND NOT "
+    "EXISTS(SELECT 1 FROM json_each(NEW.after_configured_json) WHERE "
+    "value='screenshot') AND json_array_length(NEW.after_configured_json)+1="
+    "json_array_length(NEW.before_configured_json) AND NOT EXISTS(SELECT 1 FROM "
+    "json_each(NEW.after_configured_json) a WHERE NOT EXISTS(SELECT 1 FROM "
+    "json_each(NEW.before_configured_json) b WHERE b.value=a.value)) AND NOT "
+    "EXISTS(SELECT 1 FROM json_each(NEW.before_configured_json) b WHERE "
+    "b.value<>'screenshot' AND NOT EXISTS(SELECT 1 FROM "
+    "json_each(NEW.after_configured_json) a WHERE a.value=b.value)))) BEGIN SELECT "
+    "RAISE(ABORT, 'production_capability_amendment_invalid'); END",
+    "CREATE TRIGGER trg_production_capability_amendment_immutable BEFORE UPDATE ON "
+    "production_capability_amendments BEGIN SELECT RAISE(ABORT, "
+    "'production_capability_amendment_immutable'); END",
+    "CREATE TRIGGER trg_production_capability_amendment_no_delete BEFORE DELETE ON "
+    "production_capability_amendments BEGIN SELECT RAISE(ABORT, "
+    "'production_capability_amendment_immutable'); END",
+    "CREATE TRIGGER trg_production_screenshot_removal_safe BEFORE UPDATE OF "
+    "configured_capabilities_json ON external_kodi_targets WHEN "
+    "EXISTS(SELECT 1 FROM json_each(OLD.configured_capabilities_json) WHERE "
+    "value='screenshot') AND NOT EXISTS(SELECT 1 FROM "
+    "json_each(NEW.configured_capabilities_json) WHERE value='screenshot') AND "
+    "(NOT EXISTS(SELECT 1 FROM production_capability_amendments a WHERE "
+    "a.target_id=NEW.target_id AND a.operation='remove' AND "
+    "a.before_configured_json=OLD.configured_capabilities_json AND "
+    "a.after_configured_json=NEW.configured_capabilities_json AND "
+    "a.resulting_policy_revision=NEW.production_policy_revision) OR EXISTS(SELECT 1 "
+    "FROM external_bridge_pairings p WHERE p.target_id=NEW.target_id AND "
+    "(p.pairing_state<>'revoked' OR p.pairing_token_reference IS NOT NULL OR "
+    "p.bridge_secret_reference IS NOT NULL OR p.verified_capabilities_json<>'[]' OR "
+    "p.production_bridge_trust_revision IS NULL OR "
+    "p.production_identity_generation IS NOT NULL OR p.reviewed_build_id IS NOT "
+    "NULL OR p.production_confirmed_by IS NOT NULL OR p.production_confirmed_at "
+    "IS NOT NULL)) OR EXISTS(SELECT 1 FROM mcp_production_target_scopes s WHERE "
+    "s.target_id=NEW.target_id AND s.scope IN "
+    "('visual','navigate','request_transient_control') AND s.state='active') OR "
+    "EXISTS(SELECT 1 FROM production_operation_approvals a WHERE "
+    "a.target_id=NEW.target_id AND a.state IN ('pending','approved'))) BEGIN SELECT "
+    "RAISE(ABORT, 'production_screenshot_removal_unsafe'); END",
+)
+
+for _trigger_sql in _CAPABILITY_AMENDMENT_CREATE_TRIGGERS:
     event.listen(
         Base.metadata,
         "after_create",

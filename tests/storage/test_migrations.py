@@ -15,6 +15,9 @@ from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.application.external_bridges import ExternalBridgeService
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
+from kodi_lab.application.production_capability_amendments import (
+    ProductionCapabilityAmendmentService,
+)
 from kodi_lab.domain import ExternalAuthenticationMode, ExternalProtocolKind, TargetType
 from kodi_lab.kodi.external import (
     ExternalEndpointPolicy,
@@ -149,7 +152,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0052_production_policy_revision_binding",)
+        ).fetchone() == ("0053_production_screenshot_capability_amendment",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -228,6 +231,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "external_development_source_baselines",
         "external_production_policies",
         "external_production_policy_revision_guards",
+        "production_capability_amendments",
         "production_bridge_http_acknowledgements",
         "production_native_control_http_acknowledgements",
         "production_mutation_control",
@@ -6782,3 +6786,158 @@ def test_0052_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
         for column in inspect(engine).get_columns("external_kodi_targets")
     }
     engine.dispose()
+
+
+def test_0053_populated_upgrade_preserves_target_without_seeding_authority(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch,
+        tmp_path,
+        start_revision="0052_production_policy_revision_binding",
+    )
+    engine = create_database_engine(database_url)
+    factory = create_session_factory(engine)
+    service = ExternalTargetAdministrationService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "0053-populated-secrets", master_key=None, key_version=1
+        ),
+        target_type=TargetType.EXTERNAL_PRODUCTION,
+    )
+    target = service.register(
+        logical_name="Preserved production target",
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host="192.168.50.90",
+        port=8080,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"target_inspect", "addon_inventory"},
+    )
+    engine.dispose()
+
+    command.upgrade(config, "0053_production_screenshot_capability_amendment")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT configured_capabilities_json,verified_capabilities_json,"
+                "production_policy_revision FROM external_kodi_targets "
+                "WHERE target_id=:target"
+            ),
+            {"target": str(target.target_id)},
+        ).one() == ('["addon_inventory","target_inspect"]', "[]", 1)
+        assert (
+            connection.scalar(
+                text("SELECT COUNT(*) FROM production_capability_amendments")
+            )
+            == 0
+        )
+    engine.dispose()
+
+
+def test_0053_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config, database_url = migration_setup(
+        monkeypatch,
+        tmp_path,
+        start_revision="0052_production_policy_revision_binding",
+    )
+    command.upgrade(config, "0053_production_screenshot_capability_amendment")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "production_capability_amendments" in inspector.get_table_names()
+    triggers = {
+        row[0]
+        for row in engine.connect().execute(
+            text(
+                "SELECT name FROM sqlite_master WHERE type='trigger' AND "
+                "name LIKE 'trg_production_capability_amendment%' OR "
+                "name='trg_production_screenshot_removal_safe'"
+            )
+        )
+    }
+    assert triggers == {
+        "trg_production_capability_amendment_insert",
+        "trg_production_capability_amendment_immutable",
+        "trg_production_capability_amendment_no_delete",
+        "trg_production_screenshot_removal_safe",
+    }
+    engine.dispose()
+
+    command.downgrade(config, "0052_production_policy_revision_binding")
+    engine = create_database_engine(database_url)
+    assert "production_capability_amendments" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+
+def test_0053_refuses_downgrade_after_meaningful_amendment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision=None)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    factory = create_session_factory(engine)
+
+    class Verifier:
+        def probe(
+            self,
+            endpoint: ValidatedExternalEndpoint,
+            credential: object,
+            configured: frozenset[str],
+        ) -> ExternalKodiProbeResult:
+            return ExternalKodiProbeResult(
+                addresses=(endpoint.address,),
+                kodi_name="Kodi",
+                kodi_version="21.3",
+                protocol_version="13.0.0",
+                verified_capabilities=("target_inspect", "addon_inventory"),
+            )
+
+    targets = ExternalTargetAdministrationService(
+        factory,
+        endpoint_policy=ExternalEndpointPolicy(allowed_ports=(8080,)),
+        credential_store=ExternalCredentialStore(
+            tmp_path / "0053-downgrade-native-secrets",
+            master_key=None,
+            key_version=1,
+        ),
+        verifier=Verifier(),  # type: ignore[arg-type]
+        target_type=TargetType.EXTERNAL_PRODUCTION,
+    )
+    target = targets.register(
+        logical_name="Amended production target",
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host="192.168.50.91",
+        port=8080,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"target_inspect", "addon_inventory"},
+    )
+    observed = targets.probe(target.target_id)
+    assert observed.pending_observation_id is not None
+    targets.confirm(target.target_id, observed.pending_observation_id)
+    targets.confirm_production_designation(
+        target.target_id, observed.pending_observation_id
+    )
+    enabled = targets.set_enabled(target.target_id, enabled=True)
+    assert enabled.production_policy is not None
+    amendments = ProductionCapabilityAmendmentService(
+        factory,
+        bridge_secrets=ExternalBridgeSecretStore(
+            tmp_path / "0053-downgrade-bridge-secrets",
+            master_key=b"b" * 32,
+            key_version=1,
+        ),
+    )
+    amendments.amend_production_capability_maximum(
+        target.target_id,
+        operation="add",
+        capability="screenshot",
+        expected_configured_capabilities=frozenset(
+            {"target_inspect", "addon_inventory"}
+        ),
+        expected_policy_revision=enabled.production_policy.policy_revision,
+    )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
+        command.downgrade(config, "0052_production_policy_revision_binding")
