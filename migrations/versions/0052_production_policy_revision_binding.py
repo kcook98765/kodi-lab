@@ -38,6 +38,13 @@ _NATIVE_MATERIAL = _MATERIAL.replace(
 
 def _create_revision_guards() -> None:
     op.execute(
+        "CREATE TRIGGER trg_external_production_policy_reinsert_guard BEFORE INSERT "
+        "ON external_production_policies WHEN EXISTS(SELECT 1 FROM "
+        "external_production_policy_revision_guards WHERE target_id=NEW.target_id) "
+        "BEGIN SELECT RAISE(ABORT, "
+        "'production_policy_revision_not_monotonic'); END"
+    )
+    op.execute(
         "CREATE TRIGGER trg_external_production_policy_revision_monotonic "
         "BEFORE UPDATE OF policy_revision ON external_production_policies WHEN "
         "NEW.policy_revision<OLD.policy_revision BEGIN SELECT RAISE(ABORT, "
@@ -69,6 +76,13 @@ def _create_revision_guards() -> None:
         "NEW.policy_revision WHERE target_id=NEW.target_id; END"
     )
     op.execute(
+        "CREATE TRIGGER trg_external_production_policy_guard_reinsert BEFORE INSERT "
+        "ON external_production_policy_revision_guards WHEN EXISTS(SELECT 1 FROM "
+        "external_production_policy_revision_guards WHERE target_id=NEW.target_id) "
+        "BEGIN SELECT RAISE(ABORT, "
+        "'production_policy_revision_not_monotonic'); END"
+    )
+    op.execute(
         "CREATE TRIGGER trg_external_production_policy_guard_immutable BEFORE UPDATE "
         "ON external_production_policy_revision_guards WHEN NEW.target_id<>"
         "OLD.target_id OR NEW.maximum_policy_revision<=OLD.maximum_policy_revision "
@@ -85,6 +99,13 @@ def _create_revision_guards() -> None:
         "targets WHERE id=NEW.target_id),'')='external_production') <> "
         "(NEW.production_policy_revision IS NOT NULL) BEGIN SELECT RAISE(ABORT, "
         "'production_policy_revision_required'); END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_external_production_revision_binding_reinsert BEFORE "
+        "INSERT ON external_kodi_targets WHEN EXISTS(SELECT 1 FROM "
+        "external_production_policy_revision_guards WHERE target_id=NEW.target_id) "
+        "BEGIN SELECT RAISE(ABORT, "
+        "'production_policy_revision_not_monotonic'); END"
     )
     op.execute(
         "CREATE TRIGGER trg_external_production_revision_binding_material BEFORE "
@@ -146,9 +167,21 @@ def upgrade() -> None:
         "trg_external_production_policy_revision_monotonic",
         "trg_external_production_administrative_revision",
         "trg_external_production_native_material_revision",
+        "trg_production_target_preset_revision_delete",
     ):
         op.execute(f"DROP TRIGGER {trigger}")
     _create_revision_guards()
+    op.execute(
+        "CREATE TRIGGER trg_production_target_preset_revision_delete AFTER DELETE ON "
+        "mcp_target_preset_assignments WHEN COALESCE((SELECT target_type FROM targets "
+        "WHERE id=OLD.target_id),'')='external_production' AND NOT "
+        "(COALESCE((SELECT administrative_state FROM external_kodi_targets WHERE "
+        "target_id=OLD.target_id),'')='deactivated' AND COALESCE((SELECT "
+        "designation_state FROM external_production_policies WHERE "
+        "target_id=OLD.target_id),'')='deactivated') BEGIN UPDATE "
+        "external_production_policies SET policy_revision=policy_revision+1 WHERE "
+        "target_id=OLD.target_id; END"
+    )
 
 
 def downgrade() -> None:
@@ -165,15 +198,19 @@ def downgrade() -> None:
     for trigger in (
         "trg_external_production_revision_binding_immutable",
         "trg_external_production_revision_binding_material",
+        "trg_external_production_revision_binding_reinsert",
         "trg_external_production_revision_binding_insert",
         "trg_external_production_policy_guard_no_delete",
         "trg_external_production_policy_guard_immutable",
+        "trg_external_production_policy_guard_reinsert",
         "trg_external_production_policy_guard_advance",
         "trg_external_production_policy_guard_insert",
+        "trg_external_production_policy_reinsert_guard",
         "trg_external_production_policy_material_revision",
         "trg_external_production_policy_revision_monotonic",
     ):
         op.execute(f"DROP TRIGGER {trigger}")
+    op.execute("DROP TRIGGER trg_production_target_preset_revision_delete")
     op.drop_table("external_production_policy_revision_guards")
     op.drop_column("external_kodi_targets", "production_policy_revision")
     op.execute(
@@ -207,4 +244,11 @@ def downgrade() -> None:
         f"({_NATIVE_MATERIAL}) "
         "BEGIN UPDATE external_production_policies SET policy_revision="
         "policy_revision+1 WHERE target_id=NEW.target_id; END"
+    )
+    op.execute(
+        "CREATE TRIGGER trg_production_target_preset_revision_delete AFTER DELETE ON "
+        "mcp_target_preset_assignments WHEN COALESCE((SELECT target_type FROM targets "
+        "WHERE id=OLD.target_id),'')='external_production' BEGIN UPDATE "
+        "external_production_policies SET policy_revision=policy_revision+1 WHERE "
+        "target_id=OLD.target_id; END"
     )

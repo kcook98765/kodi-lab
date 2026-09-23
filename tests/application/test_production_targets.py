@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm.exc import StaleDataError
 
+import kodi_lab.application.external_targets as external_targets_module
 from kodi_lab.application.external_targets import (
     ExternalTargetAdministrationService,
     ExternalTargetError,
     ExternalTargetRead,
 )
+from kodi_lab.application.mcp_administration import (
+    PRODUCTION_REMOTE_KODI_PRESET_ID,
+    McpAdministrationService,
+)
+from kodi_lab.application.production_policy import advance_production_policy
 from kodi_lab.domain import (
     ExternalAuthenticationMode,
     ExternalProtocolKind,
@@ -27,6 +37,7 @@ from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     ExternalKodiTargetEventRow,
     ExternalProductionPolicyRow,
+    McpTargetPresetAssignmentRow,
     ProductionMutationControlRow,
 )
 from kodi_lab.storage.secrets import ExternalCredentialStore, ExternalKodiCredential
@@ -301,6 +312,75 @@ def test_global_epoch_and_per_target_suspension_are_deny_only(
     )
     assert suspended.production_policy is not None
     assert suspended.production_policy.mutations_suspended is True
+
+
+def test_deactivation_and_preset_cleanup_advance_one_revision(
+    production_service: ProductionServiceFixture,
+) -> None:
+    service, _development, factory, _verifier = production_service
+    created = _register(service)
+    administration = McpAdministrationService(factory)
+    administration.assign_target_preset(
+        created.target_id, PRODUCTION_REMOTE_KODI_PRESET_ID
+    )
+    assigned = service.get(created.target_id)
+    assert assigned.production_policy is not None
+    before = assigned.production_policy.policy_revision
+
+    deactivated = service.deactivate(created.target_id)
+
+    assert deactivated.production_policy is not None
+    assert deactivated.production_policy.policy_revision == before + 1
+    with factory() as session:
+        assert session.get(McpTargetPresetAssignmentRow, str(created.target_id)) is None
+
+
+def test_concurrent_policy_updates_have_one_revision_winner(
+    production_service: ProductionServiceFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _development, factory, _verifier = production_service
+    created = _register(service)
+    fixed_now = datetime(2026, 9, 22, 20, tzinfo=UTC)
+    monkeypatch.setattr(service, "_clock", lambda: fixed_now)
+    barrier = Barrier(2)
+    advance = advance_production_policy
+
+    def synchronized_advance(
+        policy: ExternalProductionPolicyRow, *, now: datetime
+    ) -> None:
+        barrier.wait(timeout=5)
+        advance(policy, now=now)
+
+    monkeypatch.setattr(
+        external_targets_module,
+        "advance_production_policy",
+        synchronized_advance,
+    )
+
+    def resume() -> str:
+        try:
+            service.set_target_mutation_suspension(created.target_id, suspended=False)
+        except StaleDataError:
+            return "stale"
+        return "committed"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _index: resume(), range(2)))
+
+    assert sorted(outcomes) == ["committed", "stale"]
+    current = service.get(created.target_id)
+    assert current.production_policy is not None
+    assert current.production_policy.policy_revision == 2
+    assert current.production_policy.mutations_suspended is False
+    with factory() as session:
+        events = session.scalars(
+            select(ExternalKodiTargetEventRow).where(
+                ExternalKodiTargetEventRow.target_id == str(created.target_id),
+                ExternalKodiTargetEventRow.event_kind == "production_mutations_resumed",
+            )
+        ).all()
+    assert len(events) == 1
 
 
 def test_policy_is_mandatory_and_events_are_content_free(

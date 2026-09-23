@@ -6467,6 +6467,116 @@ def test_0052_direct_state_guards_reject_revision_bypass_and_recreation(
                 ),
                 values,
             )
+        with pytest.raises(
+            IntegrityError, match="production_policy_revision_not_monotonic"
+        ):
+            connection.execute(
+                text(
+                    "INSERT OR REPLACE INTO external_kodi_targets (target_id,"
+                    "protocol_kind,host,port,authentication_mode,secret_reference,"
+                    "configured_capabilities_json,verified_capabilities_json,"
+                    "administrative_state,verification_state,observation_state,"
+                    "verified_addresses_json,verified_kodi_name,verified_kodi_version,"
+                    "observed_kodi_name,observed_kodi_version,"
+                    "observed_protocol_version,pending_observation_id,"
+                    "production_policy_revision,created_at,verified_at,deactivated_at,"
+                    "last_observed_at) SELECT target_id,"
+                    "protocol_kind,host,port,authentication_mode,secret_reference,"
+                    "configured_capabilities_json,verified_capabilities_json,"
+                    "administrative_state,verification_state,observation_state,"
+                    "verified_addresses_json,verified_kodi_name,verified_kodi_version,"
+                    "observed_kodi_name,observed_kodi_version,"
+                    "observed_protocol_version,pending_observation_id,2,created_at,"
+                    "verified_at,deactivated_at,last_observed_at FROM "
+                    "external_kodi_targets WHERE target_id=:target"
+                ),
+                values,
+            )
+        with pytest.raises(
+            IntegrityError, match="production_policy_revision_not_monotonic"
+        ):
+            connection.execute(
+                text(
+                    "INSERT OR REPLACE INTO external_production_policies SELECT "
+                    "target_id,designation_state,confirmed_observation_id,"
+                    "confirmed_observation_digest,identity_generation,2,"
+                    "mutations_suspended,designation_confirmed_by,"
+                    "designation_confirmed_at,designation_invalidated_at,created_at,"
+                    "updated_at FROM external_production_policies WHERE "
+                    "target_id=:target"
+                ),
+                values,
+            )
+        with pytest.raises(
+            IntegrityError, match="production_policy_revision_not_monotonic"
+        ):
+            connection.execute(
+                text(
+                    "INSERT OR REPLACE INTO "
+                    "external_production_policy_revision_guards "
+                    "(target_id,maximum_policy_revision) VALUES (:target,2)"
+                ),
+                values,
+            )
+        assert connection.execute(
+            text(
+                "SELECT p.policy_revision,g.maximum_policy_revision FROM "
+                "external_production_policies p JOIN "
+                "external_production_policy_revision_guards g "
+                "ON g.target_id=p.target_id WHERE p.target_id=:target"
+            ),
+            values,
+        ).one() == (3, 3)
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text("DELETE FROM targets WHERE id=:target"),
+                values,
+            )
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT OR REPLACE INTO targets SELECT id,name,target_type,"
+                    "kodi_version,availability,health,connection_state FROM targets "
+                    "WHERE id=:target"
+                ),
+                values,
+            )
+        with connection.begin_nested() as nested:
+            connection.execute(
+                text(
+                    "INSERT INTO mcp_target_preset_assignments "
+                    "(target_id,preset_id,assigned_at) VALUES "
+                    "(:target,'11000000-0000-4000-8000-000000000005',:at)"
+                ),
+                values,
+            )
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT policy_revision FROM external_production_policies "
+                        "WHERE target_id=:target"
+                    ),
+                    values,
+                )
+                == 4
+            )
+            connection.execute(
+                text(
+                    "DELETE FROM mcp_target_preset_assignments WHERE target_id=:target"
+                ),
+                values,
+            )
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT policy_revision FROM external_production_policies "
+                        "WHERE target_id=:target"
+                    ),
+                    values,
+                )
+                == 5
+            )
+            nested.rollback()
         with connection.begin_nested(), pytest.raises(IntegrityError):
             connection.execute(
                 text(

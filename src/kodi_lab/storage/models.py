@@ -1416,6 +1416,10 @@ class ExternalProductionPolicyRow(Base):
     confirmed_observation_digest: Mapped[str | None] = mapped_column(String(64))
     identity_generation: Mapped[int] = mapped_column(Integer, nullable=False)
     policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    __mapper_args__: dict[str, object] = {  # noqa: RUF012
+        "version_id_col": policy_revision,
+        "version_id_generator": False,
+    }
     mutations_suspended: Mapped[bool] = mapped_column(Boolean, nullable=False)
     designation_confirmed_by: Mapped[str | None] = mapped_column(String(64))
     designation_confirmed_at: Mapped[str | None] = mapped_column(String(27))
@@ -6524,6 +6528,11 @@ _SLICE4B_CREATE_ALL_TRIGGERS = (
     "external_production_policies WHEN EXISTS(SELECT 1 FROM "
     "production_operation_approvals WHERE target_id=OLD.target_id) BEGIN "
     "SELECT RAISE(ABORT, 'production_approval_authority_protected'); END",
+    "CREATE TRIGGER trg_external_production_policy_reinsert_guard BEFORE INSERT ON "
+    "external_production_policies WHEN EXISTS(SELECT 1 FROM "
+    "external_production_policy_revision_guards WHERE target_id=NEW.target_id) "
+    "BEGIN SELECT RAISE(ABORT, "
+    "'production_policy_revision_not_monotonic'); END",
     "CREATE TRIGGER trg_external_production_policy_revision_monotonic BEFORE UPDATE "
     "OF policy_revision ON external_production_policies WHEN "
     "NEW.policy_revision<OLD.policy_revision BEGIN SELECT RAISE(ABORT, "
@@ -6546,6 +6555,11 @@ _SLICE4B_CREATE_ALL_TRIGGERS = (
     "NEW.policy_revision>OLD.policy_revision BEGIN UPDATE "
     "external_production_policy_revision_guards SET maximum_policy_revision="
     "NEW.policy_revision WHERE target_id=NEW.target_id; END",
+    "CREATE TRIGGER trg_external_production_policy_guard_reinsert BEFORE INSERT ON "
+    "external_production_policy_revision_guards WHEN EXISTS(SELECT 1 FROM "
+    "external_production_policy_revision_guards WHERE target_id=NEW.target_id) "
+    "BEGIN SELECT RAISE(ABORT, "
+    "'production_policy_revision_not_monotonic'); END",
     "CREATE TRIGGER trg_external_production_policy_guard_immutable BEFORE UPDATE ON "
     "external_production_policy_revision_guards WHEN NEW.target_id<>OLD.target_id OR "
     "NEW.maximum_policy_revision<=OLD.maximum_policy_revision BEGIN SELECT "
@@ -6558,6 +6572,11 @@ _SLICE4B_CREATE_ALL_TRIGGERS = (
     "id=NEW.target_id),'')='external_production') <> "
     "(NEW.production_policy_revision IS NOT NULL) BEGIN SELECT RAISE(ABORT, "
     "'production_policy_revision_required'); END",
+    "CREATE TRIGGER trg_external_production_revision_binding_reinsert BEFORE INSERT "
+    "ON external_kodi_targets WHEN EXISTS(SELECT 1 FROM "
+    "external_production_policy_revision_guards WHERE target_id=NEW.target_id) "
+    "BEGIN SELECT RAISE(ABORT, "
+    "'production_policy_revision_not_monotonic'); END",
     f"CREATE TRIGGER trg_external_production_revision_binding_material BEFORE UPDATE "
     f"ON external_kodi_targets WHEN COALESCE((SELECT target_type FROM targets WHERE "
     f"id=NEW.target_id),'')='external_production' AND "
@@ -6585,7 +6604,11 @@ _SLICE4B_CREATE_ALL_TRIGGERS = (
     "policy_revision=policy_revision+1 WHERE target_id=NEW.target_id; END",
     "CREATE TRIGGER trg_production_target_preset_revision_delete AFTER DELETE ON "
     "mcp_target_preset_assignments WHEN COALESCE((SELECT target_type FROM targets "
-    "WHERE id=OLD.target_id),'')='external_production' BEGIN UPDATE "
+    "WHERE id=OLD.target_id),'')='external_production' AND NOT "
+    "(COALESCE((SELECT administrative_state FROM external_kodi_targets WHERE "
+    "target_id=OLD.target_id),'')='deactivated' AND COALESCE((SELECT "
+    "designation_state FROM external_production_policies WHERE "
+    "target_id=OLD.target_id),'')='deactivated') BEGIN UPDATE "
     "external_production_policies SET policy_revision=policy_revision+1 WHERE "
     "target_id=OLD.target_id; END",
 )

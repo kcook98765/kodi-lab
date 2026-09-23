@@ -4458,12 +4458,14 @@ approvals atomically with the governing revision transition.
   generation already advanced when credential or endpoint trust changed.
   Repeated successful observations each replace the pending observation and
   therefore each advance revision once. Failed probes that change no durable
-  trust/policy field do not advance it.
+  trust/policy field do not advance it. Deactivation and its preset-authority
+  cleanup are one coherent transition and therefore also advance only once.
 - Enforcement: migration `0052_production_policy_revision_binding` binds every
   material production native-row update to the already-advanced policy
   revision, requires policy material updates to advance by exactly one and
-  retains a non-deletable high-water mark so delete/reinsert cannot restore an
-  earlier revision. The database guards remain authoritative.
+  retains a non-deletable, non-replaceable high-water mark so native/policy
+  delete/reinsert and SQLite conflict replacement cannot restore an earlier
+  revision. The database guards remain authoritative.
 
 ## Phase 14 Slice 2 formal completion record
 

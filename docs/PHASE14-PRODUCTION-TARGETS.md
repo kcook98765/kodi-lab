@@ -243,7 +243,8 @@ successful-observation publication boundary. One coherent material production
 transition advances target `policy_revision` exactly once, and the native row
 binds that revision before publication. Database guards reject unbound native
 state, material designation changes without the exact increment, decrements,
-and delete/reinsert attempts that would restore an older revision. Successful
+and delete/reinsert or SQLite conflict-replacement attempts that would restore
+an older revision. Successful
 reverification does not advance the already-changed identity generation.
 
 ## Slice 3 reviewed bridge and visual inspection

@@ -2491,9 +2491,12 @@ revision one aggregate transition counter rather than a flush-order side
 effect. Application publication advances it once before binding the native
 row; direct native changes without that binding fail closed. Material policy
 updates require the exact next revision, while a permanent high-water row
-prevents deletion/recreation from restoring an earlier revision. Successful
+prevents deletion/recreation or SQLite conflict replacement from restoring an
+earlier revision. Successful
 reverification publishes the new pending observation and designation state in
-one transaction without advancing the identity generation again.
+one transaction without advancing the identity generation again. Application
+updates use the previously read policy revision as an optimistic write
+condition, so concurrent contenders cannot both claim the same next revision.
 
 The approval is the immutable pre-dispatch intent record, while the Phase 11
 receipt remains authoritative after consumption. Intent binds exact client,
