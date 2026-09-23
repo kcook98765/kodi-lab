@@ -200,3 +200,7 @@ Kodi Lab follows least authority: start with Production Inspection, add visual
 authority only for screenshots, and use Production Remote Kodi only when
 bounded control is deliberately intended. Production screenshot pixels are not
 durably retained by Kodi Lab, although a receiving MCP client may persist them.
+
+The separate [disposable Kodi 19 production-profile fixture](docs/PRODUCTION-PROFILE-FIXTURE.md)
+provides a local, no-LAN real-runtime target for later production-flow testing.
+It is not itself production and does not register or pair a target.

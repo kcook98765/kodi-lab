@@ -38,6 +38,7 @@ dev = [
 [project.scripts]
 kodi-lab-admin = "kodi_lab.admin_cli:main"
 kodi-lab-mcp-stdio = "kodi_lab.mcp.stdio_proxy:main"
+
 kodi-lab-web = "kodi_lab.web.run:main"
 
 [tool.hatch.build.targets.wheel]
