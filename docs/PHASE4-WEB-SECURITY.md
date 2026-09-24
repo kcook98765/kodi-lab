@@ -6,7 +6,9 @@ This executable supplement records the approved first Phase 4 slice.
 ## Exposure and rendering
 
 The product default is exactly `127.0.0.1:8100`; ephemeral live validation uses
-`127.0.0.1:8180`. Typed configuration rejects other hosts and ports. The app uses
+`127.0.0.1:8180`. The test-only production-profile fixture additionally permits
+`10.251.0.10:8180` only inside its isolated internal Docker network; it is not a
+host-published or LAN exposure. Typed configuration rejects other hosts and ports. The app uses
 FastAPI, autoescaped Jinja2 HTML, local CSS, and minimal vanilla JavaScript with
 two-second polling. Nginx, LAN, HTTPS, CORS, remote assets, WebSockets, and SSE are
 outside this milestone.
