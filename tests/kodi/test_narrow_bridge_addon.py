@@ -14,7 +14,7 @@ import zipfile
 import zlib
 from datetime import UTC, datetime
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
 
@@ -50,6 +50,16 @@ BRIDGE_1_1_8_SEMANTIC_FINGERPRINT = (
 BRIDGE_1_1_8_ZIP_SHA256 = (
     "20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762"
 )
+BRIDGE_1_1_9_SEMANTIC_FINGERPRINT = (
+    "05acf9f8dcee50727774d12a6b56cc8452faa4b5325045d4722cb8863f495824"
+)
+BRIDGE_1_1_9_ZIP_SHA256 = (
+    "7fcfcd8060fd6dc6ae3face5507583fabb68726145e2adaefab6568a4dff9156"
+)
+BRIDGE_1_1_9_SOURCE_SHA256 = (
+    "51f978bbaf1548546d5be7b521e4feb0ce21cf964c7ee1fc5d8f91dcbd3f97ed"
+)
+HISTORICAL_1_1_8_ZIP = Path(__file__).parents[1] / "fixtures/reviewed-bridge-1.1.8.zip"
 
 
 def _module(name: str, **values: object) -> ModuleType:
@@ -229,8 +239,10 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.8"
-    assert bridge["BUILD_FINGERPRINT"] == BRIDGE_1_1_8_SEMANTIC_FINGERPRINT
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.9"
+    assert bridge["BUILD_FINGERPRINT"] == BRIDGE_1_1_9_SEMANTIC_FINGERPRINT
+    assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_8_SEMANTIC_FINGERPRINT
+    assert hashlib.sha256(ADDON.read_bytes()).hexdigest() == BRIDGE_1_1_9_SOURCE_SHA256
     dependency = descriptor.find("./requires/import")
     assert dependency is not None and dependency.attrib == {
         "addon": "xbmc.python",
@@ -289,8 +301,9 @@ def test_1_1_7_historical_review_identity_is_preserved() -> None:
     )
 
 
-def test_1_1_8_runtime_source_diff_is_version_identity_only() -> None:
-    current = ADDON.read_bytes()
+def test_1_1_8_historical_runtime_source_is_preserved() -> None:
+    with zipfile.ZipFile(HISTORICAL_1_1_8_ZIP) as archive:
+        current = archive.read("service.kodi_lab_bridge/narrow_bridge.py")
     assert current.count(b"1.1.8") == 2
     normalized = current.replace(b"1.1.8", b"1.1.7")
     assert hashlib.sha256(normalized).hexdigest() == (
@@ -298,7 +311,7 @@ def test_1_1_8_runtime_source_diff_is_version_identity_only() -> None:
     )
 
 
-def test_deterministic_1_1_8_review_archive_matches_known_sha256(
+def test_deterministic_successor_review_archive(
     tmp_path: Path,
 ) -> None:
     first = tmp_path / "first.zip"
@@ -307,7 +320,7 @@ def test_deterministic_1_1_8_review_archive_matches_known_sha256(
     first_digest = build_archive(ADDON_ROOT, first)
     second_digest = build_archive(ADDON_ROOT, second)
     assert first.read_bytes() == second.read_bytes()
-    assert first_digest == second_digest == BRIDGE_1_1_8_ZIP_SHA256
+    assert first_digest == second_digest == BRIDGE_1_1_9_ZIP_SHA256
 
     expected = (
         "",
@@ -608,6 +621,226 @@ def test_addon_gui_capture_rejects_hardlink(
     assert outside.exists()
 
 
+def _metadata(actual: os.stat_result, **changes: int) -> SimpleNamespace:
+    values = {
+        key: getattr(actual, key)
+        for key in ("st_mode", "st_dev", "st_ino", "st_nlink", "st_size")
+    }
+    values.update(changes)
+    return SimpleNamespace(**values)
+
+
+def test_posix_screenshot_identity_replacement_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    root = Path(bridge["_screenshot_root"]())
+    candidate = root / ("capture-" + "e" * 32 + ".png")
+    candidate.write_bytes(_png())
+    proxy = _module("simulated_os")
+    proxy.__dict__.update(vars(os))
+    real_fstat = os.fstat
+    proxy.__dict__["fstat"] = lambda fd: _metadata(
+        real_fstat(fd), st_ino=real_fstat(fd).st_ino + 1
+    )
+    monkeypatch.setitem(bridge["_read_screenshot"].__globals__, "os", proxy)
+    with pytest.raises(bridge["ScreenshotError"]) as caught:
+        bridge["_read_screenshot"](str(candidate), str(root), "posix")
+    assert caught.value.reason == "identity_changed"
+
+
+@pytest.mark.parametrize(
+    ("links", "inode", "device", "native_info"),
+    [
+        (1, None, None, (0, 1)),
+        (0, None, None, None),
+        (1, 0, None, None),
+        (0, 0, 0, None),
+    ],
+)
+def test_windows_semantics_accept_open_handle_with_unavailable_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    links: int,
+    inode: int | None,
+    device: int | None,
+    native_info: tuple[int, int] | None,
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    root = Path(bridge["_screenshot_root"]())
+    candidate = root / ("capture-" + "f" * 32 + ".png")
+    candidate.write_bytes(_png())
+    proxy = _module("simulated_os")
+    proxy.__dict__.update(vars(os))
+    real_lstat, real_fstat = os.lstat, os.fstat
+
+    def simulate(actual: os.stat_result) -> SimpleNamespace:
+        return _metadata(
+            actual,
+            st_nlink=links,
+            st_ino=actual.st_ino if inode is None else inode,
+            st_dev=actual.st_dev if device is None else device,
+        )
+
+    proxy.__dict__["lstat"] = lambda path: simulate(real_lstat(path))
+    proxy.__dict__["fstat"] = lambda fd: simulate(real_fstat(fd))
+    monkeypatch.setitem(bridge["_read_screenshot"].__globals__, "os", proxy)
+    monkeypatch.setitem(
+        bridge["_read_screenshot"].__globals__,
+        "_windows_open_nofollow",
+        lambda path: os.open(path, os.O_RDONLY | os.O_NOFOLLOW),
+    )
+    monkeypatch.setitem(
+        bridge["_read_screenshot"].__globals__,
+        "_windows_handle_info",
+        lambda _fd: native_info,
+    )
+    assert (
+        validate_external_png(
+            bridge["_read_screenshot"](str(candidate), str(root), "nt")
+        ).width
+        == 4
+    )
+
+
+def test_windows_semantics_detects_candidate_replacement_when_identity_exists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    root = Path(bridge["_screenshot_root"]())
+    candidate = root / ("capture-" + "1" * 32 + ".png")
+    replacement = root / ("capture-" + "2" * 32 + ".png")
+    candidate.write_bytes(_png())
+    replacement.write_bytes(_png())
+    globals_ = bridge["_read_screenshot"].__globals__
+    monkeypatch.setitem(
+        globals_,
+        "_windows_open_nofollow",
+        lambda _path: os.open(replacement, os.O_RDONLY),
+    )
+    monkeypatch.setitem(globals_, "_windows_handle_info", lambda _fd: (0, 1))
+    with pytest.raises(bridge["ScreenshotError"]) as caught:
+        bridge["_read_screenshot"](str(candidate), str(root), "nt")
+    assert caught.value.reason == "identity_changed"
+
+
+def test_windows_semantics_rejects_reparse_and_known_hardlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    root = Path(bridge["_screenshot_root"]())
+    candidate = root / ("capture-" + "3" * 32 + ".png")
+    candidate.write_bytes(_png())
+    globals_ = bridge["_read_screenshot"].__globals__
+    monkeypatch.setitem(
+        globals_, "_windows_open_nofollow", lambda path: os.open(path, os.O_RDONLY)
+    )
+    for info, reason in (
+        ((0x400, 1), "candidate_reparse"),
+        ((0, 2), "candidate_hardlink"),
+    ):
+        monkeypatch.setitem(
+            globals_, "_windows_handle_info", lambda _fd, result=info: result
+        )
+        with pytest.raises(bridge["ScreenshotError"]) as caught:
+            bridge["_read_screenshot"](str(candidate), str(root), "nt")
+        assert caught.value.reason == reason
+
+
+def test_screenshot_short_read_has_bounded_internal_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    root = Path(bridge["_screenshot_root"]())
+    candidate = root / ("capture-" + "4" * 32 + ".png")
+    candidate.write_bytes(_png())
+    proxy = _module("simulated_os")
+    proxy.__dict__.update(vars(os))
+    proxy.__dict__["read"] = lambda _fd, _size: b""
+    monkeypatch.setitem(bridge["_read_screenshot"].__globals__, "os", proxy)
+    with pytest.raises(bridge["ScreenshotError"]) as caught:
+        bridge["_read_screenshot"](str(candidate), str(root), "posix")
+    assert (caught.value.code, caught.value.reason) == (
+        "screenshot_invalid",
+        "short_read",
+    )
+
+
+def test_screenshot_preexisting_candidate_is_not_opened(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    root = Path(bridge["_screenshot_root"]())
+    candidate = root / ("capture-" + "5" * 32 + ".png")
+    candidate.write_bytes(_png())
+    monkeypatch.setitem(
+        bridge["_capture_png"].__globals__,
+        "uuid",
+        SimpleNamespace(uuid4=lambda: SimpleNamespace(hex="5" * 32)),
+    )
+    with pytest.raises(bridge["ScreenshotError"]) as caught:
+        bridge["_capture_png"]()
+    assert (caught.value.code, caught.value.reason) == (
+        "screenshot_capture_failed",
+        "candidate_preexisting",
+    )
+    assert candidate.exists()
+
+
+def test_png_rejections_have_bounded_internal_reasons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load(monkeypatch)
+    valid = _png()
+    corrupted = valid[:-1] + bytes([valid[-1] ^ 1])
+    bad_ihdr = (
+        bridge["PNG_SIGNATURE"]
+        + bridge["_png_chunk"](b"IHDR", struct.pack(">IIBBBBB", 0, 3, 8, 6, 0, 0, 0))
+        + bridge["_png_chunk"](b"IDAT", zlib.compress(b""))
+        + bridge["_png_chunk"](b"IEND", b"")
+    )
+    bad_encoding = (
+        bridge["PNG_SIGNATURE"]
+        + bridge["_png_chunk"](b"IHDR", struct.pack(">IIBBBBB", 4, 3, 8, 1, 0, 0, 0))
+        + bridge["_png_chunk"](b"IDAT", zlib.compress(b""))
+        + bridge["_png_chunk"](b"IEND", b"")
+    )
+
+    def with_image_data(compressed: bytes) -> bytes:
+        return cast(
+            bytes,
+            (
+                bridge["PNG_SIGNATURE"]
+                + bridge["_png_chunk"](
+                    b"IHDR", struct.pack(">IIBBBBB", 4, 3, 8, 6, 0, 0, 0)
+                )
+                + bridge["_png_chunk"](b"IDAT", compressed)
+                + bridge["_png_chunk"](b"IEND", b"")
+            ),
+        )
+
+    bad_zlib = with_image_data(b"not zlib")
+    bad_filter = with_image_data(
+        zlib.compress(b"\x05" + b"\x00" * 16 + (b"\x00" + b"\x00" * 16) * 2)
+    )
+    for payload, reason in (
+        (b"not a PNG", "png_signature"),
+        (valid[:-2], "png_chunk"),
+        (corrupted, "png_crc"),
+        (bad_ihdr, "png_ihdr"),
+        (bad_encoding, "png_encoding"),
+        (bad_zlib, "png_zlib"),
+        (bad_filter, "png_filter"),
+    ):
+        with pytest.raises(bridge["ScreenshotError"]) as caught:
+            bridge["_normalize_png"](payload)
+        assert (caught.value.code, caught.value.reason) == (
+            "screenshot_invalid",
+            reason,
+        )
+    assert validate_external_png(bridge["_normalize_png"](valid)).width == 4
+
+
 def test_screenshot_replay_identity_cannot_be_evicted_by_bridge_traffic(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -717,8 +950,11 @@ def test_addon_gui_capture_reports_cleanup_failure_without_returning_pixels(
         real_unlink(path)
 
     monkeypatch.setattr(os, "unlink", fail_capture_unlink)
-    with pytest.raises(bridge["ScreenshotError"], match="screenshot_cleanup_failed"):
+    with pytest.raises(
+        bridge["ScreenshotError"], match="screenshot_cleanup_failed"
+    ) as caught:
         bridge["_capture_png"]()
+    assert caught.value.reason == "cleanup_failed"
 
 
 def test_addon_source_has_no_legacy_broad_authority() -> None:

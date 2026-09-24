@@ -30,8 +30,14 @@ readback and validation, and deletes the file before responding. Short-TTL
 crash cleanup scans only that directory and strict bridge capture names. No
 request can provide a path or use the bridge as a file reader, and image bytes,
 native paths and GUI content are never written to Lab audit or logs. Kodi 22
-ignores the older `sync` option, so the bridge bounds completion by retrying
-only its exact generated file until a complete valid PNG appears.
+ignores the older `sync` option, so the bridge retries only its exact generated
+file for at most two seconds. Each read attempt opens the candidate once with
+platform-specific no-follow behavior, then checks and reads through that handle. On Windows,
+unavailable file identity metadata is compensated by the private Kodi temp
+namespace, random absent-before-capture name, handle checks, complete bounded
+read, PNG validation, and cleanup. Kodi's temp directory must exclude other
+local users; a shared writable portable installation does not meet that
+assumption.
 
 The bridge stages and verifies the complete tree, preserves add-on enablement,
 retains one immediate rollback copy, replaces the directory, and verifies the

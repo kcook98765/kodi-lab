@@ -50,6 +50,11 @@ HTTPS when pixels may be sensitive.
 
 ## Release identity note
 
+The local 1.1.9 successor changes screenshot file assurance; see the
+[cross-platform assurance model](BRIDGE-SCREENSHOT-ASSURANCE.md). Historical
+1.1.8 fixture trust remains pinned to its exact reviewed bytes. The successor
+is a local candidate and is not registered, installed, or published.
+
 The deterministic ZIP builder includes the packaged README and `addon.xml`.
 Bridge 1.1.7's packaged wording says external-development-only/never production.
 Changing that wording changes the ZIP SHA-256 even though it does not by itself

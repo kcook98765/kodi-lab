@@ -16,7 +16,6 @@ import uuid
 import xml.etree.ElementTree as ET
 import zlib
 from collections import OrderedDict
-from contextlib import suppress
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -27,10 +26,10 @@ import xbmcvfs
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.8"
+ADDON_VERSION = "1.1.9"
 CAPABILITIES = ["screenshot", "workspace_deployment"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.8|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
+    b"kodi-lab-narrow-bridge|1.1.9|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ADDON_ROOT = "special://home/addons"
@@ -82,8 +81,9 @@ class AuthenticationError(Exception):
 
 
 class ScreenshotError(Exception):
-    def __init__(self, code):
+    def __init__(self, code, reason=None):
         self.code = code
+        self.reason = reason
         super().__init__(code)
 
 
@@ -346,8 +346,28 @@ def _screenshot_root():
             != real_temporary
         ):
             raise ScreenshotError("screenshot_capture_failed")
-        with suppress(OSError):
-            os.chmod(root, 0o700)
+        if os.name == "posix":
+            nofollow = getattr(os, "O_NOFOLLOW", 0)
+            if not nofollow:
+                raise ScreenshotError("screenshot_capture_failed", "root_not_private")
+            descriptor = os.open(
+                root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow
+            )
+            try:
+                os.fchmod(descriptor, 0o700)
+                opened = os.fstat(descriptor)
+                if (
+                    not stat.S_ISDIR(opened.st_mode)
+                    or (metadata.st_dev, metadata.st_ino)
+                    != (opened.st_dev, opened.st_ino)
+                    or opened.st_uid != os.getuid()
+                    or opened.st_mode & 0o077
+                ):
+                    raise ScreenshotError(
+                        "screenshot_capture_failed", "root_not_private"
+                    )
+            finally:
+                os.close(descriptor)
     except ScreenshotError:
         raise
     except OSError as error:
@@ -398,10 +418,10 @@ def _paeth(left, above, upper_left):
 
 
 def _normalize_png(payload):
-    if not len(PNG_SIGNATURE) < len(payload) <= MAX_PNG or not payload.startswith(
-        PNG_SIGNATURE
-    ):
-        raise ScreenshotError("screenshot_invalid")
+    if len(payload) > MAX_PNG:
+        raise ScreenshotError("screenshot_too_large", "size_too_large")
+    if len(payload) <= len(PNG_SIGNATURE) or not payload.startswith(PNG_SIGNATURE):
+        raise ScreenshotError("screenshot_invalid", "png_signature")
     offset = len(PNG_SIGNATURE)
     header = None
     compressed = bytearray()
@@ -409,63 +429,66 @@ def _normalize_png(payload):
     seen_idat = False
     while offset < len(payload):
         if offset + 12 > len(payload):
-            raise ScreenshotError("screenshot_invalid")
+            raise ScreenshotError("screenshot_invalid", "png_chunk")
         length = struct.unpack(">I", payload[offset : offset + 4])[0]
         kind = payload[offset + 4 : offset + 8]
         end = offset + 12 + length
         if end > len(payload):
-            raise ScreenshotError("screenshot_invalid")
+            raise ScreenshotError("screenshot_invalid", "png_chunk")
         data = payload[offset + 8 : offset + 8 + length]
         checksum = struct.unpack(">I", payload[offset + 8 + length : end])[0]
         if binascii.crc32(kind + data) & 0xFFFFFFFF != checksum:
-            raise ScreenshotError("screenshot_invalid")
+            raise ScreenshotError("screenshot_invalid", "png_crc")
         if kind == b"IHDR" and header is None and offset == len(PNG_SIGNATURE):
             header = data
         elif kind == b"IDAT" and header is not None and not ended:
             seen_idat = True
             compressed.extend(data)
             if len(compressed) > MAX_PNG:
-                raise ScreenshotError("screenshot_too_large")
+                raise ScreenshotError("screenshot_too_large", "size_too_large")
         elif kind == b"IEND" and data == b"" and seen_idat:
             ended = True
             offset = end
             break
         elif kind[:1].isupper():
-            raise ScreenshotError("screenshot_invalid")
+            raise ScreenshotError("screenshot_invalid", "png_chunk")
         offset = end
     if not ended or offset != len(payload) or header is None or len(header) != 13:
-        raise ScreenshotError("screenshot_invalid")
+        raise ScreenshotError("screenshot_invalid", "png_chunk")
     width, height, depth, color, compression, filtering, interlace = struct.unpack(
         ">IIBBBBB", header
     )
     if (
         not 1 <= width <= MAX_SCREENSHOT_WIDTH
         or not 1 <= height <= MAX_SCREENSHOT_HEIGHT
-        or depth != 8
+    ):
+        raise ScreenshotError("screenshot_invalid", "png_ihdr")
+    if (
+        depth != 8
         or color not in (2, 6)
         or (compression, filtering, interlace) != (0, 0, 0)
     ):
-        raise ScreenshotError("screenshot_invalid")
+        raise ScreenshotError("screenshot_invalid", "png_encoding")
     channels = 3 if color == 2 else 4
     stride = width * channels
     expected = height * (stride + 1)
     if expected > MAX_SCREENSHOT_DECODED:
-        raise ScreenshotError("screenshot_too_large")
+        raise ScreenshotError("screenshot_too_large", "size_too_large")
     try:
         decompressor = zlib.decompressobj()
         decoded = decompressor.decompress(bytes(compressed), expected + 1)
         if len(decoded) > expected or decompressor.unconsumed_tail:
-            raise ScreenshotError("screenshot_too_large")
+            raise ScreenshotError("screenshot_too_large", "size_too_large")
         decoded += decompressor.flush(expected + 1 - len(decoded))
     except zlib.error as error:
-        raise ScreenshotError("screenshot_invalid") from error
+        raise ScreenshotError("screenshot_invalid", "png_zlib") from error
     if (
         len(decoded) != expected
         or not decompressor.eof
         or decompressor.unused_data
         or decompressor.unconsumed_tail
     ):
-        raise ScreenshotError("screenshot_invalid")
+        raise ScreenshotError("screenshot_invalid", "png_zlib")
     raw = bytearray()
     previous = bytearray(stride)
     source_offset = 0
@@ -490,7 +513,7 @@ def _normalize_png(payload):
             elif filter_kind == 4:
                 decoded_value = value + _paeth(left, above, upper_left)
             else:
-                raise ScreenshotError("screenshot_invalid")
+                raise ScreenshotError("screenshot_invalid", "png_filter")
             row[index] = decoded_value & 0xFF
         raw.append(0)
         if channels == 3:
@@ -507,34 +530,167 @@ def _normalize_png(payload):
     png.extend(_png_chunk(b"IEND", b""))
     result = bytes(png)
     if len(result) > MAX_PNG:
-        raise ScreenshotError("screenshot_too_large")
+        raise ScreenshotError("screenshot_too_large", "size_too_large")
     return result
 
 
-def _read_screenshot(path):
+def _windows_open_nofollow(path):
+    """Open the final Windows path component itself, never its reparse target."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create.restype = wintypes.HANDLE
+    handle = create(path, 0x80000000, 0x7, None, 3, 0x00200000, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
     try:
-        metadata = os.lstat(path)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or _unsafe_file(metadata)
-            or metadata.st_nlink != 1
-        ):
-            raise ScreenshotError("screenshot_invalid")
-        if metadata.st_size > MAX_PNG:
-            raise ScreenshotError("screenshot_too_large")
-        if metadata.st_size <= len(PNG_SIGNATURE):
-            raise ScreenshotError("screenshot_invalid")
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags)
+        return msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except Exception:
+        kernel.CloseHandle(wintypes.HANDLE(handle))
+        raise
+
+
+def _windows_handle_info(descriptor):
+    """Optional handle attributes/link count; some Windows volumes omit them."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    class FileInfo(ctypes.Structure):
+        _fields_ = [
+            ("attributes", wintypes.DWORD),
+            ("created", wintypes.FILETIME),
+            ("accessed", wintypes.FILETIME),
+            ("written", wintypes.FILETIME),
+            ("volume", wintypes.DWORD),
+            ("size_high", wintypes.DWORD),
+            ("size_low", wintypes.DWORD),
+            ("links", wintypes.DWORD),
+            ("index_high", wintypes.DWORD),
+            ("index_low", wintypes.DWORD),
+        ]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_info = kernel.GetFileInformationByHandle
+    get_info.argtypes = (wintypes.HANDLE, ctypes.POINTER(FileInfo))
+    get_info.restype = wintypes.BOOL
+    info = FileInfo()
+    if not get_info(
+        wintypes.HANDLE(msvcrt.get_osfhandle(descriptor)), ctypes.byref(info)
+    ):
+        return None
+    return info.attributes, info.links
+
+
+def _file_identity(metadata):
+    device = getattr(metadata, "st_dev", 0)
+    inode = getattr(metadata, "st_ino", 0)
+    return (device, inode) if device and inode else None
+
+
+class ScreenshotFileAssurance:
+    """Platform-specific opening and identity checks for one transient candidate."""
+
+    def __init__(self, platform=None):
+        self.platform = os.name if platform is None else platform
+
+    def open(self, path, before):
+        if self.platform == "nt":
+            return _windows_open_nofollow(path)
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        if not nofollow:
+            raise ScreenshotError("screenshot_invalid", "identity_unavailable")
+        return os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | nofollow)
+
+    def check(self, before, opened, descriptor):
+        if not stat.S_ISREG(opened.st_mode):
+            raise ScreenshotError("screenshot_invalid", "candidate_not_regular")
+        if self.platform == "nt":
+            info = _windows_handle_info(descriptor)
+            reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            if _unsafe_file(opened) or (info and info[0] & reparse):
+                raise ScreenshotError("screenshot_invalid", "candidate_reparse")
+            if any(
+                count > 1
+                for count in (before.st_nlink, opened.st_nlink, info[1] if info else 0)
+            ):
+                raise ScreenshotError("screenshot_invalid", "candidate_hardlink")
+            # Windows can report zero for path or handle identity. The no-follow
+            # handle plus private random candidate remains the fallback assurance.
+            prior, current = _file_identity(before), _file_identity(opened)
+            if prior and current and prior != current:
+                raise ScreenshotError("screenshot_invalid", "identity_changed")
+        else:
+            if before.st_nlink != 1 or opened.st_nlink != 1:
+                raise ScreenshotError("screenshot_invalid", "candidate_hardlink")
+            prior, current = _file_identity(before), _file_identity(opened)
+            if not prior or not current:
+                raise ScreenshotError("screenshot_invalid", "identity_unavailable")
+            if prior != current:
+                raise ScreenshotError("screenshot_invalid", "identity_changed")
+
+    def check_after(self, path, opened, after):
+        if after.st_size != opened.st_size:
+            raise ScreenshotError("screenshot_invalid", "size_changed")
+        if self.platform != "nt" and after.st_nlink != 1:
+            raise ScreenshotError("screenshot_invalid", "candidate_hardlink")
+        if self.platform != "nt" and _file_identity(after) != _file_identity(opened):
+            raise ScreenshotError("screenshot_invalid", "identity_changed")
+        try:
+            current_path = os.lstat(path)
+        except FileNotFoundError:
+            raise ScreenshotError("screenshot_invalid", "identity_changed") from None
+        if _unsafe_file(current_path) or not stat.S_ISREG(current_path.st_mode):
+            raise ScreenshotError("screenshot_invalid", "candidate_reparse")
+        if self.platform != "nt" and current_path.st_nlink != 1:
+            raise ScreenshotError("screenshot_invalid", "candidate_hardlink")
+        current, held = _file_identity(current_path), _file_identity(opened)
+        if current and held and current != held:
+            raise ScreenshotError("screenshot_invalid", "identity_changed")
+
+
+def _read_screenshot(path, root=None, platform=None):
+    root = _screenshot_root() if root is None else root
+    candidate = os.path.abspath(path)
+    if (
+        os.path.normcase(os.path.dirname(candidate)) != os.path.normcase(root)
+        or re.fullmatch(r"capture-[0-9a-f]{32}\.png", os.path.basename(candidate))
+        is None
+    ):
+        raise ScreenshotError("screenshot_invalid", "candidate_path")
+    assurance = ScreenshotFileAssurance(platform)
+    try:
+        before = os.lstat(candidate)
+        if _unsafe_file(before):
+            raise ScreenshotError("screenshot_invalid", "candidate_reparse")
+        if not stat.S_ISREG(before.st_mode):
+            raise ScreenshotError("screenshot_invalid", "candidate_not_regular")
+        if before.st_size > MAX_PNG:
+            raise ScreenshotError("screenshot_too_large", "size_too_large")
+        if before.st_size <= len(PNG_SIGNATURE):
+            raise ScreenshotError("screenshot_invalid", "size_too_small")
+        descriptor = assurance.open(candidate, before)
         try:
             opened = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(opened.st_mode)
-                or opened.st_dev != metadata.st_dev
-                or opened.st_ino != metadata.st_ino
-                or opened.st_nlink != 1
-            ):
-                raise ScreenshotError("screenshot_invalid")
+            assurance.check(before, opened, descriptor)
+            if assurance.platform != "nt" and opened.st_size != before.st_size:
+                raise ScreenshotError("screenshot_invalid", "size_changed")
+            if opened.st_size > MAX_PNG:
+                raise ScreenshotError("screenshot_too_large", "size_too_large")
+            if opened.st_size <= len(PNG_SIGNATURE):
+                raise ScreenshotError("screenshot_invalid", "size_too_small")
             chunks = []
             remaining = MAX_PNG + 1
             while remaining:
@@ -543,17 +699,19 @@ def _read_screenshot(path):
                     break
                 chunks.append(chunk)
                 remaining -= len(chunk)
+            after = os.fstat(descriptor)
+            assurance.check_after(candidate, opened, after)
         finally:
             os.close(descriptor)
     except ScreenshotError:
         raise
     except OSError as error:
-        raise ScreenshotError("screenshot_capture_failed") from error
+        raise ScreenshotError("screenshot_capture_failed", "candidate_io") from error
     payload = b"".join(chunks)
     if len(payload) > MAX_PNG:
-        raise ScreenshotError("screenshot_too_large")
-    if len(payload) != metadata.st_size:
-        raise ScreenshotError("screenshot_invalid")
+        raise ScreenshotError("screenshot_too_large", "size_too_large")
+    if len(payload) != opened.st_size:
+        raise ScreenshotError("screenshot_invalid", "short_read")
     return _normalize_png(payload)
 
 
@@ -564,7 +722,7 @@ def _capture_png():
     native_path = os.path.join(root, filename)
     special_path = SCREENSHOT_ROOT + "/" + filename
     if os.path.lexists(native_path):
-        raise ScreenshotError("screenshot_capture_failed")
+        raise ScreenshotError("screenshot_capture_failed", "candidate_preexisting")
     cleanup_failed = False
     try:
         try:
@@ -576,7 +734,7 @@ def _capture_png():
         while time.monotonic() < deadline:
             if os.path.lexists(native_path):
                 try:
-                    return _read_screenshot(native_path)
+                    return _read_screenshot(native_path, root)
                 except ScreenshotError as error:
                     if error.code == "screenshot_too_large":
                         raise
@@ -590,7 +748,7 @@ def _capture_png():
         except OSError:
             cleanup_failed = True
         if cleanup_failed:
-            raise ScreenshotError("screenshot_cleanup_failed")
+            raise ScreenshotError("screenshot_cleanup_failed", "cleanup_failed")
 
 
 def _cache_get(request_id, request_hash):
@@ -1595,6 +1753,34 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 png = _capture_png()
             except ScreenshotError as error:
+                if error.reason in {
+                    "candidate_path",
+                    "candidate_not_regular",
+                    "candidate_reparse",
+                    "candidate_hardlink",
+                    "identity_unavailable",
+                    "identity_changed",
+                    "size_too_small",
+                    "size_too_large",
+                    "size_changed",
+                    "short_read",
+                    "candidate_io",
+                    "candidate_preexisting",
+                    "cleanup_failed",
+                    "png_signature",
+                    "png_chunk",
+                    "png_crc",
+                    "png_ihdr",
+                    "png_encoding",
+                    "png_zlib",
+                    "png_filter",
+                    "root_not_private",
+                }:
+                    xbmc.log(
+                        "[service.kodi_lab_bridge] screenshot rejected: "
+                        + error.reason,
+                        xbmc.LOGWARNING,
+                    )
                 self._screenshot_error_response(
                     request, request_hash, secret, error.code
                 )
