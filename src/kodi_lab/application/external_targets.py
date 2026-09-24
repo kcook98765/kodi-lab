@@ -517,6 +517,7 @@ class ExternalTargetAdministrationService:
                 observation is None
                 or observation.target_id != str(target_id)
                 or row.pending_observation_id != str(observation_id)
+                or row.verification_state is ExternalVerificationState.VERIFIED
                 or observation.outcome != ExternalObservationState.REACHABLE.value
                 or observation.error_code not in {None, "identity_mismatch"}
                 or observation.kodi_name is None

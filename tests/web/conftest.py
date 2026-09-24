@@ -13,6 +13,7 @@ import httpx
 import pytest
 from argon2 import PasswordHasher as Argon2PasswordHasher
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -313,6 +314,8 @@ class FakeExternalKodi:
     methods: list[str] = field(default_factory=list)
     mutations: int = 0
     on_identity: Callable[[], None] | None = None
+    kodi_major: int = 21
+    kodi_minor: int = 3
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/jsonrpc"
@@ -321,13 +324,19 @@ class FakeExternalKodi:
         self.methods.append(method)
         if method == "JSONRPC.Ping":
             result: object = "pong"
+        elif method == "JSONRPC.Version":
+            result = {"version": {"major": 13, "minor": 0, "patch": 0}}
         elif method == "Application.GetProperties":
             callback, self.on_identity = self.on_identity, None
             if callback is not None:
                 callback()
             result = {
                 "name": "Kodi",
-                "version": {"major": 21, "minor": 3, "tag": "stable"},
+                "version": {
+                    "major": self.kodi_major,
+                    "minor": self.kodi_minor,
+                    "tag": "stable",
+                },
             }
         elif method == "Addons.GetAddons":
             result = {
@@ -593,6 +602,9 @@ def client(
         settings=Settings(
             data_root=data_root,
             development_root=development_root,
+            external_target_master_key=SecretStr(
+                "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3c"
+            ),
         ),
         session_factory=database,
         broker=broker,
