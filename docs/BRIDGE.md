@@ -50,11 +50,11 @@ HTTPS when pixels may be sensitive.
 
 ## Release identity note
 
-The local 1.1.10 successor adds Windows child-directory ACL assurance; see the
+The local 1.1.11 successor tightens Windows child-directory ACL assurance; see the
 [cross-platform assurance model](BRIDGE-SCREENSHOT-ASSURANCE.md). Historical
 1.1.8 fixture trust remains pinned to its exact reviewed bytes. The audited
-1.1.9 candidate was never published, registered, or installed as a production
-build. New behavior uses a new 1.1.10 identity. The successor is a local
+1.1.9 and 1.1.10 candidates were never published, registered, or installed as
+production builds. New behavior uses a new 1.1.11 identity. The successor is a local
 candidate and is not registered, installed, or published.
 
 The deterministic ZIP builder includes the packaged README and `addon.xml`.

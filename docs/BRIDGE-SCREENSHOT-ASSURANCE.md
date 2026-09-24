@@ -1,4 +1,4 @@
-# Bridge transient screenshot assurance (1.1.10 candidate)
+# Bridge transient screenshot assurance (1.1.11 candidate)
 
 The prior 1.1.9 local candidate had ZIP SHA-256
 `7fcfcd8060fd6dc6ae3face5507583fabb68726145e2adaefab6568a4dff9156`,
@@ -10,7 +10,10 @@ It was independently audited but not published, registered, or installed as a
 production build. The ACL enforcement changes bridge bytes and the semantic
 behavior. Version 1.1.10 assigns a new version-bearing semantic fingerprint,
 source hash, and ZIP digest rather than reusing any 1.1.9 reviewed identity.
-The 1.1.10 candidate remains local and uninstalled.
+The 1.1.10 candidate remained local and uninstalled. Its independent audit
+found that existing roots with non-inheriting ACEs, or without a SYSTEM ACE,
+could pass verification. Version 1.1.11 advances the identity again to close
+those local DACL gaps.
 
 Local 1.1.10 candidate identity: ZIP SHA-256
 `e43327082373fe82f868dbad37239f1fad5ed6f54367a7ba786af738f4639d40`,
@@ -18,6 +21,14 @@ semantic fingerprint
 `d1ac487ac17334882b7a2b94c2b7a6d552ae5b826f948e335683315906fd9c6f`,
 and `narrow_bridge.py` SHA-256
 `c67b9bfc87544d1ab81837fa1dc457eaabaa93703da83ca70c88433d9a3a275f`.
+
+Local 1.1.11 candidate identity: ZIP SHA-256
+`4929f805bbc2e675609694f1273f3b6f8be48dc05359365a1d0d3b440914913d`,
+semantic fingerprint
+`392d6a355c979a3899b93331848ce82667148e5b8a77a0c85f29ee010212cd55`,
+and `narrow_bridge.py` SHA-256
+`f6718e6171c02f0ac3a43a08eed49925ecfd130583da9e11ee739cf56fbdf6e9`.
+This candidate is local and uninstalled.
 
 The bridge accepts no screenshot filename from the client. It generates a UUID
 name below `special://temp/kodi-lab-bridge`, confirms that name is absent, asks
@@ -73,9 +84,15 @@ Windows now creates `special://temp/kodi-lab-bridge` with a protected DACL
 containing full-access ACEs only for the current Kodi account and SYSTEM. The
 ACEs inherit to Kodi-created candidate files. The bridge then opens the child
 directory without following a reparse point and verifies its owner is the
-current account, its DACL is protected, its ACEs grant the account full access,
-and no other principal has an ACE. An existing child is verified, not silently
-repaired. An unknown owner, ACL, file type, or security API result fails closed.
+current account, its DACL is protected, and it contains exactly two full-access
+allow ACEs: one for the account and one for SYSTEM, each with object and container
+inheritance. `OBJECT_INHERIT_ACE` makes the access effective on screenshot files;
+`CONTAINER_INHERIT_ACE` carries it to child directories. An existing root with
+missing or weaker inheritance, missing SYSTEM access, or any other ACE is rejected
+without repair. If no inheritable ACE exists, Windows can instead use a creator
+token's default DACL for a new file. Local tests model the resulting effective
+child principals; native validation must inspect an actual Kodi-created file's
+DACL. An unknown owner, ACL, file type, or security API result fails closed.
 The parent Kodi temp ACL is not changed. A read/write sharing handle to the
 verified child is held without delete sharing throughout capture and readback,
 so another user with parent `DELETE_CHILD` rights cannot replace the child while
@@ -140,7 +157,7 @@ ACL-decision semantics. This repository has no Windows CI, Windows Kodi
 fixture, or native Windows unit-test runner. Native Windows Kodi 19–22
 validation of the ctypes wrappers, ACL creation and verification, zero-metadata
 fallback, delete-sharing guard, and reparse behavior remains required before
-promoting the 1.1.10 candidate to a reviewed production build. The
+promoting the 1.1.11 candidate to a reviewed production build. The
 previously successful Kodi 19.5 Linux production-profile screenshot is
 historical evidence for 1.1.8 only; this slice does not repeat it.
 
@@ -150,6 +167,8 @@ References: [Python `os.stat_result`](https://docs.python.org/3.12/library/os.ht
 [Microsoft `GetFileInformationByHandle`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle),
 [Microsoft `CreateDirectoryW`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createdirectoryw),
 [Microsoft `GetSecurityInfo`](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo),
+[Microsoft ACE inheritance rules](https://learn.microsoft.com/en-us/windows/win32/secauthz/ace-inheritance-rules),
+[Microsoft DACL for a new object](https://learn.microsoft.com/en-us/windows/win32/secauthz/dacl-for-a-new-object),
 [Microsoft security descriptor control](https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-control),
 [Microsoft `GetAce`](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-getace),
 [Kodi Python libraries](https://kodi.wiki/view/Python_libraries), and

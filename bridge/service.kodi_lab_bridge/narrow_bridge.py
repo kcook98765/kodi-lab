@@ -16,6 +16,7 @@ import uuid
 import xml.etree.ElementTree as ET
 import zlib
 from collections import OrderedDict
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -26,10 +27,10 @@ import xbmcvfs
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.10"
+ADDON_VERSION = "1.1.11"
 CAPABILITIES = ["screenshot", "workspace_deployment"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.10|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
+    b"kodi-lab-narrow-bridge|1.1.11|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ADDON_ROOT = "special://home/addons"
@@ -342,23 +343,65 @@ def _unsafe_file(metadata):
     return bool(reparse and getattr(metadata, "st_file_attributes", 0) & reparse)
 
 
+_WINDOWS_SYSTEM_SID = "S-1-5-18"
+_WINDOWS_PRIVATE_INHERITANCE = (("OI", 0x01), ("CI", 0x02))
+_WINDOWS_PRIVATE_ACCESS = ("FA", 0x1F01FF)
+
+
+def _windows_private_root_aces(account):
+    """Canonical effective root ACEs, inherited by files and directories."""
+    flags = sum(bit for _name, bit in _WINDOWS_PRIVATE_INHERITANCE)
+    access = _WINDOWS_PRIVATE_ACCESS[1]
+    return (
+        (0, flags, access, account),
+        (0, flags, access, _WINDOWS_SYSTEM_SID),
+    )
+
+
 def _private_windows_acl(owner, account, protected, entries):
-    """Accept only an account-owned, noninherited, closed directory DACL."""
-    if owner != account or not protected or not entries:
-        return False
-    account_access = False
-    for ace_type, flags, mask, sid in entries:
-        if ace_type != 0 or sid not in (account, "S-1-5-18"):
-            return False
-        if mask & 0x1F01FF != 0x1F01FF or flags & ~0x03:
-            return False
-        if sid == account:
-            account_access = True
-    return account_access
+    """Accept only the constructor's protected, inheritable directory DACL."""
+    expected = _windows_private_root_aces(account)
+    return (
+        owner == account
+        and protected
+        and len(entries) == len(expected)
+        and set(entries) == set(expected)
+    )
 
 
 def _windows_private_root_sddl(account):
-    return "D:P(A;OICI;FA;;;" + account + ")(A;OICI;FA;;;SY)"
+    flags = "".join(name for name, _bit in _WINDOWS_PRIVATE_INHERITANCE)
+    access = _WINDOWS_PRIVATE_ACCESS[0]
+    return "D:P" + "".join(
+        f"(A;{flags};{access};;;{'SY' if sid == _WINDOWS_SYSTEM_SID else sid})"
+        for _type, _flags, _access, sid in _windows_private_root_aces(account)
+    )
+
+
+@contextmanager
+def _windows_security_info(get_security, free, handle):
+    """Own GetSecurityInfo's output even if the API reports failure."""
+    import ctypes
+
+    owner = ctypes.c_void_p()
+    dacl = ctypes.c_void_p()
+    observed = ctypes.c_void_p()
+    try:
+        if get_security(
+            handle,
+            1,
+            5,
+            ctypes.byref(owner),
+            None,
+            ctypes.byref(dacl),
+            None,
+            ctypes.byref(observed),
+        ):
+            raise OSError
+        yield owner, dacl, observed
+    finally:
+        if observed.value:
+            free(observed)
 
 
 def _windows_private_root(path, create=True, hold=False):
@@ -540,21 +583,11 @@ def _windows_private_root(path, create=True, hold=False):
                 ),
                 wintypes.DWORD,
             )
-            owner = ctypes.c_void_p()
-            dacl = ctypes.c_void_p()
-            observed = ctypes.c_void_p()
-            if get_security(
-                handle,
-                1,
-                5,
-                ctypes.byref(owner),
-                None,
-                ctypes.byref(dacl),
-                None,
-                ctypes.byref(observed),
+            with _windows_security_info(get_security, free, handle) as (
+                owner,
+                dacl,
+                observed,
             ):
-                raise OSError
-            try:
                 control = wintypes.WORD()
                 revision = wintypes.DWORD()
                 get_control = api(
@@ -632,8 +665,6 @@ def _windows_private_root(path, create=True, hold=False):
                     raise ScreenshotError(
                         "screenshot_capture_failed", "root_not_private"
                     )
-            finally:
-                free(observed)
             if hold:
 
                 def release():

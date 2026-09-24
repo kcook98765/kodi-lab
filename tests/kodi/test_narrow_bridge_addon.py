@@ -4,6 +4,7 @@ import binascii
 import hashlib
 import json
 import os
+import re
 import runpy
 import struct
 import sys
@@ -50,14 +51,14 @@ BRIDGE_1_1_8_SEMANTIC_FINGERPRINT = (
 BRIDGE_1_1_8_ZIP_SHA256 = (
     "20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762"
 )
-BRIDGE_1_1_10_SEMANTIC_FINGERPRINT = (
-    "d1ac487ac17334882b7a2b94c2b7a6d552ae5b826f948e335683315906fd9c6f"
+BRIDGE_1_1_11_SEMANTIC_FINGERPRINT = (
+    "392d6a355c979a3899b93331848ce82667148e5b8a77a0c85f29ee010212cd55"
 )
-BRIDGE_1_1_10_ZIP_SHA256 = (
-    "e43327082373fe82f868dbad37239f1fad5ed6f54367a7ba786af738f4639d40"
+BRIDGE_1_1_11_ZIP_SHA256 = (
+    "4929f805bbc2e675609694f1273f3b6f8be48dc05359365a1d0d3b440914913d"
 )
-BRIDGE_1_1_10_SOURCE_SHA256 = (
-    "c67b9bfc87544d1ab81837fa1dc457eaabaa93703da83ca70c88433d9a3a275f"
+BRIDGE_1_1_11_SOURCE_SHA256 = (
+    "f6718e6171c02f0ac3a43a08eed49925ecfd130583da9e11ee739cf56fbdf6e9"
 )
 HISTORICAL_1_1_8_ZIP = Path(__file__).parents[1] / "fixtures/reviewed-bridge-1.1.8.zip"
 
@@ -239,10 +240,10 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.10"
-    assert bridge["BUILD_FINGERPRINT"] == BRIDGE_1_1_10_SEMANTIC_FINGERPRINT
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.11"
+    assert bridge["BUILD_FINGERPRINT"] == BRIDGE_1_1_11_SEMANTIC_FINGERPRINT
     assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_8_SEMANTIC_FINGERPRINT
-    assert hashlib.sha256(ADDON.read_bytes()).hexdigest() == BRIDGE_1_1_10_SOURCE_SHA256
+    assert hashlib.sha256(ADDON.read_bytes()).hexdigest() == BRIDGE_1_1_11_SOURCE_SHA256
     dependency = descriptor.find("./requires/import")
     assert dependency is not None and dependency.attrib == {
         "addon": "xbmc.python",
@@ -320,7 +321,7 @@ def test_deterministic_successor_review_archive(
     first_digest = build_archive(ADDON_ROOT, first)
     second_digest = build_archive(ADDON_ROOT, second)
     assert first.read_bytes() == second.read_bytes()
-    assert first_digest == second_digest == BRIDGE_1_1_10_ZIP_SHA256
+    assert first_digest == second_digest == BRIDGE_1_1_11_ZIP_SHA256
 
     expected = (
         "",
@@ -726,6 +727,20 @@ def test_windows_semantics_accept_open_handle_with_unavailable_metadata(
     assert all("HOSTILE_" not in message for message in messages)
 
 
+def _modeled_inherited_windows_acl(sddl: str, *, directory: bool) -> dict[str, int]:
+    """Apply OI/CI inheritance, with a permissive possible token default DACL."""
+    assert sddl.startswith("D:P")
+    aces = re.findall(r"\(([^)]*)\)", sddl)
+    assert len(aces) == 2
+    inherited: dict[str, int] = {}
+    for ace in aces:
+        kind, flags, access, object_guid, inherited_guid, sid = ace.split(";")
+        assert (kind, access, object_guid, inherited_guid) == ("A", "FA", "", "")
+        if ("CI" if directory else "OI") in flags:
+            inherited["S-1-5-18" if sid == "SY" else sid] = 0x1F01FF
+    return inherited or {"S-1-1-0": 0x1F01FF}
+
+
 def test_windows_private_directory_acl_contract(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -734,19 +749,88 @@ def test_windows_private_directory_acl_contract(
     full = 0x1F01FF
     private = [(0, 3, full, account), (0, 3, full, "S-1-5-18")]
     check = bridge["_private_windows_acl"]
+    assert bridge["_windows_private_root_aces"](account) == tuple(private)
     assert check(account, account, True, private)
+    assert check(account, account, True, list(reversed(private)))
     assert not check("S-1-5-21-999", account, True, private)
     assert not check(account, account, False, private)
     assert not check(account, account, True, [*private, (0, 3, full, "S-1-1-0")])
     assert not check(account, account, True, [*private, (0, 3, full, "S-1-5-32-545")])
-    assert not check(account, account, True, [(0, 3, 0x1, account)])
-    assert not check(account, account, True, [(0, 8, full, account)])
-    assert not check(account, account, True, [(1, 3, full, account)])
+    assert not check(account, account, True, [(0, 3, 0x1, account), private[1]])
+    assert not check(account, account, True, [(0, 3, full, account)])
+    assert not check(account, account, True, [private[0], (0, 3, 0x1, "S-1-5-18")])
+    for flags in (0, 1, 2):
+        assert not check(
+            account, account, True, [(0, flags, full, account), private[1]]
+        )
+        assert not check(
+            account, account, True, [private[0], (0, flags, full, "S-1-5-18")]
+        )
+    assert not check(account, account, True, [(0, 8, full, account), private[1]])
+    assert not check(account, account, True, [(1, 3, full, account), private[1]])
     sddl = bridge["_windows_private_root_sddl"](account)
     assert sddl == f"D:P(A;OICI;FA;;;{account})(A;OICI;FA;;;SY)"
+    assert _modeled_inherited_windows_acl(sddl, directory=False) == {
+        account: full,
+        "S-1-5-18": full,
+    }
+    assert _modeled_inherited_windows_acl(sddl, directory=True) == {
+        account: full,
+        "S-1-5-18": full,
+    }
+    assert account not in _modeled_inherited_windows_acl(
+        f"D:P(A;CI;FA;;;{account})(A;OICI;FA;;;SY)", directory=False
+    )
+    assert _modeled_inherited_windows_acl(
+        f"D:P(A;;FA;;;{account})(A;;FA;;;SY)", directory=False
+    ) == {"S-1-1-0": full}
     assert ";;;BA" not in sddl
     assert ";;;WD" not in sddl
     assert ";;;BU" not in sddl
+
+
+@pytest.mark.parametrize("status", [0, 5])
+def test_windows_security_descriptor_freed_after_query(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, status: int
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    import ctypes
+
+    freed: list[int] = []
+
+    def get_security(
+        _handle: object,
+        _object_type: int,
+        _security_info: int,
+        _owner: object,
+        _group: object,
+        _dacl: object,
+        _sacl: object,
+        observed: Any,
+    ) -> int:
+        ctypes.cast(observed, ctypes.POINTER(ctypes.c_void_p))[0] = ctypes.c_void_p(
+            0x1234
+        )
+        return status
+
+    def free(pointer: ctypes.c_void_p) -> None:
+        freed.append(cast(int, pointer.value))
+
+    if status:
+        with (
+            pytest.raises(OSError),
+            bridge["_windows_security_info"](get_security, free, object()),
+        ):
+            pytest.fail("query failure yielded an invalid descriptor")
+    else:
+        with bridge["_windows_security_info"](get_security, free, object()) as (
+            _owner,
+            _dacl,
+            observed,
+        ):
+            assert observed.value == 0x1234
+            assert freed == []
+    assert freed == [0x1234]
 
 
 @pytest.mark.parametrize("reason", ["root_not_private", "privacy_query_failed"])
