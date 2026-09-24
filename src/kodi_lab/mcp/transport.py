@@ -630,6 +630,7 @@ def build_mcp_http_transport(
     concurrency_limiter: BoundedConcurrencyLimiter | None = None,
     development_read_limiter: BoundedTokenBucketLimiter | None = None,
     development_edit_limiter: BoundedTokenBucketLimiter | None = None,
+    additional_allowed_hosts: tuple[str, ...] = (),
 ) -> McpHttpTransport:
     read_annotations = ToolAnnotations(
         read_only_hint=True,
@@ -1069,6 +1070,7 @@ def build_mcp_http_transport(
                         target_id,
                         started,
                         "success",
+                        protocol_request_id=_context.request_id,
                         source_id=source_id,
                         workspace_id=workspace_id,
                         request_id=request_id,
@@ -1086,6 +1088,7 @@ def build_mcp_http_transport(
                     target_id,
                     started,
                     outcome,
+                    protocol_request_id=_context.request_id,
                     source_id=source_id,
                     workspace_id=workspace_id,
                     request_id=request_id,
@@ -1104,6 +1107,7 @@ def build_mcp_http_transport(
                 target_id,
                 started,
                 "success",
+                protocol_request_id=_context.request_id,
                 source_id=source_id,
                 workspace_id=workspace_id,
                 request_id=request_id,
@@ -1125,6 +1129,7 @@ def build_mcp_http_transport(
             target_id,
             started,
             outcome,
+            protocol_request_id=_context.request_id,
             source_id=source_id,
             workspace_id=workspace_id,
             request_id=request_id,
@@ -1161,7 +1166,13 @@ def build_mcp_http_transport(
         max_request_body_size=MCP_MAX_REQUEST_BODY,
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
-            allowed_hosts=["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*"],
+            allowed_hosts=[
+                "127.0.0.1",
+                "127.0.0.1:*",
+                "localhost",
+                "localhost:*",
+                *additional_allowed_hosts,
+            ],
             allowed_origins=[
                 "http://127.0.0.1",
                 "http://127.0.0.1:*",
@@ -1193,6 +1204,7 @@ def _audit(
     started_at: str,
     outcome: str,
     *,
+    protocol_request_id: str | int | None = None,
     source_id: UUID | None = None,
     workspace_id: UUID | None = None,
     request_id: UUID | None = None,
@@ -1201,6 +1213,7 @@ def _audit(
 ) -> None:
     logger.info(
         "mcp_request client_id=%s credential_id=%s tool=%s target_id=%s "
+        "protocol_request_id=%s "
         "capability=%s "
         "source_id=%s workspace_id=%s request_id=%s generation=%s plan_id=%s "
         "started_at=%s completed_at=%s outcome=%s",
@@ -1208,6 +1221,7 @@ def _audit(
         principal.credential_id,
         tool_name,
         target_id,
+        protocol_request_id,
         _tool_capability(tool_name),
         source_id,
         workspace_id,

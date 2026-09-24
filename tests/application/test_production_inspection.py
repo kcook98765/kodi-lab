@@ -350,6 +350,38 @@ def test_wrong_client_target_and_client_preset_are_denied(
         )
 
 
+def test_exact_inspection_catalog_denies_visual_control_and_credential_mismatch(
+    production_inspection: _Environment,
+) -> None:
+    env = production_inspection
+    assert env.authorization.discoverable_tools(env.principal) == (
+        "addon_list",
+        "target_list",
+        "target_status",
+    )
+    for tool_name in ("screenshot_capture", "remote_action"):
+        with pytest.raises(McpAuthorizationError, match="permission_denied"):
+            env.authorization.authorize_target(env.principal, tool_name, env.target_id)
+
+    other = env.administration.create_client(
+        display_name="Credential mismatch",
+        preset_id=PRODUCTION_INSPECTION_PRESET_ID,
+    )
+    other_issued = env.administration.issue_credential(other.id)
+    other_principal = McpAuthenticationService(env.factory).authenticate(
+        other_issued.token
+    )
+    assert other_principal is not None
+    mismatched = McpPrincipal(
+        client_id=env.principal.client_id,
+        credential_id=other_principal.credential_id,
+        preset_id=env.principal.preset_id,
+        permissions=env.principal.permissions,
+    )
+    with pytest.raises(McpAuthorizationError, match="permission_denied"):
+        env.authorization.authorize_target(mismatched, "target_status", env.target_id)
+
+
 def test_mutation_vetoes_do_not_block_reads_but_target_state_does(
     production_inspection: _Environment,
 ) -> None:

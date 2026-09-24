@@ -1592,6 +1592,7 @@ def create_app(
             production_screenshots=production_screenshots,
             production_transient_approvals=production_transient_approvals,
         ),
+        additional_allowed_hosts=(settings.web_host, f"{settings.web_host}:*"),
     )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
