@@ -18,6 +18,7 @@ from kodi_lab.application.mcp_administration import (
     McpAdministrationError,
     McpAdministrationService,
     McpAuthenticationService,
+    McpPrincipal,
 )
 from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterService
 from kodi_lab.application.production_inspection import (
@@ -43,9 +44,14 @@ from kodi_lab.kodi.external import (
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
+from kodi_lab.screenshot_diagnostics import (
+    ScreenshotDiagnosticTrace,
+    screenshot_diagnostic_trace,
+)
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
+    ExternalBridgeEventRow,
     ExternalBridgeRequestReceiptRow,
     McpProductionScreenshotReceiptRow,
     ProductionMutationControlRow,
@@ -281,6 +287,281 @@ def test_screenshot_failure_rejects_receipts_without_losing_reachability(
                 bridge_trust_revision=visual_before.bridge_trust_revision,
             )
         assert fake.capture_count == 1
+    engine.dispose()
+
+
+def test_diagnostic_failure_cannot_change_success_receipts_or_reachability(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'diagnostic-success.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id, _credentials = _production_target(factory, tmp_path)
+
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        bridges = _pair_production_bridge(factory, tmp_path, target_id, fake)
+        screenshots = ProductionScreenshotService(factory, bridges)
+        client_id = uuid4()
+        request_id = uuid4()
+
+        def fail_diagnostic(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("forced diagnostic failure")
+
+        monkeypatch.setattr(ScreenshotDiagnosticTrace, "_emit", fail_diagnostic)
+        with screenshot_diagnostic_trace(
+            protocol_request={
+                "type": "string",
+                "byte_length": 36,
+                "sha256": "a" * 64,
+            },
+            client_id=client_id,
+            target_id=target_id,
+            request_id=request_id,
+        ):
+            result = screenshots.capture(
+                client_id=client_id,
+                target_id=target_id,
+                request_id=request_id,
+                identity_generation=1,
+                bridge_trust_revision=1,
+            )
+
+        assert result.png.startswith(b"\x89PNG\r\n\x1a\n")
+        assert result.capture_id == request_id
+        assert fake.capture_count == 1
+        assert bridges.status(target_id).reachability_state.value == "reachable"
+        with factory() as session:
+            mcp_receipt = session.get(
+                McpProductionScreenshotReceiptRow,
+                {"client_id": str(client_id), "request_id": str(request_id)},
+            )
+            assert mcp_receipt is not None and mcp_receipt.state == "completed"
+            bridge_receipt = session.get(
+                ExternalBridgeRequestReceiptRow,
+                {
+                    "target_id": str(target_id),
+                    "request_id": mcp_receipt.bridge_request_id,
+                },
+            )
+            assert bridge_receipt is not None and bridge_receipt.state == "completed"
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("failure", "code", "receipt_state", "reachability"),
+    [
+        ("semantic", "screenshot_format_invalid", "rejected", "reachable"),
+        ("transport", "bridge_unreachable", "ambiguous", "unreachable"),
+    ],
+)
+def test_diagnostic_failure_preserves_canonical_failure_and_reachability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure: str,
+    code: str,
+    receipt_state: str,
+    reachability: str,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / f'diagnostic-{failure}.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id, _credentials = _production_target(factory, tmp_path)
+
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        bridges = _pair_production_bridge(factory, tmp_path, target_id, fake)
+        screenshots = ProductionScreenshotService(factory, bridges)
+        client_id = uuid4()
+        request_id = uuid4()
+
+        def fail_diagnostic(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("forced diagnostic failure")
+
+        monkeypatch.setattr(ScreenshotDiagnosticTrace, "_emit", fail_diagnostic)
+        if failure == "semantic":
+            fake.tamper = "invalid_png"
+        else:
+
+            def fail_transport(*_args: object, **_kwargs: object) -> None:
+                raise ExternalBridgeError("bridge_unreachable")
+
+            monkeypatch.setattr(
+                cast(Any, bridges)._client, "capture_screenshot", fail_transport
+            )
+
+        with (
+            screenshot_diagnostic_trace(
+                protocol_request={"type": "missing"},
+                client_id=client_id,
+                target_id=target_id,
+                request_id=request_id,
+            ),
+            pytest.raises(ProductionScreenshotError) as raised,
+        ):
+            screenshots.capture(
+                client_id=client_id,
+                target_id=target_id,
+                request_id=request_id,
+                identity_generation=1,
+                bridge_trust_revision=1,
+            )
+
+        assert raised.value.code == code
+        assert bridges.status(target_id).reachability_state.value == reachability
+        with factory() as session:
+            mcp_receipt = session.get(
+                McpProductionScreenshotReceiptRow,
+                {"client_id": str(client_id), "request_id": str(request_id)},
+            )
+            assert mcp_receipt is not None and mcp_receipt.state == receipt_state
+            bridge_receipt = session.get(
+                ExternalBridgeRequestReceiptRow,
+                {
+                    "target_id": str(target_id),
+                    "request_id": mcp_receipt.bridge_request_id,
+                },
+            )
+            assert bridge_receipt is not None
+            assert bridge_receipt.state == receipt_state
+            assert bridge_receipt.response_digest is None
+    engine.dispose()
+
+
+def test_diagnostic_failure_cannot_mask_mcp_receipt_completion_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'diagnostic-mcp-receipt.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id, _credentials = _production_target(factory, tmp_path)
+
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        bridges = _pair_production_bridge(factory, tmp_path, target_id, fake)
+        screenshots = ProductionScreenshotService(factory, bridges)
+        client_id = uuid4()
+        request_id = uuid4()
+
+        def fail_diagnostic(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("forced diagnostic failure")
+
+        def fail_completion(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("forced MCP receipt failure")
+
+        monkeypatch.setattr(ScreenshotDiagnosticTrace, "_emit", fail_diagnostic)
+        monkeypatch.setattr(screenshots, "_complete", fail_completion)
+        with (
+            screenshot_diagnostic_trace(
+                protocol_request={"type": "missing"},
+                client_id=client_id,
+                target_id=target_id,
+                request_id=request_id,
+            ),
+            pytest.raises(ProductionScreenshotError) as raised,
+        ):
+            screenshots.capture(
+                client_id=client_id,
+                target_id=target_id,
+                request_id=request_id,
+                identity_generation=1,
+                bridge_trust_revision=1,
+            )
+
+        assert raised.value.code == "screenshot_receipt_persistence_failed"
+        assert bridges.status(target_id).reachability_state.value == "reachable"
+        with factory() as session:
+            mcp_receipt = session.get(
+                McpProductionScreenshotReceiptRow,
+                {"client_id": str(client_id), "request_id": str(request_id)},
+            )
+            assert mcp_receipt is not None and mcp_receipt.state == "rejected"
+            bridge_receipt = session.get(
+                ExternalBridgeRequestReceiptRow,
+                {
+                    "target_id": str(target_id),
+                    "request_id": mcp_receipt.bridge_request_id,
+                },
+            )
+            assert bridge_receipt is not None and bridge_receipt.state == "completed"
+    engine.dispose()
+
+
+def test_bridge_receipt_completion_failure_is_bounded_at_mcp_and_observer_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'diagnostic-bridge-receipt.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id, _credentials = _production_target(factory, tmp_path)
+
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        bridges = _pair_production_bridge(factory, tmp_path, target_id, fake)
+        screenshots = ProductionScreenshotService(factory, bridges)
+        principal = McpPrincipal(
+            client_id=uuid4(),
+            credential_id=uuid4(),
+            preset_id=uuid4(),
+            permissions=frozenset(),
+        )
+        tools = McpTargetToolService(
+            factory,
+            cast(Any, None),
+            cast(Any, None),
+            cast(Any, None),
+            cast(Any, None),
+            production_screenshots=screenshots,
+        )
+        request_id = uuid4()
+
+        def fail_diagnostic(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("forced diagnostic failure")
+
+        def fail_bridge_completion(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("forced bridge receipt failure")
+
+        monkeypatch.setattr(ScreenshotDiagnosticTrace, "_emit", fail_diagnostic)
+        monkeypatch.setattr(bridges, "_complete_receipt", fail_bridge_completion)
+        with (
+            screenshot_diagnostic_trace(
+                protocol_request={"type": "missing"},
+                client_id=principal.client_id,
+                target_id=target_id,
+                request_id=request_id,
+            ),
+            pytest.raises(McpAuthorizationError) as raised,
+        ):
+            tools._screenshot_capture_authorized(
+                principal, target_id, request_id=request_id
+            )
+
+        assert raised.value.code == "screenshot_receipt_persistence_failed"
+        assert fake.capture_count == 1
+        assert bridges.status(target_id).reachability_state.value == "reachable"
+        with factory() as session:
+            mcp_receipt = session.get(
+                McpProductionScreenshotReceiptRow,
+                {
+                    "client_id": str(principal.client_id),
+                    "request_id": str(request_id),
+                },
+            )
+            assert mcp_receipt is not None and mcp_receipt.state == "rejected"
+            bridge_receipt = session.get(
+                ExternalBridgeRequestReceiptRow,
+                {
+                    "target_id": str(target_id),
+                    "request_id": mcp_receipt.bridge_request_id,
+                },
+            )
+            assert bridge_receipt is not None and bridge_receipt.state == "rejected"
+            assert bridge_receipt.response_digest is None
+            assert (
+                session.scalar(
+                    select(ExternalBridgeEventRow).where(
+                        ExternalBridgeEventRow.target_id == str(target_id),
+                        ExternalBridgeEventRow.event_kind == "screenshot_completed",
+                    )
+                )
+                is None
+            )
     engine.dispose()
 
 

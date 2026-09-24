@@ -63,7 +63,6 @@ SCREENSHOT_ERROR_CODES = frozenset(
         "screenshot_decoder_rejected",
         "screenshot_format_invalid",
         "screenshot_dimensions_invalid",
-        "screenshot_normalization_failed",
     }
 )
 
@@ -743,15 +742,13 @@ class ExternalBridgeClient:
         emit_screenshot_stage(
             "image_validation",
             "passed",
-            "normalized_png_valid",
+            "png_validated_unchanged",
             decoded_byte_length=len(png),
             image_sha256=digest,
             detected_format="png",
             width=width,
             height=height,
             color_mode="rgb",
-            normalized_byte_length=len(png),
-            normalized_sha256=digest,
         )
         return BridgeScreenshotResult(
             request_id=request_id,

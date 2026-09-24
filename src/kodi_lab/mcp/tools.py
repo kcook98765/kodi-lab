@@ -1580,7 +1580,6 @@ class McpTargetToolService:
             "screenshot_decoder_rejected": "screenshot_decoder_rejected",
             "screenshot_format_invalid": "screenshot_format_invalid",
             "screenshot_dimensions_invalid": "screenshot_dimensions_invalid",
-            "screenshot_normalization_failed": "screenshot_normalization_failed",
             "screenshot_receipt_persistence_failed": (
                 "screenshot_receipt_persistence_failed"
             ),

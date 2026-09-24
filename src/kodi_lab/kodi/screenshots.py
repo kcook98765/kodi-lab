@@ -472,16 +472,16 @@ def ppm_to_png(payload: bytes) -> bytes:
 
 
 def validate_png(payload: bytes) -> ValidatedPng:
-    return _validate_normalized_png(payload, require_runtime_geometry=True)
+    return _validate_canonical_png(payload, require_runtime_geometry=True)
 
 
 def validate_external_png(payload: bytes) -> ValidatedPng:
-    """Validate a normalized bounded GUI screenshot at its observed geometry."""
+    """Validate bounded canonical PNG bytes without rewriting them."""
 
-    return _validate_normalized_png(payload, require_runtime_geometry=False)
+    return _validate_canonical_png(payload, require_runtime_geometry=False)
 
 
-def _validate_normalized_png(
+def _validate_canonical_png(
     payload: bytes, *, require_runtime_geometry: bool
 ) -> ValidatedPng:
     if not len(PNG_SIGNATURE) < len(payload) <= MAX_PNG_BYTES:

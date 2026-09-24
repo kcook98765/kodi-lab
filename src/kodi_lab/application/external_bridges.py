@@ -8,7 +8,7 @@ import os
 import threading
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1394,7 +1394,25 @@ class ExternalBridgeService:
                         in {"bridge_unreachable", "bridge_replay_rejected"},
                     )
                     raise ExternalBridgeServiceError(first.code) from first
-            self._complete_receipt(target_id, result)
+            try:
+                self._complete_receipt(target_id, result)
+            except ExternalBridgeServiceError as error:
+                with suppress(Exception):
+                    self._fail_receipt(
+                        target_id, request_id, error.code, ambiguous=False
+                    )
+                raise
+            except Exception as error:
+                with suppress(Exception):
+                    self._fail_receipt(
+                        target_id,
+                        request_id,
+                        "screenshot_receipt_persistence_failed",
+                        ambiguous=False,
+                    )
+                raise ExternalBridgeServiceError(
+                    "screenshot_receipt_persistence_failed"
+                ) from error
             emit_screenshot_stage(
                 "receipt_persistence",
                 "passed",

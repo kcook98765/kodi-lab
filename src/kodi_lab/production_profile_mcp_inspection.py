@@ -137,8 +137,8 @@ def inspect_mcp_screenshot_image(result: dict[str, object]) -> dict[str, object]
         "width": validated.width,
         "height": validated.height,
         "color_mode": "rgb",
-        "normalized_byte_length": len(payload),
-        "normalized_sha256": hashlib.sha256(payload).hexdigest(),
+        "validated_byte_length": len(payload),
+        "validated_sha256": hashlib.sha256(payload).hexdigest(),
     }
 
 

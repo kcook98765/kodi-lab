@@ -14,6 +14,7 @@ from kodi_lab.domain import ExternalProtocolKind
 from kodi_lab.kodi.bridge import (
     BRIDGE_ENDPOINT_PATH,
     BRIDGE_PROTOCOL_VERSION,
+    SCREENSHOT_ERROR_CODES,
     ExternalBridgeClient,
     ExternalBridgeError,
     b64url,
@@ -24,7 +25,7 @@ from kodi_lab.kodi.bridge import (
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
 from kodi_lab.kodi.screenshots import EXPECTED_HEIGHT, EXPECTED_WIDTH
 from kodi_lab.screenshot_diagnostics import screenshot_diagnostic_trace
-from tests.kodi.fake_external_bridge import FakeExternalBridge
+from tests.kodi.fake_external_bridge import FakeExternalBridge, fake_png
 
 
 def _endpoint(port: int) -> ValidatedExternalEndpoint:
@@ -111,6 +112,7 @@ def test_screenshot_diagnostic_trace_orders_safe_transport_and_image_stages() ->
             target_id=target_id,
             request_id=request_id,
         ) as trace:
+            assert trace is not None
             result = client.capture_screenshot(
                 _endpoint(fake.port),
                 bridge_port=fake.port,
@@ -137,6 +139,11 @@ def test_screenshot_diagnostic_trace_orders_safe_transport_and_image_stages() ->
         assert all(item["request_id"] == str(request_id) for item in trace.events)
         assert all(item["target_id"] == str(target_id) for item in trace.events)
         assert trace.events[-1]["image_sha256"] == result.digest
+        assert trace.events[-1]["code"] == "png_validated_unchanged"
+        assert "normalized_byte_length" not in trace.events[-1]
+        assert "normalized_sha256" not in trace.events[-1]
+        assert result.png == fake_png()
+        assert "screenshot_normalization_failed" not in SCREENSHOT_ERROR_CODES
         serialized = json.dumps(trace.events, sort_keys=True)
         assert base64.b64encode(result.png).decode("ascii") not in serialized
         assert result.png.hex() not in serialized

@@ -67,6 +67,10 @@ def test_mcp_screenshot_image_diagnostics_are_strict_and_bounded() -> None:
     assert metadata["width"] == 2
     assert metadata["height"] == 2
     assert metadata["color_mode"] == "rgb"
+    assert metadata["validated_byte_length"] == len(payload)
+    assert metadata["validated_sha256"] == metadata["sha256"]
+    assert "normalized_byte_length" not in metadata
+    assert "normalized_sha256" not in metadata
     assert "data" not in metadata
 
     failures: tuple[tuple[dict[str, object], str], ...] = (
