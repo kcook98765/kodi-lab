@@ -16,7 +16,7 @@ import json
 import logging
 import re
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -262,6 +262,31 @@ def emit_screenshot_stage(
         return
 
 
+def observe_screenshot_diagnostic[Observation](
+    observation: Callable[[], Observation],
+) -> Observation | None:
+    """Return one diagnostic observation without affecting canonical behavior."""
+
+    try:
+        return observation()
+    except BaseException:
+        return None
+
+
+def emit_screenshot_observation(
+    stage: str,
+    outcome: str,
+    code: str,
+    observation: Callable[[], Mapping[str, object]],
+) -> None:
+    """Derive and emit diagnostic metadata behind the same no-throw boundary."""
+
+    metadata: dict[str, object] | None = observe_screenshot_diagnostic(
+        lambda: dict(observation())
+    )
+    emit_screenshot_stage(stage, outcome, code, **(metadata or {}))
+
+
 def _bounded_protocol_request(value: object) -> dict[str, str | int]:
     try:
         if not isinstance(value, dict):
@@ -274,7 +299,7 @@ def _bounded_protocol_request(value: object) -> dict[str, str | int]:
         byte_length = value.get("byte_length")
         sha256 = value.get("sha256")
         if (
-            not _is_integer(byte_length, minimum=0, maximum=MAX_DIAGNOSTIC_REVISION)
+            not _is_integer(byte_length, minimum=0, maximum=MAX_DIAGNOSTIC_COUNT)
             or not isinstance(sha256, str)
             or _SAFE_SHA256.fullmatch(sha256) is None
         ):

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import base64
+import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
+from mcp_types import CallToolRequestParams, CallToolResult, ImageContent
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -41,9 +45,14 @@ from kodi_lab.kodi.external import (
     ExternalKodiProbeResult,
     ValidatedExternalEndpoint,
 )
+from kodi_lab.mcp import transport as transport_module
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import build_mcp_tool_registry
-from kodi_lab.mcp.tools import McpTargetToolService
+from kodi_lab.mcp.tools import (
+    McpTargetToolService,
+    ScreenshotCaptureMetadata,
+    ScreenshotToolResult,
+)
 from kodi_lab.screenshot_diagnostics import (
     ScreenshotDiagnosticTrace,
     screenshot_diagnostic_trace,
@@ -200,6 +209,145 @@ def _pair_production_bridge(
     return bridges
 
 
+class _ProductionScreenshotTransportTools:
+    def __init__(self, screenshots: ProductionScreenshotService) -> None:
+        self._screenshots = screenshots
+
+    def screenshot_capture(
+        self,
+        principal: McpPrincipal,
+        *,
+        target_id: UUID,
+        request_id: UUID,
+    ) -> ScreenshotToolResult:
+        capture = self._screenshots.capture(
+            client_id=principal.client_id,
+            target_id=target_id,
+            request_id=request_id,
+            identity_generation=1,
+            bridge_trust_revision=1,
+        )
+        return ScreenshotToolResult(
+            metadata=ScreenshotCaptureMetadata(
+                target_id=target_id,
+                capture_id=capture.capture_id,
+                captured_at=capture.captured_at,
+                width=capture.width,
+                height=capture.height,
+                mime_type="image/png",
+                byte_size=capture.byte_size,
+            ),
+            png=capture.png,
+        )
+
+
+@pytest.mark.parametrize("failure", ["correlation", "trace_binding", "evidence_hash"])
+def test_transport_precomputation_failure_preserves_real_receipts_and_reachability(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / f'transport-{failure}.db'}")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    target_id, _credentials = _production_target(factory, tmp_path)
+
+    with FakeExternalBridge(target_id=target_id, token=b"x" * 32) as fake:
+        bridges = _pair_production_bridge(factory, tmp_path, target_id, fake)
+        screenshots = ProductionScreenshotService(factory, bridges)
+        tools = _ProductionScreenshotTransportTools(screenshots)
+        transport = transport_module.build_mcp_http_transport(
+            authentication=cast(Any, None),
+            authorization=cast(Any, None),
+            registry=cast(Any, None),
+            tools=cast(Any, tools),
+        )
+        entry = transport.server.get_request_handler("tools/call")
+        assert entry is not None
+        principal = McpPrincipal(
+            client_id=uuid4(),
+            credential_id=uuid4(),
+            preset_id=uuid4(),
+            permissions=frozenset(),
+        )
+        request_id = uuid4()
+        if failure == "correlation":
+
+            def fail_correlation(*_args: object, **_kwargs: object) -> object:
+                raise RuntimeError("forced diagnostic correlation failure")
+
+            monkeypatch.setattr(
+                transport_module, "mcp_audit_request_correlation", fail_correlation
+            )
+        elif failure == "trace_binding":
+
+            class _BrokenTraceContext:
+                def __enter__(self) -> None:
+                    raise RuntimeError("forced diagnostic trace binding failure")
+
+                def __exit__(self, *_args: object) -> None:
+                    raise RuntimeError("forced diagnostic trace cleanup failure")
+
+            monkeypatch.setattr(
+                transport_module,
+                "screenshot_diagnostic_trace",
+                lambda **_kwargs: _BrokenTraceContext(),
+            )
+        else:
+            original_sha256 = hashlib.sha256
+
+            def fail_evidence_hash(value: bytes = b"") -> Any:
+                if value.startswith(b"\x89PNG\r\n\x1a\n"):
+                    raise RuntimeError("forced diagnostic evidence hash failure")
+                return original_sha256(value)
+
+            monkeypatch.setattr(
+                transport_module,
+                "hashlib",
+                SimpleNamespace(sha256=fail_evidence_hash),
+            )
+
+        token = transport_module._principal_context.set(principal)
+        try:
+            response = asyncio.run(
+                cast(
+                    Any,
+                    entry.handler(
+                        cast(Any, SimpleNamespace(request_id="diagnostic-request")),
+                        CallToolRequestParams(
+                            name="screenshot_capture",
+                            arguments={
+                                "target_id": str(target_id),
+                                "request_id": str(request_id),
+                            },
+                        ),
+                    ),
+                )
+            )
+        finally:
+            transport_module._principal_context.reset(token)
+
+        result = cast(CallToolResult, response)
+        assert result.is_error is False
+        assert len(result.content) == 1
+        assert ImageContent.model_validate(result.content[0]).mime_type == "image/png"
+        assert fake.capture_count == 1
+        assert bridges.status(target_id).reachability_state.value == "reachable"
+        with factory() as session:
+            mcp_receipt = session.get(
+                McpProductionScreenshotReceiptRow,
+                {"client_id": str(principal.client_id), "request_id": str(request_id)},
+            )
+            assert mcp_receipt is not None and mcp_receipt.state == "completed"
+            bridge_receipt = session.get(
+                ExternalBridgeRequestReceiptRow,
+                {
+                    "target_id": str(target_id),
+                    "request_id": mcp_receipt.bridge_request_id,
+                },
+            )
+            assert bridge_receipt is not None and bridge_receipt.state == "completed"
+    engine.dispose()
+
+
 @pytest.mark.parametrize(
     ("tamper", "code"),
     [
@@ -304,10 +452,12 @@ def test_diagnostic_failure_cannot_change_success_receipts_or_reachability(
         client_id = uuid4()
         request_id = uuid4()
 
-        def fail_diagnostic(*_args: object, **_kwargs: object) -> None:
-            raise RuntimeError("forced diagnostic failure")
+        def fail_diagnostic_read(*_args: object, **_kwargs: object) -> str:
+            raise RuntimeError("forced diagnostic reachability read failure")
 
-        monkeypatch.setattr(ScreenshotDiagnosticTrace, "_emit", fail_diagnostic)
+        monkeypatch.setattr(
+            bridges, "_screenshot_reachability_value", fail_diagnostic_read
+        )
         with screenshot_diagnostic_trace(
             protocol_request={
                 "type": "string",
@@ -373,15 +523,20 @@ def test_diagnostic_failure_preserves_canonical_failure_and_reachability(
         client_id = uuid4()
         request_id = uuid4()
 
-        def fail_diagnostic(*_args: object, **_kwargs: object) -> None:
-            raise RuntimeError("forced diagnostic failure")
+        def fail_diagnostic_read(*_args: object, **_kwargs: object) -> str:
+            raise RuntimeError("forced diagnostic reachability read failure")
 
-        monkeypatch.setattr(ScreenshotDiagnosticTrace, "_emit", fail_diagnostic)
+        monkeypatch.setattr(
+            bridges, "_screenshot_reachability_value", fail_diagnostic_read
+        )
+        capture_attempts = 0
         if failure == "semantic":
             fake.tamper = "invalid_png"
         else:
 
             def fail_transport(*_args: object, **_kwargs: object) -> None:
+                nonlocal capture_attempts
+                capture_attempts += 1
                 raise ExternalBridgeError("bridge_unreachable")
 
             monkeypatch.setattr(
@@ -406,6 +561,11 @@ def test_diagnostic_failure_preserves_canonical_failure_and_reachability(
             )
 
         assert raised.value.code == code
+        if failure == "semantic":
+            assert fake.capture_count == 1
+        else:
+            assert capture_attempts == 1
+            assert fake.capture_count == 0
         assert bridges.status(target_id).reachability_state.value == reachability
         with factory() as session:
             mcp_receipt = session.get(
@@ -440,13 +600,15 @@ def test_diagnostic_failure_cannot_mask_mcp_receipt_completion_failure(
         client_id = uuid4()
         request_id = uuid4()
 
-        def fail_diagnostic(*_args: object, **_kwargs: object) -> None:
-            raise RuntimeError("forced diagnostic failure")
+        def fail_diagnostic_read(*_args: object, **_kwargs: object) -> str:
+            raise RuntimeError("forced diagnostic reachability read failure")
 
         def fail_completion(*_args: object, **_kwargs: object) -> None:
             raise RuntimeError("forced MCP receipt failure")
 
-        monkeypatch.setattr(ScreenshotDiagnosticTrace, "_emit", fail_diagnostic)
+        monkeypatch.setattr(
+            bridges, "_screenshot_reachability_value", fail_diagnostic_read
+        )
         monkeypatch.setattr(screenshots, "_complete", fail_completion)
         with (
             screenshot_diagnostic_trace(
@@ -466,6 +628,7 @@ def test_diagnostic_failure_cannot_mask_mcp_receipt_completion_failure(
             )
 
         assert raised.value.code == "screenshot_receipt_persistence_failed"
+        assert fake.capture_count == 1
         assert bridges.status(target_id).reachability_state.value == "reachable"
         with factory() as session:
             mcp_receipt = session.get(
@@ -481,6 +644,22 @@ def test_diagnostic_failure_cannot_mask_mcp_receipt_completion_failure(
                 },
             )
             assert bridge_receipt is not None and bridge_receipt.state == "completed"
+            assert (
+                session.scalar(
+                    select(McpProductionScreenshotReceiptRow).where(
+                        McpProductionScreenshotReceiptRow.state == "pending"
+                    )
+                )
+                is None
+            )
+            assert (
+                session.scalar(
+                    select(ExternalBridgeRequestReceiptRow).where(
+                        ExternalBridgeRequestReceiptRow.state == "pending"
+                    )
+                )
+                is None
+            )
     engine.dispose()
 
 

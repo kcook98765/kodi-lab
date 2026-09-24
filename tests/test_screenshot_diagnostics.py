@@ -9,10 +9,13 @@ import pytest
 
 from kodi_lab.screenshot_diagnostics import (
     LOGGER,
+    MAX_DIAGNOSTIC_COUNT,
     MAX_SCREENSHOT_DIAGNOSTIC_LOG_CHARACTERS,
     ScreenshotDiagnosticTrace,
     bind_screenshot_bridge_revision,
+    emit_screenshot_observation,
     emit_screenshot_stage,
+    observe_screenshot_diagnostic,
     screenshot_diagnostic_trace,
 )
 
@@ -225,3 +228,60 @@ def test_serializer_and_internal_emitter_failures_are_swallowed(
         emit_screenshot_stage("mcp_result", "passed", "success")
 
     assert len(trace.events) == 1
+
+
+@pytest.mark.parametrize(
+    ("byte_length", "expected"),
+    [
+        (0, 0),
+        (36, 36),
+        (MAX_DIAGNOSTIC_COUNT, MAX_DIAGNOSTIC_COUNT),
+        (MAX_DIAGNOSTIC_COUNT + 1, None),
+        (-1, None),
+    ],
+)
+def test_protocol_request_byte_length_uses_count_bound(
+    byte_length: int, expected: int | None
+) -> None:
+    with screenshot_diagnostic_trace(
+        protocol_request={
+            "type": "string",
+            "byte_length": byte_length,
+            "sha256": "a" * 64,
+        },
+        client_id=uuid4(),
+        target_id=uuid4(),
+        request_id=uuid4(),
+    ) as trace:
+        assert trace is not None
+        emit_screenshot_stage("mcp_authenticated", "passed", "bounded_request")
+
+    protocol_request = trace.events[0]["protocol_request"]
+    if expected is None:
+        assert protocol_request == {"type": "unrecognized"}
+    else:
+        assert protocol_request == {
+            "type": "string",
+            "byte_length": expected,
+            "sha256": "a" * 64,
+        }
+
+
+def test_diagnostic_observation_and_metadata_derivation_are_no_throw() -> None:
+    def fail_observation() -> dict[str, object]:
+        raise RuntimeError("forced diagnostic observation failure")
+
+    assert observe_screenshot_diagnostic(fail_observation) is None
+    with screenshot_diagnostic_trace(
+        protocol_request=_protocol_request(),
+        client_id=uuid4(),
+        target_id=uuid4(),
+        request_id=uuid4(),
+    ) as trace:
+        assert trace is not None
+        emit_screenshot_observation(
+            "image_payload", "passed", "mcp_base64_encoded", fail_observation
+        )
+
+    assert len(trace.events) == 1
+    assert "image_sha256" not in trace.events[0]

@@ -51,7 +51,9 @@ from kodi_lab.kodi.external import (
 )
 from kodi_lab.screenshot_diagnostics import (
     bind_screenshot_bridge_revision,
+    emit_screenshot_observation,
     emit_screenshot_stage,
+    observe_screenshot_diagnostic,
 )
 from kodi_lab.storage.models import (
     ExternalBridgeEventRow,
@@ -1439,14 +1441,11 @@ class ExternalBridgeService:
                         oldest = next(iter(self._production_pixel_cache))
                         del self._production_pixel_cache[oldest]
                     self._production_pixel_cache[(target_id, request_id)] = capture
-                reachability = self._screenshot_reachability_value(target_id)
-                emit_screenshot_stage(
+                emit_screenshot_observation(
                     "reachability_classification",
                     "passed",
                     "screenshot_success_reachable",
-                    reachability_before=reachability,
-                    reachability_after=reachability,
-                    classification_source="authenticated_screenshot_success",
+                    lambda: self._screenshot_reachability_metadata(target_id),
                 )
             return capture
 
@@ -1874,21 +1873,32 @@ class ExternalBridgeService:
     def _publish_screenshot_failure_reachability(
         self, target_id: UUID, code: str
     ) -> None:
-        before = self._screenshot_reachability_value(target_id)
+        before = observe_screenshot_diagnostic(
+            lambda: self._screenshot_reachability_value(target_id)
+        )
         if code not in SCREENSHOT_ERROR_CODES:
             self._publish_reachability(target_id, code)
             source = "transport_or_trust_failure"
         else:
             source = "semantic_screenshot_failure"
-        after = self._screenshot_reachability_value(target_id)
-        emit_screenshot_stage(
+        emit_screenshot_observation(
             "reachability_classification",
             "passed",
             code,
-            reachability_before=before,
-            reachability_after=after,
-            classification_source=source,
+            lambda: {
+                "reachability_before": before,
+                "reachability_after": self._screenshot_reachability_value(target_id),
+                "classification_source": source,
+            },
         )
+
+    def _screenshot_reachability_metadata(self, target_id: UUID) -> dict[str, object]:
+        reachability = self._screenshot_reachability_value(target_id)
+        return {
+            "reachability_before": reachability,
+            "reachability_after": reachability,
+            "classification_source": "authenticated_screenshot_success",
+        }
 
     def _screenshot_reachability_value(self, target_id: UUID) -> str:
         with self._sessions() as session:
