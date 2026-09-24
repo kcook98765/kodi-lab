@@ -36,6 +36,15 @@ Five failed logins for a client source trigger an in-process exponential backoff
 capped at 30 seconds. This only bounds localhost Argon2 load and is not a LAN
 rate limiter.
 
+The test-only production-profile Slice C client exercises this exact contract
+at `http://10.251.0.10:8180` inside the isolated Docker network. It adds no Web
+route, alternate credential, bypass header, session decoder, or service/DB
+authentication shortcut. Its cookie jar and rendered CSRF token are memory-only;
+bounded evidence records no password, cookie, token, verifier, or authorization
+header. Normal logout deletes the server session and the client proves the old
+cookie receives 401. Fixture reset/destroy reconstructs the fresh database if a
+harness process exits before ordinary logout completes.
+
 ## Browser mutation boundary
 
 Every authenticated mutation requires both the session cookie and exact
