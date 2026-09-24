@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Barrier
@@ -22,7 +23,10 @@ from kodi_lab.application.mcp_administration import (
     PRODUCTION_REMOTE_KODI_PRESET_ID,
     McpAdministrationService,
 )
-from kodi_lab.application.production_policy import advance_production_policy
+from kodi_lab.application.production_policy import (
+    advance_production_policy,
+    bind_external_production_transition,
+)
 from kodi_lab.domain import (
     ExternalAuthenticationMode,
     ExternalProtocolKind,
@@ -38,6 +42,7 @@ from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     ExternalKodiTargetEventRow,
+    ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
     McpTargetPresetAssignmentRow,
     ProductionMutationControlRow,
@@ -77,6 +82,26 @@ type ProductionServiceFixture = tuple[
     sessionmaker[Session],
     FakeProductionVerifier,
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmationSnapshot:
+    generation: int
+    revisions: tuple[int, int, int]
+    verification_state: str
+    pending_observation_id: str | None
+    verified_kodi_name: str | None
+    verified_kodi_version: str | None
+    verified_capabilities_json: str
+    secret_reference: str | None
+    designation_state: str
+    confirmed_observation_id: str | None
+    confirmed_observation_digest: str | None
+    mutations_suspended: bool
+    observations: tuple[tuple[object, ...], ...]
+    events: tuple[tuple[object, ...], ...]
+    bridge_pairing_count: int
+    reviewed_build_count: int
 
 
 @pytest.fixture
@@ -174,6 +199,82 @@ def _designation_event_count(factory: sessionmaker[Session], target_id: UUID) ->
         )
 
 
+def _confirmation_snapshot(
+    factory: sessionmaker[Session], target_id: UUID
+) -> ConfirmationSnapshot:
+    with factory() as session:
+        state = session.execute(
+            text(
+                "SELECT p.identity_generation,p.policy_revision,"
+                "e.production_policy_revision,g.maximum_policy_revision,"
+                "e.verification_state,e.pending_observation_id,"
+                "e.verified_kodi_name,e.verified_kodi_version,"
+                "e.verified_capabilities_json,e.secret_reference,"
+                "p.designation_state,p.confirmed_observation_id,"
+                "p.confirmed_observation_digest,p.mutations_suspended "
+                "FROM external_production_policies p "
+                "JOIN external_kodi_targets e ON e.target_id=p.target_id "
+                "JOIN external_production_policy_revision_guards g "
+                "ON g.target_id=p.target_id WHERE p.target_id=:target"
+            ),
+            {"target": str(target_id)},
+        ).one()
+        observations = tuple(
+            tuple(row)
+            for row in session.execute(
+                text(
+                    "SELECT id,outcome,error_code,kodi_name,kodi_version,"
+                    "protocol_version,verified_capabilities_json,addresses_json "
+                    "FROM external_kodi_target_observations WHERE target_id=:target "
+                    "ORDER BY id"
+                ),
+                {"target": str(target_id)},
+            ).all()
+        )
+        events = tuple(
+            tuple(row)
+            for row in session.execute(
+                text(
+                    "SELECT id,event_kind,classification,observation_id "
+                    "FROM external_kodi_target_events WHERE target_id=:target "
+                    "ORDER BY id"
+                ),
+                {"target": str(target_id)},
+            ).all()
+        )
+        bridge_pairing_count = session.execute(
+            text(
+                "SELECT COUNT(*) FROM external_bridge_pairings WHERE target_id=:target"
+            ),
+            {"target": str(target_id)},
+        ).scalar_one()
+        reviewed_build_count = session.execute(
+            text("SELECT COUNT(*) FROM reviewed_bridge_builds")
+        ).scalar_one()
+    return ConfirmationSnapshot(
+        generation=state[0],
+        revisions=(state[1], state[2], state[3]),
+        verification_state=state[4],
+        pending_observation_id=state[5],
+        verified_kodi_name=state[6],
+        verified_kodi_version=state[7],
+        verified_capabilities_json=state[8],
+        secret_reference=state[9],
+        designation_state=state[10],
+        confirmed_observation_id=state[11],
+        confirmed_observation_digest=state[12],
+        mutations_suspended=bool(state[13]),
+        observations=observations,
+        events=events,
+        bridge_pairing_count=bridge_pairing_count,
+        reviewed_build_count=reviewed_build_count,
+    )
+
+
+def _snapshot_event_count(snapshot: ConfirmationSnapshot, event_kind: str) -> int:
+    return sum(1 for event in snapshot.events if event[1] == event_kind)
+
+
 def test_production_registration_and_two_separate_confirmations(
     production_service: ProductionServiceFixture,
 ) -> None:
@@ -215,6 +316,127 @@ def test_production_registration_and_two_separate_confirmations(
     enabled = service.set_enabled(created.target_id, enabled=True)
     assert enabled.production_policy is not None
     assert enabled.production_policy.lifecycle_state == "enabled_read_only"
+
+
+def test_consumed_native_confirmation_replay_is_a_state_preserving_conflict(
+    production_service: ProductionServiceFixture,
+) -> None:
+    service, _development, factory, _verifier = production_service
+    created = _register(service)
+    observed = service.probe(created.target_id)
+    assert observed.pending_observation_id is not None
+
+    confirmed = service.confirm(created.target_id, observed.pending_observation_id)
+    assert confirmed.production_policy is not None
+    accepted = _confirmation_snapshot(factory, created.target_id)
+    assert accepted.generation == 1
+    assert accepted.revisions == (3, 3, 3)
+    assert accepted.verification_state == "verified"
+    assert accepted.pending_observation_id == str(observed.pending_observation_id)
+    assert accepted.verified_kodi_name == "Kodi"
+    assert accepted.verified_kodi_version == "21.3"
+    assert len(accepted.observations) == 1
+    assert _snapshot_event_count(accepted, "verification_confirmed") == 1
+    assert _snapshot_event_count(accepted, "production_native_identity_confirmed") == 1
+
+    with pytest.raises(ExternalTargetError, match="verification_required"):
+        service.confirm(created.target_id, observed.pending_observation_id)
+
+    assert _confirmation_snapshot(factory, created.target_id) == accepted
+
+
+def test_native_confirmation_requires_the_exact_current_real_observation(
+    production_service: ProductionServiceFixture,
+) -> None:
+    service, _development, factory, _verifier = production_service
+    created = _register(service)
+    observed_a = service.probe(created.target_id)
+    assert observed_a.pending_observation_id is not None
+
+    before_wrong = _confirmation_snapshot(factory, created.target_id)
+    with pytest.raises(ExternalTargetError, match="verification_required"):
+        service.confirm(created.target_id, UUID(int=900))
+    assert _confirmation_snapshot(factory, created.target_id) == before_wrong
+
+    observed_b = service.probe(created.target_id)
+    assert observed_b.pending_observation_id is not None
+    assert observed_b.pending_observation_id != observed_a.pending_observation_id
+    before_stale = _confirmation_snapshot(factory, created.target_id)
+
+    with pytest.raises(ExternalTargetError, match="verification_required"):
+        service.confirm(created.target_id, observed_a.pending_observation_id)
+
+    assert _confirmation_snapshot(factory, created.target_id) == before_stale
+
+    confirmed = service.confirm(created.target_id, observed_b.pending_observation_id)
+    assert confirmed.production_policy is not None
+    after_current = _confirmation_snapshot(factory, created.target_id)
+    assert after_current.generation == before_stale.generation
+    assert after_current.revisions == tuple(
+        revision + 1 for revision in before_stale.revisions
+    )
+    assert after_current.verification_state == "verified"
+    assert after_current.pending_observation_id == str(
+        observed_b.pending_observation_id
+    )
+    assert after_current.observations == before_stale.observations
+    assert after_current.secret_reference == before_stale.secret_reference
+    assert after_current.bridge_pairing_count == before_stale.bridge_pairing_count
+    assert after_current.reviewed_build_count == before_stale.reviewed_build_count
+
+
+def test_concurrent_native_confirmation_has_one_winner_and_one_stale_loser(
+    production_service: ProductionServiceFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _development, factory, _verifier = production_service
+    created = _register(service)
+    observed = service.probe(created.target_id)
+    assert observed.pending_observation_id is not None
+    observation_id = observed.pending_observation_id
+    before = _confirmation_snapshot(factory, created.target_id)
+    barrier = Barrier(2)
+    bind = bind_external_production_transition
+
+    def synchronized_bind(
+        session: Session,
+        external: ExternalKodiTargetRow,
+        policy: ExternalProductionPolicyRow,
+        *,
+        now: datetime,
+    ) -> None:
+        barrier.wait(timeout=5)
+        bind(session, external, policy, now=now)
+
+    monkeypatch.setattr(
+        external_targets_module,
+        "bind_external_production_transition",
+        synchronized_bind,
+    )
+
+    def confirm() -> str:
+        try:
+            service.confirm(created.target_id, observation_id)
+        except StaleDataError:
+            return "stale"
+        return "committed"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _index: confirm(), range(2)))
+
+    assert sorted(outcomes) == ["committed", "stale"]
+    current = _confirmation_snapshot(factory, created.target_id)
+    assert current.generation == before.generation
+    assert current.revisions == tuple(revision + 1 for revision in before.revisions)
+    assert current.verification_state == "verified"
+    assert current.pending_observation_id == str(observation_id)
+    assert current.observations == before.observations
+    assert current.secret_reference == before.secret_reference
+    assert current.bridge_pairing_count == before.bridge_pairing_count
+    assert current.reviewed_build_count == before.reviewed_build_count
+    assert len(current.events) == len(before.events) + 2
+    assert _snapshot_event_count(current, "verification_confirmed") == 1
+    assert _snapshot_event_count(current, "production_native_identity_confirmed") == 1
 
 
 def test_designation_is_policy_only_and_enablement_rebinds_native_revision(
