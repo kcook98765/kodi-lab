@@ -1,12 +1,23 @@
-# Bridge transient screenshot assurance (1.1.9 candidate)
+# Bridge transient screenshot assurance (1.1.10 candidate)
 
-Local review identity: ZIP SHA-256
+The prior 1.1.9 local candidate had ZIP SHA-256
 `7fcfcd8060fd6dc6ae3face5507583fabb68726145e2adaefab6568a4dff9156`,
 semantic fingerprint
 `05acf9f8dcee50727774d12a6b56cc8452faa4b5325045d4722cb8863f495824`,
 and `narrow_bridge.py` SHA-256
 `51f978bbaf1548546d5be7b521e4feb0ce21cf964c7ee1fc5d8f91dcbd3f97ed`.
-This local build is not published or installed.
+It was independently audited but not published, registered, or installed as a
+production build. The ACL enforcement changes bridge bytes and the semantic
+behavior. Version 1.1.10 assigns a new version-bearing semantic fingerprint,
+source hash, and ZIP digest rather than reusing any 1.1.9 reviewed identity.
+The 1.1.10 candidate remains local and uninstalled.
+
+Local 1.1.10 candidate identity: ZIP SHA-256
+`e43327082373fe82f868dbad37239f1fad5ed6f54367a7ba786af738f4639d40`,
+semantic fingerprint
+`d1ac487ac17334882b7a2b94c2b7a6d552ae5b826f948e335683315906fd9c6f`,
+and `narrow_bridge.py` SHA-256
+`c67b9bfc87544d1ab81837fa1dc457eaabaa93703da83ca70c88433d9a3a275f`.
 
 The bridge accepts no screenshot filename from the client. It generates a UUID
 name below `special://temp/kodi-lab-bridge`, confirms that name is absent, asks
@@ -58,16 +69,25 @@ opened descriptor. Path and handle identity are compared only when both have
 usable nonzero device and file identifiers. A zero link count or identifier is
 unknown metadata, not proof of a bad file.
 
-When Windows identity or link metadata is unavailable, the compensating controls
-are the Kodi-owned temporary namespace, an unpredictable candidate name that
-was absent before capture, strict direct-child containment, no-follow opening,
-regular-file mode, one-handle bounded complete read, PNG validation, and
-immediate cleanup. The root must reside in a Kodi user directory with access
-controls that exclude other local users. Python before 3.13 does not make
-`mkdir(..., 0o700)` or `chmod(..., 0o700)` an ACL guarantee on Windows. A
-portable Kodi installation in a shared writable location therefore does not
-meet the fallback trust assumption. Native Windows validation must confirm the
-actual Kodi temp ACL and `CreateFileW` behavior before production use.
+Windows now creates `special://temp/kodi-lab-bridge` with a protected DACL
+containing full-access ACEs only for the current Kodi account and SYSTEM. The
+ACEs inherit to Kodi-created candidate files. The bridge then opens the child
+directory without following a reparse point and verifies its owner is the
+current account, its DACL is protected, its ACEs grant the account full access,
+and no other principal has an ACE. An existing child is verified, not silently
+repaired. An unknown owner, ACL, file type, or security API result fails closed.
+The parent Kodi temp ACL is not changed. A read/write sharing handle to the
+verified child is held without delete sharing throughout capture and readback,
+so another user with parent `DELETE_CHILD` rights cannot replace the child while
+the candidate is used. No elevation or external Python package is needed.
+
+Root privacy is required for both Windows modes. Identity metadata compares
+the observations that exist, but even full path/handle identity cannot prove
+which user wrote the candidate before the first observation if the root is
+shared. When identity or link metadata is incomplete, the verified private
+root, unpredictable absent name, no-follow open, bounded one-handle read, PNG
+validation, and cleanup provide the fallback assurance. `mkdir(..., 0o700)`
+alone remains insufficient on Windows Python before 3.13.
 
 There is no useful defense against a process already able to act as the Kodi
 user and modify the bridge temp directory between Kodi's path-based request
@@ -82,9 +102,14 @@ path-only screenshot API.
 
 Malformed Kodi image bytes, short reads, changed files, reparse points, and
 known hard links fail closed. Cleanup failure prevents a successful pixel
-response. Failure details are fixed internal reason strings with no path or
-pixel data; the authenticated protocol still returns its existing generic
-status (`screenshot_invalid`, `screenshot_too_large`, or capture/cleanup error).
+response. Root ACL uncertainty returns the existing `screenshot_capture_failed`
+status with fixed internal reason `privacy_query_failed`; an observed nonprivate
+root uses `root_not_private`. Successful Windows reads log only
+`windows_full_identity` or `windows_private_root_fallback`; unavailable
+`GetFileInformationByHandle` logs `windows_metadata_api_failed`, and ACL
+rejection/query failure logs `windows_privacy_failed`. No path, SID, account,
+exception, ACL dump, or image bytes enter these diagnostics. The authenticated
+external screenshot protocol and status vocabulary are unchanged.
 
 ## Compatibility and validation
 
@@ -110,11 +135,12 @@ zero, the adapter relies on the no-follow handle and private random candidate
 instead of reporting an identity mismatch. `st_nlink == 0` is likewise not a
 link count of zero. Known counts above one still reject hard links.
 
-Linux tests exercise real POSIX files and deterministic Windows metadata
-semantics. This repository has no Windows CI, Windows Kodi fixture, or native
-Windows unit-test runner. A native Windows Kodi 19–22 capture in an isolated
-test profile, including zero-metadata and reparse behavior, remains required
-before promoting the 1.1.9 candidate to a reviewed production build. The
+Linux tests exercise real POSIX files and deterministic Windows metadata and
+ACL-decision semantics. This repository has no Windows CI, Windows Kodi
+fixture, or native Windows unit-test runner. Native Windows Kodi 19–22
+validation of the ctypes wrappers, ACL creation and verification, zero-metadata
+fallback, delete-sharing guard, and reparse behavior remains required before
+promoting the 1.1.10 candidate to a reviewed production build. The
 previously successful Kodi 19.5 Linux production-profile screenshot is
 historical evidence for 1.1.8 only; this slice does not repeat it.
 
@@ -122,5 +148,9 @@ References: [Python `os.stat_result`](https://docs.python.org/3.12/library/os.ht
 [Python Windows `mkdir`](https://docs.python.org/3.13/library/os.html#os.mkdir),
 [Microsoft `CreateFileW`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew),
 [Microsoft `GetFileInformationByHandle`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle),
+[Microsoft `CreateDirectoryW`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createdirectoryw),
+[Microsoft `GetSecurityInfo`](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo),
+[Microsoft security descriptor control](https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-control),
+[Microsoft `GetAce`](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-getace),
 [Kodi Python libraries](https://kodi.wiki/view/Python_libraries), and
 [Kodi special paths](https://kodi.wiki/view/Special_protocol).

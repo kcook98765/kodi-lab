@@ -50,14 +50,14 @@ BRIDGE_1_1_8_SEMANTIC_FINGERPRINT = (
 BRIDGE_1_1_8_ZIP_SHA256 = (
     "20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762"
 )
-BRIDGE_1_1_9_SEMANTIC_FINGERPRINT = (
-    "05acf9f8dcee50727774d12a6b56cc8452faa4b5325045d4722cb8863f495824"
+BRIDGE_1_1_10_SEMANTIC_FINGERPRINT = (
+    "d1ac487ac17334882b7a2b94c2b7a6d552ae5b826f948e335683315906fd9c6f"
 )
-BRIDGE_1_1_9_ZIP_SHA256 = (
-    "7fcfcd8060fd6dc6ae3face5507583fabb68726145e2adaefab6568a4dff9156"
+BRIDGE_1_1_10_ZIP_SHA256 = (
+    "e43327082373fe82f868dbad37239f1fad5ed6f54367a7ba786af738f4639d40"
 )
-BRIDGE_1_1_9_SOURCE_SHA256 = (
-    "51f978bbaf1548546d5be7b521e4feb0ce21cf964c7ee1fc5d8f91dcbd3f97ed"
+BRIDGE_1_1_10_SOURCE_SHA256 = (
+    "c67b9bfc87544d1ab81837fa1dc457eaabaa93703da83ca70c88433d9a3a275f"
 )
 HISTORICAL_1_1_8_ZIP = Path(__file__).parents[1] / "fixtures/reviewed-bridge-1.1.8.zip"
 
@@ -239,10 +239,10 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.9"
-    assert bridge["BUILD_FINGERPRINT"] == BRIDGE_1_1_9_SEMANTIC_FINGERPRINT
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.10"
+    assert bridge["BUILD_FINGERPRINT"] == BRIDGE_1_1_10_SEMANTIC_FINGERPRINT
     assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_8_SEMANTIC_FINGERPRINT
-    assert hashlib.sha256(ADDON.read_bytes()).hexdigest() == BRIDGE_1_1_9_SOURCE_SHA256
+    assert hashlib.sha256(ADDON.read_bytes()).hexdigest() == BRIDGE_1_1_10_SOURCE_SHA256
     dependency = descriptor.find("./requires/import")
     assert dependency is not None and dependency.attrib == {
         "addon": "xbmc.python",
@@ -320,7 +320,7 @@ def test_deterministic_successor_review_archive(
     first_digest = build_archive(ADDON_ROOT, first)
     second_digest = build_archive(ADDON_ROOT, second)
     assert first.read_bytes() == second.read_bytes()
-    assert first_digest == second_digest == BRIDGE_1_1_9_ZIP_SHA256
+    assert first_digest == second_digest == BRIDGE_1_1_10_ZIP_SHA256
 
     expected = (
         "",
@@ -656,6 +656,7 @@ def test_posix_screenshot_identity_replacement_is_rejected(
         (0, None, None, None),
         (1, 0, None, None),
         (0, 0, 0, None),
+        (0, 0, 0, "api_failure"),
     ],
 )
 def test_windows_semantics_accept_open_handle_with_unavailable_metadata(
@@ -664,9 +665,18 @@ def test_windows_semantics_accept_open_handle_with_unavailable_metadata(
     links: int,
     inode: int | None,
     device: int | None,
-    native_info: tuple[int, int] | None,
+    native_info: tuple[int, int] | str | None,
 ) -> None:
     bridge = _load(monkeypatch, temp_root=tmp_path)
+    messages: list[str] = []
+    monkeypatch.setattr(
+        sys.modules["xbmc"], "log", lambda message, _level: messages.append(message)
+    )
+    monkeypatch.setitem(
+        bridge["_read_screenshot"].__globals__,
+        "_windows_private_root",
+        lambda _root, create=False, hold=False: None,
+    )
     root = Path(bridge["_screenshot_root"]())
     candidate = root / ("capture-" + "f" * 32 + ".png")
     candidate.write_bytes(_png())
@@ -690,10 +700,14 @@ def test_windows_semantics_accept_open_handle_with_unavailable_metadata(
         "_windows_open_nofollow",
         lambda path: os.open(path, os.O_RDONLY | os.O_NOFOLLOW),
     )
+
+    def handle_info(_fd: int) -> tuple[int, int] | None:
+        if native_info == "api_failure":
+            raise OSError("HOSTILE_ACCOUNT_PATH_EXCEPTION_SECRET")
+        return cast(tuple[int, int] | None, native_info)
+
     monkeypatch.setitem(
-        bridge["_read_screenshot"].__globals__,
-        "_windows_handle_info",
-        lambda _fd: native_info,
+        bridge["_read_screenshot"].__globals__, "_windows_handle_info", handle_info
     )
     assert (
         validate_external_png(
@@ -701,6 +715,156 @@ def test_windows_semantics_accept_open_handle_with_unavailable_metadata(
         ).width
         == 4
     )
+    mode = (
+        "windows_full_identity"
+        if links == 1 and inode != 0 and device != 0
+        else "windows_private_root_fallback"
+    )
+    assert messages[-1] == "[service.kodi_lab_bridge] screenshot_assurance=" + mode
+    if native_info is None or native_info == "api_failure":
+        assert messages[0].endswith("windows_metadata_api_failed")
+    assert all("HOSTILE_" not in message for message in messages)
+
+
+def test_windows_private_directory_acl_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    account = "S-1-5-21-100-200-300-1001"
+    full = 0x1F01FF
+    private = [(0, 3, full, account), (0, 3, full, "S-1-5-18")]
+    check = bridge["_private_windows_acl"]
+    assert check(account, account, True, private)
+    assert not check("S-1-5-21-999", account, True, private)
+    assert not check(account, account, False, private)
+    assert not check(account, account, True, [*private, (0, 3, full, "S-1-1-0")])
+    assert not check(account, account, True, [*private, (0, 3, full, "S-1-5-32-545")])
+    assert not check(account, account, True, [(0, 3, 0x1, account)])
+    assert not check(account, account, True, [(0, 8, full, account)])
+    assert not check(account, account, True, [(1, 3, full, account)])
+    sddl = bridge["_windows_private_root_sddl"](account)
+    assert sddl == f"D:P(A;OICI;FA;;;{account})(A;OICI;FA;;;SY)"
+    assert ";;;BA" not in sddl
+    assert ";;;WD" not in sddl
+    assert ";;;BU" not in sddl
+
+
+@pytest.mark.parametrize("reason", ["root_not_private", "privacy_query_failed"])
+def test_windows_privacy_failure_rejects_before_candidate_open(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, reason: str
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    root = Path(bridge["_screenshot_root"]())
+    candidate = root / ("capture-" + "a" * 32 + ".png")
+    candidate.write_bytes(_png())
+    globals_ = bridge["_read_screenshot"].__globals__
+
+    def reject(_root: str, create: bool = False, hold: bool = False) -> None:
+        assert not create
+        assert hold
+        raise bridge["ScreenshotError"]("screenshot_capture_failed", reason)
+
+    monkeypatch.setitem(globals_, "_windows_private_root", reject)
+    monkeypatch.setitem(
+        globals_,
+        "_windows_open_nofollow",
+        lambda _path: pytest.fail("opened candidate"),
+    )
+    with pytest.raises(bridge["ScreenshotError"]) as caught:
+        bridge["_read_screenshot"](str(candidate), str(root), "nt")
+    assert (caught.value.code, caught.value.reason) == (
+        "screenshot_capture_failed",
+        reason,
+    )
+
+
+def test_windows_privacy_query_diagnostic_excludes_hostile_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    import ctypes
+
+    hostile = "HOSTILE_PATH_ACCOUNT_EXCEPTION_SECRET"
+    messages: list[str] = []
+    monkeypatch.setattr(
+        sys.modules["xbmc"], "log", lambda message, _level: messages.append(message)
+    )
+    monkeypatch.setattr(
+        ctypes,
+        "WinDLL",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError(hostile)),
+        raising=False,
+    )
+    with pytest.raises(bridge["ScreenshotError"]) as caught:
+        bridge["_windows_private_root"](str(tmp_path / hostile))
+    assert (caught.value.code, caught.value.reason) == (
+        "screenshot_capture_failed",
+        "privacy_query_failed",
+    )
+    assert messages == [
+        "[service.kodi_lab_bridge] screenshot_assurance=windows_privacy_failed"
+    ]
+    bridge["_screenshot_diagnostic"](hostile)
+    assert len(messages) == 1
+
+
+def test_windows_capture_holds_private_root_through_readback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    events: list[str] = []
+    bridge = _load(monkeypatch, temp_root=tmp_path, screenshot_png=_png())
+    globals_ = bridge["_capture_png"].__globals__
+    proxy = _module("simulated_windows_os")
+    proxy.__dict__.update(vars(os))
+    proxy.__dict__["name"] = "nt"
+    monkeypatch.setitem(globals_, "os", proxy)
+
+    def private_root(_root: str, create: bool = True, hold: bool = False) -> Any:
+        events.append("hold" if hold else "verify")
+        if create:
+            Path(_root).mkdir(exist_ok=True)
+        if hold:
+            return lambda: events.append("release")
+        return None
+
+    monkeypatch.setitem(globals_, "_windows_private_root", private_root)
+    monkeypatch.setitem(
+        globals_, "_windows_open_nofollow", lambda path: os.open(path, os.O_RDONLY)
+    )
+    monkeypatch.setitem(globals_, "_windows_handle_info", lambda _fd: (0, 1))
+    assert validate_external_png(bridge["_capture_png"]()).width == 4
+    assert events == ["verify", "hold", "hold", "release", "release"]
+
+
+def test_windows_privacy_failure_stops_capture_without_accepting_bytes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bridge = _load(monkeypatch, temp_root=tmp_path, screenshot_png=_png())
+    globals_ = bridge["_capture_png"].__globals__
+
+    def reject(_path: str, _root: str) -> bytes:
+        raise bridge["ScreenshotError"](
+            "screenshot_capture_failed", "privacy_query_failed"
+        )
+
+    monkeypatch.setitem(globals_, "_read_screenshot", reject)
+    monkeypatch.setitem(
+        globals_,
+        "time",
+        _module(
+            "no_retry_time",
+            time=time.time,
+            monotonic=time.monotonic,
+            sleep=lambda _duration: pytest.fail("retried"),
+        ),
+    )
+    with pytest.raises(bridge["ScreenshotError"]) as caught:
+        bridge["_capture_png"]()
+    assert (caught.value.code, caught.value.reason) == (
+        "screenshot_capture_failed",
+        "privacy_query_failed",
+    )
+    assert list((tmp_path / "kodi-lab-bridge").iterdir()) == []
 
 
 def test_windows_semantics_detects_candidate_replacement_when_identity_exists(
@@ -713,6 +877,9 @@ def test_windows_semantics_detects_candidate_replacement_when_identity_exists(
     candidate.write_bytes(_png())
     replacement.write_bytes(_png())
     globals_ = bridge["_read_screenshot"].__globals__
+    monkeypatch.setitem(
+        globals_, "_windows_private_root", lambda _root, create=False, hold=False: None
+    )
     monkeypatch.setitem(
         globals_,
         "_windows_open_nofollow",
@@ -732,6 +899,9 @@ def test_windows_semantics_rejects_reparse_and_known_hardlink(
     candidate = root / ("capture-" + "3" * 32 + ".png")
     candidate.write_bytes(_png())
     globals_ = bridge["_read_screenshot"].__globals__
+    monkeypatch.setitem(
+        globals_, "_windows_private_root", lambda _root, create=False, hold=False: None
+    )
     monkeypatch.setitem(
         globals_, "_windows_open_nofollow", lambda path: os.open(path, os.O_RDONLY)
     )

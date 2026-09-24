@@ -26,10 +26,10 @@ import xbmcvfs
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.9"
+ADDON_VERSION = "1.1.10"
 CAPABILITIES = ["screenshot", "workspace_deployment"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.9|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
+    b"kodi-lab-narrow-bridge|1.1.10|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ADDON_ROOT = "special://home/addons"
@@ -85,6 +85,22 @@ class ScreenshotError(Exception):
         self.code = code
         self.reason = reason
         super().__init__(code)
+
+
+_SCREENSHOT_DIAGNOSTICS = frozenset(
+    {
+        "windows_full_identity",
+        "windows_private_root_fallback",
+        "windows_privacy_failed",
+        "windows_metadata_api_failed",
+    }
+)
+
+
+def _screenshot_diagnostic(code):
+    if code not in _SCREENSHOT_DIAGNOSTICS:
+        return
+    xbmc.log("[service.kodi_lab_bridge] screenshot_assurance=" + code, xbmc.LOGINFO)
 
 
 class OperationError(Exception):
@@ -326,6 +342,315 @@ def _unsafe_file(metadata):
     return bool(reparse and getattr(metadata, "st_file_attributes", 0) & reparse)
 
 
+def _private_windows_acl(owner, account, protected, entries):
+    """Accept only an account-owned, noninherited, closed directory DACL."""
+    if owner != account or not protected or not entries:
+        return False
+    account_access = False
+    for ace_type, flags, mask, sid in entries:
+        if ace_type != 0 or sid not in (account, "S-1-5-18"):
+            return False
+        if mask & 0x1F01FF != 0x1F01FF or flags & ~0x03:
+            return False
+        if sid == account:
+            account_access = True
+    return account_access
+
+
+def _windows_private_root_sddl(account):
+    return "D:P(A;OICI;FA;;;" + account + ")(A;OICI;FA;;;SY)"
+
+
+def _windows_private_root(path, create=True, hold=False):
+    """Create the bridge child with a protected DACL, then verify by handle.
+
+    An existing child is verified only. No parent or existing ACL is changed.
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        security = ctypes.WinDLL("advapi32", use_last_error=True)
+
+        def api(library, name, arguments, result):
+            function = getattr(library, name)
+            function.argtypes = arguments
+            function.restype = result
+            return function
+
+        close = api(kernel, "CloseHandle", (wintypes.HANDLE,), wintypes.BOOL)
+        free = api(kernel, "LocalFree", (ctypes.c_void_p,), ctypes.c_void_p)
+        sid_text = api(
+            security,
+            "ConvertSidToStringSidW",
+            (ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)),
+            wintypes.BOOL,
+        )
+
+        def sid_string(pointer):
+            string = ctypes.c_void_p()
+            if not sid_text(pointer, ctypes.byref(string)):
+                raise OSError
+            try:
+                return ctypes.wstring_at(string.value)
+            finally:
+                free(string)
+
+        token = wintypes.HANDLE()
+        open_token = api(
+            security,
+            "OpenProcessToken",
+            (wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)),
+            wintypes.BOOL,
+        )
+        get_process = api(kernel, "GetCurrentProcess", (), wintypes.HANDLE)
+        if not open_token(get_process(), 0x0008, ctypes.byref(token)):
+            raise OSError
+        try:
+            get_token = api(
+                security,
+                "GetTokenInformation",
+                (
+                    wintypes.HANDLE,
+                    ctypes.c_int,
+                    ctypes.c_void_p,
+                    wintypes.DWORD,
+                    ctypes.POINTER(wintypes.DWORD),
+                ),
+                wintypes.BOOL,
+            )
+            needed = wintypes.DWORD()
+            get_token(token, 1, None, 0, ctypes.byref(needed))
+            if not 16 <= needed.value <= 4096:
+                raise OSError
+            buffer = ctypes.create_string_buffer(needed.value)
+            if not get_token(token, 1, buffer, needed, ctypes.byref(needed)):
+                raise OSError
+            account = sid_string(
+                ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0]
+            )
+        finally:
+            close(token)
+
+        descriptor = ctypes.c_void_p()
+        convert = api(
+            security,
+            "ConvertStringSecurityDescriptorToSecurityDescriptorW",
+            (
+                wintypes.LPCWSTR,
+                wintypes.DWORD,
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.c_void_p,
+            ),
+            wintypes.BOOL,
+        )
+        # P blocks parent inheritance. OI/CI give only this account and SYSTEM
+        # inherited access to screenshot files created by Kodi in the child.
+        sddl = _windows_private_root_sddl(account)
+        if not convert(sddl, 1, ctypes.byref(descriptor), None):
+            raise OSError
+
+        class SecurityAttributes(ctypes.Structure):
+            _fields_ = [
+                ("length", wintypes.DWORD),
+                ("descriptor", ctypes.c_void_p),
+                ("inherit", wintypes.BOOL),
+            ]
+
+        try:
+            if create:
+                attributes = SecurityAttributes(
+                    ctypes.sizeof(SecurityAttributes), descriptor, False
+                )
+                make_directory = api(
+                    kernel,
+                    "CreateDirectoryW",
+                    (wintypes.LPCWSTR, ctypes.POINTER(SecurityAttributes)),
+                    wintypes.BOOL,
+                )
+                if (
+                    not make_directory(path, ctypes.byref(attributes))
+                    and ctypes.get_last_error() != 183
+                ):
+                    raise OSError
+        finally:
+            free(descriptor)
+
+        create_file = api(
+            kernel,
+            "CreateFileW",
+            (
+                wintypes.LPCWSTR,
+                wintypes.DWORD,
+                wintypes.DWORD,
+                ctypes.c_void_p,
+                wintypes.DWORD,
+                wintypes.DWORD,
+                wintypes.HANDLE,
+            ),
+            wintypes.HANDLE,
+        )
+        # Share read/write but deny delete while a capture is using this root.
+        handle = create_file(path, 0x20080, 3, None, 3, 0x02200000, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise OSError
+        release = None
+        try:
+
+            class FileInfo(ctypes.Structure):
+                _fields_ = [
+                    ("attributes", wintypes.DWORD),
+                    ("created", wintypes.FILETIME),
+                    ("accessed", wintypes.FILETIME),
+                    ("written", wintypes.FILETIME),
+                    ("volume", wintypes.DWORD),
+                    ("size_high", wintypes.DWORD),
+                    ("size_low", wintypes.DWORD),
+                    ("links", wintypes.DWORD),
+                    ("index_high", wintypes.DWORD),
+                    ("index_low", wintypes.DWORD),
+                ]
+
+            get_file_info = api(
+                kernel,
+                "GetFileInformationByHandle",
+                (wintypes.HANDLE, ctypes.POINTER(FileInfo)),
+                wintypes.BOOL,
+            )
+            file_info = FileInfo()
+            if not get_file_info(handle, ctypes.byref(file_info)):
+                raise OSError
+            if file_info.attributes & 0x400 or not file_info.attributes & 0x10:
+                _screenshot_diagnostic("windows_privacy_failed")
+                raise ScreenshotError("screenshot_capture_failed", "root_not_private")
+
+            get_security = api(
+                security,
+                "GetSecurityInfo",
+                (
+                    wintypes.HANDLE,
+                    wintypes.DWORD,
+                    wintypes.DWORD,
+                    ctypes.POINTER(ctypes.c_void_p),
+                    ctypes.c_void_p,
+                    ctypes.POINTER(ctypes.c_void_p),
+                    ctypes.c_void_p,
+                    ctypes.POINTER(ctypes.c_void_p),
+                ),
+                wintypes.DWORD,
+            )
+            owner = ctypes.c_void_p()
+            dacl = ctypes.c_void_p()
+            observed = ctypes.c_void_p()
+            if get_security(
+                handle,
+                1,
+                5,
+                ctypes.byref(owner),
+                None,
+                ctypes.byref(dacl),
+                None,
+                ctypes.byref(observed),
+            ):
+                raise OSError
+            try:
+                control = wintypes.WORD()
+                revision = wintypes.DWORD()
+                get_control = api(
+                    security,
+                    "GetSecurityDescriptorControl",
+                    (
+                        ctypes.c_void_p,
+                        ctypes.POINTER(wintypes.WORD),
+                        ctypes.POINTER(wintypes.DWORD),
+                    ),
+                    wintypes.BOOL,
+                )
+                if not get_control(
+                    observed, ctypes.byref(control), ctypes.byref(revision)
+                ):
+                    raise OSError
+                if not owner.value or not dacl.value:
+                    _screenshot_diagnostic("windows_privacy_failed")
+                    raise ScreenshotError(
+                        "screenshot_capture_failed", "root_not_private"
+                    )
+
+                class AclSize(ctypes.Structure):
+                    _fields_ = [
+                        ("count", wintypes.DWORD),
+                        ("used", wintypes.DWORD),
+                        ("free", wintypes.DWORD),
+                    ]
+
+                get_acl = api(
+                    security,
+                    "GetAclInformation",
+                    (ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.c_int),
+                    wintypes.BOOL,
+                )
+                acl_size = AclSize()
+                if not get_acl(
+                    dacl, ctypes.byref(acl_size), ctypes.sizeof(acl_size), 2
+                ):
+                    raise OSError
+                if acl_size.count > 16:
+                    _screenshot_diagnostic("windows_privacy_failed")
+                    raise ScreenshotError(
+                        "screenshot_capture_failed", "root_not_private"
+                    )
+                get_ace = api(
+                    security,
+                    "GetAce",
+                    (ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)),
+                    wintypes.BOOL,
+                )
+                entries = []
+                for index in range(acl_size.count):
+                    ace = ctypes.c_void_p()
+                    if not get_ace(dacl, index, ctypes.byref(ace)):
+                        raise OSError
+                    header = ctypes.string_at(ace, 8)
+                    if header[0] != 0 or int.from_bytes(header[2:4], "little") < 16:
+                        _screenshot_diagnostic("windows_privacy_failed")
+                        raise ScreenshotError(
+                            "screenshot_capture_failed", "root_not_private"
+                        )
+                    entries.append(
+                        (
+                            header[0],
+                            header[1],
+                            int.from_bytes(header[4:8], "little"),
+                            sid_string(ace.value + 8),
+                        )
+                    )
+                if not _private_windows_acl(
+                    sid_string(owner), account, bool(control.value & 0x1000), entries
+                ):
+                    _screenshot_diagnostic("windows_privacy_failed")
+                    raise ScreenshotError(
+                        "screenshot_capture_failed", "root_not_private"
+                    )
+            finally:
+                free(observed)
+            if hold:
+
+                def release():
+                    close(handle)
+        finally:
+            if release is None:
+                close(handle)
+        return release
+    except ScreenshotError:
+        raise
+    except Exception:
+        _screenshot_diagnostic("windows_privacy_failed")
+        raise ScreenshotError(
+            "screenshot_capture_failed", "privacy_query_failed"
+        ) from None
+
+
 def _screenshot_root():
     temporary = os.path.abspath(xbmcvfs.translatePath("special://temp"))
     root = os.path.abspath(xbmcvfs.translatePath(SCREENSHOT_ROOT))
@@ -335,7 +660,9 @@ def _screenshot_root():
     except ValueError as error:
         raise ScreenshotError("screenshot_capture_failed") from error
     try:
-        if not os.path.exists(root):
+        if os.name == "nt":
+            _windows_private_root(root)
+        elif not os.path.exists(root):
             os.mkdir(root, 0o700)
         metadata = os.lstat(root)
         if not stat.S_ISDIR(metadata.st_mode) or _unsafe_file(metadata):
@@ -605,6 +932,7 @@ class ScreenshotFileAssurance:
 
     def __init__(self, platform=None):
         self.platform = os.name if platform is None else platform
+        self.mode = None
 
     def open(self, path, before):
         if self.platform == "nt":
@@ -618,7 +946,12 @@ class ScreenshotFileAssurance:
         if not stat.S_ISREG(opened.st_mode):
             raise ScreenshotError("screenshot_invalid", "candidate_not_regular")
         if self.platform == "nt":
-            info = _windows_handle_info(descriptor)
+            try:
+                info = _windows_handle_info(descriptor)
+            except Exception:
+                info = None
+            if info is None:
+                _screenshot_diagnostic("windows_metadata_api_failed")
             reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
             if _unsafe_file(opened) or (info and info[0] & reparse):
                 raise ScreenshotError("screenshot_invalid", "candidate_reparse")
@@ -632,6 +965,13 @@ class ScreenshotFileAssurance:
             prior, current = _file_identity(before), _file_identity(opened)
             if prior and current and prior != current:
                 raise ScreenshotError("screenshot_invalid", "identity_changed")
+            self.before_identity = prior
+            self.opened_identity = current
+            self.known_single_link = (
+                before.st_nlink == 1
+                or opened.st_nlink == 1
+                or bool(info and info[1] == 1)
+            )
         else:
             if before.st_nlink != 1 or opened.st_nlink != 1:
                 raise ScreenshotError("screenshot_invalid", "candidate_hardlink")
@@ -656,9 +996,24 @@ class ScreenshotFileAssurance:
             raise ScreenshotError("screenshot_invalid", "candidate_reparse")
         if self.platform != "nt" and current_path.st_nlink != 1:
             raise ScreenshotError("screenshot_invalid", "candidate_hardlink")
+        if self.platform == "nt" and (after.st_nlink > 1 or current_path.st_nlink > 1):
+            raise ScreenshotError("screenshot_invalid", "candidate_hardlink")
         current, held = _file_identity(current_path), _file_identity(opened)
         if current and held and current != held:
             raise ScreenshotError("screenshot_invalid", "identity_changed")
+        if self.platform == "nt":
+            final = _file_identity(after)
+            if final and held and final != held:
+                raise ScreenshotError("screenshot_invalid", "identity_changed")
+            self.mode = (
+                "windows_full_identity"
+                if (
+                    self.before_identity
+                    and self.before_identity == self.opened_identity == final == current
+                    and self.known_single_link
+                )
+                else "windows_private_root_fallback"
+            )
 
 
 def _read_screenshot(path, root=None, platform=None):
@@ -671,6 +1026,9 @@ def _read_screenshot(path, root=None, platform=None):
     ):
         raise ScreenshotError("screenshot_invalid", "candidate_path")
     assurance = ScreenshotFileAssurance(platform)
+    guard = None
+    if assurance.platform == "nt":
+        guard = _windows_private_root(root, create=False, hold=True)
     try:
         before = os.lstat(candidate)
         if _unsafe_file(before):
@@ -707,16 +1065,35 @@ def _read_screenshot(path, root=None, platform=None):
         raise
     except OSError as error:
         raise ScreenshotError("screenshot_capture_failed", "candidate_io") from error
+    finally:
+        if guard is not None:
+            guard()
     payload = b"".join(chunks)
     if len(payload) > MAX_PNG:
         raise ScreenshotError("screenshot_too_large", "size_too_large")
     if len(payload) != opened.st_size:
         raise ScreenshotError("screenshot_invalid", "short_read")
-    return _normalize_png(payload)
+    result = _normalize_png(payload)
+    if assurance.mode is not None:
+        _screenshot_diagnostic(assurance.mode)
+    return result
 
 
 def _capture_png():
     root = _screenshot_root()
+    guard = (
+        _windows_private_root(root, create=False, hold=True)
+        if os.name == "nt"
+        else None
+    )
+    try:
+        return _capture_png_in_root(root)
+    finally:
+        if guard is not None:
+            guard()
+
+
+def _capture_png_in_root(root):
     _cleanup_stale_screenshots(root)
     filename = "capture-" + uuid.uuid4().hex + ".png"
     native_path = os.path.join(root, filename)
@@ -736,7 +1113,10 @@ def _capture_png():
                 try:
                     return _read_screenshot(native_path, root)
                 except ScreenshotError as error:
-                    if error.code == "screenshot_too_large":
+                    if error.code == "screenshot_too_large" or error.reason in {
+                        "root_not_private",
+                        "privacy_query_failed",
+                    }:
                         raise
                     last_error = error
             time.sleep(0.02)
@@ -1775,6 +2155,7 @@ class Handler(BaseHTTPRequestHandler):
                     "png_zlib",
                     "png_filter",
                     "root_not_private",
+                    "privacy_query_failed",
                 }:
                     xbmc.log(
                         "[service.kodi_lab_bridge] screenshot rejected: "
