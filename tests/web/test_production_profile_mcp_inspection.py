@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from collections.abc import Iterator
@@ -15,7 +16,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
 from kodi_lab.application.production_inspection import PRODUCTION_INSPECTION_PRESET_ID
 from kodi_lab.kodi.external import NativeExternalKodiVerifier
-from kodi_lab.mcp.transport import MCP_PROTOCOL_VERSION
+from kodi_lab.mcp import transport as transport_module
+from kodi_lab.mcp.authorization import McpAuthorizationError
+from kodi_lab.mcp.transport import (
+    MCP_PROTOCOL_VERSION,
+    mcp_audit_request_correlation,
+)
 from kodi_lab.production_profile_lifecycle import (
     ProductionLifecycleTransition,
     ProductionProfileLifecycle,
@@ -38,6 +44,66 @@ class _RecordHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self._records.append(record)
+
+
+def _audit_payloads(records: list[logging.LogRecord]) -> list[dict[str, object]]:
+    return [
+        cast(dict[str, object], json.loads(message.partition("mcp_request ")[2]))
+        for record in records
+        if "mcp_request " in (message := record.getMessage())
+    ]
+
+
+def _tool_service(client: TestClient) -> Any:
+    server = cast(FastAPI, client.app).state.kodi_lab.mcp_transport.server
+    entry = server.get_request_handler("tools/call")
+    assert entry is not None
+    return inspect.getclosurevars(entry.handler).nonlocals["tools"]
+
+
+def _call_tool(
+    client: TestClient,
+    token: str,
+    *,
+    request_id: str,
+    tool_name: str,
+    arguments: dict[str, object] | None = None,
+) -> httpx.Response:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+        "Mcp-Method": "tools/call",
+    }
+    if all(32 <= ord(character) < 127 for character in tool_name):
+        headers["Mcp-Name"] = tool_name
+    return cast(
+        httpx.Response,
+        client.post(
+            "/mcp",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": arguments or {},
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": (
+                            MCP_PROTOCOL_VERSION
+                        ),
+                        "io.modelcontextprotocol/clientCapabilities": {},
+                        "io.modelcontextprotocol/clientInfo": {
+                            "name": "audit-boundary-test",
+                            "version": "1",
+                        },
+                    },
+                },
+            },
+        ),
+    )
 
 
 @pytest.fixture
@@ -135,11 +201,13 @@ def test_exact_web_authority_and_three_tool_transport(
             "addon_list",
         ]
         assert len({item.request_id for item in invocations}) == 3
+        payloads = _audit_payloads(mcp_audit_records)
         for item in invocations:
             assert any(
-                f"tool={item.tool_name} " in record.getMessage()
-                and f"protocol_request_id={item.request_id} " in record.getMessage()
-                for record in mcp_audit_records
+                payload["tool"] == item.tool_name
+                and payload["protocol_request"]
+                == mcp_audit_request_correlation(item.request_id)
+                for payload in payloads
             )
         audit_messages = [
             record.getMessage()
@@ -339,10 +407,13 @@ def test_production_credential_failures_do_not_inherit_authority(
             if "mcp_request " in record.getMessage()
         ]
         assert len(audit_messages) == 1
-        assert "tool=target_status " in audit_messages[0]
-        assert "protocol_request_id=other-client " in audit_messages[0]
-        assert "outcome=target_not_found_or_not_authorized" in audit_messages[0]
-        assert "outcome=success" not in audit_messages[0]
+        payload = _audit_payloads(mcp_audit_records)[0]
+        assert payload["tool"] == "target_status"
+        assert payload["protocol_request"] == mcp_audit_request_correlation(
+            "other-client"
+        )
+        assert payload["outcome"] == "authorization_denied"
+        assert payload["result_code"] == "target_not_found_or_not_authorized"
         assert other_token not in audit_messages[0]
     web.logout()
 
@@ -397,11 +468,221 @@ def test_repeated_read_correlation_id_is_independently_audited(
             if "mcp_request " in record.getMessage()
         ]
         assert len(audit_messages) == 2
-        assert all("tool=target_list " in message for message in audit_messages)
+        payloads = _audit_payloads(mcp_audit_records)
+        assert all(payload["tool"] == "target_list" for payload in payloads)
         assert all(
-            f"protocol_request_id={request_id} " in message
-            for message in audit_messages
+            payload["protocol_request"] == mcp_audit_request_correlation(request_id)
+            for payload in payloads
         )
-        assert all("outcome=success" in message for message in audit_messages)
+        assert all(payload["outcome"] == "success" for payload in payloads)
         assert token not in "\n".join(audit_messages)
+    web.logout()
+
+
+def test_dispatched_tool_calls_emit_exactly_one_terminal_audit(
+    client: TestClient,
+    external_kodi: FakeExternalKodi,
+    mcp_audit_records: list[logging.LogRecord],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    web, ready = _ready_target(client, external_kodi)
+    with ProductionProfileMcpInspection(
+        web, mcp_client=cast(Any, client)
+    ) as inspection:
+        inspection.establish_authority(target_id=ready.target_id, identity_generation=1)
+        token = inspection._token
+        assert token is not None
+        tools = _tool_service(client)
+        original = tools.target_list
+
+        successful = _call_tool(
+            client,
+            token,
+            request_id="terminal-success",
+            tool_name="target_list",
+        )
+        assert successful.json()["result"]["isError"] is False
+
+        denied = _call_tool(
+            client,
+            token,
+            request_id="terminal-denied",
+            tool_name="target_status",
+            arguments={"target_id": "14000000-0000-4000-8000-000000000099"},
+        )
+        assert denied.json()["result"]["isError"] is True
+
+        def tool_failure(*_args: object, **_kwargs: object) -> None:
+            raise McpAuthorizationError("target_unreachable")
+
+        monkeypatch.setattr(tools, "target_list", tool_failure)
+        failed = _call_tool(
+            client,
+            token,
+            request_id="terminal-tool-error",
+            tool_name="target_list",
+        )
+        assert failed.json()["result"]["structuredContent"] == {
+            "error": "target_unreachable"
+        }
+
+        def unexpected(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("injected adapter failure")
+
+        monkeypatch.setattr(tools, "target_list", unexpected)
+        internal = _call_tool(
+            client,
+            token,
+            request_id="terminal-internal-error",
+            tool_name="target_list",
+        )
+        assert internal.status_code == 200
+        assert "error" in internal.json()
+        monkeypatch.setattr(tools, "target_list", original)
+
+        payloads = _audit_payloads(mcp_audit_records)
+        assert len(payloads) == 4
+        assert [payload["outcome"] for payload in payloads] == [
+            "success",
+            "authorization_denied",
+            "tool_error",
+            "internal_error",
+        ]
+        assert [payload["result_code"] for payload in payloads] == [
+            "success",
+            "target_not_found_or_not_authorized",
+            "target_unreachable",
+            "internal_error",
+        ]
+        for request_id, payload in zip(
+            (
+                "terminal-success",
+                "terminal-denied",
+                "terminal-tool-error",
+                "terminal-internal-error",
+            ),
+            payloads,
+            strict=True,
+        ):
+            assert payload["protocol_request"] == mcp_audit_request_correlation(
+                request_id
+            )
+    web.logout()
+
+
+@pytest.mark.parametrize(
+    "request_id",
+    (
+        "line-one\nmcp_request forged=true",
+        "carriage\rreturn",
+        "tab\tand\x01control",
+        'quote"and\\backslash',
+        "x" * 32_000,
+        "Bearer fake-secret-value",
+    ),
+)
+def test_protocol_request_id_audit_is_hashed_bounded_and_single_line(
+    client: TestClient,
+    external_kodi: FakeExternalKodi,
+    mcp_audit_records: list[logging.LogRecord],
+    request_id: str,
+) -> None:
+    web, ready = _ready_target(client, external_kodi)
+    with ProductionProfileMcpInspection(
+        web, mcp_client=cast(Any, client)
+    ) as inspection:
+        inspection.establish_authority(target_id=ready.target_id, identity_generation=1)
+        token = inspection._token
+        assert token is not None
+        response = _call_tool(
+            client,
+            token,
+            request_id=request_id,
+            tool_name="target_list",
+        )
+        assert response.json()["result"]["isError"] is False
+        messages = [
+            record.getMessage()
+            for record in mcp_audit_records
+            if "mcp_request " in record.getMessage()
+        ]
+        assert len(messages) == 1
+        assert len(messages[0].splitlines()) == 1
+        assert len(messages[0].encode("utf-8")) < 1_024
+        assert request_id not in messages[0]
+        assert "Bearer fake-secret-value" not in messages[0]
+        payload = _audit_payloads(mcp_audit_records)[0]
+        assert payload["protocol_request"] == mcp_audit_request_correlation(request_id)
+    web.logout()
+
+
+def test_unrecognized_tool_name_audit_is_hashed_bounded_and_single_line(
+    client: TestClient,
+    external_kodi: FakeExternalKodi,
+    mcp_audit_records: list[logging.LogRecord],
+) -> None:
+    web, ready = _ready_target(client, external_kodi)
+    hostile_name = 'unknown-"\\-Bearer-fake-secret-value-' + ("x" * 8_000)
+    with ProductionProfileMcpInspection(
+        web, mcp_client=cast(Any, client)
+    ) as inspection:
+        inspection.establish_authority(target_id=ready.target_id, identity_generation=1)
+        token = inspection._token
+        assert token is not None
+        response = _call_tool(
+            client,
+            token,
+            request_id="hostile-tool-name",
+            tool_name=hostile_name,
+        )
+        assert response.json()["result"]["isError"] is True
+        messages = [
+            record.getMessage()
+            for record in mcp_audit_records
+            if "mcp_request " in record.getMessage()
+        ]
+        assert len(messages) == 1
+        assert len(messages[0].splitlines()) == 1
+        assert len(messages[0].encode("utf-8")) < 1_024
+        assert hostile_name not in messages[0]
+        assert "Bearer fake-secret-value" not in messages[0]
+        payload = _audit_payloads(mcp_audit_records)[0]
+        assert payload["tool"] == "unrecognized"
+        assert payload["tool_correlation"] == mcp_audit_request_correlation(
+            hostile_name
+        )
+        assert payload["outcome"] == "authorization_denied"
+    web.logout()
+
+
+def test_audit_logger_failure_does_not_replace_successful_tool_result(
+    client: TestClient,
+    external_kodi: FakeExternalKodi,
+    mcp_audit_records: list[logging.LogRecord],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    web, ready = _ready_target(client, external_kodi)
+    with ProductionProfileMcpInspection(
+        web, mcp_client=cast(Any, client)
+    ) as inspection:
+        inspection.establish_authority(target_id=ready.target_id, identity_generation=1)
+        token = inspection._token
+        assert token is not None
+
+        def fail_audit(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("injected logging failure")
+
+        monkeypatch.setattr(transport_module, "_audit", fail_audit)
+        response = _call_tool(
+            client,
+            token,
+            request_id="audit-logger-failure",
+            tool_name="target_list",
+        )
+        assert response.json()["result"]["isError"] is False
+        assert not _audit_payloads(mcp_audit_records)
+        assert any(
+            record.getMessage() == "mcp_audit_emit_failed"
+            for record in mcp_audit_records
+        )
     web.logout()

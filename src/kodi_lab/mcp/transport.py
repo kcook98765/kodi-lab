@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextvars
+import hashlib
 import json
 import logging
+import re
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -94,6 +97,36 @@ _LEGACY_MCP_METHODS = frozenset(
 logger = logging.getLogger("kodi_lab.mcp")
 _principal_context: contextvars.ContextVar[McpPrincipal] = contextvars.ContextVar(
     "kodi_lab_mcp_principal"
+)
+
+_MCP_AUDIT_SCHEMA_VERSION = 1
+_MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
+    {
+        "addon_list",
+        "development_source_list",
+        "promotion_request",
+        "remote_action",
+        "screenshot_capture",
+        "target_list",
+        "target_status",
+        "workspace_create",
+        "workspace_deploy",
+        "workspace_edit",
+        "workspace_execute",
+        "workspace_read",
+        "workspace_status",
+        "workspace_tree",
+        "workspace_validate",
+    }
+)
+_MCP_AUDIT_SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_MCP_AUDIT_AUTHORIZATION_CODES = frozenset(
+    {
+        "permission_denied",
+        "source_not_found_or_not_authorized",
+        "target_not_found_or_not_authorized",
+        "workspace_not_found_or_not_authorized",
+    }
 )
 
 
@@ -873,6 +906,8 @@ def build_mcp_http_transport(
         request_id: UUID | None = None
         generation: int | None = None
         promotion_plan_id: UUID | None = None
+        audit_outcome = "internal_error"
+        result_code = "internal_error"
         try:
             arguments = params.arguments or {}
             result: (
@@ -1054,59 +1089,19 @@ def build_mcp_http_transport(
             else:
                 raise McpAuthorizationError("permission_denied")
         except ValidationError:
-            outcome = "invalid_params"
+            audit_outcome = "invalid_request"
+            result_code = "invalid_params"
         except McpAuthorizationError as error:
-            outcome = error.code
-        else:
-            if isinstance(result, ScreenshotToolResult):
-                encoded = base64.b64encode(result.png).decode("ascii")
-                if len(encoded) > MCP_MAX_IMAGE_BASE64_BYTES:
-                    outcome = "response_too_large"
-                else:
-                    content = result.metadata.model_dump(mode="json")
-                    _audit(
-                        principal,
-                        params.name,
-                        target_id,
-                        started,
-                        "success",
-                        protocol_request_id=_context.request_id,
-                        source_id=source_id,
-                        workspace_id=workspace_id,
-                        request_id=request_id,
-                        generation=generation,
-                        promotion_plan_id=promotion_plan_id,
-                    )
-                    return CallToolResult(
-                        content=[ImageContent(data=encoded, mime_type=PNG_MIME_TYPE)],
-                        structured_content=content,
-                        is_error=False,
-                    )
-                _audit(
-                    principal,
-                    params.name,
-                    target_id,
-                    started,
-                    outcome,
-                    protocol_request_id=_context.request_id,
-                    source_id=source_id,
-                    workspace_id=workspace_id,
-                    request_id=request_id,
-                    generation=generation,
-                    promotion_plan_id=promotion_plan_id,
-                )
-                return CallToolResult(
-                    content=[TextContent(text=outcome)],
-                    structured_content={"error": outcome},
-                    is_error=True,
-                )
-            content = result.model_dump(mode="json")
-            _audit(
+            result_code = error.code
+            audit_outcome = _audit_outcome_for_tool_error(result_code)
+        except BaseException:
+            _audit_safely(
                 principal,
                 params.name,
                 target_id,
                 started,
-                "success",
+                audit_outcome,
+                result_code=result_code,
                 protocol_request_id=_context.request_id,
                 source_id=source_id,
                 workspace_id=workspace_id,
@@ -1114,21 +1109,79 @@ def build_mcp_http_transport(
                 generation=generation,
                 promotion_plan_id=promotion_plan_id,
             )
-            return CallToolResult(
-                content=[
-                    TextContent(
-                        text=json.dumps(content, separators=(",", ":"), sort_keys=True)
+            raise
+        else:
+            try:
+                if isinstance(result, ScreenshotToolResult):
+                    encoded = base64.b64encode(result.png).decode("ascii")
+                    if len(encoded) > MCP_MAX_IMAGE_BASE64_BYTES:
+                        audit_outcome = "tool_error"
+                        result_code = "response_too_large"
+                        response = _tool_error_result(result_code)
+                    else:
+                        content = result.metadata.model_dump(mode="json")
+                        response = CallToolResult(
+                            content=[
+                                ImageContent(data=encoded, mime_type=PNG_MIME_TYPE)
+                            ],
+                            structured_content=content,
+                            is_error=False,
+                        )
+                else:
+                    content = result.model_dump(mode="json")
+                    response = CallToolResult(
+                        content=[
+                            TextContent(
+                                text=json.dumps(
+                                    content, separators=(",", ":"), sort_keys=True
+                                )
+                            )
+                        ],
+                        structured_content=content,
+                        is_error=False,
                     )
-                ],
-                structured_content=content,
-                is_error=False,
+                if result_code == "internal_error":
+                    audit_outcome = "success"
+                    result_code = "success"
+            except BaseException:
+                _audit_safely(
+                    principal,
+                    params.name,
+                    target_id,
+                    started,
+                    "internal_error",
+                    result_code="internal_error",
+                    protocol_request_id=_context.request_id,
+                    source_id=source_id,
+                    workspace_id=workspace_id,
+                    request_id=request_id,
+                    generation=generation,
+                    promotion_plan_id=promotion_plan_id,
+                )
+                raise
+            _audit_safely(
+                principal,
+                params.name,
+                target_id,
+                started,
+                audit_outcome,
+                result_code=result_code,
+                protocol_request_id=_context.request_id,
+                source_id=source_id,
+                workspace_id=workspace_id,
+                request_id=request_id,
+                generation=generation,
+                promotion_plan_id=promotion_plan_id,
             )
-        _audit(
+            return response
+        response = _tool_error_result(result_code)
+        _audit_safely(
             principal,
             params.name,
             target_id,
             started,
-            outcome,
+            audit_outcome,
+            result_code=result_code,
             protocol_request_id=_context.request_id,
             source_id=source_id,
             workspace_id=workspace_id,
@@ -1136,11 +1189,7 @@ def build_mcp_http_transport(
             generation=generation,
             promotion_plan_id=promotion_plan_id,
         )
-        return CallToolResult(
-            content=[TextContent(text=outcome)],
-            structured_content={"error": outcome},
-            is_error=True,
-        )
+        return response
 
     server: Server[dict[str, Any]] = Server(
         name="kodi-lab",
@@ -1197,13 +1246,69 @@ def build_mcp_http_transport(
     )
 
 
-def _audit(
+def _tool_error_result(result_code: str) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(text=result_code)],
+        structured_content={"error": result_code},
+        is_error=True,
+    )
+
+
+def _audit_outcome_for_tool_error(result_code: str) -> str:
+    if result_code in _MCP_AUDIT_AUTHORIZATION_CODES or result_code.endswith(
+        "_not_found_or_not_authorized"
+    ):
+        return "authorization_denied"
+    return "tool_error"
+
+
+def mcp_audit_request_correlation(
+    protocol_request_id: str | int | UUID | None,
+) -> dict[str, str | int]:
+    """Return bounded non-reversible JSON-RPC correlation metadata."""
+
+    if protocol_request_id is None:
+        return {"type": "missing"}
+    if isinstance(protocol_request_id, int) and not isinstance(
+        protocol_request_id, bool
+    ):
+        request_type = "integer"
+        value = str(protocol_request_id).encode("ascii")
+    else:
+        request_type = "string"
+        value = str(protocol_request_id).encode("utf-8", "surrogatepass")
+    digest_input = request_type.encode("ascii") + b":" + value
+    return {
+        "type": request_type,
+        "byte_length": len(value),
+        "sha256": hashlib.sha256(digest_input).hexdigest(),
+    }
+
+
+def _bounded_audit_tool(tool_name: str) -> tuple[str, dict[str, str | int] | None]:
+    if tool_name in _MCP_AUDIT_SAFE_TOOL_NAMES:
+        return tool_name, None
+    return "unrecognized", mcp_audit_request_correlation(tool_name)
+
+
+def _bounded_audit_code(value: str) -> str:
+    return value if _MCP_AUDIT_SAFE_CODE.fullmatch(value) else "unclassified"
+
+
+def _bounded_audit_integer(value: int | None) -> int | dict[str, str | int] | None:
+    if value is None or -(2**63) <= value <= 2**63 - 1:
+        return value
+    return mcp_audit_request_correlation(value)
+
+
+def _audit_safely(
     principal: McpPrincipal,
     tool_name: str,
     target_id: UUID | None,
     started_at: str,
     outcome: str,
     *,
+    result_code: str,
     protocol_request_id: str | int | None = None,
     source_id: UUID | None = None,
     workspace_id: UUID | None = None,
@@ -1211,26 +1316,69 @@ def _audit(
     generation: int | None = None,
     promotion_plan_id: UUID | None = None,
 ) -> None:
+    try:
+        _audit(
+            principal,
+            tool_name,
+            target_id,
+            started_at,
+            outcome,
+            result_code=result_code,
+            protocol_request_id=protocol_request_id,
+            source_id=source_id,
+            workspace_id=workspace_id,
+            request_id=request_id,
+            generation=generation,
+            promotion_plan_id=promotion_plan_id,
+        )
+    except Exception:
+        # The request result or original exception remains canonical if the
+        # operational logging pipeline fails. This constant fallback contains
+        # no caller-controlled material and is itself best effort.
+        with suppress(Exception):
+            logger.error("mcp_audit_emit_failed")
+
+
+def _audit(
+    principal: McpPrincipal,
+    tool_name: str,
+    target_id: UUID | None,
+    started_at: str,
+    outcome: str,
+    *,
+    result_code: str,
+    protocol_request_id: str | int | None = None,
+    source_id: UUID | None = None,
+    workspace_id: UUID | None = None,
+    request_id: UUID | None = None,
+    generation: int | None = None,
+    promotion_plan_id: UUID | None = None,
+) -> None:
+    safe_tool, tool_correlation = _bounded_audit_tool(tool_name)
+    record: dict[str, object] = {
+        "schema_version": _MCP_AUDIT_SCHEMA_VERSION,
+        "event": "mcp_request",
+        "client_id": str(principal.client_id),
+        "credential_id": str(principal.credential_id),
+        "tool": safe_tool,
+        "target_id": None if target_id is None else str(target_id),
+        "protocol_request": mcp_audit_request_correlation(protocol_request_id),
+        "capability": _tool_capability(safe_tool),
+        "source_id": None if source_id is None else str(source_id),
+        "workspace_id": None if workspace_id is None else str(workspace_id),
+        "request_id": None if request_id is None else str(request_id),
+        "generation": _bounded_audit_integer(generation),
+        "plan_id": None if promotion_plan_id is None else str(promotion_plan_id),
+        "started_at": started_at,
+        "completed_at": _timestamp(),
+        "outcome": _bounded_audit_code(outcome),
+        "result_code": _bounded_audit_code(result_code),
+    }
+    if tool_correlation is not None:
+        record["tool_correlation"] = tool_correlation
     logger.info(
-        "mcp_request client_id=%s credential_id=%s tool=%s target_id=%s "
-        "protocol_request_id=%s "
-        "capability=%s "
-        "source_id=%s workspace_id=%s request_id=%s generation=%s plan_id=%s "
-        "started_at=%s completed_at=%s outcome=%s",
-        principal.client_id,
-        principal.credential_id,
-        tool_name,
-        target_id,
-        protocol_request_id,
-        _tool_capability(tool_name),
-        source_id,
-        workspace_id,
-        request_id,
-        generation,
-        promotion_plan_id,
-        started_at,
-        _timestamp(),
-        outcome,
+        "mcp_request %s",
+        json.dumps(record, ensure_ascii=True, separators=(",", ":"), sort_keys=True),
     )
 
 

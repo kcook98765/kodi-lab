@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -49,12 +50,15 @@ def test_packaged_web_entrypoint_installs_mcp_audit_logging(
 def test_packaged_web_log_config_emits_mcp_audit_to_process_stderr() -> None:
     script = "\n".join(
         (
+            "import json",
             "import logging",
             "import logging.config",
             "from kodi_lab.web.run import application_logging_config",
             "logging.config.dictConfig(application_logging_config())",
             "logging.getLogger('kodi_lab.mcp').info(",
-            "    'mcp_request client_id=client tool=target_list outcome=success'",
+            "    'mcp_request %s',",
+            "    json.dumps({'event': 'mcp_request', 'schema_version': 1, "
+            "'tool': 'target_list', 'outcome': 'success'}, separators=(',', ':'))",
             ")",
         )
     )
@@ -65,6 +69,13 @@ def test_packaged_web_log_config_emits_mcp_audit_to_process_stderr() -> None:
         text=True,
     )
     assert completed.stdout == ""
-    assert "mcp_request client_id=client tool=target_list outcome=success" in (
-        completed.stderr
+    line = next(
+        line for line in completed.stderr.splitlines() if "mcp_request " in line
     )
+    payload = json.loads(line.partition("mcp_request ")[2])
+    assert payload == {
+        "event": "mcp_request",
+        "schema_version": 1,
+        "tool": "target_list",
+        "outcome": "success",
+    }

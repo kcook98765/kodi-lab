@@ -58,6 +58,7 @@ from kodi_lab.storage.models import (
     ExternalKodiTargetObservationRow,
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
+    McpTargetPresetAssignmentRow,
     ProductionMutationControlRow,
 )
 from kodi_lab.storage.secrets import ExternalCredentialStore, ExternalKodiCredential
@@ -86,6 +87,7 @@ class _Verifier:
 @dataclass
 class _Environment:
     factory: sessionmaker[Session]
+    targets: ExternalTargetAdministrationService
     administration: McpAdministrationService
     authorization: McpAuthorizationService
     tools: McpTargetToolService
@@ -232,6 +234,7 @@ def production_inspection(tmp_path: Path) -> _Environment:
     )
     return _Environment(
         factory=factory,
+        targets=targets,
         administration=administration,
         authorization=authorization,
         tools=tools,
@@ -310,6 +313,84 @@ def test_generic_grant_scope_and_exact_presets_are_all_mandatory(
             display_name="Production clone",
             template_preset_id=PRODUCTION_INSPECTION_PRESET_ID,
         )
+
+
+def test_target_preset_removal_omits_and_denies_before_native_io(
+    production_inspection: _Environment,
+) -> None:
+    env = production_inspection
+    assert [
+        item.target_id for item in env.tools.target_list(env.principal).targets
+    ] == [env.target_id]
+    assert env.calls == []
+
+    with env.factory.begin() as session:
+        assignment = session.get(McpTargetPresetAssignmentRow, str(env.target_id))
+        assert assignment is not None
+        session.delete(assignment)
+
+    assert env.tools.target_list(env.principal).targets == ()
+    with pytest.raises(
+        McpAuthorizationError, match="target_not_found_or_not_authorized"
+    ):
+        env.authorization.authorize_target(
+            env.principal, "target_status", env.target_id
+        )
+    with pytest.raises(
+        McpAuthorizationError, match="target_not_found_or_not_authorized"
+    ):
+        env.tools.target_status(env.principal, target_id=env.target_id)
+    assert env.calls == []
+
+
+def test_real_second_production_target_scope_isolation(
+    production_inspection: _Environment,
+) -> None:
+    env = production_inspection
+    target_b = env.targets.register(
+        logical_name="Second private production Kodi",
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host="192.168.50.22",
+        port=8080,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"target_inspect", "addon_inventory"},
+    )
+    observed_b = env.targets.probe(target_b.target_id)
+    assert observed_b.pending_observation_id is not None
+    env.targets.confirm(target_b.target_id, observed_b.pending_observation_id)
+    env.targets.confirm_production_designation(
+        target_b.target_id, observed_b.pending_observation_id
+    )
+    env.targets.set_enabled(target_b.target_id, enabled=True)
+    env.administration.assign_target_preset(
+        target_b.target_id, PRODUCTION_INSPECTION_PRESET_ID
+    )
+    env.administration.grant_target(env.client_id, target_b.target_id)
+
+    env.authorization.authorize_target(env.principal, "target_status", env.target_id)
+    with pytest.raises(
+        McpAuthorizationError, match="target_not_found_or_not_authorized"
+    ):
+        env.authorization.authorize_target(
+            env.principal, "target_status", target_b.target_id
+        )
+    listed = env.tools.target_list(env.principal)
+    assert [item.target_id for item in listed.targets] == [env.target_id]
+    assert env.calls == []
+
+    scope_b = env.administration.grant_production_inspection_scope(
+        env.client_id, target_b.target_id, identity_generation=1
+    )
+    assert scope_b.target_id == target_b.target_id
+    env.authorization.authorize_target(
+        env.principal, "target_status", target_b.target_id
+    )
+    listed_with_b = env.tools.target_list(env.principal)
+    assert {item.target_id for item in listed_with_b.targets} == {
+        env.target_id,
+        target_b.target_id,
+    }
+    assert env.calls == []
 
 
 def test_wrong_client_target_and_client_preset_are_denied(

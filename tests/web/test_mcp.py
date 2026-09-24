@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
 import logging
 import time
@@ -25,6 +26,7 @@ from kodi_lab.application.mcp_administration import (
     FULL_LAB_CONTROL_PRESET_ID,
     READ_ONLY_INSPECTION_PRESET_ID,
     McpAdministrationService,
+    McpAuthenticationService,
 )
 from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_workspace_development import (
@@ -36,9 +38,11 @@ from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryRes
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import PNG_SIGNATURE, validate_png
+from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.transport import (
     BoundedTokenBucketLimiter,
     ModernMcpAuthMiddleware,
+    build_mcp_http_transport,
 )
 from kodi_lab.storage.models import (
     ManagedInstanceRow,
@@ -1239,6 +1243,71 @@ def test_modern_and_legacy_share_one_authenticated_rate_bucket(
     limited = _legacy_post(client, token, "tools/list", request_id=3)
     assert limited.status_code == 429
     assert limited.json() == {"error": "rate_limited"}
+
+
+def test_mcp_transport_host_allowlist_rejects_dns_rebinding_values(
+    client: TestClient,
+    database: sessionmaker[Session],
+) -> None:
+    _client_id, token = _authority(client)
+    context = cast(FastAPI, client.app).state.kodi_lab
+    call_entry = context.mcp_transport.server.get_request_handler("tools/call")
+    list_entry = context.mcp_transport.server.get_request_handler("tools/list")
+    assert call_entry is not None and list_entry is not None
+    call_closure = inspect.getclosurevars(call_entry.handler).nonlocals
+    list_closure = inspect.getclosurevars(list_entry.handler).nonlocals
+    transport = build_mcp_http_transport(
+        authentication=McpAuthenticationService(database),
+        authorization=list_closure["authorization"],
+        registry=build_mcp_tool_registry(),
+        tools=call_closure["tools"],
+        additional_allowed_hosts=("10.251.0.10", "10.251.0.10:*"),
+    )
+    sdk_app = cast(Any, transport.app)._app
+    with TestClient(sdk_app, base_url="http://127.0.0.1") as direct:
+        for index, host in enumerate(
+            (
+                "127.0.0.1",
+                "127.0.0.1:8180",
+                "localhost",
+                "localhost:8180",
+                "10.251.0.10",
+                "10.251.0.10:8180",
+            ),
+            start=1,
+        ):
+            response = _post(
+                direct,
+                token,
+                "server/discover",
+                request_id=10_000 + index,
+                extra_headers={"Host": host},
+            )
+            assert response.status_code == 200, host
+
+        for index, host in enumerate(
+            (
+                "192.168.50.10",
+                "192.168.50.135",
+                "10.251.0.11",
+                "8.8.8.8",
+                "attacker.invalid",
+                "10.251.0.10.evil",
+                "[]",
+                "*.example",
+                "*",
+            ),
+            start=1,
+        ):
+            response = _post(
+                direct,
+                token,
+                "server/discover",
+                request_id=20_000 + index,
+                extra_headers={"Host": host},
+            )
+            assert response.status_code == 421, host
+            assert response.text == "Invalid Host header"
 
 
 def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
