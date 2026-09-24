@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import inspect
 import json
 import logging
@@ -29,8 +30,10 @@ from kodi_lab.production_profile_lifecycle import (
 from kodi_lab.production_profile_mcp_inspection import (
     ProductionProfileMcpInspection,
     ProductionProfileMcpInspectionError,
+    inspect_mcp_screenshot_image,
 )
 from kodi_lab.production_profile_web_client import ProductionProfileWebClient
+from tests.kodi.fake_external_bridge import fake_png
 
 from .conftest import PASSWORD, FakeExternalKodi
 
@@ -44,6 +47,58 @@ class _RecordHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self._records.append(record)
+
+
+def test_mcp_screenshot_image_diagnostics_are_strict_and_bounded() -> None:
+    payload = fake_png(width=2, height=2)
+    result: dict[str, object] = {
+        "content": [
+            {
+                "type": "image",
+                "mimeType": "image/png",
+                "data": base64.b64encode(payload).decode("ascii"),
+            }
+        ]
+    }
+    metadata = inspect_mcp_screenshot_image(result)
+    assert metadata["decoded_byte_length"] == len(payload)
+    assert cast(int, metadata["encoded_character_length"]) > len(payload)
+    assert metadata["format"] == "png"
+    assert metadata["width"] == 2
+    assert metadata["height"] == 2
+    assert metadata["color_mode"] == "rgb"
+    assert "data" not in metadata
+
+    failures: tuple[tuple[dict[str, object], str], ...] = (
+        ({"content": []}, "screenshot_payload_missing"),
+        (
+            {"content": [{"type": "text", "mimeType": "image/png", "data": ""}]},
+            "screenshot_payload_type_invalid",
+        ),
+        (
+            {"content": [{"type": "image", "mimeType": "image/png", "data": "%%%"}]},
+            "screenshot_base64_invalid",
+        ),
+        (
+            {"content": [{"type": "image", "mimeType": "image/png", "data": ""}]},
+            "screenshot_decoded_empty",
+        ),
+        (
+            {
+                "content": [
+                    {
+                        "type": "image",
+                        "mimeType": "image/png",
+                        "data": base64.b64encode(b"not-png").decode("ascii"),
+                    }
+                ]
+            },
+            "screenshot_decoder_rejected",
+        ),
+    )
+    for document, code in failures:
+        with pytest.raises(ProductionProfileMcpInspectionError, match=code):
+            inspect_mcp_screenshot_image(document)
 
 
 def _audit_payloads(records: list[logging.LogRecord]) -> list[dict[str, object]]:

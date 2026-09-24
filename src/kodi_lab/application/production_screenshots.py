@@ -7,6 +7,7 @@ import json
 import threading
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -18,6 +19,7 @@ from kodi_lab.application.external_bridges import (
     ExternalBridgeServiceError,
     ExternalScreenshotCapture,
 )
+from kodi_lab.screenshot_diagnostics import emit_screenshot_stage
 from kodi_lab.storage.models import McpProductionScreenshotReceiptRow
 
 PRODUCTION_SCREENSHOT_RECEIPT_TTL = timedelta(hours=24)
@@ -97,6 +99,13 @@ class ProductionScreenshotService:
             bridge_trust_revision=bridge_trust_revision,
             now=now,
         )
+        emit_screenshot_stage(
+            "receipt_persistence",
+            "entered",
+            "mcp_receipt_pending",
+            receipt_kind="mcp",
+            receipt_state="pending",
+        )
         try:
             self._admit_new(client_id, target_id)
             result = self._bridges.capture_screenshot(
@@ -108,9 +117,29 @@ class ProductionScreenshotService:
             raise ProductionScreenshotError(code) from error
         try:
             self._complete(client_id, request_id, result)
-        except Exception:
+        except Exception as error:
             self._bridges.discard_production_pixels(target_id, bridge_request_id)
-            raise
+            with suppress(Exception):
+                self._fail(
+                    client_id, request_id, "screenshot_receipt_persistence_failed"
+                )
+            emit_screenshot_stage(
+                "receipt_persistence",
+                "failed",
+                "screenshot_receipt_persistence_failed",
+                receipt_kind="mcp",
+                receipt_state="rejected",
+            )
+            raise ProductionScreenshotError(
+                "screenshot_receipt_persistence_failed"
+            ) from error
+        emit_screenshot_stage(
+            "receipt_persistence",
+            "passed",
+            "mcp_receipt_completed",
+            receipt_kind="mcp",
+            receipt_state="completed",
+        )
         return self._client_result(result, request_id)
 
     def discard_pixels(
@@ -252,6 +281,7 @@ class ProductionScreenshotService:
             row.completed_at = self._text(self._clock())
 
     def _fail(self, client_id: UUID, request_id: UUID, code: str) -> None:
+        receipt_state: str | None = None
         with self._sessions.begin() as session:
             row = session.get(
                 McpProductionScreenshotReceiptRow,
@@ -264,6 +294,15 @@ class ProductionScreenshotService:
                     else "rejected"
                 )
                 row.completed_at = self._text(self._clock())
+                receipt_state = row.state
+        if receipt_state is not None:
+            emit_screenshot_stage(
+                "receipt_persistence",
+                "passed",
+                "mcp_receipt_failed",
+                receipt_kind="mcp",
+                receipt_state=receipt_state,
+            )
 
     @staticmethod
     def _client_result(

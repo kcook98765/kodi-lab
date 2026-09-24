@@ -79,6 +79,10 @@ from kodi_lab.mcp.tools import (
     WorkspaceValidateInput,
     WorkspaceValidateResult,
 )
+from kodi_lab.screenshot_diagnostics import (
+    emit_screenshot_stage,
+    screenshot_diagnostic_trace,
+)
 
 MCP_PROTOCOL_VERSION = "2026-07-28"
 MCP_LEGACY_PROTOCOL_VERSION = "2025-11-25"
@@ -908,6 +912,7 @@ def build_mcp_http_transport(
         promotion_plan_id: UUID | None = None
         audit_outcome = "internal_error"
         result_code = "internal_error"
+        diagnostic_context = None
         try:
             arguments = params.arguments or {}
             result: (
@@ -965,6 +970,20 @@ def build_mcp_http_transport(
             elif params.name == "screenshot_capture":
                 parsed_screenshot = _ScreenshotCaptureInput.model_validate(arguments)
                 target_id = parsed_screenshot.target_id
+                if parsed_screenshot.request_id is not None:
+                    request_id = parsed_screenshot.request_id
+                    diagnostic_context = screenshot_diagnostic_trace(
+                        protocol_request=mcp_audit_request_correlation(
+                            _context.request_id
+                        ),
+                        client_id=principal.client_id,
+                        target_id=target_id,
+                        request_id=request_id,
+                    )
+                    diagnostic_context.__enter__()
+                    emit_screenshot_stage(
+                        "mcp_authenticated", "passed", "mcp_request_authenticated"
+                    )
                 result = await asyncio.to_thread(
                     tools.screenshot_capture,
                     principal,
@@ -1094,6 +1113,7 @@ def build_mcp_http_transport(
         except McpAuthorizationError as error:
             result_code = error.code
             audit_outcome = _audit_outcome_for_tool_error(result_code)
+            emit_screenshot_stage("mcp_result", "failed", result_code)
         except BaseException:
             _audit_safely(
                 principal,
@@ -1109,11 +1129,25 @@ def build_mcp_http_transport(
                 generation=generation,
                 promotion_plan_id=promotion_plan_id,
             )
+            if diagnostic_context is not None:
+                diagnostic_context.__exit__(None, None, None)
             raise
         else:
             try:
                 if isinstance(result, ScreenshotToolResult):
                     encoded = base64.b64encode(result.png).decode("ascii")
+                    emit_screenshot_stage(
+                        "image_payload",
+                        "passed",
+                        "mcp_base64_encoded",
+                        encoded_character_length=len(encoded),
+                        decoded_byte_length=len(result.png),
+                        image_sha256=hashlib.sha256(result.png).hexdigest(),
+                        detected_format="png",
+                        width=result.metadata.width,
+                        height=result.metadata.height,
+                        color_mode="rgb",
+                    )
                     if len(encoded) > MCP_MAX_IMAGE_BASE64_BYTES:
                         audit_outcome = "tool_error"
                         result_code = "response_too_large"
@@ -1143,6 +1177,8 @@ def build_mcp_http_transport(
                 if result_code == "internal_error":
                     audit_outcome = "success"
                     result_code = "success"
+                if isinstance(result, ScreenshotToolResult):
+                    emit_screenshot_stage("mcp_result", "passed", result_code)
             except BaseException:
                 _audit_safely(
                     principal,
@@ -1158,6 +1194,8 @@ def build_mcp_http_transport(
                     generation=generation,
                     promotion_plan_id=promotion_plan_id,
                 )
+                if diagnostic_context is not None:
+                    diagnostic_context.__exit__(None, None, None)
                 raise
             _audit_safely(
                 principal,
@@ -1173,6 +1211,8 @@ def build_mcp_http_transport(
                 generation=generation,
                 promotion_plan_id=promotion_plan_id,
             )
+            if diagnostic_context is not None:
+                diagnostic_context.__exit__(None, None, None)
             return response
         response = _tool_error_result(result_code)
         _audit_safely(
@@ -1189,6 +1229,8 @@ def build_mcp_http_transport(
             generation=generation,
             promotion_plan_id=promotion_plan_id,
         )
+        if diagnostic_context is not None:
+            diagnostic_context.__exit__(None, None, None)
         return response
 
     server: Server[dict[str, Any]] = Server(

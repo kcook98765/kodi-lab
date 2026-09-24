@@ -21,6 +21,7 @@ from kodi_lab.kodi.screenshots import (
     ScreenshotArtifactError,
     validate_external_png,
 )
+from kodi_lab.screenshot_diagnostics import emit_screenshot_stage
 
 BRIDGE_PROTOCOL_VERSION = "1"
 BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
@@ -56,6 +57,13 @@ SCREENSHOT_ERROR_CODES = frozenset(
         "screenshot_invalid",
         "screenshot_too_large",
         "screenshot_cleanup_failed",
+        "screenshot_payload_missing",
+        "screenshot_payload_type_invalid",
+        "screenshot_response_schema_invalid",
+        "screenshot_decoder_rejected",
+        "screenshot_format_invalid",
+        "screenshot_dimensions_invalid",
+        "screenshot_normalization_failed",
     }
 )
 
@@ -551,7 +559,13 @@ class ExternalBridgeClient:
             requested_at=requested_at,
         )
         envelope["signature"] = request_signature(secret, envelope)
+        emit_screenshot_stage(
+            "bridge_request_prepared", "passed", "signed_request_prepared"
+        )
         try:
+            emit_screenshot_stage(
+                "bridge_request_sent", "entered", "bridge_request_send_entered"
+            )
             with (
                 self._client() as client,
                 client.stream(
@@ -561,7 +575,22 @@ class ExternalBridgeClient:
                     timeout=self._timeout(),
                 ) as response,
             ):
+                content_type = response.headers.get("content-type", "").split(";", 1)[0]
+                emit_screenshot_stage(
+                    "bridge_response_received",
+                    "passed",
+                    "http_response_received",
+                    http_status=response.status_code,
+                    content_type=content_type,
+                )
                 if response.status_code in {401, 403}:
+                    emit_screenshot_stage(
+                        "response_schema",
+                        "failed",
+                        "bridge_authentication_failed",
+                        http_status=response.status_code,
+                        content_type=content_type,
+                    )
                     raise ExternalBridgeError("bridge_authentication_failed")
                 if 300 <= response.status_code < 400:
                     raise ExternalBridgeError("bridge_unreachable")
@@ -571,22 +600,32 @@ class ExternalBridgeClient:
                     error_body = response.read()
                     if error_body:
                         raise ExternalBridgeError("bridge_authentication_failed")
-                    raise ExternalBridgeError(
-                        self._screenshot_error_code(
-                            response.headers,
-                            target_id=target_id,
-                            bridge_id=bridge_id,
-                            request_id=request_id,
-                            secret=secret,
-                        )
+                    code = self._screenshot_error_code(
+                        response.headers,
+                        target_id=target_id,
+                        bridge_id=bridge_id,
+                        request_id=request_id,
+                        secret=secret,
                     )
+                    emit_screenshot_stage(
+                        "bridge_operation_returned",
+                        "failed",
+                        code,
+                        http_status=response.status_code,
+                        content_type=content_type,
+                    )
+                    raise ExternalBridgeError(code)
                 if response.status_code != 200:
                     raise ExternalBridgeError("bridge_unreachable")
-                if (
-                    response.headers.get("content-type", "").split(";", 1)[0]
-                    != PNG_MIME_TYPE
-                ):
-                    raise ExternalBridgeError("screenshot_invalid")
+                if content_type != PNG_MIME_TYPE:
+                    emit_screenshot_stage(
+                        "response_schema",
+                        "failed",
+                        "screenshot_payload_type_invalid",
+                        http_status=response.status_code,
+                        content_type=content_type,
+                    )
+                    raise ExternalBridgeError("screenshot_payload_type_invalid")
                 chunks: list[bytes] = []
                 size = 0
                 for chunk in response.iter_bytes():
@@ -599,9 +638,13 @@ class ExternalBridgeClient:
         except ExternalBridgeError:
             raise
         except httpx.TransportError as error:
+            emit_screenshot_stage("bridge_request_sent", "failed", "bridge_unreachable")
             raise ExternalBridgeError("bridge_unreachable") from error
         digest = _digest(png)
         if headers.get("x-kodi-lab-protocol") != BRIDGE_PROTOCOL_VERSION:
+            emit_screenshot_stage(
+                "response_schema", "failed", "bridge_protocol_unsupported"
+            )
             raise ExternalBridgeError("bridge_protocol_unsupported")
         required = {
             "x-kodi-lab-operation": "capture_screenshot",
@@ -610,7 +653,15 @@ class ExternalBridgeClient:
             "x-kodi-lab-request-id": str(request_id),
             "x-kodi-lab-status": "ok",
         }
+        if any(headers.get(name) is None for name in required):
+            emit_screenshot_stage(
+                "response_schema", "failed", "screenshot_response_schema_invalid"
+            )
+            raise ExternalBridgeError("screenshot_response_schema_invalid")
         if any(headers.get(name) != value for name, value in required.items()):
+            emit_screenshot_stage(
+                "response_schema", "failed", "bridge_identity_mismatch"
+            )
             raise ExternalBridgeError("bridge_identity_mismatch")
         if headers.get("x-kodi-lab-content-sha256") != digest:
             raise ExternalBridgeError("bridge_authentication_failed")
@@ -618,6 +669,9 @@ class ExternalBridgeClient:
         response_nonce = headers.get("x-kodi-lab-nonce")
         signature = headers.get("x-kodi-lab-signature")
         if response_timestamp is None or response_nonce is None or signature is None:
+            emit_screenshot_stage(
+                "response_schema", "failed", "screenshot_response_schema_invalid"
+            )
             raise ExternalBridgeError("bridge_authentication_failed")
         parse_fresh_timestamp(response_timestamp, self._clock())
         decode_b64url(response_nonce, size=32)
@@ -634,17 +688,71 @@ class ExternalBridgeClient:
         )
         if not hmac.compare_digest(expected_signature, signature):
             raise ExternalBridgeError("bridge_authentication_failed")
+        emit_screenshot_stage(
+            "response_schema", "passed", "signed_response_schema_accepted"
+        )
+        if not png:
+            emit_screenshot_stage(
+                "bridge_operation_returned",
+                "failed",
+                "screenshot_payload_missing",
+                http_status=200,
+                content_type=PNG_MIME_TYPE,
+                response_byte_length=0,
+                payload_present=False,
+            )
+            raise ExternalBridgeError("screenshot_payload_missing")
+        emit_screenshot_stage(
+            "bridge_operation_returned",
+            "passed",
+            "screenshot_payload_returned",
+            http_status=200,
+            content_type=PNG_MIME_TYPE,
+            response_byte_length=len(png),
+            payload_present=True,
+        )
+        emit_screenshot_stage(
+            "image_payload",
+            "passed",
+            "raw_png_payload_received",
+            decoded_byte_length=len(png),
+            image_sha256=digest,
+            detected_format="png"
+            if png.startswith(b"\x89PNG\r\n\x1a\n")
+            else "unknown",
+        )
         try:
             validated = validate_external_png(png)
         except ScreenshotArtifactError as error:
-            raise ExternalBridgeError("screenshot_invalid") from error
+            code = self._screenshot_validation_code(error)
+            emit_screenshot_stage("image_validation", "failed", code)
+            raise ExternalBridgeError(code) from error
         try:
             width = int(headers["x-kodi-lab-width"])
             height = int(headers["x-kodi-lab-height"])
         except (KeyError, ValueError) as error:
-            raise ExternalBridgeError("screenshot_invalid") from error
+            emit_screenshot_stage(
+                "response_schema", "failed", "screenshot_response_schema_invalid"
+            )
+            raise ExternalBridgeError("screenshot_response_schema_invalid") from error
         if (width, height) != (validated.width, validated.height):
-            raise ExternalBridgeError("screenshot_invalid")
+            emit_screenshot_stage(
+                "image_validation", "failed", "screenshot_dimensions_invalid"
+            )
+            raise ExternalBridgeError("screenshot_dimensions_invalid")
+        emit_screenshot_stage(
+            "image_validation",
+            "passed",
+            "normalized_png_valid",
+            decoded_byte_length=len(png),
+            image_sha256=digest,
+            detected_format="png",
+            width=width,
+            height=height,
+            color_mode="rgb",
+            normalized_byte_length=len(png),
+            normalized_sha256=digest,
+        )
         return BridgeScreenshotResult(
             request_id=request_id,
             bridge_id=bridge_id,
@@ -654,6 +762,15 @@ class ExternalBridgeClient:
             digest=digest,
             captured_at=parse_fresh_timestamp(response_timestamp, self._clock()),
         )
+
+    @staticmethod
+    def _screenshot_validation_code(error: ScreenshotArtifactError) -> str:
+        message = str(error)
+        if "signature" in message or "encoding" in message or "chunk layout" in message:
+            return "screenshot_format_invalid"
+        if "dimension" in message or "geometry" in message:
+            return "screenshot_dimensions_invalid"
+        return "screenshot_decoder_rejected"
 
     def _screenshot_error_code(
         self,

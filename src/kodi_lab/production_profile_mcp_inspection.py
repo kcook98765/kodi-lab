@@ -7,6 +7,8 @@ transport.  The bearer exists only in this object's in-memory state.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from dataclasses import asdict, dataclass
 from types import MappingProxyType
 from typing import Final, cast
@@ -18,6 +20,13 @@ from kodi_lab.application.mcp_administration import READ_ONLY_INSPECTION_PRESET_
 from kodi_lab.application.production_inspection import (
     PRODUCTION_INSPECTION_PRESET_ID,
     PRODUCTION_INSPECTION_PRESET_NAME,
+    PRODUCTION_VISUAL_PRESET_ID,
+    PRODUCTION_VISUAL_PRESET_NAME,
+)
+from kodi_lab.kodi.screenshots import (
+    PNG_MIME_TYPE,
+    ScreenshotArtifactError,
+    validate_external_png,
 )
 from kodi_lab.mcp.transport import MCP_PROTOCOL_VERSION
 from kodi_lab.production_profile_web_client import (
@@ -27,6 +36,12 @@ from kodi_lab.production_profile_web_client import (
 
 _CLIENT_NAME: Final = "Disposable production inspection client"
 _EXPECTED_TOOLS: Final = ("addon_list", "target_list", "target_status")
+_EXPECTED_VISUAL_TOOLS: Final = (
+    "addon_list",
+    "screenshot_capture",
+    "target_list",
+    "target_status",
+)
 _META: Final = {
     "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
     "io.modelcontextprotocol/clientCapabilities": {},
@@ -70,6 +85,61 @@ class ProductionMcpInvocation:
     request_id: UUID
     tool_name: str
     result: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class ProductionScreenshotInvocation:
+    protocol_request_id: UUID
+    semantic_request_id: UUID
+    success: bool
+    result_code: str
+    metadata: dict[str, object]
+    image_metadata: dict[str, object] | None
+
+
+def inspect_mcp_screenshot_image(result: dict[str, object]) -> dict[str, object]:
+    """Strictly decode one MCP image block and return only bounded metadata."""
+
+    content = result.get("content")
+    if (
+        not isinstance(content, list)
+        or len(content) != 1
+        or not isinstance(content[0], dict)
+    ):
+        raise ProductionProfileMcpInspectionError("screenshot_payload_missing")
+    image = cast(dict[str, object], content[0])
+    if image.get("type") != "image" or image.get("mimeType") != PNG_MIME_TYPE:
+        raise ProductionProfileMcpInspectionError("screenshot_payload_type_invalid")
+    encoded = image.get("data")
+    if not isinstance(encoded, str):
+        raise ProductionProfileMcpInspectionError("screenshot_payload_type_invalid")
+    try:
+        payload = base64.b64decode(encoded.encode("ascii"), validate=True)
+    except (UnicodeEncodeError, ValueError) as error:
+        raise ProductionProfileMcpInspectionError(
+            "screenshot_base64_invalid"
+        ) from error
+    if not payload:
+        raise ProductionProfileMcpInspectionError("screenshot_decoded_empty")
+    if base64.b64encode(payload).decode("ascii") != encoded:
+        raise ProductionProfileMcpInspectionError("screenshot_base64_invalid")
+    try:
+        validated = validate_external_png(payload)
+    except ScreenshotArtifactError as error:
+        raise ProductionProfileMcpInspectionError(
+            "screenshot_decoder_rejected"
+        ) from error
+    return {
+        "encoded_character_length": len(encoded),
+        "decoded_byte_length": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "format": "png",
+        "width": validated.width,
+        "height": validated.height,
+        "color_mode": "rgb",
+        "normalized_byte_length": len(payload),
+        "normalized_sha256": hashlib.sha256(payload).hexdigest(),
+    }
 
 
 class ProductionProfileMcpInspection:
@@ -274,7 +344,12 @@ class ProductionProfileMcpInspection:
         ):
             raise ProductionProfileMcpInspectionError("mcp_catalog_invalid")
         names = tuple(cast(str, item.get("name")) for item in tools)
-        if names != _EXPECTED_TOOLS:
+        expected = (
+            _EXPECTED_VISUAL_TOOLS
+            if self.authority.preset_id == PRODUCTION_VISUAL_PRESET_ID
+            else _EXPECTED_TOOLS
+        )
+        if names != expected:
             raise ProductionProfileMcpInspectionError("mcp_catalog_unsafe")
         self._protocol = ProductionMcpProtocolEvidence(
             protocol_version=MCP_PROTOCOL_VERSION,
@@ -283,6 +358,122 @@ class ProductionProfileMcpInspection:
             tool_names=names,
         )
         return self._protocol
+
+    def resume_visual_authority(
+        self,
+        *,
+        client_id: UUID,
+        credential_id: UUID,
+        target_id: UUID,
+        target_generation: int,
+        inspect_scope_id: UUID,
+    ) -> ProductionMcpAuthority:
+        """Rotate the show-once credential after the Slice F process boundary."""
+
+        self._require_open()
+        if self._authority is not None or self._token is not None:
+            raise ProductionProfileMcpInspectionError("mcp_authority_already_created")
+        rotated = self._web_document(
+            self._web.post_authenticated(
+                f"/api/mcp/clients/{client_id}/credentials/{credential_id}/rotate",
+                json={"expiration_seconds": 3600},
+            ),
+            expected_status=200,
+        )
+        token = rotated.pop("token", None)
+        credential = rotated.get("credential")
+        if (
+            not isinstance(token, str)
+            or len(token) != 43
+            or not isinstance(credential, dict)
+        ):
+            raise ProductionProfileMcpInspectionError("credential_response_invalid")
+        rotated_id = self._uuid(cast(dict[str, object], credential), "id")
+        if rotated_id == credential_id:
+            raise ProductionProfileMcpInspectionError("credential_rotation_failed")
+        self._token = token
+        self._authority = ProductionMcpAuthority(
+            client_id=client_id,
+            credential_id=rotated_id,
+            preset_id=PRODUCTION_VISUAL_PRESET_ID,
+            preset_name=PRODUCTION_VISUAL_PRESET_NAME,
+            target_id=target_id,
+            target_generation=target_generation,
+            inspect_scope_id=inspect_scope_id,
+        )
+        return self._authority
+
+    def invoke_screenshot_once(
+        self, *, request_id: UUID
+    ) -> ProductionScreenshotInvocation:
+        """Issue one and only one screenshot tools/call and inspect its result."""
+
+        authority = self.authority
+        if self._protocol is None:
+            raise ProductionProfileMcpInspectionError("mcp_catalog_not_checked")
+        if self._invocations:
+            raise ProductionProfileMcpInspectionError("mcp_tools_already_invoked")
+        protocol_request_id = uuid4()
+        response = self._mcp_request(
+            "tools/call",
+            request_id=protocol_request_id,
+            params={
+                "name": "screenshot_capture",
+                "arguments": {
+                    "target_id": str(authority.target_id),
+                    "request_id": str(request_id),
+                },
+            },
+            tool_name="screenshot_capture",
+        )
+        raw_result = response.get("result")
+        if not isinstance(raw_result, dict):
+            raise ProductionProfileMcpInspectionError("mcp_screenshot_result_invalid")
+        structured = raw_result.get("structuredContent")
+        if not isinstance(structured, dict):
+            raise ProductionProfileMcpInspectionError("mcp_screenshot_result_invalid")
+        self._invocations.append(
+            ProductionMcpInvocation(
+                request_id=protocol_request_id,
+                tool_name="screenshot_capture",
+                result=cast(dict[str, object], structured),
+            )
+        )
+        if raw_result.get("isError") is True:
+            code = structured.get("error")
+            if not isinstance(code, str) or not code:
+                raise ProductionProfileMcpInspectionError(
+                    "mcp_screenshot_result_invalid"
+                )
+            return ProductionScreenshotInvocation(
+                protocol_request_id=protocol_request_id,
+                semantic_request_id=request_id,
+                success=False,
+                result_code=code,
+                metadata={},
+                image_metadata=None,
+            )
+        if raw_result.get("isError") is not False:
+            raise ProductionProfileMcpInspectionError("mcp_screenshot_result_invalid")
+        try:
+            image_metadata = inspect_mcp_screenshot_image(raw_result)
+        except ProductionProfileMcpInspectionError as error:
+            return ProductionScreenshotInvocation(
+                protocol_request_id=protocol_request_id,
+                semantic_request_id=request_id,
+                success=False,
+                result_code=error.code,
+                metadata=cast(dict[str, object], structured),
+                image_metadata=None,
+            )
+        return ProductionScreenshotInvocation(
+            protocol_request_id=protocol_request_id,
+            semantic_request_id=request_id,
+            success=True,
+            result_code="success",
+            metadata=cast(dict[str, object], structured),
+            image_metadata=image_metadata,
+        )
 
     def invoke_exact_three(self) -> tuple[ProductionMcpInvocation, ...]:
         """Invoke target_list, target_status, addon_list once each with no retry."""

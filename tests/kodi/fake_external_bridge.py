@@ -510,7 +510,9 @@ class FakeExternalBridge:
                     self._send(422, headers, b"")
                     return
                 png = fake_png()
-                if owner.tamper == "invalid_png":
+                if owner.tamper == "missing_payload":
+                    png = b""
+                elif owner.tamper == "invalid_png":
                     png = b"not-a-png"
                 elif owner.tamper == "wrong_dimensions":
                     png = fake_png(width=1, height=1)
@@ -557,6 +559,8 @@ class FakeExternalBridge:
                 }
                 if owner.tamper == "bad_signature":
                     headers["X-Kodi-Lab-Signature"] = b64url(b"x" * 32)
+                if owner.tamper == "missing_width_header":
+                    del headers["X-Kodi-Lab-Width"]
                 if owner.tamper == "image":
                     png = png[:-1] + bytes([png[-1] ^ 1])
                 item = (request_digest, 200, headers, png)

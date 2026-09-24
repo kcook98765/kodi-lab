@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -22,6 +23,7 @@ from kodi_lab.kodi.bridge import (
 )
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
 from kodi_lab.kodi.screenshots import EXPECTED_HEIGHT, EXPECTED_WIDTH
+from kodi_lab.screenshot_diagnostics import screenshot_diagnostic_trace
 from tests.kodi.fake_external_bridge import FakeExternalBridge
 
 
@@ -90,6 +92,56 @@ def test_fake_bridge_pair_identity_capability_screenshot_and_replay() -> None:
         assert fake.capture_count == 1
 
 
+def test_screenshot_diagnostic_trace_orders_safe_transport_and_image_stages() -> None:
+    target_id = uuid4()
+    client_id = uuid4()
+    request_id = uuid4()
+    token = os.urandom(32)
+    with FakeExternalBridge(target_id=target_id, token=token) as fake:
+        client = ExternalBridgeClient()
+        pairing = client.pair(
+            _endpoint(fake.port),
+            bridge_port=fake.port,
+            target_id=target_id,
+            token=token,
+        )
+        with screenshot_diagnostic_trace(
+            protocol_request={"type": "string", "byte_length": 36, "sha256": "a" * 64},
+            client_id=client_id,
+            target_id=target_id,
+            request_id=request_id,
+        ) as trace:
+            result = client.capture_screenshot(
+                _endpoint(fake.port),
+                bridge_port=fake.port,
+                target_id=target_id,
+                bridge_id=fake.bridge_id,
+                secret=pairing.secret,
+                request_id=request_id,
+                nonce=b64url(os.urandom(32)),
+                requested_at=datetime.now(UTC),
+            )
+        stages = [item["stage"] for item in trace.events]
+        assert stages == [
+            "bridge_request_prepared",
+            "bridge_request_sent",
+            "bridge_response_received",
+            "response_schema",
+            "bridge_operation_returned",
+            "image_payload",
+            "image_validation",
+        ]
+        assert [item["order"] for item in trace.events] == list(
+            range(1, len(trace.events) + 1)
+        )
+        assert all(item["request_id"] == str(request_id) for item in trace.events)
+        assert all(item["target_id"] == str(target_id) for item in trace.events)
+        assert trace.events[-1]["image_sha256"] == result.digest
+        serialized = json.dumps(trace.events, sort_keys=True)
+        assert base64.b64encode(result.png).decode("ascii") not in serialized
+        assert result.png.hex() not in serialized
+
+
 @pytest.mark.parametrize(
     ("tamper", "code"),
     [
@@ -98,9 +150,11 @@ def test_fake_bridge_pair_identity_capability_screenshot_and_replay() -> None:
         ("wrong_request_id", "bridge_identity_mismatch"),
         ("wrong_bridge_id", "bridge_identity_mismatch"),
         ("bad_signature", "bridge_authentication_failed"),
-        ("media_type", "screenshot_invalid"),
-        ("invalid_png", "screenshot_invalid"),
-        ("wrong_dimensions", "screenshot_invalid"),
+        ("media_type", "screenshot_payload_type_invalid"),
+        ("missing_payload", "screenshot_payload_missing"),
+        ("missing_width_header", "screenshot_response_schema_invalid"),
+        ("invalid_png", "screenshot_format_invalid"),
+        ("wrong_dimensions", "screenshot_dimensions_invalid"),
         ("oversize", "screenshot_too_large"),
     ],
 )

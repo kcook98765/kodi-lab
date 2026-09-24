@@ -55,6 +55,10 @@ from kodi_lab.mcp.registry import (
     TargetClass,
     ToolScope,
 )
+from kodi_lab.screenshot_diagnostics import (
+    bind_screenshot_bridge_revision,
+    emit_screenshot_stage,
+)
 from kodi_lab.storage.models import (
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
@@ -743,7 +747,16 @@ class McpAuthorizationService:
             or self._permissions(session, preset.id) != expected_permissions
             or not definition.permissions.issubset(expected_permissions)
         ):
+            if visual:
+                emit_screenshot_stage(
+                    "catalog_permission", "failed", "permission_denied"
+                )
             raise McpAuthorizationError("permission_denied")
+        if visual:
+            emit_screenshot_stage(
+                "catalog_permission", "passed", "screenshot_tool_permitted"
+            )
+            emit_screenshot_stage("target_grant", "passed", "target_grant_current")
         target_preset = session.get(McpPresetRow, assignment.preset_id)
         target_expected_name, target_expected_permissions = (
             self._production_preset_contract(UUID(assignment.preset_id))
@@ -788,7 +801,20 @@ class McpAuthorizationService:
                     session, UUID(target.id)
                 )
             except ProductionInspectionError as error:
+                failed_stage = {
+                    "capability_unavailable": "capability_intersection",
+                    "transport_acknowledgement_required": "http_acknowledgement",
+                }.get(error.code, "bridge_anchor")
+                emit_screenshot_stage(failed_stage, "failed", error.code)
                 raise McpAuthorizationError(error.code) from error
+            bind_screenshot_bridge_revision(visual_state.bridge_trust_revision)
+            emit_screenshot_stage("bridge_anchor", "passed", "bridge_revision_current")
+            emit_screenshot_stage(
+                "capability_intersection", "passed", "screenshot_capability_current"
+            )
+            emit_screenshot_stage(
+                "http_acknowledgement", "passed", "http_acknowledgement_current"
+            )
             visual_scope = session.scalar(
                 select(McpProductionTargetScopeRow).where(
                     McpProductionTargetScopeRow.client_id == client.id,
@@ -802,7 +828,11 @@ class McpAuthorizationService:
                 )
             )
             if visual_scope is None:
+                emit_screenshot_stage(
+                    "visual_authority", "failed", "visual_scope_not_current"
+                )
                 raise McpAuthorizationError("target_not_found_or_not_authorized")
+            emit_screenshot_stage("visual_authority", "passed", "visual_scope_current")
 
     def _require_current_credential(
         self, session: Session, principal: McpPrincipal, client: McpClientRow

@@ -198,7 +198,7 @@ def _pair_production_bridge(
     ("tamper", "code"),
     [
         ("capture_error_invalid", "screenshot_invalid"),
-        ("invalid_png", "screenshot_invalid"),
+        ("invalid_png", "screenshot_format_invalid"),
         ("capture_error", "screenshot_capture_failed"),
     ],
 )
@@ -315,7 +315,7 @@ def test_screenshot_network_failure_still_marks_bridge_unreachable(
                 bridge_trust_revision=1,
             )
 
-        assert attempts == 2
+        assert attempts == 1
         assert bridges.status(target_id).reachability_state.value == "unreachable"
         with factory() as session:
             receipt = session.get(
@@ -497,6 +497,7 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
         # Pairing and the generic grant do not create MCP screenshot authority.
         with pytest.raises(McpAuthorizationError):
             tools.screenshot_capture(principal, target_id=target_id, request_id=uuid4())
+        assert fake.capture_count == 0
         with pytest.raises(
             McpAdministrationError, match="production_scope_target_invalid"
         ):
@@ -575,7 +576,10 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
 
         with monkeypatch.context() as patch:
             patch.setattr(screenshots, "_complete", fail_metadata_commit)
-            with pytest.raises(RuntimeError, match="forced metadata failure"):
+            with pytest.raises(
+                ProductionScreenshotError,
+                match="screenshot_receipt_persistence_failed",
+            ):
                 screenshots.capture(
                     client_id=audit_client.id,
                     target_id=target_id,
@@ -595,6 +599,17 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
                 },
             )
         assert protected_bridge_request is not None
+        with factory() as session:
+            failed_receipt = session.get(
+                McpProductionScreenshotReceiptRow,
+                {
+                    "client_id": str(audit_client.id),
+                    "request_id": str(audit_request),
+                },
+            )
+            assert failed_receipt is not None
+            assert failed_receipt.state == "rejected"
+            assert failed_receipt.response_digest is None
         with pytest.raises(
             ExternalBridgeServiceError, match="screenshot_replay_unavailable"
         ):
@@ -651,6 +666,11 @@ def test_production_pairing_visual_scope_and_replay_are_independent_and_bounded(
         bridges.mark_needs_reverification(target_id)
         with pytest.raises(McpAuthorizationError):
             tools.screenshot_capture(principal, target_id=target_id, request_id=uuid4())
+        assert fake.capture_count == 3
+        with pytest.raises(
+            ExternalBridgeServiceError, match="transport_acknowledgement_required"
+        ):
+            bridges.reverify(target_id)
         refreshed_acknowledgement = bridges.acknowledge_production_http_risk(
             target_id, bridge_port=fake.port
         )

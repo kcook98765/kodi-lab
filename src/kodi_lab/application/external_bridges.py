@@ -49,6 +49,10 @@ from kodi_lab.kodi.external import (
     ExternalEndpointPolicy,
     ValidatedExternalEndpoint,
 )
+from kodi_lab.screenshot_diagnostics import (
+    bind_screenshot_bridge_revision,
+    emit_screenshot_stage,
+)
 from kodi_lab.storage.models import (
     ExternalBridgeEventRow,
     ExternalBridgePairingRow,
@@ -1279,6 +1283,8 @@ class ExternalBridgeService:
             snapshot = self._active_snapshot(
                 target_id, required_capability="screenshot"
             )
+            if production and snapshot.bridge_trust_revision is not None:
+                bind_screenshot_bridge_revision(snapshot.bridge_trust_revision)
             existing = self._bridge_receipt(target_id, request_id)
             if existing is not None and existing.state == "completed":
                 raise ExternalBridgeServiceError("screenshot_replay_unavailable")
@@ -1330,6 +1336,13 @@ class ExternalBridgeService:
             if existing is None:
                 try:
                     self._claim_receipt(target_id, request_id, nonce, requested_at)
+                    emit_screenshot_stage(
+                        "receipt_persistence",
+                        "entered",
+                        "bridge_receipt_pending",
+                        receipt_kind="bridge",
+                        receipt_state="pending",
+                    )
                 except ExternalBridgeServiceError as error:
                     self._fail_receipt(
                         target_id, request_id, error.code, ambiguous=False
@@ -1347,7 +1360,7 @@ class ExternalBridgeService:
                     requested_at=requested_at,
                 )
             except ExternalBridgeError as first:
-                if first.code == "bridge_unreachable":
+                if first.code == "bridge_unreachable" and not production:
                     try:
                         result = self._client.capture_screenshot(
                             snapshot.endpoint,
@@ -1374,10 +1387,21 @@ class ExternalBridgeService:
                 else:
                     self._publish_screenshot_failure_reachability(target_id, first.code)
                     self._fail_receipt(
-                        target_id, request_id, first.code, ambiguous=False
+                        target_id,
+                        request_id,
+                        first.code,
+                        ambiguous=first.code
+                        in {"bridge_unreachable", "bridge_replay_rejected"},
                     )
                     raise ExternalBridgeServiceError(first.code) from first
             self._complete_receipt(target_id, result)
+            emit_screenshot_stage(
+                "receipt_persistence",
+                "passed",
+                "bridge_receipt_completed",
+                receipt_kind="bridge",
+                receipt_state="completed",
+            )
             capture = ExternalScreenshotCapture(
                 capture_id=request_id,
                 target_id=target_id,
@@ -1397,6 +1421,15 @@ class ExternalBridgeService:
                         oldest = next(iter(self._production_pixel_cache))
                         del self._production_pixel_cache[oldest]
                     self._production_pixel_cache[(target_id, request_id)] = capture
+                reachability = self._screenshot_reachability_value(target_id)
+                emit_screenshot_stage(
+                    "reachability_classification",
+                    "passed",
+                    "screenshot_success_reachable",
+                    reachability_before=reachability,
+                    reachability_after=reachability,
+                    classification_source="authenticated_screenshot_success",
+                )
             return capture
 
     def _bridge_receipt(
@@ -1743,6 +1776,7 @@ class ExternalBridgeService:
         self, target_id: UUID, request_id: UUID, code: str, *, ambiguous: bool
     ) -> None:
         now = self._clock()
+        receipt_state = "absent"
         with self._sessions.begin() as session:
             row = session.get(
                 ExternalBridgeRequestReceiptRow,
@@ -1751,6 +1785,7 @@ class ExternalBridgeService:
             if row is not None and row.state == "pending":
                 row.state = "ambiguous" if ambiguous else "rejected"
                 row.completed_at = self._text(now)
+                receipt_state = row.state
             self._event(
                 session,
                 target_id,
@@ -1758,6 +1793,14 @@ class ExternalBridgeService:
                 now,
                 request_id=request_id,
                 classification=code,
+            )
+        if receipt_state != "absent":
+            emit_screenshot_stage(
+                "receipt_persistence",
+                "passed",
+                "bridge_receipt_failed",
+                receipt_kind="bridge",
+                receipt_state=receipt_state,
             )
 
     def _audit_screenshot(
@@ -1813,8 +1856,26 @@ class ExternalBridgeService:
     def _publish_screenshot_failure_reachability(
         self, target_id: UUID, code: str
     ) -> None:
+        before = self._screenshot_reachability_value(target_id)
         if code not in SCREENSHOT_ERROR_CODES:
             self._publish_reachability(target_id, code)
+            source = "transport_or_trust_failure"
+        else:
+            source = "semantic_screenshot_failure"
+        after = self._screenshot_reachability_value(target_id)
+        emit_screenshot_stage(
+            "reachability_classification",
+            "passed",
+            code,
+            reachability_before=before,
+            reachability_after=after,
+            classification_source=source,
+        )
+
+    def _screenshot_reachability_value(self, target_id: UUID) -> str:
+        with self._sessions() as session:
+            row = session.get(ExternalBridgePairingRow, str(target_id))
+            return "absent" if row is None else row.reachability_state.value
 
     def _publish_authenticated_reachable(self, snapshot: _Snapshot) -> None:
         """Restore reachability only for the same still-paired trusted identity."""

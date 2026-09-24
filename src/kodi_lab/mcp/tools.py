@@ -1574,6 +1574,16 @@ class McpTargetToolService:
             "screenshot_replay_unavailable": "screenshot_replay_unavailable",
             "rate_limited": "rate_limited",
             "screenshot_invalid": "screenshot_invalid_result",
+            "screenshot_payload_missing": "screenshot_payload_missing",
+            "screenshot_payload_type_invalid": "screenshot_payload_type_invalid",
+            "screenshot_response_schema_invalid": "screenshot_response_schema_invalid",
+            "screenshot_decoder_rejected": "screenshot_decoder_rejected",
+            "screenshot_format_invalid": "screenshot_format_invalid",
+            "screenshot_dimensions_invalid": "screenshot_dimensions_invalid",
+            "screenshot_normalization_failed": "screenshot_normalization_failed",
+            "screenshot_receipt_persistence_failed": (
+                "screenshot_receipt_persistence_failed"
+            ),
             "screenshot_too_large": "response_too_large",
             "visual_instance_not_running": "target_not_running",
             "visual_kodi_not_ready": "target_not_ready",
