@@ -1,0 +1,11 @@
+# Add only when the fixed managed network has passed `network-ensure`.
+services:
+  web:
+    networks:
+      - default
+      - managed
+
+networks:
+  managed:
+    external: true
+    name: kodi-lab-managed-v1

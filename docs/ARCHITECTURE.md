@@ -240,12 +240,15 @@ legacy isolation. It left the canonical managed network and an unprovisioned
 validation-state record, but no managed validation container.
 
 This closeout does not make the broker a general runtime orchestrator. No
-component currently owns managed-network creation/removal as a product API;
-provisioning only validates the prerequisite network. Persistent-instance
-storage, production service installation/naming, and Kodi process/JSON-RPC
-readiness remain outside the Phase 2 boundary. Phase 3 consumes the immutable
-runtime artifact, managed-instance pin, typed broker client, ownership labels,
-and semantic lifecycle operations to establish one real Kodi runtime end to end.
+component at this Phase 2 checkpoint owned managed-network creation/removal;
+provisioning only validates the prerequisite network. The later one-runtime
+Compose integration added the trusted `kodi-lab-runtime network-ensure` setup
+command and a lab-only Web network overlay, without changing broker RPCs.
+Persistent-instance storage, production service installation/naming, and Kodi
+process/JSON-RPC readiness remain outside the Phase 2 boundary. Phase 3
+consumes the immutable runtime artifact, managed-instance pin, typed broker
+client, ownership labels, and semantic lifecycle operations to establish one
+real Kodi runtime end to end.
 
 ## Phase 4 authenticated Web slice
 

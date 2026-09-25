@@ -96,6 +96,29 @@ Web/Kodi. The broker healthcheck proves that a live listener returns the
 expected denial to its root probe. Broker shutdown unlinks only its verified
 socket inode; a correctly owned stale socket is revalidated on restart.
 
+For managed Kodi, first recheck host routes and Docker network IPAM for overlap
+with `10.250.0.0/24`. Run the installed `kodi-lab-runtime network-ensure` as a
+one-shot broker-container command. It creates only the fixed
+`kodi-lab-managed-v1` bridge with the broker-required labels and subnet, or
+verifies an existing exact network. A same-name impostor or another Docker
+network overlapping the subnet fails closed. It never removes a network. Then
+use `compose.lab.yaml` so Web can reach the broker-observed Kodi endpoint:
+
+```sh
+docker compose --profile lab run --rm --no-deps \
+  --entrypoint kodi-lab-runtime broker network-ensure
+docker compose -f compose.yaml -f compose.lab.yaml --profile lab \
+  up -d --wait --no-build web broker
+```
+
+The overlay attaches Web to the fixed managed network and its ordinary Compose
+network; broker stays only on the ordinary network. The managed Kodi container
+still has only the fixed managed attachment, no published port, and no host
+networking. Web receives neither `docker.sock` nor extra broker authority. The
+installed Web image includes a WebSocket protocol dependency so its existing
+Kodi 21.3 mediated-display route can negotiate an upgrade. Remote-only Compose
+remains independent of the managed network.
+
 Stop both Web and broker before lifecycle backup, upgrade, or restore.
 Phase 3.5 keeps snapshot publication at `0:10001`, `0750`/`0440`. The
 application rollback set contains Web-owned durable state and leaves snapshots

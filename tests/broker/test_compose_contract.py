@@ -70,3 +70,16 @@ def test_lab_compose_confines_docker_mount_to_broker() -> None:
         ("remote_state", "/var/lib/kodi-lab"),
     }
     assert broker["healthcheck"]["test"] == ["CMD", "kodi-lab-broker", "--healthcheck"]
+
+
+def test_lab_overlay_connects_web_to_managed_network_without_docker_socket() -> None:
+    config = _compose(
+        "-f", "compose.yaml", "-f", "compose.lab.yaml", "--profile", "lab"
+    )
+    assert config["networks"]["managed"]["external"] is True
+    assert config["networks"]["managed"]["name"] == "kodi-lab-managed-v1"
+    web = config["services"]["web"]
+    assert set(web["networks"]) == {"default", "managed"}
+    assert not any(item["target"] == "/var/run/docker.sock" for item in web["volumes"])
+    broker = config["services"]["broker"]
+    assert set(broker["networks"]) == {"default"}

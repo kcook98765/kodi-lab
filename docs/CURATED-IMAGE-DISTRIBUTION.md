@@ -68,6 +68,7 @@ invocation is:
 
 ```sh
 docker compose --profile lab run --rm --no-deps \
+  --cap-add SETGID --cap-add SETUID \
   --entrypoint kodi-lab-runtime broker bootstrap
 ```
 
@@ -81,6 +82,10 @@ packaged passing `kodi-runtime-v1` evidence. The approval timestamp records the
 explicit bootstrap. Kodi 22 retains its separate Trusted Custom Build
 confirmation requirement and the global opt-in; bootstrap does not grant either.
 Start Web after bootstrap completes.
+The two additional capabilities belong only to this one-shot process: it must
+drop from root to the Web state owner after Docker inspection. The long-running
+broker retains only CHOWN, DAC_OVERRIDE, and FOWNER. Without SETGID and SETUID,
+the one-shot process fails at `setgroups` before catalog mutation.
 
 The transaction compares every existing row with the wheel-owned identity and
 accepts only the two explicitly recorded Docker IDs for the same reviewed

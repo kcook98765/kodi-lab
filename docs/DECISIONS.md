@@ -4712,3 +4712,20 @@ approvals atomically with the governing revision transition.
   Publication, release authenticity/signing, retention, and other Docker
   engine identity translations remain future gates. See
   `CURATED-IMAGE-DISTRIBUTION.md`.
+
+## D-0372: One managed Kodi Compose integration prerequisites
+
+- A trusted installed-artifact `network-ensure` command owns creation or exact
+  verification of the fixed `kodi-lab-managed-v1` bridge. It checks name,
+  driver, three ownership/resource labels, subnet/IPAM, and non-host network
+  settings, and refuses overlap with another Docker network. Host route overlap
+  remains an explicit operator preflight. Broker provisioning independently
+  verifies its existing network contract and gains no network mutation RPC.
+- The lab-only Compose overlay attaches Web to that external managed network so
+  its unprivileged JSON-RPC adapters can reach the broker-observed Kodi IP.
+  Broker remains on the Compose network; managed Kodi has only the managed
+  network. Web and Kodi receive no Docker socket or host networking.
+- The installed Web runtime includes the WebSocket protocol package needed by
+  Uvicorn's existing Kodi 21.3 mediated display. The broker's long-running
+  capability set is unchanged. Only the catalog-bootstrap one-shot command adds
+  SETGID and SETUID so it can drop to the Web state owner before SQLite writes.

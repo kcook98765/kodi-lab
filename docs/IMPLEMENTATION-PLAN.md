@@ -1818,3 +1818,14 @@ Kodi instance is provisioned or started. Local isolated daemon proof and the
 remaining public distribution/authenticity work are in
 `CURATED-IMAGE-DISTRIBUTION.md`. The next separate gate is one real managed Kodi
 end-to-end, subject to this slice's acceptance.
+
+## One real managed Kodi end-to-end integration
+
+The Kodi 21.3 Current-tier suppression revision is the first representative.
+Its isolated Compose proof uses one managed instance, the installed curated
+catalog, the restricted broker, the fixed managed network, Web lifecycle,
+readiness, packaged Small/Mixed fixture, uploaded synthetic ZIP, managed
+screenshot and mediated display, Snapshot create/restore/preserve, reset,
+stop/start, and deprovision. `BROKER-CONTAINER.md` records the network overlay
+and setup command. The four-runtime managed lab remains a separate later gate;
+this integration does not change the other curated runtime identities.
