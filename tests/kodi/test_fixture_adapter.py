@@ -33,8 +33,11 @@ def profile(kodi_version: str = "21.3") -> RuntimeExecutionProfile:
         runtime_gid=1000,
         python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
         expected_application_name="Kodi",
-        expected_kodi_version=kodi_version,
-        expected_version_tag="stable",
+        expected_kodi_version=(
+            "22.0" if kodi_version == "22.0-beta.2" else kodi_version
+        ),
+        expected_version_tag=("beta" if kodi_version == "22.0-beta.2" else "stable"),
+        expected_prerelease_ordinal=(2 if kodi_version == "22.0-beta.2" else None),
         jsonrpc_port=8080,
         jsonrpc_path="/jsonrpc",
         process_observation=ProcessObservationKind.DOCKER_HEALTHCHECK,
@@ -175,7 +178,7 @@ def test_fixed_scan_and_exact_semantic_fixture_success() -> None:
     }
 
 
-def test_same_fixed_semantic_adapter_supports_all_proven_stable_releases() -> None:
+def test_same_fixed_semantic_adapter_supports_reviewed_releases() -> None:
     nexus = SmallMixedFixtureKodiAdapter(
         observation(), profile("20.5"), transport=FakeTransport()
     )
@@ -184,6 +187,10 @@ def test_same_fixed_semantic_adapter_supports_all_proven_stable_releases() -> No
         observation(), profile("19.5"), transport=FakeTransport()
     )
     assert matrix.get_fixture_library_state().is_baseline
+    preview = SmallMixedFixtureKodiAdapter(
+        observation(), profile("22.0-beta.2"), transport=FakeTransport()
+    )
+    assert preview.get_fixture_library_state().is_baseline
     with pytest.raises(ValueError, match="only proven releases"):
         SmallMixedFixtureKodiAdapter(
             observation(), profile("22.0"), transport=FakeTransport()

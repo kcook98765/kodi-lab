@@ -43,6 +43,7 @@ kodi-lab-mcp-stdio = "kodi_lab.mcp.stdio_proxy:main"
 kodi-lab-web = "kodi_lab.web.run:main"
 kodi-lab-broker = "kodi_lab.broker.run:main"
 kodi-lab-runtime = "kodi_lab.runtime.distribution:main"
+kodi-lab-lab = "kodi_lab.runtime.lab:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kodi_lab"]

@@ -314,6 +314,9 @@ class ResetStatusService:
             "small-mixed-v4": (
                 "Kodi 19.5-specific populated reset baseline fixture version."
             ),
+            "small-mixed-v5": (
+                "Kodi 22 Beta 2-specific populated reset baseline fixture version."
+            ),
             "small-movies-v1": ("Proven Small/Movies fixture for exact Kodi 21.3."),
             "small-movies-v2": ("Small/Movies fixture for exact Kodi 20.5."),
             "small-movies-v3": ("Small/Movies fixture for exact Kodi 19.5."),

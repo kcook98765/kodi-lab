@@ -14,11 +14,13 @@ from kodi_lab.fixtures.seed_audit import (
     FIXTURE_TV_DIRECTORY,
     KODI_19_VIDEO_DATABASE_FILENAME,
     KODI_20_VIDEO_DATABASE_FILENAME,
+    KODI_22_VIDEO_DATABASE_FILENAME,
     KODI_VIDEO_DATABASE_FILENAME,
     FixtureSeedAuditError,
     audit_small_mixed_v2_seed,
     audit_small_mixed_v3_seed,
     audit_small_mixed_v4_seed,
+    audit_small_mixed_v5_seed,
 )
 
 
@@ -227,6 +229,27 @@ def test_small_mixed_v4_seed_is_exact_configuration_only_matrix_database() -> No
             assert count == 0, table
 
 
+def test_small_mixed_v5_is_exact_kodi22_configuration_seed() -> None:
+    fixture = load_packaged_fixture("small-mixed-v5")
+    assert str(fixture.definition.id) == "8c7f2282-e68a-5089-901c-4efba4c8af96"
+    assert fixture.definition.compatible_kodi_version == "22.0-beta.2"
+    assert fixture.definition.fixture_version == 5
+    seed = next(
+        member.data
+        for member in fixture.members
+        if member.archive_path == f"userdata/Database/{KODI_22_VIDEO_DATABASE_FILENAME}"
+    )
+    audit = audit_small_mixed_v5_seed(seed)
+    assert fixture.seed_audit == audit
+    assert audit.schema_version == 149
+    assert len(audit.configured_paths) == 2
+    assert dict(audit.table_counts)["videoversiontype"] == 387
+    corrupted = bytearray(seed)
+    corrupted[0] ^= 0xFF
+    with pytest.raises(FixtureSeedAuditError):
+        audit_small_mixed_v5_seed(bytes(corrupted))
+
+
 def test_seed_audit_rejects_corrupt_or_mutated_database() -> None:
     fixture = load_packaged_fixture("small-mixed-v2")
     seed = next(
@@ -240,7 +263,13 @@ def test_seed_audit_rejects_corrupt_or_mutated_database() -> None:
 
 @pytest.mark.parametrize(
     "slug",
-    ["small-mixed-v1", "small-mixed-v2", "small-mixed-v3", "small-mixed-v4"],
+    [
+        "small-mixed-v1",
+        "small-mixed-v2",
+        "small-mixed-v3",
+        "small-mixed-v4",
+        "small-mixed-v5",
+    ],
 )
 def test_fixture_archive_is_deterministic_bounded_and_traversal_free(
     slug: str,

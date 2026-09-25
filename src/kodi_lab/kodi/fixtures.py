@@ -103,7 +103,12 @@ class SmallMixedFixtureKodiAdapter:
             raise ValueError("observation and execution profile revisions differ")
         if observation.jsonrpc_port != profile.jsonrpc_port:
             raise ValueError("observation and execution profile ports differ")
-        if profile.kodi_release.canonical not in {"19.5", "20.5", "21.3"}:
+        if profile.kodi_release.canonical not in {
+            "19.5",
+            "20.5",
+            "21.3",
+            "22.0-beta.2",
+        }:
             raise ValueError(
                 "small-mixed fixture adapter supports only proven releases"
             )

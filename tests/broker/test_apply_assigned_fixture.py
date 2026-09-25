@@ -187,6 +187,24 @@ def test_v4_seed_uses_same_operation_with_its_fixed_matrix_database_path() -> No
     assert "userdata/Database/MyVideos119.db" in names
 
 
+def test_v5_seed_uses_same_operation_with_its_fixed_preview_database_path() -> None:
+    client = FakeFixtureDockerClient()
+    fixture_spec = spec("small-mixed-v5")
+    result = DockerManagedContainerAdapter(lambda: client).apply_assigned_fixture(
+        spec=fixture_spec, expected_container_id=CONTAINER_ID
+    )
+
+    assert result.fixture_slug == "small-mixed-v5"
+    assert result.fixture_version == 5
+    assert "/home/kodi/.kodi/userdata/Database/MyVideos149.db" in client.get_paths
+    assert len(client.put_calls) == 1
+    _container, destination, archive_bytes = client.put_calls[0]
+    assert destination == "/home/kodi/.kodi"
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes)) as archive:
+        names = {member.name for member in archive.getmembers()}
+    assert "userdata/Database/MyVideos149.db" in names
+
+
 def test_small_movies_seed_uses_the_same_bounded_archive_operation() -> None:
     client = FakeFixtureDockerClient()
     fixture_spec = spec("small-movies-v1")

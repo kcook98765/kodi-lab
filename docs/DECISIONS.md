@@ -4729,3 +4729,31 @@ approvals atomically with the governing revision transition.
   Uvicorn's existing Kodi 21.3 mediated display. The broker's long-running
   capability set is unchanged. Only the catalog-bootstrap one-shot command adds
   SETGID and SETUID so it can drop to the Web state owner before SQLite writes.
+
+## D-0373: Four canonical broker-owned managed lab instances
+
+- The Linux amd64 lab is four disposable ManagedInstance pins beneath stable
+  UUIDv5 Target identities, one per reviewed release. Compose owns Web,
+  broker, volumes, and the product network prerequisite, not Kodi services.
+  Bootstrap rejects any conflicting canonical row and safely completes absent
+  rows; it does not start the runtimes.
+- One installed broker-container command verifies the reviewed images and
+  catalog, ensures the fixed managed network, then confirms only the reviewed
+  Kodi 22 Preview revision and creates the four exact pins. Both an explicit
+  Preview acknowledgement and invocation-scoped Trusted Custom Build opt-in
+  are required. Normal product configuration and arbitrary custom-build
+  eligibility remain unchanged.
+- The installed Web-container lab command uses the existing application
+  lifecycle service and restricted broker for per-runtime provision/start,
+  bounded readiness, status, and stop. Selection is closed to `19 20 21 22`;
+  each result is reported, independent successes remain, and any failure makes
+  the command unsuccessful.
+- A fresh Web process may find a running broker-owned Kodi container with no
+  process-local readiness task. It starts one bounded readiness observation
+  from the immutable execution profile on first running status observation.
+  Visual and remote gates become usable only after that task passes. This is
+  observation, not Docker adoption or a new lifecycle operation.
+- Kodi 22 Beta 2's packaged Small/Mixed fixture has an exact MyVideos149 seed
+  audited as configuration-only. The common fixture adapter admits only the
+  four reviewed exact releases. Preview acknowledgement and the separate
+  Trusted Custom Build gates still control managed-instance creation.

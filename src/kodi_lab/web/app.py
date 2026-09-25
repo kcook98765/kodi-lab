@@ -1166,7 +1166,14 @@ def create_app(
         reconciliation=reconciliation,
     )
     status_service = ManagedRuntimeStatusService(
-        session_factory, broker, task_registry, reconciliation
+        session_factory,
+        broker,
+        task_registry,
+        reconciliation,
+        recover_running_readiness=True,
+        coordinator_factory=lambda _status_broker, profile: (
+            coordinator_factory or KodiReadinessCoordinator
+        )(broker, profile),
     )
     screenshots = managed_screenshot_service or ManagedScreenshotService(
         session_factory,

@@ -36,6 +36,7 @@ from kodi_lab.domain import (
     RuntimeExecutionProfile,
     RuntimeKind,
     RuntimeRevision,
+    RuntimeSupportTier,
     RuntimeValidationEvidence,
     RuntimeValidationResult,
     Target,
@@ -87,6 +88,11 @@ def seed_instance(
         id=uuid4(),
         slug=f"kodi-{kodi_version.replace('.', '-')}",
         kodi_version=kodi_version,
+        support_tier=(
+            RuntimeSupportTier.PREVIEW
+            if kodi_version == "22.0-beta.2"
+            else RuntimeSupportTier.CURRENT
+        ),
     )
     revision = RuntimeRevision(
         id=uuid4(),
@@ -116,8 +122,15 @@ def seed_instance(
                 runtime_gid=1000,
                 python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
                 expected_application_name="Kodi",
-                expected_kodi_version=kodi_version,
-                expected_version_tag="stable",
+                expected_kodi_version=(
+                    "22.0" if kodi_version == "22.0-beta.2" else kodi_version
+                ),
+                expected_version_tag=(
+                    "beta" if kodi_version == "22.0-beta.2" else "stable"
+                ),
+                expected_prerelease_ordinal=(
+                    2 if kodi_version == "22.0-beta.2" else None
+                ),
                 jsonrpc_port=8080,
                 jsonrpc_path="/jsonrpc",
                 process_observation=ProcessObservationKind.DOCKER_HEALTHCHECK,
@@ -235,7 +248,7 @@ def test_small_tv_registration_and_exact_release_assignment(
         service.assign(managed_instance_id=nexus.id, fixture_definition_id=fixture.id)
 
 
-def test_v2_v3_v4_exact_cross_version_assignment_matrix(
+def test_v2_v3_v4_v5_exact_cross_version_assignment_matrix(
     session_factory: sessionmaker[Session],
 ) -> None:
     nexus, _definition, nexus_revision = seed_instance(
@@ -245,6 +258,7 @@ def test_v2_v3_v4_exact_cross_version_assignment_matrix(
     v2 = service.register_packaged_fixture("small-mixed-v2")
     v3 = service.register_packaged_fixture("small-mixed-v3")
     v4 = service.register_packaged_fixture("small-mixed-v4")
+    v5 = service.register_packaged_fixture("small-mixed-v5")
 
     assigned = service.assign(managed_instance_id=nexus.id, fixture_definition_id=v3.id)
     assert assigned.fixture_definition_id == v3.id
@@ -253,6 +267,8 @@ def test_v2_v3_v4_exact_cross_version_assignment_matrix(
         service.assign(managed_instance_id=nexus.id, fixture_definition_id=v2.id)
     with pytest.raises(FixtureIncompatibleError):
         service.assign(managed_instance_id=nexus.id, fixture_definition_id=v4.id)
+    with pytest.raises(FixtureIncompatibleError):
+        service.assign(managed_instance_id=nexus.id, fixture_definition_id=v5.id)
 
     omega, _definition, omega_revision = seed_instance(session_factory)
     assigned = service.assign(managed_instance_id=omega.id, fixture_definition_id=v2.id)
@@ -262,6 +278,8 @@ def test_v2_v3_v4_exact_cross_version_assignment_matrix(
         service.assign(managed_instance_id=omega.id, fixture_definition_id=v3.id)
     with pytest.raises(FixtureIncompatibleError):
         service.assign(managed_instance_id=omega.id, fixture_definition_id=v4.id)
+    with pytest.raises(FixtureIncompatibleError):
+        service.assign(managed_instance_id=omega.id, fixture_definition_id=v5.id)
 
     matrix, _definition, matrix_revision = seed_instance(
         session_factory, kodi_version="19.5"
@@ -275,6 +293,22 @@ def test_v2_v3_v4_exact_cross_version_assignment_matrix(
         service.assign(managed_instance_id=matrix.id, fixture_definition_id=v2.id)
     with pytest.raises(FixtureIncompatibleError):
         service.assign(managed_instance_id=matrix.id, fixture_definition_id=v3.id)
+    with pytest.raises(FixtureIncompatibleError):
+        service.assign(managed_instance_id=matrix.id, fixture_definition_id=v5.id)
+
+    preview, _definition, preview_revision = seed_instance(
+        session_factory, kodi_version="22.0-beta.2"
+    )
+    assigned = service.assign(
+        managed_instance_id=preview.id, fixture_definition_id=v5.id
+    )
+    assert assigned.fixture_definition_id == v5.id
+    assert assigned.runtime_revision_id == preview_revision.id
+    for fixture in (v2, v3, v4):
+        with pytest.raises(FixtureIncompatibleError):
+            service.assign(
+                managed_instance_id=preview.id, fixture_definition_id=fixture.id
+            )
 
 
 @pytest.mark.parametrize(

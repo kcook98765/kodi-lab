@@ -2679,3 +2679,31 @@ marker blocks startup. Restore accepts only that matching backup, quarantines
 newer state, and verifies restored revision/key identity. The prior application
 artifact is required after rollback. D-0368 and `REMOTE-MODE-CONTAINER.md`
 define the operator procedure and its Phase 1 compatibility boundary.
+
+## Four-version managed lab workflow
+
+The installed `kodi-lab-lab` entrypoint prepares four canonical disposable
+ManagedInstances. The broker-container one-shot `bootstrap` checks the reviewed
+images, fixed managed network, installed state and catalog, then creates absent
+Targets and exact revision pins through `ManagedInstanceService`. Kodi 22 needs
+an explicit Preview acknowledgement plus invocation-scoped global Trusted
+Custom Build opt-in; only its reviewed revision receives the persisted
+per-revision confirmation. Repeat verifies current definitions and fills a
+partial target-only or missing-instance result without reassignment.
+
+Web-container `start`, `status`, and `stop` operate selected instances through
+the existing restricted broker and application lifecycle service. A failure in
+one selection leaves independent successes visible and returns nonzero. The
+long-running Web process schedules its existing bounded readiness coordinator
+when it first observes an already-running managed instance after control-plane
+recreation or a CLI start. This restores Web screenshot/remote usability after
+the task completes without trusting a stale process-local result. See
+`MANAGED-LAB-WORKFLOW.md` for setup, exact identities, resource management,
+cleanup, and capability status.
+
+The four-runtime acceptance additionally proves exact image identity,
+per-release deterministic fixture/reset, passive ZIP installation, snapshot
+create/restore with source binding, simultaneous readiness, independent
+stop/start, and reobservation after Web/broker recreation. Kodi 22 Beta 2 uses
+an audited configuration-only `MyVideos149.db` fixture seed and an exact
+fixture-adapter release gate; no generic Preview relaxation was added.

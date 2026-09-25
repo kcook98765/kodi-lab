@@ -26,6 +26,8 @@ from kodi_lab.fixtures.seed_audit import (
     KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
     KODI_20_VIDEO_DATABASE_FILENAME,
     KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+    KODI_22_VIDEO_DATABASE_FILENAME,
+    KODI_22_VIDEO_DATABASE_SCHEMA_VERSION,
     KODI_VIDEO_DATABASE_FILENAME,
     KODI_VIDEO_DATABASE_SCHEMA_VERSION,
     FixtureSeedAudit,
@@ -34,6 +36,7 @@ from kodi_lab.fixtures.seed_audit import (
     audit_small_mixed_v2_seed,
     audit_small_mixed_v3_seed,
     audit_small_mixed_v4_seed,
+    audit_small_mixed_v5_seed,
     audit_small_movies_v1_seed,
     audit_small_movies_v2_seed,
     audit_small_movies_v3_seed,
@@ -53,6 +56,7 @@ SMALL_MIXED_V1_FIXTURE_SLUG = "small-mixed-v1"
 SMALL_MIXED_V2_FIXTURE_SLUG = "small-mixed-v2"
 SMALL_MIXED_V3_FIXTURE_SLUG = "small-mixed-v3"
 SMALL_MIXED_V4_FIXTURE_SLUG = "small-mixed-v4"
+SMALL_MIXED_V5_FIXTURE_SLUG = "small-mixed-v5"
 SMALL_MOVIES_V1_FIXTURE_SLUG = "small-movies-v1"
 SMALL_MOVIES_V2_FIXTURE_SLUG = "small-movies-v2"
 SMALL_MOVIES_V3_FIXTURE_SLUG = "small-movies-v3"
@@ -82,6 +86,7 @@ TRUSTED_FIXTURE_SLUGS = frozenset(
         SMALL_MIXED_V2_FIXTURE_SLUG,
         SMALL_MIXED_V3_FIXTURE_SLUG,
         SMALL_MIXED_V4_FIXTURE_SLUG,
+        SMALL_MIXED_V5_FIXTURE_SLUG,
         SMALL_MOVIES_V1_FIXTURE_SLUG,
         SMALL_MOVIES_V2_FIXTURE_SLUG,
         SMALL_MOVIES_V3_FIXTURE_SLUG,
@@ -105,6 +110,9 @@ FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS = MappingProxyType(
         ),
         SMALL_MIXED_V4_FIXTURE_SLUG: (
             f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
+        ),
+        SMALL_MIXED_V5_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_22_VIDEO_DATABASE_FILENAME}"
         ),
         SMALL_MOVIES_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
         SMALL_MOVIES_V2_FIXTURE_SLUG: (
@@ -322,6 +330,7 @@ def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> N
         SMALL_MIXED_V2_FIXTURE_SLUG: (2, 2),
         SMALL_MIXED_V3_FIXTURE_SLUG: (3, 3),
         SMALL_MIXED_V4_FIXTURE_SLUG: (4, 4),
+        SMALL_MIXED_V5_FIXTURE_SLUG: (12, 5),
         SMALL_MOVIES_V1_FIXTURE_SLUG: (5, 1),
         SMALL_TV_V1_FIXTURE_SLUG: (6, 1),
         SMALL_MOVIES_V2_FIXTURE_SLUG: (7, 2),
@@ -415,6 +424,11 @@ def _audit_seed(
             KODI_19_VIDEO_DATABASE_FILENAME,
             KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
             audit_small_mixed_v4_seed,
+        ),
+        SMALL_MIXED_V5_FIXTURE_SLUG: (
+            KODI_22_VIDEO_DATABASE_FILENAME,
+            KODI_22_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_mixed_v5_seed,
         ),
         SMALL_MOVIES_V1_FIXTURE_SLUG: (
             KODI_VIDEO_DATABASE_FILENAME,

@@ -1,0 +1,87 @@
+{
+  "compatible_kodi_releases": [
+    "22.0-beta.2"
+  ],
+  "container_destination": "/home/kodi/.kodi",
+  "content_category": "mixed",
+  "content_digest": "sha256:e26fb84a61b6c974202b866bbdac02d63f78e5b6c7ac643484be4f9f1e043b73",
+  "description": "One synthetic movie and one synthetic series episode for deterministic Kodi 22 Beta 2 reset validation.",
+  "files": [
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-fixture-movie/Kodi Lab Fixture Movie (2024).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-fixture-movie/Kodi Lab Fixture Movie (2024).nfo",
+      "sha256": "50e0aa88197bfdcdc0e2ad787f58f83801963816afdc33445f0ced7e0c126dd4",
+      "size": 593
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-fixture-movie/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-fixture-movie/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-fixture-series/Season 01/Kodi Lab Fixture Series S01E01-thumb.png",
+      "sha256": "8ebc0b95cb1a530ada56dae41f067fe733b93d78f34f92550023c6e6e266ff9e",
+      "size": 628
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-fixture-series/Season 01/Kodi Lab Fixture Series S01E01.mp4",
+      "sha256": "d4b50696adc6db8bc17e0591063488a8162cdd79a335b5fcfe8345474c28010c",
+      "size": 12256
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-fixture-series/Season 01/Kodi Lab Fixture Series S01E01.nfo",
+      "sha256": "5cc710e87f3b8e2284f258a0964811c22f9d27a1baeb2695d54afc10596f57df",
+      "size": 500
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-fixture-series/fanart.png",
+      "sha256": "198ce051a675951997926ebe1a6bdd8f38b9714c13201361ee26dfd08b5b1953",
+      "size": 629
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-fixture-series/poster.png",
+      "sha256": "a71e4b3b4cd89c87e13d63ba63ec426581d8b4f0c28b61176a3bc857b4b8ee23",
+      "size": 436
+    },
+    {
+      "path": "payload/fixture-media/tvshows/kodi-lab-fixture-series/tvshow.nfo",
+      "sha256": "84626938918cdc77c0e9443083a81e0acca9269cd8201519e32020a75eea87e9",
+      "size": 577
+    },
+    {
+      "path": "payload/userdata/Database/MyVideos149.db",
+      "sha256": "46946ca1fa913d753d5a4a5042e13ed7c3504d7e0e4d7af80245192b1c6e648b",
+      "size": 405504
+    },
+    {
+      "path": "payload/userdata/sources.xml",
+      "sha256": "e474a735aa27f7c6b03ccb154ea21dd6e334e631e54def2be114091c81f49f05",
+      "size": 597
+    }
+  ],
+  "fixture_version": 5,
+  "id": "8c7f2282-e68a-5089-901c-4efba4c8af96",
+  "schema_version": 12,
+  "size_category": "small",
+  "slug": "small-mixed-v5",
+  "video_database_seed": {
+    "container_relative_path": "userdata/Database/MyVideos149.db",
+    "database_filename": "MyVideos149.db",
+    "movie_content": "movies",
+    "movie_path": "/home/kodi/.kodi/fixture-media/movies/",
+    "schema_version": 149,
+    "scraper": "metadata.local",
+    "sha256": "46946ca1fa913d753d5a4a5042e13ed7c3504d7e0e4d7af80245192b1c6e648b",
+    "tv_content": "tvshows",
+    "tv_path": "/home/kodi/.kodi/fixture-media/tvshows/"
+  }
+}

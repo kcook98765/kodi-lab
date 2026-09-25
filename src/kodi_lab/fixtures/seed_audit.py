@@ -11,6 +11,8 @@ KODI_20_VIDEO_DATABASE_FILENAME = "MyVideos121.db"
 KODI_20_VIDEO_DATABASE_SCHEMA_VERSION = 121
 KODI_19_VIDEO_DATABASE_FILENAME = "MyVideos119.db"
 KODI_19_VIDEO_DATABASE_SCHEMA_VERSION = 119
+KODI_22_VIDEO_DATABASE_FILENAME = "MyVideos149.db"
+KODI_22_VIDEO_DATABASE_SCHEMA_VERSION = 149
 FIXTURE_MOVIE_DIRECTORY = "/home/kodi/.kodi/fixture-media/movies/"
 FIXTURE_TV_DIRECTORY = "/home/kodi/.kodi/fixture-media/tvshows/"
 FIXTURE_LOCAL_SCRAPER = "metadata.local"
@@ -172,6 +174,18 @@ def audit_small_mixed_v4_seed(database: bytes) -> FixtureSeedAudit:
         database_filename=KODI_19_VIDEO_DATABASE_FILENAME,
         schema_version=KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
         expected_nonzero_table_counts=_KODI_19_EXPECTED_NONZERO_TABLE_COUNTS,
+        expected_paths=_EXPECTED_PATH_ROWS,
+    )
+
+
+def audit_small_mixed_v5_seed(database: bytes) -> FixtureSeedAudit:
+    """Audit the exact Kodi 22 Beta 2 configuration-only video seed."""
+
+    return _audit_seed(
+        database,
+        database_filename=KODI_22_VIDEO_DATABASE_FILENAME,
+        schema_version=KODI_22_VIDEO_DATABASE_SCHEMA_VERSION,
+        expected_nonzero_table_counts=_EXPECTED_NONZERO_TABLE_COUNTS,
         expected_paths=_EXPECTED_PATH_ROWS,
     )
 

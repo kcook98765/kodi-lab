@@ -580,6 +580,24 @@ def test_status_models_unprovisioned_stopped_running_and_broker_failure(
     assert "secret internal path" not in str(unavailable)
 
 
+def test_running_instance_recovers_readiness_in_fresh_web_process(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    login(client)
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    broker.process_state = KodiProcessState.RUNNING
+    first = client.get(f"/api/instances/{INSTANCE_ID}").json()
+    assert first["readiness_state"] in {"checking", "usable"}
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        current = client.get(f"/api/instances/{INSTANCE_ID}").json()
+        if current["readiness_state"] == "usable":
+            break
+        time.sleep(0.01)
+    assert current["readiness_state"] == "usable"
+    assert current["usability_state"] == "usable"
+
+
 def test_status_list_handles_no_managed_instances(
     client: TestClient, database: sessionmaker[Session]
 ) -> None:

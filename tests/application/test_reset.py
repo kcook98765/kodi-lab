@@ -72,6 +72,7 @@ from kodi_lab.domain import (
     RuntimeExecutionProfile,
     RuntimeKind,
     RuntimeRevision,
+    RuntimeSupportTier,
     RuntimeValidationEvidence,
     RuntimeValidationResult,
     Target,
@@ -127,6 +128,11 @@ def seed_reset_context(
         uuid4(),
         f"kodi-reset-{kodi_version.replace('.', '-')}-{instance_id.hex}",
         kodi_version,
+        (
+            RuntimeSupportTier.PREVIEW
+            if kodi_version == "22.0-beta.2"
+            else RuntimeSupportTier.CURRENT
+        ),
     )
     revision = RuntimeRevision(
         id=uuid4(),
@@ -168,8 +174,15 @@ def seed_reset_context(
                 runtime_gid=1000,
                 python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
                 expected_application_name="Kodi",
-                expected_kodi_version=kodi_version,
-                expected_version_tag="stable",
+                expected_kodi_version=(
+                    "22.0" if kodi_version == "22.0-beta.2" else kodi_version
+                ),
+                expected_version_tag=(
+                    "beta" if kodi_version == "22.0-beta.2" else "stable"
+                ),
+                expected_prerelease_ordinal=(
+                    2 if kodi_version == "22.0-beta.2" else None
+                ),
                 jsonrpc_port=8080,
                 jsonrpc_path="/jsonrpc",
                 process_observation=ProcessObservationKind.DOCKER_HEALTHCHECK,
@@ -218,8 +231,15 @@ def seed_reset_context(
                 runtime_gid=1000,
                 python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
                 expected_application_name="Kodi",
-                expected_kodi_version=kodi_version,
-                expected_version_tag="stable",
+                expected_kodi_version=(
+                    "22.0" if kodi_version == "22.0-beta.2" else kodi_version
+                ),
+                expected_version_tag=(
+                    "beta" if kodi_version == "22.0-beta.2" else "stable"
+                ),
+                expected_prerelease_ordinal=(
+                    2 if kodi_version == "22.0-beta.2" else None
+                ),
                 jsonrpc_port=8080,
                 jsonrpc_path="/jsonrpc",
                 process_observation=ProcessObservationKind.DOCKER_HEALTHCHECK,
@@ -361,6 +381,7 @@ class FakeBroker:
                     "small-mixed-v2",
                     "small-mixed-v3",
                     "small-mixed-v4",
+                    "small-mixed-v5",
                     "small-movies-v1",
                     "small-movies-v2",
                     "small-movies-v3",
@@ -371,7 +392,7 @@ class FakeBroker:
                 ],
                 fixture.slug,
             ),
-            fixture_version=cast(Literal[1, 2, 3, 4], fixture.fixture_version),
+            fixture_version=cast(Literal[1, 2, 3, 4, 5], fixture.fixture_version),
             content_digest=fixture.content_digest,
             runtime_state=ContainerRuntimeState.STOPPED,
         )
@@ -663,6 +684,30 @@ def test_v4_reset_uses_same_flow_and_retains_exact_matrix_revision(
     assert result.runtime_revision_id == revision_id
     assert result.fixture_slug == "small-mixed-v4"
     assert result.fixture_version == 4
+    assert broker.calls.index("apply_fixture") < broker.calls.index("start")
+    with session_factory() as session:
+        retained = ManagedInstanceRepository(session).get(instance_id)
+        assert retained is not None
+        assert retained.runtime_revision_id == revision_id
+        assert retained.fixture_definition_id == fixture_id
+
+
+def test_v5_reset_uses_same_flow_and_retains_exact_matrix_revision(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, fixture_id = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-mixed-v5",
+        kodi_version="22.0-beta.2",
+    )
+    broker = FakeBroker(instance_id, revision_id, fixture_slug="small-mixed-v5")
+
+    result = service(session_factory, broker).reset(instance_id)
+
+    assert result.runtime_revision_id == revision_id
+    assert result.fixture_slug == "small-mixed-v5"
+    assert result.fixture_version == 5
     assert broker.calls.index("apply_fixture") < broker.calls.index("start")
     with session_factory() as session:
         retained = ManagedInstanceRepository(session).get(instance_id)

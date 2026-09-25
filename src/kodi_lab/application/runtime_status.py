@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import StrEnum
+from threading import Event
 from typing import Protocol
 from uuid import UUID
 
@@ -22,9 +24,12 @@ from kodi_lab.broker.operations import (
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeResult,
 )
+from kodi_lab.domain import RuntimeExecutionProfile
+from kodi_lab.kodi.readiness import KodiReadinessCoordinator, ReadinessResult
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeDefinitionRepository,
+    RuntimeExecutionProfileRepository,
     RuntimeRevisionRepository,
     TargetRepository,
 )
@@ -77,6 +82,12 @@ class _StatusBroker(Protocol):
     ) -> ObserveManagedKodiRuntimeResult: ...
 
 
+class _ReadinessCoordinator(Protocol):
+    def wait_until_usable(
+        self, managed_instance_id: str, *, cancelled: Callable[[], bool] | None = None
+    ) -> ReadinessResult: ...
+
+
 class ManagedRuntimeStatusService:
     def __init__(
         self,
@@ -84,11 +95,18 @@ class ManagedRuntimeStatusService:
         broker: _StatusBroker,
         readiness: ReadinessTaskRegistry,
         reconciliation: ManagedInstanceReconciliationService | None = None,
+        *,
+        recover_running_readiness: bool = False,
+        coordinator_factory: Callable[
+            [_StatusBroker, RuntimeExecutionProfile], _ReadinessCoordinator
+        ] = KodiReadinessCoordinator,
     ) -> None:
         self._session_factory = session_factory
         self._broker = broker
         self._readiness = readiness
         self._reconciliation = reconciliation
+        self._recover_running_readiness = recover_running_readiness
+        self._coordinator_factory = coordinator_factory
 
     def list_statuses(self) -> list[ManagedRuntimeStatus]:
         contexts = self._load_contexts()
@@ -215,6 +233,23 @@ class ManagedRuntimeStatusService:
                 failure_code=self._error_code(error),
                 failure_detail=self._safe_detail(error),
             )
+
+        if (
+            self._recover_running_readiness
+            and task.state is ReadinessTaskState.IDLE
+            and observation.process_state is KodiProcessState.RUNNING
+        ):
+            with self._session_factory() as session:
+                profile = RuntimeExecutionProfileRepository(session).get(context[3])
+            if profile is not None:
+                coordinator = self._coordinator_factory(self._broker, profile)
+
+                def run(cancel_event: Event) -> ReadinessResult:
+                    return coordinator.wait_until_usable(
+                        str(instance_id), cancelled=cancel_event.is_set
+                    )
+
+                task = self._readiness.start(instance_id, run)
 
         jsonrpc = SemanticJsonRpcState.NOT_CHECKED
         usability = SemanticUsabilityState.NOT_USABLE

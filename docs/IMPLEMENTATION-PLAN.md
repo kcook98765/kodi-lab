@@ -1829,3 +1829,22 @@ screenshot and mediated display, Snapshot create/restore/preserve, reset,
 stop/start, and deprovision. `BROKER-CONTAINER.md` records the network overlay
 and setup command. The four-runtime managed lab remains a separate later gate;
 this integration does not change the other curated runtime identities.
+
+## Four-version managed lab workflow
+
+The installed `kodi-lab-lab` command bootstraps four disposable
+ManagedInstances with stable identities from the reviewed wheel catalog and
+explicit Kodi 22 Preview trust acknowledgement. Independent `start`, `status`,
+and `stop` actions work on all four or selected versions through the existing
+application service and broker. Fresh Web processes rediscover running-instance
+readiness with the bounded coordinator so authenticated visual operations can resume
+after control-plane recreation. Acceptance and developer commands are recorded
+in `MANAGED-LAB-WORKFLOW.md`; public archive publication and clean-host
+installation remain a later gate.
+
+The isolated four-image acceptance now covers each release's fixture/reset,
+JSON-RPC and input, managed screenshot, passive ZIP install, snapshot
+create/restore, simultaneous readiness, source-state isolation, control-plane
+recreation, stop/start/subset selection, and Kodi 22 Preview gates. Kodi 22's
+exact Beta 2 schema requires the audited `small-mixed-v5` fixture and the
+shared fixture adapter's exact-release admission.
