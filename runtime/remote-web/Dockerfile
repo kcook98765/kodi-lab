@@ -14,7 +14,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     KODI_LAB_DATA_ROOT=/var/lib/kodi-lab \
     KODI_LAB_RUNTIME_ROOT=/var/lib/kodi-lab/run \
-    KODI_LAB_WEB_BIND_HOST=0.0.0.0
+    KODI_LAB_WEB_BIND_HOST=0.0.0.0 \
+    KODI_LAB_REMOTE_CONTAINER=1
 
 COPY --from=wheel-build /build/requirements.txt /tmp/requirements.txt
 COPY --from=wheel-build /wheels/*.whl /tmp/wheels/

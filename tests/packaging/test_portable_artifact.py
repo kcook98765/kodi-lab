@@ -49,6 +49,7 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
             "kodi_lab/web/static/style.css",
             "kodi_lab/admin_cli.py",
             "kodi_lab/host_bootstrap.py",
+            "kodi_lab/remote_lifecycle.py",
             "kodi_lab/storage/packaged_migrations.py",
             "kodi_lab-0.0.0.dist-info/entry_points.txt",
         ):

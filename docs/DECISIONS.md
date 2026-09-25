@@ -4603,3 +4603,31 @@ approvals atomically with the governing revision transition.
 - Boundary: no production host or LAN contact, Stage D, support-addon
   deployment, later Phase 14 work, publication, tag or remote was used or
   begun.
+## D-0368: Remote container state changes are explicit and backup-bound
+
+- Scope: the wheel-installed, single-instance remote Web container only. This
+  decision does not add broker, managed Kodi, bridge, or production authority.
+- `compose up` validates private state and exact installed Alembic head, then
+  starts Web under an exclusive state lock. It never creates a key or advances a
+  schema. The V1 specification's automatic startup migration remains a future
+  release question; this development deployment uses explicit commands because
+  encrypted files and the master key must remain coherent with SQLite.
+- One explicit `initialize` accepts an empty private volume and publishes a
+  format marker after key creation and fresh migration. A complete Phase 1
+  volume is adopted through explicit, backed-up `upgrade` before new-image Web
+  startup; a partial volume fails closed. Administrator password setup remains
+  prompted and separate.
+- A stopped Web process is required for backup, upgrade, and restore. A single
+  advisory lock coordinates Phase 2 Web and CLI processes; Phase 1 Web did not
+  participate, so operators must stop that image before upgrading its volume.
+- The backup is a private, manifest-verified directory inside the same named
+  state volume. The SQLite online backup API produces a standalone database;
+  the exact master key, encrypted secret trees, and all other durable data-root
+  content accompany it. Its key digest is an identifier, not key material.
+- Upgrade binds one pre-upgrade backup ID to an unfinished marker before
+  migration and a success receipt after head verification. An unfinished marker
+  blocks Web. Rollback requires that exact backup ID and a repeated confirmation,
+  marks restore in progress, quarantines newer state, restores and verifies the
+  prior DB/key set, then
+  starts the matching previous application artifact. Image rollback alone is
+  insufficient. There are no downgrade migrations or automatic retention.

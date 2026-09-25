@@ -1781,3 +1781,12 @@ Stage A-D remain unexecuted; accepted independent artifact review is required
 before Stage B uses the exact 1.1.8 ZIP. This checkpoint begins neither Phase
 15 nor Phase 16 and adds no installation, update or production deployment
 authority.
+## Remote-mode container Phase 2
+
+Phase 2 adds an explicit, fail-closed lifecycle to the wheel-installed remote
+Web container. Initialization, private quiescent backup, packaged forward
+upgrade, and matching-backup restore are `kodi-lab-admin` operations. Normal
+Compose startup validates state only. The single persistent volume includes
+backup and quarantine directories; release installer, broker packaging,
+managed Kodi, lab profile, bridge changes, and publication remain deferred.
+See D-0368 and `REMOTE-MODE-CONTAINER.md` for the exact contract.

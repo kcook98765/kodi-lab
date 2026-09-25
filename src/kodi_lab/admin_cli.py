@@ -20,6 +20,24 @@ from kodi_lab.host_bootstrap import (
     generate_master_key,
     initialize_state,
 )
+from kodi_lab.remote_lifecycle import (
+    backup as remote_backup,
+)
+from kodi_lab.remote_lifecycle import (
+    initialize as remote_initialize,
+)
+from kodi_lab.remote_lifecycle import (
+    lifecycle_lock,
+)
+from kodi_lab.remote_lifecycle import (
+    restore as remote_restore,
+)
+from kodi_lab.remote_lifecycle import (
+    upgrade as remote_upgrade,
+)
+from kodi_lab.remote_lifecycle import (
+    validate as remote_validate,
+)
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.packaged_migrations import migrate_database
 
@@ -35,6 +53,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         "generate-master-key", help="write a new private master-key file once"
     )
     subcommands.add_parser("version", help="show installed version and package digest")
+    subcommands.add_parser(
+        "initialize", help="initialize genuinely empty remote state once"
+    )
+    subcommands.add_parser(
+        "backup", help="create a verified quiescent remote-state backup"
+    )
+    subcommands.add_parser("upgrade", help="back up and migrate stopped remote state")
+    restore_parser = subcommands.add_parser(
+        "restore", help="restore the matching pre-upgrade state"
+    )
+    restore_parser.add_argument("backup_id")
+    restore_parser.add_argument("--confirm", required=True, metavar="BACKUP_ID")
+    subcommands.add_parser("serve", help=argparse.SUPPRESS)
     arguments = parser.parse_args(argv)
     if arguments.command == "version":
         print(installed_identity())
@@ -44,11 +75,56 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings = Settings(_env_file=None)  # type: ignore[call-arg]
         if settings.data_root != data_root:
             raise HostBootstrapError("configured data root does not match environment")
+        if arguments.command == "serve":
+            with lifecycle_lock(data_root) as lock_fd:
+                remote_validate(
+                    data_root,
+                    settings.database_url,
+                    require_head=True,
+                    require_marker=True,
+                )
+                os.environ["KODI_LAB_EXTERNAL_TARGET_MASTER_KEY"] = (
+                    (data_root / "master-key").read_text(encoding="ascii").strip()
+                )
+                os.set_inheritable(lock_fd, True)
+                os.execvp("kodi-lab-web", ["kodi-lab-web"])
+        if arguments.command == "initialize":
+            revision = remote_initialize(data_root, settings.database_url)
+            print(f"Kodi Lab remote state initialized at revision {revision}.")
+            return 0
+        if arguments.command == "backup":
+            with lifecycle_lock(data_root):
+                identifier = remote_backup(data_root, settings.database_url)
+            print(f"Kodi Lab remote backup complete: {identifier}")
+            return 0
+        if arguments.command == "upgrade":
+            previous, current, upgrade_backup_id = remote_upgrade(
+                data_root, settings.database_url
+            )
+            backup_label = upgrade_backup_id or "none (already at head)"
+            print(f"Kodi Lab remote upgrade: {previous} -> {current}")
+            print(f"Pre-upgrade backup: {backup_label}")
+            return 0
+        if arguments.command == "restore":
+            revision, quarantine = remote_restore(
+                data_root, settings.database_url, arguments.backup_id, arguments.confirm
+            )
+            print(f"Kodi Lab remote state restored to {revision}.")
+            print(f"Newer state quarantined as {quarantine}.")
+            return 0
         if arguments.command == "generate-master-key":
+            if os.environ.get("KODI_LAB_REMOTE_CONTAINER"):
+                raise HostBootstrapError(
+                    "remote container key creation is part of initialize"
+                )
             generate_master_key(data_root)
             print("Kodi Lab master key created in the private data root.")
             return 0
         if arguments.command == "migrate":
+            if os.environ.get("KODI_LAB_REMOTE_CONTAINER"):
+                raise HostBootstrapError(
+                    "remote container migration requires initialize or upgrade"
+                )
             previous_umask = os.umask(0o077)
             try:
                 initialize_state(data_root)

@@ -2,6 +2,7 @@ name: kodi-lab-remote
 
 services:
   web:
+    image: ${KODI_LAB_REMOTE_IMAGE:-kodi-lab-remote-web:local}
     build:
       context: .
       dockerfile: runtime/remote-web/Dockerfile
@@ -17,6 +18,16 @@ services:
       KODI_LAB_WEB_ALLOWED_HOSTS: '["127.0.0.1"]'
     ports:
       - "127.0.0.1:${KODI_LAB_PUBLISHED_PORT:-18100}:8100"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/login', timeout=2).close()"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
     volumes:
       - remote_state:/var/lib/kodi-lab
 

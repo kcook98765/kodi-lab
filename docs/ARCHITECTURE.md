@@ -2627,3 +2627,21 @@ only the maximum and cannot revive any stale bridge-derived row.
 The route is authenticated same-origin, CSRF-protected Web administration only.
 There is no MCP tool, schema, grant or approval-administration equivalent and
 the fifteen-tool catalog and five-tool production subset do not change.
+## Remote-mode container lifecycle (Phase 2 development deployment)
+
+The wheel-installed remote Web container uses the same SQLite, Alembic,
+authentication, MCP, and encrypted external-secret implementation as the
+standalone host. Its only writable persistent mount is the private data root.
+The container entrypoint calls `kodi-lab-admin serve`, which validates that
+root, its required key binding and database head, then holds an exclusive `flock` across
+the entire Web process. It does not migrate on startup.
+
+`kodi-lab-admin initialize`, `backup`, `upgrade`, and `restore` provide the
+explicit lifecycle. Backup captures the SQLite database with the SQLite backup
+API while Web is stopped and copies the exact key, secret directories, and
+other durable root files into a private manifest-verified directory in the same
+volume. Upgrade records its matching backup before migration; an unfinished
+marker blocks startup. Restore accepts only that matching backup, quarantines
+newer state, and verifies restored revision/key identity. The prior application
+artifact is required after rollback. D-0368 and `REMOTE-MODE-CONTAINER.md`
+define the operator procedure and its Phase 1 compatibility boundary.
