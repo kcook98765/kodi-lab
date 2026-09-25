@@ -42,7 +42,7 @@ def main() -> None:
     )
     uvicorn.run(
         app,
-        host=settings.web_host,
+        host=settings.effective_web_bind_host,
         port=settings.web_port,
         access_log=True,
         log_config=application_logging_config(),

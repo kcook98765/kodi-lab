@@ -1652,7 +1652,16 @@ def create_app(
             production_screenshots=production_screenshots,
             production_transient_approvals=production_transient_approvals,
         ),
-        additional_allowed_hosts=(settings.web_host, f"{settings.web_host}:*"),
+        additional_allowed_hosts=tuple(
+            entry
+            for host in (settings.web_host, *settings.web_allowed_hosts)
+            for entry in (host, f"{host}:*")
+        ),
+        additional_allowed_origins=tuple(
+            entry
+            for host in settings.web_allowed_hosts
+            for entry in (f"http://{host}", f"http://{host}:*")
+        ),
     )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
@@ -1812,7 +1821,7 @@ def create_app(
     app.state.kodi_lab = context
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=[settings.web_host, "localhost"],
+        allowed_hosts=[settings.web_host, "localhost", *settings.web_allowed_hosts],
     )
     app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
     templates = Jinja2Templates(directory=_WEB_ROOT / "templates")

@@ -829,6 +829,56 @@ def test_unapproved_host_header_is_rejected(client: TestClient) -> None:
     assert client.get("/login", headers={"Host": "attacker.invalid"}).status_code == 400
 
 
+def test_remote_container_host_origin_and_mcp_policy(
+    database: sessionmaker[Session], broker: FakeBroker
+) -> None:
+    auth = WebAuthenticationService(database)
+    auth.set_password(PASSWORD)
+    app = create_app(
+        settings=Settings(web_bind_host="0.0.0.0", web_allowed_hosts=("lab.example",)),
+        session_factory=database,
+        broker=broker,
+        coordinator_factory=coordinator_factory,
+        auth=auth,
+    )
+    with TestClient(app, base_url="http://lab.example:18100") as test_client:
+        assert test_client.get("/login").status_code == 200
+        assert (
+            test_client.get("/login", headers={"Host": "attacker.invalid"}).status_code
+            == 400
+        )
+        assert (
+            test_client.post(
+                "/login",
+                data={"password": PASSWORD},
+                headers={"Origin": "http://attacker.invalid"},
+            ).status_code
+            == 403
+        )
+        assert (
+            test_client.post(
+                "/login",
+                data={"password": PASSWORD},
+                headers={"Origin": "http://lab.example:18100"},
+                follow_redirects=False,
+            ).status_code
+            == 303
+        )
+        assert test_client.get("/pair-kodi").status_code == 200
+        assert (
+            test_client.post(
+                "/mcp",
+                headers={
+                    "MCP-Protocol-Version": "2026-07-28",
+                    "Mcp-Method": "tools/list",
+                    "Accept": "application/json, text/event-stream",
+                },
+                json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+            ).status_code
+            == 401
+        )
+
+
 def test_unconfigured_credentials_have_no_browser_bootstrap_route(
     database: sessionmaker[Session], broker: FakeBroker
 ) -> None:

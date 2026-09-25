@@ -670,6 +670,7 @@ def build_mcp_http_transport(
     development_read_limiter: BoundedTokenBucketLimiter | None = None,
     development_edit_limiter: BoundedTokenBucketLimiter | None = None,
     additional_allowed_hosts: tuple[str, ...] = (),
+    additional_allowed_origins: tuple[str, ...] = (),
 ) -> McpHttpTransport:
     read_annotations = ToolAnnotations(
         read_only_hint=True,
@@ -1289,6 +1290,7 @@ def build_mcp_http_transport(
                 "http://127.0.0.1:*",
                 "http://localhost",
                 "http://localhost:*",
+                *additional_allowed_origins,
             ],
         ),
         host="127.0.0.1",

@@ -1261,7 +1261,13 @@ def test_mcp_transport_host_allowlist_rejects_dns_rebinding_values(
         authorization=list_closure["authorization"],
         registry=build_mcp_tool_registry(),
         tools=call_closure["tools"],
-        additional_allowed_hosts=("10.251.0.10", "10.251.0.10:*"),
+        additional_allowed_hosts=(
+            "10.251.0.10",
+            "10.251.0.10:*",
+            "lab.example",
+            "lab.example:*",
+        ),
+        additional_allowed_origins=("http://lab.example", "http://lab.example:*"),
     )
     sdk_app = cast(Any, transport.app)._app
     with TestClient(sdk_app, base_url="http://127.0.0.1") as direct:
@@ -1273,6 +1279,7 @@ def test_mcp_transport_host_allowlist_rejects_dns_rebinding_values(
                 "localhost:8180",
                 "10.251.0.10",
                 "10.251.0.10:8180",
+                "lab.example:18100",
             ),
             start=1,
         ):
@@ -1284,6 +1291,33 @@ def test_mcp_transport_host_allowlist_rejects_dns_rebinding_values(
                 extra_headers={"Host": host},
             )
             assert response.status_code == 200, host
+
+        assert (
+            _post(
+                direct,
+                token,
+                "server/discover",
+                request_id=10_100,
+                extra_headers={
+                    "Host": "lab.example:18100",
+                    "Origin": "http://lab.example:18100",
+                },
+            ).status_code
+            == 200
+        )
+        assert (
+            _post(
+                direct,
+                token,
+                "server/discover",
+                request_id=10_101,
+                extra_headers={
+                    "Host": "lab.example:18100",
+                    "Origin": "http://attacker.invalid",
+                },
+            ).status_code
+            == 403
+        )
 
         for index, host in enumerate(
             (

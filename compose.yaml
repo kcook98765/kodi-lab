@@ -1,0 +1,24 @@
+name: kodi-lab-remote
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: runtime/remote-web/Dockerfile
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      KODI_LAB_WEB_ALLOWED_HOSTS: '["127.0.0.1"]'
+    ports:
+      - "127.0.0.1:${KODI_LAB_PUBLISHED_PORT:-18100}:8100"
+    volumes:
+      - remote_state:/var/lib/kodi-lab
+
+volumes:
+  remote_state:

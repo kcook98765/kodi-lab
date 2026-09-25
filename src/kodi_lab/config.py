@@ -1,10 +1,12 @@
 """Typed bootstrap configuration for Kodi Lab."""
 
+import ipaddress
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +24,8 @@ class Settings(BaseSettings):
     runtime_root: Path = Field(default=Path("/run/kodi-lab"))
     development_root: Path | None = None
     web_host: Literal["127.0.0.1", "10.251.0.10"] = "127.0.0.1"
+    web_bind_host: Literal["127.0.0.1", "10.251.0.10", "0.0.0.0"] | None = None
+    web_allowed_hosts: tuple[str, ...] = ()
     web_port: int = Field(default=8100, ge=1, le=65_535)
     web_session_cookie_name: Literal["kodi_lab_session"] = "kodi_lab_session"
     web_cookie_secure: Literal[False] = False
@@ -34,6 +38,46 @@ class Settings(BaseSettings):
     external_bridge_allowed_ports: tuple[int, ...] = (8765,)
     external_target_ipv6_ula_networks: tuple[str, ...] = ()
     external_target_test_loopback_enabled: bool = False
+
+    @field_validator("web_allowed_hosts")
+    @classmethod
+    def _approved_web_allowed_hosts(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) > 8 or len(set(value)) != len(value):
+            raise ValueError(
+                "Web allowed hosts must contain at most eight unique hosts"
+            )
+        for host in value:
+            if not host or len(host) > 253 or host != host.lower():
+                raise ValueError(
+                    "Web allowed hosts must be normalized host names or IPs"
+                )
+            try:
+                address = ipaddress.ip_address(host)
+            except ValueError:
+                labels = host.split(".")
+                if not all(
+                    re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                    for label in labels
+                ):
+                    raise ValueError(
+                        "Web allowed hosts must be DNS names or IPs"
+                    ) from None
+            else:
+                if address.is_unspecified or address.version != 4:
+                    raise ValueError(
+                        "Web allowed hosts must be concrete IPv4 addresses"
+                    )
+        return value
+
+    @model_validator(mode="after")
+    def _approved_web_binding(self) -> "Settings":
+        if self.web_bind_host == "0.0.0.0" and not self.web_allowed_hosts:
+            raise ValueError("wildcard Web bind requires explicit allowed hosts")
+        return self
+
+    @property
+    def effective_web_bind_host(self) -> str:
+        return self.web_bind_host or self.web_host
 
     @field_validator("development_root")
     @classmethod

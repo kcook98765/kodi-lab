@@ -7,6 +7,9 @@ below targets Ubuntu with Python 3.12. Windows and macOS host execution remain
 development host deployment are separate Linux functionality. A remote Kodi host does not
 need a local Kodi installation or a Docker daemon.
 
+The separate [remote-mode container foundation](REMOTE-MODE-CONTAINER.md) uses
+this wheel and state contract for a Docker-hosted development deployment.
+
 ## Install and identify the artifact
 
 Obtain the exact reviewed wheel and its SHA-256 digest through an approved

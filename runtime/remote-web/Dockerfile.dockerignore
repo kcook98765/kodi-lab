@@ -1,0 +1,11 @@
+**
+!README.md
+!pyproject.toml
+!uv.lock
+!migrations/
+!migrations/**
+!src/
+!src/**
+!runtime/
+!runtime/remote-web/
+!runtime/remote-web/launch.sh

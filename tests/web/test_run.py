@@ -20,6 +20,7 @@ def test_packaged_web_entrypoint_installs_mcp_audit_logging(
         database_url="sqlite+pysqlite:///:memory:",
         runtime_root=Path("/runtime"),
         web_host="10.251.0.10",
+        effective_web_bind_host="10.251.0.10",
         web_port=8180,
     )
 

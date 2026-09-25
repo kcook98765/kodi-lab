@@ -16,6 +16,8 @@ def _isolate_settings_environment(
     monkeypatch.delenv("KODI_LAB_RUNTIME_ROOT", raising=False)
     monkeypatch.delenv("KODI_LAB_DEVELOPMENT_ROOT", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_HOST", raising=False)
+    monkeypatch.delenv("KODI_LAB_WEB_BIND_HOST", raising=False)
+    monkeypatch.delenv("KODI_LAB_WEB_ALLOWED_HOSTS", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_PORT", raising=False)
     monkeypatch.delenv("KODI_LAB_WEB_COOKIE_SECURE", raising=False)
     monkeypatch.delenv("KODI_LAB_TRUSTED_CUSTOM_BUILDS_ENABLED", raising=False)
@@ -38,6 +40,8 @@ def test_configuration_uses_documented_roots(
     assert settings.development_root is None
     assert settings.database_url == "sqlite:////var/lib/kodi-lab/database/kodi-lab.db"
     assert settings.web_host == "127.0.0.1"
+    assert settings.effective_web_bind_host == "127.0.0.1"
+    assert settings.web_allowed_hosts == ()
     assert settings.web_port == 8100
     assert settings.web_cookie_secure is False
     assert settings.trusted_custom_builds_enabled is False
@@ -91,6 +95,29 @@ def test_phase4_validation_port_is_explicitly_allowed(
     _isolate_settings_environment(monkeypatch, tmp_path)
     monkeypatch.setenv("KODI_LAB_WEB_PORT", "8180")
     assert Settings().web_port == 8180
+
+
+def test_remote_container_binding_requires_explicit_concrete_trusted_hosts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_settings_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("KODI_LAB_WEB_BIND_HOST", "0.0.0.0")
+    with pytest.raises(ValidationError):
+        Settings()
+    monkeypatch.setenv("KODI_LAB_WEB_ALLOWED_HOSTS", '["lab.example","127.0.0.1"]')
+    settings = Settings()
+    assert settings.effective_web_bind_host == "0.0.0.0"
+    assert settings.web_allowed_hosts == ("lab.example", "127.0.0.1")
+    for rejected in (
+        '["*"]',
+        '["0.0.0.0"]',
+        '["https://lab.example"]',
+        '["lab.example:8100"]',
+        '["lab.example","lab.example"]',
+    ):
+        monkeypatch.setenv("KODI_LAB_WEB_ALLOWED_HOSTS", rejected)
+        with pytest.raises(ValidationError):
+            Settings()
 
 
 def test_data_root_environment_override_is_independent(
