@@ -1,4 +1,4 @@
-"""Fail-closed lifecycle for the single-volume, single-process remote Web host."""
+"""Fail-closed application rollback for the shared, mixed-owner state volume."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from kodi_lab.host_bootstrap import (
     generate_master_key,
     initialize_state,
 )
+from kodi_lab.snapshot.recovery import published_snapshot_inventory
 from kodi_lab.storage.packaged_migrations import migrate_database, packaged_config
 from kodi_lab.storage.secrets import (
     ExternalBridgeSecretStore,
@@ -44,7 +45,29 @@ EXCLUDED = frozenset(
         ".lifecycle.lock",
         ".upgrade-pending.json",
         ".restore-pending.json",
+        ".recovery-pending.json",
         ".last-upgrade.json",
+        "snapshots",
+        "screenshots",
+        "development-source-staging",
+    }
+)
+ROLLBACK_ROOTS = frozenset(
+    {
+        "database",
+        "secrets",
+        "master-key",
+        ".state.json",
+        "addon-zips",
+        "agent-workspaces",
+        "source-promotions",
+    }
+)
+NESTED_STAGING = frozenset(
+    {
+        "addon-zips/staging",
+        "addon-zips/replacement-staging",
+        "addon-zips/install-staging",
     }
 )
 BACKUP_ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -58,6 +81,7 @@ def _private(path: Path, *, directory: bool) -> None:
         not kind(item.st_mode)
         or stat.S_IMODE(item.st_mode) != mode
         or item.st_uid != os.getuid()
+        or item.st_gid != os.getgid()
     ):
         raise HostBootstrapError(f"private state metadata is unsafe: {path}")
 
@@ -224,6 +248,11 @@ def validate(
         raise HostBootstrapError(
             "restore is incomplete; retry the exact backup before starting Web"
         )
+    recovery = root / ".recovery-pending.json"
+    if (recovery.exists() or recovery.is_symlink()) and not allow_pending:
+        raise HostBootstrapError(
+            "clean-volume recovery is incomplete; Web startup is blocked"
+        )
     for directory in (
         "database",
         "secrets",
@@ -272,16 +301,90 @@ def initialize(root: Path, database_url: str) -> str:
         return current
 
 
-def _files(root: Path, *, exclude_management: bool = True) -> list[Path]:
-    """Inventory all state, including artifacts, without following links."""
+def _rollback_entry(path: Path, *, directory: bool) -> os.stat_result:
+    """Require exact numeric Web identity and safe, class-specific POSIX modes."""
 
+    item = path.lstat()
+    mode = stat.S_IMODE(item.st_mode)
+    if (
+        (
+            not stat.S_ISDIR(item.st_mode)
+            if directory
+            else not stat.S_ISREG(item.st_mode)
+        )
+        or item.st_uid != os.getuid()
+        or item.st_gid != os.getgid()
+        or (not directory and item.st_nlink != 1)
+        or mode & 0o7022
+    ):
+        raise HostBootstrapError(f"rollback state metadata is unsafe: {path}")
+    core = bool({"database", "secrets"} & set(path.parts)) or path.name in {
+        "master-key",
+        ".state.json",
+    }
+    if core:
+        safe_mode = mode == (0o700 if directory else 0o600)
+    elif "addon-zips" in path.parts:
+        suffix = path.parts[path.parts.index("addon-zips") + 1 :]
+        expected = (
+            0o700 if directory and len(suffix) <= 1 else (0o500 if directory else 0o400)
+        )
+        safe_mode = mode == expected
+    elif directory and path.name in {"agent-workspaces", "source-promotions"}:
+        safe_mode = mode == 0o700
+    elif directory:
+        safe_mode = mode & 0o500 == 0o500
+    else:
+        safe_mode = bool(mode & 0o400)
+    if not safe_mode:
+        raise HostBootstrapError(f"rollback state mode is unsafe: {path}")
+    return item
+
+
+def _skip(path: Path) -> bool:
+    return (
+        path.as_posix() in NESTED_STAGING
+        or (
+            len(path.parts) == 3
+            and path.parts[:2] == ("addon-zips", "artifacts")
+            and path.parts[2].startswith(".publishing-")
+        )
+        or (
+            len(path.parts) == 2
+            and path.parts[0] == "agent-workspaces"
+            and path.parts[1].startswith(".staging-")
+        )
+        or (
+            len(path.parts) == 3
+            and path.parts[0] == "source-promotions"
+            and path.parts[2].startswith(".staging-")
+        )
+    )
+
+
+def _top_level(root: Path) -> None:
+    for child in root.iterdir():
+        if child.name in ROLLBACK_ROOTS | EXCLUDED:
+            continue
+        if child.name.startswith("external-deployment-"):
+            continue
+        raise HostBootstrapError(f"unclassified state root: {child.name}")
+
+
+def _files(root: Path, *, exclude_management: bool = True) -> list[Path]:
+    """Inventory only the application rollback set without following links."""
+
+    if exclude_management:
+        _top_level(root)
     result: list[Path] = []
     for current, dirs, files in os.walk(root, followlinks=False):
         parent = Path(current)
         relative_parent = parent.relative_to(root)
         if relative_parent == Path(".") and exclude_management:
-            dirs[:] = [name for name in dirs if name not in EXCLUDED]
-            files = [name for name in files if name not in EXCLUDED]
+            dirs[:] = [name for name in dirs if name in ROLLBACK_ROOTS]
+            files = [name for name in files if name in ROLLBACK_ROOTS]
+        dirs[:] = [name for name in dirs if not _skip(relative_parent / name)]
+        files = [name for name in files if not _skip(relative_parent / name)]
         if relative_parent == Path("database"):
             files = [
                 name
@@ -290,10 +393,10 @@ def _files(root: Path, *, exclude_management: bool = True) -> list[Path]:
                 not in {"kodi-lab.db-wal", "kodi-lab.db-shm", "kodi-lab.db-journal"}
             ]
         for name in dirs:
-            _private(parent / name, directory=True)
+            _rollback_entry(parent / name, directory=True)
         for name in files:
             path = parent / name
-            _private(path, directory=False)
+            _rollback_entry(path, directory=False)
             result.append(path.relative_to(root))
     return sorted(result)
 
@@ -303,10 +406,12 @@ def _directories(root: Path, *, exclude_management: bool = True) -> list[Path]:
     for current, dirs, _files_found in os.walk(root, followlinks=False):
         parent = Path(current)
         if parent == root and exclude_management:
-            dirs[:] = [name for name in dirs if name not in EXCLUDED]
+            dirs[:] = [name for name in dirs if name in ROLLBACK_ROOTS]
+        relative_parent = parent.relative_to(root)
+        dirs[:] = [name for name in dirs if not _skip(relative_parent / name)]
         for name in dirs:
             path = parent / name
-            _private(path, directory=True)
+            _rollback_entry(path, directory=True)
             result.append(path.relative_to(root))
     return sorted(result)
 
@@ -338,6 +443,7 @@ def backup(root: Path, database_url: str) -> str:
             source = root / relative
             destination = staging / relative
             destination.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+            source_mode = stat.S_IMODE(_rollback_entry(source, directory=False).st_mode)
             if relative == DATABASE:
                 with (
                     sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as db,
@@ -345,16 +451,28 @@ def backup(root: Path, database_url: str) -> str:
                 ):
                     db.backup(copy)
                     copy.execute("PRAGMA journal_mode=DELETE")
-                os.chmod(destination, 0o600)
             else:
                 shutil.copyfile(source, destination, follow_symlinks=False)
-                os.chmod(destination, 0o600)
+            os.chmod(destination, source_mode)
             with destination.open("rb") as stream:
                 os.fsync(stream.fileno())
             manifest_files[relative.as_posix()] = {
                 "sha256": _digest(destination),
                 "size": destination.stat().st_size,
+                "uid": os.getuid(),
+                "gid": os.getgid(),
+                "mode": source_mode,
             }
+        directory_modes = {
+            relative.as_posix(): stat.S_IMODE(
+                _rollback_entry(root / relative, directory=True).st_mode
+            )
+            for relative in directories
+        }
+        for relative in sorted(
+            directories, key=lambda path: len(path.parts), reverse=True
+        ):
+            os.chmod(staging / relative, directory_modes[relative.as_posix()])
         if _revision(staging / DATABASE) != revision:
             raise HostBootstrapError("backup database revision changed")
         metadata: dict[str, object] = {
@@ -366,6 +484,11 @@ def backup(root: Path, database_url: str) -> str:
             "key_sha256": _key_digest(root),
             "files": manifest_files,
             "directories": [path.as_posix() for path in directories],
+            "directory_modes": directory_modes,
+            "backup_set": "application-rollback-v2",
+            "snapshot_dependencies": published_snapshot_inventory(
+                root, web_gid=os.getgid()
+            ),
             "complete": True,
         }
         _write_json(staging / "manifest.json", metadata)
@@ -401,12 +524,20 @@ def _verify_backup(
         or DATABASE.as_posix() not in entries
     ):
         raise HostBootstrapError("backup inventory is incomplete")
-    if any(
-        not Path(name).parts
-        or name == "manifest.json"
-        or Path(name).parts[0] in EXCLUDED
-        for name in entries
-    ):
+
+    def valid_name(name: object) -> bool:
+        return (
+            isinstance(name, str)
+            and name != ""
+            and not name.startswith("/")
+            and "\\" not in name
+            and all(part not in {"", ".", ".."} for part in name.split("/"))
+            and Path(name).as_posix() == name
+            and Path(name).parts[0] in ROLLBACK_ROOTS
+            and not _skip(Path(name))
+        )
+
+    if any(not valid_name(name) for name in entries):
         raise HostBootstrapError("backup inventory contains reserved state")
     actual = {
         path.as_posix() for path in _files(directory, exclude_management=False)
@@ -418,16 +549,62 @@ def _verify_backup(
         isinstance(path, str) for path in recorded_directories
     ):
         raise HostBootstrapError("backup directory inventory is invalid")
-    if any(
-        not Path(name).parts or Path(name).parts[0] in EXCLUDED
-        for name in recorded_directories
-    ):
+    if any(not valid_name(name) for name in recorded_directories):
         raise HostBootstrapError("backup directories contain reserved state")
     actual_directories = {
         path.as_posix() for path in _directories(directory, exclude_management=False)
     }
     if actual_directories != set(recorded_directories):
         raise HostBootstrapError("backup directories differ from manifest")
+    modern = metadata.get("backup_set") == "application-rollback-v2"
+    if metadata.get("backup_set") not in (None, "application-rollback-v2"):
+        raise HostBootstrapError("backup set is invalid")
+    snapshot_dependencies = metadata.get("snapshot_dependencies")
+    if modern:
+        if (
+            not isinstance(snapshot_dependencies, dict)
+            or len(snapshot_dependencies) > 10000
+        ):
+            raise HostBootstrapError("snapshot dependency inventory is invalid")
+        for name, hashes in snapshot_dependencies.items():
+            try:
+                canonical = str(UUID(name)) == name
+            except (TypeError, ValueError, AttributeError):
+                canonical = False
+            if (
+                not canonical
+                or not isinstance(hashes, dict)
+                or set(hashes) != {"manifest.json", "state.tar"}
+                or any(
+                    not isinstance(digest, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                    for digest in hashes.values()
+                )
+            ):
+                raise HostBootstrapError("snapshot dependency inventory is invalid")
+    elif snapshot_dependencies is not None:
+        raise HostBootstrapError("snapshot dependency inventory is invalid")
+    directory_modes = metadata.get("directory_modes")
+    if modern:
+        if (
+            not isinstance(directory_modes, dict)
+            or set(directory_modes) != set(recorded_directories)
+            or any(
+                not isinstance(mode, int) or isinstance(mode, bool)
+                for mode in directory_modes.values()
+            )
+        ):
+            raise HostBootstrapError("backup directory metadata is invalid")
+    elif directory_modes is not None:
+        raise HostBootstrapError("backup directory metadata is invalid")
+    for name in recorded_directories:
+        item = _rollback_entry(directory / name, directory=True)
+        expected = 0o700
+        if modern:
+            assert isinstance(directory_modes, dict)
+            expected = directory_modes[name]
+        if stat.S_IMODE(item.st_mode) != expected:
+            raise HostBootstrapError("backup directory ownership differs from manifest")
     sidecars = ("-wal", "-shm", "-journal")
     if any(
         (directory / "database" / f"kodi-lab.db{suffix}").exists()
@@ -438,6 +615,16 @@ def _verify_backup(
         if not isinstance(name, str) or not isinstance(record, dict):
             raise HostBootstrapError("backup inventory is invalid")
         path = directory / name
+        item = _rollback_entry(path, directory=False)
+        if modern:
+            if (
+                record.get("uid") != os.getuid()
+                or record.get("gid") != os.getgid()
+                or record.get("mode") != stat.S_IMODE(item.st_mode)
+            ):
+                raise HostBootstrapError("backup ownership differs from manifest")
+        elif stat.S_IMODE(item.st_mode) != 0o600:
+            raise HostBootstrapError("legacy backup mode is invalid")
         if _digest(path) != record.get("sha256") or path.stat().st_size != record.get(
             "size"
         ):
@@ -485,6 +672,82 @@ def upgrade(root: Path, database_url: str) -> tuple[str, str, str | None]:
         return current, head, identifier
 
 
+def _verify_restored(root: Path, metadata: dict[str, object]) -> None:
+    files = metadata["files"]
+    directories = metadata["directories"]
+    assert isinstance(files, dict) and isinstance(directories, list)
+    if {path.as_posix() for path in _files(root)} != set(files):
+        raise HostBootstrapError("restored file inventory differs from backup")
+    if {path.as_posix() for path in _directories(root)} != set(directories):
+        raise HostBootstrapError("restored directory inventory differs from backup")
+    for name, record in files.items():
+        assert isinstance(name, str) and isinstance(record, dict)
+        item = _rollback_entry(root / name, directory=False)
+        expected_mode = record.get("mode", 0o600)
+        if (
+            stat.S_IMODE(item.st_mode) != expected_mode
+            or item.st_size != record["size"]
+            or _digest(root / name) != record["sha256"]
+        ):
+            raise HostBootstrapError("restored content differs from backup")
+    directory_modes = metadata.get("directory_modes") or {}
+    assert isinstance(directory_modes, dict)
+    for name in directories:
+        assert isinstance(name, str)
+        item = _rollback_entry(root / name, directory=True)
+        if stat.S_IMODE(item.st_mode) != directory_modes.get(name, 0o700):
+            raise HostBootstrapError("restored directory mode differs from backup")
+
+
+def _verify_snapshot_dependencies(root: Path, metadata: dict[str, object]) -> None:
+    actual = published_snapshot_inventory(root, web_gid=os.getgid())
+    expected = metadata.get("snapshot_dependencies", {})
+    if actual != expected:
+        raise HostBootstrapError(
+            "published snapshots differ from backup dependency set"
+        )
+
+
+def recover_clean(
+    root: Path, database_url: str, identifier: str, confirmation: str
+) -> str:
+    """Restore one verified application backup into a fresh, private volume.
+
+    An operator copies the private backup directory into ``backups/ID`` first.
+    Published broker snapshots may be restored separately before this command.
+    No receipt from a destroyed volume or historical container is required.
+    """
+
+    with lifecycle_lock(root):
+        if identifier != confirmation:
+            raise HostBootstrapError("recovery confirmation must repeat the backup ID")
+        members = {entry.name for entry in root.iterdir()}
+        if members - {".lifecycle.lock", "backups", "snapshots"}:
+            raise HostBootstrapError("clean recovery requires empty application state")
+        metadata = _verify_backup(root, identifier)
+        _verify_snapshot_dependencies(root, metadata)
+        _write_json(root / ".recovery-pending.json", {"backup_id": identifier})
+        source = root / "backups" / identifier
+        for child in source.iterdir():
+            if child.name != "manifest.json":
+                if child.is_dir():
+                    shutil.copytree(child, root / child.name)
+                else:
+                    shutil.copyfile(child, root / child.name, follow_symlinks=False)
+                    os.chmod(root / child.name, 0o600)
+        _fsync(root)
+        _verify_restored(root, metadata)
+        revision = validate(root, database_url, allow_pending=True)
+        if (
+            revision != metadata["revision"]
+            or _key_digest(root) != metadata["key_sha256"]
+        ):
+            raise HostBootstrapError("clean recovery state differs from backup")
+        (root / ".recovery-pending.json").unlink()
+        _fsync(root)
+        return revision
+
+
 def restore(
     root: Path, database_url: str, identifier: str, confirmation: str
 ) -> tuple[str, str]:
@@ -510,6 +773,8 @@ def restore(
         if receipt.get("backup_id") != identifier:
             raise HostBootstrapError("backup does not match the most recent upgrade")
         metadata = _verify_backup(root, identifier)
+        _verify_snapshot_dependencies(root, metadata)
+        _top_level(root)
         if receipt_path != restore_pending:
             _write_json(restore_pending, {"backup_id": identifier})
         quarantine = root / "quarantine"
@@ -525,9 +790,11 @@ def restore(
             "run",
             ".lifecycle.lock",
             ".restore-pending.json",
-        }
+        } | (EXCLUDED - {".upgrade-pending.json", ".last-upgrade.json"})
         for child in list(root.iterdir()):
-            if child.name not in preserved:
+            if child.name not in preserved and not child.name.startswith(
+                "external-deployment-"
+            ):
                 os.rename(child, destination / child.name)
         source = root / "backups" / identifier
         for child in source.iterdir():
@@ -538,6 +805,7 @@ def restore(
                     shutil.copyfile(child, root / child.name, follow_symlinks=False)
                     os.chmod(root / child.name, 0o600)
         _fsync(root)
+        _verify_restored(root, metadata)
         restored = validate(root, database_url, allow_pending=True)
         if (
             restored != metadata["revision"]

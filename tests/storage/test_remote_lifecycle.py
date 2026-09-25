@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -28,6 +29,7 @@ from kodi_lab.remote_lifecycle import (
     backup,
     initialize,
     lifecycle_lock,
+    recover_clean,
     restore,
     upgrade,
     validate,
@@ -219,3 +221,213 @@ def test_failed_backup_prevents_migration(
         == "0052_production_policy_revision_binding"
     )
     assert not (root / ".upgrade-pending.json").exists()
+
+
+def test_rollback_excludes_snapshot_and_preserves_web_artifact_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "state"
+    _historical(root)
+    snapshots = root / "snapshots"
+    snapshots.mkdir(mode=0o750)
+    artifact = snapshots / "broker-owned-proof"
+    artifact.write_bytes(b"snapshot proof")
+    artifact.chmod(0o440)
+    dependency = {
+        "90000000-0000-4000-8000-000000000102": {
+            "manifest.json": "a" * 64,
+            "state.tar": "b" * 64,
+        }
+    }
+    monkeypatch.setattr(
+        remote_lifecycle,
+        "published_snapshot_inventory",
+        lambda _root, *, web_gid: dependency,
+    )
+    zip_root = root / "addon-zips" / "artifacts" / "fixture"
+    zip_root.mkdir(parents=True, mode=0o700)
+    original = zip_root / "original.zip"
+    original.write_bytes(b"zip proof")
+    original.chmod(0o400)
+    zip_root.chmod(0o500)
+    (root / "addon-zips" / "artifacts").chmod(0o700)
+    (root / "addon-zips").chmod(0o700)
+    workspace_tree = root / "agent-workspaces" / "fixture" / "tree"
+    workspace_tree.mkdir(parents=True, mode=0o700)
+    workspace_file = workspace_tree / "addon.xml"
+    workspace_file.write_text("<addon/>")
+    workspace_file.chmod(0o644)
+    workspace_tree.chmod(0o755)
+    (root / "agent-workspaces" / "fixture").chmod(0o755)
+    (root / "agent-workspaces").chmod(0o700)
+    previous, _, identifier = upgrade(root, _url(root))
+    assert identifier is not None
+    backup_root = root / "backups" / identifier
+    assert not (backup_root / "snapshots").exists()
+    assert _verify_backup(root, identifier)["snapshot_dependencies"] == dependency
+    assert (
+        backup_root / "addon-zips" / "artifacts" / "fixture" / "original.zip"
+    ).read_bytes() == b"zip proof"
+    assert (
+        stat.S_IMODE(
+            (backup_root / "addon-zips" / "artifacts" / "fixture").stat().st_mode
+        )
+        == 0o500
+    )
+    restored, _ = restore(root, _url(root), identifier, identifier)
+    assert restored == previous
+    assert artifact.read_bytes() == b"snapshot proof"
+    assert stat.S_IMODE(artifact.stat().st_mode) == 0o440
+    assert original.read_bytes() == b"zip proof"
+    assert stat.S_IMODE(original.stat().st_mode) == 0o400
+    assert workspace_file.read_text() == "<addon/>"
+    assert stat.S_IMODE(workspace_tree.stat().st_mode) == 0o755
+    assert stat.S_IMODE(workspace_file.stat().st_mode) == 0o644
+
+
+def test_rollback_rejects_changed_snapshot_dependencies_before_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "state"
+    _historical(root)
+    observed = {
+        "90000000-0000-4000-8000-000000000102": {
+            "manifest.json": "a" * 64,
+            "state.tar": "b" * 64,
+        }
+    }
+    monkeypatch.setattr(
+        remote_lifecycle,
+        "published_snapshot_inventory",
+        lambda _root, *, web_gid: observed,
+    )
+    _, current, identifier = upgrade(root, _url(root))
+    assert identifier is not None
+    observed = {}
+    with pytest.raises(HostBootstrapError, match="differ from backup dependency"):
+        restore(root, _url(root), identifier, identifier)
+    assert _revision(root / "database" / "kodi-lab.db") == current
+    assert not (root / ".restore-pending.json").exists()
+
+
+def test_backup_rejects_unsafe_modes_and_unclassified_state(tmp_path: Path) -> None:
+    root = tmp_path / "state"
+    initialize(root, _url(root))
+    (root / "secrets").chmod(0o750)
+    with pytest.raises(HostBootstrapError, match="metadata is unsafe"):
+        backup(root, _url(root))
+    (root / "secrets").chmod(0o700)
+    (root / "unknown-durable-tree").mkdir(mode=0o700)
+    with pytest.raises(HostBootstrapError, match="unclassified state root"):
+        backup(root, _url(root))
+
+
+def test_backup_manifest_metadata_and_path_attacks_fail_closed(tmp_path: Path) -> None:
+    root = tmp_path / "state"
+    initialize(root, _url(root))
+    identifier = backup(root, _url(root))
+    folder = root / "backups" / identifier
+    manifest_path = folder / "manifest.json"
+    original = json.loads(manifest_path.read_text())
+
+    def manifest(value: dict[str, object]) -> None:
+        manifest_path.write_text(json.dumps(value) + "\n")
+        manifest_path.chmod(0o600)
+
+    bad = json.loads(json.dumps(original))
+    bad["files"]["master-key"]["uid"] = 0
+    manifest(bad)
+    with pytest.raises(HostBootstrapError, match="ownership differs"):
+        _verify_backup(root, identifier)
+    bad = json.loads(json.dumps(original))
+    bad["files"]["../master-key"] = bad["files"]["master-key"]
+    manifest(bad)
+    with pytest.raises(HostBootstrapError, match="reserved state"):
+        _verify_backup(root, identifier)
+    bad = json.loads(json.dumps(original))
+    bad["files"]["master-key"]["sha256"] = "0" * 64
+    manifest(bad)
+    with pytest.raises(HostBootstrapError, match="content differs"):
+        _verify_backup(root, identifier)
+    manifest(original)
+    (folder / "master-key").unlink()
+    (folder / "master-key").symlink_to(root / "master-key")
+    with pytest.raises(HostBootstrapError, match="metadata is unsafe"):
+        _verify_backup(root, identifier)
+
+
+def test_verified_backup_recovers_fresh_application_volume(tmp_path: Path) -> None:
+    old = tmp_path / "old"
+    initialize(old, _url(old))
+    identifier = backup(old, _url(old))
+    fresh = tmp_path / "fresh"
+    fresh.mkdir(mode=0o700)
+    (fresh / "backups").mkdir(mode=0o700)
+    shutil.copytree(old / "backups" / identifier, fresh / "backups" / identifier)
+    revision = recover_clean(fresh, _url(fresh), identifier, identifier)
+    assert revision == validate(
+        fresh, _url(fresh), require_head=True, require_marker=True
+    )
+    assert _key_digest(fresh) == _key_digest(old)
+    assert (fresh / "database" / "kodi-lab.db").stat().st_uid == os.getuid()
+    assert (fresh / "master-key").stat().st_gid == os.getgid()
+
+
+def test_clean_recovery_wrong_key_and_interruption_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old = tmp_path / "old"
+    other = tmp_path / "other"
+    initialize(old, _url(old))
+    initialize(other, _url(other))
+    identifier = backup(old, _url(old))
+    fresh = tmp_path / "fresh"
+    fresh.mkdir(mode=0o700)
+    (fresh / "backups").mkdir(mode=0o700)
+    folder = fresh / "backups" / identifier
+    shutil.copytree(old / "backups" / identifier, folder)
+    original_copyfile = shutil.copyfile
+
+    def interrupted(
+        source: str | Path, destination: str | Path, *, follow_symlinks: bool = True
+    ) -> str | Path:
+        if Path(destination) == fresh / "master-key":
+            raise OSError("injected clean recovery interruption")
+        return original_copyfile(source, destination, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(shutil, "copyfile", interrupted)
+    with pytest.raises(OSError, match="interruption"):
+        recover_clean(fresh, _url(fresh), identifier, identifier)
+    with pytest.raises(HostBootstrapError, match="recovery is incomplete"):
+        validate(fresh, _url(fresh))
+    monkeypatch.setattr(shutil, "copyfile", original_copyfile)
+    shutil.rmtree(fresh)
+    fresh.mkdir(mode=0o700)
+    (fresh / "backups").mkdir(mode=0o700)
+    folder = fresh / "backups" / identifier
+    shutil.copytree(old / "backups" / identifier, folder)
+    original_copyfile(other / "master-key", folder / "master-key")
+    record = json.loads((folder / "manifest.json").read_text())
+    content = (folder / "master-key").read_bytes()
+    record["files"]["master-key"]["sha256"] = hashlib.sha256(content).hexdigest()
+    record["key_sha256"] = _key_digest(other)
+    (folder / "manifest.json").write_text(json.dumps(record) + "\n")
+    with pytest.raises(HostBootstrapError, match="marker and master key"):
+        recover_clean(fresh, _url(fresh), identifier, identifier)
+    with pytest.raises(HostBootstrapError, match="recovery is incomplete"):
+        validate(fresh, _url(fresh))
+
+
+def test_clean_recovery_rejects_untrusted_snapshot_root(tmp_path: Path) -> None:
+    old = tmp_path / "old"
+    initialize(old, _url(old))
+    identifier = backup(old, _url(old))
+    fresh = tmp_path / "fresh"
+    fresh.mkdir(mode=0o700)
+    (fresh / "backups").mkdir(mode=0o700)
+    shutil.copytree(old / "backups" / identifier, fresh / "backups" / identifier)
+    snapshots = fresh / "snapshots"
+    snapshots.symlink_to(old / "database", target_is_directory=True)
+    with pytest.raises(HostBootstrapError, match="ownership is unsafe"):
+        recover_clean(fresh, _url(fresh), identifier, identifier)
+    assert not (fresh / ".recovery-pending.json").exists()

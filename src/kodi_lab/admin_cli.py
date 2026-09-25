@@ -30,6 +30,9 @@ from kodi_lab.remote_lifecycle import (
     lifecycle_lock,
 )
 from kodi_lab.remote_lifecycle import (
+    recover_clean as remote_recover_clean,
+)
+from kodi_lab.remote_lifecycle import (
     restore as remote_restore,
 )
 from kodi_lab.remote_lifecycle import (
@@ -65,6 +68,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     restore_parser.add_argument("backup_id")
     restore_parser.add_argument("--confirm", required=True, metavar="BACKUP_ID")
+    recover_parser = subcommands.add_parser(
+        "recover-clean",
+        help="restore a verified application backup into a fresh volume",
+    )
+    recover_parser.add_argument("backup_id")
+    recover_parser.add_argument("--confirm", required=True, metavar="BACKUP_ID")
     subcommands.add_parser("serve", help=argparse.SUPPRESS)
     arguments = parser.parse_args(argv)
     if arguments.command == "version":
@@ -111,6 +120,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(f"Kodi Lab remote state restored to {revision}.")
             print(f"Newer state quarantined as {quarantine}.")
+            return 0
+        if arguments.command == "recover-clean":
+            revision = remote_recover_clean(
+                data_root, settings.database_url, arguments.backup_id, arguments.confirm
+            )
+            print(f"Kodi Lab clean-volume application state recovered at {revision}.")
             return 0
         if arguments.command == "generate-master-key":
             if os.environ.get("KODI_LAB_REMOTE_CONTAINER"):

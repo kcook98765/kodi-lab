@@ -4658,3 +4658,33 @@ approvals atomically with the governing revision transition.
   public/production release.
 - No host broker is installed. Docker Desktop and non-Linux peer/ownership
   behavior remain unaccepted until tested on those platforms.
+
+## D-0370: Application rollback and managed artifact recovery are distinct
+
+- This decision replaces D-0368's whole-data-root backup-set language and
+  resolves the mixed-owner recovery gate left by D-0369.
+- Phase 3.5 retains the accepted single private state volume and separate
+  broker-socket volume. Numeric Web identity is `10001:10001`; broker-published
+  snapshots stay `0:10001`, with `0750` directories and `0440` files. The
+  broker still reads trusted SQLite and application artifacts; a separate
+  snapshot volume would add migration without removing its Docker authority.
+- Phase 2 application rollback now inventories only classified Web-owned
+  durable state. It records and verifies numeric owner/group and safe modes,
+  including read-only ZIP artifacts, plus hashes and SQLite/key identity.
+  Root-owned snapshots, screenshots, and stages are excluded. Restore moves
+  only application state to quarantine and leaves snapshots root-owned. The
+  manifest records published snapshot hashes as external dependencies, and
+  rollback refuses a changed snapshot set before mutation.
+- Installation recovery is a separate stopped-state procedure: copy a verified
+  application backup and published snapshot UUID artifacts off the volume,
+  then reconstruct their fixed ownership on a genuinely new volume. The
+  `recover-clean` command restores the application set without relying on a
+  lost upgrade receipt; it writes a fail-closed pending marker. Published
+  snapshot inventory requires exact root ownership, private modes, and hashes
+  matching the application manifest.
+- Phase 1 markerless state remains adoptable by explicit backed-up upgrade;
+  Phase 2/3 single-volume state needs no volume migration. Remote-only state
+  remains operable without a broker or snapshots. The full map and recovery
+  procedure are in `MANAGED-STATE-RECOVERY.md`. Public export, retention,
+  cross-artifact authenticity/atomicity, future Docker runtime reconstruction,
+  and Docker Desktop remain deferred.

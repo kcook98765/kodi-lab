@@ -111,9 +111,10 @@ they already possess daemon-level authority. See D-0369 and
 This placement does not sandbox the broker from Docker. A compromise of the
 broker retains daemon-level power; the boundary protects Web/API/MCP callers.
 The broker shares the private state volume to resolve trusted SQLite state and
-write fixed artifacts. Phase 2 backup currently rejects root-owned managed
-snapshot artifacts, so mixed-owner lab-state backup/restore must be addressed
-before managed lab data is treated as recoverable.
+write fixed artifacts. Phase 3.5 assigns application rollback to the exact
+Web-owned state set and treats root-owned managed snapshots as separate
+installation-recovery artifacts. Rollback preserves snapshot ownership and a
+clean-volume recovery requires both sets. See `MANAGED-STATE-RECOVERY.md`.
 
 Phase 2 introduces `kodi_lab.broker` as a separate privileged-infrastructure
 boundary. Unprivileged application code uses a typed client over
@@ -2656,11 +2657,11 @@ The container entrypoint calls `kodi-lab-admin serve`, which validates that
 root, its required key binding and database head, then holds an exclusive `flock` across
 the entire Web process. It does not migrate on startup.
 
-`kodi-lab-admin initialize`, `backup`, `upgrade`, and `restore` provide the
+`kodi-lab-admin initialize`, `backup`, `upgrade`, `restore`, and `recover-clean` provide the
 explicit lifecycle. Backup captures the SQLite database with the SQLite backup
 API while Web is stopped and copies the exact key, secret directories, and
-other durable root files into a private manifest-verified directory in the same
-volume. Upgrade records its matching backup before migration; an unfinished
+classified Web-owned durable files into a private manifest-verified directory
+in the same volume. Upgrade records its matching backup before migration; an unfinished
 marker blocks startup. Restore accepts only that matching backup, quarantines
 newer state, and verifies restored revision/key identity. The prior application
 artifact is required after rollback. D-0368 and `REMOTE-MODE-CONTAINER.md`

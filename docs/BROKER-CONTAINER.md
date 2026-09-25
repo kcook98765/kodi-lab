@@ -96,14 +96,15 @@ Web/Kodi. The broker healthcheck proves that a live listener returns the
 expected denial to its root probe. Broker shutdown unlinks only its verified
 socket inode; a correctly owned stale socket is revalidated on restart.
 
-Stop both Web and broker before any lifecycle backup, upgrade, or restore.
-Phase 2's remote-only backup rejects mixed-owner managed artifacts: snapshot
-publication deliberately creates root-owned `0750` directories and `0440`
-files, whereas that backup requires UID 10001 directories/files at `0700`/
-`0600`. A complete managed-lab backup/restore policy must reconcile those
-contracts before managed data is treated as recoverable. The same-volume
-backup also cannot recover from volume loss; off-volume export and recovery
-testing remain release requirements.
+Stop both Web and broker before lifecycle backup, upgrade, or restore.
+Phase 3.5 keeps snapshot publication at `0:10001`, `0750`/`0440`. The
+application rollback set contains Web-owned durable state and leaves snapshots
+untouched; clean-volume recovery pairs an off-volume application backup with
+the separately copied and checked published snapshot tree. See
+`MANAGED-STATE-RECOVERY.md`. The application backup binds published snapshot
+hashes as external dependencies. Release-grade export, retention, atomic
+cross-artifact capture, and full managed-runtime reconstruction remain release
+work.
 
 ## Host fallback comparison
 

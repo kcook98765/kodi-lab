@@ -1797,7 +1797,10 @@ Native-Linux isolated socket, UID, daemon access, installed-wheel, Compose,
 restart, archive, fixed-exec, and disposable lifecycle evidence accepted the
 broker container architecture in D-0369. The Compose `lab` profile adds only a
 restricted broker service and private socket sharing; it does not provision
-managed Kodi runtimes or create the lab profile. Before managed lab data is
-used, reconcile Phase 2 backup/restore with root-owned snapshots and quiesce
-both processes for lifecycle operations. Before release, prove off-volume
-export/recovery and assess Docker Desktop separately.
+managed Kodi runtimes or create the lab profile. Phase 3.5 makes application
+rollback and root-owned snapshot recovery distinct, preserves the accepted
+single-volume state, and requires both processes stopped for lifecycle work.
+The isolated clean-volume ownership proof precedes curated-image and first
+managed-Kodi work. Release-grade export/retention, full runtime
+reconstruction, and Docker Desktop remain separate gates; see
+`MANAGED-STATE-RECOVERY.md`.

@@ -60,24 +60,15 @@ or migrates on `docker compose up`.
 
 ## State, backup, upgrade, and rollback
 
-The essential security and transactional state is SQLite (administrator
-hashes/sessions, MCP clients/tokens/grants, external target/bridge metadata and
-other application records), the exact master key, and both encrypted secret
-directories. Any snapshots or artifacts stored under the data root are durable
-application bytes, so the backup conservatively includes every other regular
-file and empty directory there. The wheel image, packaged assets/migrations,
-and build caches are reproducible from the application artifact and are not
-volume state. `run`, SQLite journal/WAL/shm sidecars, backup staging, and the
-lifecycle lock are temporary or management state; the SQLite backup API folds
-committed sidecar content into a standalone database. Existing managed Kodi
-runtime images, writable layers, broker sockets, and local-runtime snapshots
-are outside this remote deployment. No managed Kodi runtime or image is part
-of this backup.
-
-The Phase 2 backup remains valid for remote-only state. It rejects root-owned
-managed snapshots by design, so it is not yet a complete managed-lab backup.
-Stop both Web and broker before any future lab-state lifecycle operation;
-mixed-owner backup/restore needs a separate implementation gate.
+The application rollback set is SQLite, the exact master key, both encrypted
+secret trees, the state marker, and Web-owned durable ZIP, workspace, and
+promotion artifacts. The backup excludes root-owned managed snapshots,
+screenshots, stages, SQLite sidecars, Docker runtime data, and
+backup/quarantine management. The SQLite backup API folds committed sidecar
+content into a standalone database. Snapshot disaster recovery is a separate
+stopped-state copy and ownership proof. See `MANAGED-STATE-RECOVERY.md` for the
+complete ownership map and both recovery sets. Stop both Web and broker before
+a managed-state backup, upgrade, restore, or clean-volume recovery operation.
 
 Stop Web before backup or upgrade. The lock rejects a second Web process or
 concurrent lifecycle command. A Phase 1 Web image did not hold this lock, so
@@ -93,11 +84,14 @@ docker compose up -d --no-build web
 `backup` publishes a UUID-named directory under `backups/` in the same named
 volume. Its private manifest records UTC creation time, installed package hash,
 format, Alembic revision, key digest, exact file inventory/hashes, and completion.
-Directory and file modes are 0700 and 0600. Publication uses a staging
+Directory/file modes and numeric UID/GID are checked and recorded; read-only
+published ZIP modes remain `0500`/`0400`. Publication uses a staging
 directory, verification, and atomic rename. A failed backup prevents migration.
 Backups survive application-container replacement but not destruction of the
 named volume; export the private backup directory separately for host disaster
-recovery. There is no automatic retention or remote export in this phase.
+recovery. A clean-volume application restore uses `recover-clean` after a
+verified backup directory has been copied to `backups/ID` in a fresh volume.
+There is no automatic retention or public export in this phase.
 
 `upgrade` validates current state, creates and verifies its own pre-upgrade
 backup, writes an unfinished-upgrade marker, runs packaged forward migrations
@@ -129,7 +123,11 @@ newer state to a private `quarantine/UUID` directory, restores the exact prior
 state, and verifies the restored revision and key before clearing the marker.
 An interrupted restore blocks startup; retry the exact backup ID with the same
 confirmation. Each retry quarantines any partial state. Retain all quarantine
-and backup directories until the restored application has been verified. Merely
+and backup directories until the restored application has been verified.
+Root-owned managed snapshots stay in place and keep their original ownership;
+the application rollback does not claim to roll their bytes back. Its manifest
+records their hashes as dependencies and restore rejects any mismatch before
+mutating application state. Merely
 selecting an old image does not roll back a changed schema. The previous image
 must understand the restored revision; there are no downgrade migrations.
 

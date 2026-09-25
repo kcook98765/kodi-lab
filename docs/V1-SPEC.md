@@ -233,7 +233,11 @@ Suggested subdirectories:
 - runtime-builds/
 - cache/
 
-Dedicated Kodi Lab service user/group owns the persistent data root.
+The Web service UID/GID `10001:10001` owns the private data root and
+application state. The Linux broker publishes managed snapshots as
+`0:10001` with non-Web-writable modes inside that root. Application rollback
+and full installation recovery use separate sets; see
+`MANAGED-STATE-RECOVERY.md`.
 
 Runtime sockets:
 `/run/kodi-lab`
