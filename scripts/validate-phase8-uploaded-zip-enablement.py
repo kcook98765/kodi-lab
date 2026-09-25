@@ -124,9 +124,7 @@ def main() -> None:
     parser.add_argument(
         "--evidence-path",
         type=Path,
-        default=Path(
-            "evidence/kodi-lab-phase8-uploaded-zip-enablement-evidence.json"
-        ),
+        default=Path("evidence/kodi-lab-phase8-uploaded-zip-enablement-evidence.json"),
     )
     arguments = parser.parse_args()
     helper = _module("validate-phase8-copied-enablement.py", "phase8_helpers")
