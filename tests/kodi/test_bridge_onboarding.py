@@ -221,6 +221,28 @@ def test_existing_paired_state_overrides_corrupt_onboarding(tmp_path: Path) -> N
     assert path.read_text() == "{truncated"
 
 
+def test_existing_slice1_onboarding_state_migrates_without_reset(
+    tmp_path: Path,
+) -> None:
+    now = [1000.0]
+    store = _store(tmp_path, now)
+    store.initialize(paired=False)
+    _wrong(store, 2)
+    old = json.loads(Path(store.path).read_text())
+    old["format"] = 1
+    del old["bootstrap_replay"]
+    del old["committed_request_id"]
+    Path(store.path).write_text(json.dumps(old))
+    restarted = Store(store.path, clock=lambda: now[0])
+    assert restarted.status(paired=False)["code"] == "7KQ4"
+    migrated = json.loads(Path(store.path).read_text())
+    assert migrated["format"] == 2
+    assert migrated["failed_attempts"] == 2
+    assert len(migrated["bridge_failures"]) == 2
+    assert migrated["bootstrap_replay"] == []
+    assert migrated["committed_request_id"] is None
+
+
 @pytest.mark.parametrize("payload", ["{truncated", "[]", "{}"])
 def test_corrupt_onboarding_state_fails_closed(tmp_path: Path, payload: str) -> None:
     path = tmp_path / "onboarding.json"

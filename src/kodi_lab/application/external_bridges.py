@@ -39,10 +39,12 @@ from kodi_lab.kodi.bridge import (
     BridgeAddonTree,
     BridgeDeploymentReceipt,
     BridgeIdentity,
+    BridgeOtpBootstrapResult,
     BridgeScreenshotResult,
     ExternalBridgeClient,
     ExternalBridgeError,
     b64url,
+    otp_bootstrap_request_id,
 )
 from kodi_lab.kodi.external import (
     ExternalEndpointError,
@@ -717,6 +719,175 @@ class ExternalBridgeService:
                 raise
             self._secrets.retire(snapshot.token_reference)
         return self.status(target_id)
+
+    def begin_otp_pairing(
+        self, target_id: UUID, *, bridge_port: int, code: str
+    ) -> ExternalBridgeStatus:
+        """Stage an existing development target using one bridge-generated OTP."""
+        with self._pairing_gate.enter(target_id):
+            with self._sessions() as session:
+                external = self._require_native_verified(session, target_id)
+                target = session.get(TargetRow, str(target_id))
+                if (
+                    target is None
+                    or target.target_type is not TargetType.EXTERNAL_DEVELOPMENT
+                ):
+                    raise ExternalBridgeServiceError("bridge_capability_unavailable")
+                row = session.get(ExternalBridgePairingRow, str(target_id))
+                if row is not None and (
+                    row.pairing_state
+                    in {
+                        ExternalBridgePairingState.PAIRED,
+                        ExternalBridgePairingState.PAIRING_PENDING,
+                        ExternalBridgePairingState.NEEDS_REVERIFICATION,
+                    }
+                    or row.pairing_token_reference is not None
+                ):
+                    raise ExternalBridgeServiceError("pairing_in_progress")
+                endpoint = self._validate_bridge_endpoint(external, bridge_port)
+                kodi_version = external.verified_kodi_version
+                assert kodi_version is not None
+            try:
+                info = self._client.bootstrap_info(endpoint, bridge_port=bridge_port)
+                secret = os.urandom(32)
+                request_id = otp_bootstrap_request_id(secret, target_id)
+                try:
+                    self._client.bootstrap_otp(
+                        endpoint,
+                        bridge_port=bridge_port,
+                        target_id=target_id,
+                        info=info,
+                        code=code,
+                        secret=secret,
+                        request_id=request_id,
+                    )
+                except ExternalBridgeError as error:
+                    if error.code != "bridge_unreachable":
+                        raise
+                    # A lost success response must not cause a second OTP attempt.
+                    # The caller retained the new random credential and can prove
+                    # provisional possession with a fresh signed identity request.
+                identity = self._client.identity(
+                    endpoint,
+                    bridge_port=bridge_port,
+                    target_id=target_id,
+                    bridge_id=info.bridge_id,
+                    secret=secret,
+                )
+                self._require_native_identity(identity, kodi_version)
+                if (
+                    identity.bridge_id != info.bridge_id
+                    or identity.addon_version != info.addon_version
+                    or identity.build_fingerprint != info.build_fingerprint
+                ):
+                    raise ExternalBridgeServiceError("bridge_identity_mismatch")
+            except ExternalBridgeError as error:
+                raise ExternalBridgeServiceError(error.code) from error
+            try:
+                reference = self._secrets.write(
+                    target_id, "request_authentication", secret
+                )
+            except SecretStoreError as error:
+                raise ExternalBridgeServiceError(
+                    "bridge_authentication_failed"
+                ) from error
+            try:
+                with self._sessions.begin() as session:
+                    external = self._require_native_verified(session, target_id)
+                    self._validate_bridge_endpoint(external, bridge_port)
+                    row = session.get(ExternalBridgePairingRow, str(target_id))
+                    if row is None:
+                        row = ExternalBridgePairingRow(
+                            target_id=str(target_id),
+                            pairing_state=ExternalBridgePairingState.UNPAIRED,
+                            reachability_state=ExternalBridgeReachabilityState.UNKNOWN,
+                            observed_capabilities_json="[]",
+                            verified_capabilities_json="[]",
+                        )
+                        session.add(row)
+                    elif row.pairing_state not in {
+                        ExternalBridgePairingState.UNPAIRED,
+                        ExternalBridgePairingState.REVOKED,
+                    }:
+                        raise ExternalBridgeServiceError("pairing_in_progress")
+                    self._clear_identity(row)
+                    row.bridge_port = bridge_port
+                    row.pairing_state = ExternalBridgePairingState.PAIRING_PENDING
+                    row.reachability_state = ExternalBridgeReachabilityState.REACHABLE
+                    row.pairing_token_reference = None
+                    row.pairing_token_expires_at = None
+                    row.bridge_secret_reference = str(reference)
+                    row.pairing_attempted_at = self._text(self._clock())
+                    row.revoked_at = None
+                    self._set_observed(row, identity, identity.capabilities)
+                    row.endpoint_revision_digest = self._endpoint_digest(
+                        external, bridge_port
+                    )
+            except Exception:
+                self._secrets.retire(reference)
+                raise
+        return self.status(target_id)
+
+    def commit_otp_pairing(self, target_id: UUID) -> ExternalBridgeStatus:
+        """Commit or recover the same pending OTP transaction without reusing OTP."""
+        with self._pairing_gate.enter(target_id):
+            with self._sessions() as session:
+                external = self._require_native_verified(session, target_id)
+                target = session.get(TargetRow, str(target_id))
+                row = session.get(ExternalBridgePairingRow, str(target_id))
+                if (
+                    target is None
+                    or target.target_type is not TargetType.EXTERNAL_DEVELOPMENT
+                    or row is None
+                    or row.pairing_state
+                    is not ExternalBridgePairingState.PAIRING_PENDING
+                    or row.bridge_secret_reference is None
+                    or row.observed_bridge_id is None
+                    or row.bridge_port is None
+                ):
+                    raise ExternalBridgeServiceError("bridge_not_paired")
+                endpoint = self._validate_bridge_endpoint(external, row.bridge_port)
+                bridge_port = row.bridge_port
+                bridge_id = UUID(row.observed_bridge_id)
+                reference = UUID(row.bridge_secret_reference)
+                observed_fingerprint = row.observed_build_fingerprint
+            try:
+                secret = self._secrets.read(
+                    target_id, reference, "request_authentication"
+                )
+                transaction = BridgeOtpBootstrapResult(
+                    target_id,
+                    bridge_id,
+                    otp_bootstrap_request_id(secret, target_id),
+                    secret,
+                    0.0,
+                )
+                self._client.commit_pairing(
+                    endpoint, bridge_port=bridge_port, transaction=transaction
+                )
+                identity = self._client.identity(
+                    endpoint,
+                    bridge_port=bridge_port,
+                    target_id=target_id,
+                    bridge_id=bridge_id,
+                    secret=secret,
+                )
+                if identity.build_fingerprint != observed_fingerprint:
+                    raise ExternalBridgeServiceError("bridge_identity_mismatch")
+                capabilities = self._client.capabilities(
+                    endpoint,
+                    bridge_port=bridge_port,
+                    target_id=target_id,
+                    bridge_id=bridge_id,
+                    secret=secret,
+                )
+                if set(capabilities) != set(identity.capabilities):
+                    raise ExternalBridgeServiceError("bridge_identity_mismatch")
+            except (ExternalBridgeError, SecretStoreError) as error:
+                raise ExternalBridgeServiceError(
+                    getattr(error, "code", "bridge_authentication_failed")
+                ) from error
+            return self.confirm_pairing(target_id)
 
     def confirm_pairing(
         self,

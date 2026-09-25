@@ -35,14 +35,6 @@ msgctxt "#32021"
 msgid "Use the port allowlisted by the Kodi Lab administrator."
 msgstr ""
 
-msgctxt "#32030"
-msgid "One-time pairing token"
-msgstr ""
-
-msgctxt "#32031"
-msgid "Legacy pairing for older Kodi Lab installations. Use Pair Kodi Lab for new setup."
-msgstr ""
-
 msgctxt "#32040"
 msgid "Pair Kodi Lab"
 msgstr ""

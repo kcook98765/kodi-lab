@@ -21,16 +21,6 @@
             <close>true</close>
           </control>
         </setting>
-        <setting id="pairing_token" type="string" label="32030" help="32031">
-          <level>3</level>
-          <default></default>
-          <constraints>
-            <allowempty>true</allowempty>
-          </constraints>
-          <control type="edit" format="string">
-            <hidden>true</hidden>
-          </control>
-        </setting>
       </group>
     </category>
   </section>

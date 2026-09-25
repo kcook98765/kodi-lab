@@ -6,10 +6,28 @@ external-development targets and reviewed production targets. Installation is
 manual. After enabling the bridge, open **Pair Kodi Lab** in its settings to
 view the four-character code. The code lasts five minutes, can be replaced
 locally after a 30-second cooldown, and is never the normal request credential.
-The current Kodi Lab Web release still uses its legacy show-once long-token
-pairing workflow; short-code network pairing is not yet available in this
-bridge candidate. Existing paired targets keep their credential and normal
-authenticated protocol.
+The `otp-1` HTTP bootstrap protocol and Kodi Lab direct client are available
+for bounded native validation. The Web onboarding wizard is a later slice.
+Existing paired targets keep their credential and normal authenticated
+protocol. New bridge builds do not accept the old long-token bootstrap
+operation; older bridge builds retain their existing long-token client path.
+
+While an unpaired code is active, `GET /kodi-lab/bridge/bootstrap/v1` advertises
+only the bridge UUID, candidate version and fingerprint, and bootstrap version.
+Kodi Lab creates a fresh 32-byte random credential and sends it with the OTP,
+target UUID, bridge UUID, request UUID, nonce, and timestamp to the same path.
+The bridge consumes a correct OTP and persists one five-minute provisional
+transaction. Its signed success response binds those identities and the
+credential digest. Only signed `bridge_identity` and `pairing_commit` are
+allowed before commit; a signed screenshot request is denied before capture.
+Kodi Lab stores the credential in its existing encrypted bridge secret store
+after provisional identity succeeds. Authenticated commit publishes the normal
+paired `state.json`, consumes the transaction, and permits the existing
+authenticated protocol. A lost bootstrap response is recovered by provisional
+identity with the retained credential, without repeating the OTP request. A
+lost commit response is recovered with a fresh authenticated idempotent commit.
+Bootstrap uses HTTP on a private LAN and is not confidential to passive LAN
+observers; the short OTP is never the persistent request credential.
 
 Production use requires the exact independently reviewed ZIP and checksum,
 reviewed-build registration, one-time pairing and current revision-bound

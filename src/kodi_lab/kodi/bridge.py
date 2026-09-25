@@ -25,10 +25,18 @@ from kodi_lab.screenshot_diagnostics import emit_screenshot_stage
 
 BRIDGE_PROTOCOL_VERSION = "1"
 BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
+BOOTSTRAP_ENDPOINT_PATH = "/kodi-lab/bridge/bootstrap/v1"
+BOOTSTRAP_PROTOCOL_VERSION = "otp-1"
 BRIDGE_ADDON_ID = "service.kodi_lab_bridge"
 BRIDGE_CAPABILITIES = frozenset({"screenshot", "workspace_deployment"})
 BRIDGE_JSON_ERROR_CODES = frozenset(
-    {"addon_inspection_failed", "bridge_operation_failed"}
+    {
+        "addon_inspection_failed",
+        "bridge_operation_failed",
+        "provisional_operation_not_allowed",
+        "conflicting_commit",
+        "bootstrap_version_mismatch",
+    }
 )
 BRIDGE_OPERATIONS = frozenset(
     {
@@ -40,6 +48,7 @@ BRIDGE_OPERATIONS = frozenset(
         "deployment_chunk",
         "deployment_commit",
         "deployment_receipt",
+        "pairing_commit",
     }
 )
 PAIRING_OPERATION = "pair_bridge"
@@ -90,6 +99,23 @@ class BridgeIdentity:
 class BridgePairingResult:
     identity: BridgeIdentity
     secret: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class BridgeBootstrapInfo:
+    bridge_id: UUID
+    addon_version: str
+    build_fingerprint: str
+    bootstrap_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class BridgeOtpBootstrapResult:
+    target_id: UUID
+    bridge_id: UUID
+    request_id: UUID
+    secret: bytes
+    provisional_expires_at: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +229,18 @@ def derive_bridge_secret(
         }
     )
     return hmac.new(key, context, hashlib.sha256).digest()
+
+
+def otp_bootstrap_request_id(secret: bytes, target_id: UUID) -> UUID:
+    """Recover the bootstrap transaction ID from the staged random credential."""
+    if len(secret) != 32:
+        raise ValueError("persistent credential must be 256 bits")
+    digest = hmac.new(
+        secret,
+        b"kodi-lab-otp-bootstrap-request-v1|" + target_id.bytes,
+        hashlib.sha256,
+    ).digest()
+    return UUID(bytes=digest[:16], version=4)
 
 
 def request_key(secret: bytes) -> bytes:
@@ -347,6 +385,198 @@ class ExternalBridgeClient:
             bridge_nonce=document["bridge_nonce"],
         )
         return BridgePairingResult(identity=identity, secret=secret)
+
+    def bootstrap_info(
+        self, endpoint: ValidatedExternalEndpoint, *, bridge_port: int
+    ) -> BridgeBootstrapInfo:
+        """Read the bounded, unpaired-only OTP bootstrap advertisement."""
+        try:
+            with (
+                self._client() as client,
+                client.stream(
+                    "GET",
+                    self._url(endpoint, bridge_port, BOOTSTRAP_ENDPOINT_PATH),
+                    timeout=self._timeout(),
+                ) as response,
+            ):
+                document = self._bootstrap_document(response)
+        except httpx.TransportError as error:
+            raise ExternalBridgeError("bridge_unreachable") from error
+        if (
+            not isinstance(document, dict)
+            or set(document)
+            != {
+                "status",
+                "bootstrap_version",
+                "bridge_id",
+                "addon_version",
+                "build_fingerprint",
+            }
+            or document["status"] != "available"
+        ):
+            raise ExternalBridgeError("bridge_authentication_failed")
+        if document["bootstrap_version"] != BOOTSTRAP_PROTOCOL_VERSION:
+            raise ExternalBridgeError("bridge_protocol_unsupported")
+        try:
+            bridge_id = UUID(document["bridge_id"])
+            if str(bridge_id) != document["bridge_id"]:
+                raise ValueError
+        except (TypeError, ValueError, AttributeError) as error:
+            raise ExternalBridgeError("bridge_identity_mismatch") from error
+        version = document["addon_version"]
+        fingerprint = document["build_fingerprint"]
+        if (
+            not isinstance(version, str)
+            or not 1 <= len(version) <= 64
+            or not isinstance(fingerprint, str)
+            or len(fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in fingerprint)
+        ):
+            raise ExternalBridgeError("bridge_identity_mismatch")
+        return BridgeBootstrapInfo(
+            bridge_id, version, fingerprint, BOOTSTRAP_PROTOCOL_VERSION
+        )
+
+    def bootstrap_otp(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        info: BridgeBootstrapInfo,
+        code: str,
+        secret: bytes,
+        request_id: UUID,
+    ) -> BridgeOtpBootstrapResult:
+        """Submit one OTP attempt. The caller retains the new key on lost response."""
+        if (
+            len(secret) != 32
+            or len(code) != 4
+            or any(char not in "23456789ABCDEFGHJKLMNPQRSTUVWXYZ" for char in code)
+        ):
+            raise ValueError("OTP or persistent credential shape is invalid")
+        nonce = b64url(os.urandom(32))
+        request = {
+            "bootstrap_version": BOOTSTRAP_PROTOCOL_VERSION,
+            "operation": "otp_bootstrap",
+            "target_id": str(target_id),
+            "bridge_id": str(info.bridge_id),
+            "request_id": str(request_id),
+            "timestamp": timestamp_text(self._clock()),
+            "nonce": nonce,
+            "credential": b64url(secret),
+            "otp": code,
+        }
+        try:
+            with (
+                self._client() as client,
+                client.stream(
+                    "POST",
+                    self._url(endpoint, bridge_port, BOOTSTRAP_ENDPOINT_PATH),
+                    json=request,
+                    timeout=self._timeout(),
+                ) as response,
+            ):
+                document = self._bootstrap_document(response)
+        except httpx.TransportError as error:
+            raise ExternalBridgeError("bridge_unreachable") from error
+        if not isinstance(document, dict) or set(document) != {
+            "protocol_version",
+            "operation",
+            "target_id",
+            "bridge_id",
+            "request_id",
+            "timestamp",
+            "nonce",
+            "status",
+            "payload",
+            "signature",
+        }:
+            raise ExternalBridgeError("bridge_authentication_failed")
+        if (
+            document["protocol_version"] != BRIDGE_PROTOCOL_VERSION
+            or document["operation"] != "otp_bootstrap"
+            or document["target_id"] != str(target_id)
+            or document["bridge_id"] != str(info.bridge_id)
+            or document["request_id"] != str(request_id)
+            or document["status"] != "ok"
+            or not isinstance(document["timestamp"], str)
+            or not isinstance(document["nonce"], str)
+            or not isinstance(document["signature"], str)
+        ):
+            raise ExternalBridgeError("bridge_authentication_failed")
+        parse_fresh_timestamp(document["timestamp"], self._clock())
+        decode_b64url(document["nonce"], size=32)
+        payload = document["payload"]
+        if (
+            not isinstance(payload, dict)
+            or set(payload)
+            != {
+                "bootstrap_version",
+                "target_id",
+                "bridge_id",
+                "bootstrap_request_id",
+                "bootstrap_nonce",
+                "credential_digest",
+                "provisional_expires_at",
+            }
+            or (
+                payload["bootstrap_version"] != BOOTSTRAP_PROTOCOL_VERSION
+                or payload["target_id"] != str(target_id)
+                or payload["bridge_id"] != str(info.bridge_id)
+                or payload["bootstrap_request_id"] != str(request_id)
+                or payload["bootstrap_nonce"] != nonce
+                or payload["credential_digest"] != hashlib.sha256(secret).hexdigest()
+                or type(payload["provisional_expires_at"]) not in (int, float)
+            )
+        ):
+            raise ExternalBridgeError("bridge_authentication_failed")
+        expected = response_signature(
+            secret,
+            target_id=str(target_id),
+            bridge_id=str(info.bridge_id),
+            operation="otp_bootstrap",
+            request_id=str(request_id),
+            timestamp=document["timestamp"],
+            nonce=document["nonce"],
+            status="ok",
+            payload_digest=_digest(canonical_json(payload)),
+        )
+        if not hmac.compare_digest(expected, document["signature"]):
+            raise ExternalBridgeError("bridge_authentication_failed")
+        expires_at = float(payload["provisional_expires_at"])
+        now = self._clock().timestamp()
+        if not now < expires_at <= now + 300 + MAX_CLOCK_SKEW_SECONDS:
+            raise ExternalBridgeError("bridge_authentication_failed")
+        return BridgeOtpBootstrapResult(
+            target_id, info.bridge_id, request_id, secret, expires_at
+        )
+
+    def commit_pairing(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        transaction: BridgeOtpBootstrapResult,
+    ) -> None:
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=transaction.target_id,
+            bridge_id=transaction.bridge_id,
+            secret=transaction.secret,
+            operation="pairing_commit",
+            payload={
+                "bootstrap_version": BOOTSTRAP_PROTOCOL_VERSION,
+                "bootstrap_request_id": str(transaction.request_id),
+                "credential_digest": hashlib.sha256(transaction.secret).hexdigest(),
+            },
+        )
+        if payload != {
+            "bootstrap_version": BOOTSTRAP_PROTOCOL_VERSION,
+            "committed": True,
+        }:
+            raise ExternalBridgeError("bridge_authentication_failed")
 
     def identity(
         self,
@@ -1069,6 +1299,9 @@ class ExternalBridgeClient:
                     raise ExternalBridgeError("bridge_authentication_failed")
                 if response.status_code == 409:
                     raise ExternalBridgeError("bridge_replay_rejected")
+                if response.status_code == 410:
+                    self._bootstrap_document(response)
+                    raise ExternalBridgeError("bridge_authentication_failed")
                 if response.status_code not in {200, 422}:
                     raise ExternalBridgeError("bridge_unreachable")
                 if (
@@ -1090,6 +1323,53 @@ class ExternalBridgeClient:
             raise ExternalBridgeError("bridge_unreachable") from error
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ExternalBridgeError("bridge_authentication_failed") from error
+
+    @staticmethod
+    def _bootstrap_document(response: httpx.Response) -> object:
+        if response.status_code == 404:
+            raise ExternalBridgeError("bridge_protocol_unsupported")
+        if response.status_code not in {200, 400, 403, 409, 410, 429, 503}:
+            raise ExternalBridgeError("bridge_unreachable")
+        if (
+            response.headers.get("content-type", "").split(";", 1)[0]
+            != "application/json"
+        ):
+            raise ExternalBridgeError("bridge_authentication_failed")
+        parts: list[bytes] = []
+        total = 0
+        for part in response.iter_bytes():
+            total += len(part)
+            if total > 4096:
+                raise ExternalBridgeError("bridge_authentication_failed")
+            parts.append(part)
+        try:
+            document = json.loads(b"".join(parts))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ExternalBridgeError("bridge_authentication_failed") from error
+        if response.status_code != 200:
+            allowed = {
+                "pairing_request_invalid",
+                "bootstrap_version_mismatch",
+                "bridge_identity_mismatch",
+                "wrong_code",
+                "pairing_code_expired",
+                "pairing_code_unavailable",
+                "pairing_temporarily_locked",
+                "pairing_in_progress",
+                "bootstrap_replay_rejected",
+                "already_paired",
+                "bridge_disabled",
+                "pairing_unavailable",
+                "provisional_expired",
+            }
+            if (
+                not isinstance(document, dict)
+                or set(document) != {"status", "code"}
+                or (document["status"] != "error" or document["code"] not in allowed)
+            ):
+                raise ExternalBridgeError("bridge_authentication_failed")
+            raise ExternalBridgeError(document["code"])
+        return document
 
     @staticmethod
     def _envelope(
@@ -1116,10 +1396,14 @@ class ExternalBridgeClient:
         }
 
     @staticmethod
-    def _url(endpoint: ValidatedExternalEndpoint, bridge_port: int) -> str:
+    def _url(
+        endpoint: ValidatedExternalEndpoint,
+        bridge_port: int,
+        path: str = BRIDGE_ENDPOINT_PATH,
+    ) -> str:
         scheme = "http" if endpoint.protocol_kind.value == "jsonrpc_http" else "https"
         host = f"[{endpoint.address}]" if ":" in endpoint.address else endpoint.address
-        return f"{scheme}://{host}:{bridge_port}{BRIDGE_ENDPOINT_PATH}"
+        return f"{scheme}://{host}:{bridge_port}{path}"
 
     def _client(self) -> httpx.Client:
         return httpx.Client(

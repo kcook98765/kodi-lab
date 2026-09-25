@@ -23,21 +23,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import xbmc
 import xbmcaddon
 import xbmcvfs
-from onboarding import OnboardingError, OnboardingStore
+from onboarding import BOOTSTRAP_VERSION, OnboardingError, OnboardingStore
 
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
+BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.12"
+ADDON_VERSION = "1.1.13"
 CAPABILITIES = ["screenshot", "workspace_deployment"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.12|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,local-otp"
+    b"kodi-lab-narrow-bridge|1.1.13|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
 ADDON_ROOT = "special://home/addons"
 SCREENSHOT_ROOT = "special://temp/kodi-lab-bridge"
 MAX_REQUEST = 17 * 1024 * 1024
+MAX_BOOTSTRAP_REQUEST = 2048
 MAX_PNG = 8 * 1024 * 1024
 MAX_MANIFEST = 16 * 1024 * 1024
 MAX_FILE = 2 * 1024 * 1024
@@ -70,6 +72,7 @@ OPERATIONS = {
     "deployment_chunk",
     "deployment_commit",
     "deployment_receipt",
+    "pairing_commit",
 }
 REPLAY_EVICTABLE_OPERATIONS = OPERATIONS - {"capture_screenshot"}
 _STATE_LOCK = threading.Lock()
@@ -157,23 +160,6 @@ def _fresh(value):
         return False
     # datetime.UTC is unavailable in Kodi 19's Python 3.8 runtime.
     return abs((datetime.now(timezone.utc) - parsed).total_seconds()) <= MAX_SKEW  # noqa: UP017
-
-
-def _pairing_key(token):
-    return hmac.new(token, b"kodi-lab-bridge-pairing-key-v1", hashlib.sha256).digest()
-
-
-def _derive_secret(token, target_id, bridge_id, server_nonce, bridge_nonce):
-    context = _canonical(
-        {
-            "bridge_id": bridge_id,
-            "bridge_nonce": bridge_nonce,
-            "label": "kodi-lab-bridge-request-secret-v1",
-            "server_nonce": server_nonce,
-            "target_id": target_id,
-        }
-    )
-    return hmac.new(_pairing_key(token), context, hashlib.sha256).digest()
 
 
 def _request_key(secret):
@@ -1619,7 +1605,44 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format_value, *args):
         xbmc.log("[service.kodi_lab_bridge] " + (format_value % args), xbmc.LOGDEBUG)
 
+    def do_GET(self):
+        if self.path != BOOTSTRAP_ENDPOINT:
+            self._empty(404)
+            return
+        if not xbmcaddon.Addon(ADDON_ID).getSettingBool("enabled"):
+            self._bootstrap_error("bridge_disabled")
+            return
+        try:
+            with _STATE_LOCK:
+                state = _load_state()
+                if _paired(state):
+                    self._bootstrap_error("already_paired")
+                    return
+                status = _onboarding_store().status(paired=False)["status"]
+                if status != "Pairing code active":
+                    code = {
+                        "Pairing code expired": "pairing_code_expired",
+                        "Pairing temporarily locked": "pairing_temporarily_locked",
+                    }.get(status, "pairing_code_unavailable")
+                    self._bootstrap_error(code)
+                    return
+                body = _canonical(
+                    {
+                        "status": "available",
+                        "bootstrap_version": BOOTSTRAP_VERSION,
+                        "bridge_id": state["bridge_id"],
+                        "addon_version": ADDON_VERSION,
+                        "build_fingerprint": BUILD_FINGERPRINT,
+                    }
+                )
+            self._send(200, {"Content-Type": "application/json"}, body)
+        except (OnboardingError, OSError, RuntimeError):
+            self._bootstrap_error("pairing_unavailable")
+
     def do_POST(self):
+        if self.path == BOOTSTRAP_ENDPOINT:
+            self._bootstrap_http()
+            return
         if self.path != ENDPOINT:
             self._empty(404)
             return
@@ -1646,84 +1669,127 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*cached)
                 return
             if document.get("operation") == "pair_bridge":
-                self._pair(document, request_hash)
-            else:
-                self._authenticated(document, request_hash)
+                self._empty(404)
+                return
+            self._authenticated(document, request_hash)
         except AuthenticationError:
             self._empty(401)
+        except OnboardingError as error:
+            self._bootstrap_error(str(error))
         except ValueError:
             self._empty(409)
         except Exception:
             self._empty(401)
 
-    def _pair(self, document, request_hash):
-        if set(document) != {
-            "protocol_version",
+    def _bootstrap_http(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if (
+                not 1 <= length <= MAX_BOOTSTRAP_REQUEST
+                or self.headers.get("Content-Type", "").split(";", 1)[0]
+                != "application/json"
+            ):
+                raise ValueError
+            document = json.loads(self.rfile.read(length).decode("utf-8"))
+            self._bootstrap_pair(document)
+        except OnboardingError as error:
+            self._bootstrap_error(str(error))
+        except (ValueError, TypeError, KeyError, UnicodeError):
+            self._bootstrap_error("pairing_request_invalid")
+        except (OSError, RuntimeError):
+            self._bootstrap_error("pairing_unavailable")
+
+    def _bootstrap_pair(self, document):
+        if not isinstance(document, dict) or set(document) != {
+            "bootstrap_version",
             "operation",
             "target_id",
+            "bridge_id",
             "request_id",
             "timestamp",
-            "server_nonce",
-            "pairing_proof",
+            "nonce",
+            "credential",
+            "otp",
         }:
-            raise ValueError
+            raise OnboardingError("pairing_request_invalid")
+        if document["bootstrap_version"] != BOOTSTRAP_VERSION:
+            raise OnboardingError("bootstrap_version_mismatch")
+        if document["operation"] != "otp_bootstrap":
+            raise OnboardingError("pairing_request_invalid")
         _uuid(document["target_id"])
+        _uuid(document["bridge_id"])
         _uuid(document["request_id"])
-        _decode_b64(document["server_nonce"], 32)
-        if document["protocol_version"] != PROTOCOL or not _fresh(
-            document["timestamp"]
-        ):
-            raise ValueError
-        addon = xbmcaddon.Addon(ADDON_ID)
-        token_text = str(addon.getSetting("pairing_token") or "").strip()
-        try:
-            token = _decode_b64(token_text, 32)
-        except ValueError as error:
-            raise AuthenticationError from error
-        proof_fields = dict(document)
-        provided_proof = proof_fields.pop("pairing_proof")
-        expected_proof = _b64(
-            hmac.new(
-                _pairing_key(token), _canonical(proof_fields), hashlib.sha256
-            ).digest()
-        )
-        if not isinstance(provided_proof, str) or not hmac.compare_digest(
-            expected_proof, provided_proof
-        ):
-            raise AuthenticationError
-        bridge_nonce = _b64(os.urandom(32))
+        _decode_b64(document["nonce"], 32)
+        secret = _decode_b64(document["credential"], 32)
+        if not _fresh(document["timestamp"]):
+            raise OnboardingError("pairing_request_invalid")
+        if not xbmcaddon.Addon(ADDON_ID).getSettingBool("enabled"):
+            raise OnboardingError("bridge_disabled")
         with _STATE_LOCK:
             state = _load_state()
-            response = {
-                "protocol_version": PROTOCOL,
-                "operation": "pair_bridge",
-                "target_id": document["target_id"],
-                "request_id": document["request_id"],
-                "timestamp": _timestamp(),
-                "bridge_nonce": bridge_nonce,
-                "identity": _identity(state),
-            }
-            response["pairing_proof"] = _b64(
-                hmac.new(
-                    _pairing_key(token), _canonical(response), hashlib.sha256
-                ).digest()
-            )
-            secret = _derive_secret(
-                token,
+            if _paired(state):
+                raise OnboardingError("already_paired")
+            if document["bridge_id"] != state["bridge_id"]:
+                raise OnboardingError("bridge_identity_mismatch")
+            store = _onboarding_store()
+            accepted = store.verify_and_reserve(
+                document["otp"],
+                self.client_address[0],
                 document["target_id"],
-                state["bridge_id"],
-                document["server_nonce"],
-                bridge_nonce,
+                document["request_id"],
+                paired=False,
+                bridge_id=state["bridge_id"],
+                secret=secret,
+                nonce=document["nonce"],
+                bootstrap_version=BOOTSTRAP_VERSION,
             )
-            state["target_id"] = document["target_id"]
-            state["secret"] = _b64(secret)
-            state["replay"] = []
-            _save_state(state)
-            addon.setSetting("pairing_token", "")
-        body = _canonical(response)
-        headers = {"Content-Type": "application/json"}
-        _cache_put(document["request_id"], request_hash, 200, headers, body)
-        self._send(200, headers, body)
+            if not accepted:
+                xbmc.log(
+                    "[service.kodi_lab_bridge] bootstrap_attempt_failed", xbmc.LOGINFO
+                )
+                raise OnboardingError("wrong_code")
+            provisional = store.provisional(document["target_id"], state["bridge_id"])
+        xbmc.log("[service.kodi_lab_bridge] bootstrap_accepted", xbmc.LOGINFO)
+        response_request = {
+            "operation": "otp_bootstrap",
+            "target_id": document["target_id"],
+            "bridge_id": document["bridge_id"],
+            "request_id": document["request_id"],
+        }
+        payload = {
+            "bootstrap_version": BOOTSTRAP_VERSION,
+            "target_id": document["target_id"],
+            "bridge_id": state["bridge_id"],
+            "bootstrap_request_id": document["request_id"],
+            "bootstrap_nonce": document["nonce"],
+            "credential_digest": provisional["credential_digest"],
+            "provisional_expires_at": provisional["expires_at"],
+        }
+        self._json_response(response_request, None, secret, payload, cache=False)
+
+    def _bootstrap_error(self, code):
+        statuses = {
+            "pairing_request_invalid": 400,
+            "bootstrap_version_mismatch": 400,
+            "bridge_identity_mismatch": 409,
+            "wrong_code": 403,
+            "pairing_code_expired": 410,
+            "pairing_code_unavailable": 410,
+            "pairing_temporarily_locked": 429,
+            "pairing_in_progress": 409,
+            "bootstrap_replay_rejected": 409,
+            "already_paired": 409,
+            "bridge_disabled": 503,
+            "pairing_unavailable": 503,
+            "provisional_expired": 410,
+        }
+        if code not in statuses:
+            code = "pairing_unavailable"
+        self._send(
+            statuses[code],
+            {"Content-Type": "application/json"},
+            _canonical({"status": "error", "code": code}),
+        )
 
     def _authenticated(self, document, request_hash):
         if set(document) != {
@@ -1752,27 +1818,53 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError
         with _STATE_LOCK:
             state = _load_state()
-            if (
-                state["target_id"] != document["target_id"]
-                or state["bridge_id"] != document["bridge_id"]
-                or state["secret"] is None
-            ):
-                raise AuthenticationError
-            secret = _decode_b64(state["secret"], 32)
+            provisional = not _paired(state)
+            if provisional:
+                transaction = _onboarding_store().provisional(
+                    document["target_id"], document["bridge_id"]
+                )
+                secret = bytes.fromhex(transaction["secret"])
+            else:
+                if (
+                    state["target_id"] != document["target_id"]
+                    or state["bridge_id"] != document["bridge_id"]
+                ):
+                    raise AuthenticationError
+                secret = _decode_b64(state["secret"], 32)
             expected = _request_signature(secret, document)
             if not hmac.compare_digest(expected, document["signature"]):
                 raise AuthenticationError
-            _claim_replay(
-                state,
-                document["request_id"],
-                document["nonce"],
-                document["operation"],
+            if provisional:
+                _onboarding_store().claim_provisional_request(
+                    document["target_id"],
+                    document["bridge_id"],
+                    document["request_id"],
+                    document["nonce"],
+                )
+            else:
+                _claim_replay(
+                    state,
+                    document["request_id"],
+                    document["nonce"],
+                    document["operation"],
+                )
+        if provisional and document["operation"] not in {
+            "bridge_identity",
+            "pairing_commit",
+        }:
+            self._json_error_response(
+                document, request_hash, secret, "provisional_operation_not_allowed"
             )
+            return
         if document["operation"] == "bridge_identity":
             if document["payload"] != {}:
                 raise ValueError
             payload = _identity(state)
+            if provisional:
+                xbmc.log("[service.kodi_lab_bridge] provisional_identity", xbmc.LOGINFO)
             self._json_response(document, request_hash, secret, payload)
+        elif document["operation"] == "pairing_commit":
+            self._pairing_commit(document, request_hash, secret)
         elif document["operation"] == "bridge_capabilities":
             if document["payload"] != {}:
                 raise ValueError
@@ -1785,6 +1877,83 @@ class Handler(BaseHTTPRequestHandler):
             self._screenshot_response(document, request_hash, secret)
         else:
             self._deployment_response(document, request_hash, secret, state)
+
+    def _pairing_commit(self, document, request_hash, secret):
+        payload = document["payload"]
+        if not isinstance(payload, dict) or set(payload) != {
+            "bootstrap_version",
+            "bootstrap_request_id",
+            "credential_digest",
+        }:
+            raise ValueError
+        if payload["bootstrap_version"] != BOOTSTRAP_VERSION:
+            self._json_error_response(
+                document, request_hash, secret, "bootstrap_version_mismatch"
+            )
+            return
+        _uuid(payload["bootstrap_request_id"])
+        if payload["credential_digest"] != hashlib.sha256(secret).hexdigest():
+            self._json_error_response(
+                document, request_hash, secret, "conflicting_commit"
+            )
+            return
+        with _STATE_LOCK:
+            state = _load_state()
+            if _paired(state):
+                if (
+                    state["target_id"] != document["target_id"]
+                    or state["bridge_id"] != document["bridge_id"]
+                    or _decode_b64(state["secret"], 32) != secret
+                ):
+                    self._json_error_response(
+                        document, request_hash, secret, "conflicting_commit"
+                    )
+                    return
+                accepted = _onboarding_store().clear_provisional(
+                    document["target_id"],
+                    document["bridge_id"],
+                    payload["bootstrap_request_id"],
+                )
+                if not accepted:
+                    self._json_error_response(
+                        document, request_hash, secret, "conflicting_commit"
+                    )
+                    return
+            else:
+                transaction = _onboarding_store().provisional(
+                    document["target_id"], document["bridge_id"]
+                )
+                if (
+                    transaction["request_id"] != payload["bootstrap_request_id"]
+                    or transaction["credential_digest"] != payload["credential_digest"]
+                ):
+                    self._json_error_response(
+                        document, request_hash, secret, "conflicting_commit"
+                    )
+                    return
+                state["target_id"] = document["target_id"]
+                state["secret"] = _b64(secret)
+                state["replay"] = [
+                    [
+                        document["request_id"],
+                        document["nonce"],
+                        int(time.time()),
+                        "pairing_commit",
+                    ]
+                ]
+                _save_state(state)
+                _onboarding_store().clear_provisional(
+                    document["target_id"],
+                    document["bridge_id"],
+                    payload["bootstrap_request_id"],
+                )
+                xbmc.log("[service.kodi_lab_bridge] pairing_committed", xbmc.LOGINFO)
+        self._json_response(
+            document,
+            request_hash,
+            secret,
+            {"bootstrap_version": BOOTSTRAP_VERSION, "committed": True},
+        )
 
     def _deployment_response(self, request, request_hash, secret, state):
         operation = request["operation"]
@@ -2119,7 +2288,7 @@ class Handler(BaseHTTPRequestHandler):
         _save_state(state)
         return _receipt(operation, state["bridge_id"])
 
-    def _json_response(self, request, request_hash, secret, payload):
+    def _json_response(self, request, request_hash, secret, payload, cache=True):
         timestamp = _timestamp()
         nonce = _b64(os.urandom(32))
         response = {
@@ -2146,11 +2315,17 @@ class Handler(BaseHTTPRequestHandler):
         )
         body = _canonical(response)
         headers = {"Content-Type": "application/json"}
-        _cache_put(request["request_id"], request_hash, 200, headers, body)
+        if cache:
+            _cache_put(request["request_id"], request_hash, 200, headers, body)
         self._send(200, headers, body)
 
     def _json_error_response(self, request, request_hash, secret, code):
-        if code != "addon_inspection_failed":
+        if code not in {
+            "addon_inspection_failed",
+            "provisional_operation_not_allowed",
+            "conflicting_commit",
+            "bootstrap_version_mismatch",
+        }:
             code = "bridge_operation_failed"
         payload = {}
         timestamp = _timestamp()

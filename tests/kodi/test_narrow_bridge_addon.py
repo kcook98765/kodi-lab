@@ -200,6 +200,7 @@ def test_addon_protocol_is_closed_and_crypto_matches_lab(
         "deployment_chunk",
         "deployment_commit",
         "deployment_receipt",
+        "pairing_commit",
     }
     assert bridge["CAPABILITIES"] == ["screenshot", "workspace_deployment"]
 
@@ -248,9 +249,9 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.12"
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.13"
     assert bridge["BUILD_FINGERPRINT"] == (
-        "41c68a8c929ad25a4b9cdfb3bb4793b8826361c9afbcd6ebdf085c5e804ae5c1"
+        "764d42dc3d86dd0d46452c14661f2dd771f9cba9542b8cfc7ab8886c56ad4e33"
     )
     assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_11_SEMANTIC_FINGERPRINT
     assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_8_SEMANTIC_FINGERPRINT
@@ -275,16 +276,12 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
         "enabled",
         "bridge_port",
         "pair_kodi_lab",
-        "pairing_token",
     }
     assert all(setting.find("control") is not None for setting in definitions.values())
     assert definitions["enabled"].findtext("default") == "false"
     assert definitions["bridge_port"].findtext("default") == "8765"
     assert definitions["bridge_port"].findtext("constraints/minimum") == "1"
     assert definitions["bridge_port"].findtext("constraints/maximum") == "65535"
-    assert definitions["pairing_token"].findtext("constraints/allowempty") == "true"
-    assert definitions["pairing_token"].findtext("control/hidden") == "true"
-    assert definitions["pairing_token"].findtext("level") == "3"
     assert definitions["pair_kodi_lab"].findtext("control/data") == (
         "RunScript(special://home/addons/service.kodi_lab_bridge/pairing_ui.py)"
     )
@@ -299,8 +296,8 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
         for element in settings.findall(".//*[@help]")
         for field in ("help",)
     }
-    assert labels == {"32000", "32001", "32010", "32020", "32030", "32040"}
-    assert helps == {"32011", "32021", "32031", "32041"}
+    assert labels == {"32000", "32001", "32010", "32020", "32040"}
+    assert helps == {"32011", "32021", "32041"}
     catalog = (
         ADDON_ROOT / "resources/language/resource.language.en_gb/strings.po"
     ).read_text()
@@ -460,7 +457,7 @@ def test_packaged_metadata_describes_bounded_development_and_production_use() ->
         "Installation is manual",
         "exact independently reviewed ZIP and checksum",
         "four-character code",
-        "legacy show-once long-token",
+        "New bridge builds do not accept the old long-token bootstrap",
         "least-authority scopes",
         "identity anchor",
         "no production remote-control",
