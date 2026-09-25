@@ -1,0 +1,50 @@
+{
+  "bytecode_policy": "suppress",
+  "cycles": [
+    {
+      "clean_stop": true,
+      "completed_at": "2026-09-17T18:29:05.612741Z",
+      "inventory": true,
+      "readiness": true,
+      "readiness_seconds": 7.581,
+      "started_at": "2026-09-17T18:28:57.433945Z"
+    },
+    {
+      "clean_stop": true,
+      "completed_at": "2026-09-17T18:29:13.176401Z",
+      "inventory": true,
+      "readiness": true,
+      "started_at": "2026-09-17T18:29:05.789212Z"
+    }
+  ],
+  "development_source_tree_mutation": {
+    "counts": {
+      "added_entry": 0,
+      "changed_bytes": 0,
+      "changed_normalized_mode": 0,
+      "removed_entry": 0,
+      "type_change": 0
+    },
+    "runtime_cache_additions": 0,
+    "unchanged": true
+  },
+  "image_id": "sha256:70e0166fd79ea731c3f81056c2f0516f8fe5c9c8ec729b0c0f1c3e6bac66f254",
+  "local_module_import_success": true,
+  "plugin_execution_success": true,
+  "protected_isolation": true,
+  "python": {
+    "dont_write_bytecode": true,
+    "pycache_prefix": null,
+    "version": "3.14.4"
+  },
+  "release": "21.3",
+  "result": "passed",
+  "revision_number": 3,
+  "runtime_revision_id": "3a000000-0000-4000-8000-000000000006",
+  "safe_deprovision_and_absence": true,
+  "schema": "kodi-runtime-v1",
+  "unchanged_step4_sync": {
+    "result": "unchanged",
+    "zero_transfer": true
+  }
+}

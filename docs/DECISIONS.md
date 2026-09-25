@@ -4688,3 +4688,27 @@ approvals atomically with the governing revision transition.
   procedure are in `MANAGED-STATE-RECOVERY.md`. Public export, retention,
   cross-artifact authenticity/atomicity, future Docker runtime reconstruction,
   and Docker Desktop remain deferred.
+
+## D-0371: Curated runtime archives and installed catalog bootstrap
+
+- Linux amd64 V1 distributes each exact reviewed Kodi image as a separate
+  SHA-256-pinned `docker save` tar. The small source/build manifest, archive
+  identity, catalog identity/profile, and passing validation report ship in
+  the Kodi Lab wheel. No image archive ships in the wheel.
+- The reviewed validation-host Docker image ID is an OCI index digest on Docker
+  Engine 29. An isolated `docker load` of that exact archive registers the OCI
+  config digest as its local image ID. Both immutable identities are recorded;
+  bootstrap accepts only those exact IDs, verifies linux/amd64, and persists
+  the actual local ID for unchanged broker exact-image provisioning. A tag is
+  never an authority source.
+- The explicit installed-artifact bootstrap validates all four images, then
+  creates the exact curated definition/revision/artifact/profile/evidence rows
+  in one transaction. Repeat is a verified no-op; conflicts fail closed. The
+  one-shot broker-container command inspects Docker as root, drops to the Web
+  state owner, validates and locks the initialized state, then writes SQLite.
+  It adds no broker RPC or automatic Compose startup work.
+- Bootstrap approval records that explicit administrator act. Kodi 22's
+  separate Trusted Custom Build confirmation and global opt-in remain required.
+  Publication, release authenticity/signing, retention, and other Docker
+  engine identity translations remain future gates. See
+  `CURATED-IMAGE-DISTRIBUTION.md`.

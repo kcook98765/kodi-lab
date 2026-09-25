@@ -1,0 +1,64 @@
+{
+  "schema_version": 2,
+  "runtime_kind": "kodi",
+  "kodi_version": "21.3",
+  "base_image_reference": "ubuntu:26.04@sha256:e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+  "base_image_digest": "sha256:e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+  "package_sources": [
+    "http://archive.ubuntu.com/ubuntu resolute main universe",
+    "http://archive.ubuntu.com/ubuntu resolute-updates main universe",
+    "http://security.ubuntu.com/ubuntu resolute-security main universe"
+  ],
+  "kodi_package_version": "2:21.3+dfsg-1ubuntu1",
+  "repository_file_hashes": {
+    "Dockerfile": "sha256:5be5ab3585d958ea7140234d8d9d5c50dbf540b278f29b13bb8d5757ec28cf6c",
+    "entrypoint.sh": "sha256:8a4069f07d0066c12b8b01b37553eb81e9eb925008df22850b8efac840d62b7a",
+    "healthcheck.sh": "sha256:b1230cb9a455d29021e60ae9fafd081b95cc003bbc2014d5d0fd198131a8cd1b",
+    "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8"
+  },
+  "build": {
+    "context": ".",
+    "dockerfile": "Dockerfile",
+    "platform": "linux/amd64",
+    "pull": false,
+    "no_cache": false
+  },
+  "result": {
+    "built_at": "2026-09-14T20:05:35.621574492-07:00",
+    "image_id": "sha256:70e0166fd79ea731c3f81056c2f0516f8fe5c9c8ec729b0c0f1c3e6bac66f254",
+    "build_log_reference": "evidence/build-logs/kodi-21.3-build-fix1.log",
+    "build_log_digest": "sha256:aff2d5a3d64652289d1b8b1bf9f9d308fb20f5b30f8a77edf9e0cac086ee92a8"
+  },
+  "distribution": {
+    "format": "docker-save-tar-v1",
+    "archive_digest": "sha256:969d11f05479c0a89a1ebf0982b575ebf7e431d6ee277884042cc44ee08f4188",
+    "archive_size": 333008384,
+    "loaded_image_id": "sha256:f2a00204b24b23c9adeeb1c070b49962db70f6d756c05a64549e6e4e99169294"
+  },
+  "catalog": {
+    "definition_id": "3a000000-0000-4000-8000-000000000001",
+    "slug": "kodi-21.3",
+    "support_tier": "current",
+    "revision_id": "3a000000-0000-4000-8000-000000000006",
+    "revision_number": 3,
+    "requires_trusted_build_confirmation": false,
+    "validation_report_digest": "sha256:a7b77fd6440f81b2d88c9c60a965b1123c0b2178e1a3c1ad0ff1f04a4808efda",
+    "profile": {
+      "runtime_kind": "kodi",
+      "runtime_uid": 1000,
+      "runtime_gid": 1000,
+      "python_bytecode_policy": "suppress",
+      "expected_application_name": "Kodi",
+      "expected_kodi_version": "21.3",
+      "expected_version_tag": "stable",
+      "expected_prerelease_ordinal": null,
+      "jsonrpc_port": 8080,
+      "jsonrpc_path": "/jsonrpc",
+      "process_observation": "docker_healthcheck",
+      "readiness_probe": "kodi_jsonrpc",
+      "readiness_timeout_seconds": 90,
+      "poll_interval_seconds": 1.0,
+      "http_timeout_seconds": 3.0
+    }
+  }
+}

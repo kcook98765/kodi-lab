@@ -1,0 +1,68 @@
+{
+  "schema_version": 2,
+  "runtime_kind": "kodi",
+  "kodi_version": "20.5",
+  "base_image_reference": "ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61",
+  "base_image_digest": "sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61",
+  "package_sources": [
+    "http://archive.ubuntu.com/ubuntu noble main universe",
+    "http://archive.ubuntu.com/ubuntu noble-updates main universe",
+    "http://security.ubuntu.com/ubuntu noble-security main universe"
+  ],
+  "kodi_package_version": "2:20.5+dfsg-1ubuntu1",
+  "compatibility_assets": [
+    "/usr/share/kodi/media/Fonts/roboto-thin.ttf -> /usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Thin.ttf"
+  ],
+  "repository_file_hashes": {
+    "Dockerfile": "sha256:191f3734a7a807e92c803576ad0cc6ab4d505812dfd70dcc279b6bf05d8392a4",
+    "README.md": "sha256:4c741d5c0d8657e8077f1cf2578d0138947cdbede076e5a2ac1e720b81d74d71",
+    "entrypoint.sh": "sha256:8a4069f07d0066c12b8b01b37553eb81e9eb925008df22850b8efac840d62b7a",
+    "healthcheck.sh": "sha256:b1230cb9a455d29021e60ae9fafd081b95cc003bbc2014d5d0fd198131a8cd1b",
+    "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8"
+  },
+  "build": {
+    "context": ".",
+    "dockerfile": "Dockerfile",
+    "platform": "linux/amd64",
+    "pull": false,
+    "no_cache": false
+  },
+  "result": {
+    "built_at": "2026-09-15T10:43:05.936341832-07:00",
+    "image_id": "sha256:be35d7cb8899dfe474c6a1eca62da99c4ada1280f4325933d7b6193e83537638",
+    "build_log_reference": "evidence/build-logs/kodi-20.5-build-r1.log",
+    "build_log_digest": "sha256:f71d6bacb771be8025bdae23eab02a50822507584caae7c6369623f7270ce89a"
+  },
+  "distribution": {
+    "format": "docker-save-tar-v1",
+    "archive_digest": "sha256:c8f13cce0fb2ffd77b8c14587a7e24fbb438815455a18036886b65cc318d19b9",
+    "archive_size": 296659968,
+    "loaded_image_id": "sha256:3f24527a7832c0aeec8a9f7d5b9e3fcf5c7a1dde06692a07a7a04227a5578e91"
+  },
+  "catalog": {
+    "definition_id": "52000000-0000-4000-8000-000000000001",
+    "slug": "kodi-20.5",
+    "support_tier": "current",
+    "revision_id": "52000000-0000-4000-8000-000000000005",
+    "revision_number": 2,
+    "requires_trusted_build_confirmation": false,
+    "validation_report_digest": "sha256:964784693eee86875c228b7d6b9cc4146c93b817a857c8304df679b4f05075db",
+    "profile": {
+      "runtime_kind": "kodi",
+      "runtime_uid": 1000,
+      "runtime_gid": 1000,
+      "python_bytecode_policy": "suppress",
+      "expected_application_name": "Kodi",
+      "expected_kodi_version": "20.5",
+      "expected_version_tag": "stable",
+      "expected_prerelease_ordinal": null,
+      "jsonrpc_port": 8080,
+      "jsonrpc_path": "/jsonrpc",
+      "process_observation": "docker_healthcheck",
+      "readiness_probe": "kodi_jsonrpc",
+      "readiness_timeout_seconds": 90,
+      "poll_interval_seconds": 1.0,
+      "http_timeout_seconds": 3.0
+    }
+  }
+}

@@ -7,10 +7,19 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path, PurePosixPath
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from kodi_lab.domain import KodiReleaseIdentity, normalize_sha256_digest
+from kodi_lab.domain import (
+    KodiReleaseIdentity,
+    ProcessObservationKind,
+    PythonBytecodePolicy,
+    ReadinessProbeKind,
+    RuntimeKind,
+    RuntimeSupportTier,
+    normalize_sha256_digest,
+)
 
 
 class _StrictModel(BaseModel):
@@ -37,6 +46,59 @@ class RuntimeBuildResult(_StrictModel):
         normalized = normalize_sha256_digest(value)
         if value != normalized:
             raise ValueError("digest must use canonical lowercase sha256 form")
+        return value
+
+
+class RuntimeDistribution(_StrictModel):
+    format: str
+    archive_digest: str
+    archive_size: int = Field(gt=0)
+    loaded_image_id: str
+
+    @model_validator(mode="after")
+    def _valid(self) -> RuntimeDistribution:
+        if self.format != "docker-save-tar-v1":
+            raise ValueError("unsupported runtime distribution format")
+        if self.archive_digest != normalize_sha256_digest(self.archive_digest):
+            raise ValueError("archive digest must be canonical")
+        if self.loaded_image_id != normalize_sha256_digest(self.loaded_image_id):
+            raise ValueError("loaded image ID must be canonical")
+        return self
+
+
+class RuntimeProfileManifest(_StrictModel):
+    runtime_kind: RuntimeKind
+    runtime_uid: int
+    runtime_gid: int
+    python_bytecode_policy: PythonBytecodePolicy
+    expected_application_name: str
+    expected_kodi_version: str
+    expected_version_tag: str
+    expected_prerelease_ordinal: int | None = None
+    jsonrpc_port: int
+    jsonrpc_path: str
+    process_observation: ProcessObservationKind
+    readiness_probe: ReadinessProbeKind
+    readiness_timeout_seconds: int
+    poll_interval_seconds: float
+    http_timeout_seconds: float
+
+
+class RuntimeCatalogManifest(_StrictModel):
+    definition_id: UUID
+    slug: str
+    support_tier: RuntimeSupportTier
+    revision_id: UUID
+    revision_number: int = Field(gt=0)
+    requires_trusted_build_confirmation: bool
+    validation_report_digest: str
+    profile: RuntimeProfileManifest
+
+    @field_validator("validation_report_digest")
+    @classmethod
+    def _validation_digest(cls, value: str) -> str:
+        if value != normalize_sha256_digest(value):
+            raise ValueError("validation report digest must be canonical")
         return value
 
 
@@ -102,6 +164,8 @@ class RuntimeBuildManifest(_StrictModel):
     repository_file_hashes: dict[str, str]
     build: BuildParameters
     result: RuntimeBuildResult
+    distribution: RuntimeDistribution | None = None
+    catalog: RuntimeCatalogManifest | None = None
 
     @field_validator("runtime_kind")
     @classmethod
@@ -153,6 +217,12 @@ class RuntimeBuildManifest(_StrictModel):
 
     @model_validator(mode="after")
     def _base_reference_is_pinned(self) -> RuntimeBuildManifest:
+        if self.schema_version not in (1, 2):
+            raise ValueError("unsupported runtime manifest schema")
+        if self.schema_version == 2 and (
+            self.distribution is None or self.catalog is None
+        ):
+            raise ValueError("distributable runtime needs distribution and catalog")
         if f"@{self.base_image_digest}" not in self.base_image_reference:
             raise ValueError("base_image_reference must include base_image_digest")
         if not self.repository_file_hashes:

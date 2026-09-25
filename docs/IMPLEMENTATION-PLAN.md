@@ -1804,3 +1804,17 @@ The isolated clean-volume ownership proof precedes curated-image and first
 managed-Kodi work. Release-grade export/retention, full runtime
 reconstruction, and Docker Desktop remain separate gates; see
 `MANAGED-STATE-RECOVERY.md`.
+
+## Curated image distribution and catalog bootstrap foundation
+
+This isolated slice packages the four exact linux/amd64 runtime manifests and
+their bounded passing validation reports into the wheel. Separate reviewed
+Docker-save archives carry image bytes. Their SHA-256, byte lengths, reviewed
+index IDs, and archive-derived local config IDs are manifest-bound. An explicit
+installed command verifies/loads archives, verifies local IDs and platform,
+and atomically seeds the existing catalog from trusted wheel resources. The
+default Compose mode and broker operation catalog remain unchanged. No managed
+Kodi instance is provisioned or started. Local isolated daemon proof and the
+remaining public distribution/authenticity work are in
+`CURATED-IMAGE-DISTRIBUTION.md`. The next separate gate is one real managed Kodi
+end-to-end, subject to this slice's acceptance.

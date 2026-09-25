@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "runtime_kind": "kodi",
   "kodi_version": "19.5",
   "base_image_reference": "ubuntu:22.04@sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986",
@@ -35,5 +35,37 @@
     "image_id": "sha256:73c221f1fc1fc14cbfdfd82e62fd4b87752ef71e0521227cb6790451fa51d2bd",
     "build_log_reference": "evidence/build-logs/kodi-19.5-build-r1.log",
     "build_log_digest": "sha256:f149adf150f37f0721e7c0c7d625922ae4c7a117483cde31ad46cc0bb9d86205"
+  },
+  "distribution": {
+    "format": "docker-save-tar-v1",
+    "archive_digest": "sha256:51c0395826cfecf859a81c236a245ff4240ef586f48db1ed2bb2291da87efbbb",
+    "archive_size": 225385984,
+    "loaded_image_id": "sha256:b2f705000f21c78728b7bfc2a2684fd96c73066098ed7a735bc0de584a8fb811"
+  },
+  "catalog": {
+    "definition_id": "51950000-0000-4000-8000-000000000001",
+    "slug": "kodi-19.5",
+    "support_tier": "legacy",
+    "revision_id": "51950000-0000-4000-8000-000000000005",
+    "revision_number": 2,
+    "requires_trusted_build_confirmation": false,
+    "validation_report_digest": "sha256:64905ce92c06a04d9541ce23f88de1911e32cacdccce69039ac0c3edf1d16027",
+    "profile": {
+      "runtime_kind": "kodi",
+      "runtime_uid": 1000,
+      "runtime_gid": 1000,
+      "python_bytecode_policy": "suppress",
+      "expected_application_name": "Kodi",
+      "expected_kodi_version": "19.5",
+      "expected_version_tag": "stable",
+      "expected_prerelease_ordinal": null,
+      "jsonrpc_port": 8080,
+      "jsonrpc_path": "/jsonrpc",
+      "process_observation": "docker_healthcheck",
+      "readiness_probe": "kodi_jsonrpc",
+      "readiness_timeout_seconds": 90,
+      "poll_interval_seconds": 1.0,
+      "http_timeout_seconds": 3.0
+    }
   }
 }

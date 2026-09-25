@@ -36,6 +36,16 @@ slug and Kodi-version metadata. Each finalized runtime revision has its own UUID
 and a positive per-definition revision number; revision number is the only
 newest-revision ordering authority.
 
+The installed Linux amd64 curated distribution keeps four exact build manifests
+and bounded validation reports as wheel resources. Each manifest records a
+separate SHA-256-pinned Docker-save archive, the reviewed image ID and the
+archive-derived local `docker load` image ID, platform, catalog UUID/revision,
+tier, and execution profile. Explicit `kodi-lab-runtime bootstrap` verifies an
+approved immutable local image ID and platform before atomically seeding exact
+catalog rows. It stores the verified local ID in the existing
+`RuntimeContainerArtifact` mapping, so broker provisioning continues to use an
+exact ID. See D-0371 and `CURATED-IMAGE-DISTRIBUTION.md`.
+
 Revision source, manifest, SHA-256 content identity, and build timestamp are
 immutable after creation. Approval and Trusted Custom Build confirmation are
 separate lifecycle metadata changed through explicit repository operations.

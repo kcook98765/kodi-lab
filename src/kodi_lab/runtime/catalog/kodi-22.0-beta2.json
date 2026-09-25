@@ -1,0 +1,104 @@
+{
+  "schema_version": 2,
+  "runtime_kind": "kodi",
+  "kodi_version": "22.0-beta.2",
+  "base_image_reference": "ubuntu:26.04@sha256:e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+  "base_image_digest": "sha256:e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+  "package_sources": [
+    "https://github.com/xbmc/xbmc tag 22.0b2-Piers",
+    "http://archive.ubuntu.com/ubuntu resolute main universe",
+    "http://archive.ubuntu.com/ubuntu resolute-updates main universe",
+    "http://security.ubuntu.com/ubuntu resolute-security main universe"
+  ],
+  "kodi_package_version": null,
+  "package_artifact_hashes": {},
+  "source_build": {
+    "repository_url": "https://github.com/xbmc/xbmc",
+    "release_tag": "22.0b2-Piers",
+    "commit_sha": "e513e0ff4331fc25fd2454659a9dd3e6b7670146",
+    "source_archive_url": "https://codeload.github.com/xbmc/xbmc/tar.gz/e513e0ff4331fc25fd2454659a9dd3e6b7670146",
+    "source_archive_digest": "sha256:0a1f5c0910f39f21e7d7521835ae0eba6286cff1a6c665badf502443f8e4acd0",
+    "kodi_version": "22.0-beta.2",
+    "toolchain_packages": [
+      "Ubuntu kodi build dependencies",
+      "ca-certificates",
+      "ccache",
+      "cmake",
+      "curl",
+      "libunistring-dev",
+      "meson",
+      "nasm",
+      "ninja-build"
+    ],
+    "cmake_options": [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DCMAKE_INSTALL_PREFIX=/opt/kodi",
+      "-DCORE_PLATFORM_NAME=x11",
+      "-DAPP_RENDER_SYSTEM=gl",
+      "-DENABLE_GOLD=OFF",
+      "-DENABLE_INTERNAL_EXIV2=ON",
+      "-DENABLE_INTERNAL_FFMPEG=ON",
+      "-DENABLE_INTERNAL_NLOHMANNJSON=ON",
+      "-DENABLE_INTERNAL_TAGLIB=ON",
+      "-DENABLE_TESTING=OFF",
+      "-DENABLE_VAAPI=OFF",
+      "-DENABLE_VDPAU=OFF",
+      "-DENABLE_BLURAY_JAR=OFF"
+    ]
+  },
+  "compatibility_assets": [
+    "source:tools/depends/target/taglib/002-matroska-fast-scan-segment-lookup.patch"
+  ],
+  "repository_file_hashes": {
+    "Dockerfile": "sha256:1e492df8233f2fd6fe95936255d86c5a40cef3cbae48cc1d95eb1c4c38c291a0",
+    "README.md": "sha256:fc60122ed723d756f24ea73e20de1234e354a3c11c347c482e71d510a371b080",
+    "entrypoint.sh": "sha256:017ec6515a51ee2f358707ea4ec310e597b902719029506114cbbb1fa2092218",
+    "healthcheck.sh": "sha256:0f50d52de2dc78ecce14973b3d1dc07875fab40db0bfa389a50d4c8a91efb2ac",
+    "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8"
+  },
+  "build": {
+    "context": ".",
+    "dockerfile": "Dockerfile",
+    "platform": "linux/amd64",
+    "pull": false,
+    "no_cache": false
+  },
+  "result": {
+    "built_at": "2026-09-15T12:24:39.742237483-07:00",
+    "image_id": "sha256:4fb611666a2637904d6edd0cf90aa8cfc12c8d89edaa7a7fa60c61ef26655918",
+    "build_log_reference": "evidence/build-logs/kodi-22.0-beta2-build-r3.log",
+    "build_log_digest": "sha256:79314baa92fccf5a3750ae7b80395c38d41e88a20b147beb5f2717bd2207d7ff"
+  },
+  "distribution": {
+    "format": "docker-save-tar-v1",
+    "archive_digest": "sha256:88d45ef7bfba9a81ebc9db13f1e33d8e4cc71d34efbd66d2f0c109f9d6ecc7a3",
+    "archive_size": 349366784,
+    "loaded_image_id": "sha256:c86e460c8cae9c6228419f58fe950c3d7df305ff82d44dd701e56c4f264c08a2"
+  },
+  "catalog": {
+    "definition_id": "52200000-0000-4000-8000-000000000001",
+    "slug": "kodi-22.0-beta2",
+    "support_tier": "preview",
+    "revision_id": "52200000-0000-4000-8000-000000000005",
+    "revision_number": 2,
+    "requires_trusted_build_confirmation": true,
+    "validation_report_digest": "sha256:a2f5c646690456d6b5de1025e7a40903867ac8912fc9db15dab79dd0da95afda",
+    "profile": {
+      "runtime_kind": "kodi",
+      "runtime_uid": 1000,
+      "runtime_gid": 1000,
+      "python_bytecode_policy": "suppress",
+      "expected_application_name": "Kodi",
+      "expected_kodi_version": "22.0",
+      "expected_version_tag": "beta",
+      "expected_prerelease_ordinal": 2,
+      "jsonrpc_port": 8080,
+      "jsonrpc_path": "/jsonrpc",
+      "process_observation": "docker_healthcheck",
+      "readiness_probe": "kodi_jsonrpc",
+      "readiness_timeout_seconds": 90,
+      "poll_interval_seconds": 1.0,
+      "http_timeout_seconds": 3.0
+    }
+  }
+}
