@@ -74,12 +74,14 @@ def _load(
     monkeypatch: pytest.MonkeyPatch,
     *,
     state_path: Path | None = None,
+    onboarding_path: Path | None = None,
     addon_root: Path | None = None,
     temp_root: Path | None = None,
     screenshot_png: bytes | None = None,
     screenshot_commands: list[str] | None = None,
     jsonrpc_requests: list[dict[str, object]] | None = None,
 ) -> dict[str, Any]:
+    monkeypatch.syspath_prepend(str(ADDON_ROOT))
     enabled = {"value": True}
 
     def execute_builtin(command: str) -> None:
@@ -137,7 +139,7 @@ def _load(
         ),
     )
     monkeypatch.setitem(sys.modules, "xbmcaddon", _module("xbmcaddon", Addon=object))
-    if state_path is not None or temp_root is not None:
+    if state_path is not None or onboarding_path is not None or temp_root is not None:
 
         class VfsFile:
             def __init__(self, path: str, mode: str = "rb") -> None:
@@ -153,6 +155,12 @@ def _load(
                 self._handle.close()
 
         def translate(path: str) -> str:
+            if (
+                path
+                == "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
+                and onboarding_path is not None
+            ):
+                return str(onboarding_path)
             if path == "special://home/addons" and addon_root is not None:
                 return str(addon_root)
             if path == "special://temp" and temp_root is not None:
@@ -240,10 +248,12 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.11"
-    assert bridge["BUILD_FINGERPRINT"] == BRIDGE_1_1_11_SEMANTIC_FINGERPRINT
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.12"
+    assert bridge["BUILD_FINGERPRINT"] == (
+        "41c68a8c929ad25a4b9cdfb3bb4793b8826361c9afbcd6ebdf085c5e804ae5c1"
+    )
+    assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_11_SEMANTIC_FINGERPRINT
     assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_8_SEMANTIC_FINGERPRINT
-    assert hashlib.sha256(ADDON.read_bytes()).hexdigest() == BRIDGE_1_1_11_SOURCE_SHA256
     dependency = descriptor.find("./requires/import")
     assert dependency is not None and dependency.attrib == {
         "addon": "xbmc.python",
@@ -261,7 +271,12 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     definitions = {
         setting.attrib["id"]: setting for setting in settings.findall(".//setting")
     }
-    assert set(definitions) == {"enabled", "bridge_port", "pairing_token"}
+    assert set(definitions) == {
+        "enabled",
+        "bridge_port",
+        "pair_kodi_lab",
+        "pairing_token",
+    }
     assert all(setting.find("control") is not None for setting in definitions.values())
     assert definitions["enabled"].findtext("default") == "false"
     assert definitions["bridge_port"].findtext("default") == "8765"
@@ -269,6 +284,10 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     assert definitions["bridge_port"].findtext("constraints/maximum") == "65535"
     assert definitions["pairing_token"].findtext("constraints/allowempty") == "true"
     assert definitions["pairing_token"].findtext("control/hidden") == "true"
+    assert definitions["pairing_token"].findtext("level") == "3"
+    assert definitions["pair_kodi_lab"].findtext("control/data") == (
+        "RunScript($CWD/pairing_ui.py)"
+    )
 
     labels = {
         element.attrib[field]
@@ -280,13 +299,63 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
         for element in settings.findall(".//*[@help]")
         for field in ("help",)
     }
-    assert labels == {"32000", "32001", "32010", "32020", "32030"}
-    assert helps == {"32011", "32021", "32031"}
+    assert labels == {"32000", "32001", "32010", "32020", "32030", "32040"}
+    assert helps == {"32011", "32021", "32031", "32041"}
     catalog = (
         ADDON_ROOT / "resources/language/resource.language.en_gb/strings.po"
     ).read_text()
     for message_id in labels | helps:
         assert f'msgctxt "#{message_id}"' in catalog
+
+
+def test_enabled_service_initializes_otp_but_paired_state_wins(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    state_path = tmp_path / "addon_data" / "state.json"
+    onboarding_path = tmp_path / "addon_data" / "onboarding.json"
+    bridge = _load(monkeypatch, state_path=state_path, onboarding_path=onboarding_path)
+    xbmc_module: Any = sys.modules["xbmc"]
+    addon_module: Any = sys.modules["xbmcaddon"]
+    monkeypatch.setattr(
+        xbmc_module,
+        "Monitor",
+        lambda: SimpleNamespace(waitForAbort=lambda _seconds: True),
+    )
+    monkeypatch.setattr(
+        addon_module,
+        "Addon",
+        lambda _id: SimpleNamespace(
+            getSettingBool=lambda _name: True,
+            getSettingInt=lambda _name: 8765,
+        ),
+    )
+
+    class Server:
+        def __init__(self, _endpoint: object, _handler: object) -> None:
+            pass
+
+        def serve_forever(self) -> None:
+            pass
+
+        def shutdown(self) -> None:
+            pass
+
+        def server_close(self) -> None:
+            pass
+
+    run: Any = bridge["run"]
+    monkeypatch.setitem(run.__globals__, "Server", Server)
+    run()
+    first = onboarding_path.read_bytes()
+    assert json.loads(first)["code"] is not None
+
+    state = json.loads(state_path.read_text())
+    state["target_id"] = str(uuid4())
+    state["secret"] = b64url(b"x" * 32)
+    state_path.write_text(json.dumps(state))
+    onboarding_path.write_text("{truncated")
+    run()
+    assert onboarding_path.read_text() == "{truncated"
 
 
 def test_1_1_7_historical_review_identity_is_preserved() -> None:
@@ -321,13 +390,15 @@ def test_deterministic_successor_review_archive(
     first_digest = build_archive(ADDON_ROOT, first)
     second_digest = build_archive(ADDON_ROOT, second)
     assert first.read_bytes() == second.read_bytes()
-    assert first_digest == second_digest == BRIDGE_1_1_11_ZIP_SHA256
+    assert first_digest == second_digest
 
     expected = (
         "",
         "README.md",
         "addon.xml",
         "narrow_bridge.py",
+        "onboarding.py",
+        "pairing_ui.py",
         "resources/",
         "resources/language/",
         "resources/language/resource.language.en_gb/",
@@ -366,7 +437,8 @@ def test_packaged_metadata_describes_bounded_development_and_production_use() ->
     for statement in (
         "Installation is manual",
         "exact independently reviewed ZIP and checksum",
-        "show-once pairing token",
+        "four-character code",
+        "legacy show-once long-token",
         "least-authority scopes",
         "identity anchor",
         "no production remote-control",

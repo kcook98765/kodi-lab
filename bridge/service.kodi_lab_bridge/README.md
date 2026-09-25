@@ -3,9 +3,13 @@
 This ordinary Kodi service add-on provides an authenticated identity anchor,
 capability verification and bounded screenshots for approved Kodi Lab
 external-development targets and reviewed production targets. Installation is
-manual. Configure only the administrator-allowlisted bridge port, enter the
-show-once pairing token locally and complete pairing and explicit provenance
-confirmation in Kodi Lab Web administration.
+manual. After enabling the bridge, open **Pair Kodi Lab** in its settings to
+view the four-character code. The code lasts five minutes, can be replaced
+locally after a 30-second cooldown, and is never the normal request credential.
+The current Kodi Lab Web release still uses its legacy show-once long-token
+pairing workflow; short-code network pairing is not yet available in this
+bridge candidate. Existing paired targets keep their credential and normal
+authenticated protocol.
 
 Production use requires the exact independently reviewed ZIP and checksum,
 reviewed-build registration, one-time pairing and current revision-bound

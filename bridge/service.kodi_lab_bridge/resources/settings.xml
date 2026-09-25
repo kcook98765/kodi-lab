@@ -15,7 +15,14 @@
           </constraints>
           <control type="spinner" format="integer"/>
         </setting>
+        <setting id="pair_kodi_lab" type="action" label="32040" help="32041">
+          <control type="button" format="action">
+            <data>RunScript($CWD/pairing_ui.py)</data>
+            <close>true</close>
+          </control>
+        </setting>
         <setting id="pairing_token" type="string" label="32030" help="32031">
+          <level>3</level>
           <default></default>
           <constraints>
             <allowempty>true</allowempty>

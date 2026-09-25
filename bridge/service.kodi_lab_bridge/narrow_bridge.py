@@ -23,16 +23,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import xbmc
 import xbmcaddon
 import xbmcvfs
+from onboarding import OnboardingError, OnboardingStore
 
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.11"
+ADDON_VERSION = "1.1.12"
 CAPABILITIES = ["screenshot", "workspace_deployment"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.11|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment"
+    b"kodi-lab-narrow-bridge|1.1.12|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,local-otp"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
+ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
 ADDON_ROOT = "special://home/addons"
 SCREENSHOT_ROOT = "special://temp/kodi-lab-bridge"
 MAX_REQUEST = 17 * 1024 * 1024
@@ -305,6 +307,29 @@ def _save_state(state):
         os.replace(temporary, path)
     except OSError as error:
         raise RuntimeError("Kodi Lab bridge state publication failed") from error
+
+
+def _paired(state):
+    target_id = state["target_id"]
+    secret = state["secret"]
+    if target_id is None and secret is None:
+        return False
+    if target_id is None or secret is None:
+        raise RuntimeError("Kodi Lab bridge pairing state is incomplete")
+    try:
+        _decode_b64(secret, 32)
+    except ValueError:
+        raise RuntimeError("Kodi Lab bridge pairing state is invalid") from None
+    return True
+
+
+def _onboarding_store():
+    return OnboardingStore(
+        xbmcvfs.translatePath(ONBOARDING_PATH),
+        event=lambda name: xbmc.log(
+            "[service.kodi_lab_bridge] onboarding=" + name, xbmc.LOGINFO
+        ),
+    )
 
 
 def _kodi_version():
@@ -2308,6 +2333,13 @@ def run():
     port = addon.getSettingInt("bridge_port")
     if not 1 <= port <= 65535:
         xbmc.log("[service.kodi_lab_bridge] invalid port", xbmc.LOGERROR)
+        return
+    try:
+        _onboarding_store().initialize(paired=_paired(_load_state()))
+    except (OnboardingError, OSError, RuntimeError):
+        xbmc.log(
+            "[service.kodi_lab_bridge] onboarding state unavailable", xbmc.LOGERROR
+        )
         return
     server = Server(("0.0.0.0", port), Handler)
     thread = threading.Thread(target=server.serve_forever, name="kodi-lab-bridge")
