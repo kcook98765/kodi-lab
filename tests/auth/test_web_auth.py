@@ -167,6 +167,8 @@ def test_local_bootstrap_prompts_hidden_and_invalidates_sessions(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     database_path = tmp_path / "auth.db"
+    (tmp_path / "database").mkdir()
+    (tmp_path / "database" / "kodi-lab.db").touch()
     answers = iter(["replacement", "replacement"])
     monkeypatch.setattr(getpass, "getpass", lambda _prompt: next(answers))
     monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(tmp_path))

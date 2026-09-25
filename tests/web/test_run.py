@@ -23,7 +23,7 @@ def test_packaged_web_entrypoint_installs_mcp_audit_logging(
         web_port=8180,
     )
 
-    monkeypatch.setattr(run, "Settings", lambda: settings)
+    monkeypatch.setattr(run, "Settings", lambda **kwargs: settings)
     monkeypatch.setattr(run, "create_database_engine", lambda url: object())
     monkeypatch.setattr(run, "create_session_factory", lambda engine: object())
     monkeypatch.setattr(run, "BrokerClient", lambda path: object())

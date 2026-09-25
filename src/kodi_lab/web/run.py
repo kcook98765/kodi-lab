@@ -33,7 +33,7 @@ def application_logging_config() -> dict[str, Any]:
 
 
 def main() -> None:
-    settings = Settings()
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
     engine = create_database_engine(settings.database_url)
     app = create_app(
         settings=settings,

@@ -52,6 +52,10 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the complete local foundation
 check and [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) for the
 phased scope.
 
+For a foreground, artifact-installed host that connects to remote Kodi, see
+[`docs/REMOTE-HOST-ARTIFACT.md`](docs/REMOTE-HOST-ARTIFACT.md). This Ubuntu
+procedure does not validate Windows or macOS host operation.
+
 ## MCP stdio
 
 Phase 11's primary protocol is modern `2026-07-28`. Its canonical stdio command

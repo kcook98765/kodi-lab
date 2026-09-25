@@ -44,6 +44,10 @@ kodi-lab-web = "kodi_lab.web.run:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/kodi_lab"]
 
+# One migration tree serves source checkouts and installed artifacts.
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "kodi_lab/migrations"
+
 [tool.hatch.build]
 artifacts = [
   "src/kodi_lab/fixtures/small-mixed-v2/payload/userdata/Database/MyVideos131.db",
