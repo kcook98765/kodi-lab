@@ -198,6 +198,11 @@ from kodi_lab.application.external_bridges import (
     ProductionHttpAcknowledgementRead,
     ReviewedBridgeBuildRead,
 )
+from kodi_lab.application.external_onboarding import (
+    ExternalKodiOnboardingError,
+    ExternalKodiOnboardingResult,
+    ExternalKodiOnboardingService,
+)
 from kodi_lab.application.external_targets import (
     ExternalTargetAdministrationService,
     ExternalTargetError,
@@ -790,6 +795,18 @@ class ExternalTargetRegistrationRequest(BaseModel):
     password: str | None = Field(default=None, min_length=1, max_length=1024)
 
 
+class ExternalKodiOnboardingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    address: str = Field(min_length=2, max_length=64)
+    code: str = Field(min_length=4, max_length=4)
+    kodi_port: int = Field(default=8080, ge=1, le=65_535)
+    bridge_port: int = Field(default=8765, ge=1, le=65_535)
+    username: str | None = Field(default=None, min_length=1, max_length=256)
+    password: str | None = Field(default=None, min_length=1, max_length=1024)
+
+
 class ExternalTargetEndpointRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1014,6 +1031,7 @@ class WebApplicationContext:
     browser_remote_rate_limiter: BrowserRemoteRateLimiter
     live_display: ManagedLiveDisplayService
     external_targets: ExternalTargetAdministrationService
+    external_onboarding: ExternalKodiOnboardingService
     production_targets: ExternalTargetAdministrationService
     production_capability_amendments: ProductionCapabilityAmendmentService
     external_bridges: ExternalBridgeService
@@ -1210,6 +1228,13 @@ def create_app(
         session_factory,
         endpoint_policy=external_endpoint_policy,
         credential_store=external_credential_store,
+    )
+    external_onboarding = ExternalKodiOnboardingService(
+        session_factory,
+        targets=external_targets,
+        bridges=external_bridges,
+        kodi_endpoint_policy=external_endpoint_policy,
+        bridge_endpoint_policy=external_bridge_endpoint_policy,
     )
     production_targets = (
         production_target_service
@@ -1687,6 +1712,7 @@ def create_app(
         browser_remote_rate_limiter=remote_rate_limiter,
         live_display=live_display,
         external_targets=external_targets,
+        external_onboarding=external_onboarding,
         production_targets=production_targets,
         production_capability_amendments=production_capability_amendments,
         external_bridges=external_bridges,
@@ -2326,6 +2352,37 @@ def create_app(
             "verification_required": 409,
         }.get(error.code, 409)
         return _json_error(status_code, error.code, "External target request rejected.")
+
+    @app.exception_handler(ExternalKodiOnboardingError)
+    async def external_onboarding_failure(
+        _request: Request, error: ExternalKodiOnboardingError
+    ) -> JSONResponse:
+        status_code = {
+            "invalid_name": 422,
+            "invalid_address": 422,
+            "invalid_port": 422,
+            "otp_invalid_format": 422,
+            "invalid_kodi_credentials": 422,
+            "target_already_exists": 409,
+            "kodi_unreachable": 503,
+            "bridge_unreachable": 503,
+            "otp_invalid": 422,
+            "otp_expired": 410,
+            "otp_locked": 429,
+            "bridge_already_paired": 409,
+            "bootstrap_version_unsupported": 409,
+            "bridge_identity_mismatch": 409,
+            "pairing_uncertain": 409,
+            "pairing_commit_failed": 409,
+            "target_persistence_failed": 503,
+        }.get(error.code, 409)
+        detail: dict[str, str] = {
+            "code": error.code,
+            "message": "External onboarding rejected.",
+        }
+        if error.target_id is not None:
+            detail["target_id"] = str(error.target_id)
+        return JSONResponse(status_code=status_code, content={"error": detail})
 
     @app.exception_handler(ExternalBridgeServiceError)
     async def external_bridge_failure(
@@ -3365,6 +3422,27 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[ExternalTargetRead]:
         return context.external_targets.list_targets()
+
+    @app.post(
+        "/api/external-targets/onboard-otp",
+        response_model=ExternalKodiOnboardingResult,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def onboard_external_kodi(
+        payload: ExternalKodiOnboardingRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalKodiOnboardingResult:
+        return context.external_onboarding.onboard(**payload.model_dump())
+
+    @app.post(
+        "/api/external-targets/onboarding/{target_id}/resume",
+        response_model=ExternalKodiOnboardingResult,
+    )
+    def resume_external_kodi_onboarding(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ExternalKodiOnboardingResult:
+        return context.external_onboarding.resume(target_id)
 
     @app.post(
         "/api/external-targets",

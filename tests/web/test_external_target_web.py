@@ -5,9 +5,14 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from kodi_lab.application.external_onboarding import (
+    ExternalKodiOnboardingError,
+    ExternalKodiOnboardingResult,
+)
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
 from kodi_lab.application.mcp_administration import FULL_LAB_CONTROL_PRESET_ID
 from kodi_lab.application.mcp_workspace_development import ExternalBaselineResult
@@ -61,6 +66,69 @@ def _registration() -> dict[str, object]:
         ],
         "username": None,
         "password": None,
+    }
+
+
+def test_simple_otp_onboarding_api_is_admin_only_and_redacted(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_id = uuid4()
+    calls: list[dict[str, object]] = []
+
+    class FakeOnboarding:
+        def onboard(self, **payload: object) -> ExternalKodiOnboardingResult:
+            calls.append(payload)
+            return ExternalKodiOnboardingResult(
+                target_id=target_id,
+                target_name="Windows Kodi test",
+                kodi_version="20.5",
+                bridge_id=uuid4(),
+                bridge_version="1.1.13",
+                bridge_fingerprint="a" * 64,
+            )
+
+        def resume(self, requested: object) -> ExternalKodiOnboardingResult:
+            assert requested == target_id
+            raise ExternalKodiOnboardingError(
+                "pairing_commit_failed", target_id=target_id
+            )
+
+    onboarding = cast(FastAPI, client.app).state.kodi_lab.external_onboarding
+    fake = FakeOnboarding()
+    monkeypatch.setattr(onboarding, "onboard", fake.onboard)
+    monkeypatch.setattr(onboarding, "resume", fake.resume)
+    payload = {
+        "name": "Windows Kodi test",
+        "address": "192.168.50.135",
+        "code": "7KQ4",
+    }
+    route = "/api/external-targets/onboard-otp"
+    assert client.post(route, json=payload).status_code == 401
+    csrf = login(client)
+    assert client.post(route, json=payload).status_code == 403
+    response = client.post(route, json=payload, headers=_headers(csrf))
+    assert response.status_code == 201
+    assert response.json()["target_id"] == str(target_id)
+    assert calls == [
+        {
+            **payload,
+            "kodi_port": 8080,
+            "bridge_port": 8765,
+            "username": None,
+            "password": None,
+        }
+    ]
+    assert "credential" not in response.text and "secret" not in response.text
+    resumed = client.post(
+        f"/api/external-targets/onboarding/{target_id}/resume",
+        headers=_headers(csrf),
+    )
+    assert resumed.status_code == 409
+    assert resumed.json()["error"] == {
+        "code": "pairing_commit_failed",
+        "message": "External onboarding rejected.",
+        "target_id": str(target_id),
     }
 
 

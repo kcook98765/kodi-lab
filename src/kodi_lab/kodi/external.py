@@ -139,6 +139,10 @@ class ExternalEndpointPolicy:
         self._managed_networks = parsed_managed
         self._test_loopback_enabled = test_loopback_enabled
 
+    def allows_port(self, port: int) -> bool:
+        """Check a port before validating the complete external endpoint."""
+        return type(port) is int and port in self._allowed_ports
+
     def validate(
         self, protocol_kind: ExternalProtocolKind, host: str, port: int
     ) -> ValidatedExternalEndpoint:
