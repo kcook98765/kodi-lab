@@ -286,7 +286,7 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     assert definitions["pairing_token"].findtext("control/hidden") == "true"
     assert definitions["pairing_token"].findtext("level") == "3"
     assert definitions["pair_kodi_lab"].findtext("control/data") == (
-        "RunScript($CWD/pairing_ui.py)"
+        "RunScript(special://home/addons/service.kodi_lab_bridge/pairing_ui.py)"
     )
 
     labels = {
@@ -306,6 +306,28 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     ).read_text()
     for message_id in labels | helps:
         assert f'msgctxt "#{message_id}"' in catalog
+
+
+def test_packaged_pairing_action_resolves_to_packaged_script(tmp_path: Path) -> None:
+    archive_path = tmp_path / "bridge.zip"
+    build_archive(ADDON_ROOT, archive_path)
+    with zipfile.ZipFile(archive_path) as archive:
+        addon_id = ET.fromstring(
+            archive.read("service.kodi_lab_bridge/addon.xml")
+        ).attrib["id"]
+        settings = ET.fromstring(archive.read(f"{addon_id}/resources/settings.xml"))
+        action = settings.find(
+            ".//setting[@id='pair_kodi_lab']/control[@type='button'][@format='action']/data"
+        )
+        assert action is not None and action.text is not None
+        assert "$" not in action.text
+        match = re.fullmatch(
+            rf"RunScript\(special://home/addons/{re.escape(addon_id)}/([a-z_]+\.py)\)",
+            action.text,
+        )
+        assert match is not None
+        assert match.group(1) == "pairing_ui.py"
+        assert archive.read(f"{addon_id}/{match.group(1)}")
 
 
 def test_enabled_service_initializes_otp_but_paired_state_wins(
