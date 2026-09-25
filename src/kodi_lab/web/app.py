@@ -807,6 +807,41 @@ class ExternalKodiOnboardingRequest(BaseModel):
     password: str | None = Field(default=None, min_length=1, max_length=1024)
 
 
+_ONBOARDING_ERROR_MESSAGES = {
+    "invalid_name": "Enter a name for this Kodi.",
+    "invalid_address": "Enter a private Kodi IP address.",
+    "invalid_port": "Enter a valid Kodi or bridge port.",
+    "otp_invalid_format": "Enter the four-character code shown in Kodi.",
+    "invalid_kodi_credentials": "Enter both the Kodi username and password.",
+    "target_already_exists": (
+        "A Kodi with this name already exists. Choose another name."
+    ),
+    "kodi_unreachable": "Kodi could not be reached at this address.",
+    "bridge_unreachable": (
+        "Kodi was reached, but the Kodi Lab bridge could not be reached."
+    ),
+    "otp_invalid": "Code not accepted. Check the code shown in Kodi.",
+    "otp_expired": "Code expired. Generate a new code in Kodi.",
+    "otp_locked": (
+        "Pairing temporarily locked. Generate a new code in Kodi after the cooldown."
+    ),
+    "bridge_already_paired": "This Kodi Lab bridge is already paired.",
+    "bootstrap_version_unsupported": (
+        "Update the Kodi Lab bridge before using code pairing."
+    ),
+    "bridge_identity_mismatch": "The bridge identity changed. Pairing was stopped.",
+    "kodi_identity_mismatch": "Kodi identity changed. Pairing was stopped.",
+    "pairing_uncertain": "Pairing may have started. Resume pairing to check its state.",
+    "pairing_commit_failed": (
+        "Pairing could not finish. Resume pairing to check its state."
+    ),
+    "target_persistence_failed": (
+        "Kodi Lab could not save pairing. Resume pairing if offered."
+    ),
+    "pairing_in_progress": "Another pairing is in progress. Try again shortly.",
+}
+
+
 class ExternalTargetEndpointRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2378,7 +2413,9 @@ def create_app(
         }.get(error.code, 409)
         detail: dict[str, str] = {
             "code": error.code,
-            "message": "External onboarding rejected.",
+            "message": _ONBOARDING_ERROR_MESSAGES.get(
+                error.code, "Pairing could not be completed."
+            ),
         }
         if error.target_id is not None:
             detail["target_id"] = str(error.target_id)
@@ -2600,6 +2637,17 @@ def create_app(
                     settings.external_target_test_loopback_enabled
                 ),
             },
+        )
+
+    @app.get("/pair-kodi", response_class=HTMLResponse)
+    async def pair_kodi_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "pair-kodi.html",
+            {"csrf_token": authenticated.csrf_token},
         )
 
     @app.get("/production-targets", response_class=HTMLResponse)

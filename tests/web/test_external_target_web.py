@@ -127,7 +127,7 @@ def test_simple_otp_onboarding_api_is_admin_only_and_redacted(
     assert resumed.status_code == 409
     assert resumed.json()["error"] == {
         "code": "pairing_commit_failed",
-        "message": "External onboarding rejected.",
+        "message": "Pairing could not finish. Resume pairing to check its state.",
         "target_id": str(target_id),
     }
 

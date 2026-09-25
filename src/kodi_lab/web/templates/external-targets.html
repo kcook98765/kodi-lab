@@ -9,11 +9,12 @@
   <body>
     <main data-external-targets data-csrf-token="{{ csrf_token }}">
       <h1>External development targets</h1>
+      <p><a class="button-link" href="/pair-kodi">Pair Kodi</a> <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
       <p class="secondary">Web-only registration, native verification, and optional authenticated screenshot bridge pairing. MCP bridge administration, external deployment, execution, lifecycle control, and external production are unavailable.</p>
       <p>Allowed ports: {{ allowed_ports | join(', ') }}. {% if test_loopback_enabled %}<strong>Test-only loopback is enabled.</strong>{% else %}Private-LAN IP literals only; loopback is disabled.{% endif %}</p>
       <p class="error" data-error role="alert" hidden></p>
-      <section>
-        <h2>Register target</h2>
+      <details>
+        <summary>Advanced target registration</summary>
         <form data-register>
           <label>Name <input name="logical_name" maxlength="120" required></label>
           <label>Protocol <select name="protocol_kind"><option value="jsonrpc_http">HTTP</option><option value="jsonrpc_https">HTTPS with normal CA validation</option></select></label>
@@ -27,7 +28,7 @@
           </fieldset>
           <button type="submit">Register disabled target</button>
         </form>
-      </section>
+      </details>
       <section>
         <h2>Registered targets</h2>
         {% for target in targets %}
@@ -44,13 +45,13 @@
             <p>Pairing: <span data-bridge-state>{{ bridge.pairing_state.value }}</span> · reachability: {{ bridge.reachability_state.value }} · port: {{ bridge.bridge_port or 'not configured' }}</p>
             <p>Bridge UUID: {{ bridge.pinned_bridge_id or bridge.observed_bridge_id or 'not observed' }} · protocol: {{ bridge.protocol_version or 'not observed' }} · add-on: {{ bridge.addon_id or 'not observed' }} {{ bridge.addon_version or '' }} · Kodi: {{ bridge.kodi_version or 'not observed' }}</p>
             <p>Verified capabilities: {{ bridge.verified_capabilities | join(', ') if bridge.verified_capabilities else 'none' }}{% if bridge.http_screenshot_cleartext_warning %} · <strong>Screenshot pixels travel in cleartext on LAN HTTP; HMAC authenticates but does not encrypt them.</strong>{% endif %}</p>
-            <form data-bridge-token>
+            <details><summary>Legacy pairing</summary><form data-bridge-token>
               <label>Bridge port <select name="bridge_port">{% for port in bridge_allowed_ports %}<option value="{{ port }}"{% if bridge.bridge_port == port %} selected{% endif %}>{{ port }}</option>{% endfor %}</select></label>
               <button type="submit">Generate new pairing token</button>
             </form>
             <p data-pairing-token-container hidden>Enter this token in the Kodi bridge settings now. It is shown once and expires in ten minutes: <code data-pairing-token></code></p>
             {% if bridge.pairing_token_pending %}<button type="button" data-bridge-action="pair">Verify entered token and observe bridge</button>{% endif %}
-            {% if bridge.pairing_state.value == 'pairing_pending' %}<button type="button" data-bridge-action="confirm">Confirm observed bridge identity</button>{% endif %}
+            {% if bridge.pairing_state.value == 'pairing_pending' %}<button type="button" data-bridge-action="confirm">Confirm observed bridge identity</button>{% endif %}</details>
             {% if bridge.pairing_state.value in ['paired','needs_reverification'] %}<button type="button" data-bridge-action="reverify">Reverify bridge identity and capability</button><button type="button" data-bridge-action="needs-reverification">Mark needs reverification</button>{% endif %}
             {% if bridge.pairing_state.value not in ['unpaired','revoked'] or bridge.pairing_token_pending %}<button type="button" data-bridge-action="revoke" class="destructive">Revoke bridge pairing</button>{% endif %}
           </section>
