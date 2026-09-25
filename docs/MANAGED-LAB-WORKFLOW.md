@@ -4,6 +4,7 @@ The `lab` profile runs the installed Web/API/MCP application and its restricted
 broker. Kodi Lab and the broker create and own the Kodi containers. Compose has
 no long-running Kodi services. Use an isolated Compose project and state volume;
 the protected legacy compatibility lab is a separate installation.
+For source-free Linux V1 candidate installation, use `LINUX-V1-INSTALL.md`.
 
 ## Reviewed matrix and identity
 
@@ -57,7 +58,7 @@ partial result from an interrupted invocation and completes it on rerun. It
 does not rewrite a conflicting target, instance type, revision pin, or name.
 Fixture assignment and stopped/running observations can change normally.
 
-## First run
+## Development-checkout first run
 
 Check host routes and Docker network IPAM for overlap with `10.250.0.0/24`.
 Obtain and verify/load the four reviewed archives as described in
@@ -134,7 +135,8 @@ operation.
 
 `stop` retains each container's writable layer. Reset one runtime through the
 existing authenticated Web reset operation after assigning a compatible
-packaged fixture; it destroys and reprovisions that runtime's disposable layer.
+packaged fixture with `kodi-lab-lab fixture assign SELECTOR SLUG` in the Web
+container; it destroys and reprovisions that runtime's disposable layer.
 To reset all four, request four independent per-instance resets and inspect
 each result. Reset is not a Compose operation. Snapshot restore is separate
 from fixture reset. Deprovision one stopped runtime through its existing Web
@@ -153,5 +155,5 @@ its packaged audit rejects unexpected library state. Bytecode suppression is
 fixed by each immutable execution profile; this phase verified those profiles
 and installed a passive ZIP on each release, but did not repeat the earlier
 bytecode absence proof. No noVNC, external physical target onboarding, Kodi
-bridge, or legacy lab component is added here. Clean-host installation and
-public archive publication remain later gates.
+bridge, or legacy lab component is added here. Local clean-host installation is
+covered by `LINUX-V1-INSTALL.md`; public archive publication remains later work.

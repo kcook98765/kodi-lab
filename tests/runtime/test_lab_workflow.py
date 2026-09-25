@@ -11,6 +11,7 @@ from kodi_lab.runtime.distribution import bootstrap_catalog, load_curated_runtim
 from kodi_lab.runtime.lab import (
     LabWorkflowError,
     _require_canonical,
+    assign_packaged_fixture,
     bootstrap_instances,
     canonical_id,
     run_selected,
@@ -18,7 +19,12 @@ from kodi_lab.runtime.lab import (
 )
 from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from kodi_lab.storage.repositories import ManagedInstanceRepository, TargetRepository
+from kodi_lab.storage.repositories import (
+    FixtureDefinitionRepository,
+    ManagedInstanceRepository,
+    RuntimeRevisionRepository,
+    TargetRepository,
+)
 
 
 @pytest.fixture
@@ -55,6 +61,7 @@ def test_bootstrap_creates_exact_pins_and_repeats(
     with factory() as session:
         targets = TargetRepository(session)
         instances = ManagedInstanceRepository(session)
+        revisions = RuntimeRevisionRepository(session)
         for selector, runtime in zip(
             select_runtimes(()), load_curated_runtimes(), strict=True
         ):
@@ -65,6 +72,11 @@ def test_bootstrap_creates_exact_pins_and_repeats(
             assert instance.runtime_revision_id == runtime.revision.id
             assert instance.instance_type is InstanceType.DISPOSABLE
             assert instance.start_on_host_boot is False
+            revision = revisions.get(runtime.revision.id)
+            assert revision is not None
+            assert (revision.trusted_build_confirmed_at is not None) == (
+                selector == "22"
+            )
     _require_canonical(factory, load_curated_runtimes())
 
 
@@ -128,6 +140,30 @@ def test_partial_bootstrap_recovers_missing_instance(
     assert len(result) == 4
     with factory() as session:
         assert len(ManagedInstanceRepository(session).list()) == 4
+
+
+def test_installed_fixture_assignment_uses_packaged_compatibility(
+    factory: sessionmaker[Session],
+) -> None:
+    _catalog(factory)
+    bootstrap_instances(factory, acknowledge_preview=True)
+    assert (
+        assign_packaged_fixture(factory, "19", "small-mixed-v4")
+        == "19: fixture small-mixed-v4 assigned"
+    )
+    with factory() as session:
+        assigned = ManagedInstanceRepository(session).get(canonical_id("19"))
+        assert assigned is not None
+        assert assigned.fixture_definition_id is not None
+        fixture = FixtureDefinitionRepository(session).get(
+            assigned.fixture_definition_id
+        )
+        assert fixture is not None and fixture.slug == "small-mixed-v4"
+    with pytest.raises(LabWorkflowError, match=r"incompatible with Kodi 20\.5"):
+        assign_packaged_fixture(factory, "20", "small-mixed-v4")
+    with factory() as session:
+        other = ManagedInstanceRepository(session).get(canonical_id("20"))
+        assert other is not None and other.fixture_definition_id is None
 
 
 @pytest.mark.parametrize("failed_selector", ["19", "20", "21", "22"])

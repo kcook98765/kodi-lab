@@ -100,13 +100,14 @@ State backup/rollback retains the catalog rows, while Docker image bytes remain
 outside the state volume. A future clean-volume recovery must reacquire and
 verify the exact approved archives before those pins can be provisioned again.
 
-For a future clean Linux amd64 installation, the release process must publish
+For a public clean Linux amd64 installation, the release process must publish
 the exact four reviewed archive files separately from the wheel, with an
 authenticated wheel/archive provenance and retention plan. The operator would
 install the reviewed Kodi Lab wheel/container, obtain those exact archives,
 verify/load all four, run `verify`, initialize state, then run the explicit
-broker-container `bootstrap`. This repository proves that flow locally with an
-isolated Docker daemon; it does not claim public availability, signing, or
-cross-version Docker image-ID portability. The tested acceptance environment
-uses Docker Engine 29's containerd image store. Other engines must produce the
-same exact ID or fail closed pending a separately reviewed identity translation.
+broker-container `bootstrap`. `LINUX-V1-INSTALL.md` records the local candidate
+bundle and source-free acceptance path. It does not claim public availability,
+signing, or cross-version Docker image-ID portability. The clean-host
+acceptance used a separate Docker Engine 29.8.1 daemon and imported the
+reviewed index IDs. Other engines must produce one of the two exact recorded
+IDs or fail closed pending a separately reviewed identity translation.

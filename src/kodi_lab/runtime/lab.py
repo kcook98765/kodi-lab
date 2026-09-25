@@ -8,9 +8,12 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from uuid import UUID, uuid5
 
+from docker.errors import DockerException, NotFound  # type: ignore[import-untyped]
+from pydantic import ValidationError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ApplicationServiceError
+from kodi_lab.application.fixtures import FixtureAdministrationService
 from kodi_lab.application.managed_instances import (
     ExactRevisionSelection,
     ManagedInstanceService,
@@ -25,7 +28,7 @@ from kodi_lab.application.runtime_status import (
 from kodi_lab.broker.client import BrokerClient
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.broker.errors import ClientError
-from kodi_lab.config import Settings
+from kodi_lab.config import Settings, safe_settings_error
 from kodi_lab.domain import (
     ConnectionState,
     HealthStatus,
@@ -35,6 +38,7 @@ from kodi_lab.domain import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.fixtures.package import TRUSTED_FIXTURE_SLUGS, load_packaged_fixture
 from kodi_lab.host_bootstrap import HostBootstrapError
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator, UsabilityState
 from kodi_lab.remote_lifecycle import lifecycle_lock
@@ -42,7 +46,6 @@ from kodi_lab.remote_lifecycle import validate as remote_validate
 from kodi_lab.runtime.distribution import (
     CuratedRuntime,
     CuratedRuntimeError,
-    _docker_inspect,
     bootstrap_catalog,
     load_curated_runtimes,
     verify_local_images,
@@ -58,6 +61,7 @@ from kodi_lab.storage.repositories import (
 _NAMESPACE = UUID("dc264ebb-d7c8-4ea7-8d54-77d5e7624e09")
 SELECTORS = ("19", "20", "21", "22")
 _NAMES = ("Kodi 19.5 Lab", "Kodi 20.5 Lab", "Kodi 21.3 Lab", "Kodi 22 Beta 2 Lab")
+_ACKNOWLEDGED_PREVIEW_RUNTIME = "kodi-22.0-beta2"
 
 
 class LabWorkflowError(ValueError):
@@ -139,7 +143,16 @@ def bootstrap_instances(
             "and the Trusted Custom Build opt-in"
         )
     _require_canonical(factory, runtimes)
-    preview = runtimes[-1]
+    preview = next(
+        (
+            runtime
+            for runtime in runtimes
+            if runtime.name == _ACKNOWLEDGED_PREVIEW_RUNTIME
+        ),
+        None,
+    )
+    if preview is None or not preview.revision.requires_trusted_build_confirmation:
+        raise LabWorkflowError("acknowledged Kodi 22 Preview revision is unavailable")
     RuntimeCatalogAdministrationService(factory).confirm_trusted_custom_build(
         preview.revision.id, confirmed_at=datetime.now(UTC)
     )
@@ -194,20 +207,26 @@ def _bootstrap(settings: Settings, *, acknowledge_preview: bool) -> None:
     ):
         raise LabWorkflowError("initialized application state is required")
     runtimes = load_curated_runtimes()
-    verified_images: dict[str, dict[str, object]] = {}
-    for runtime in runtimes:
-        distribution = runtime.manifest.distribution
-        assert distribution is not None
-        for candidate in (runtime.artifact.image_id, distribution.loaded_image_id):
-            try:
-                verified_images[candidate] = dict(_docker_inspect(candidate))
-            except Exception:
-                continue
-    verify_local_images(runtimes, verified_images.__getitem__)
     import docker  # type: ignore[import-untyped]
 
     client = docker.from_env()
+    verified_images: dict[str, dict[str, object]] = {}
     try:
+        client.ping()
+        for runtime in runtimes:
+            distribution = runtime.manifest.distribution
+            assert distribution is not None
+            for candidate in (
+                runtime.artifact.image_id,
+                distribution.loaded_image_id,
+            ):
+                try:
+                    verified_images[candidate] = dict(
+                        client.api.inspect_image(candidate)
+                    )
+                except NotFound:
+                    continue
+        verify_local_images(runtimes, verified_images.__getitem__)
         created = ensure_managed_network(client.api)
     finally:
         client.close()
@@ -246,6 +265,32 @@ def _verify_records(factory: sessionmaker[Session]) -> None:
         instances = ManagedInstanceRepository(session)
         if any(instances.get(canonical_id(selector)) is None for selector in SELECTORS):
             raise LabWorkflowError("lab bootstrap is incomplete; rerun bootstrap")
+
+
+def assign_packaged_fixture(
+    factory: sessionmaker[Session], selector: str, slug: str
+) -> str:
+    """Assign a compatible wheel-owned fixture without direct database work."""
+
+    _verify_records(factory)
+    runtime = load_curated_runtimes()[SELECTORS.index(selector)]
+    fixture = load_packaged_fixture(slug).definition
+    if fixture.compatible_kodi_release != runtime.definition.kodi_release:
+        raise LabWorkflowError(
+            f"{slug} is incompatible with Kodi {runtime.manifest.kodi_version}"
+        )
+    service = FixtureAdministrationService(factory)
+    try:
+        registered = service.register_packaged_fixture(slug)
+        service.assign(
+            managed_instance_id=canonical_id(selector),
+            fixture_definition_id=registered.id,
+        )
+    except ApplicationServiceError as error:
+        raise LabWorkflowError(
+            f"fixture assignment failed ({type(error).__name__})"
+        ) from error
+    return f"{selector}: fixture {slug} assigned"
 
 
 def run_selected(chosen: Sequence[str], action: Callable[[str], str]) -> int:
@@ -361,11 +406,30 @@ def _run_control(settings: Settings, command: str, selectors: Sequence[str]) -> 
         engine.dispose()
 
 
+def _run_fixture_assignment(settings: Settings, selector: str, slug: str) -> None:
+    remote_validate(
+        settings.data_root,
+        settings.database_url,
+        require_head=True,
+        require_marker=True,
+    )
+    engine = create_database_engine(settings.database_url)
+    try:
+        print(assign_packaged_fixture(create_session_factory(engine), selector, slug))
+    finally:
+        engine.dispose()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kodi-lab-lab")
     commands = parser.add_subparsers(dest="command", required=True)
     bootstrap = commands.add_parser("bootstrap")
     bootstrap.add_argument("--ack-preview-kodi22", action="store_true")
+    fixture = commands.add_parser("fixture")
+    fixture_commands = fixture.add_subparsers(dest="fixture_command", required=True)
+    assign = fixture_commands.add_parser("assign")
+    assign.add_argument("selector", choices=SELECTORS)
+    assign.add_argument("slug", choices=sorted(TRUSTED_FIXTURE_SLUGS))
     for name in ("start", "stop", "status"):
         command = commands.add_parser(name)
         command.add_argument("selectors", nargs="*")
@@ -375,7 +439,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "bootstrap":
             _bootstrap(settings, acknowledge_preview=arguments.ack_preview_kodi22)
             return 0
+        if arguments.command == "fixture":
+            _run_fixture_assignment(settings, arguments.selector, arguments.slug)
+            return 0
         return _run_control(settings, arguments.command, arguments.selectors)
+    except ValidationError as error:
+        parser.error(safe_settings_error(error))
+    except DockerException:
+        parser.error(
+            "Docker Engine is unavailable; check the broker docker.sock mount "
+            "and daemon access"
+        )
     except (
         CuratedRuntimeError,
         HostBootstrapError,

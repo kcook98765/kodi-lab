@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 import kodi_lab
-from kodi_lab.config import Settings
+from kodi_lab.config import Settings, safe_settings_error
 from kodi_lab.storage import metadata
 
 
@@ -118,6 +118,28 @@ def test_remote_container_binding_requires_explicit_concrete_trusted_hosts(
         monkeypatch.setenv("KODI_LAB_WEB_ALLOWED_HOSTS", rejected)
         with pytest.raises(ValidationError):
             Settings()
+
+
+def test_configuration_errors_name_fields_without_echoing_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_settings_environment(monkeypatch, tmp_path)
+    marker = "private-input-must-not-appear"
+    monkeypatch.setenv("KODI_LAB_WEB_ALLOWED_HOSTS", f'["{marker.upper()}"]')
+    with pytest.raises(ValidationError) as caught:
+        Settings()
+    message = safe_settings_error(caught.value)
+    assert message == "invalid Kodi Lab configuration: KODI_LAB_WEB_ALLOWED_HOSTS"
+    assert marker not in message
+    assert "input_value" not in message
+
+    monkeypatch.setenv("KODI_LAB_WEB_ALLOWED_HOSTS", "[]")
+    monkeypatch.setenv("KODI_LAB_WEB_BIND_HOST", "0.0.0.0")
+    with pytest.raises(ValidationError) as caught:
+        Settings()
+    assert safe_settings_error(caught.value) == (
+        "wildcard Web bind requires KODI_LAB_WEB_ALLOWED_HOSTS"
+    )
 
 
 def test_data_root_environment_override_is_independent(

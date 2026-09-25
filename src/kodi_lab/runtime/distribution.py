@@ -18,10 +18,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid5
 
+from docker.errors import DockerException  # type: ignore[import-untyped]
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from kodi_lab.config import Settings
+from kodi_lab.config import Settings, safe_settings_error
 from kodi_lab.domain import (
     KODI_RUNTIME_VALIDATION_CONTRACT,
     RevisionApprovalState,
@@ -106,8 +108,7 @@ def load_curated_runtimes() -> tuple[CuratedRuntime, ...]:
             or catalog.revision_number != lineage.suppression_revision_number
             or catalog.support_tier.value != tier
             or catalog.slug != name
-            or catalog.requires_trusted_build_confirmation
-            != (name == "kodi-22.0-beta2")
+            or catalog.requires_trusted_build_confirmation != (tier == "preview")
         ):
             raise CuratedRuntimeError("curated manifest differs from reviewed lineage")
         report_bytes = package.joinpath("evidence", f"{name}.json").read_bytes()
@@ -417,6 +418,18 @@ def _docker_inspect(image_id: str) -> Mapping[str, object]:
         client.close()
 
 
+def _require_docker_daemon() -> None:
+    """Distinguish daemon access failure from an absent reviewed image."""
+
+    import docker
+
+    client = docker.from_env()
+    try:
+        client.ping()
+    finally:
+        client.close()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kodi-lab-runtime")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -469,9 +482,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Verified and loaded {runtime.name} by exact Docker image ID.")
             return 0
         if arguments.command == "verify":
+            _require_docker_daemon()
             verify_local_images(runtimes, _docker_inspect)
             print("All four reviewed runtime images match their IDs and platform.")
             return 0
+        _require_docker_daemon()
         settings = Settings(_env_file=None)  # type: ignore[call-arg]
         verified_images: dict[str, Mapping[str, object]] = {}
         for runtime in runtimes:
@@ -509,6 +524,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 engine.dispose()
         print(f"Reviewed runtime catalog verified; {count} rows created.")
         return 0
+    except ValidationError as error:
+        parser.error(safe_settings_error(error))
+    except DockerException:
+        parser.error(
+            "Docker Engine is unavailable; check the broker docker.sock mount "
+            "and daemon access"
+        )
     except (CuratedRuntimeError, OSError, RuntimeError, ValueError) as error:
         parser.error(str(error))
 

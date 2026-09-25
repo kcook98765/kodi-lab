@@ -7,12 +7,14 @@ from importlib import resources
 from pathlib import Path
 
 import pytest
+from docker.errors import DockerException  # type: ignore[import-untyped]
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.runtime.distribution import (
     CuratedRuntimeError,
     bootstrap_catalog,
     load_curated_runtimes,
+    main,
     verify_archive,
     verify_local_images,
 )
@@ -32,6 +34,21 @@ def _factory(tmp_path: Path) -> sessionmaker[Session]:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'catalog.db'}")
     metadata.create_all(engine)
     return create_session_factory(engine)
+
+
+def test_verify_reports_unavailable_docker_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unavailable() -> None:
+        raise DockerException("private socket location must stay out of CLI errors")
+
+    monkeypatch.setattr("docker.from_env", unavailable)
+    with pytest.raises(SystemExit, match="2"):
+        main(["verify"])
+    error = capsys.readouterr().err
+    assert "Docker Engine is unavailable" in error
+    assert "private socket location" not in error
+    assert "Traceback" not in error
 
 
 def test_four_wheel_manifests_match_reviewed_source_and_evidence() -> None:

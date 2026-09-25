@@ -8,12 +8,13 @@ import os
 from collections.abc import Sequence
 
 from alembic.util.exc import CommandError
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from kodi_lab.auth.passwords import InvalidPasswordError
 from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.build_identity import installed_identity
-from kodi_lab.config import Settings
+from kodi_lab.config import Settings, safe_settings_error
 from kodi_lab.host_bootstrap import (
     HostBootstrapError,
     explicit_data_root,
@@ -85,6 +86,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if settings.data_root != data_root:
             raise HostBootstrapError("configured data root does not match environment")
         if arguments.command == "serve":
+            if not (data_root / ".state.json").is_file():
+                raise HostBootstrapError(
+                    "application state is not initialized; run "
+                    "kodi-lab-admin initialize before starting Web"
+                )
             with lifecycle_lock(data_root) as lock_fd:
                 remote_validate(
                     data_root,
@@ -150,6 +156,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 os.umask(previous_umask)
             print(f"Kodi Lab database revision: current={current} head={head}")
             return 0
+    except ValidationError as error:
+        parser.error(safe_settings_error(error))
     except (CommandError, SQLAlchemyError, OSError, RuntimeError, ValueError) as error:
         parser.error(str(error))
 

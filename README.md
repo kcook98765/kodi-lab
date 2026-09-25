@@ -25,6 +25,11 @@ have not begun.
 architecture specification. [`docs/PROJECT-HANDOFF.md`](docs/PROJECT-HANDOFF.md)
 records the development host host baseline and coexistence constraints for development.
 
+For the local Linux amd64 release-candidate installation path, see
+[`docs/LINUX-V1-INSTALL.md`](docs/LINUX-V1-INSTALL.md). The Kodi-version
+addition and retirement audit is in
+[`docs/KODI-VERSION-EXTENSIBILITY.md`](docs/KODI-VERSION-EXTENSIBILITY.md).
+
 ## Development
 
 The supported development host baseline is Python 3.12 on Ubuntu 24.04.

@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -116,3 +116,24 @@ class Settings(BaseSettings):
 
         database_path = self.data_root / "database" / "kodi-lab.db"
         return f"sqlite:///{database_path}"
+
+
+def safe_settings_error(error: ValidationError) -> str:
+    """Report configuration fields without echoing environment input values."""
+
+    items = error.errors(include_input=False)
+    if any(
+        "wildcard Web bind requires explicit allowed hosts" in str(item.get("msg"))
+        for item in items
+    ):
+        return "wildcard Web bind requires KODI_LAB_WEB_ALLOWED_HOSTS"
+    fields = sorted(
+        {
+            "KODI_LAB_" + item["loc"][0].upper()
+            for item in items
+            if item["loc"] and isinstance(item["loc"][0], str)
+        }
+    )
+    if fields:
+        return "invalid Kodi Lab configuration: " + ", ".join(fields[:4])
+    return "invalid Kodi Lab configuration; check documented KODI_LAB_* settings"

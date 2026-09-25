@@ -1,0 +1,63 @@
+name: kodi-lab-remote
+
+# Installed images only. Keep this file with the release bundle; it has no
+# build context and can be used without a source checkout.
+services:
+  web:
+    image: ${KODI_LAB_REMOTE_IMAGE:-kodi-lab-remote-web:local}
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      KODI_LAB_WEB_ALLOWED_HOSTS: '["127.0.0.1"]'
+    ports:
+      - "127.0.0.1:${KODI_LAB_PUBLISHED_PORT:-18100}:8100"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/login', timeout=2).close()"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - remote_state:/var/lib/kodi-lab
+      - broker_socket:/run/kodi-lab:ro
+
+  broker:
+    profiles:
+      - lab
+    image: ${KODI_LAB_BROKER_IMAGE:-kodi-lab-broker:local}
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, kodi-lab-broker, --healthcheck]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - broker_socket:/run/kodi-lab
+      - remote_state:/var/lib/kodi-lab
+
+volumes:
+  remote_state:
+  broker_socket:
