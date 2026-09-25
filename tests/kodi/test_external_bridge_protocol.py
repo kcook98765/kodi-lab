@@ -262,6 +262,135 @@ def test_screenshot_transport_failures_remain_unreachable(
     assert raised.value.code == "bridge_unreachable"
 
 
+def test_slow_screenshot_uses_longer_read_timeout_and_accepts_signed_png() -> None:
+    target_id = uuid4()
+    bridge_id = uuid4()
+    request_id = uuid4()
+    secret = os.urandom(32)
+    png = fake_png()
+    digest = hashlib.sha256(png).hexdigest()
+    dispatches = 0
+    simulated_processing_seconds = 9.845
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal dispatches
+        dispatches += 1
+        timeout = request.extensions["timeout"]
+        assert timeout == {"connect": 2.0, "read": 20.0, "write": 5.0, "pool": 5.0}
+        assert simulated_processing_seconds > 5.0
+        if simulated_processing_seconds >= timeout["read"]:
+            raise httpx.ReadTimeout(
+                "synthetic processing exceeded read timeout", request=request
+            )
+        envelope = json.loads(request.content)
+        assert envelope["operation"] == "capture_screenshot"
+        assert envelope["request_id"] == str(request_id)
+        timestamp = timestamp_text(datetime.now(UTC))
+        nonce = b64url(os.urandom(32))
+        headers = {
+            "Content-Type": "image/png",
+            "X-Kodi-Lab-Protocol": BRIDGE_PROTOCOL_VERSION,
+            "X-Kodi-Lab-Operation": "capture_screenshot",
+            "X-Kodi-Lab-Target-Id": str(target_id),
+            "X-Kodi-Lab-Bridge-Id": str(bridge_id),
+            "X-Kodi-Lab-Request-Id": str(request_id),
+            "X-Kodi-Lab-Timestamp": timestamp,
+            "X-Kodi-Lab-Nonce": nonce,
+            "X-Kodi-Lab-Status": "ok",
+            "X-Kodi-Lab-Content-SHA256": digest,
+            "X-Kodi-Lab-Width": str(EXPECTED_WIDTH),
+            "X-Kodi-Lab-Height": str(EXPECTED_HEIGHT),
+            "X-Kodi-Lab-Signature": response_signature(
+                secret,
+                target_id=str(target_id),
+                bridge_id=str(bridge_id),
+                operation="capture_screenshot",
+                request_id=str(request_id),
+                timestamp=timestamp,
+                nonce=nonce,
+                status="ok",
+                payload_digest=digest,
+            ),
+        }
+        return httpx.Response(200, headers=headers, content=png)
+
+    client = ExternalBridgeClient(transport=httpx.MockTransport(respond))
+    result = client.capture_screenshot(
+        _endpoint(8765),
+        bridge_port=8765,
+        target_id=target_id,
+        bridge_id=bridge_id,
+        secret=secret,
+        request_id=request_id,
+        nonce=b64url(os.urandom(32)),
+        requested_at=datetime.now(UTC),
+    )
+    assert dispatches == 1
+    assert result.png == png
+    assert result.digest == digest
+    assert (result.width, result.height) == (EXPECTED_WIDTH, EXPECTED_HEIGHT)
+
+
+def test_screenshot_exceeding_new_read_timeout_fails_without_retry() -> None:
+    dispatches = 0
+    simulated_processing_seconds = 25.0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal dispatches
+        dispatches += 1
+        timeout = request.extensions["timeout"]
+        assert timeout["connect"] == 2.0
+        assert timeout["read"] == 20.0
+        assert simulated_processing_seconds > timeout["read"]
+        if simulated_processing_seconds >= timeout["read"]:
+            raise httpx.ReadTimeout(
+                "synthetic processing exceeded read timeout", request=request
+            )
+        raise AssertionError("synthetic processing unexpectedly fit the read timeout")
+
+    client = ExternalBridgeClient(transport=httpx.MockTransport(respond))
+    with pytest.raises(ExternalBridgeError) as raised:
+        client.capture_screenshot(
+            _endpoint(8765),
+            bridge_port=8765,
+            target_id=uuid4(),
+            bridge_id=uuid4(),
+            secret=os.urandom(32),
+            request_id=uuid4(),
+            nonce=b64url(os.urandom(32)),
+            requested_at=datetime.now(UTC),
+        )
+    assert raised.value.code == "bridge_unreachable"
+    assert dispatches == 1
+
+
+def test_identity_keeps_short_read_timeout() -> None:
+    dispatches = 0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal dispatches
+        dispatches += 1
+        assert request.extensions["timeout"] == {
+            "connect": 2.0,
+            "read": 5.0,
+            "write": 5.0,
+            "pool": 5.0,
+        }
+        raise httpx.ReadTimeout("synthetic identity timeout", request=request)
+
+    client = ExternalBridgeClient(transport=httpx.MockTransport(respond))
+    with pytest.raises(ExternalBridgeError) as raised:
+        client.identity(
+            _endpoint(8765),
+            bridge_port=8765,
+            target_id=uuid4(),
+            bridge_id=uuid4(),
+            secret=os.urandom(32),
+        )
+    assert raised.value.code == "bridge_unreachable"
+    assert dispatches == 1
+
+
 def test_authenticated_addon_inspection_error_is_not_replay_rejection() -> None:
     target_id = uuid4()
     bridge_id = uuid4()

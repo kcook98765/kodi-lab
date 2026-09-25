@@ -60,6 +60,7 @@ MAX_DEPLOYMENT_FILES = 25_000
 MAX_DEPLOYMENT_ENTRIES = 50_000
 MAX_DEPLOYMENT_BYTES = 1024 * 1024 * 1024
 MAX_CLOCK_SKEW_SECONDS = 60
+SCREENSHOT_READ_TIMEOUT_SECONDS = 20.0
 SCREENSHOT_ERROR_CODES = frozenset(
     {
         "screenshot_capture_failed",
@@ -801,7 +802,7 @@ class ExternalBridgeClient:
                     "POST",
                     self._url(endpoint, bridge_port),
                     json=envelope,
-                    timeout=self._timeout(),
+                    timeout=self._screenshot_timeout(),
                 ) as response,
             ):
                 content_type = response.headers.get("content-type", "").split(";", 1)[0]
@@ -1415,3 +1416,10 @@ class ExternalBridgeClient:
 
     def _timeout(self) -> httpx.Timeout:
         return httpx.Timeout(self._response_timeout, connect=self._connect_timeout)
+
+    def _screenshot_timeout(self) -> httpx.Timeout:
+        return httpx.Timeout(
+            self._response_timeout,
+            connect=self._connect_timeout,
+            read=SCREENSHOT_READ_TIMEOUT_SECONDS,
+        )
