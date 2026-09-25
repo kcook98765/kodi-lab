@@ -43,6 +43,7 @@ from starlette.datastructures import Headers
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from kodi_lab import __version__
 from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpPrincipal,
@@ -94,7 +95,7 @@ MCP_SUPPORTED_PROTOCOL_VERSIONS = (
 )
 MCP_MAX_REQUEST_BODY = 64 * 1024
 MCP_MAX_IMAGE_BASE64_BYTES = 4 * ((MAX_PNG_BYTES + 2) // 3)
-MCP_SERVER_VERSION = "0.0.0"
+MCP_SERVER_VERSION = __version__
 _MODERN_MCP_METHODS = frozenset({"server/discover", "tools/list", "tools/call"})
 _LEGACY_MCP_METHODS = frozenset(
     {"initialize", "notifications/initialized", "ping", "tools/list", "tools/call"}

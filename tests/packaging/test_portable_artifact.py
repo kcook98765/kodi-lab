@@ -51,7 +51,7 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
             "kodi_lab/host_bootstrap.py",
             "kodi_lab/remote_lifecycle.py",
             "kodi_lab/storage/packaged_migrations.py",
-            "kodi_lab-0.0.0.dist-info/entry_points.txt",
+            "kodi_lab-1.0.0rc1.dist-info/entry_points.txt",
         ):
             assert path in names
         source_revisions = {
@@ -84,7 +84,7 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
             == (root / "src/kodi_lab/web/templates/pair-kodi.html").read_bytes()
         )
         entry_points = archive.read(
-            "kodi_lab-0.0.0.dist-info/entry_points.txt"
+            "kodi_lab-1.0.0rc1.dist-info/entry_points.txt"
         ).decode()
         assert "kodi-lab-admin = kodi_lab.admin_cli:main" in entry_points
         assert "kodi-lab-web = kodi_lab.web.run:main" in entry_points
@@ -191,5 +191,5 @@ def test_packaged_migration_from_other_cwd_is_fresh_and_idempotent(
         text=True,
     )
     assert re.fullmatch(
-        r"Kodi Lab 0\.0\.0 package-sha256=[0-9a-f]{64}\n", identity.stdout
+        r"Kodi Lab 1\.0\.0rc1 package-sha256=[0-9a-f]{64}\n", identity.stdout
     )

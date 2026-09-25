@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+"""Build and verify the self-contained Linux V1 release inventory."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import pathlib
+import re
+import subprocess
+import sys
+import tarfile
+import tomllib
+
+RUNTIMES = ("kodi-19.5", "kodi-20.5", "kodi-21.3", "kodi-22.0-beta2")
+APP_ARCHIVE = "kodi-lab-application-images.tar"
+HEX = re.compile(r"sha256:[0-9a-f]{64}\Z")
+
+
+def digest(path: pathlib.Path) -> str:
+    with path.open("rb") as stream:
+        return "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def canonical(data: object) -> bytes:
+    return (json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def archive_images(path: pathlib.Path) -> tuple[dict[str, str], set[str]]:
+    """Get each saved tag's immutable OCI config digest from reviewed tar bytes."""
+    with tarfile.open(path, "r:") as archive:
+        member = archive.extractfile("manifest.json")
+        if member is None:
+            raise ValueError("archive has no Docker manifest")
+        entries = json.load(member)
+        if not isinstance(entries, list):
+            raise ValueError("archive manifest is invalid")
+        result: dict[str, str] = {}
+        config_ids: set[str] = set()
+        for entry in entries:
+            config = entry["Config"]
+            if not re.fullmatch(r"blobs/sha256/[0-9a-f]{64}", config):
+                raise ValueError("archive config path is invalid")
+            config_bytes = archive.extractfile(config)
+            if config_bytes is None:
+                raise ValueError("archive config is absent")
+            actual = "sha256:" + hashlib.sha256(config_bytes.read()).hexdigest()
+            if actual != "sha256:" + config.rsplit("/", 1)[1]:
+                raise ValueError("archive config digest differs")
+            config_ids.add(actual)
+            for tag in entry.get("RepoTags") or []:
+                if tag in result:
+                    raise ValueError("duplicate archive tag")
+                result[tag] = actual
+        return result, config_ids
+
+
+def archive_contains_digest(path: pathlib.Path, identity: str) -> bool:
+    if not HEX.fullmatch(identity):
+        return False
+    with tarfile.open(path, "r:") as archive:
+        member = archive.extractfile("blobs/sha256/" + identity.removeprefix("sha256:"))
+        return (
+            member is not None
+            and "sha256:" + hashlib.sha256(member.read()).hexdigest() == identity
+        )
+
+
+def _file_record(path: pathlib.Path) -> dict[str, str | int]:
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"missing or unsafe artifact: {path.name}")
+    return {"sha256": digest(path), "size": path.stat().st_size}
+
+
+def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
+    version = tomllib.loads((repository / "pyproject.toml").read_text())["project"][
+        "version"
+    ]
+    commit = subprocess.check_output(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
+    ).strip()
+    if subprocess.check_output(
+        ["git", "-C", str(repository), "status", "--porcelain"], text=True
+    ).strip():
+        raise ValueError("release source worktree must be clean and committed")
+    tags = {role: f"kodi-lab-v1-{role}:{version}" for role in ("web", "broker")}
+    configs, _ = archive_images(bundle / APP_ARCHIVE)
+    if set(configs) != set(tags.values()):
+        raise ValueError("application archive tags differ from release roles")
+    images = {}
+    package_identities = set()
+    for role, tag in tags.items():
+        inspected = (
+            subprocess.check_output(
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{.Id}} {{.Os}}/{{.Architecture}}",
+                    tag,
+                ],
+                text=True,
+            )
+            .strip()
+            .split()
+        )
+        if (
+            len(inspected) != 2
+            or not HEX.fullmatch(inspected[0])
+            or inspected[1] != "linux/amd64"
+        ):
+            raise ValueError("application build image has wrong identity or platform")
+        labels = json.loads(
+            subprocess.check_output(
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{json .Config.Labels}}",
+                    tag,
+                ],
+                text=True,
+            )
+        )
+        if (
+            labels.get("org.opencontainers.image.revision") != commit
+            or labels.get("org.opencontainers.image.version") != version
+        ):
+            raise ValueError("application build labels differ from release source")
+        package_identity = subprocess.check_output(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--entrypoint",
+                "kodi-lab-admin",
+                tag,
+                "version",
+            ],
+            text=True,
+        ).strip()
+        if not re.fullmatch(
+            rf"Kodi Lab {re.escape(version)} package-sha256=[0-9a-f]{{64}}",
+            package_identity,
+        ):
+            raise ValueError("installed application package identity differs")
+        package_identities.add(package_identity)
+        images[role] = {
+            "saved_image_id": inspected[0],
+            "config_image_id": configs[tag],
+            "tag_hint": tag,
+        }
+    if len(package_identities) != 1:
+        raise ValueError("Web and broker have different installed package bytes")
+    runtimes = []
+    for name in RUNTIMES:
+        relative_manifest = f"runtime-manifests/{name}.json"
+        relative_evidence = f"runtime-evidence/{name}.json"
+        metadata = json.loads((bundle / relative_manifest).read_text())
+        catalog = metadata["catalog"]
+        distribution = metadata["distribution"]
+        archive_name = f"{name}.tar"
+        if _file_record(bundle / archive_name) != {
+            "sha256": distribution["archive_digest"],
+            "size": distribution["archive_size"],
+        }:
+            raise ValueError(f"reviewed archive differs: {name}")
+        if digest(bundle / relative_evidence) != catalog["validation_report_digest"]:
+            raise ValueError(f"runtime evidence differs: {name}")
+        tags_for_runtime, configs_for_runtime = archive_images(bundle / archive_name)
+        if tags_for_runtime or configs_for_runtime != {distribution["loaded_image_id"]}:
+            raise ValueError(f"reviewed runtime archive identity differs: {name}")
+        runtimes.append(
+            {
+                "name": name,
+                "release": metadata["kodi_version"],
+                "tier": catalog["support_tier"],
+                "revision_id": catalog["revision_id"],
+                "manifest": relative_manifest,
+                "evidence": relative_evidence,
+                "archive": archive_name,
+                "reviewed_image_id": metadata["result"]["image_id"],
+                "archive_config_image_id": distribution["loaded_image_id"],
+            }
+        )
+    names = sorted(
+        p.relative_to(bundle).as_posix() for p in bundle.rglob("*") if p.is_file()
+    )
+    if any(p.is_symlink() for p in bundle.rglob("*")):
+        raise ValueError("bundle contains a symlink")
+    files = {name: _file_record(bundle / name) for name in names}
+    manifest = {
+        "schema": "kodi-lab-linux-v1-bundle-v1",
+        "version": version,
+        "source_commit": commit,
+        "source_archive": "kodi-lab-source.tar",
+        "platform": "linux/amd64",
+        "build": {
+            "process": "Docker multi-stage wheel build using pinned base and uv.lock",
+            "dockerfile_sha256": digest(repository / "runtime/remote-web/Dockerfile"),
+            "lock_sha256": digest(repository / "uv.lock"),
+            "reproducible_build_claim": False,
+        },
+        "application": {
+            "archive": APP_ARCHIVE,
+            "installed_package_identity": package_identities.pop(),
+            "images": images,
+        },
+        "runtimes": runtimes,
+        "files": files,
+    }
+    (bundle / "BUNDLE.json").write_bytes(canonical(manifest))
+    checksums = "".join(
+        f"{digest(bundle / name).removeprefix('sha256:')}  {name}\n"
+        for name in sorted((*names, "BUNDLE.json"))
+    )
+    (bundle / "SHA256SUMS").write_text(checksums)
+
+
+def verify(bundle: pathlib.Path) -> dict:
+    data = json.loads((bundle / "BUNDLE.json").read_bytes())
+    if (
+        data.get("schema") != "kodi-lab-linux-v1-bundle-v1"
+        or data.get("platform") != "linux/amd64"
+    ):
+        raise ValueError("unsupported bundle manifest")
+    if canonical(data) != (bundle / "BUNDLE.json").read_bytes():
+        raise ValueError("bundle manifest is not canonical")
+    if (
+        data.get("source_archive") != "kodi-lab-source.tar"
+        or data["source_archive"] not in data["files"]
+    ):
+        raise ValueError("source archive is missing from inventory")
+    expected_names = set(data["files"])
+    observed_names = {
+        p.relative_to(bundle).as_posix() for p in bundle.rglob("*") if p.is_file()
+    }
+    if any(p.is_symlink() for p in bundle.rglob("*")):
+        raise ValueError("bundle contains a symlink")
+    if observed_names != expected_names | {"BUNDLE.json", "SHA256SUMS"} | (
+        {".env"} if (bundle / ".env").is_file() else set()
+    ):
+        raise ValueError("bundle file inventory differs")
+    for name, record in data["files"].items():
+        if name.startswith("/") or ".." in pathlib.PurePosixPath(name).parts:
+            raise ValueError("unsafe bundle path")
+        if _file_record(bundle / name) != record:
+            raise ValueError(f"artifact differs: {name}")
+    expected_sums = "".join(
+        f"{digest(bundle / name).removeprefix('sha256:')}  {name}\n"
+        for name in sorted((*expected_names, "BUNDLE.json"))
+    )
+    if (bundle / "SHA256SUMS").read_text() != expected_sums:
+        raise ValueError("checksum inventory differs")
+    app = data["application"]
+    configs, _ = archive_images(bundle / app["archive"])
+    if configs != {
+        value["tag_hint"]: value["config_image_id"] for value in app["images"].values()
+    }:
+        raise ValueError("application archive image identities differ")
+    if set(app["images"]) != {"web", "broker"}:
+        raise ValueError("application roles differ")
+    if any(
+        not archive_contains_digest(bundle / app["archive"], value["saved_image_id"])
+        for value in app["images"].values()
+    ):
+        raise ValueError("saved application image identity is absent from archive")
+    if len(data["runtimes"]) != 4 or {r["name"] for r in data["runtimes"]} != set(
+        RUNTIMES
+    ):
+        raise ValueError("runtime set differs")
+    for runtime in data["runtimes"]:
+        metadata = json.loads((bundle / runtime["manifest"]).read_text())
+        distribution = metadata["distribution"]
+        catalog = metadata["catalog"]
+        tags, config_ids = archive_images(bundle / runtime["archive"])
+        if (
+            metadata["kodi_version"] != runtime["release"]
+            or catalog["support_tier"] != runtime["tier"]
+            or catalog["revision_id"] != runtime["revision_id"]
+            or metadata["result"]["image_id"] != runtime["reviewed_image_id"]
+            or distribution["loaded_image_id"] != runtime["archive_config_image_id"]
+            or _file_record(bundle / runtime["archive"])
+            != {
+                "sha256": distribution["archive_digest"],
+                "size": distribution["archive_size"],
+            }
+            or digest(bundle / runtime["evidence"])
+            != catalog["validation_report_digest"]
+            or tags
+            or config_ids != {distribution["loaded_image_id"]}
+            or not archive_contains_digest(
+                bundle / runtime["archive"], runtime["reviewed_image_id"]
+            )
+        ):
+            raise ValueError(f"runtime metadata differs: {runtime['name']}")
+    env_path = bundle / ".env"
+    if env_path.exists():
+        lines = env_path.read_text().splitlines()
+        expected_keys = {
+            "KODI_LAB_REMOTE_IMAGE": app["images"]["web"],
+            "KODI_LAB_BROKER_IMAGE": app["images"]["broker"],
+        }
+        values = dict(line.split("=", 1) for line in lines)
+        if (
+            len(lines) != 3
+            or set(values) != set(expected_keys) | {"KODI_LAB_PUBLISHED_PORT"}
+            or any(
+                values[key] not in {item["saved_image_id"], item["config_image_id"]}
+                for key, item in expected_keys.items()
+            )
+            or not values["KODI_LAB_PUBLISHED_PORT"].isdigit()
+            or not 1 <= int(values["KODI_LAB_PUBLISHED_PORT"]) <= 65535
+        ):
+            raise ValueError("local image selection differs from reviewed bundle")
+    return data
+
+
+def configure(bundle: pathlib.Path, data: dict, port: int) -> None:
+    if (bundle / ".env").exists() or not 1 <= port <= 65535:
+        raise ValueError(".env already exists or port is invalid")
+    chosen = {}
+    for role, item in data["application"]["images"].items():
+        for candidate in (item["saved_image_id"], item["config_image_id"]):
+            result = subprocess.run(
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{.Id}} {{.Os}}/{{.Architecture}}",
+                    candidate,
+                ],
+                text=True,
+                capture_output=True,
+            )
+            if (
+                result.returncode == 0
+                and result.stdout.strip() == f"{candidate} linux/amd64"
+            ):
+                chosen[role] = candidate
+                break
+        else:
+            raise ValueError(f"verified {role} image is not loaded for linux/amd64")
+    (bundle / ".env").write_text(
+        f"KODI_LAB_REMOTE_IMAGE={chosen['web']}\n"
+        f"KODI_LAB_BROKER_IMAGE={chosen['broker']}\n"
+        f"KODI_LAB_PUBLISHED_PORT={port}\n"
+    )
+    print("configured exact application image IDs for this Docker Engine")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=("finalize", "verify", "configure"))
+    parser.add_argument("bundle", type=pathlib.Path)
+    parser.add_argument("repository", type=pathlib.Path, nargs="?")
+    parser.add_argument("--port", type=int, default=18100)
+    args = parser.parse_args()
+    try:
+        if args.command == "finalize":
+            if args.repository is None:
+                raise ValueError("finalize requires repository")
+            finalize(args.bundle, args.repository)
+        else:
+            data = verify(args.bundle)
+            if args.command == "configure":
+                configure(args.bundle, data, args.port)
+            else:
+                print(
+                    f"verified Kodi Lab {data['version']} bundle for {data['platform']}"
+                )
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        tarfile.TarError,
+        json.JSONDecodeError,
+    ) as error:
+        print(f"bundle {args.command} failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

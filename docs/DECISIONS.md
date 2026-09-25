@@ -4757,3 +4757,24 @@ approvals atomically with the governing revision transition.
   audited as configuration-only. The common fixture adapter admits only the
   four reviewed exact releases. Preview acknowledgement and the separate
   Trusted Custom Build gates still control managed-instance creation.
+
+## D-0374: Linux amd64 V1 release-candidate artifact identity
+
+- The first local, unpublished release candidate is `1.0.0rc1`. Protocol and
+  runtime revision versions are independent and unchanged. Both installed
+  application images expose the package version, package-content digest and
+  source-commit/version OCI labels.
+- One canonical `BUNDLE.json` binds the committed source tree, Dockerfile and
+  lockfile digests, source archive, application archive and both image IDs,
+  deployment files, four exact reviewed runtime archives, copied wheel-owned
+  runtime manifests/evidence, and required operator documentation. It and the
+  complete file inventory are covered by `SHA256SUMS`. Local `.env` is generated
+  after load with exact image IDs, not mutable tags.
+- V1 RC makes no reproducible-build or independent-signature claim. The
+  publication-time trust anchor is the separately authorized GitHub release
+  account and published manifest/asset digests; GitHub attestations and
+  detached signatures require a real controlled workflow or key and remain
+  deferred. The candidate remains local and unpublished.
+- The release Compose remains host-loopback-only. Broker Docker-socket access
+  is effective host-root authority; Web has only its private broker socket.
+  See `LINUX-V1-RELEASE.md` for the full inventory and recovery boundary.

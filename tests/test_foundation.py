@@ -26,7 +26,7 @@ def _isolate_settings_environment(
 
 
 def test_package_exposes_version() -> None:
-    assert kodi_lab.__version__ == "0.0.0"
+    assert kodi_lab.__version__ == "1.0.0rc1"
 
 
 def test_configuration_uses_documented_roots(

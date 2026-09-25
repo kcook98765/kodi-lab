@@ -10,6 +10,11 @@ RUN uv export --locked --no-dev --no-emit-project --format requirements-txt --ou
 
 FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS installed-runtime
 
+ARG KODI_LAB_SOURCE_COMMIT=unknown
+ARG KODI_LAB_RELEASE_VERSION=unknown
+LABEL org.opencontainers.image.revision="$KODI_LAB_SOURCE_COMMIT" \
+      org.opencontainers.image.version="$KODI_LAB_RELEASE_VERSION"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     KODI_LAB_DATA_ROOT=/var/lib/kodi-lab \

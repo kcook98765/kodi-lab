@@ -199,11 +199,11 @@ Host policy:
 
 ## 7. Releases
 
-Use SemVer for public releases. The repository's static `0.0.0` package version
-is an unreleased-development sentinel, not a published compatibility promise.
-Phase 16 release preparation owns selecting `1.0.0`, synchronizing package and
-artifact versions, and performing the release checklist; Phase 14 does not
-change the public version.
+Use SemVer for public releases. The historical static `0.0.0` package version
+was an unreleased-development sentinel, not a published compatibility promise.
+Linux amd64 Phase 16 release preparation selects `1.0.0rc1` for the local,
+unpublished candidate. The final public version and publication checklist
+remain separate decisions. Phase 14 did not change the package version.
 Stable images: exact version plus `latest`.
 Prerelease images: exact prerelease plus `edge`.
 `latest` must never point to beta/RC.

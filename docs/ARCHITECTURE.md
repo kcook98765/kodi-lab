@@ -2707,3 +2707,15 @@ create/restore with source binding, simultaneous readiness, independent
 stop/start, and reobservation after Web/broker recreation. Kodi 22 Beta 2 uses
 an audited configuration-only `MyVideos149.db` fixture seed and an exact
 fixture-adapter release gate; no generic Preview relaxation was added.
+
+## Linux amd64 V1 release artifact boundary
+
+The local `1.0.0rc1` candidate packages the committed source tar, installed
+Web and broker image export, source-free Compose, four exact reviewed runtime
+exports, copied runtime manifests/evidence, verification helper, checksum
+inventory and operator documentation. `BUNDLE.json` is the cross-artifact
+identity record. Application image IDs may be reported as saved OCI index or
+archive config identities on different Docker stores; the bundle installer
+selects an exact archive-derived ID in `.env`. Runtime catalog authority stays
+with the wheel-owned manifests and accepts only their reviewed IDs. The
+published version remains a separate gate. See `LINUX-V1-RELEASE.md`.

@@ -10,6 +10,18 @@ fi
 repository=$(cd "$(dirname "$0")/.." && pwd -P)
 archives=$(realpath "$1")
 output=$(realpath -m "$2")
+version=$(python3 - "$repository/pyproject.toml" <<'PY'
+import pathlib
+import sys
+import tomllib
+print(tomllib.loads(pathlib.Path(sys.argv[1]).read_text())["project"]["version"])
+PY
+)
+if [[ -n "$(git -C "$repository" status --porcelain)" ]]; then
+  echo "release source worktree must be clean and committed" >&2
+  exit 2
+fi
+source_commit=$(git -C "$repository" rev-parse HEAD)
 if [[ ! -d "$archives" ]]; then
   echo "reviewed archive directory is missing" >&2
   exit 2
@@ -43,16 +55,19 @@ PY
 done
 
 build_network=${KODI_LAB_BUNDLE_BUILD_NETWORK:-default}
-docker build --network "$build_network" --quiet --target web \
-  -t kodi-lab-rc-web:local -f "$repository/runtime/remote-web/Dockerfile" \
+docker build --network "$build_network" --provenance=false --quiet --target web \
+  --build-arg "KODI_LAB_SOURCE_COMMIT=$source_commit" \
+  --build-arg "KODI_LAB_RELEASE_VERSION=$version" \
+  -t "kodi-lab-v1-web:$version" -f "$repository/runtime/remote-web/Dockerfile" \
   "$repository"
-docker build --network "$build_network" --quiet --target broker \
-  -t kodi-lab-rc-broker:local -f "$repository/runtime/remote-web/Dockerfile" \
+docker build --network "$build_network" --provenance=false --quiet --target broker \
+  --build-arg "KODI_LAB_SOURCE_COMMIT=$source_commit" \
+  --build-arg "KODI_LAB_RELEASE_VERSION=$version" \
+  -t "kodi-lab-v1-broker:$version" -f "$repository/runtime/remote-web/Dockerfile" \
   "$repository"
 docker save --output "$output/kodi-lab-application-images.tar" \
-  kodi-lab-rc-web:local kodi-lab-rc-broker:local
-docker image inspect --format '{{.Id}} {{.Os}}/{{.Architecture}}' \
-  kodi-lab-rc-web:local kodi-lab-rc-broker:local > "$output/APPLICATION-IMAGE-IDS"
+  "kodi-lab-v1-web:$version" "kodi-lab-v1-broker:$version"
+git -C "$repository" archive --format=tar HEAD > "$output/kodi-lab-source.tar"
 
 cp "$repository/compose.release.yaml" "$repository/compose.lab.yaml" "$output/"
 cp "$repository/docs/LINUX-V1-INSTALL.md" "$output/INSTALL.md"
@@ -64,18 +79,21 @@ cp "$repository/docs/LINUX-V1-UPGRADE-ROLLBACK.md" \
   "$output/UPGRADE-ROLLBACK.md"
 cp "$repository/docs/MANAGED-STATE-RECOVERY.md" \
   "$output/MANAGED-STATE-RECOVERY.md"
+cp "$repository/docs/MANAGED-LAB-WORKFLOW.md" \
+  "$output/MANAGED-LAB-WORKFLOW.md"
+cp "$repository/docs/BROKER-SECURITY.md" \
+  "$output/BROKER-SECURITY.md"
+cp "$repository/docs/LINUX-V1-RELEASE.md" \
+  "$output/RELEASE.md"
+cp "$repository/scripts/linux-v1-bundle" "$output/linux-v1-bundle"
+mkdir "$output/runtime-manifests" "$output/runtime-evidence"
+cp "$repository"/src/kodi_lab/runtime/catalog/kodi-*.json "$output/runtime-manifests/"
+cp "$repository"/src/kodi_lab/runtime/evidence/kodi-*.json "$output/runtime-evidence/"
 cat > "$output/.env.example" <<'EOF'
-KODI_LAB_REMOTE_IMAGE=kodi-lab-rc-web:local
-KODI_LAB_BROKER_IMAGE=kodi-lab-rc-broker:local
+# Run python3 linux-v1-bundle configure . after loading the application archive.
+# The generated .env pins image IDs recognized on this Docker Engine.
 KODI_LAB_PUBLISHED_PORT=18100
 EOF
-(
-  cd "$output"
-  sha256sum .env.example APPLICATION-IMAGE-IDS INSTALL.md \
-    KODI-VERSION-EXTENSIBILITY.md CURATED-IMAGE-DISTRIBUTION.md \
-    UPGRADE-ROLLBACK.md MANAGED-STATE-RECOVERY.md \
-    compose.release.yaml compose.lab.yaml \
-    kodi-lab-application-images.tar kodi-19.5.tar kodi-20.5.tar \
-    kodi-21.3.tar kodi-22.0-beta2.tar > SHA256SUMS
-)
+python3 "$repository/scripts/linux-v1-bundle" finalize "$output" "$repository"
+python3 "$repository/scripts/linux-v1-bundle" verify "$output"
 echo "Local Linux V1 candidate staged in $output"

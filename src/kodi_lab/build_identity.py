@@ -1,4 +1,4 @@
-"""Deterministic runtime-content identity while the package version is 0.0.0."""
+"""Installed package version and content identity for lifecycle receipts."""
 
 from __future__ import annotations
 

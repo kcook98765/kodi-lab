@@ -2,15 +2,15 @@
 
 This procedure installs the wheel-based Web/API/MCP image and, optionally, the
 four-version managed Kodi lab. It uses only files in the staged bundle at
-installation time. The current candidate is local and unpublished; the
-publication step must provide authenticated provenance for the bundle and its
-checksum list. Do not treat a checksum list from an untrusted source as a
-signature.
+installation time. `RELEASE.md` defines the artifact set and trust model. The
+current candidate is local and unpublished. Obtain its manifest hash through a
+trusted release channel before treating its hashes as authentic.
 
 ## Platform and bundle
 
 Use a native Linux amd64 Docker Engine with Compose V2, a Docker administrator
-account, `sha256sum`, and sufficient free disk for roughly 1.2 GiB of runtime
+account, Python 3.12 or newer, `sha256sum`, and sufficient free disk for roughly
+1.2 GiB of runtime
 archives plus loaded images, state, and snapshots. The clean-host acceptance
 used Docker Engine 29.8.1 with its containerd image store. Other image stores
 must produce one of the two exact IDs recorded in each wheel manifest or the
@@ -22,11 +22,13 @@ The candidate bundle contains:
 
 | File | Purpose |
 | --- | --- |
-| `kodi-lab-application-images.tar`, `APPLICATION-IMAGE-IDS` | Installed Web and broker images plus their expected local IDs/platform |
+| `kodi-lab-application-images.tar` | Installed Web and broker images |
+| `kodi-lab-source.tar` | Exact committed source tree for review; not needed by Compose |
 | `compose.release.yaml`, `compose.lab.yaml`, `.env.example` | Source-free remote profile, optional managed-network overlay, nonsecret settings |
 | `kodi-19.5.tar`, `kodi-20.5.tar`, `kodi-21.3.tar`, `kodi-22.0-beta2.tar` | Exact reviewed runtime exports |
-| `SHA256SUMS` | Exact byte hashes for every other bundle file |
-| `INSTALL.md`, `KODI-VERSION-EXTENSIBILITY.md`, `CURATED-IMAGE-DISTRIBUTION.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Installation, version policy, distribution, and recovery guidance |
+| `BUNDLE.json`, `SHA256SUMS`, `linux-v1-bundle` | Version/source/image/runtime identity and complete artifact inventory; byte hashes; offline verification and Docker-local image selection |
+| `runtime-manifests/`, `runtime-evidence/` | Four packaged runtime manifests and bounded validation reports |
+| `INSTALL.md`, `RELEASE.md`, `MANAGED-LAB-WORKFLOW.md`, `BROKER-SECURITY.md`, `KODI-VERSION-EXTENSIBILITY.md`, `CURATED-IMAGE-DISTRIBUTION.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Installation, artifact set, security, version policy, distribution, and recovery guidance |
 
 The application images install a built Kodi Lab wheel and locked Python
 dependencies. The small runtime manifests and validation evidence are wheel
@@ -37,20 +39,22 @@ administrator interface:
 ```sh
 cd /path/to/unpacked-bundle
 sha256sum -c SHA256SUMS
-cp .env.example .env
-# Edit only the image references or loopback published port if your reviewed
-# bundle metadata requires different values. Never put passwords in .env.
+python3 linux-v1-bundle verify .
 docker image load --input kodi-lab-application-images.tar
-docker image inspect --format '{{.Id}} {{.Os}}/{{.Architecture}}' \
-  kodi-lab-rc-web:local kodi-lab-rc-broker:local | cmp APPLICATION-IMAGE-IDS -
+python3 linux-v1-bundle configure .
 docker compose -f compose.release.yaml config --quiet
 ```
 
-The `.env` image references select the verified application images. The
+The generated `.env` pins the exact application image IDs recognized by this
+Docker Engine. `configure` refuses to replace an existing `.env`; retain it
+with the bundle for restart and rollback. The
 published port defaults to `127.0.0.1:18100`; the application listens on 8100
 inside its container. Choose another unused loopback port with
-`KODI_LAB_PUBLISHED_PORT`. An externally reachable browser deployment needs a
-separately reviewed TLS/Host/cookie configuration.
+`KODI_LAB_PUBLISHED_PORT` when running `configure --port PORT`. The release
+Compose publishes only to host loopback and allows only the loopback Host. For
+another machine on a trusted LAN, use an operator-controlled local forward such
+as SSH tunneling. Direct LAN/WAN browser binding is outside this candidate and
+requires separate Host/cookie/TLS review.
 
 ## Remote-only first run
 
@@ -75,9 +79,11 @@ the installed head, and binds the key and state marker. Repeating it on a
 complete installation is a verified no-op. Web startup validates the marker
 and schema and does not migrate. An incomplete first run fails with an
 instruction to initialize; a mismatched or partial state needs explicit
-recovery. Open `http://127.0.0.1:18100/login` and sign in.
+recovery. Open `http://127.0.0.1:18100/login` and sign in. The Pair Kodi flow
+is at `http://127.0.0.1:18100/pair-kodi` after login.
 
-MCP uses the same installed Web service; configure a client and its bearer
+MCP is at `http://127.0.0.1:18100/mcp` on the published loopback port. It uses
+the same installed Web service; configure a client and its bearer
 credential through the authenticated Web administration flow if needed. It
 requires no broker or runtime image for remote targets. Remote targets and
 their allowed ports are optional and configured through the existing Web
@@ -188,11 +194,9 @@ containers use UID/GID 1000, the product bridge, no published ports or mounts,
 and no automatic restart policy. Broker Docker access remains effectively
 host-root authority and is restricted by the trusted deployment boundary.
 
-The local candidate has no public artifact provenance/signature, registry
-distribution, or retention policy yet. Tested image identity translation is
-limited to the recorded Docker IDs. The acceptance used an isolated nested
-Docker Engine, so native host packaging, non-containerd image stores, LAN/TLS
-access, and external physical Kodi pairing need their own gates. Docker image
+The local candidate has no public artifact provenance/signature or registry
+distribution. Runtime identity translation is limited to the exact reviewed
+index and archive-derived config IDs. Docker image
 bytes are outside the application backup. Kodi 21.3 is the only reviewed
 mediated-display runtime; Kodi 22 requires Preview acknowledgement.
 
@@ -202,7 +206,7 @@ From a reviewed development checkout, run
 `scripts/stage-linux-v1-bundle REVIEWED_ARCHIVE_DIRECTORY EMPTY_OUTPUT_DIRECTORY`.
 It verifies all four exact archives against the wheel-owned manifests, builds
 the installed Web/broker images, copies all required deployment/docs files,
-and writes `APPLICATION-IMAGE-IDS` and `SHA256SUMS`. Set
+and writes `BUNDLE.json` and `SHA256SUMS`. Set
 `KODI_LAB_BUNDLE_BUILD_NETWORK=host` only if the release-build host's default
 Docker build network is unavailable. This is a recorded release-engineering
 step, not a user installation step. The publication phase must establish

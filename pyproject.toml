@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kodi-lab"
-version = "0.0.0"
+version = "1.0.0rc1"
 description = "Self-hosted development and testing environment for isolated Kodi installations"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

@@ -18,15 +18,16 @@ execution or raw JSON-RPC.
 Phases 1-13 and Phase 14 Slices 1-3, 4A and 4B are complete. Phase 14 overall is
 PARTIAL pending exact production bridge artifact review, explicitly authorized
 live Stage A-D validation, independent closeout audit and a final authoritative
-gate. Phase 15 diagnostics/hardening and Phase 16 public release preparation
-have not begun.
+gate. Phase 15 diagnostics/hardening remains separate. Linux amd64 Phase 16
+release-candidate engineering uses `1.0.0rc1`; no public release is authorized.
 
 [`docs/V1-SPEC.md`](docs/V1-SPEC.md) is the authoritative v1 product and
 architecture specification. [`docs/PROJECT-HANDOFF.md`](docs/PROJECT-HANDOFF.md)
 records the development host host baseline and coexistence constraints for development.
 
 For the local Linux amd64 release-candidate installation path, see
-[`docs/LINUX-V1-INSTALL.md`](docs/LINUX-V1-INSTALL.md). The Kodi-version
+[`docs/LINUX-V1-INSTALL.md`](docs/LINUX-V1-INSTALL.md) and the
+[`release artifact contract`](docs/LINUX-V1-RELEASE.md). The Kodi-version
 addition and retirement audit is in
 [`docs/KODI-VERSION-EXTENSIBILITY.md`](docs/KODI-VERSION-EXTENSIBILITY.md).
 

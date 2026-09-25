@@ -4,7 +4,7 @@ name: kodi-lab-remote
 # build context and can be used without a source checkout.
 services:
   web:
-    image: ${KODI_LAB_REMOTE_IMAGE:-kodi-lab-remote-web:local}
+    image: ${KODI_LAB_REMOTE_IMAGE:?run linux-v1-bundle configure first}
     init: true
     read_only: true
     tmpfs:
@@ -34,7 +34,7 @@ services:
   broker:
     profiles:
       - lab
-    image: ${KODI_LAB_BROKER_IMAGE:-kodi-lab-broker:local}
+    image: ${KODI_LAB_BROKER_IMAGE:?run linux-v1-bundle configure first}
     init: true
     read_only: true
     tmpfs:

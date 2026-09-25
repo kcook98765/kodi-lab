@@ -1757,12 +1757,12 @@ at this checkpoint.
 Phase 15 remains **Diagnostics/hardening** and owns bounded operational
 diagnostics, hardening, performance and remaining operational validation under
 its future gate. It does not implicitly expand the V1 MCP/production catalog.
-Phase 16 remains **Public release preparation** and owns the supported public
+Phase 16 is **Linux amd64 V1 release-candidate engineering** and owns the supported public
 installation mechanism (including Compose unless canonically replaced),
 release packaging, first public SemVer, artifact/checksum publication, public
-documentation and release checklist. Repository version `0.0.0` remains the
-unreleased-development sentinel until Phase 16 determines and validates
-`1.0.0`.
+documentation and release checklist. The local unpublished candidate selects
+`1.0.0rc1`; public publication remains separately authorized. See
+`LINUX-V1-RELEASE.md` for its artifact and authenticity contract.
 
 ## Bridge 1.1.8 packaging/review checkpoint
 
