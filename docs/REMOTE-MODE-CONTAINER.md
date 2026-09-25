@@ -5,6 +5,11 @@ installed Kodi Lab wheel for Web, API, and HTTP MCP against external Kodi
 targets. It creates no managed Kodi containers and has no lifecycle broker,
 Docker socket, proxy, or local Kodi dependency.
 
+The later Phase 3 Compose foundation adds an optional `lab`-profile broker.
+Normal commands below start only Web. Web mounts a private broker-socket volume
+read-only even in remote-only mode; no broker socket exists until the optional
+service starts. Web never mounts the Docker socket. See `BROKER-CONTAINER.md`.
+
 ## Build and initialize
 
 From the repository checkout, with Docker Compose available:
@@ -68,6 +73,11 @@ committed sidecar content into a standalone database. Existing managed Kodi
 runtime images, writable layers, broker sockets, and local-runtime snapshots
 are outside this remote deployment. No managed Kodi runtime or image is part
 of this backup.
+
+The Phase 2 backup remains valid for remote-only state. It rejects root-owned
+managed snapshots by design, so it is not yet a complete managed-lab backup.
+Stop both Web and broker before any future lab-state lifecycle operation;
+mixed-owner backup/restore needs a separate implementation gate.
 
 Stop Web before backup or upgrade. The lock rejects a second Web process or
 concurrent lifecycle command. A Phase 1 Web image did not hold this lock, so

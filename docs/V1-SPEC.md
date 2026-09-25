@@ -173,6 +173,10 @@ Supporting storage:
 
 ## 6. Deployment
 
+The Phase 3 Linux broker decision gate accepted an optional Compose-managed
+broker from the same installed wheel as Web. It is a deployment foundation,
+not a complete managed-lab install; see D-0369 and `BROKER-CONTAINER.md`.
+
 Phase 16 owns the canonical public V1 installation contract. The original
 release target remains versioned GHCR images plus a versioned Docker Compose
 file, but no Compose definition exists at the Phase 14 checkpoint. Therefore

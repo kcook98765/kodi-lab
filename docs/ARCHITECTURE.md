@@ -95,6 +95,26 @@ historically valid after approval or trust is revoked.
 
 ## Restricted broker boundary
 
+Linux V1 deployment foundation: the broker is a separate Compose `lab`-profile
+container built from the same installed wheel as Web. Only that container mounts
+`/var/run/docker.sock`; Web has a read-only mount of a private broker-socket
+volume and no Docker socket. Both containers use numeric `kodi-lab` UID/GID
+10001, while the broker runs as UID 0 with only CHOWN, DAC_OVERRIDE, and FOWNER
+capabilities. The socket remains `/run/kodi-lab/broker.sock`, owned by
+`0:10001` with mode `0660` inside a `0:10001` mode `0750` directory. Linux
+`SO_PEERCRED` still authorizes only UID 10001. Access is consequently the
+intersection of possession of the private socket volume and the exact UID;
+Docker administrators can mount that volume and impersonate the UID because
+they already possess daemon-level authority. See D-0369 and
+`BROKER-CONTAINER.md`. Remote-only Compose startup omits the broker.
+
+This placement does not sandbox the broker from Docker. A compromise of the
+broker retains daemon-level power; the boundary protects Web/API/MCP callers.
+The broker shares the private state volume to resolve trusted SQLite state and
+write fixed artifacts. Phase 2 backup currently rejects root-owned managed
+snapshot artifacts, so mixed-owner lab-state backup/restore must be addressed
+before managed lab data is treated as recoverable.
+
 Phase 2 introduces `kodi_lab.broker` as a separate privileged-infrastructure
 boundary. Unprivileged application code uses a typed client over
 `/run/kodi-lab/broker.sock`; it does not receive Docker-group membership or

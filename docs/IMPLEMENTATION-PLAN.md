@@ -99,11 +99,11 @@ containers, networks, broker, and socket remained unchanged. The retained
 validation state is an unprovisioned disposable ManagedInstance plus the empty
 owned `kodi-lab-managed-v1` prerequisite network.
 
-The Phase 2 code closeout does not install production services or assign network
-lifecycle ownership. The collision between the intended
-`kodi-lab-broker.service` name and the protected legacy service remains a
-production-deployment blocker. Persistent-instance storage is also deliberately
-deferred; the completed creation contract is disposable-only.
+The Phase 2 code closeout did not install production services or assign network
+lifecycle ownership. Its intended `kodi-lab-broker.service` name collided with
+the protected legacy service; the later D-0369 Compose-container decision avoids
+that host-unit collision. Persistent-instance storage remains deferred; the
+completed creation contract is disposable-only.
 
 Phase 3 is the canonical **Single Kodi runtime end-to-end** phase. Its first
 coherent milestone implements one dedicated Kodi 21.3 Omega stable runtime. The
@@ -1790,3 +1790,14 @@ Compose startup validates state only. The single persistent volume includes
 backup and quarantine directories; release installer, broker packaging,
 managed Kodi, lab profile, bridge changes, and publication remain deferred.
 See D-0368 and `REMOTE-MODE-CONTAINER.md` for the exact contract.
+
+## Broker deployment decision gate Phase 3
+
+Native-Linux isolated socket, UID, daemon access, installed-wheel, Compose,
+restart, archive, fixed-exec, and disposable lifecycle evidence accepted the
+broker container architecture in D-0369. The Compose `lab` profile adds only a
+restricted broker service and private socket sharing; it does not provision
+managed Kodi runtimes or create the lab profile. Before managed lab data is
+used, reconcile Phase 2 backup/restore with root-owned snapshots and quiesce
+both processes for lifecycle operations. Before release, prove off-volume
+export/recovery and assess Docker Desktop separately.

@@ -6,6 +6,7 @@ services:
     build:
       context: .
       dockerfile: runtime/remote-web/Dockerfile
+      target: web
     init: true
     read_only: true
     tmpfs:
@@ -30,6 +31,39 @@ services:
       start_period: 15s
     volumes:
       - remote_state:/var/lib/kodi-lab
+      - broker_socket:/run/kodi-lab:ro
+
+  broker:
+    profiles:
+      - lab
+    image: ${KODI_LAB_BROKER_IMAGE:-kodi-lab-broker:local}
+    build:
+      context: .
+      dockerfile: runtime/remote-web/Dockerfile
+      target: broker
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, kodi-lab-broker, --healthcheck]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - broker_socket:/run/kodi-lab
+      - remote_state:/var/lib/kodi-lab
 
 volumes:
   remote_state:
+  broker_socket:

@@ -1,9 +1,9 @@
 # Restricted broker security contract
 
 This document derives from `V1-SPEC.md` plus approved decisions D-0018 through
-D-0045. It describes the Phase 2 implementation boundary; it authorizes read-only
-Docker inventory, disposable create-only provisioning, and explicit start/stop
-reconciliation plus stopped-only deprovision for owned containers.
+D-0045. Its original Phase 2 protocol and authority contract remains in force;
+D-0369 selects container deployment for the Linux V1 foundation. Later closed
+semantic operations are described in `ARCHITECTURE.md`.
 
 ## Threat model and privilege boundary
 
@@ -33,11 +33,18 @@ host privilege and does not need the broker as an escalation route.
 - Activation: long-running service, not systemd socket activation.
 
 The production constructor refuses non-root startup, unresolved identities, or a
-`kodi-lab` user whose primary group is not the dedicated `kodi-lab` group. A
-future unit should use systemd `RuntimeDirectory` facilities, but no unit is
-included until package installation paths are known. On development host, the approved
-eventual service name currently belongs to the protected legacy broker, so no new
-unit may be installed during coexistence.
+`kodi-lab` user whose primary group is not the dedicated `kodi-lab` group. The
+selected Compose image supplies UID/GID 10001 and seeds the private socket
+volume with the exact directory metadata above. No host unit is installed;
+the protected legacy broker service name remains untouched.
+
+Container placement changes the filesystem prerequisite from host access to
+possession of the private broker-socket volume. `SO_PEERCRED` still reports the
+numeric Linux UID and the exact-UID check remains independent. A container
+granted this volume can choose UID 10001 and impersonate Web. Granting mounts is
+therefore trusted Docker-administrator authority; Web/Kodi have neither that
+authority nor the Docker socket. The broker container itself holds daemon-level
+power through `/var/run/docker.sock` and is not Docker-sandboxed.
 
 The broker validates the runtime directory with `lstat`, requires exact metadata,
 and requires the socket to be its direct child. A symbolic link or non-socket at
@@ -407,10 +414,10 @@ database state and the empty managed network remained.
 Protected legacy containers, networks, broker process, and socket retained their
 identities and state throughout validation. The repository does not create or
 remove the managed network; product ownership of that lifecycle is deferred.
-The intended production unit name still collides with the protected legacy
-`kodi-lab-broker.service`, so production deployment remains blocked pending a
-separate naming/migration decision. Neither that deployment concern nor deferred
-persistent-instance storage weakens the completed disposable broker boundary.
+At this historical Phase 2 closeout the intended unit name collided with the
+protected legacy `kodi-lab-broker.service`. D-0369 later selected a separate
+Compose broker container, avoiding that host-unit collision. Deferred
+persistent-instance storage does not weaken the completed disposable boundary.
 
 ## Promotion-verification Kodi log authority
 

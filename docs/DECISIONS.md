@@ -202,7 +202,7 @@ details that it did not specify.
 
 ## D-0024: Long-running service activation
 
-- Status: approved for Phase 2
+- Status: approved for Phase 2; Linux V1 host-unit choice superseded by D-0369
 - Decision: v1 uses a conventional long-running `kodi-lab-broker.service`; the
   broker creates its own socket. There is no systemd socket activation. A unit is
   deferred until packaging/install paths are settled and is not installed during
@@ -4631,3 +4631,30 @@ approvals atomically with the governing revision transition.
   prior DB/key set, then
   starts the matching previous application artifact. Image rollback alone is
   insufficient. There are no downgrade migrations or automatic retention.
+
+## D-0369: Linux V1 broker container deployment foundation
+
+- Decision gate: **A, accept broker container for Linux V1** on the isolated
+  native-Linux evidence in `BROKER-CONTAINER.md`. The selected broker runs from
+  the same installed wheel as Web in a separate Compose `lab` profile. The
+  remote-only profile continues without a broker.
+- This supersedes D-0024's planned Linux V1 host systemd unit while preserving
+  its long-running broker and broker-created Unix socket semantics.
+- Only the root broker container mounts the host Docker socket. It has no
+  privileged mode, host PID/network namespace, or broad host filesystem mount.
+  It drops all capabilities and restores only CHOWN, DAC_OVERRIDE, and FOWNER
+  for the existing root-owned socket/artifact and private-state contracts.
+  Docker socket possession is daemon-level authority, not a Docker sandbox.
+- Web is UID/GID 10001 and receives only the private broker-socket volume,
+  read-only. The broker's exact-UID `SO_PEERCRED` check remains mandatory. A
+  container with both this volume and UID 10001 can impersonate Web; deployment
+  control of that volume is therefore part of the trusted Docker-admin boundary.
+  Unrelated containers lack the volume, and Web/Kodi receive no Docker socket.
+- Broker and Web share the one Phase 2 data volume for trusted SQLite and fixed
+  artifacts. The current Phase 2 backup rejects intentionally root-owned
+  snapshot files; mixed-owner managed-state backup/restore is a separate gate
+  before managed lab use or release. Same-volume backups still do not protect
+  against volume loss; off-volume export/recovery remains required before
+  public/production release.
+- No host broker is installed. Docker Desktop and non-Linux peer/ownership
+  behavior remain unaccepted until tested on those platforms.
