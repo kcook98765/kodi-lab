@@ -18,6 +18,7 @@ only an integrity check, not proof of who made it.
 | Deployment | `compose.release.yaml`, `compose.lab.yaml`, `.env.example`, `linux-v1-bundle` | `BUNDLE.json` file inventory; generated `.env` pins actual local image IDs |
 | Curated runtimes | `kodi-19.5.tar`, `kodi-20.5.tar`, `kodi-21.3.tar`, `kodi-22.0-beta2.tar` | Exact archive SHA-256/size in each runtime manifest and `BUNDLE.json` |
 | Verification | `BUNDLE.json`, `SHA256SUMS`, `runtime-manifests/*.json`, `runtime-evidence/*.json` | The manifest links version, source commit, build inputs, artifacts, revisions, tiers and identities; copied runtime metadata must equal the wheel resources |
+| License and notices | `LICENSE`, `THIRD_PARTY_NOTICES.md` | Original-code MIT terms and explicit third-party/runtime compliance status |
 | Documentation | `INSTALL.md`, `RELEASE.md`, `MANAGED-LAB-WORKFLOW.md`, `BROKER-SECURITY.md`, `CURATED-IMAGE-DISTRIBUTION.md`, `KODI-VERSION-EXTENSIBILITY.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Hashed files in the bundle |
 | Generated at install | Private master key, administrator password hash/state, Docker named volumes, broker Unix socket and managed network | Local initialization/Compose/broker bootstrap; never release artifacts |
 

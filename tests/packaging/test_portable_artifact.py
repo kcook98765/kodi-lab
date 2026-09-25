@@ -39,6 +39,10 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
     root = Path(__file__).parents[2]
     with ZipFile(built_wheel) as archive:
         names = set(archive.namelist())
+        metadata = archive.read("kodi_lab-1.0.0rc1.dist-info/METADATA")
+        assert b"License-Expression: MIT" in metadata
+        assert b"License-File: LICENSE" in metadata
+        assert "kodi_lab-1.0.0rc1.dist-info/licenses/LICENSE" in names
         for path in (
             "kodi_lab/migrations/env.py",
             "kodi_lab/migrations/README.md",

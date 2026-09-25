@@ -1,13 +1,16 @@
 # Kodi Lab
 
-Kodi Lab is a self-hosted Web-administered environment for developing, testing
-and safely inspecting isolated or remote Kodi installations. It supports the
-curated Kodi 19.5, 20.5, 21.3 and Kodi 22 Beta 2 managed runtimes, synthetic
-fixtures, reset/snapshot workflows, browser screenshots/remote control,
-uploaded-ZIP and registered-source development, protected agent workspaces,
-reviewed promotion, external-development targets and least-authority production
-targets. The restricted broker exposes semantic operations for owned resources,
-never raw Docker access.
+Kodi Lab is a self-hosted Web application for developing, testing, and
+inspecting Kodi installations. Remote-target mode connects to an existing Kodi;
+managed-lab mode runs four curated Kodi versions (19.5, 20.5, 21.3, and 22 Beta
+2) in isolated containers. The managed mode requires Linux amd64 and Docker.
+The local `1.0.0rc1` candidate is a prerelease and has not been published.
+See the [Linux amd64 installation guide](docs/LINUX-V1-INSTALL.md).
+
+Web administration controls credentials, target registration, grants, and
+infrastructure. The restricted broker exposes only bounded operations on owned
+resources. MCP clients cannot request shell, Git, Docker, arbitrary paths, or
+raw JSON-RPC access.
 
 Web administration owns infrastructure, registration, credentials, presets,
 grants, production scopes, pairing, approvals and lifecycle. MCP is a stateless
@@ -15,15 +18,15 @@ target/development interface with explicit target UUIDs, bounded schemas,
 durable replay safety and no shell, Git, Docker, caller-owned paths, arbitrary
 execution or raw JSON-RPC.
 
-Phases 1-13 and Phase 14 Slices 1-3, 4A and 4B are complete. Phase 14 overall is
-PARTIAL pending exact production bridge artifact review, explicitly authorized
-live Stage A-D validation, independent closeout audit and a final authoritative
-gate. Phase 15 diagnostics/hardening remains separate. Linux amd64 Phase 16
-release-candidate engineering uses `1.0.0rc1`; no public release is authorized.
+The original Kodi Lab code and the Kodi Lab bridge are MIT licensed. Kodi,
+Ubuntu, Python, Mesa/Xvfb, and other runtime components retain their own
+licenses. Kodi Lab is independent of and not affiliated with the Kodi project.
+The four prebuilt runtime archives are **not yet approved for public
+distribution**; their compliance review is pending. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 [`docs/V1-SPEC.md`](docs/V1-SPEC.md) is the authoritative v1 product and
-architecture specification. [`docs/PROJECT-HANDOFF.md`](docs/PROJECT-HANDOFF.md)
-records the development host host baseline and coexistence constraints for development.
+architecture specification.
 
 For the local Linux amd64 release-candidate installation path, see
 [`docs/LINUX-V1-INSTALL.md`](docs/LINUX-V1-INSTALL.md) and the
@@ -211,7 +214,6 @@ authority only for screenshots, and use Production Remote Kodi only when
 bounded control is deliberately intended. Production screenshot pixels are not
 durably retained by Kodi Lab, although a receiving MCP client may persist them.
 
-The separate [disposable Kodi 19 production-profile fixture](docs/PRODUCTION-PROFILE-FIXTURE.md)
-provides a local, no-LAN real runtime plus a fresh isolated Kodi Lab application
-for later production-flow testing. It is not itself production and does not
-register, pair, log in through Web automation, or capture a screenshot.
+The machine-specific production-profile acceptance fixture is retained in
+private local evidence. The product's production-target authorization and
+inspection tests remain in this repository.

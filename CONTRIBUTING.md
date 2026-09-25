@@ -1,8 +1,8 @@
 # Contributing
 
-Read `docs/V1-SPEC.md`, `docs/PROJECT-HANDOFF.md`, and the relevant decision
-records before changing architecture or host integration. Preserve the legacy
-lab boundary in `docs/LEGACY-LAB-BOUNDARY.md`.
+Read `docs/V1-SPEC.md` and the relevant decision records before changing
+architecture or host integration. Preserve the legacy lab boundary in
+`docs/LEGACY-LAB-BOUNDARY.md`.
 
 Install the locked development environment and run the full foundation gate:
 

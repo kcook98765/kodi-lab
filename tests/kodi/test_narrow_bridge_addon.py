@@ -413,6 +413,7 @@ def test_deterministic_successor_review_archive(
 
     expected = (
         "",
+        "LICENSE",
         "README.md",
         "addon.xml",
         "narrow_bridge.py",
@@ -427,6 +428,12 @@ def test_deterministic_successor_review_archive(
     )
     assert package_entries(ADDON_ROOT) == expected
     with zipfile.ZipFile(first) as archive:
+        assert b"Copyright (c) 2026 Kodi Lab contributors" in archive.read(
+            "service.kodi_lab_bridge/LICENSE"
+        )
+        assert b"Permission is hereby granted" in archive.read(
+            "service.kodi_lab_bridge/LICENSE"
+        )
         assert tuple(info.filename for info in archive.infolist()) == tuple(
             f"service.kodi_lab_bridge/{relative}" for relative in expected
         )

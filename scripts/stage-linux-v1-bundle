@@ -70,6 +70,7 @@ docker save --output "$output/kodi-lab-application-images.tar" \
 git -C "$repository" archive --format=tar HEAD > "$output/kodi-lab-source.tar"
 
 cp "$repository/compose.release.yaml" "$repository/compose.lab.yaml" "$output/"
+cp "$repository/LICENSE" "$repository/THIRD_PARTY_NOTICES.md" "$output/"
 cp "$repository/docs/LINUX-V1-INSTALL.md" "$output/INSTALL.md"
 cp "$repository/docs/KODI-VERSION-EXTENSIBILITY.md" \
   "$output/KODI-VERSION-EXTENSIBILITY.md"
