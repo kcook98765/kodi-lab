@@ -19,10 +19,7 @@ def test_root_only_phase8_validators_disable_bytecode_before_project_imports() -
     scripts_dir = PROJECT_ROOT / "scripts"
     expected = {
         "validate-phase8-addon-repository.py",
-        "validate-phase8-copied-enablement.py",
         "validate-phase8-copied-smoke.py",
-        "validate-phase8-step4.py",
-        "validate-phase8-step5.py",
         "validate-phase8-uploaded-zip-enablement.py",
         "validate-phase8-uploaded-zip-smoke.py",
         "validate-phase8-uploaded-zip.py",

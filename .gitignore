@@ -13,4 +13,5 @@ htmlcov/
 *.db-shm
 *.db-wal
 !src/kodi_lab/fixtures/small-mixed-v2/payload/userdata/Database/MyVideos131.db
+!src/kodi_lab/fixtures/medium-mixed-v1/payload/userdata/Database/MyVideos131.db
 .env
