@@ -20,6 +20,10 @@ from kodi_lab.application.managed_instances import (
     ExactRevisionSelection,
     ManagedInstanceService,
 )
+from kodi_lab.application.runtime_eligibility import (
+    RuntimeRevisionEligibilityPolicy,
+    RuntimeSelectionPolicy,
+)
 from kodi_lab.config import Settings
 from kodi_lab.domain import (
     ConnectionState,
@@ -39,6 +43,11 @@ from kodi_lab.domain import (
 )
 from kodi_lab.remote_lifecycle import validate as remote_validate
 from kodi_lab.runtime.assembly import AssemblyResult, assemble_reviewed_image
+from kodi_lab.runtime.attestation_integrity import (
+    canonical_json,
+    installed_package_digest,
+    seal_attestation,
+)
 from kodi_lab.runtime.managed_network import ensure_managed_network
 from kodi_lab.runtime.recipes import (
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
@@ -81,7 +90,7 @@ def recipe_target_id(reviewed: ReviewedRecipe) -> UUID:
 
 
 def _canonical_json(value: object, *, maximum: int) -> str:
-    serialized = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    serialized = canonical_json(value)
     if len(serialized) > maximum:
         raise RecipeInstallationError("recipe evidence exceeded its bound")
     return serialized
@@ -104,6 +113,9 @@ def acquisition_attestation(reviewed: ReviewedRecipe, assembly: AssemblyResult) 
                 item.model_dump() for item in recipe.critical_packages
             ],
             "installed_packages": assembly.package_inventory,
+            "installed_packages_digest": installed_package_digest(
+                assembly.package_inventory
+            ),
             "signed_metadata_digests": assembly.apt_metadata_digests,
             "image_id": assembly.image_id,
             "image_size": assembly.image_size,
@@ -188,6 +200,27 @@ def _ready_installation(
             or row.image_id is None
         ):
             return {}
+        revision = RuntimeRevisionRepository(session).get(UUID(row.runtime_revision_id))
+        definition = RuntimeDefinitionRepository(session).get(
+            reviewed.recipe.definition_id
+        )
+        if (
+            revision is None
+            or definition is None
+            or not RuntimeRevisionEligibilityPolicy()
+            .evaluate_for_release(
+                session,
+                required_release=definition.kodi_release,
+                definition=definition,
+                revision=revision,
+                policy=RuntimeSelectionPolicy(
+                    include_legacy=True,
+                    validation_contract=reviewed.recipe.validation_contract,
+                ),
+            )
+            .eligible
+        ):
+            return {}
         return {
             "operation_id": row.id,
             "runtime_revision_id": row.runtime_revision_id,
@@ -201,6 +234,8 @@ def _commit_ready(
     operation_id: UUID,
     assembly: AssemblyResult,
     validation: ValidationResult,
+    *,
+    data_root: Path,
 ) -> dict[str, str]:
     recipe = reviewed.recipe
     attestation = acquisition_attestation(reviewed, assembly)
@@ -253,26 +288,34 @@ def _commit_ready(
                 **recipe.execution_profile.model_dump(),
             )
         )
-        RuntimeValidationEvidenceRepository(session).create(
-            RuntimeValidationEvidence(
-                id=uuid4(),
-                runtime_revision_id=revision_id,
-                contract_version=recipe.validation_contract,
-                result=RuntimeValidationResult.PASSED,
-                started_at=validation.started_at,
-                completed_at=validation.completed_at,
-                recorded_at=validation.completed_at,
-                evidence_reference=(
-                    f"kodi-lab-db:runtime-recipe-installation/{operation_id}#validation"
-                ),
-                summary="Reviewed package image passed fixed two-cycle validation",
-            )
+        evidence = RuntimeValidationEvidence(
+            id=uuid4(),
+            runtime_revision_id=revision_id,
+            contract_version=recipe.validation_contract,
+            result=RuntimeValidationResult.PASSED,
+            started_at=validation.started_at,
+            completed_at=validation.completed_at,
+            recorded_at=validation.completed_at,
+            evidence_reference=(
+                f"kodi-lab-db:runtime-recipe-installation/{operation_id}#validation"
+            ),
+            summary="Reviewed package image passed fixed two-cycle validation",
+        )
+        RuntimeValidationEvidenceRepository(session).create(evidence)
+        bound_attestation = seal_attestation(
+            attestation,
+            validation_data,
+            data_root=data_root,
+            operation_id=operation_id,
+            revision_id=revision_id,
+            image_id=assembly.image_id,
+            evidence=evidence,
         )
         RuntimeRecipeInstallationRepository(session).ready(
             operation_id,
             revision_id=revision_id,
             image_id=assembly.image_id,
-            attestation_json=attestation,
+            attestation_json=bound_attestation,
             validation_json=validation_data,
             now=datetime.now(UTC),
         )
@@ -533,7 +576,12 @@ def install_reviewed_runtime(
             committed = _database_call(
                 settings,
                 lambda factory: _commit_ready(
-                    factory, reviewed, operation_id, assembly, validation
+                    factory,
+                    reviewed,
+                    operation_id,
+                    assembly,
+                    validation,
+                    data_root=settings.data_root,
                 ),
             )
         except Exception as error:

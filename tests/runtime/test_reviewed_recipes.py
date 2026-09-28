@@ -108,6 +108,43 @@ def test_reviewed_asset_tamper_is_detected(monkeypatch: pytest.MonkeyPatch) -> N
         load_reviewed_recipe("matrix")
 
 
+def test_reviewed_recipe_byte_change_requires_new_pinned_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from importlib import resources
+
+    original = resources.files
+
+    class Changed:
+        def read_bytes(self) -> bytes:
+            return (
+                original("kodi_lab.runtime")
+                .joinpath("recipes", "matrix-19.4-r1.json")
+                .read_bytes()
+                + b"\n"
+            )
+
+    class ChangedPackage:
+        def joinpath(self, *parts: str) -> Any:
+            if parts == ("recipes", "matrix-19.4-r1.json"):
+                return Changed()
+            return original("kodi_lab.runtime").joinpath(*parts)
+
+    monkeypatch.setattr(resources, "files", lambda _name: ChangedPackage())
+    with pytest.raises(ValueError, match="pinned digest"):
+        load_reviewed_recipe("matrix")
+
+
+def test_duplicate_reviewed_id_and_revision_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kodi_lab.runtime import recipes
+
+    monkeypatch.setattr(recipes, "_RECIPES", {"matrix": recipes._RECIPES["matrix"] * 2})
+    with pytest.raises(ValueError, match="identity is duplicated"):
+        load_reviewed_recipe("matrix")
+
+
 def test_historical_recipe_resolution_requires_exact_reviewed_identity() -> None:
     reviewed = load_reviewed_recipe("matrix")
     assert (
@@ -156,23 +193,89 @@ def test_assembly_rejects_wrong_base_digest_before_build() -> None:
 
 def test_assembly_redacts_package_acquisition_failure() -> None:
     reviewed = load_reviewed_recipe("matrix")
+    operation_id = uuid4()
+    network_name = f"kodi-lab-recipe-acquisition-{operation_id.hex}"
+    removed: list[bool] = []
+    build_networks: list[str] = []
+
+    def failed_build(**kwargs: object) -> Any:
+        build_networks.append(str(kwargs["network_mode"]))
+        return iter([{"error": "private upstream details"}])
+
     client = SimpleNamespace(
         ping=lambda: True,
         images=SimpleNamespace(pull=lambda *_args, **_kwargs: None),
+        networks=SimpleNamespace(
+            create=lambda *_args, **_kwargs: SimpleNamespace(
+                id="isolated-network", remove=lambda: removed.append(True)
+            )
+        ),
         api=SimpleNamespace(
             inspect_image=lambda _image: {
                 "Os": "linux",
                 "Architecture": "amd64",
                 "RepoDigests": [reviewed.recipe.base_image_reference],
             },
-            build=lambda **_kwargs: iter([{"error": "private upstream details"}]),
+            inspect_network=lambda _id: {
+                "Id": "isolated-network",
+                "Name": network_name,
+                "Driver": "bridge",
+                "Internal": False,
+                "Attachable": False,
+                "EnableIPv6": False,
+                "Labels": {
+                    "io.kodi-lab.resource": "recipe-acquisition-network",
+                    "io.kodi-lab.operation-id": str(operation_id),
+                },
+            },
+            build=failed_build,
         ),
     )
     with pytest.raises(
         RecipeAssemblyError, match="acquisition or assembly failed"
     ) as error:
-        assemble_reviewed_image(reviewed, operation_id=uuid4(), client=client)
+        assemble_reviewed_image(reviewed, operation_id=operation_id, client=client)
     assert "private upstream details" not in str(error.value)
+    assert build_networks == [network_name]
+    assert removed == [True]
+
+
+def test_assembly_rejects_substituted_acquisition_network_before_build() -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    removed: list[bool] = []
+
+    def forbidden_build(**_kwargs: object) -> None:
+        raise AssertionError("unreviewed network reached Docker build")
+
+    client = SimpleNamespace(
+        ping=lambda: True,
+        images=SimpleNamespace(pull=lambda *_args, **_kwargs: None),
+        networks=SimpleNamespace(
+            create=lambda *_args, **_kwargs: SimpleNamespace(
+                id="substituted", remove=lambda: removed.append(True)
+            )
+        ),
+        api=SimpleNamespace(
+            inspect_image=lambda _image: {
+                "Os": "linux",
+                "Architecture": "amd64",
+                "RepoDigests": [reviewed.recipe.base_image_reference],
+            },
+            inspect_network=lambda _id: {
+                "Id": "substituted",
+                "Name": "attacker-network",
+                "Driver": "bridge",
+                "Internal": False,
+                "Attachable": False,
+                "EnableIPv6": False,
+                "Labels": {},
+            },
+            build=forbidden_build,
+        ),
+    )
+    with pytest.raises(RecipeAssemblyError, match="network identity differs"):
+        assemble_reviewed_image(reviewed, operation_id=uuid4(), client=client)
+    assert removed == [True]
 
 
 def test_new_generation_is_recipe_data_not_catalog_schema() -> None:

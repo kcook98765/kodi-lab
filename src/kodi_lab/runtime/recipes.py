@@ -24,7 +24,14 @@ _PACKAGE_VERSION = re.compile(r"[0-9][A-Za-z0-9.+:~_-]{0,95}\Z")
 _FILE = re.compile(r"[a-z0-9][a-z0-9.+_-]{0,127}\Z")
 # Each generation retains prior reviewed revisions. The last filename is the
 # current install selection; existing exact pins resolve their recorded file.
-_RECIPES = {"matrix": ("matrix-19.4-r1.json",)}
+_RECIPES = {
+    "matrix": (
+        (
+            "matrix-19.4-r1.json",
+            "sha256:306b3b22ce57d23987b20dd37738a253ef4511ae1754f231d3738efb0db3a482",
+        ),
+    )
+}
 _ASSETS = (
     "entrypoint.sh",
     "healthcheck.sh",
@@ -180,11 +187,7 @@ def supported_generations() -> tuple[str, ...]:
 def load_reviewed_recipe(generation: str) -> ReviewedRecipe:
     """Resolve the current packaged generation recipe for a new installation."""
 
-    try:
-        filename = _RECIPES[generation][-1]
-    except KeyError as error:
-        raise ValueError("generation has no reviewed runtime recipe") from error
-    return _load_recipe_file(generation, filename)
+    return _reviewed_for_generation(generation)[-1]
 
 
 def load_recorded_reviewed_recipe(
@@ -192,12 +195,7 @@ def load_recorded_reviewed_recipe(
 ) -> ReviewedRecipe:
     """Resolve only a wheel-owned historical recipe matching a durable install."""
 
-    try:
-        filenames = _RECIPES[generation]
-    except KeyError as error:
-        raise ValueError("generation has no reviewed runtime recipe") from error
-    for filename in filenames:
-        reviewed = _load_recipe_file(generation, filename)
+    for reviewed in _reviewed_for_generation(generation):
         if (
             reviewed.recipe.recipe_id == recipe_id
             and reviewed.recipe.recipe_revision == recipe_revision
@@ -207,9 +205,30 @@ def load_recorded_reviewed_recipe(
     raise ValueError("recorded runtime recipe is no longer reviewed")
 
 
-def _load_recipe_file(generation: str, filename: str) -> ReviewedRecipe:
+def _reviewed_for_generation(generation: str) -> tuple[ReviewedRecipe, ...]:
+    try:
+        entries = _RECIPES[generation]
+    except KeyError as error:
+        raise ValueError("generation has no reviewed runtime recipe") from error
+    reviewed = tuple(
+        _load_recipe_file(generation, filename, digest) for filename, digest in entries
+    )
+    identities = [
+        (item.recipe.recipe_id, item.recipe.recipe_revision) for item in reviewed
+    ]
+    if not reviewed or len(identities) != len(set(identities)):
+        raise ValueError("reviewed recipe identity is duplicated")
+    return reviewed
+
+
+def _load_recipe_file(
+    generation: str, filename: str, expected_digest: str
+) -> ReviewedRecipe:
     package = resources.files("kodi_lab.runtime")
     raw = package.joinpath("recipes", filename).read_bytes()
+    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    if digest != expected_digest:
+        raise ValueError("reviewed recipe resource differs from pinned digest")
     recipe = RuntimeRecipe.model_validate_json(raw)
     if recipe.generation != generation:
         raise ValueError("recipe generation differs from reviewed selection")
@@ -224,7 +243,7 @@ def _load_recipe_file(generation: str, filename: str) -> ReviewedRecipe:
             raise ValueError("reviewed assembly asset differs")
     return ReviewedRecipe(
         recipe=recipe,
-        digest="sha256:" + hashlib.sha256(raw).hexdigest(),
+        digest=digest,
         reference=f"kodi-lab-wheel:runtime/recipes/{filename}",
         assets=assets,
         raw=raw,

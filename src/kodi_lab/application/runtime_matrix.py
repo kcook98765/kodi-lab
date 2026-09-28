@@ -24,6 +24,7 @@ from kodi_lab.domain import (
     RuntimeSupportTier,
     effective_validation_state,
 )
+from kodi_lab.runtime.recipes import REVIEWED_SIGNED_DISTRO_SOURCE_KIND
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeDefinitionRepository,
@@ -282,7 +283,14 @@ class RuntimeMatrixService:
             selectable=selected is not None,
             availability=availability,
             ineligibility_reason=reason,
-            availability_detail=self._detail(definition.support_tier, reason),
+            availability_detail=self._detail(
+                definition.support_tier,
+                reason,
+                reviewed_recipe=(
+                    selected is not None
+                    and selected.source_kind == REVIEWED_SIGNED_DISTRO_SOURCE_KIND
+                ),
+            ),
             requires_legacy_opt_in=definition.support_tier is RuntimeSupportTier.LEGACY,
             requires_prerelease_opt_in=definition.support_tier
             is RuntimeSupportTier.PREVIEW,
@@ -340,9 +348,17 @@ class RuntimeMatrixService:
 
     @staticmethod
     def _detail(
-        tier: RuntimeSupportTier, reason: MatrixIneligibilityReason | None
+        tier: RuntimeSupportTier,
+        reason: MatrixIneligibilityReason | None,
+        *,
+        reviewed_recipe: bool = False,
     ) -> str:
         if reason is None:
+            if reviewed_recipe:
+                return (
+                    "Catalog eligible for a compatible Target; "
+                    "local image checked at provisioning."
+                )
             return "Available for a compatible Target."
         if reason is MatrixIneligibilityReason.SUPPORT_TIER_NOT_PERMITTED:
             if tier is RuntimeSupportTier.LEGACY:

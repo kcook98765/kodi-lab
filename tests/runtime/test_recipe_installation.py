@@ -1,6 +1,8 @@
 """Durable recipe install and existing catalog eligibility integration."""
 
+import base64
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,13 +18,21 @@ from kodi_lab.application.runtime_eligibility import (
     RuntimeSelectionPolicy,
 )
 from kodi_lab.application.screenshots import ManagedScreenshotService
+from kodi_lab.config import Settings
+from kodi_lab.host_bootstrap import generate_master_key
 from kodi_lab.mcp.authorization import InternalManagedTargetAuthorityProvider
 from kodi_lab.runtime.assembly import AssemblyResult
+from kodi_lab.runtime.attestation_integrity import (
+    AttestationIntegrityError,
+    canonical_json,
+    installed_package_digest,
+)
 from kodi_lab.runtime.install import (
     _advance,
     _commit_ready,
     _create_operation,
     _fail,
+    _ready_installation,
     bootstrap_recipe_instance,
     recipe_target_id,
 )
@@ -31,7 +41,10 @@ from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capa
 from kodi_lab.runtime.validation import ValidationResult
 from kodi_lab.storage import metadata
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from kodi_lab.storage.models import RuntimeRecipeInstallationRow
+from kodi_lab.storage.models import (
+    RuntimeRecipeInstallationRow,
+    RuntimeValidationEvidenceRow,
+)
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeDefinitionRepository,
@@ -44,30 +57,43 @@ IMAGE = "sha256:" + "a" * 64
 
 
 @pytest.fixture
-def factory(tmp_path: Path) -> sessionmaker[Session]:
+def factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sessionmaker[Session]:
+    state_root = tmp_path / "state"
+    state_root.mkdir(mode=0o700)
+    generate_master_key(state_root)
+    monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(state_root))
     engine = create_database_engine(f"sqlite:///{tmp_path / 'recipe.db'}")
     metadata.create_all(engine)
     return create_session_factory(engine)
 
 
-def _assembly() -> AssemblyResult:
+def _assembly(image_id: str = IMAGE) -> AssemblyResult:
     return AssemblyResult(
-        image_id=IMAGE,
+        image_id=image_id,
         image_size=1_050_650_811,
         elapsed_seconds=115.28,
         build_log_digest="sha256:" + "b" * 64,
         build_log_bytes=124_319,
         apt_index_download="34.2 MB",
         apt_package_download="144 MB",
-        package_inventory=tuple(
-            (item.name, item.version, item.architecture)
-            for item in load_reviewed_recipe("matrix").recipe.critical_packages
+        package_inventory=(
+            *tuple(
+                (item.name, item.version, item.architecture)
+                for item in load_reviewed_recipe("matrix").recipe.critical_packages
+            ),
+            ("libaudit-transitive", "1.0-1", "amd64"),
         ),
-        apt_metadata_digests=(("jammy_InRelease", "sha256:" + "c" * 64),),
+        apt_metadata_digests=tuple(
+            (
+                f"archive.ubuntu.com_ubuntu_dists_{pocket}_InRelease",
+                "sha256:" + "c" * 64,
+            )
+            for pocket in load_reviewed_recipe("matrix").recipe.provider.pockets
+        ),
     )
 
 
-def _validation() -> ValidationResult:
+def _validation(image_id: str = IMAGE) -> ValidationResult:
     reviewed = load_reviewed_recipe("matrix")
     now = datetime.now(UTC)
     return ValidationResult(
@@ -78,18 +104,28 @@ def _validation() -> ValidationResult:
             "result": "passed",
             "recipe_digest": reviewed.digest,
             "release": "19.4",
-            "image_id": IMAGE,
+            "image_id": image_id,
+            "network_mode": "isolated_internal_bridge",
+            "non_root_uid": 1000,
+            "jsonrpc": True,
             "navigation": True,
+            "library_query": True,
             "screenshot": {
                 "width": 1280,
                 "height": 720,
                 "software_renderer": "llvmpipe",
+                "png_bytes": 100,
+                "png_sha256": "sha256:" + "d" * 64,
             },
+            "cycles": [
+                {"cycle": number, "readiness": True, "clean_stop": True}
+                for number in (1, 2)
+            ],
         },
     )
 
 
-def _ready(factory: sessionmaker[Session]) -> UUID:
+def _ready(factory: sessionmaker[Session], image_id: str = IMAGE) -> UUID:
     reviewed = load_reviewed_recipe("matrix")
     operation_id = uuid4()
     _create_operation(factory, reviewed, operation_id)
@@ -97,7 +133,14 @@ def _ready(factory: sessionmaker[Session]) -> UUID:
 
     for state in (State.PENDING, State.ACQUIRING, State.ASSEMBLING):
         _advance(factory, operation_id, expected=state)
-    _commit_ready(factory, reviewed, operation_id, _assembly(), _validation())
+    _commit_ready(
+        factory,
+        reviewed,
+        operation_id,
+        _assembly(image_id),
+        _validation(image_id),
+        data_root=Settings().data_root,
+    )
     return operation_id
 
 
@@ -180,6 +223,165 @@ def test_recipe_provenance_tamper_removes_eligibility(
         )
 
 
+def _assert_recipe_ineligible(
+    factory: sessionmaker[Session], operation_id: UUID
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).ready_for_revision(
+            UUID(
+                str(
+                    session.query(RuntimeRecipeInstallationRow.runtime_revision_id)
+                    .filter_by(id=str(operation_id))
+                    .scalar()
+                )
+            )
+        )
+        assert row is not None and row.runtime_revision_id is not None
+        definition = RuntimeDefinitionRepository(session).get(
+            reviewed.recipe.definition_id
+        )
+        revision = RuntimeRevisionRepository(session).get(UUID(row.runtime_revision_id))
+        assert definition is not None and revision is not None
+        result = RuntimeRevisionEligibilityPolicy().evaluate_for_release(
+            session,
+            required_release=definition.kodi_release,
+            definition=definition,
+            revision=revision,
+            policy=RuntimeSelectionPolicy(),
+        )
+        assert result.reason is RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
+    assert _ready_installation(factory, reviewed) == {}
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "signed_metadata_digest",
+        "transitive_inventory",
+        "critical_package_hash",
+        "recipe_digest",
+        "base_image_identity",
+        "image_identity",
+        "validation_contract",
+        "evidence_identity",
+        "operation_identity",
+        "missing_binding",
+        "malformed_binding",
+        "wrong_binding",
+    ],
+)
+def test_valid_shape_persisted_provenance_tamper_fails_closed(
+    factory: sessionmaker[Session], case: str
+) -> None:
+    operation_id = _ready(factory)
+    with factory.begin() as session:
+        row = session.get(RuntimeRecipeInstallationRow, str(operation_id))
+        assert row is not None and row.attestation_json and row.validation_json
+        attestation = json.loads(row.attestation_json)
+        validation = json.loads(row.validation_json)
+        if case == "signed_metadata_digest":
+            attestation["signed_metadata_digests"][0][1] = "sha256:" + "f" * 64
+        elif case == "transitive_inventory":
+            attestation["installed_packages"][-1][1] = "1.0-2"
+            attestation["installed_packages_digest"] = installed_package_digest(
+                attestation["installed_packages"]
+            )
+        elif case == "critical_package_hash":
+            attestation["critical_packages"][0]["sha256"] = "sha256:" + "f" * 64
+        elif case == "recipe_digest":
+            attestation["recipe_digest"] = "sha256:" + "f" * 64
+        elif case == "base_image_identity":
+            attestation["base_image_reference"] = "ubuntu@sha256:" + "f" * 64
+        elif case == "image_identity":
+            attestation["image_id"] = "sha256:" + "f" * 64
+        elif case == "validation_contract":
+            validation["schema"] = "kodi-runtime-validation-other"
+        elif case == "evidence_identity":
+            evidence = session.query(RuntimeValidationEvidenceRow).one()
+            evidence.id = str(uuid4())
+        elif case == "operation_identity":
+            # The row ID is validly shaped and still references the same revision.
+            row.id = str(uuid4())
+            evidence = session.query(RuntimeValidationEvidenceRow).one()
+            evidence.evidence_reference = (
+                f"kodi-lab-db:runtime-recipe-installation/{row.id}#validation"
+            )
+        elif case == "missing_binding":
+            del attestation["integrity_binding"]
+        elif case == "malformed_binding":
+            attestation["integrity_binding"] = "hmac-sha256:xyz"
+        else:
+            attestation["integrity_binding"] = "hmac-sha256:" + "f" * 64
+        row.attestation_json = canonical_json(attestation)
+        row.validation_json = canonical_json(validation)
+    if case != "operation_identity":
+        _assert_recipe_ineligible(factory, operation_id)
+    else:
+        # The operation lookup is gone; selecting the ready row still fails.
+        assert _ready_installation(factory, load_reviewed_recipe("matrix")) == {}
+
+
+@pytest.mark.parametrize("case", ["wrong_key", "corrupt_key", "missing_key"])
+def test_integrity_key_failure_fails_closed(
+    factory: sessionmaker[Session], case: str
+) -> None:
+    operation_id = _ready(factory)
+    key_path = Settings().data_root / "master-key"
+    if case == "missing_key":
+        key_path.unlink()
+    elif case == "corrupt_key":
+        key_path.write_text("not-a-key\n", encoding="ascii")
+    else:
+        key_path.write_bytes(base64.urlsafe_b64encode(os.urandom(32)) + b"\n")
+    _assert_recipe_ineligible(factory, operation_id)
+
+
+def test_missing_integrity_key_rolls_back_ready_transition(
+    factory: sessionmaker[Session],
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    operation_id = uuid4()
+    _create_operation(factory, reviewed, operation_id)
+    from kodi_lab.domain import RuntimeRecipeInstallationState as State
+
+    for state in (State.PENDING, State.ACQUIRING, State.ASSEMBLING):
+        _advance(factory, operation_id, expected=state)
+    (Settings().data_root / "master-key").unlink()
+    with pytest.raises(AttestationIntegrityError):
+        _commit_ready(
+            factory,
+            reviewed,
+            operation_id,
+            _assembly(),
+            _validation(),
+            data_root=Settings().data_root,
+        )
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation_id)
+        assert row is not None and row.state is State.VALIDATING
+        assert (
+            RuntimeRevisionRepository(session).list_for_definition(
+                reviewed.recipe.definition_id
+            )
+            == []
+        )
+
+
+def test_malformed_persisted_operation_identity_fails_closed(
+    factory: sessionmaker[Session],
+) -> None:
+    _ready(factory)
+    with factory.begin() as session:
+        row = session.query(RuntimeRecipeInstallationRow).one()
+        row.id = "malformed-operation-id"
+        evidence = session.query(RuntimeValidationEvidenceRow).one()
+        evidence.evidence_reference = (
+            "kodi-lab-db:runtime-recipe-installation/malformed-operation-id#validation"
+        )
+    assert _ready_installation(factory, load_reviewed_recipe("matrix")) == {}
+
+
 def test_failed_install_is_terminal_and_does_not_create_revision(
     factory: sessionmaker[Session],
 ) -> None:
@@ -192,6 +394,169 @@ def test_failed_install_is_terminal_and_does_not_create_revision(
         assert row is not None and row.state.value == "failed"
         assert row.failure_code == "installation_failed"
         assert row.runtime_revision_id is None
+        assert (
+            RuntimeRevisionRepository(session).list_for_definition(
+                reviewed.recipe.definition_id
+            )
+            == []
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("base_image_reference", "ubuntu:unreviewed"),
+        ("platform", "linux/arm64"),
+        ("critical_packages", []),
+        ("installed_packages", []),
+        ("signed_metadata_digests", []),
+    ],
+)
+def test_corrupted_ready_attestation_is_ineligible_and_not_reused(
+    factory: sessionmaker[Session], field: str, replacement: object
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    operation_id = _ready(factory)
+    with factory.begin() as session:
+        row = session.get(RuntimeRecipeInstallationRow, str(operation_id))
+        assert row is not None and row.attestation_json is not None
+        attestation = json.loads(row.attestation_json)
+        attestation[field] = replacement
+        row.attestation_json = json.dumps(attestation)
+    assert _ready_installation(factory, reviewed) == {}
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation_id)
+        assert row is not None and row.runtime_revision_id is not None
+        definition = RuntimeDefinitionRepository(session).get(
+            reviewed.recipe.definition_id
+        )
+        revision = RuntimeRevisionRepository(session).get(UUID(row.runtime_revision_id))
+        assert definition is not None and revision is not None
+        result = RuntimeRevisionEligibilityPolicy().evaluate_for_release(
+            session,
+            required_release=definition.kodi_release,
+            definition=definition,
+            revision=revision,
+            policy=RuntimeSelectionPolicy(),
+        )
+        assert result.reason is RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("schema", "old-contract"),
+        ("release", "19.5"),
+        ("cycles", []),
+        ("screenshot", None),
+    ],
+)
+def test_corrupted_validation_report_is_ineligible(
+    factory: sessionmaker[Session], field: str, replacement: object
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    operation_id = _ready(factory)
+    with factory.begin() as session:
+        row = session.get(RuntimeRecipeInstallationRow, str(operation_id))
+        assert row is not None and row.validation_json is not None
+        validation = json.loads(row.validation_json)
+        validation[field] = replacement
+        row.validation_json = json.dumps(validation)
+    assert _ready_installation(factory, reviewed) == {}
+
+
+@pytest.mark.parametrize("field", ["evidence_reference", "started_at", "recorded_at"])
+def test_stale_or_rebound_validation_evidence_is_ineligible(
+    factory: sessionmaker[Session], field: str
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    operation_id = _ready(factory)
+    with factory.begin() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation_id)
+        assert row is not None and row.runtime_revision_id is not None
+        evidence = (
+            session.query(RuntimeValidationEvidenceRow)
+            .filter_by(runtime_revision_id=row.runtime_revision_id)
+            .one()
+        )
+        if field == "evidence_reference":
+            evidence.evidence_reference = (
+                f"kodi-lab-db:runtime-recipe-installation/{uuid4()}#validation"
+            )
+        elif field == "started_at":
+            evidence.started_at = "2020-01-01T00:00:00.000000Z"
+        else:
+            evidence.recorded_at = "2099-01-01T00:00:00.000000Z"
+    assert _ready_installation(factory, reviewed) == {}
+
+
+def test_corrupted_installation_timestamp_is_ineligible(
+    factory: sessionmaker[Session],
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    operation_id = _ready(factory)
+    with factory.begin() as session:
+        row = session.get(RuntimeRecipeInstallationRow, str(operation_id))
+        assert row is not None
+        row.created_at = "2026-01-01T00:00:00.000000"
+    assert _ready_installation(factory, reviewed) == {}
+
+
+def test_reinstallation_creates_new_artifact_without_rebinding_existing_pin(
+    factory: sessionmaker[Session],
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    first = _ready(factory)
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(first)
+        assert row is not None and row.runtime_revision_id is not None
+        first_revision_id = UUID(row.runtime_revision_id)
+    assert (
+        bootstrap_recipe_instance(factory, reviewed, first_revision_id)["created"]
+        == "true"
+    )
+    replacement_image = "sha256:" + "e" * 64
+    second = _ready(factory, replacement_image)
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(second)
+        assert row is not None and row.runtime_revision_id is not None
+        second_revision_id = UUID(row.runtime_revision_id)
+        assert second_revision_id != first_revision_id
+        revisions = RuntimeRevisionRepository(session).list_for_definition(
+            reviewed.recipe.definition_id
+        )
+        assert [(item.revision_number, item.content_digest) for item in revisions] == [
+            (1, IMAGE),
+            (2, replacement_image),
+        ]
+    assert (
+        bootstrap_recipe_instance(factory, reviewed, second_revision_id)["created"]
+        == "false"
+    )
+    with factory() as session:
+        instance = ManagedInstanceRepository(session).get(recipe_target_id(reviewed))
+        assert instance is not None
+        assert instance.runtime_revision_id == first_revision_id
+
+
+def test_interrupted_validating_attempt_is_failed_before_new_pending_attempt(
+    factory: sessionmaker[Session],
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    first = uuid4()
+    _create_operation(factory, reviewed, first)
+    from kodi_lab.domain import RuntimeRecipeInstallationState as State
+
+    for state in (State.PENDING, State.ACQUIRING, State.ASSEMBLING):
+        _advance(factory, first, expected=state)
+    second = uuid4()
+    _create_operation(factory, reviewed, second)
+    with factory() as session:
+        old = RuntimeRecipeInstallationRepository(session).get(first)
+        current = RuntimeRecipeInstallationRepository(session).get(second)
+        assert old is not None and old.state is State.FAILED
+        assert old.failure_code == "interrupted"
+        assert current is not None and current.state is State.PENDING
         assert (
             RuntimeRevisionRepository(session).list_for_definition(
                 reviewed.recipe.definition_id

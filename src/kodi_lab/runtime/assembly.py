@@ -263,6 +263,7 @@ def assemble_reviewed_image(
     log_digest = hashlib.sha256()
     log_size = 0
     log_parts: list[str] = []
+    network: Any | None = None
     try:
         client.ping()
         client.images.pull(
@@ -282,6 +283,31 @@ def assemble_reviewed_image(
             raise RecipeAssemblyError("reviewed base image identity differs")
         if on_base_ready is not None:
             on_base_ready()
+        network_name = f"kodi-lab-recipe-acquisition-{operation_id.hex}"
+        labels = {
+            "io.kodi-lab.resource": "recipe-acquisition-network",
+            "io.kodi-lab.operation-id": str(operation_id),
+        }
+        network = client.networks.create(
+            network_name,
+            driver="bridge",
+            internal=False,
+            attachable=False,
+            enable_ipv6=False,
+            check_duplicate=True,
+            labels=labels,
+        )
+        inspected_network = client.api.inspect_network(network.id)
+        if (
+            inspected_network.get("Id") != network.id
+            or inspected_network.get("Name") != network_name
+            or inspected_network.get("Driver") != "bridge"
+            or inspected_network.get("Internal") is not False
+            or inspected_network.get("Attachable") is not False
+            or inspected_network.get("EnableIPv6") is not False
+            or inspected_network.get("Labels") != labels
+        ):
+            raise RecipeAssemblyError("acquisition network identity differs")
         stream = client.api.build(
             fileobj=io.BytesIO(build_context(reviewed)),
             custom_context=True,
@@ -292,6 +318,7 @@ def assemble_reviewed_image(
             nocache=True,
             decode=True,
             platform=reviewed.recipe.platform,
+            network_mode=network_name,
         )
         for event in stream:
             if not isinstance(event, dict):
@@ -338,5 +365,11 @@ def assemble_reviewed_image(
             "Docker could not assemble the reviewed recipe"
         ) from error
     finally:
-        if owned_client:
-            client.close()
+        try:
+            if network is not None:
+                network.remove()
+        except Exception as error:
+            raise RecipeAssemblyError("acquisition network cleanup failed") from error
+        finally:
+            if owned_client:
+                client.close()

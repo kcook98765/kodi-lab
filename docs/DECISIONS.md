@@ -4844,3 +4844,33 @@ approvals atomically with the governing revision transition.
   navigation, and add-on services additionally passed isolated Matrix 19.4
   acceptance. Capability discovery for this revision reads the same ready
   recipe/eligibility evidence rather than a static version branch.
+
+## D-0378: Local integrity binding and disposable acquisition network
+
+- A ready reviewed-recipe installation stores a canonical acquisition
+  attestation with a domain-separated HMAC-SHA-256 binding. The bound payload
+  includes the entire attestation (recipe, provider, base, signed metadata,
+  critical package hashes, full installed inventory and its digest, exact
+  image ID), validation report, operation and revision UUIDs, and the complete
+  validation-evidence identity and result. The binding and ready/approval
+  transition commit together. Missing or invalid bindings are ineligible;
+  older unbound ready rows require explicit reinstall and validation.
+- The HMAC key is derived from the existing private `master-key` file under a
+  separate purpose label. It is never stored in SQLite. The existing backup
+  and restore contract preserves the exact key alongside the database and
+  verifies its state marker. A missing, replaced, corrupt, or unsafe key fails
+  eligibility closed; restore must not silently generate a replacement.
+  This detects persisted provenance corruption or tampering by a database
+  writer without key access. It does not defend against control of the Kodi
+  Lab process, key, Docker daemon, or host/root trust boundary.
+- Each assembly operation creates a labeled, non-attachable Docker bridge with
+  an operation-derived name, builds only on that bridge, then removes it. This
+  avoids reliance on Docker's default bridge. Ordinary outbound Docker NAT is
+  needed for the reviewed Ubuntu repositories; the bridge is not an egress
+  firewall or destination allowlist. No caller chooses a network, host mode,
+  privilege, build argument, Dockerfile, package, or repository.
+- Catalog eligibility describes persisted trust in an exact artifact identity.
+  Current local image availability is checked separately before reuse and by
+  broker provisioning. Deleting an image can leave catalog trust eligibility
+  true while the old managed pin is unavailable; it does not trigger a pull,
+  rebuild, or pin change.
