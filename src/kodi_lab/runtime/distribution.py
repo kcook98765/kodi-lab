@@ -434,6 +434,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kodi-lab-runtime")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("list", help="show wheel-owned reviewed identities")
+    commands.add_parser("recipes", help="show reviewed binary-package generations")
+    install_command = commands.add_parser(
+        "install", help="acquire, assemble, validate, and register one generation"
+    )
+    from kodi_lab.runtime.recipes import supported_generations
+
+    install_command.add_argument("generation", choices=supported_generations())
     commands.add_parser("verify", help="verify all exact local Docker images")
     load_command = commands.add_parser("load", help="verify and load one archive")
     load_command.add_argument("name", choices=RUNTIME_NAMES)
@@ -444,6 +451,43 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     try:
+        if arguments.command == "recipes":
+            from kodi_lab.runtime.recipes import (
+                load_reviewed_recipe,
+                supported_generations,
+            )
+
+            for generation in supported_generations():
+                recipe = load_reviewed_recipe(generation).recipe
+                print(
+                    recipe.display_generation,
+                    recipe.kodi_version,
+                    recipe.platform,
+                    f"recipe={recipe.recipe_id}/r{recipe.recipe_revision}",
+                )
+            return 0
+        if arguments.command == "install":
+            from kodi_lab.runtime.install import (
+                RecipeInstallationError,
+                install_reviewed_runtime,
+            )
+
+            settings = Settings(_env_file=None)  # type: ignore[call-arg]
+            try:
+                installed = install_reviewed_runtime(
+                    arguments.generation,
+                    settings=settings,
+                    report=lambda state: print(
+                        f"{arguments.generation}: {state}", flush=True
+                    ),
+                )
+            except RecipeInstallationError as error:
+                parser.error(str(error))
+            print(
+                f"{arguments.generation}: revision={installed.runtime_revision_id} "
+                f"image={installed.image_id} reused={installed.reused}"
+            )
+            return 0
         runtimes = load_curated_runtimes()
         if arguments.command == "list":
             print(

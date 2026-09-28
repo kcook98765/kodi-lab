@@ -61,6 +61,17 @@ class RuntimeValidationResult(StrEnum):
     FAILED = "failed"
 
 
+class RuntimeRecipeInstallationState(StrEnum):
+    """Durable, bounded phases for one reviewed local image installation."""
+
+    PENDING = "pending"
+    ACQUIRING = "acquiring"
+    ASSEMBLING = "assembling"
+    VALIDATING = "validating"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class EffectiveValidationState(StrEnum):
     """Derived state for one revision under a required contract version."""
 

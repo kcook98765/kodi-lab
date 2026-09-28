@@ -105,6 +105,7 @@ class SmallMixedFixtureKodiAdapter:
             raise ValueError("observation and execution profile ports differ")
         if profile.kodi_release.canonical not in {
             "19.5",
+            "19.4",
             "20.5",
             "21.3",
             "22.0-beta.2",

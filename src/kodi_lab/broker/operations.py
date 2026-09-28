@@ -565,6 +565,7 @@ class ApplyAssignedFixtureResult(StrictModel):
         "small-mixed-v3",
         "small-mixed-v4",
         "small-mixed-v5",
+        "small-mixed-v6",
         "small-movies-v1",
         "small-movies-v2",
         "small-movies-v3",
@@ -573,7 +574,7 @@ class ApplyAssignedFixtureResult(StrictModel):
         "small-tv-v3",
         "medium-mixed-v1",
     ]
-    fixture_version: Literal[1, 2, 3, 4, 5]
+    fixture_version: Literal[1, 2, 3, 4, 5, 6]
     content_digest: str = Field(
         min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
     )
@@ -594,6 +595,7 @@ class ApplyAssignedFixtureResult(StrictModel):
             "small-mixed-v3": 3,
             "small-mixed-v4": 4,
             "small-mixed-v5": 5,
+            "small-mixed-v6": 6,
             "small-movies-v1": 1,
             "small-movies-v2": 2,
             "small-movies-v3": 3,
@@ -2207,6 +2209,7 @@ def build_foundation_registry(
                     "small-mixed-v3",
                     "small-mixed-v4",
                     "small-mixed-v5",
+                    "small-mixed-v6",
                     "small-movies-v1",
                     "small-movies-v2",
                     "small-movies-v3",
@@ -2217,7 +2220,7 @@ def build_foundation_registry(
                 ],
                 outcome.fixture_slug,
             ),
-            fixture_version=cast(Literal[1, 2, 3, 4, 5], outcome.fixture_version),
+            fixture_version=cast(Literal[1, 2, 3, 4, 5, 6], outcome.fixture_version),
             content_digest=outcome.content_digest,
             runtime_state=ContainerRuntimeState.STOPPED,
         )

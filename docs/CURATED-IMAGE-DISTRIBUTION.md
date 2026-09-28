@@ -1,5 +1,12 @@
 # Curated Kodi image distribution and catalog bootstrap
 
+Update (2026-09-28): this page describes the preserved private archive path.
+The normal runtime acquisition direction is a wheel-owned reviewed recipe,
+signed distro package acquisition inside controlled Docker infrastructure,
+local image assembly, validation, and exact revision pinning. Matrix 19.4 is
+the first implemented recipe. The existing archive bootstrap and this page
+remain for private reference/recovery until the release bundle is migrated.
+
 This Linux amd64 foundation covers the exact reviewed Kodi 19.5, 20.5, 21.3,
 and 22.0 Beta 2 images. It does not create or start managed Kodi instances.
 The current archives are local acceptance artifacts only; none is published.

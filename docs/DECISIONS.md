@@ -4778,3 +4778,69 @@ approvals atomically with the governing revision transition.
 - The release Compose remains host-loopback-only. Broker Docker-socket access
   is effective host-root authority; Web has only its private broker socket.
   See `LINUX-V1-RELEASE.md` for the full inventory and recovery boundary.
+
+## D-0375: Reviewed binary-package recipes supersede runtime archives for normal installation
+
+- Normal runtime selection is a generation name. Matrix 19 currently resolves to
+  one wheel-owned reviewed recipe revision for exact Kodi 19.4 on linux/amd64.
+  The recipe pins the Ubuntu 22.04 base digest, Jammy signed repository identity,
+  exact Kodi package versions and file hashes, assembly assets, execution
+  profile, and validation contract. Nexus 20.5 and Omega 21.3 need separately
+  reviewed recipes and acceptance; Piers 22 remains deferred. A future provider
+  type can be added to the closed recipe model without replacing catalog or
+  installation schemas.
+- An explicit one-shot `kodi-lab-runtime install <generation>` command performs
+  acquisition, local image assembly, validation, and exact catalog registration.
+  The Docker-capable worker creates only fixed recipe inputs; Web receives no
+  Docker socket or generic Dockerfile/package/shell request. The worker uses a
+  private install lock and durable pending/acquiring/assembling/validating/ready
+  or failed rows. When root runs the worker, only a forked state-owner child
+  writes SQLite. The long-running broker protocol remains unchanged.
+- A successful build alone grants no runtime eligibility. The shared catalog
+  policy requires an approved exact revision, artifact and profile, passing
+  validation evidence, and a ready install row whose recipe digest, acquired
+  image, attestation, and validation match the reviewed wheel resource. Managed
+  instances pin exact revisions and are never silently rebound by reassembly.
+  The wheel keeps prior reviewed recipe files addressable by recorded identity
+  so a later current recipe does not remove capabilities from an existing pin.
+- Existing private 19.5 archives, catalog rows, and four-archive bootstrap remain
+  supported during migration. The old unpublished release-candidate bundle is
+  historical and still archive-based; a future release slice must replace its
+  four-runtime archive requirement before publication.
+
+## D-0376: Signed APT trust and bounded dependency policy for Matrix
+
+- The reviewed base is pulled by digest and verified as linux/amd64. Its Ubuntu
+  archive keyring hash is checked before a fixed Jammy sources list is used.
+  APT verifies signed InRelease metadata, package-index hashes, and downloaded
+  package bytes. The recipe additionally verifies file hashes, versions, and
+  architectures of `kodi`, `kodi-bin`, `kodi-data`, and
+  `kodi-repository-kodi` before accepting the assembled image. A missing or
+  changed critical package fails installation; no alternate distro, mirror,
+  Kodi version, or source compilation is selected.
+- Ordinary transitive runtime dependencies are authenticated through the same
+  reviewed signed repository. The exact installed inventory and signed metadata
+  digests are persisted in the acquisition attestation. They are observed
+  identities, not a claim that the whole dependency graph is reproducible
+  indefinitely from mutable Ubuntu pockets. A future recipe revision is needed
+  when reviewed inputs or validation expectations change.
+- Local image identity is the inspected immutable Docker image ID. A missing
+  image remains unavailable to existing exact pins; an explicit reinstall
+  creates and validates a new local artifact/revision. Docker images are
+  reconstructible external state and are not included in application backups.
+- Explicit assembly disables Docker layer reuse so each new installation
+  obtains signed APT metadata and package files for its own acquisition
+  attestation. Repeated `install` is an exact-image verified no-op while the
+  latest ready artifact remains available.
+
+## D-0377: Matrix 19.4 fixture and capability acceptance
+
+- The new `small-mixed-v6` package is explicitly compatible with 19.4 and uses
+  the audited Kodi 19 configuration-only MyVideos119 seed. Its semantic assets
+  remain synthetic. The previous 19.5 fixture and private reference are intact.
+- The fixed two-cycle recipe validation checks exact Kodi identity, readiness,
+  non-root execution, Xvfb, llvmpipe GUI, 1280x720 PNG, navigation, library
+  queries, and stop/restart. The normal managed lifecycle, reset, screenshot,
+  navigation, and add-on services additionally passed isolated Matrix 19.4
+  acceptance. Capability discovery for this revision reads the same ready
+  recipe/eligibility evidence rather than a static version branch.

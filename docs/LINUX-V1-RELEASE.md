@@ -1,5 +1,10 @@
 # Linux amd64 V1 release candidate contract
 
+Update (2026-09-28): this contract records the earlier unpublished, local
+four-archive candidate. The intended public bundle will carry Kodi Lab,
+reviewed runtime recipes, validation contracts, and notices; it will not
+distribute Kodi binaries. Bundle staging has not yet been migrated.
+
 This is the authoritative inventory for the Linux amd64 V1 bundle. The local
 `1.0.0rc1` candidate is unpublished. `BUNDLE.json` is the machine-readable
 instance of this contract; `SHA256SUMS` covers every file except itself. The

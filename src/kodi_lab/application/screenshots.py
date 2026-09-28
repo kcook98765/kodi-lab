@@ -43,6 +43,7 @@ from kodi_lab.kodi.screenshots import (
     validate_png,
     x11_frame_to_png,
 )
+from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.storage.models import (
     ManagedScreenshotRow,
     RuntimeDefinitionRow,
@@ -517,6 +518,8 @@ class ManagedScreenshotService:
                 expected_kodi_version=profile.expected_kodi_version,
                 expected_version_tag=profile.expected_version_tag,
                 expected_prerelease_ordinal=profile.expected_prerelease_ordinal,
+            ) or supports_reviewed_recipe_capability(
+                session, runtime_revision_id, "screenshot"
             )
 
     def _display_runtime_supported(self, runtime_revision_id: UUID) -> bool:

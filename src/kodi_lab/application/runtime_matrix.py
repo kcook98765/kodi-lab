@@ -66,6 +66,9 @@ class MatrixIneligibilityReason(StrEnum):
     )
     UNVALIDATED = RuntimeIneligibilityReason.UNVALIDATED
     VALIDATION_FAILED = RuntimeIneligibilityReason.VALIDATION_FAILED
+    RECIPE_PROVENANCE_UNAVAILABLE = (
+        RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
+    )
 
 
 class RuntimeMatrixEntry(BaseModel):
@@ -377,6 +380,9 @@ class RuntimeMatrixService:
             ),
             MatrixIneligibilityReason.VALIDATION_FAILED: (
                 "Latest runtime validation failed."
+            ),
+            MatrixIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE: (
+                "Reviewed recipe provenance or local validation is unavailable."
             ),
         }
         return details.get(reason, "Runtime is unavailable.")

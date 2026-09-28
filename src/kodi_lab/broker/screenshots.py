@@ -246,6 +246,10 @@ class SqliteScreenshotCaptureResolver:
                     raise ScreenshotCaptureStateError(
                         "Managed screenshot runtime profile is unavailable."
                     )
+                from kodi_lab.runtime.reviewed_capabilities import (
+                    supports_reviewed_recipe_capability,
+                )
+
                 if not is_supported_screenshot_runtime(
                     runtime_revision_id=str(revision_id),
                     canonical_release=definition.kodi_version,
@@ -253,6 +257,8 @@ class SqliteScreenshotCaptureResolver:
                     expected_kodi_version=profile.expected_kodi_version,
                     expected_version_tag=profile.expected_version_tag,
                     expected_prerelease_ordinal=(profile.expected_prerelease_ordinal),
+                ) and not supports_reviewed_recipe_capability(
+                    session, revision_id, "screenshot"
                 ):
                     raise ScreenshotCaptureUnsupportedError(
                         "This runtime revision does not support screenshots."

@@ -152,7 +152,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0053_production_screenshot_capability_amendment",)
+        ).fetchone() == ("0054_runtime_recipe_installations",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -274,6 +274,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "runtime_container_artifacts",
         "runtime_execution_profiles",
         "runtime_revisions",
+        "runtime_recipe_installations",
         "runtime_validation_evidence",
         "snapshot_create_operations",
         "snapshot_delete_operations",
@@ -6964,3 +6965,60 @@ def test_0053_refuses_downgrade_after_meaningful_amendment(
 
     with pytest.raises(RuntimeError, match="refusing destructive downgrade"):
         command.downgrade(config, "0052_production_policy_revision_binding")
+
+
+def test_0054_install_attempts_are_unique_active_and_terminal_immutable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch,
+        tmp_path,
+        start_revision="0053_production_screenshot_capability_amendment",
+    )
+    command.upgrade(config, "0054_runtime_recipe_installations")
+    engine = create_database_engine(database_url)
+    stamp = "2026-09-28T12:00:00+00:00"
+    row = {
+        "id": str(uuid4()),
+        "recipe_id": "ubuntu-jammy-matrix-19.4",
+        "recipe_revision": 1,
+        "recipe_digest": "sha256:" + "a" * 64,
+        "generation": "matrix",
+        "state": "pending",
+        "created_at": stamp,
+        "updated_at": stamp,
+    }
+    statement = text(
+        "INSERT INTO runtime_recipe_installations "
+        "(id,recipe_id,recipe_revision,recipe_digest,generation,state,"
+        "created_at,updated_at) VALUES "
+        "(:id,:recipe_id,:recipe_revision,:recipe_digest,:generation,:state,"
+        ":created_at,:updated_at)"
+    )
+    with engine.begin() as connection:
+        connection.execute(statement, row)
+        with pytest.raises(IntegrityError):
+            connection.execute(statement, {**row, "id": str(uuid4())})
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE runtime_recipe_installations SET state='failed', "
+                "failure_code='interrupted', completed_at=:stamp, updated_at=:stamp "
+                "WHERE id=:id"
+            ),
+            {"id": row["id"], "stamp": stamp},
+        )
+    with engine.begin() as connection, pytest.raises(IntegrityError):
+        connection.execute(
+            text(
+                "UPDATE runtime_recipe_installations SET failure_code='other' "
+                "WHERE id=:id"
+            ),
+            {"id": row["id"]},
+        )
+    with engine.begin() as connection, pytest.raises(IntegrityError):
+        connection.execute(
+            text("DELETE FROM runtime_recipe_installations WHERE id=:id"),
+            {"id": row["id"]},
+        )
+    engine.dispose()

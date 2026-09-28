@@ -55,6 +55,7 @@ from kodi_lab.mcp.registry import (
     TargetClass,
     ToolScope,
 )
+from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.screenshot_diagnostics import (
     bind_screenshot_bridge_revision,
     emit_screenshot_stage,
@@ -134,11 +135,15 @@ class InternalManagedTargetAuthorityProvider:
             ):
                 capabilities.add("managed_screenshot")
                 capabilities.add("screenshot")
-            if (
-                instance is not None
-                and UUID(instance.runtime_revision_id) in REMOTE_RUNTIME_REVISION_IDS
-            ):
+            revision_id = UUID(instance.runtime_revision_id)
+            if revision_id in REMOTE_RUNTIME_REVISION_IDS:
                 capabilities.add("semantic_remote")
+            elif self._session_factory is not None:
+                with self._session_factory() as session:
+                    if supports_reviewed_recipe_capability(
+                        session, revision_id, "navigation"
+                    ):
+                        capabilities.add("semantic_remote")
         if self._status is not None:
             runtime = self._status.get(target_id)
             if runtime.container_state is ContainerRuntimeState.RUNNING:

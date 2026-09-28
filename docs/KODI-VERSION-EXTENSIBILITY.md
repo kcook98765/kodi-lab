@@ -1,5 +1,25 @@
 # Managed Kodi version extensibility audit
 
+## Reviewed recipe update (2026-09-28)
+
+Normal selection now resolves a wheel-owned generation recipe. Matrix 19.4 /
+Jammy is installed through a closed signed-distro-APT provider, and its exact
+local image is registered as a new immutable runtime revision. The existing
+four-archive matrix described below remains private historical support.
+
+Nexus 20.5 / Noble and Omega 21.3 / Resolute would add reviewed recipe data,
+exact critical package identities, compatible fixture packages, and real
+acceptance evidence. They would use the same installation table, catalog
+revision/artifact/profile/evidence records, eligibility policy, restricted
+broker lifecycle, and generation selector. Piers 22 would follow the same
+pattern after a provider is reviewed; the provider field permits another
+closed type without a persisted schema change. No Piers provider or runtime
+is implemented here. ARM64 needs a new reviewed platform recipe and validation
+before the current linux/amd64 constraint can be widened. Windows Docker
+Desktop and Intel macOS Docker Desktop can use this linux/amd64 recipe in
+Linux-container mode once their Docker access and filesystem boundaries are
+tested; acquisition is independent of the physical host distribution.
+
 This is a read-only architectural inventory made before the Linux V1 clean-host
 installation work. Kodi 23 was not added and Kodi 19 was not retired. The current
 canonical lab remains 19.5, 20.5, 21.3, and 22.0 Beta 2.

@@ -50,16 +50,20 @@ from kodi_lab.runtime.distribution import (
     load_curated_runtimes,
     verify_local_images,
 )
+from kodi_lab.runtime.install import recipe_target_id
 from kodi_lab.runtime.managed_network import ensure_managed_network
+from kodi_lab.runtime.recipes import load_reviewed_recipe, supported_generations
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeExecutionProfileRepository,
+    RuntimeRevisionRepository,
     TargetRepository,
 )
 
 _NAMESPACE = UUID("dc264ebb-d7c8-4ea7-8d54-77d5e7624e09")
 SELECTORS = ("19", "20", "21", "22")
+KNOWN_SELECTORS = SELECTORS + supported_generations()
 _NAMES = ("Kodi 19.5 Lab", "Kodi 20.5 Lab", "Kodi 21.3 Lab", "Kodi 22 Beta 2 Lab")
 _ACKNOWLEDGED_PREVIEW_RUNTIME = "kodi-22.0-beta2"
 
@@ -69,6 +73,8 @@ class LabWorkflowError(ValueError):
 
 
 def canonical_id(selector: str) -> UUID:
+    if selector in supported_generations():
+        return recipe_target_id(load_reviewed_recipe(selector))
     if selector not in SELECTORS:
         raise LabWorkflowError(f"unknown lab runtime selector: {selector}")
     return uuid5(_NAMESPACE, f"managed-kodi-{selector}")
@@ -77,10 +83,10 @@ def canonical_id(selector: str) -> UUID:
 def select_runtimes(selectors: Sequence[str]) -> tuple[str, ...]:
     if not selectors:
         return SELECTORS
-    unknown = set(selectors) - set(SELECTORS)
+    unknown = set(selectors) - set(KNOWN_SELECTORS)
     if unknown:
         raise LabWorkflowError(f"unknown lab runtime selector: {sorted(unknown)[0]}")
-    return tuple(selector for selector in SELECTORS if selector in selectors)
+    return tuple(selector for selector in KNOWN_SELECTORS if selector in selectors)
 
 
 def _expected_target(selector: str, runtime: CuratedRuntime) -> Target:
@@ -267,18 +273,39 @@ def _verify_records(factory: sessionmaker[Session]) -> None:
             raise LabWorkflowError("lab bootstrap is incomplete; rerun bootstrap")
 
 
+def _verify_recipe_record(factory: sessionmaker[Session], generation: str) -> None:
+    reviewed = load_reviewed_recipe(generation)
+    target_id = recipe_target_id(reviewed)
+    with factory() as session:
+        target = TargetRepository(session).get(target_id)
+        instance = ManagedInstanceRepository(session).get(target_id)
+        if target is None or instance is None:
+            raise LabWorkflowError(f"{generation}: reviewed runtime is not installed")
+        revision = RuntimeRevisionRepository(session).get(instance.runtime_revision_id)
+        if (
+            target.kodi_version != reviewed.recipe.kodi_version
+            or revision is None
+            or revision.runtime_definition_id != reviewed.recipe.definition_id
+        ):
+            raise LabWorkflowError(f"{generation}: managed recipe pin conflicts")
+
+
 def assign_packaged_fixture(
     factory: sessionmaker[Session], selector: str, slug: str
 ) -> str:
     """Assign a compatible wheel-owned fixture without direct database work."""
 
-    _verify_records(factory)
-    runtime = load_curated_runtimes()[SELECTORS.index(selector)]
+    if selector in supported_generations():
+        _verify_recipe_record(factory, selector)
+        release = load_reviewed_recipe(selector).recipe.kodi_version
+    else:
+        _verify_records(factory)
+        release = load_curated_runtimes()[
+            SELECTORS.index(selector)
+        ].manifest.kodi_version
     fixture = load_packaged_fixture(slug).definition
-    if fixture.compatible_kodi_release != runtime.definition.kodi_release:
-        raise LabWorkflowError(
-            f"{slug} is incompatible with Kodi {runtime.manifest.kodi_version}"
-        )
+    if fixture.compatible_kodi_version != release:
+        raise LabWorkflowError(f"{slug} is incompatible with Kodi {release}")
     service = FixtureAdministrationService(factory)
     try:
         registered = service.register_packaged_fixture(slug)
@@ -314,7 +341,6 @@ def run_selected(chosen: Sequence[str], action: Callable[[str], str]) -> int:
 
 
 def _run_control(settings: Settings, command: str, selectors: Sequence[str]) -> int:
-    chosen = select_runtimes(selectors)
     remote_validate(
         settings.data_root,
         settings.database_url,
@@ -325,7 +351,22 @@ def _run_control(settings: Settings, command: str, selectors: Sequence[str]) -> 
     readiness = ReadinessTaskRegistry()
     try:
         factory = create_session_factory(engine)
-        _verify_records(factory)
+        if selectors:
+            chosen = select_runtimes(selectors)
+        else:
+            with factory() as session:
+                installed_generations = tuple(
+                    generation
+                    for generation in supported_generations()
+                    if ManagedInstanceRepository(session).get(canonical_id(generation))
+                    is not None
+                )
+            chosen = installed_generations or SELECTORS
+        if any(selector in SELECTORS for selector in chosen):
+            _verify_records(factory)
+        for selector in chosen:
+            if selector in supported_generations():
+                _verify_recipe_record(factory, selector)
         broker = BrokerClient()
         try:
             broker.ping()
@@ -428,7 +469,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     fixture = commands.add_parser("fixture")
     fixture_commands = fixture.add_subparsers(dest="fixture_command", required=True)
     assign = fixture_commands.add_parser("assign")
-    assign.add_argument("selector", choices=SELECTORS)
+    assign.add_argument("selector", choices=KNOWN_SELECTORS)
     assign.add_argument("slug", choices=sorted(TRUSTED_FIXTURE_SLUGS))
     for name in ("start", "stop", "status"):
         command = commands.add_parser(name)

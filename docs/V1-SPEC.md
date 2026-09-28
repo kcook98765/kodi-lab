@@ -6,6 +6,13 @@ Primary audience: Kodi add-on developers
 Primary platform: Linux/Docker  
 Versioning: Semantic Versioning
 
+Runtime acquisition update (2026-09-28): the intended normal V1 path is
+reviewed signed distribution packages assembled locally by Docker and validated
+by Kodi Lab. Matrix 19.4 / Jammy is the first implemented generation recipe.
+Nexus 20.5 / Noble and Omega 21.3 / Resolute await separate acceptance. Kodi 22
+is deferred. The older four-archive release-candidate text below documents an
+unpublished transitional artifact and does not define the next public bundle.
+
 ## 1. Product definition
 
 Kodi Lab is a self-hosted development and testing environment for creating, running, inspecting, debugging, and comparing isolated Kodi installations.

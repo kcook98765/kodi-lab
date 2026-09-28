@@ -1,5 +1,6 @@
 """One shared policy for selecting new managed-instance runtime pins."""
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -10,14 +11,20 @@ from kodi_lab.domain import (
     KodiReleaseIdentity,
     RevisionApprovalState,
     RuntimeDefinition,
+    RuntimeExecutionProfile,
     RuntimeRevision,
     RuntimeSupportTier,
     RuntimeValidationResult,
     Target,
 )
+from kodi_lab.runtime.recipes import (
+    REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+    load_recorded_reviewed_recipe,
+)
 from kodi_lab.storage.repositories import (
     RuntimeContainerArtifactRepository,
     RuntimeExecutionProfileRepository,
+    RuntimeRecipeInstallationRepository,
     RuntimeValidationEvidenceRepository,
 )
 
@@ -33,6 +40,7 @@ class RuntimeIneligibilityReason(StrEnum):
     EXECUTION_PROFILE_INCOMPATIBLE = "execution_profile_incompatible"
     UNVALIDATED = "unvalidated"
     VALIDATION_FAILED = "validation_failed"
+    RECIPE_PROVENANCE_UNAVAILABLE = "recipe_provenance_unavailable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +120,54 @@ class RuntimeRevisionEligibilityPolicy:
             return self._no(RuntimeIneligibilityReason.EXECUTION_PROFILE_UNAVAILABLE)
         if profile.kodi_release != definition.kodi_release:
             return self._no(RuntimeIneligibilityReason.EXECUTION_PROFILE_INCOMPATIBLE)
+        if revision.source_kind == REVIEWED_SIGNED_DISTRO_SOURCE_KIND:
+            installation = RuntimeRecipeInstallationRepository(
+                session
+            ).ready_for_revision(revision.id)
+            if installation is None:
+                return self._no(
+                    RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
+                )
+            try:
+                reviewed = load_recorded_reviewed_recipe(
+                    installation.generation,
+                    installation.recipe_id,
+                    installation.recipe_revision,
+                    installation.recipe_digest,
+                )
+                attestation = json.loads(installation.attestation_json or "")
+                validation = json.loads(installation.validation_json or "")
+                expected_profile = RuntimeExecutionProfile(
+                    runtime_revision_id=revision.id,
+                    **reviewed.recipe.execution_profile.model_dump(),
+                )
+            except (ValueError, OSError):
+                return self._no(
+                    RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
+                )
+            if (
+                installation.recipe_id != reviewed.recipe.recipe_id
+                or installation.recipe_revision != reviewed.recipe.recipe_revision
+                or installation.recipe_digest != reviewed.digest
+                or installation.image_id != artifact.image_id
+                or revision.manifest_reference != reviewed.reference
+                or revision.manifest_digest != reviewed.digest
+                or revision.content_digest != artifact.image_id
+                or definition.id != reviewed.recipe.definition_id
+                or definition.kodi_version != reviewed.recipe.kodi_version
+                or profile != expected_profile
+                or not isinstance(attestation, dict)
+                or attestation.get("acquisition_result") != "passed"
+                or attestation.get("recipe_digest") != reviewed.digest
+                or attestation.get("image_id") != artifact.image_id
+                or not isinstance(validation, dict)
+                or validation.get("result") != "passed"
+                or validation.get("image_id") != artifact.image_id
+                or validation.get("recipe_digest") != reviewed.digest
+            ):
+                return self._no(
+                    RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
+                )
         evidence = RuntimeValidationEvidenceRepository(session).latest_for_contract(
             revision.id, policy.validation_contract
         )

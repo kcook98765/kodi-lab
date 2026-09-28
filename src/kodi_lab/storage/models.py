@@ -115,6 +115,7 @@ from kodi_lab.domain import (
     ResetOperationState,
     RevisionApprovalState,
     RuntimeKind,
+    RuntimeRecipeInstallationState,
     RuntimeSupportTier,
     RuntimeValidationResult,
     SnapshotCreateOperationPhase,
@@ -5339,6 +5340,78 @@ class RuntimeValidationEvidenceRow(Base):
     evidence_reference: Mapped[str] = mapped_column(String(512), nullable=False)
     summary: Mapped[str | None] = mapped_column(String(512), nullable=True)
     recorded_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class RuntimeRecipeInstallationRow(Base):
+    """One durable attempt to materialize a reviewed recipe as a local image."""
+
+    __tablename__ = "runtime_recipe_installations"
+    __table_args__ = (
+        Index(
+            "uq_runtime_recipe_install_active_generation",
+            "generation",
+            unique=True,
+            sqlite_where=text(
+                "state IN ('pending','acquiring','assembling','validating')"
+            ),
+        ),
+        Index("ix_runtime_recipe_install_revision", "runtime_revision_id"),
+        CheckConstraint("recipe_revision > 0", name="runtime_recipe_revision_positive"),
+        CheckConstraint(
+            "length(recipe_digest)=71 AND substr(recipe_digest,1,7)='sha256:'",
+            name="runtime_recipe_digest_shape",
+        ),
+        CheckConstraint(
+            "state IN ('pending','acquiring','assembling',"
+            "'validating','ready','failed')",
+            name="runtime_recipe_install_state_closed",
+        ),
+        CheckConstraint(
+            "(state='ready' AND completed_at IS NOT NULL AND image_id IS NOT NULL "
+            "AND runtime_revision_id IS NOT NULL AND attestation_json IS NOT NULL "
+            "AND validation_json IS NOT NULL AND failure_code IS NULL) OR "
+            "(state='failed' AND completed_at IS NOT NULL AND failure_code IS NOT NULL "
+            "AND runtime_revision_id IS NULL) OR "
+            "(state IN ('pending','acquiring','assembling','validating') "
+            "AND completed_at IS NULL AND runtime_revision_id IS NULL "
+            "AND failure_code IS NULL)",
+            name="runtime_recipe_install_terminal_consistent",
+        ),
+        CheckConstraint(
+            "attestation_json IS NULL OR length(attestation_json) BETWEEN 1 AND 65536",
+            name="runtime_recipe_attestation_bounded",
+        ),
+        CheckConstraint(
+            "validation_json IS NULL OR length(validation_json) BETWEEN 1 AND 8192",
+            name="runtime_recipe_validation_bounded",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    recipe_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipe_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    recipe_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    generation: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[RuntimeRecipeInstallationState] = mapped_column(
+        Enum(
+            RuntimeRecipeInstallationState,
+            values_callable=_enum_values,
+            native_enum=False,
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(27), nullable=True)
+    image_id: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    runtime_revision_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    attestation_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    validation_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
 
 
 class WebAdminCredentialRow(Base):

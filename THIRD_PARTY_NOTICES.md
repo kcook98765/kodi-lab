@@ -5,6 +5,12 @@ The original Kodi Lab narrow bridge is also MIT licensed and carries its own
 license text inside the add-on source and ZIP. This notice does not change the
 licenses of third-party software.
 
+The new normal runtime path obtains signed Ubuntu binary packages in the
+user's Docker environment and assembles local Kodi images. Kodi Lab's eventual
+public bundle will carry reviewed recipes and notices, not Kodi binaries.
+The Matrix 19.4 recipe records package inventory and source/license references;
+those references do not replace per-package license and source review.
+
 | Component | Relationship to this project | License and review status |
 | --- | --- | --- |
 | Kodi Lab application | Original source | MIT; root `LICENSE` |

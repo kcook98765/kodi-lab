@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import delete, func, select, update
@@ -102,6 +103,7 @@ from kodi_lab.domain import (
     RuntimeContainerArtifact,
     RuntimeDefinition,
     RuntimeExecutionProfile,
+    RuntimeRecipeInstallationState,
     RuntimeRevision,
     RuntimeSupportTier,
     RuntimeValidationEvidence,
@@ -166,6 +168,7 @@ from kodi_lab.storage.models import (
     RuntimeContainerArtifactRow,
     RuntimeDefinitionRow,
     RuntimeExecutionProfileRow,
+    RuntimeRecipeInstallationRow,
     RuntimeRevisionRow,
     RuntimeValidationEvidenceRow,
     SnapshotCreateOperationRow,
@@ -4604,6 +4607,157 @@ class RuntimeValidationEvidenceRepository:
             summary=row.summary,
             recorded_at=_timestamp_from_text(row.recorded_at),
         )
+
+
+class RuntimeRecipeInstallationRepository:
+    """Only exact state transitions for one reviewed installation attempt."""
+
+    _NEXT: ClassVar[
+        dict[RuntimeRecipeInstallationState, RuntimeRecipeInstallationState]
+    ] = {
+        RuntimeRecipeInstallationState.PENDING: (
+            RuntimeRecipeInstallationState.ACQUIRING
+        ),
+        RuntimeRecipeInstallationState.ACQUIRING: (
+            RuntimeRecipeInstallationState.ASSEMBLING
+        ),
+        RuntimeRecipeInstallationState.ASSEMBLING: (
+            RuntimeRecipeInstallationState.VALIDATING
+        ),
+        RuntimeRecipeInstallationState.VALIDATING: RuntimeRecipeInstallationState.READY,
+    }
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def create(
+        self,
+        *,
+        operation_id: UUID,
+        recipe_id: str,
+        recipe_revision: int,
+        recipe_digest: str,
+        generation: str,
+        now: datetime,
+    ) -> RuntimeRecipeInstallationRow:
+        row = RuntimeRecipeInstallationRow(
+            id=str(operation_id),
+            recipe_id=recipe_id,
+            recipe_revision=recipe_revision,
+            recipe_digest=recipe_digest,
+            generation=generation,
+            state=RuntimeRecipeInstallationState.PENDING,
+            created_at=_timestamp_to_text(now),
+            updated_at=_timestamp_to_text(now),
+        )
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def get(self, operation_id: UUID) -> RuntimeRecipeInstallationRow | None:
+        return self._session.get(RuntimeRecipeInstallationRow, str(operation_id))
+
+    def active(self, generation: str) -> RuntimeRecipeInstallationRow | None:
+        return self._session.scalar(
+            select(RuntimeRecipeInstallationRow)
+            .where(
+                RuntimeRecipeInstallationRow.generation == generation,
+                RuntimeRecipeInstallationRow.state.in_(
+                    (
+                        RuntimeRecipeInstallationState.PENDING,
+                        RuntimeRecipeInstallationState.ACQUIRING,
+                        RuntimeRecipeInstallationState.ASSEMBLING,
+                        RuntimeRecipeInstallationState.VALIDATING,
+                    )
+                ),
+            )
+            .limit(1)
+        )
+
+    def latest_ready(self, generation: str) -> RuntimeRecipeInstallationRow | None:
+        return self._session.scalar(
+            select(RuntimeRecipeInstallationRow)
+            .where(
+                RuntimeRecipeInstallationRow.generation == generation,
+                RuntimeRecipeInstallationRow.state
+                == RuntimeRecipeInstallationState.READY,
+            )
+            .order_by(RuntimeRecipeInstallationRow.completed_at.desc())
+            .limit(1)
+        )
+
+    def ready_for_revision(
+        self, revision_id: UUID
+    ) -> RuntimeRecipeInstallationRow | None:
+        return self._session.scalar(
+            select(RuntimeRecipeInstallationRow)
+            .where(
+                RuntimeRecipeInstallationRow.runtime_revision_id == str(revision_id),
+                RuntimeRecipeInstallationRow.state
+                == RuntimeRecipeInstallationState.READY,
+            )
+            .limit(1)
+        )
+
+    def advance(
+        self,
+        operation_id: UUID,
+        *,
+        expected: RuntimeRecipeInstallationState,
+        now: datetime,
+        image_id: str | None = None,
+        attestation_json: str | None = None,
+    ) -> None:
+        row = self.get(operation_id)
+        if row is None or row.state is not expected:
+            raise ValueError("runtime recipe installation phase differs")
+        if (
+            expected not in self._NEXT
+            or expected is RuntimeRecipeInstallationState.VALIDATING
+        ):
+            raise ValueError("runtime recipe installation transition is invalid")
+        row.state = self._NEXT[expected]
+        row.updated_at = _timestamp_to_text(now)
+        if image_id is not None:
+            row.image_id = image_id
+        if attestation_json is not None:
+            row.attestation_json = attestation_json
+        self._session.flush()
+
+    def ready(
+        self,
+        operation_id: UUID,
+        *,
+        revision_id: UUID,
+        image_id: str,
+        attestation_json: str,
+        validation_json: str,
+        now: datetime,
+    ) -> None:
+        row = self.get(operation_id)
+        if row is None or row.state is not RuntimeRecipeInstallationState.VALIDATING:
+            raise ValueError("runtime recipe installation is not validating")
+        row.state = RuntimeRecipeInstallationState.READY
+        row.runtime_revision_id = str(revision_id)
+        row.image_id = image_id
+        row.attestation_json = attestation_json
+        row.validation_json = validation_json
+        row.updated_at = _timestamp_to_text(now)
+        row.completed_at = row.updated_at
+        self._session.flush()
+
+    def fail(self, operation_id: UUID, *, code: str, now: datetime) -> None:
+        row = self.get(operation_id)
+        if row is None or row.state in (
+            RuntimeRecipeInstallationState.READY,
+            RuntimeRecipeInstallationState.FAILED,
+        ):
+            raise ValueError("runtime recipe installation is terminal")
+        row.state = RuntimeRecipeInstallationState.FAILED
+        row.failure_code = code
+        row.updated_at = _timestamp_to_text(now)
+        row.completed_at = row.updated_at
+        self._session.flush()
 
 
 class SnapshotRepository:

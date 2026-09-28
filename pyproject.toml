@@ -57,6 +57,7 @@ artifacts = [
   "src/kodi_lab/fixtures/small-mixed-v2/payload/userdata/Database/MyVideos131.db",
   "src/kodi_lab/fixtures/small-mixed-v3/payload/userdata/Database/MyVideos121.db",
   "src/kodi_lab/fixtures/small-mixed-v4/payload/userdata/Database/MyVideos119.db",
+  "src/kodi_lab/fixtures/small-mixed-v6/payload/userdata/Database/MyVideos119.db",
   "src/kodi_lab/fixtures/small-movies-v1/payload/userdata/Database/MyVideos131.db",
   "src/kodi_lab/fixtures/small-movies-v2/payload/userdata/Database/MyVideos121.db",
   "src/kodi_lab/fixtures/small-movies-v3/payload/userdata/Database/MyVideos119.db",

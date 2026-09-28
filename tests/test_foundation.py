@@ -276,6 +276,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "runtime_definitions",
         "runtime_execution_profiles",
         "runtime_revisions",
+        "runtime_recipe_installations",
         "runtime_validation_evidence",
         "snapshot_create_operations",
         "snapshot_delete_operations",

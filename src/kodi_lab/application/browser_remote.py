@@ -51,6 +51,7 @@ from kodi_lab.kodi.remote import (
     RemoteKodiRejectedError,
     RemoteNoActivePlayerError,
 )
+from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.storage.repositories import RuntimeExecutionProfileRepository
 
 LOGGER = logging.getLogger("kodi_lab.browser_remote.audit")
@@ -158,10 +159,18 @@ class BrowserRemoteService:
         self._adapter_factory = adapter_factory
         self._clock = clock
 
+    def _runtime_supported(self, revision_id: UUID) -> bool:
+        if revision_id in REMOTE_RUNTIME_REVISION_IDS:
+            return True
+        with self._sessions() as session:
+            return supports_reviewed_recipe_capability(
+                session, revision_id, "navigation"
+            )
+
     def available(self, instance_id: UUID) -> bool:
         runtime = self._status.get(instance_id)
         return (
-            runtime.runtime_revision_id in REMOTE_RUNTIME_REVISION_IDS
+            self._runtime_supported(runtime.runtime_revision_id)
             and runtime.container_state is ContainerRuntimeState.RUNNING
             and runtime.process_state is KodiProcessState.RUNNING
             and runtime.usability_state is SemanticUsabilityState.USABLE
@@ -216,7 +225,7 @@ class BrowserRemoteService:
         actor: RemoteActorContext,
     ) -> BrowserRemoteResult:
         runtime = self._status.get(instance_id)
-        if runtime.runtime_revision_id not in REMOTE_RUNTIME_REVISION_IDS:
+        if not self._runtime_supported(runtime.runtime_revision_id):
             raise BrowserRemoteError(
                 "remote_action_unsupported",
                 "Browser remote is not supported for this runtime revision.",

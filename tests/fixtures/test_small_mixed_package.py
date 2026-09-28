@@ -46,6 +46,17 @@ def test_small_mixed_v1_manifest_content_and_digest_are_fixed() -> None:
     assert b"small-mixed-v1-episode" in content
 
 
+def test_matrix_19_4_fixture_has_its_own_exact_compatibility() -> None:
+    fixture = load_packaged_fixture("small-mixed-v6")
+    assert fixture.definition.compatible_kodi_version == "19.4"
+    assert fixture.definition.fixture_version == 6
+    assert fixture.definition.content_digest.startswith("sha256:")
+    assert any(
+        member.archive_path == "userdata/Database/MyVideos119.db"
+        for member in fixture.members
+    )
+
+
 def test_v1_source_visibility_did_not_establish_scanner_content_assignment() -> None:
     fixture = load_packaged_fixture("small-mixed-v1")
     paths = {member.archive_path for member in fixture.members}

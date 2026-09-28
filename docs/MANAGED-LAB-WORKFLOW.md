@@ -1,5 +1,11 @@
 # Linux amd64 four-version managed lab
 
+Update (2026-09-28): `kodi-lab-runtime recipes` and
+`kodi-lab-runtime install matrix` provide the new explicit Matrix 19.4 recipe
+path. `kodi-lab-lab start matrix` uses its exact installed revision.
+The four-release archive bootstrap below is the preserved private workflow;
+Kodi 22 is deferred for the normal acquisition path.
+
 The `lab` profile runs the installed Web/API/MCP application and its restricted
 broker. Kodi Lab and the broker create and own the Kodi containers. Compose has
 no long-running Kodi services. Use an isolated Compose project and state volume;

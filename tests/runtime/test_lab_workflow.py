@@ -50,6 +50,11 @@ def test_selectors_are_closed_stable_and_support_subsets() -> None:
         select_runtimes(("23",))
 
 
+def test_reviewed_generation_selector_has_independent_target_identity() -> None:
+    assert select_runtimes(("matrix",)) == ("matrix",)
+    assert canonical_id("matrix") != canonical_id("19")
+
+
 def test_bootstrap_creates_exact_pins_and_repeats(
     factory: sessionmaker[Session],
 ) -> None:
