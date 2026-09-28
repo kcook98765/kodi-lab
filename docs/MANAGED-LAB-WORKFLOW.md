@@ -1,8 +1,11 @@
 # Linux amd64 four-version managed lab
 
-Update (2026-09-28): `kodi-lab-runtime recipes` and
-`kodi-lab-runtime install matrix` provide the new explicit Matrix 19.4 recipe
-path. `kodi-lab-lab start matrix` uses its exact installed revision.
+Update (2026-09-28): `kodi-lab-runtime recipes` lists the reviewed `matrix`
+and `nexus` generations. `kodi-lab-runtime install matrix` acquires Kodi 19.4
+from signed Jammy packages; `kodi-lab-runtime install nexus` acquires Kodi 20.5
+from signed Noble packages. `kodi-lab-lab start matrix` and
+`kodi-lab-lab start nexus` use their separate exact installed revisions.
+The Nexus fixture is `small-mixed-v3` with the Kodi 20 MyVideos121 seed.
 The four-release archive bootstrap below is the preserved private workflow;
 Kodi 22 is deferred for the normal acquisition path.
 

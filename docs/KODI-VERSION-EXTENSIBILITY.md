@@ -3,15 +3,18 @@
 ## Reviewed recipe update (2026-09-28)
 
 Normal selection now resolves a wheel-owned generation recipe. Matrix 19.4 /
-Jammy is installed through a closed signed-distro-APT provider, and its exact
-local image is registered as a new immutable runtime revision. The existing
-four-archive matrix described below remains private historical support.
+Jammy and Nexus 20.5 / Noble are installed through the same closed
+signed-distro-APT provider, each with its own exact immutable runtime revision.
+The existing four-archive matrix described below remains private historical
+support.
 
-Nexus 20.5 / Noble and Omega 21.3 / Resolute would add reviewed recipe data,
-exact critical package identities, compatible fixture packages, and real
-acceptance evidence. They would use the same installation table, catalog
-revision/artifact/profile/evidence records, eligibility policy, restricted
-broker lifecycle, and generation selector. Piers 22 would follow the same
+Nexus reuses the installation table, catalog revision/artifact/profile/evidence
+records, eligibility policy, restricted broker lifecycle, and generation
+selector. Its signed Noble base already owns UID/GID 1000 as `ubuntu`; assembly
+requires that exact reviewed account and renames it to `kodi`, removing its
+supplementary groups. Matrix retains the new-account path. Omega 21.3 /
+Resolute still needs its own reviewed recipe, critical package identities,
+fixture/validation review, and live acceptance. Piers 22 would follow the same
 pattern after a provider is reviewed; the provider field permits another
 closed type without a persisted schema change. No Piers provider or runtime
 is implemented here. ARM64 needs a new reviewed platform recipe and validation

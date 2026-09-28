@@ -67,7 +67,8 @@ def factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sessionmaker[Ses
     return create_session_factory(engine)
 
 
-def _assembly(image_id: str = IMAGE) -> AssemblyResult:
+def _assembly(image_id: str = IMAGE, generation: str = "matrix") -> AssemblyResult:
+    reviewed = load_reviewed_recipe(generation)
     return AssemblyResult(
         image_id=image_id,
         image_size=1_050_650_811,
@@ -79,7 +80,7 @@ def _assembly(image_id: str = IMAGE) -> AssemblyResult:
         package_inventory=(
             *tuple(
                 (item.name, item.version, item.architecture)
-                for item in load_reviewed_recipe("matrix").recipe.critical_packages
+                for item in reviewed.recipe.critical_packages
             ),
             ("libaudit-transitive", "1.0-1", "amd64"),
         ),
@@ -88,13 +89,13 @@ def _assembly(image_id: str = IMAGE) -> AssemblyResult:
                 f"archive.ubuntu.com_ubuntu_dists_{pocket}_InRelease",
                 "sha256:" + "c" * 64,
             )
-            for pocket in load_reviewed_recipe("matrix").recipe.provider.pockets
+            for pocket in reviewed.recipe.provider.pockets
         ),
     )
 
 
-def _validation(image_id: str = IMAGE) -> ValidationResult:
-    reviewed = load_reviewed_recipe("matrix")
+def _validation(image_id: str = IMAGE, generation: str = "matrix") -> ValidationResult:
+    reviewed = load_reviewed_recipe(generation)
     now = datetime.now(UTC)
     return ValidationResult(
         started_at=now,
@@ -103,7 +104,7 @@ def _validation(image_id: str = IMAGE) -> ValidationResult:
             "schema": reviewed.recipe.validation_contract,
             "result": "passed",
             "recipe_digest": reviewed.digest,
-            "release": "19.4",
+            "release": reviewed.recipe.kodi_version,
             "image_id": image_id,
             "network_mode": "isolated_internal_bridge",
             "non_root_uid": 1000,
@@ -125,8 +126,10 @@ def _validation(image_id: str = IMAGE) -> ValidationResult:
     )
 
 
-def _ready(factory: sessionmaker[Session], image_id: str = IMAGE) -> UUID:
-    reviewed = load_reviewed_recipe("matrix")
+def _ready(
+    factory: sessionmaker[Session], image_id: str = IMAGE, generation: str = "matrix"
+) -> UUID:
+    reviewed = load_reviewed_recipe(generation)
     operation_id = uuid4()
     _create_operation(factory, reviewed, operation_id)
     from kodi_lab.domain import RuntimeRecipeInstallationState as State
@@ -137,8 +140,8 @@ def _ready(factory: sessionmaker[Session], image_id: str = IMAGE) -> UUID:
         factory,
         reviewed,
         operation_id,
-        _assembly(image_id),
-        _validation(image_id),
+        _assembly(image_id, generation),
+        _validation(image_id, generation),
         data_root=Settings().data_root,
     )
     return operation_id
@@ -563,3 +566,68 @@ def test_interrupted_validating_attempt_is_failed_before_new_pending_attempt(
             )
             == []
         )
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "critical_package",
+        "platform",
+        "release",
+        "image",
+        "validation_evidence",
+        "hmac",
+    ),
+)
+def test_nexus_reviewed_attestation_tamper_fails_closed(
+    factory: sessionmaker[Session], case: str
+) -> None:
+    reviewed = load_reviewed_recipe("nexus")
+    operation_id = _ready(factory, generation="nexus")
+    assert _ready_installation(factory, reviewed)["operation_id"] == str(operation_id)
+    with factory.begin() as session:
+        row = session.get(RuntimeRecipeInstallationRow, str(operation_id))
+        assert row is not None and row.attestation_json and row.validation_json
+        attestation = json.loads(row.attestation_json)
+        validation = json.loads(row.validation_json)
+        if case == "critical_package":
+            attestation["critical_packages"][0]["sha256"] = "sha256:" + "f" * 64
+        elif case == "platform":
+            attestation["platform"] = "linux/arm64"
+        elif case == "release":
+            attestation["kodi_version"] = "20.4"
+        elif case == "image":
+            attestation["image_id"] = "sha256:" + "f" * 64
+        elif case == "validation_evidence":
+            validation["recipe_digest"] = "sha256:" + "f" * 64
+        else:
+            attestation["integrity_binding"] = "hmac-sha256:" + "f" * 64
+        row.attestation_json = canonical_json(attestation)
+        row.validation_json = canonical_json(validation)
+    assert _ready_installation(factory, reviewed) == {}
+
+
+def test_matrix_and_nexus_ready_records_are_separate(
+    factory: sessionmaker[Session],
+) -> None:
+    matrix = load_reviewed_recipe("matrix")
+    nexus = load_reviewed_recipe("nexus")
+    matrix_operation = _ready(factory)
+    nexus_image = "sha256:" + "e" * 64
+    nexus_operation = _ready(factory, nexus_image, generation="nexus")
+    matrix_ready = _ready_installation(factory, matrix)
+    nexus_ready = _ready_installation(factory, nexus)
+    assert matrix_ready["operation_id"] == str(matrix_operation)
+    assert nexus_ready["operation_id"] == str(nexus_operation)
+    assert matrix_ready["runtime_revision_id"] != nexus_ready["runtime_revision_id"]
+    assert matrix_ready["image_id"] != nexus_ready["image_id"]
+    with factory() as session:
+        matrix_revision = RuntimeRevisionRepository(session).get(
+            UUID(matrix_ready["runtime_revision_id"])
+        )
+        nexus_revision = RuntimeRevisionRepository(session).get(
+            UUID(nexus_ready["runtime_revision_id"])
+        )
+        assert matrix_revision is not None and nexus_revision is not None
+        assert matrix_revision.runtime_definition_id == matrix.recipe.definition_id
+        assert nexus_revision.runtime_definition_id == nexus.recipe.definition_id

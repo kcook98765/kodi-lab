@@ -4874,3 +4874,27 @@ approvals atomically with the governing revision transition.
   broker provisioning. Deleting an image can leave catalog trust eligibility
   true while the old managed pin is unavailable; it does not trigger a pull,
   rebuild, or pin change.
+
+## D-0379: Reviewed Nexus 20.5 shares Matrix acquisition and integrity model
+
+- `ubuntu-noble-nexus-20.5` revision 1 is a separately digest-pinned wheel
+  recipe for linux/amd64 Kodi 20.5 from signed Ubuntu Noble pockets. It uses
+  the same fixed APT provider, per-operation bridge, local image assembly,
+  two-cycle validation, HMAC-bound attestation, catalog eligibility, and exact
+  managed revision pin as Matrix. No Nexus-specific installer or integrity key
+  is introduced.
+- The reviewed Noble base already owns UID/GID 1000 as the exact `ubuntu`
+  account. Assembly accepts and renames only that expected account, clears its
+  supplementary groups, and verifies the resulting `kodi` group set. Matrix
+  continues through the absent-account creation path. A different occupied
+  identity fails assembly.
+- Isolated wheel-installed acceptance acquired and validated Nexus twice as
+  distinct exact images. Deleting the first image made its original instance
+  pin unavailable; explicit reinstall created a second revision without
+  rebinding that instance. Matrix and Nexus managed instances then ran together
+  from their own image IDs, with independent JSON-RPC endpoints, screenshots,
+  and version-compatible `small-mixed-v6` / `small-mixed-v3` fixtures.
+- Nexus reports JSON-RPC 13, Python 3.12, and MyVideos121; Matrix reports
+  JSON-RPC 12, Python 3.10, and MyVideos119 in the accepted images. Nexus's
+  synthetic Python add-on executed after normal ZIP installation and enablement.
+  Omega remains a separate package, fixture, and live-validation review task.

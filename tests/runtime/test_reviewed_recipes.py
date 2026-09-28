@@ -28,7 +28,7 @@ from kodi_lab.runtime.recipes import (
 def test_matrix_recipe_is_exact_reviewed_binary_package_input() -> None:
     reviewed = load_reviewed_recipe("matrix")
     recipe = reviewed.recipe
-    assert supported_generations() == ("matrix",)
+    assert supported_generations() == ("matrix", "nexus")
     assert (recipe.generation, recipe.kodi_version, recipe.platform) == (
         "matrix",
         "19.4",

@@ -30,7 +30,13 @@ _RECIPES = {
             "matrix-19.4-r1.json",
             "sha256:306b3b22ce57d23987b20dd37738a253ef4511ae1754f231d3738efb0db3a482",
         ),
-    )
+    ),
+    "nexus": (
+        (
+            "nexus-20.5-r1.json",
+            "sha256:2cec5cbd0f72cd6c973bfa91091f6d340eddcd08336a500176ee91dcdfcac842",
+        ),
+    ),
 }
 _ASSETS = (
     "entrypoint.sh",
