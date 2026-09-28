@@ -37,6 +37,12 @@ _RECIPES = {
             "sha256:2cec5cbd0f72cd6c973bfa91091f6d340eddcd08336a500176ee91dcdfcac842",
         ),
     ),
+    "omega": (
+        (
+            "omega-21.3-r1.json",
+            "sha256:df950df28255f2ec40f2e69b812bb58f2fb8902fddbccf3a89da7a75e0af62c8",
+        ),
+    ),
 }
 _ASSETS = (
     "entrypoint.sh",
