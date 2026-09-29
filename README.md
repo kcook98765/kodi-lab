@@ -2,9 +2,12 @@
 
 Kodi Lab is a self-hosted Web application for developing, testing, and
 inspecting Kodi installations. Remote-target mode connects to an existing Kodi;
-managed-lab mode runs four curated Kodi versions (19.5, 20.5, 21.3, and 22 Beta
-2) in isolated containers. The managed mode requires Linux amd64 and Docker.
-The local `1.0.0rc1` candidate is a prerelease and has not been published.
+managed-lab mode provisions disposable Kodi instances in isolated containers.
+The stable Linux amd64 V1 release set is Matrix 19.4, Nexus 20.5, and Omega
+21.3. The earlier four-runtime lab (including Kodi 19.5 and Piers Beta 2)
+remains private compatibility evidence, not the installable V1 set. Windows,
+macOS, and ARM64/Apple Silicon host support are post-V1. The local `1.0.0rc1`
+candidate is a prerelease and has not been published.
 See the [Linux amd64 installation guide](docs/LINUX-V1-INSTALL.md).
 
 Web administration controls credentials, target registration, grants, and
@@ -21,9 +24,15 @@ execution or raw JSON-RPC.
 The original Kodi Lab code and the Kodi Lab bridge are MIT licensed. Kodi,
 Ubuntu, Python, Mesa/Xvfb, and other runtime components retain their own
 licenses. Kodi Lab is independent of and not affiliated with the Kodi project.
-The four prebuilt runtime archives are **not yet approved for public
-distribution**; their compliance review is pending. See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The four historical prebuilt runtime archives remain private test artifacts;
+the current release bundle distributes reviewed recipes and no Kodi binaries.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Stopping a provisioned managed instance retains its container and writable
+layer; deprovisioning removes them while retaining the managed record and
+durable Kodi Lab state. Fixtures, Snapshots, preserved Snapshots, and recovery
+contracts provide bounded preservation. External/production Kodi targets may
+be long-lived installations and are not disposable managed containers.
 
 [`docs/V1-SPEC.md`](docs/V1-SPEC.md) is the authoritative v1 product and
 architecture specification.

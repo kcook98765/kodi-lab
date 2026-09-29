@@ -1,7 +1,12 @@
 # Implementation plan
 
-The authoritative phase ordering is in `V1-SPEC.md`, section 47. Work proceeds
-in narrow, separately validated steps:
+The authoritative phase ordering is in `V1-SPEC.md`, section 47. This plan
+retains historical implementation checkpoints. The current stable V1 release
+set is Matrix 19.4, Nexus 20.5, and Omega 21.3, using reviewed binary-free
+recipes. Four-runtime passages describe private compatibility acceptance, not
+a public V1 requirement. V1 managed instances are disposable; persistent
+managed-container storage is deferred under D-0381. Work proceeds in narrow,
+separately validated steps:
 
 0. Repository foundation
 1. Core domain/storage
@@ -924,12 +929,12 @@ authority. There is no migration, new broker operation, VNC/noVNC, image/runtime
 rebuild, MCP, token, agent authority, general logs, higher-FPS video, or
 additional-runtime display parity.
 
-The required V1 Phase 10 implementation now consists of four-runtime managed
+The historical Phase 10 acceptance scope consisted of four-runtime managed
 screenshots, four-runtime semantic browser remote, and one mediated interactive
-display path. It is **implementation-complete pending formal review**. Optional
-future items—3-second auto-refresh, keyboard/full-text, additional-runtime
-display parity, VNC/noVNC, higher-FPS video, and MCP—are not Phase 10 completion
-requirements and remain unimplemented.
+display path. At that checkpoint it was **implementation-complete pending formal
+review**. Optional future items—3-second auto-refresh, keyboard/full-text,
+additional-runtime display parity, VNC/noVNC, higher-FPS video, and MCP—are
+not Phase 10 completion requirements and remain unimplemented.
 
 ### Phase 10 formal-review resource-accounting remediation
 
@@ -953,9 +958,10 @@ validated implementation checkpoint
 revalidated the bounded remote limiter and exception-safe display capacity,
 including many-key cardinality pressure and actual WebSocket accept failure.
 
-The completed V1 scope is four-runtime managed screenshot parity, four-runtime
-closed semantic browser-remote parity, and an explicit view-only mediated live
-display for exact curated Kodi 21.3. Authentication, CSRF/same-origin and trusted
+The completed Phase 10 private compatibility scope is four-runtime managed
+screenshot parity, four-runtime closed semantic browser-remote parity, and an
+explicit view-only mediated live display for exact curated Kodi 21.3.
+Authentication, CSRF/same-origin and trusted
 Host checks, strict request schemas, server-built JSON-RPC, at-most-once remote
 dispatch, lifecycle-winning coordination, exact runtime/container binding,
 session revalidation, zero-frame-queue backpressure, private ephemeral frame
@@ -1805,7 +1811,7 @@ managed-Kodi work. Release-grade export/retention, full runtime
 reconstruction, and Docker Desktop remain separate gates; see
 `MANAGED-STATE-RECOVERY.md`.
 
-## Curated image distribution and catalog bootstrap foundation
+## Curated image distribution and catalog bootstrap foundation (historical private path)
 
 This isolated slice packages the four exact linux/amd64 runtime manifests and
 their bounded passing validation reports into the wheel. Separate reviewed
@@ -1830,7 +1836,7 @@ stop/start, and deprovision. `BROKER-CONTAINER.md` records the network overlay
 and setup command. The four-runtime managed lab remains a separate later gate;
 this integration does not change the other curated runtime identities.
 
-## Four-version managed lab workflow
+## Four-version managed lab workflow (historical private acceptance)
 
 The installed `kodi-lab-lab` command bootstraps four disposable
 ManagedInstances with stable identities from the reviewed wheel catalog and

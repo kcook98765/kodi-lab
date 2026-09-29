@@ -4758,7 +4758,7 @@ approvals atomically with the governing revision transition.
   four reviewed exact releases. Preview acknowledgement and the separate
   Trusted Custom Build gates still control managed-instance creation.
 
-## D-0374: Linux amd64 V1 release-candidate artifact identity
+## D-0374: Linux amd64 V1 release-candidate artifact identity (historical four-archive candidate)
 
 - The first local, unpublished release candidate is `1.0.0rc1`. Protocol and
   runtime revision versions are independent and unchanged. Both installed
@@ -4807,6 +4807,10 @@ approvals atomically with the governing revision transition.
   supported during migration. The old unpublished release-candidate bundle is
   historical and still archive-based; a future release slice must replace its
   four-runtime archive requirement before publication.
+- Subsequent status: `LINUX-V1-RELEASE.md` now defines the binary-free
+  three-recipe candidate with Matrix 19.4, Nexus 20.5, and Omega 21.3. The
+  four-archive bundle remains historical private evidence, and the separate
+  Nexus/Omega review requirements above were completed before this status.
 
 ## D-0376: Signed APT trust and bounded dependency policy for Matrix
 
@@ -4929,3 +4933,23 @@ approvals atomically with the governing revision transition.
   existing instance and says when it retains a previous exact revision.
   Successful acquisition keeps the installer's stopped-instance bootstrap
   behavior and does not start Kodi.
+
+## D-0381: Disposable managed instances are the V1 model
+
+- Decision: Kodi Lab-created V1 ManagedInstances are disposable and pin exact
+  reviewed runtime revisions. Provision creates or recreates a stopped runtime
+  container under the existing managed-state contract. Stop retains its
+  provisioned container and writable layer; deprovision removes them while
+  retaining the managed record and durable Kodi Lab state. Reset returns the
+  runtime to its deterministic fixture under the existing reset contract.
+- Preservation: validated Snapshots, including preserved Snapshots under the
+  confirmed instance-deletion policy, are the bounded V1 preservation
+  mechanism. Application state, exact revision records, and applicable
+  backup/recovery contracts persist under their own existing rules.
+- Rationale: a persistent managed-container mode would add lifecycle, storage,
+  and recovery semantics without a demonstrated need for the V1 lab/testing
+  goal. It is deferred post-V1, with no V1.x commitment. Dormant domain values
+  may remain for historical or extensibility reasons and confer no V1 support.
+- Boundary: external development and production Kodi targets may be long-lived
+  installations. They are not Docker-managed disposable instances and retain
+  their separate registration, onboarding, bridge, and policy contracts.

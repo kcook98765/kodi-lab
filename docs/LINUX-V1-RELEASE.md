@@ -25,9 +25,21 @@ installed wheel's reviewed recipe digests.
 
 The V1 set is Matrix 19.4 on Ubuntu Jammy, Nexus 20.5 on Ubuntu Noble, and
 Omega 21.3 on Ubuntu Resolute. Kodi 22 Piers has no accepted binary recipe in
-this candidate. A later optional preview can add a separately reviewed recipe.
+this candidate and is outside the stable V1 installable set. A later optional
+preview would require its own review. Windows/macOS hosts and ARM64/Apple
+Silicon are post-V1.
 The historical private archive bootstrap and four-runtime catalog remain in
 the development checkout for compatibility; neither is a release prerequisite.
+
+Kodi Lab-created V1 managed instances are disposable. Provisioning creates a
+stopped container from an exact pinned runtime revision; stopping retains that
+container and its writable layer. Deprovisioning removes the container and
+layer while retaining the managed record and durable Kodi Lab state. Reset
+returns it to the assigned deterministic fixture, and Snapshots provide
+bounded preservation, including the existing confirmed deletion/preservation
+policy. Persistent managed-container storage is deferred under D-0381.
+External/production Kodi targets may be long-lived installations and remain
+under their separate registration, onboarding, and bridge policies.
 
 Kodi Lab installs from the bundle offline. First acquisition of a managed Kodi
 runtime needs the reviewed upstream packages and pinned base image unless
@@ -40,9 +52,10 @@ the generations they choose.
 The release Compose binds Web to host loopback. Web has the restricted broker
 Unix socket but no Docker socket. The broker alone mounts the Docker socket,
 which grants effective host-root authority; only trusted administrators should
-control that service or its volumes. Runtime installation is an explicit
-administrator command in the installed broker image. Its lifecycle protocol
-continues to enforce exact reviewed images and revisions.
+control that service or its volumes. Runtime installation is available through
+the authenticated reviewed-runtime Web flow and the explicit administrator
+command in the installed broker image. The broker owns the bounded installation
+worker; its lifecycle protocol enforces exact reviewed images and revisions.
 
 Application backup contains SQLite, keys, recipe installation records,
 revisions, and HMAC evidence. Docker image bytes and broker snapshot artifacts

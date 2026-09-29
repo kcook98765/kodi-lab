@@ -6,12 +6,14 @@ Primary audience: Kodi add-on developers
 Primary platform: Linux/Docker  
 Versioning: Semantic Versioning
 
-Runtime acquisition update (2026-09-28): the intended normal V1 path is
-reviewed signed distribution packages assembled locally by Docker and validated
-by Kodi Lab. Matrix 19.4 / Jammy is the first implemented generation recipe.
-Nexus 20.5 / Noble and Omega 21.3 / Resolute await separate acceptance. Kodi 22
-is deferred. The older four-archive release-candidate text below documents an
-unpublished transitional artifact and does not define the next public bundle.
+V1 scope decision (D-0381): Kodi Lab-created managed instances are disposable.
+The stable Linux amd64 V1 release set is Matrix 19.4, Nexus 20.5, and Omega
+21.3. Their reviewed signed-package recipes are assembled locally and validated
+by Kodi Lab. Kodi 22/Piers is outside the installable stable V1 set. Historical
+four-runtime/private-archive acceptance remains compatibility evidence, not a
+public release requirement. `LINUX-V1-RELEASE.md` defines the current local,
+unpublished, binary-free release candidate. External/production Kodi targets
+are separate from Docker-managed instances and retain their own contracts.
 
 ## 1. Product definition
 
@@ -31,8 +33,10 @@ MCP primarily operates Kodi targets and performs add-on development/testing work
 
 v1 must provide:
 - reliable isolated Kodi instances;
-- curated support beginning with Kodi 19.5, 20.5, 21.3, and a Kodi 22-series target;
-- persistent and disposable instances;
+- curated stable Linux amd64 runtime support for Matrix 19.4, Nexus 20.5, and
+  Omega 21.3;
+- disposable Kodi Lab-created managed instances with durable application state
+  and bounded Snapshot preservation;
 - synthetic libraries;
 - snapshots and reset;
 - browser administration;
@@ -48,9 +52,9 @@ v1 must provide:
 - bounded history and audit; broader logs/diagnostics are Phase 15;
 - restricted container-management broker;
 - SQLite metadata;
-- a public installation shape finalized during Phase 16 release preparation;
-  the original Compose requirement remains the preferred release candidate but
-  is not a Phase 14 requirement.
+- a reviewed public installation path; the local Linux amd64 Compose and
+  binary-free bundle are implemented release-candidate foundations, with
+  exact-candidate acceptance and publication still separate gates.
 
 ### 2.1 Current normative V1 MCP and production contract
 
@@ -124,7 +128,9 @@ Do not expand MCP into a second lab-admin API merely because an operation exists
 
 Deferred:
 - Windows/macOS host support;
-- official ARM64 support;
+- ARM64/Apple Silicon host support;
+- persistent Kodi Lab-created managed instances, unless a concrete post-V1
+  use case justifies a separate lifecycle and recovery design;
 - GPU/audio passthrough management;
 - full real-media library management;
 - multi-user/RBAC;
@@ -180,49 +186,37 @@ Supporting storage:
 
 ## 6. Deployment
 
-The Phase 3 Linux broker decision gate accepted an optional Compose-managed
-broker from the same installed wheel as Web. It is a deployment foundation,
-not a complete managed-lab install; see D-0369 and `BROKER-CONTAINER.md`.
+The historical Phase 3 Linux broker decision gate accepted an optional
+Compose-managed broker from the same installed wheel as Web. At that checkpoint
+it was a deployment foundation, before the managed-lab install; see D-0369
+and `BROKER-CONTAINER.md`.
 
-Phase 16 owns the canonical public V1 installation contract. The original
-release target remains versioned GHCR images plus a versioned Docker Compose
-file, but no Compose definition exists at the Phase 14 checkpoint. Therefore
-Compose is a Phase 16 release-packaging acceptance item, not a Phase 14
-closeout blocker and not a supported install mechanism that may be claimed
-today.
-
-Phase 16 should also provide:
-- Git clone + Compose for contributors/development;
-- GitHub release archives;
-- checksums;
-- bundled runtime catalog/manifests;
-- example configuration.
+The local, unpublished Linux amd64 release candidate already has source-free
+Compose, application images, three reviewed runtime recipes, checksums, and
+installation/recovery guidance. See `LINUX-V1-RELEASE.md` and
+`LINUX-V1-INSTALL.md`. Public publication and exact-candidate RC acceptance
+remain separate. The older Phase 14 statement that no Compose definition
+existed described that checkpoint only.
 
 Host policy:
 - Docker-capable Linux generally;
 - Ubuntu is the CI-validated host for v1;
 - x86_64 official initially;
-- ARM64 architecture anticipated but roadmap only.
+- ARM64/Apple Silicon and Windows/macOS are post-V1 host work.
 
 ## 7. Releases
 
 Use SemVer for public releases. The historical static `0.0.0` package version
 was an unreleased-development sentinel, not a published compatibility promise.
-Linux amd64 Phase 16 release preparation selects `1.0.0rc1` for the local,
-unpublished candidate. The final public version and publication checklist
-remain separate decisions. Phase 14 did not change the package version.
-Stable images: exact version plus `latest`.
-Prerelease images: exact prerelease plus `edge`.
-`latest` must never point to beta/RC.
-
-Release bundle:
-- Compose file;
-- checksums;
-- source archive;
-- runtime catalog/manifests;
-- example configuration;
-- release notes;
-- standard GitHub provenance/signing where practical.
+Linux amd64 release preparation selected `1.0.0rc1` for the local, unpublished
+candidate. The final public version and publication checklist remain separate
+decisions.
+No mutable image tag establishes release identity. The current local bundle
+uses exact application image IDs, Compose files, three reviewed recipe
+descriptions, `BUNDLE.json`, `SHA256SUMS`, and installation/recovery guidance.
+`LINUX-V1-RELEASE.md` defines its complete inventory and authenticity limits.
+Public image tags, archives, provenance, and signing require their own
+publication decision; they are not claims about this unpublished candidate.
 
 ## 8. Persistent data
 
@@ -232,13 +226,16 @@ One configurable data root, recommended:
 Suggested subdirectories:
 - database/
 - secrets/
-- instances/
 - snapshots/
 - artifacts/
 - screenshots/
 - logs/
 - runtime-builds/
 - cache/
+
+This is an early conceptual layout, not a claim that every directory exists.
+V1 has no durable persistent managed-instance directory; the actual ownership
+and recovery inventory is in `MANAGED-STATE-RECOVERY.md`.
 
 The Web service UID/GID `10001:10001` owns the private data root and
 application state. The Linux broker publishes managed snapshots as
@@ -394,10 +391,28 @@ installation are rejected for production V1:
 
 ## 16. Managed instance model
 
-One Kodi instance per container.
-Types:
-- Disposable
-- Persistent
+V1 Kodi Lab-created managed instances are disposable: one Kodi instance per
+broker-owned container, pinned to an exact reviewed RuntimeRevision. Provision
+creates or recreates the stopped container from that revision and its managed
+state contract. Stop retains the current provisioned container and writable
+layer. Deprovision removes that container and layer while retaining the
+ManagedInstance record, exact revision pin, and durable Kodi Lab state. Reset
+recreates the runtime in its deterministic assigned fixture state. Snapshots
+provide bounded preservation outside the active container; the confirmed
+instance-deletion workflow applies the existing preserve-or-destroy Snapshot
+choice. See `PHASE7-SNAPSHOTS.md` and D-0381 for the accepted boundaries.
+
+SQLite/application state, exact revision records, fixtures, Snapshots,
+preserved Snapshots, and applicable backup/recovery contracts persist according
+to their own rules. A stopped provisioned container keeps its writable layer
+until deprovision or deletion. These do not constitute a persistent managed
+instance mode. Dormant domain terminology for a persistent value does not make
+that mode a V1 capability; any future implementation needs a concrete use case
+and a separate lifecycle/storage/recovery decision.
+
+External development and production Kodi targets may be long-lived
+installations. They are registered and governed by their existing onboarding,
+bridge, and policy contracts, not by this disposable Docker lifecycle.
 
 Instance metadata includes:
 - stable internal ID;
@@ -414,13 +429,9 @@ Instance metadata includes:
 - notes;
 - history.
 
-Default:
-- sensible generated name;
-- starts after creation;
-- host reboot default is stay stopped;
-- latest stable Kodi;
-- Small Mixed synthetic library;
-- Add-on Development MCP preset.
+Provisioning creates a stopped container; starting Kodi is an explicit
+lifecycle operation. Exact revision and fixture selection remain under the
+existing catalog and assignment policies.
 
 ## 17. State/readiness
 
@@ -481,24 +492,28 @@ Recheck on startup/restart/major operations; periodic polling later.
 
 Catalog-driven, not hard-coded.
 
-Initial curated matrix:
-- Kodi 19.5
-- Kodi 20.5
-- Kodi 21.3
-- Kodi 22-series target
+Stable V1 reviewed release set on Linux amd64:
+- Matrix 19.4
+- Nexus 20.5
+- Omega 21.3
+
+Kodi 22/Piers is outside the installable stable V1 set. The private 19.5 and
+four-runtime compatibility catalog and acceptance remain historical evidence;
+they do not expand the current release set.
 
 Policy:
 - Current = latest stable major + previous major;
 - Legacy = older best-effort, hidden behind Include Legacy;
 - beta/RC/nightly hidden behind Include Pre-release.
 
-Official runtime catalog ships with Kodi Lab releases in v1.
+The release ships reviewed recipe descriptions and exact catalog authority;
+Kodi binaries are acquired from reviewed signed packages and assembled
+locally. See `LINUX-V1-RELEASE.md`.
 
-Runtime sources:
-- official Kodi packages/repos by default;
-- advanced alternate repo/package URL;
-- local package/build;
-- custom container image.
+The current V1 installation path accepts only its three reviewed fixed
+recipes. Earlier alternate-source and custom-build vocabulary describes
+private/advanced catalog concepts; it does not grant a release installer an
+arbitrary package URL, source build, or custom image input.
 
 Common Linux runtime foundation where practical.
 
@@ -508,7 +523,8 @@ Same Kodi version rebuilt from different base/source/build = distinct runtime re
 Existing instances pin exact revision until explicit upgrade.
 New instances use newest approved revision by default.
 
-Custom manifests allowed without code changes.
+The historical/advanced catalog allows custom manifests without code changes;
+this does not make them reviewed V1 installation recipes.
 
 Normal manifests are declarative.
 Arbitrary build execution only through **Trusted Custom Build**:
@@ -549,27 +565,12 @@ Fine-grained fixture reset later; full reset/snapshot sufficient initially.
 
 ## 23. Snapshots
 
-First-class v1 feature.
-Central storage outside active instance filesystem.
-
-Creation:
-1. record prior running/stopped state;
-2. stop Kodi;
-3. snapshot;
-4. basic validate;
-5. restore prior state.
-
-One heavy job globally at a time.
-Default timestamp/state name + optional custom name.
-No automatic retention limit initially.
-Per-instance browsing sufficient initially.
-
-Restore:
-- warn;
-- stop;
-- restore;
-- validate;
-- restart if previously running.
+Snapshots are the accepted bounded V1 preservation mechanism for disposable
+managed instances. Their validated artifacts live outside the active container
+writable layer. Creation, source-bound restore, explicit deletion, preserved
+Snapshot browsing after confirmed instance deletion, and recovery follow
+`PHASE7-SNAPSHOTS.md` and `MANAGED-STATE-RECOVERY.md`. A preserved Snapshot of
+a deleted source is archive-only and cannot be restored to another instance.
 
 ## 24. Add-on development
 
@@ -1031,11 +1032,9 @@ Early CI:
 
 Later full Kodi E2E.
 
-Stable releases validate curated matrix:
-- 19.5
-- 20.5
-- 21.3
-- 22-series target
+The stable V1 release validates its reviewed Matrix 19.4, Nexus 20.5, and
+Omega 21.3 recipes and their exact candidate behavior. Historical/private
+Kodi 19.5 and Piers compatibility runs do not create release obligations.
 
 MCP public-v1 gate:
 - managed dev target;
@@ -1049,22 +1048,25 @@ Manual capability checklist acceptable initially; automate later.
 
 ## 46. Core public-v1 acceptance
 
-The following list is reconciled to the implemented V1 contract. Phase 16 owns
-public packaging/installation acceptance; Phase 15 owns the remaining
-operational diagnostics/hardening. Neither is a Phase 14 implementation slice.
+The following list states V1 release acceptance. The local binary-free Linux
+amd64 installation foundation is implemented; public publication and
+exact-candidate acceptance remain separate. Historical phase checkpoints
+below do not reopen completed implementation slices.
 
 Must include at least by public release:
-- one documented clean public installation path; the planned Compose path is a
-  Phase 16 deliverable and is not yet present;
+- one documented, accepted clean public installation path; local Compose and
+  installation guidance exist, while exact-candidate RC acceptance remains;
 - first-run setup;
-- curated four-version creation/readiness;
+- reviewed Matrix 19.4, Nexus 20.5, and Omega 21.3
+  creation/readiness from the current binary-free release recipes;
 - stop/restart/reset/delete;
 - synthetic libraries;
 - screenshots all curated runtimes;
 - at least one interactive-display path where host permits;
 - reliable snapshots;
 - ZIP install;
-- dev source attach/sync;
+- dev source attach/sync through an accepted release development-source path
+  (REQUIRED BEFORE RC; the local development flow alone does not prove this);
 - agent working copy and patch-back;
 - health;
 - Phase 15 operational diagnostics/hardening evidence; no MCP diagnostic tool
@@ -1075,7 +1077,8 @@ Must include at least by public release:
 - screenshots and closed semantic actions according to policy; MCP logs,
   diagnostics and raw JSON-RPC are not V1 requirements;
 - remote registration with fixed native semantic JSON-RPC calls;
-- exact reviewed release-ZIP bridge bootstrap with checksum/provenance;
+- exact current reviewed release-ZIP bridge bootstrap with published
+  checksum/provenance (REQUIRED BEFORE RC);
 - production restrictions and approvals;
 - token lifecycle;
 - audit;
@@ -1085,6 +1088,10 @@ Must include at least by public release:
 - manual install/upgrade/rollback docs.
 
 ## 47. Implementation phases
+
+The sequence below records project phase ownership and historical checkpoints.
+Completed phase text, including four-runtime private compatibility acceptance,
+does not change the current three-runtime stable V1 release contract.
 
 The Phase 8 uploaded-ZIP first slice interprets “ZIP install” narrowly:
 authenticated upload produces an immutable, bounded, validated private artifact;
@@ -1180,10 +1187,10 @@ kodi_lab/
 
 Version-specific behavior should live in runtime/Kodi adapters rather than service-layer conditionals.
 
-## 49. First internal milestone
+## 49. First internal milestone (historical)
 
 Before full MCP parity:
-- all four Kodi versions launch/stop/reset;
+- the then-curated four private Kodi versions launch/stop/reset;
 - screenshots;
 - optional noVNC;
 - snapshots;
@@ -1343,7 +1350,7 @@ identity, monotonic direct-state revision, atomic policy-cancellation and
 coherent approval/receipt retention guards; it does not authorize a later
 Phase 14 slice.
 
-## 56. Phase 14 validation and closeout boundary
+## 56. Phase 14 validation and closeout boundary (historical checkpoint)
 
 Production support-addon deployment is formally deferred post-V1. It is not a
 Phase 14 completion blocker. Production V1 bootstrap is ordinary operator-
@@ -1365,10 +1372,11 @@ wording alone does not change the hard-coded semantic fingerprint. Therefore
 as the corrected production release artifact. The minimal recommendation is a
 1.1.8 packaging-only successor with a synchronized version constant, newly
 computed deterministic ZIP hash and semantic fingerprint, fresh independent
-source/package review, and a newly registered reviewed-build record. This
-specification does not authorize that version change or publication.
+source/package review, and a newly registered reviewed-build record. That
+successor was subsequently built as a local candidate; its independent
+exact-artifact review, registration, and publication remain separate.
 
-Phase 14 may close only after:
+At this preparation checkpoint, Phase 14 closeout required:
 
 1. this V1 boundary reconciliation and the production/manual bridge operator
    documentation are accepted;
@@ -1380,18 +1388,16 @@ Phase 14 may close only after:
 5. one authoritative final repository gate passes after the final content
    change.
 
-Until then Phase 14 is **PARTIAL**. Stage A-D execution, live production/LAN
-contact, bridge publication, support-addon deployment and Phase 15 work are not
-authorized by this preparation slice.
+At that checkpoint Phase 14 was **PARTIAL**. The list is historical phase
+evidence, not a fresh requirement to repeat completed implementation work.
+The current reviewed bridge ZIP/provenance gap remains REQUIRED BEFORE RC.
 
 Phase 15 remains Diagnostics/hardening: bounded operational diagnostics,
 performance, security hardening and remaining operational validation as its
 canonical phase gate determines. It must not silently expand the V1 MCP or
-production catalog. Phase 16 remains Public release preparation: public
-installation/Compose ownership, release packaging, the first public SemVer,
-artifact/checksum/provenance publication, public documentation and release
-checklist. The static project version stays `0.0.0` until that release gate
-selects and validates `1.0.0`.
+production catalog. Phase 16 owns public release preparation. The local
+`1.0.0rc1` candidate already has Compose, packaging, and installation guidance;
+exact-candidate acceptance and publication remain open gates.
 
 ## 57. Web-only production screenshot maximum amendment
 

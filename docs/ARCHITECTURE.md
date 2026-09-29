@@ -3,6 +3,12 @@
 `V1-SPEC.md` is authoritative. This document is a concise implementation map,
 not a replacement specification.
 
+For the current V1 release, managed instances are disposable and the stable
+reviewed Linux amd64 recipes are Matrix 19.4, Nexus 20.5, and Omega 21.3.
+The four-runtime/private-archive sections below record earlier compatibility
+and implementation evidence, including Kodi 19.5 and Piers; they do not define
+the installable V1 set. See D-0381 and `LINUX-V1-RELEASE.md`.
+
 Kodi Lab uses Python, FastAPI, server-rendered HTML with minimal JavaScript,
 SQLite metadata, filesystem artifact storage, Nginx, Docker Compose, and a
 restricted container-management broker. The application and broker must not
@@ -36,7 +42,7 @@ slug and Kodi-version metadata. Each finalized runtime revision has its own UUID
 and a positive per-definition revision number; revision number is the only
 newest-revision ordering authority.
 
-The installed Linux amd64 curated distribution keeps four exact build manifests
+The historical private Linux amd64 distribution keeps four exact build manifests
 and bounded validation reports as wheel resources. Each manifest records a
 separate SHA-256-pinned Docker-save archive, the reviewed image ID and the
 archive-derived local `docker load` image ID, platform, catalog UUID/revision,
@@ -44,7 +50,9 @@ tier, and execution profile. Explicit `kodi-lab-runtime bootstrap` verifies an
 approved immutable local image ID and platform before atomically seeding exact
 catalog rows. It stores the verified local ID in the existing
 `RuntimeContainerArtifact` mapping, so broker provisioning continues to use an
-exact ID. See D-0371 and `CURATED-IMAGE-DISTRIBUTION.md`.
+exact ID for those private pins. The current V1 release instead distributes
+three reviewed recipes and no Kodi image archives. See D-0371,
+`CURATED-IMAGE-DISTRIBUTION.md`, and `LINUX-V1-RELEASE.md`.
 
 Revision source, manifest, SHA-256 content identity, and build timestamp are
 immutable after creation. Approval and Trusted Custom Build confirmation are
@@ -78,6 +86,16 @@ accepted. Changing this execution behavior requires a new profile and monotonic
 RuntimeRevision even when the immutable image is reused.
 
 ## Managed-instance application service
+
+V1 managed instances are disposable. Provision creates a stopped broker-owned
+container from the exact pinned revision; stop retains that provisioned
+container and its writable layer; deprovision removes them while retaining the
+managed record and durable application state. Reset returns the runtime to its
+assigned deterministic fixture, while Snapshots and the confirmed deletion
+policy provide bounded preservation. External/production Kodi targets are
+separate long-lived installations under their own registration and bridge
+policies. Persistent managed-container storage remains post-V1 unless a
+concrete use case and separate lifecycle/recovery decision justify it.
 
 `kodi_lab.application` is the transaction and policy boundary above the explicit
 repositories. Each create or runtime-reassignment operation opens one database
@@ -1349,8 +1367,8 @@ promotion, Git, shell, or Docker surface.
 
 ## Phase 10 Slice 2 managed screenshot runtime parity
 
-Slice 2 completes the mandatory common screenshot abstraction across the four
-current curated RuntimeRevisions: Kodi 19.5 revision
+Slice 2 completed the then-required common screenshot abstraction across the
+four private curated RuntimeRevisions: Kodi 19.5 revision
 `51950000-0000-4000-8000-000000000005`, Kodi 20.5 revision
 `52000000-0000-4000-8000-000000000005`, Kodi 21.3 revision
 `3a000000-0000-4000-8000-000000000006`, and Kodi 22 Beta 2 revision
@@ -1491,7 +1509,7 @@ migration, new broker operation, VNC/noVNC, keyboard/pointer/text input, image o
 runtime rebuild, MCP/token/agent authority, general log surface, higher-rate
 video, or display parity beyond Kodi 21.3. With four-runtime screenshots,
 four-runtime semantic remote, and this mediated display path implemented, the
-required V1 Phase 10 scope is implementation-complete pending formal review.
+historical Phase 10 scope reached implementation completion before formal review.
 
 ## Phase 10 formal completion
 
@@ -2680,7 +2698,7 @@ newer state, and verifies restored revision/key identity. The prior application
 artifact is required after rollback. D-0368 and `REMOTE-MODE-CONTAINER.md`
 define the operator procedure and its Phase 1 compatibility boundary.
 
-## Four-version managed lab workflow
+## Four-version managed lab workflow (historical private acceptance)
 
 The installed `kodi-lab-lab` entrypoint prepares four canonical disposable
 ManagedInstances. The broker-container one-shot `bootstrap` checks the reviewed
@@ -2730,12 +2748,11 @@ managed instance without provisioning or starting Kodi. See D-0380.
 
 ## Linux amd64 V1 release artifact boundary
 
-The local `1.0.0rc1` candidate packages the committed source tar, installed
-Web and broker image export, source-free Compose, four exact reviewed runtime
-exports, copied runtime manifests/evidence, verification helper, checksum
-inventory and operator documentation. `BUNDLE.json` is the cross-artifact
-identity record. Application image IDs may be reported as saved OCI index or
-archive config identities on different Docker stores; the bundle installer
-selects an exact archive-derived ID in `.env`. Runtime catalog authority stays
-with the wheel-owned manifests and accepts only their reviewed IDs. The
-published version remains a separate gate. See `LINUX-V1-RELEASE.md`.
+The local `1.0.0rc1` candidate packages installed Web and broker application
+images, source-free Compose, three exact reviewed runtime recipes, a
+verification helper, checksum inventory, and operator documentation. It
+distributes no Kodi binaries. `BUNDLE.json` binds the staged Git tree and
+distributed files. The installer selects exact loaded application image IDs
+in `.env`; reviewed wheel recipes and validated acquisition evidence govern
+runtime eligibility. Exact-candidate acceptance and publication remain
+separate gates. See `LINUX-V1-RELEASE.md`.
