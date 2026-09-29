@@ -165,6 +165,7 @@ def verify_repository_service_boundary(bundle: pathlib.Path) -> None:
         or "read_only: true" not in repository
         or 'user: "10002:10002"' not in repository
         or "network_mode: none" not in initializer
+        or "cap_drop: [ALL]\n    cap_add: [CHOWN]" not in initializer
         or "${KODI_LAB_REPOSITORY_BIND:?explicit private LAN bind required}"
         not in repository
         or any(

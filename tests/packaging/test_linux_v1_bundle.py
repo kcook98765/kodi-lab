@@ -215,6 +215,26 @@ def test_verifier_rejects_repository_write_mount_even_when_rehashed(
         verify(bundle)
 
 
+def test_verifier_requires_initializer_chown_capability(bundle: Path) -> None:
+    compose = bundle / "compose.release.yaml"
+    body = compose.read_text()
+    initializer_start = body.index("\n  repository-init:\n")
+    broker_start = body.index("\n  broker:\n")
+    initializer = body[initializer_start:broker_start].replace(
+        "cap_drop: [ALL]\n    cap_add: [CHOWN]", "cap_drop: [ALL]"
+    )
+    compose.write_text(body[:initializer_start] + initializer + body[broker_start:])
+    document = json.loads((bundle / "BUNDLE.json").read_bytes())
+    document["files"]["compose.release.yaml"] = {
+        "sha256": digest(compose),
+        "size": compose.stat().st_size,
+    }
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="service isolation"):
+        verify(bundle)
+
+
 @pytest.mark.parametrize(
     "name", ("kodi-22.0-beta2.tar", "kodi_21.3_amd64.deb", "kodi-runtime-image.tar")
 )
