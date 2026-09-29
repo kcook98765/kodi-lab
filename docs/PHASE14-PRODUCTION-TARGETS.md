@@ -280,8 +280,8 @@ time. No build, including deterministic 1.1.7, is migration-approved.
 
 Production bridge trust has a positive monotonic revision independent of native
 identity generation. Pairing requires enabled coherent production-native trust,
-configured screenshot maximum, a show-once target/purpose-bound 256-bit token,
-the existing mutual possession exchange, exact active reviewed-build match and
+configured screenshot maximum, the bridge-generated four-character `otp-1`
+code, an independent protected 256-bit bridge credential, exact active reviewed-build match and
 a separate explicit installed-target/provenance confirmation. HTTP additionally
 requires immutable exact configuration-bound risk acknowledgement; HTTPS uses
 normal CA validation. Pairing grants no MCP authority.

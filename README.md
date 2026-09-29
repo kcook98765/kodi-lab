@@ -170,10 +170,11 @@ promotion evidence use their existing schemas. See
 For a development bridge, install
 `bridge/service.kodi_lab_bridge` as an ordinary Kodi service add-on. Keep it
 disabled until the external target is registered, native-verified, explicitly
-confirmed/enabled and configured with the required capability maximum. In Web, create
-the show-once pairing token; enter it locally in the add-on settings, set the
-allowlisted bridge port, enable the add-on, then use Web to run the possession
-proof and confirm the displayed bridge identity. Re-pairing rotates the secret
+confirmed/enabled and configured with the required capability maximum. Enable
+bridge 1.1.13, obtain its four-character code, and enter that code with the
+allowlisted bridge port in Kodi Lab's Web onboarding flow. Kodi Lab uses the
+shared `otp-1` protocol and confirms the authenticated bridge identity.
+Re-pairing rotates the secret
 and revocation disables screenshot/deployment authority immediately. The add-on
 exposes only identity, capability, screenshot and pathless content-addressed
 deployment operations; fixed execution remains native. Establish the exact
@@ -201,7 +202,8 @@ dispatch twice, and ambiguity stops rather than retries.
 The production bridge supplies identity and bounded screenshots, not arbitrary
 control. Operators manually install an exact reviewed release ZIP after
 checking its published SHA-256; Web then registers the reviewed build, pairs
-with a show-once token and explicitly confirms provenance. Kodi Lab does not
+bridge 1.1.13 with its four-character `otp-1` code and explicitly confirms
+provenance. Kodi Lab does not
 install/update production software or own Kodi/host lifecycle. Automatic bridge
 updates, hosted-repository bootstrap, generic production add-on installation,
 raw JSON-RPC, shell/SSH/filesystem access and workspace deployment to production

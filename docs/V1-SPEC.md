@@ -898,7 +898,8 @@ Capability levels:
 Production bridge bootstrap is manual operator installation of an exact
 reviewed release ZIP after checksum verification. Kodi Lab verifies native
 identity separately, registers the reviewed build in Web administration, pairs
-with a show-once token and requires explicit provenance confirmation. There is
+bridge 1.1.13 through the shared four-character `otp-1` protocol and requires
+explicit provenance confirmation. There is
 no repository prerequisite, automatic refresh, bridge update or production
 support-addon deployment. Future bridge deployment/update capability requires
 a new post-V1 architecture and security gate.

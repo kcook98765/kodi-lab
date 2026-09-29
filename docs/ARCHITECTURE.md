@@ -2614,6 +2614,9 @@ control, lifecycle or generic deployment channel. Production commands continue
 to use the native adapter's fixed server-owned semantic mappings. Production
 accepts only an exact active Web-reviewed build, one-time possession pairing,
 explicit installed provenance confirmation and current revision-bound scopes.
+A current bridge 1.1.13 uses the shared `otp-1` provisional and idempotent commit
+flow for both external development and production targets. Production retains
+its own reviewed-build, HTTP acknowledgement and explicit confirmation policy.
 A bridge identity/build mismatch suspends bridge-dependent visual and control
 authority; native read-only inspection remains independent where its own trust
 intersection is still coherent.

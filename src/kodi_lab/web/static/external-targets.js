@@ -38,14 +38,13 @@
       event.preventDefault(); const form = new FormData(event.currentTarget);
       await request(`/api/external-targets/${id}/credentials`, "POST", {authentication_mode: form.get("authentication_mode"), username: form.get("username") || null, password: form.get("password") || null}); location.reload();
     }));
-    card.querySelector("[data-bridge-token]")?.addEventListener("submit", (event) => run(async () => {
+    card.querySelector("[data-bridge-otp]")?.addEventListener("submit", (event) => run(async () => {
       event.preventDefault();
-      if (!confirm("Generate a new one-time bridge token and retire any existing pairing?")) return;
       const form = new FormData(event.currentTarget);
-      const result = await request(`/api/external-targets/${id}/bridge/pairing-token`, "POST", {confirmed: true, bridge_port: Number(form.get("bridge_port"))});
-      const container = card.querySelector("[data-pairing-token-container]");
-      card.querySelector("[data-pairing-token]").textContent = result.token;
-      container.hidden = false;
+      const code = String(form.get("code")).trim().toUpperCase();
+      event.currentTarget.querySelector("[name=code]").value = "";
+      await request(`/api/external-targets/${id}/bridge/pair`, "POST", {confirmed: true, bridge_port: Number(form.get("bridge_port")), code});
+      location.reload();
     }));
     card.querySelector("[data-bridge]")?.addEventListener("click", (event) => run(async () => {
       const button = event.target.closest("button[data-bridge-action]"); if (!button) return;

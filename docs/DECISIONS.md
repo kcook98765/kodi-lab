@@ -4972,3 +4972,19 @@ approvals atomically with the governing revision transition.
   missing bind source. The staged artifact never contains the chosen path.
   Registration remains restricted to normalized relative locators through the
   existing no-follow validator; Web and MCP gain no host-path or mount API.
+
+## D-0383: Shared OTP bridge pairing with distinct production policy
+
+- Bridge 1.1.13 remains `otp-1` only and continues to reject `pair_bridge`.
+  Production Web pairing stages the same authenticated provisional transaction
+  and encrypted independent 32-byte credential used by external development.
+  The existing pairing row and secret store support restart and lost-response
+  recovery, so no migration or second pairing protocol is introduced.
+- Production registration, private-LAN endpoint, confirmed native identity and
+  designation, configured screenshot maximum, exact HTTP acknowledgement,
+  reviewed build, and explicit installed-provenance confirmation remain separate
+  requirements. The final Web confirmation performs the idempotent OTP commit;
+  pairing alone grants no MCP authority and leaves mutation vetoes intact.
+- The legacy long-token service/client methods remain for historical tests.
+  Normal external-development and production Web routes no longer issue tokens
+  or call `pair_bridge`.

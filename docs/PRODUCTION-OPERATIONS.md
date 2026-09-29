@@ -51,6 +51,10 @@ yet been installed on production or registered as a live reviewed build.
 
 Keep production mutations globally blocked and the target mutation suspension
 set while onboarding.
+Bridge 1.1.13 uses the shared `otp-1` protocol. The bridge displays a temporary
+four-character code; Kodi Lab creates a separate protected 32-byte credential.
+The historical 1.1.8 candidate above is not the current pairing contract or an
+accepted 1.1.13 release artifact.
 
 1. Obtain the exact reviewed bridge release ZIP and its published provenance
    from the approved release channel.
@@ -68,11 +72,14 @@ set while onboarding.
 7. Register the exact reviewed bridge build in Web administration using its ZIP
    SHA-256, semantic fingerprint, add-on/protocol versions, capabilities,
    supported Kodi versions and source provenance.
-8. Generate the show-once production pairing token. Do not log, copy into
-   evidence or retain the token after local entry.
-9. Enter the token locally in the bridge settings with the allowlisted bridge
-   port, then enable the add-on.
-10. Perform the Web possession pairing ceremony.
+8. For private HTTP, acknowledge the exact native/bridge address and bridge
+   port risk in Web before pairing.
+9. Enable the bridge on Kodi and obtain its four-character code. Enter the code
+   and allowlisted bridge port in the production target's Web pairing form.
+   Do not record the code in evidence.
+10. Kodi Lab stages an authenticated provisional identity using `otp-1`.
+    Refresh the page if the response is lost; a pending pairing can be resumed
+    without entering another code.
 11. Inspect the observed bridge UUID/build/protocol/Kodi identity and explicitly
     confirm installed production provenance. Pairing alone grants no scope.
 12. Assign only the intended exact built-in preset, generic target grant and
@@ -122,7 +129,7 @@ There is no automatic updater.
    not edit stored identity to make it match.
 6. Explicitly reverify native/bridge identity and confirm exact new provenance
    in Web administration.
-7. Re-pair with a fresh show-once token if bridge UUID or secret continuity
+7. Re-pair with a fresh bridge-generated four-character code if bridge UUID or secret continuity
    changed.
 8. Revoke stale authority and issue fresh scopes bound to current native
    generation and bridge revision.
@@ -180,7 +187,7 @@ authorized screenshot.
 | Bridge unreachable | Bridge-dependent work is denied; native inspection remains independent. | Check Kodi/add-on/network state under operator authority. Do not bypass trust or automatically retry a mutation. |
 | Bridge identity mismatch | Bridge authority is suspended and its revision advances as designed. | Stop, inspect the installed package/identity, then explicitly reverify or reinstall/re-pair. |
 | Unreviewed build | Pairing/provenance confirmation cannot authorize it. | Remove or retain it under operator control; install an exact registered reviewed build. |
-| Bridge UUID reset | Prior secret and revision-bound authority are unusable. | Create a new show-once token, re-pair, confirm provenance and issue fresh scopes. |
+| Bridge UUID reset | Prior secret and revision-bound authority are unusable. | Generate a fresh four-character code on the bridge, re-pair, confirm provenance and issue fresh scopes. |
 | Native generation changed | Old native and dependent scopes remain stale. | Reverify native identity, reconfirm production designation, then issue fresh current-generation scopes. |
 | Target reinstalled | Treat identity/build continuity as unproved. | Keep mutations blocked; redo native verification/designation and bridge pairing/provenance as applicable. |
 | HTTP acknowledgement stale | Exact configuration-bound visual/control authority is denied. | Review the current HTTP risk in Web and create a new exact acknowledgement, or migrate to validated HTTPS. |

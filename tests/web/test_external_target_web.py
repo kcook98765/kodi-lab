@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
 
@@ -9,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from kodi_lab.application.external_bridges import ExternalBridgeService
 from kodi_lab.application.external_onboarding import (
     ExternalKodiOnboardingError,
     ExternalKodiOnboardingResult,
@@ -16,9 +19,11 @@ from kodi_lab.application.external_onboarding import (
 from kodi_lab.application.external_targets import ExternalTargetAdministrationService
 from kodi_lab.application.mcp_administration import FULL_LAB_CONTROL_PRESET_ID
 from kodi_lab.application.mcp_workspace_development import ExternalBaselineResult
-from kodi_lab.kodi.external import ExternalKodiProbeResult
+from kodi_lab.kodi.bridge import ExternalBridgeClient
+from kodi_lab.kodi.external import ExternalEndpointPolicy, ExternalKodiProbeResult
 from kodi_lab.mcp.registry import build_mcp_tool_registry
-from kodi_lab.storage.secrets import ExternalBridgeSecretStore
+from tests.kodi.test_bridge_otp_bootstrap import _server
+from tests.kodi.test_narrow_bridge_addon import _load
 
 from .conftest import INSTANCE_ID, ORIGIN, login
 
@@ -408,32 +413,44 @@ def test_mcp_cannot_list_or_use_registered_external_target(
         assert result["isError"] is True
 
 
-def test_bridge_pairing_administration_is_web_only_show_once_and_csrf_protected(
+def test_existing_external_target_web_pairing_uses_otp_and_csrf(
     client: TestClient,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    bridge = _load(
+        monkeypatch,
+        state_path=tmp_path / "bridge-state.json",
+        onboarding_path=tmp_path / "bridge-onboarding.json",
+    )
+    addon = SimpleNamespace(getSettingBool=lambda name: name == "enabled")
+    monkeypatch.setattr(sys.modules["xbmcaddon"], "Addon", lambda _id: addon)
+    bridge["_load_state"]()
+    bridge["_onboarding_store"]().initialize(paired=False)
     payload = _registration()
+    payload["host"] = "127.0.0.1"
     payload["configured_capabilities"] = ["target_inspect", "screenshot"]
+    url = f"/api/external-targets/{uuid4()}/bridge/pair"
     assert (
         client.post(
-            f"/api/external-targets/{uuid4()}/bridge/pairing-token",
-            json={"confirmed": True, "bridge_port": 8765},
+            url,
+            json={"confirmed": True, "bridge_port": 8765, "code": "2222"},
         ).status_code
         == 401
     )
     csrf = login(client)
+    app = cast(FastAPI, client.app)
+    service = cast(
+        ExternalTargetAdministrationService, app.state.kodi_lab.external_targets
+    )
+    service._endpoint_policy = ExternalEndpointPolicy(
+        allowed_ports=(8080,), test_loopback_enabled=True
+    )
+    service._verifier = SuccessfulExternalVerifier()  # type: ignore[assignment]
     created = client.post(
         "/api/external-targets", json=payload, headers=_headers(csrf)
     ).json()
     target_id = created["target_id"]
-    app = cast(FastAPI, client.app)
-    app.state.kodi_lab.external_bridges._secrets = ExternalBridgeSecretStore(
-        tmp_path / "web-bridge-secrets", master_key=b"b" * 32, key_version=1
-    )
-    service = cast(
-        ExternalTargetAdministrationService, app.state.kodi_lab.external_targets
-    )
-    service._verifier = SuccessfulExternalVerifier()  # type: ignore[assignment]
     observed = client.post(
         f"/api/external-targets/{target_id}/probe",
         json={},
@@ -452,42 +469,55 @@ def test_bridge_pairing_administration_is_web_only_show_once_and_csrf_protected(
         json={"enabled": True},
         headers=_headers(csrf),
     )
-    url = f"/api/external-targets/{target_id}/bridge/pairing-token"
-    body = {"confirmed": True, "bridge_port": 8765}
-    assert client.post(url, json=body).status_code == 403
-    assert (
-        client.post(url, json=body, headers={"X-Kodi-Lab-CSRF": csrf}).status_code
-        == 403
-    )
-    assert (
-        client.post(
-            url,
-            json={"confirmed": False, "bridge_port": 8765},
+    with _server(bridge) as port:
+        bridges = cast(ExternalBridgeService, app.state.kodi_lab.external_bridges)
+        bridges._endpoint_policy = ExternalEndpointPolicy(
+            allowed_ports=(port,), test_loopback_enabled=True
+        )
+        bridges._client = ExternalBridgeClient()
+        code = bridge["_onboarding_store"]().status(paired=False)["code"]
+        assert isinstance(code, str)
+        url = f"/api/external-targets/{target_id}/bridge/pair"
+        body = {"confirmed": True, "bridge_port": port, "code": code}
+        assert client.post(url, json=body).status_code == 403
+        assert (
+            client.post(url, json=body, headers={"X-Kodi-Lab-CSRF": csrf}).status_code
+            == 403
+        )
+        assert (
+            client.post(
+                url, json={**body, "confirmed": False}, headers=_headers(csrf)
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                url, json={**body, "secret": "caller-owned"}, headers=_headers(csrf)
+            ).status_code
+            == 422
+        )
+        paired = client.post(url, json=body, headers=_headers(csrf))
+        assert paired.status_code == 200, paired.json()
+        assert paired.json()["pairing_state"] == "pairing_pending"
+        assert code not in paired.text and "credential" not in paired.text
+        page = client.get("/external-targets")
+        assert "Provisional identity recorded" in page.text
+        assert code not in page.text
+        confirm = client.post(
+            f"/api/external-targets/{target_id}/bridge/confirm",
+            json={"confirmed": True},
             headers=_headers(csrf),
-        ).status_code
-        == 422
-    )
-    assert (
-        client.post(
-            url,
-            json={**body, "secret": "caller-owned"},
-            headers=_headers(csrf),
-        ).status_code
-        == 422
-    )
-    generated = client.post(url, json=body, headers=_headers(csrf))
-    assert generated.status_code == 201
-    assert generated.headers["content-type"] == "application/json"
-    generated_payload = generated.json()
-    assert set(generated_payload) == {"target_id", "token", "expires_at"}
-    token = generated_payload["token"]
-    assert len(token) == 43
-    status = client.get(f"/api/external-targets/{target_id}/bridge").json()
-    assert status["pairing_token_pending"] is True
-    assert "token" not in status
-    page = client.get("/external-targets")
-    assert page.status_code == 200
-    assert token not in page.text
+        )
+        assert confirm.status_code == 200, confirm.json()
+        assert confirm.json()["pairing_state"] == "paired"
+        assert (
+            client.post(
+                f"/api/external-targets/{target_id}/bridge/pairing-token",
+                json={"confirmed": True, "bridge_port": port},
+                headers=_headers(csrf),
+            ).status_code
+            == 404
+        )
 
     revoke = f"/api/external-targets/{target_id}/bridge/revoke"
     assert (

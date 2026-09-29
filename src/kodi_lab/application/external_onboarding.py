@@ -27,10 +27,10 @@ from kodi_lab.domain import (
     ExternalProtocolKind,
     ExternalVerificationState,
 )
+from kodi_lab.kodi.bridge import OTP_CODE_ALPHABET
 from kodi_lab.kodi.external import ExternalEndpointError, ExternalEndpointPolicy
 from kodi_lab.storage.models import ExternalKodiTargetRow, TargetRow
 
-_ALPHABET = frozenset("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
 _CAPABILITIES = {"target_inspect", "screenshot"}
 
 
@@ -258,7 +258,7 @@ class ExternalKodiOnboardingService:
         if (
             type(code) is not str
             or len(code) != 4
-            or any(c not in _ALPHABET for c in code)
+            or any(c not in OTP_CODE_ALPHABET for c in code)
         ):
             raise ExternalKodiOnboardingError("otp_invalid_format")
         if type(kodi_port) is not int or type(bridge_port) is not int:

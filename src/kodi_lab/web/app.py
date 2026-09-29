@@ -194,7 +194,6 @@ from kodi_lab.application.external_bridges import (
     ExternalBridgeService,
     ExternalBridgeServiceError,
     ExternalBridgeStatus,
-    PairingTokenResult,
     ProductionHttpAcknowledgementRead,
     ReviewedBridgeBuildRead,
 )
@@ -423,7 +422,10 @@ from kodi_lab.domain import (
     TargetType,
     normalize_development_source_logical_name,
 )
-from kodi_lab.kodi.bridge import ExternalBridgeClient
+from kodi_lab.kodi.bridge import (
+    SUPPORTED_V1_BRIDGE_ADDON_VERSION,
+    ExternalBridgeClient,
+)
 from kodi_lab.kodi.external import ExternalEndpointPolicy
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
@@ -932,11 +934,12 @@ class ProductionApprovalConfirmationRequest(BaseModel):
     action: BrowserRemoteAction
 
 
-class ExternalBridgePairingTokenRequest(BaseModel):
+class BridgeOtpPairRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirmed: Literal[True]
     bridge_port: int = Field(ge=1, le=65_535)
+    code: str = Field(min_length=4, max_length=4)
 
 
 class ExternalBridgeConfirmedRequest(BaseModel):
@@ -2465,8 +2468,30 @@ def create_app(
             "screenshot_invalid": 502,
             "screenshot_too_large": 502,
             "needs_reverification": 409,
+            "otp_invalid_format": 422,
+            "wrong_code": 422,
+            "pairing_code_expired": 410,
+            "pairing_temporarily_locked": 429,
+            "generation_cooldown": 429,
+            "pairing_code_unavailable": 409,
+            "bootstrap_outcome_uncertain": 409,
+            "provisional_expired": 410,
         }.get(error.code, 409)
-        return _json_error(status_code, error.code, "External bridge request rejected.")
+        message = {
+            "otp_invalid_format": _ONBOARDING_ERROR_MESSAGES["otp_invalid_format"],
+            "wrong_code": _ONBOARDING_ERROR_MESSAGES["otp_invalid"],
+            "pairing_code_expired": _ONBOARDING_ERROR_MESSAGES["otp_expired"],
+            "pairing_temporarily_locked": _ONBOARDING_ERROR_MESSAGES["otp_locked"],
+            "generation_cooldown": (
+                "Wait for the bridge code cooldown, then generate a new code in Kodi."
+            ),
+            "pairing_code_unavailable": "Generate a new four-character code in Kodi.",
+            "bootstrap_outcome_uncertain": _ONBOARDING_ERROR_MESSAGES[
+                "pairing_uncertain"
+            ],
+            "provisional_expired": _ONBOARDING_ERROR_MESSAGES["pairing_commit_failed"],
+        }.get(error.code, "External bridge request rejected.")
+        return _json_error(status_code, error.code, message)
 
     @app.exception_handler(ProductionCapabilityAmendmentError)
     async def production_capability_amendment_failure(
@@ -2661,6 +2686,7 @@ def create_app(
                 },
                 "allowed_ports": settings.external_target_allowed_ports,
                 "bridge_allowed_ports": settings.external_bridge_allowed_ports,
+                "supported_bridge_version": SUPPORTED_V1_BRIDGE_ADDON_VERSION,
                 "test_loopback_enabled": (
                     settings.external_target_test_loopback_enabled
                 ),
@@ -2720,6 +2746,7 @@ def create_app(
                     settings.external_target_test_loopback_enabled
                 ),
                 "bridge_allowed_ports": settings.external_bridge_allowed_ports,
+                "supported_bridge_version": SUPPORTED_V1_BRIDGE_ADDON_VERSION,
             },
         )
 
@@ -4040,29 +4067,17 @@ def create_app(
         return context.production_native_control_acknowledgements.acknowledge(target_id)
 
     @app.post(
-        "/api/production-targets/{target_id}/bridge/pairing-token",
-        response_model=PairingTokenResult,
-        status_code=status.HTTP_201_CREATED,
-    )
-    def generate_production_bridge_pairing_token(
-        target_id: UUID,
-        payload: ExternalBridgePairingTokenRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> PairingTokenResult:
-        return context.external_bridges.generate_pairing_token(
-            target_id, bridge_port=payload.bridge_port
-        )
-
-    @app.post(
         "/api/production-targets/{target_id}/bridge/pair",
         response_model=ExternalBridgeStatus,
     )
     def pair_production_bridge(
         target_id: UUID,
-        _payload: ExternalBridgeConfirmedRequest,
+        payload: BridgeOtpPairRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalBridgeStatus:
-        return context.external_bridges.attempt_pairing(target_id)
+        return context.external_bridges.begin_otp_pairing(
+            target_id, bridge_port=payload.bridge_port, code=payload.code
+        )
 
     @app.post(
         "/api/production-targets/{target_id}/bridge/confirm",
@@ -4073,7 +4088,7 @@ def create_app(
         _payload: ProductionBridgeConfirmationRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalBridgeStatus:
-        return context.external_bridges.confirm_pairing(target_id)
+        return context.external_bridges.commit_otp_pairing(target_id)
 
     @app.post(
         "/api/production-targets/{target_id}/bridge/reverify",
@@ -4108,29 +4123,17 @@ def create_app(
         return context.external_bridges.status(target_id)
 
     @app.post(
-        "/api/external-targets/{target_id}/bridge/pairing-token",
-        response_model=PairingTokenResult,
-        status_code=status.HTTP_201_CREATED,
-    )
-    def generate_external_bridge_pairing_token(
-        target_id: UUID,
-        payload: ExternalBridgePairingTokenRequest,
-        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
-    ) -> PairingTokenResult:
-        return context.external_bridges.generate_pairing_token(
-            target_id, bridge_port=payload.bridge_port
-        )
-
-    @app.post(
         "/api/external-targets/{target_id}/bridge/pair",
         response_model=ExternalBridgeStatus,
     )
     def pair_external_bridge(
         target_id: UUID,
-        _payload: ExternalBridgeConfirmedRequest,
+        payload: BridgeOtpPairRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalBridgeStatus:
-        return context.external_bridges.attempt_pairing(target_id)
+        return context.external_bridges.begin_otp_pairing(
+            target_id, bridge_port=payload.bridge_port, code=payload.code
+        )
 
     @app.post(
         "/api/external-targets/{target_id}/bridge/confirm",
@@ -4141,7 +4144,7 @@ def create_app(
         _payload: ExternalBridgeConfirmedRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalBridgeStatus:
-        return context.external_bridges.confirm_pairing(target_id)
+        return context.external_bridges.commit_otp_pairing(target_id)
 
     @app.post(
         "/api/external-targets/{target_id}/bridge/reverify",

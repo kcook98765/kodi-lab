@@ -104,10 +104,8 @@
           {% if target.administrative_state.value == 'enabled' and target.verification_state.value == 'verified' and policy.designation_state.value == 'confirmed' %}
           {% if target.protocol_kind.value == 'jsonrpc_http' %}<form data-http-ack><label>Bridge port <select name="bridge_port">{% for port in bridge_allowed_ports %}<option value="{{ port }}">{{ port }}</option>{% endfor %}</select></label><button type="submit">Acknowledge exact HTTP transport risk</button></form>{% endif %}
           {% if target.protocol_kind.value == 'jsonrpc_http' and 'semantic_remote' in target.configured_capabilities %}<form data-native-control-http-ack><button type="submit">Acknowledge exact native HTTP production-control risk</button></form>{% endif %}
-          <form data-pairing-token><label>Bridge port <select name="bridge_port">{% for port in bridge_allowed_ports %}<option value="{{ port }}">{{ port }}</option>{% endfor %}</select></label><button type="submit">Generate show-once pairing token</button></form>
-          <p data-token hidden></p>
-          <button type="button" data-action="bridge-pair">Attempt possession pairing</button>
-          <button type="button" data-action="bridge-confirm">Confirm installed bridge identity and reviewed provenance</button>
+          {% if bridge and bridge.pairing_state.value in ['unpaired', 'revoked'] %}<form data-pair-otp><label>Bridge port <select name="bridge_port">{% for port in bridge_allowed_ports %}<option value="{{ port }}">{{ port }}</option>{% endfor %}</select></label><label>Four-character code shown by bridge {{ supported_bridge_version }} <input name="code" minlength="4" maxlength="4" pattern="[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}" autocomplete="off" autocapitalize="characters" required></label><button type="submit">Start OTP pairing</button></form>{% endif %}
+          {% if bridge and bridge.pairing_state.value == 'pairing_pending' %}<p>Provisional bridge identity is recorded. Check the displayed identity and reviewed build, then confirm. If the final response is lost, refresh and confirm again; the same credential is reused.</p><button type="button" data-action="bridge-confirm">Confirm installed bridge identity and reviewed provenance</button>{% endif %}
           <button type="button" data-action="bridge-reverify">Reverify bridge</button>
           <button type="button" data-action="bridge-revoke" class="destructive">Revoke bridge</button>
           {% endif %}

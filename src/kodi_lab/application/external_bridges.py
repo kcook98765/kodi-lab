@@ -35,7 +35,9 @@ from kodi_lab.kodi.bridge import (
     BRIDGE_ADDON_ID,
     BRIDGE_PROTOCOL_VERSION,
     DEPLOYMENT_CHUNK_BYTES,
+    OTP_CODE_ALPHABET,
     SCREENSHOT_ERROR_CODES,
+    SUPPORTED_V1_BRIDGE_ADDON_VERSION,
     BridgeAddonTree,
     BridgeDeploymentReceipt,
     BridgeIdentity,
@@ -628,6 +630,7 @@ class ExternalBridgeService:
         )
 
     def attempt_pairing(self, target_id: UUID) -> ExternalBridgeStatus:
+        """Historical long-token pairing for older bridge compatibility only."""
         with self._pairing_gate.enter(target_id):
             snapshot = self._pairing_snapshot(target_id)
             now = self._clock()
@@ -723,18 +726,25 @@ class ExternalBridgeService:
     def begin_otp_pairing(
         self, target_id: UUID, *, bridge_port: int, code: str
     ) -> ExternalBridgeStatus:
-        """Stage an existing development target using one bridge-generated OTP."""
+        """Stage an existing external target using one bridge-generated OTP."""
+        if (
+            type(code) is not str
+            or len(code) != 4
+            or any(char not in OTP_CODE_ALPHABET for char in code)
+        ):
+            raise ExternalBridgeServiceError("otp_invalid_format")
         with self._pairing_gate.enter(target_id):
             with self._sessions() as session:
                 external = self._require_native_verified(
                     session, target_id, allow_disabled=True
                 )
                 target = session.get(TargetRow, str(target_id))
-                if (
-                    target is None
-                    or target.target_type is not TargetType.EXTERNAL_DEVELOPMENT
-                ):
+                if target is None or target.target_type not in {
+                    TargetType.EXTERNAL_DEVELOPMENT,
+                    TargetType.EXTERNAL_PRODUCTION,
+                }:
                     raise ExternalBridgeServiceError("bridge_capability_unavailable")
+                production = target.target_type is TargetType.EXTERNAL_PRODUCTION
                 row = session.get(ExternalBridgePairingRow, str(target_id))
                 if row is not None and (
                     row.pairing_state
@@ -747,6 +757,20 @@ class ExternalBridgeService:
                 ):
                     raise ExternalBridgeServiceError("pairing_in_progress")
                 endpoint = self._validate_bridge_endpoint(external, bridge_port)
+                revision: int | None = None
+                if production:
+                    revision = self._prospective_production_revision(row)
+                    policy = session.get(ExternalProductionPolicyRow, str(target_id))
+                    if policy is None:
+                        raise ExternalBridgeServiceError("needs_reverification")
+                    self._require_http_acknowledgement(
+                        session,
+                        external,
+                        target_id,
+                        bridge_port,
+                        policy.identity_generation,
+                        revision,
+                    )
                 kodi_version = external.verified_kodi_version
                 assert kodi_version is not None
             try:
@@ -786,6 +810,11 @@ class ExternalBridgeService:
                     or identity.build_fingerprint != info.build_fingerprint
                 ):
                     raise ExternalBridgeServiceError("bridge_identity_mismatch")
+                if (
+                    production
+                    and identity.addon_version != SUPPORTED_V1_BRIDGE_ADDON_VERSION
+                ):
+                    raise ExternalBridgeServiceError("bridge_identity_mismatch")
             except ExternalBridgeError as error:
                 raise ExternalBridgeServiceError(
                     "bootstrap_outcome_uncertain"
@@ -806,6 +835,13 @@ class ExternalBridgeService:
                         session, target_id, allow_disabled=True
                     )
                     self._validate_bridge_endpoint(external, bridge_port)
+                    target = session.get(TargetRow, str(target_id))
+                    if (
+                        target is None
+                        or (target.target_type is TargetType.EXTERNAL_PRODUCTION)
+                        != production
+                    ):
+                        raise ExternalBridgeServiceError("needs_reverification")
                     row = session.get(ExternalBridgePairingRow, str(target_id))
                     if row is None:
                         row = ExternalBridgePairingRow(
@@ -821,7 +857,31 @@ class ExternalBridgeService:
                         ExternalBridgePairingState.REVOKED,
                     }:
                         raise ExternalBridgeServiceError("pairing_in_progress")
+                    if production:
+                        policy = session.get(
+                            ExternalProductionPolicyRow, str(target_id)
+                        )
+                        if (
+                            policy is None
+                            or revision is None
+                            or (self._prospective_production_revision(row) != revision)
+                        ):
+                            raise ExternalBridgeServiceError("needs_reverification")
+                        self._require_http_acknowledgement(
+                            session,
+                            external,
+                            target_id,
+                            bridge_port,
+                            policy.identity_generation,
+                            revision,
+                        )
                     self._clear_identity(row)
+                    if production:
+                        row.production_identity_generation = None
+                        row.production_bridge_trust_revision = revision
+                        row.reviewed_build_id = None
+                        row.production_confirmed_by = None
+                        row.production_confirmed_at = None
                     row.bridge_port = bridge_port
                     row.pairing_state = ExternalBridgePairingState.PAIRING_PENDING
                     row.reachability_state = ExternalBridgeReachabilityState.REACHABLE
@@ -850,7 +910,11 @@ class ExternalBridgeService:
                 row = session.get(ExternalBridgePairingRow, str(target_id))
                 if (
                     target is None
-                    or target.target_type is not TargetType.EXTERNAL_DEVELOPMENT
+                    or target.target_type
+                    not in {
+                        TargetType.EXTERNAL_DEVELOPMENT,
+                        TargetType.EXTERNAL_PRODUCTION,
+                    }
                     or row is None
                     or row.pairing_state
                     not in {
@@ -860,8 +924,11 @@ class ExternalBridgeService:
                     or row.bridge_secret_reference is None
                     or row.observed_bridge_id is None
                     or row.bridge_port is None
+                    or row.observed_build_fingerprint is None
+                    or row.observed_addon_version is None
                 ):
                     raise ExternalBridgeServiceError("bridge_not_paired")
+                production = target.target_type is TargetType.EXTERNAL_PRODUCTION
                 already_paired = row.pairing_state is ExternalBridgePairingState.PAIRED
                 if already_paired and (
                     row.pinned_bridge_id != row.observed_bridge_id
@@ -874,7 +941,43 @@ class ExternalBridgeService:
                 reference = UUID(row.bridge_secret_reference)
                 observed_fingerprint = row.observed_build_fingerprint
                 observed_version = row.observed_addon_version
+                observed_capabilities = self._parse_closed(
+                    row.observed_capabilities_json
+                )
                 kodi_version = external.verified_kodi_version
+                if production:
+                    policy = session.get(ExternalProductionPolicyRow, str(target_id))
+                    if (
+                        policy is None
+                        or row.production_bridge_trust_revision is None
+                        or observed_version != SUPPORTED_V1_BRIDGE_ADDON_VERSION
+                        or row.endpoint_revision_digest
+                        != self._endpoint_digest(external, bridge_port)
+                    ):
+                        raise ExternalBridgeServiceError("bridge_identity_mismatch")
+                    self._require_reviewed_values(
+                        session,
+                        fingerprint=observed_fingerprint,
+                        addon_id=row.observed_addon_id or "",
+                        addon_version=observed_version,
+                        protocol_version=row.observed_protocol_version or "",
+                        kodi_version=row.observed_kodi_version or "",
+                        capabilities=observed_capabilities,
+                    )
+                    self._require_http_acknowledgement(
+                        session,
+                        external,
+                        target_id,
+                        bridge_port,
+                        policy.identity_generation,
+                        row.production_bridge_trust_revision,
+                    )
+                    if already_paired and (
+                        row.production_identity_generation != policy.identity_generation
+                        or row.reviewed_build_id is None
+                        or row.production_confirmed_at is None
+                    ):
+                        raise ExternalBridgeServiceError("bridge_identity_mismatch")
             try:
                 secret = self._secrets.read(
                     target_id, reference, "request_authentication"
@@ -911,7 +1014,10 @@ class ExternalBridgeService:
                     bridge_id=bridge_id,
                     secret=secret,
                 )
-                if set(capabilities) != set(identity.capabilities):
+                if (
+                    set(capabilities) != set(identity.capabilities)
+                    or set(capabilities) != observed_capabilities
+                ):
                     raise ExternalBridgeServiceError("bridge_identity_mismatch")
             except (ExternalBridgeError, SecretStoreError) as error:
                 raise ExternalBridgeServiceError(
@@ -919,7 +1025,7 @@ class ExternalBridgeService:
                 ) from error
             if already_paired:
                 return self.status(target_id)
-            return self.confirm_pairing(target_id, _allow_disabled_otp=True)
+            return self.confirm_pairing(target_id, _allow_disabled_otp=not production)
 
     def confirm_pairing(
         self,
