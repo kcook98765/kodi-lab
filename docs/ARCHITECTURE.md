@@ -2781,3 +2781,24 @@ with the selected generation and package hashes. A development inconsistency
 blocks only development routes. Quiescent backup binds the development subtree to one
 SQLite snapshot; stable bytes remain reconstructible from the reviewed
 candidate and URL. See D-0384 through D-0386.
+
+## Repository workspace deployment linkage
+
+Migration `0056_repository_workspace_deployment` retains the existing operation
+table and adds a closed `deployment_mode`, target repository readiness, and an
+exact publication/installed-evidence link. It also snapshots the exact
+validation receipt because the existing workspace validation row retains only
+the latest generation. The workspace service captures a
+source generation under its coordination lock, packages normalized ZIP bytes,
+and predicts the bridge manifest before preparing publication. Phase 2's
+publication lock and immutable package/generation machinery remain the only
+feed writer. Web approval is bound to the deployment operation and exact
+identity/hash; a published package leaves the deployment in a durable pending
+state. A later Web recheck first observes native inventory, then the existing
+authenticated `inspect_addon` tree. Startup preserves linked pending operations
+instead of treating the user wait as an interrupted mutation. Existing MCP
+status/deploy results report the pending phase and next human action. Backup
+already carries the SQLite linkage and repository-data generation together.
+Promotion still requires exact successful deployment and execution evidence;
+for repository mode its source proof is the verified publication/deployment
+link, while direct mode retains the external source baseline requirement.

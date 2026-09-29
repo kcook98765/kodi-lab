@@ -386,10 +386,13 @@ def _source() -> DevelopmentSource:
     )
 
 
-def _environment(tmp_path: Path) -> Environment:
+def _environment(tmp_path: Path, *, database_path: Path | None = None) -> Environment:
     tmp_path.mkdir(parents=True, exist_ok=True)
-    engine = create_database_engine(f"sqlite:///{tmp_path / 'slice4.db'}")
-    Base.metadata.create_all(engine)
+    engine = create_database_engine(
+        f"sqlite:///{database_path or (tmp_path / 'slice4.db')}"
+    )
+    if database_path is None:
+        Base.metadata.create_all(engine)
     sessions = create_session_factory(engine)
     source_root = tmp_path / "sources" / "plugin.video.slice4"
     source_root.mkdir(parents=True)

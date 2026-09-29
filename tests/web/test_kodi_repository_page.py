@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
+from uuid import uuid4
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from kodi_lab.repository.development import initialize as initialize_development
@@ -123,3 +126,61 @@ def test_authenticated_import_review_and_explicit_approval(
             / "development/addons.xml"
         ).read_bytes()
     )
+
+
+def test_workspace_repository_approval_route_requires_exact_authenticated_values(
+    development_environment: Path,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid4()
+    operation_id = uuid4()
+    target_id = uuid4()
+    endpoint = (
+        f"/api/workspaces/{workspace_id}/repository-deployments/{operation_id}/approve"
+    )
+    payload = {
+        "target_id": str(target_id),
+        "generation": 2,
+        "addon_id": "plugin.video.synthetic",
+        "addon_version": "1.0.1",
+        "zip_sha256": "a" * 64,
+        "expected_manifest_digest": "sha256:" + "b" * 64,
+    }
+    assert client.post(endpoint, json=payload).status_code == 401
+    token = login(client)
+    assert client.post(endpoint, json=payload).status_code == 403
+    headers = {"Origin": "http://127.0.0.1", "X-Kodi-Lab-CSRF": token}
+    assert (
+        client.post(
+            endpoint, json={**payload, "generation": "2"}, headers=headers
+        ).status_code
+        == 400
+    )
+    observed: list[object] = []
+
+    def approved(observed_operation_id: object, **values: object) -> SimpleNamespace:
+        observed.append((observed_operation_id, values))
+        return SimpleNamespace(model_dump=lambda **_kwargs: {"state": "running"})
+
+    monkeypatch.setattr(
+        cast(FastAPI, client.app).state.kodi_lab.mcp_workspace_development,
+        "approve_repository_deployment",
+        approved,
+    )
+    result = client.post(endpoint, json=payload, headers=headers)
+    assert result.status_code == 200 and result.json() == {"state": "running"}
+    assert observed == [
+        (
+            operation_id,
+            {
+                "workspace_id": workspace_id,
+                "target_id": target_id,
+                "generation": 2,
+                "addon_id": payload["addon_id"],
+                "addon_version": payload["addon_version"],
+                "zip_sha256": payload["zip_sha256"],
+                "expected_manifest_digest": payload["expected_manifest_digest"],
+            },
+        )
+    ]

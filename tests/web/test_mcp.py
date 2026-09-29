@@ -1996,13 +1996,16 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
     tools = _post(client, token, "tools/list").json()["result"]["tools"]
     for name in ("promotion_request", "workspace_deploy", "workspace_execute"):
         schema = next(item for item in tools if item["name"] == name)["inputSchema"]
-        assert set(schema["properties"]) == {
+        expected = {
             "request_id",
             "workspace_id",
             "expected_generation",
             "target_id",
         }
-        assert set(schema["required"]) == set(schema["properties"])
+        if name == "workspace_deploy":
+            expected.add("deployment_mode")
+        assert set(schema["properties"]) == expected
+        assert set(schema["required"]) == expected - {"deployment_mode"}
         assert schema["additionalProperties"] is False
     assert "promotion_approve" not in {item["name"] for item in tools}
 

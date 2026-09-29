@@ -1866,3 +1866,13 @@ Its first artifact type is a bounded Python video plugin. Phase 3 integrates
 `workspace_deploy` and proves a manually triggered Kodi update. Physical target acceptance
 remains paused until those repository phases are reviewed. No phase broadens
 production authority or replaces managed Kodi's direct install default.
+
+Repository Phase 3 adds mode-aware `workspace_deploy` for verified
+external-development targets, exact Web approval of workspace-derived
+publications, and a durable wait for manual Kodi install/update. Its final
+receipt requires native installed identity plus authenticated bridge tree
+evidence. First-install and explicit higher-version update use the same
+operation lifecycle. The Web **Kodi Repository** and workspace detail pages
+show pending/verified state and a bounded **Recheck installation** action.
+Disposable Kodi is the first acceptance tier; headless inability to perform a
+normal user update is an honest acceptance boundary before physical Kodi.

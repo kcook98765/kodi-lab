@@ -928,6 +928,19 @@ Workspace deployment integration and the first manual Kodi development-update
 proof belong to Phase 3. Repository availability grants no production mutation
 authority. Managed Kodi retains its direct controlled install path.
 
+Repository-mode `workspace_deploy` is available only to a paired, verified
+external-development target whose separately installed development repository
+has been observed and whose LAN reachability/manual-update setting the operator
+confirmed. It packages an explicit source version from one validated workspace
+generation and creates an exact Web-approved, target-bound publication request.
+Publication remains pending until the user installs or updates the add-on in
+Kodi and selects **Recheck installation**. Kodi Lab observes the native add-on
+ID/version/enabled state and then compares the authenticated bridge's complete
+installed-tree digest, file count and byte count with the predicted package.
+Only that match completes deployment. A matching version with different tree
+bytes fails closed. Direct deployment remains available; production deployment
+and automatic repository refresh/install remain prohibited.
+
 ## 37. MCP add-on sources
 
 Managed development add-on workflows may use only closed, explicitly

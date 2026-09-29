@@ -23,6 +23,7 @@ from kodi_lab.storage.models import (
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
     PromotionVerificationOperationRow,
+    RepositoryWorkspaceDeploymentRow,
 )
 
 DEVELOPMENT_REQUEST_RETENTION = timedelta(days=30)
@@ -74,10 +75,15 @@ def _deployment_success_evidence_is_consistent(
         and operation.phase == "finalize"
         and operation.started_at is not None
         and operation.completed_at is not None
-        and operation.mutation_started
-        and operation.sync_started
-        and operation.sync_completed
-        and operation.target_started
+        and (
+            operation.deployment_mode == "repository"
+            or (
+                operation.mutation_started
+                and operation.sync_started
+                and operation.sync_completed
+                and operation.target_started
+            )
+        )
         and operation.inventory_classification == "matched"
         and operation.addon_enabled is not None
         and operation.source_manifest_digest is not None
@@ -93,6 +99,23 @@ def _deployment_success_evidence_is_consistent(
             and operation.result_classification in _DEPLOYMENT_RESULT_CLASSIFICATIONS
             and operation.runtime_revision_id is not None
             and operation.bridge_id is None
+        )
+    if operation.deployment_mode == "repository":
+        linked = session.get(RepositoryWorkspaceDeploymentRow, operation.id)
+        return bool(
+            operation.target_class == "external_development"
+            and operation.bridge_id is not None
+            and operation.bridge_request_id is None
+            and operation.bridge_receipt_id is None
+            and operation.addon_enabled is True
+            and operation.result_classification == "repository_verified"
+            and operation.source_manifest_digest
+            == operation.verified_destination_digest
+            and linked is not None
+            and linked.state == "succeeded"
+            and linked.bridge_id == operation.bridge_id
+            and linked.expected_manifest_digest == operation.verified_destination_digest
+            and linked.verified_at is not None
         )
     receipt = session.get(ExternalBridgeDeploymentReceiptRow, operation.id)
     return bool(
@@ -144,6 +167,26 @@ def _deployment_pre_mutation_failure_evidence_is_consistent(
     )
 
 
+def _deployment_repository_failure_evidence_is_consistent(
+    session: Session, operation: McpWorkspaceDeploymentOperationRow
+) -> bool:
+    linked = session.get(RepositoryWorkspaceDeploymentRow, operation.id)
+    return bool(
+        operation.deployment_mode == "repository"
+        and operation.target_class == "external_development"
+        and operation.state == "failed"
+        and operation.phase == "finalize"
+        and operation.started_at is not None
+        and operation.completed_at is not None
+        and operation.failure_code is not None
+        and not operation.mutation_started
+        and linked is not None
+        and linked.state == "failed"
+        and linked.failure_code == operation.failure_code
+        and linked.expected_manifest_digest == operation.source_manifest_digest
+    )
+
+
 def _execution_success_evidence_is_consistent(
     operation: McpWorkspaceExecutionOperationRow,
 ) -> bool:
@@ -183,6 +226,7 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
 
     operation = McpWorkspaceDeploymentOperationRow
     receipt = ExternalBridgeDeploymentReceiptRow
+    repository = RepositoryWorkspaceDeploymentRow
     external_receipt = (
         exists()
         .where(
@@ -200,16 +244,33 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
         )
         .correlate(operation)
     )
+    repository_receipt = (
+        exists()
+        .where(
+            repository.operation_id == operation.id,
+            repository.state == "succeeded",
+            repository.bridge_id == operation.bridge_id,
+            repository.expected_manifest_digest
+            == operation.verified_destination_digest,
+            repository.verified_at.is_not(None),
+        )
+        .correlate(operation)
+    )
     return or_(
         and_(
             operation.state == "succeeded",
             operation.phase == "finalize",
             operation.started_at.is_not(None),
             operation.completed_at.is_not(None),
-            operation.mutation_started.is_(True),
-            operation.sync_started.is_(True),
-            operation.sync_completed.is_(True),
-            operation.target_started.is_(True),
+            or_(
+                operation.deployment_mode == "repository",
+                and_(
+                    operation.mutation_started.is_(True),
+                    operation.sync_started.is_(True),
+                    operation.sync_completed.is_(True),
+                    operation.target_started.is_(True),
+                ),
+            ),
             operation.inventory_classification == "matched",
             operation.addon_enabled.is_not(None),
             or_(
@@ -225,6 +286,7 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
                 ),
                 and_(
                     operation.target_class == "external_development",
+                    operation.deployment_mode == "direct",
                     operation.target_stopped.is_(False),
                     operation.runtime_revision_id.is_(None),
                     operation.bridge_id.is_not(None),
@@ -236,6 +298,20 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
                         tuple(sorted(_EXTERNAL_DEPLOYMENT_RESULT_CLASSIFICATIONS))
                     ),
                     external_receipt,
+                ),
+                and_(
+                    operation.target_class == "external_development",
+                    operation.deployment_mode == "repository",
+                    operation.target_stopped.is_(False),
+                    operation.runtime_revision_id.is_(None),
+                    operation.bridge_id.is_not(None),
+                    operation.bridge_request_id.is_(None),
+                    operation.bridge_receipt_id.is_(None),
+                    operation.addon_enabled.is_(True),
+                    operation.result_classification == "repository_verified",
+                    operation.source_manifest_digest
+                    == operation.verified_destination_digest,
+                    repository_receipt,
                 ),
             ),
             operation.source_manifest_digest.is_not(None),
@@ -258,6 +334,22 @@ def deployment_terminal_evidence_is_consistent_sql() -> ColumnElement[bool]:
             operation.result_classification.is_(None),
             operation.source_manifest_digest.is_(None),
             operation.verified_destination_digest.is_(None),
+        ),
+        and_(
+            operation.deployment_mode == "repository",
+            operation.target_class == "external_development",
+            operation.state == "failed",
+            operation.phase == "finalize",
+            operation.started_at.is_not(None),
+            operation.completed_at.is_not(None),
+            operation.failure_code.is_not(None),
+            operation.mutation_started.is_(False),
+            exists().where(
+                repository.operation_id == operation.id,
+                repository.state == "failed",
+                repository.failure_code == operation.failure_code,
+                repository.expected_manifest_digest == operation.source_manifest_digest,
+            ),
         ),
     )
 
@@ -611,6 +703,7 @@ def _deployment_is_replay_safe(
     return bool(
         _deployment_success_evidence_is_consistent(session, operation)
         or _deployment_pre_mutation_failure_evidence_is_consistent(operation)
+        or _deployment_repository_failure_evidence_is_consistent(session, operation)
     )
 
 

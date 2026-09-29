@@ -443,7 +443,12 @@ from kodi_lab.repository.development import (
     load_current as load_development_current,
 )
 from kodi_lab.repository.stable import load_current
-from kodi_lab.storage.models import McpWorkspaceDeploymentOperationRow
+from kodi_lab.storage.models import (
+    ExternalDevelopmentRepositoryReadinessRow,
+    McpWorkspaceDeploymentOperationRow,
+    RepositoryWorkspaceDeploymentRow,
+    TargetRow,
+)
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
 from kodi_lab.storage.secrets import (
     ExternalBridgeSecretStore,
@@ -1813,6 +1818,8 @@ def create_app(
         if repository_base_url and (repository_data_root / "development-data").is_dir()
         else None
     )
+    if development_repository is not None:
+        mcp_workspace_development.configure_repository(development_repository)
     development_repository_error: str | None = None
 
     @asynccontextmanager
@@ -2931,6 +2938,15 @@ def create_app(
             else None
         )
         activity = context.agent_workspaces.list_activity(workspace_id)
+        with session_factory() as session:
+            repository_deployments = list(
+                session.query(RepositoryWorkspaceDeploymentRow)
+                .filter(
+                    RepositoryWorkspaceDeploymentRow.workspace_id == str(workspace_id)
+                )
+                .order_by(RepositoryWorkspaceDeploymentRow.created_at.desc())
+                .limit(20)
+            )
         return templates.TemplateResponse(
             request,
             "agent-workspace-detail.html",
@@ -2939,6 +2955,7 @@ def create_app(
                 "entries": entries,
                 "changes": changes,
                 "activity": activity,
+                "repository_deployments": repository_deployments,
                 "lifecycle_activity": context.agent_workspaces.list_lifecycle_activity(
                     workspace_id
                 ),
@@ -3053,6 +3070,73 @@ def create_app(
                 storage_usage = development_repository.storage_usage()
             except (OSError, ValueError, KeyError):
                 pass
+        repository_deployments: list[dict[str, Any]] = []
+        repository_targets: list[dict[str, Any]] = []
+        publication_by_id = {item.id: item for item in publications}
+        current_by_addon = {
+            item.addon_id: item.version
+            for item in publications
+            if item.status == "current"
+        }
+        with session_factory() as session:
+            for linked in (
+                session.query(RepositoryWorkspaceDeploymentRow)
+                .order_by(RepositoryWorkspaceDeploymentRow.created_at.desc())
+                .limit(50)
+            ):
+                operation = session.get(
+                    McpWorkspaceDeploymentOperationRow, linked.operation_id
+                )
+                target = session.get(TargetRow, linked.target_id)
+                if operation is None:
+                    continue
+                repository_deployments.append(
+                    {
+                        "operation_id": linked.operation_id,
+                        "publication_id": linked.publication_id,
+                        "workspace_id": linked.workspace_id,
+                        "generation": linked.workspace_generation,
+                        "target_id": linked.target_id,
+                        "target_name": "" if target is None else target.name,
+                        "target_classification": (
+                            "unknown" if target is None else target.target_type.value
+                        ),
+                        "target_kodi_version": linked.target_kodi_version,
+                        "state": linked.state,
+                        "addon_id": linked.addon_id,
+                        "addon_version": linked.addon_version,
+                        "zip_sha256": linked.zip_sha256,
+                        "expected_manifest_digest": linked.expected_manifest_digest,
+                        "installed_before_version": linked.installed_before_version,
+                        "current_repository_version": current_by_addon.get(
+                            linked.addon_id
+                        ),
+                        "compatible_generations": (
+                            "unknown"
+                            if linked.publication_id not in publication_by_id
+                            else publication_by_id[
+                                linked.publication_id
+                            ].compatible_generations
+                        ),
+                        "failure_code": linked.failure_code,
+                    }
+                )
+            for target in (
+                session.query(TargetRow)
+                .filter(TargetRow.target_type == TargetType.EXTERNAL_DEVELOPMENT)
+                .order_by(TargetRow.name)
+            ):
+                ready = session.get(
+                    ExternalDevelopmentRepositoryReadinessRow, target.id
+                )
+                repository_targets.append(
+                    {
+                        "id": target.id,
+                        "name": target.name,
+                        "ready": ready is not None and ready.base_url == base_url,
+                        "confirmed_at": None if ready is None else ready.confirmed_at,
+                    }
+                )
         return templates.TemplateResponse(
             request,
             "kodi-repository.html",
@@ -3063,6 +3147,8 @@ def create_app(
                 "development_provenance": dev_provenance,
                 "development_error": development_repository_error,
                 "publications": publications,
+                "repository_deployments": repository_deployments,
+                "repository_targets": repository_targets,
                 "storage_usage": storage_usage,
                 "development_max_artifacts": development_repository.max_artifacts
                 if development_repository
@@ -3142,6 +3228,7 @@ def create_app(
             record is None
             or record.addon_id != payload["addon_id"]
             or record.version != payload["version"]
+            or record.source_kind != "web_import"
         ):
             raise HTTPException(status_code=409, detail="Publication identity changed")
         try:
@@ -3155,6 +3242,109 @@ def create_app(
             "status": approved.status,
             "feed_generation": approved.feed_generation or "",
         }
+
+    @app.post("/api/external-targets/{target_id}/development-repository/confirm")
+    async def confirm_target_development_repository(
+        request: Request,
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, str]:
+        payload = await request.json()
+        if (
+            not isinstance(payload, dict)
+            or set(payload)
+            != {"base_url", "reachable_in_kodi", "manual_updates_confirmed"}
+            or not isinstance(payload["base_url"], str)
+            or payload["reachable_in_kodi"] is not True
+            or payload["manual_updates_confirmed"] is not True
+        ):
+            raise HTTPException(
+                status_code=400, detail="Exact repository confirmation is required"
+            )
+        try:
+            readiness = (
+                context.mcp_workspace_development.confirm_development_repository(
+                    target_id=target_id,
+                    base_url=payload["base_url"],
+                    reachable_in_kodi=True,
+                    manual_updates_confirmed=True,
+                )
+            )
+        except McpWorkspaceDevelopmentError as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+        return {
+            "target_id": readiness.target_id,
+            "base_url": readiness.base_url,
+            "bootstrap_sha256": readiness.bootstrap_sha256,
+            "confirmed_at": readiness.confirmed_at,
+        }
+
+    @app.post(
+        "/api/workspaces/{workspace_id}/repository-deployments/{operation_id}/approve"
+    )
+    async def approve_workspace_repository_deployment(
+        request: Request,
+        workspace_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, Any]:
+        payload = await request.json()
+        required = {
+            "target_id",
+            "generation",
+            "addon_id",
+            "addon_version",
+            "zip_sha256",
+            "expected_manifest_digest",
+        }
+        if not isinstance(payload, dict) or set(payload) != required:
+            raise HTTPException(
+                status_code=400, detail="Exact deployment approval is required"
+            )
+        if type(payload["generation"]) is not int or any(
+            not isinstance(payload[key], str) for key in required - {"generation"}
+        ):
+            raise HTTPException(
+                status_code=400, detail="Exact deployment approval types are required"
+            )
+        try:
+            result = context.mcp_workspace_development.approve_repository_deployment(
+                operation_id,
+                workspace_id=workspace_id,
+                target_id=UUID(payload["target_id"]),
+                generation=int(payload["generation"]),
+                addon_id=str(payload["addon_id"]),
+                addon_version=str(payload["addon_version"]),
+                zip_sha256=str(payload["zip_sha256"]),
+                expected_manifest_digest=str(payload["expected_manifest_digest"]),
+            )
+        except (ValueError, McpWorkspaceDevelopmentError) as error:
+            raise HTTPException(
+                status_code=409, detail=getattr(error, "code", str(error))
+            ) from error
+        return result.model_dump(mode="json")
+
+    @app.post(
+        "/api/workspaces/{workspace_id}/repository-deployments/{operation_id}/recheck"
+    )
+    async def recheck_workspace_repository_deployment(
+        workspace_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, Any]:
+        with session_factory() as session:
+            operation = session.get(
+                McpWorkspaceDeploymentOperationRow, str(operation_id)
+            )
+        if operation is None or operation.workspace_id != str(workspace_id):
+            raise HTTPException(status_code=404, detail="deployment_not_found")
+        try:
+            result = context.mcp_workspace_development.recheck_repository_deployment(
+                operation_id
+            )
+        except McpWorkspaceDevelopmentError as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+        return result.model_dump(mode="json")
 
     @app.get("/instances/{instance_id}", response_class=HTMLResponse)
     async def instance_detail_page(request: Request, instance_id: UUID) -> Response:

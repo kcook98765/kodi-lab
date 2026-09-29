@@ -101,6 +101,21 @@ lowered through `KODI_LAB_DEVELOPMENT_REPOSITORY_MAX_ARTIFACTS` and
 Stop Web before `kodi-lab-admin backup`; Phase 2 backup includes the exact
 development feed bytes and publication records. See `MANAGED-STATE-RECOVERY.md`.
 
+For repository-mode workspace deployment, install and enable
+`repository.kodi-lab-dev` on an external-development Kodi first. In Kodi,
+check that the feed refreshes from the displayed LAN URL and set **Settings →
+System → Add-ons → Updates** to **Notify, but don't install updates**. Confirm
+both facts on Kodi Lab Web's **Kodi Repository** page; Kodi Lab also checks the
+installed repository's exact identity using native inventory and its paired
+bridge. A validated `workspace_deploy` then prepares a versioned package and
+waits for an exact Web approval. Publication leaves deployment pending. For a
+first install use **Add-ons → Install from repository → Kodi Lab Development**;
+for an update use the Add-ons manager's **Check for updates** and **Available
+updates**. Select the intended add-on, then return to Kodi Lab and choose
+**Recheck installation**. A matching installed version alone is insufficient:
+Kodi Lab verifies the complete tree through the authenticated bridge before
+reporting deployment success. [Kodi Add-on manager](https://kodi.wiki/view/Add-on_manager)
+
 1. On the remote Kodi box, enable Kodi's HTTP control service and allow the
    Kodi Lab server to reach its native Kodi port and the bridge port (normally
    `8765`) over the intended private network. Set a Kodi HTTP credential if

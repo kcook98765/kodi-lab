@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
@@ -46,6 +46,21 @@ from kodi_lab.repository.stable import generate as generate_stable
 from kodi_lab.repository.stable import sha256
 from kodi_lab.storage import packaged_migrations
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.models import (
+    McpWorkspaceDeploymentOperationRow,
+    RepositoryWorkspaceDeploymentRow,
+    RepositoryWorkspaceValidationSnapshotRow,
+)
+from tests.application.test_mcp_workspace_development import EXTERNAL_TARGET_ID
+from tests.application.test_repository_workspace_deployment import (
+    _approve as approve_workspace_publication,
+)
+from tests.application.test_repository_workspace_deployment import (
+    _setup as repository_workspace_setup,
+)
+from tests.application.test_repository_workspace_deployment import (
+    _version as workspace_source_version,
+)
 from tests.repository.test_development import BASE as REPOSITORY_BASE
 from tests.repository.test_development import fixture_zip, phase2_candidate
 
@@ -218,7 +233,7 @@ def test_development_repository_backup_recover_clean_round_trip(
     monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(recovered_repository))
     assert recover_clean(
         recovered_root, _url(recovered_root), identifier, identifier
-    ) == ("0055_development_repository_publications")
+    ) == ("0056_repository_workspace_deployment")
     recovered_engine = create_database_engine(_url(recovered_root))
     recovered_service = DevelopmentRepositoryService(
         create_session_factory(recovered_engine), recovered_repository, REPOSITORY_BASE
@@ -228,6 +243,92 @@ def test_development_repository_backup_recover_clean_round_trip(
     assert recovered_publication is not None
     assert recovered_publication.zip_sha256 == sha256(body)
     recovered_engine.dispose()
+
+
+def test_pending_and_completed_repository_deployment_backup_restore(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = tmp_path / "state"
+    initialize(state, _url(state))
+    deployment_root = tmp_path / "deployment"
+    env, repository, target = repository_workspace_setup(
+        deployment_root, database_path=state / "database" / "kodi-lab.db"
+    )
+    generation = workspace_source_version(env, 0, "1.0.0")
+    pending = env.development.deploy(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=generation,
+        target_id=EXTERNAL_TARGET_ID,
+    )
+    approve_workspace_publication(env, pending)
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(repository.root.parent))
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BASE_URL", REPOSITORY_BASE)
+    with lifecycle_lock(state):
+        pending_backup = backup(state, _url(state))
+
+    def recover_and_check(identifier: str, expected_state: str) -> None:
+        destination = tmp_path / f"recovered-{expected_state}"
+        bundle = deployment_root / "candidate" / "candidate"
+        recovered_repository = tmp_path / f"repository-{expected_state}"
+        generate_stable(bundle, recovered_repository, REPOSITORY_BASE)
+        initialize_development(
+            recovered_repository / "development-data", REPOSITORY_BASE, bundle
+        )
+        destination.mkdir(mode=0o700)
+        (destination / "backups").mkdir(mode=0o700)
+        shutil.copytree(
+            state / "backups" / identifier,
+            destination / "backups" / identifier,
+        )
+        monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(recovered_repository))
+        assert recover_clean(destination, _url(destination), identifier, identifier)
+        engine = create_database_engine(_url(destination))
+        sessions = create_session_factory(engine)
+        with sessions() as session:
+            operation = session.get(
+                McpWorkspaceDeploymentOperationRow, str(pending.deployment_id)
+            )
+            linked = session.get(
+                RepositoryWorkspaceDeploymentRow, str(pending.deployment_id)
+            )
+            assert operation is not None and linked is not None
+            assert linked.state == expected_state
+            assert linked.publication_id == str(pending.publication_id)
+            assert linked.zip_sha256 == pending.zip_sha256
+            assert linked.expected_manifest_digest == pending.expected_manifest_digest
+            assert operation.generation == generation
+            snapshot = session.get(
+                RepositoryWorkspaceValidationSnapshotRow, linked.validation_receipt
+            )
+            assert snapshot is not None
+            assert snapshot.generation == generation
+            assert snapshot.addon_version == pending.addon_version
+        restored = DevelopmentRepositoryService(
+            sessions, recovered_repository, REPOSITORY_BASE
+        )
+        restored.reconcile()
+        engine.dispose()
+
+    recover_and_check(pending_backup, "awaiting_kodi_update")
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(repository.root.parent))
+    with env.sessions() as session:
+        linked = session.get(
+            RepositoryWorkspaceDeploymentRow, str(pending.deployment_id)
+        )
+        assert linked is not None
+        target.installed_version = "1.0.0"
+        target.installed_digest = linked.expected_manifest_digest
+        target.installed_files = linked.file_count
+        target.installed_bytes = linked.total_bytes
+    assert (
+        env.development.recheck_repository_deployment(pending.deployment_id).state
+        == "succeeded"
+    )
+    with lifecycle_lock(state):
+        completed_backup = backup(state, _url(state))
+    recover_and_check(completed_backup, "succeeded")
 
 
 def test_historical_transition_and_matching_rollback(
@@ -240,7 +341,7 @@ def test_historical_transition_and_matching_rollback(
     previous, current, identifier = upgrade(root, _url(root))
     assert identifier is not None
     assert previous == before
-    assert current == "0055_development_repository_publications"
+    assert current == "0056_repository_workspace_deployment"
     assert upgrade(root, _url(root)) == (current, current, None)
     assert (
         _revision(root / "backups" / identifier / "database" / "kodi-lab.db") == before

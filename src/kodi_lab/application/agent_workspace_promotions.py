@@ -47,6 +47,7 @@ from kodi_lab.storage.models import (
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
     McpWorkspaceValidationRow,
+    RepositoryWorkspaceDeploymentRow,
 )
 from kodi_lab.storage.repositories import (
     AgentWorkspacePromotionHandoffRepository,
@@ -365,6 +366,27 @@ class AgentWorkspacePromotionService:
                         "development_source_id": str(source_id),
                     },
                 )
+                repository_deployment = (
+                    None
+                    if mcp_deployment.deployment_mode != "repository"
+                    else session.get(
+                        RepositoryWorkspaceDeploymentRow, mcp_deployment.id
+                    )
+                )
+            exact_deployment_source = (
+                external_baseline is not None
+                and external_baseline.state == "current"
+                and external_baseline.bridge_id == mcp_deployment.bridge_id
+                if mcp_deployment.deployment_mode == "direct"
+                else repository_deployment is not None
+                and repository_deployment.state == "succeeded"
+                and repository_deployment.verified_at is not None
+                and repository_deployment.bridge_id == mcp_deployment.bridge_id
+                and repository_deployment.workspace_generation == generation
+                and repository_deployment.expected_manifest_digest
+                == mcp_deployment.verified_destination_digest
+                and mcp_deployment.result_classification == "repository_verified"
+            )
             if (
                 target.availability is not TargetAvailability.AVAILABLE
                 or target.health is not HealthStatus.HEALTHY
@@ -372,9 +394,7 @@ class AgentWorkspacePromotionService:
                 or pairing is None
                 or pairing.pairing_state.value != "paired"
                 or pairing.pinned_bridge_id != mcp_deployment.bridge_id
-                or external_baseline is None
-                or external_baseline.state != "current"
-                or external_baseline.bridge_id != mcp_deployment.bridge_id
+                or not exact_deployment_source
             ):
                 raise AgentWorkspacePromotionConflictError(
                     "promotion_target_ineligible",

@@ -657,6 +657,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             "development_manifest": DEVELOPMENT_MANIFEST,
             "development_generator": "kodi-lab-development-repository-v1",
             "publication_migration": "0055_development_repository_publications",
+            "workspace_deployment_migration": "0056_repository_workspace_deployment",
         },
         "files": files,
     }
@@ -723,6 +724,7 @@ def verify(
         "development_manifest": DEVELOPMENT_MANIFEST,
         "development_generator": "kodi-lab-development-repository-v1",
         "publication_migration": "0055_development_repository_publications",
+        "workspace_deployment_migration": "0056_repository_workspace_deployment",
     }:
         raise ValueError("stable repository bundle capability differs")
     env_path = bundle / ".env"

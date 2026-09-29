@@ -5951,12 +5951,18 @@ class McpWorkspaceDeploymentOperationRow(Base):
             name="mcp_workspace_deployment_target_class_closed",
         ),
         CheckConstraint(
-            "(target_class='internal_lab' AND runtime_revision_id IS NOT NULL AND "
-            "bridge_id IS NULL AND bridge_request_id IS NULL AND "
-            "bridge_receipt_id IS NULL) OR "
+            "(target_class='internal_lab' AND deployment_mode='direct' "
+            "AND runtime_revision_id IS NOT NULL AND bridge_id IS NULL "
+            "AND bridge_request_id IS NULL AND bridge_receipt_id IS NULL) OR "
             "(target_class='external_development' AND runtime_revision_id IS NULL "
-            "AND bridge_id IS NOT NULL AND bridge_request_id IS NOT NULL)",
+            "AND bridge_id IS NOT NULL AND ((deployment_mode='direct' "
+            "AND bridge_request_id IS NOT NULL) OR (deployment_mode='repository' "
+            "AND bridge_request_id IS NULL AND bridge_receipt_id IS NULL)))",
             name="mcp_workspace_deployment_target_shape",
+        ),
+        CheckConstraint(
+            "deployment_mode IN ('direct','repository')",
+            name="mcp_workspace_deployment_mode_closed",
         ),
         CheckConstraint(
             "generation >= 0", name="mcp_workspace_deployment_generation_nonnegative"
@@ -5968,7 +5974,9 @@ class McpWorkspaceDeploymentOperationRow(Base):
         ),
         CheckConstraint(
             "phase IN ('claimed','preflight','stop','sync','transfer','replace',"
-            "'receipt','start','readiness','inventory','finalize')",
+            "'receipt','start','readiness','inventory','finalize','package',"
+            "'publication_approval','awaiting_kodi_update','verify_native',"
+            "'verify_tree')",
             name="mcp_workspace_deployment_phase_closed",
         ),
         CheckConstraint(
@@ -6019,12 +6027,18 @@ class McpWorkspaceDeploymentOperationRow(Base):
             name="mcp_workspace_deployment_markers_ordered",
         ),
         CheckConstraint(
-            "state<>'succeeded' OR (sync_completed=1 AND target_started=1 AND "
-            "inventory_classification='matched' AND addon_enabled IS NOT NULL AND "
-            "result_classification IS NOT NULL AND source_manifest_digest IS NOT NULL "
+            "state<>'succeeded' OR (inventory_classification='matched' "
+            "AND addon_enabled IS NOT NULL AND result_classification IS NOT NULL "
+            "AND source_manifest_digest IS NOT NULL "
             "AND verified_destination_digest IS NOT NULL AND failure_code IS NULL "
-            "AND (target_class='internal_lab' OR (bridge_receipt_id IS NOT NULL "
-            "AND file_count IS NOT NULL AND total_bytes IS NOT NULL)))",
+            "AND ((deployment_mode='direct' AND sync_completed=1 "
+            "AND target_started=1 AND (target_class='internal_lab' OR "
+            "(bridge_receipt_id IS NOT NULL AND file_count IS NOT NULL "
+            "AND total_bytes IS NOT NULL))) OR "
+            "(deployment_mode='repository' AND target_class='external_development' "
+            "AND addon_enabled=1 AND file_count IS NOT NULL "
+            "AND total_bytes IS NOT NULL AND source_manifest_digest="
+            "verified_destination_digest)))",
             name="mcp_workspace_deployment_success_complete",
         ),
         UniqueConstraint(
@@ -6070,6 +6084,9 @@ class McpWorkspaceDeploymentOperationRow(Base):
     target_class: Mapped[str] = mapped_column(
         String(32), nullable=False, default="internal_lab"
     )
+    deployment_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="direct", server_default="direct"
+    )
     bridge_id: Mapped[str | None] = mapped_column(String(36))
     bridge_request_id: Mapped[str | None] = mapped_column(String(36))
     bridge_receipt_id: Mapped[str | None] = mapped_column(String(36))
@@ -6094,6 +6111,155 @@ class McpWorkspaceDeploymentOperationRow(Base):
     requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
     started_at: Mapped[str | None] = mapped_column(String(27))
     completed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class ExternalDevelopmentRepositoryReadinessRow(Base):
+    """Operator-confirmed target reachability plus observed repository identity."""
+
+    __tablename__ = "external_development_repository_readiness"
+    __table_args__ = (
+        CheckConstraint(
+            "length(target_id)=36 AND length(bridge_id)=36",
+            name="external_dev_repository_uuid_shape",
+        ),
+        CheckConstraint(
+            "length(observed_manifest_digest)=71 AND "
+            "substr(observed_manifest_digest,1,7)='sha256:'",
+            name="external_dev_repository_manifest_shape",
+        ),
+        CheckConstraint(
+            "manual_updates_confirmed=1",
+            name="external_dev_repository_manual_updates",
+        ),
+    )
+
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_kodi_targets.target_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    base_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    bootstrap_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    native_kodi_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    bridge_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    repository_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    observed_manifest_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    manual_updates_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    confirmed_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    confirmed_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class RepositoryWorkspaceValidationSnapshotRow(Base):
+    """Immutable receipt snapshot because normal validation stores only latest."""
+
+    __tablename__ = "repository_workspace_validation_snapshots"
+    __table_args__ = (
+        CheckConstraint(
+            "generation>=0 AND length(source_tree_digest)=71 AND "
+            "substr(source_tree_digest,1,7)='sha256:'",
+            name="repository_workspace_validation_shape",
+        ),
+        CheckConstraint(
+            "length(id)=36 AND length(workspace_id)=36 AND "
+            "length(addon_id) BETWEEN 1 AND 128 AND "
+            "length(addon_version) BETWEEN 1 AND 64 AND "
+            "length(extension_types_json) BETWEEN 2 AND 4096 AND "
+            "length(validated_at)=27",
+            name="repository_workspace_validation_bounds",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    extension_types_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source_tree_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    validated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class RepositoryWorkspaceDeploymentRow(Base):
+    """One reviewed publication and later installed-tree observation."""
+
+    __tablename__ = "repository_workspace_deployments"
+    __table_args__ = (
+        CheckConstraint(
+            "workspace_generation>=0",
+            name="repository_workspace_generation_nonnegative",
+        ),
+        CheckConstraint(
+            "state IN ('awaiting_approval','publication_approved',"
+            "'awaiting_kodi_update','observed_identity','verified_tree',"
+            "'succeeded','failed')",
+            name="repository_workspace_state_closed",
+        ),
+        CheckConstraint(
+            "repository_id='repository.kodi-lab-dev'",
+            name="repository_workspace_origin_closed",
+        ),
+        CheckConstraint(
+            "length(expected_manifest_digest)=71 AND "
+            "substr(expected_manifest_digest,1,7)='sha256:'",
+            name="repository_workspace_manifest_shape",
+        ),
+        CheckConstraint(
+            "file_count BETWEEN 1 AND 25000 AND total_bytes BETWEEN 1 AND 1073741824",
+            name="repository_workspace_bounds",
+        ),
+        Index("ix_repository_workspace_target_state", "target_id", "state"),
+    )
+
+    operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("mcp_workspace_deployment_operations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    publication_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_publications.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    workspace_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_kodi_targets.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_kodi_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    bridge_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    zip_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    package_tree_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    expected_manifest_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    validation_receipt: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("repository_workspace_validation_snapshots.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    repository_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    base_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    bootstrap_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    installed_before_version: Mapped[str | None] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    approved_at: Mapped[str | None] = mapped_column(String(27))
+    published_at: Mapped[str | None] = mapped_column(String(27))
+    observed_at: Mapped[str | None] = mapped_column(String(27))
+    verified_at: Mapped[str | None] = mapped_column(String(27))
+    failure_code: Mapped[str | None] = mapped_column(String(128))
 
 
 class McpWorkspaceExecutionOperationRow(Base):

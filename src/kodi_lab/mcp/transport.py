@@ -71,6 +71,7 @@ from kodi_lab.mcp.tools import (
     ScreenshotToolResult,
     TargetListResult,
     TargetStatusResult,
+    WorkspaceDeployInput,
     WorkspaceEditInput,
     WorkspaceEditResult,
     WorkspaceReadResult,
@@ -838,10 +839,12 @@ def build_mcp_http_transport(
             name="workspace_deploy",
             title="Deploy an exact workspace generation",
             description=(
-                "Deploy one validated exact workspace generation to an authorized "
-                "internal disposable target using the closed stop/sync/start workflow."
+                "Deploy one validated exact workspace generation. An opted-in "
+                "external development target uses Web-approved repository publication "
+                "and waits for a user Kodi update and exact installed-tree "
+                "verification."
             ),
-            input_schema=WorkspaceTargetOperationInput.model_json_schema(),
+            input_schema=WorkspaceDeployInput.model_json_schema(),
             output_schema=WorkspaceDeploymentResult.model_json_schema(),
             annotations=control_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
@@ -1087,7 +1090,7 @@ def build_mcp_http_transport(
                 )
                 source_id = result.source_id
             elif params.name == "workspace_deploy":
-                parsed_deploy = WorkspaceTargetOperationInput.model_validate(arguments)
+                parsed_deploy = WorkspaceDeployInput.model_validate(arguments)
                 workspace_id = parsed_deploy.workspace_id
                 target_id = parsed_deploy.target_id
                 result = await asyncio.to_thread(

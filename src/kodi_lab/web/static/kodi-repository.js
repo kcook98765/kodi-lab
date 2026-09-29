@@ -52,4 +52,48 @@
     } catch (error) { approvalStatus.textContent = error.message; }
     finally { approve.disabled = false; }
   });
+  const targetForm = document.getElementById("development-target-confirm");
+  if (targetForm) targetForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const targetId = targetForm.elements.target_id.value;
+    const message = document.getElementById("development-target-confirm-status");
+    if (!targetForm.elements.reachable.checked || !targetForm.elements.manual_updates.checked) return;
+    message.textContent = "Checking native and bridge repository identity…";
+    try {
+      const response = await fetch(`/api/external-targets/${targetId}/development-repository/confirm`, {
+        method: "POST", credentials: "same-origin",
+        headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": targetForm.dataset.csrfToken},
+        body: JSON.stringify({base_url: targetForm.dataset.baseUrl, reachable_in_kodi: true, manual_updates_confirmed: true}),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "Target prerequisite rejected.");
+      message.textContent = `Confirmed ${result.target_id} for this exact repository origin.`;
+    } catch (error) { message.textContent = error.message; }
+  });
+  for (const section of document.querySelectorAll(".repository-deployment")) {
+    const message = section.querySelector(".repository-deployment-status");
+    const basePath = `/api/workspaces/${section.dataset.workspaceId}/repository-deployments/${section.dataset.operationId}`;
+    const send = async (suffix, body) => {
+      message.textContent = suffix === "approve" ? "Publishing approved artifact…" : "Checking native identity and installed tree…";
+      try {
+        const response = await fetch(`${basePath}/${suffix}`, {
+          method: "POST", credentials: "same-origin",
+          headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": section.dataset.csrfToken},
+          body: JSON.stringify(body),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "Operation rejected.");
+        message.textContent = `${result.state}: ${result.next_action || result.result_classification}. Refresh to see durable state.`;
+      } catch (error) { message.textContent = error.message; }
+    };
+    section.querySelector(".repository-approve")?.addEventListener("click", () => send("approve", {
+      target_id: section.dataset.targetId,
+      generation: Number(section.dataset.generation),
+      addon_id: section.dataset.addonId,
+      addon_version: section.dataset.addonVersion,
+      zip_sha256: section.dataset.zipSha256,
+      expected_manifest_digest: section.dataset.manifestDigest,
+    }));
+    section.querySelector(".repository-recheck")?.addEventListener("click", () => send("recheck", {}));
+  }
 })();

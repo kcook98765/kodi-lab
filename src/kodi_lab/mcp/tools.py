@@ -364,6 +364,12 @@ class WorkspaceTargetOperationInput(BaseModel):
     target_id: UUID
 
 
+class WorkspaceDeployInput(WorkspaceTargetOperationInput):
+    """Existing deployment tool with an explicit transport selection."""
+
+    deployment_mode: Literal["auto", "direct", "repository"] = "auto"
+
+
 class WorkspaceValidatedPath(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -628,7 +634,7 @@ class McpTargetToolService:
         return result
 
     def workspace_deploy(
-        self, principal: McpPrincipal, operation: WorkspaceTargetOperationInput
+        self, principal: McpPrincipal, operation: WorkspaceDeployInput
     ) -> WorkspaceDeploymentResult:
         self._authorization.authorize_workspace_target(
             principal,
@@ -645,6 +651,7 @@ class McpTargetToolService:
                 workspace_id=operation.workspace_id,
                 expected_generation=operation.expected_generation,
                 target_id=operation.target_id,
+                deployment_mode=operation.deployment_mode,
             )
         except McpWorkspaceDevelopmentError as error:
             raise McpAuthorizationError(error.code) from error

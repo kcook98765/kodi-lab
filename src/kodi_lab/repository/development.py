@@ -61,6 +61,10 @@ MAX_PENDING_IMPORTS = 8
 _LOCAL_LOCK = threading.RLock()
 
 
+class DevelopmentPublicationConflict(ValueError):
+    """An immutable add-on ID/version is already bound to other evidence."""
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -641,6 +645,63 @@ class DevelopmentRepositoryService:
     ) -> DevelopmentPublicationRow:
         if scope_kind != "development_only" or intended_targets:
             raise ValueError("Phase 2 publication is development-only and unbound")
+        return self._prepare(
+            data,
+            compatibility,
+            source_kind="web_import",
+            source_id=None,
+            workspace_id=None,
+            workspace_generation=None,
+            validation_receipt=None,
+            source_tree_sha256=None,
+            intended_targets=(),
+        )
+
+    def prepare_workspace(
+        self,
+        data: bytes,
+        compatibility: tuple[str, ...],
+        *,
+        operation_id: UUID,
+        workspace_id: UUID,
+        workspace_generation: int,
+        target_id: UUID,
+        validation_receipt: UUID,
+        source_tree_sha256: str,
+    ) -> DevelopmentPublicationRow:
+        """Prepare one exact-generation artifact for a target-bound request."""
+
+        if workspace_generation < 0 or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", source_tree_sha256
+        ):
+            raise ValueError("workspace publication provenance is invalid")
+        return self._prepare(
+            data,
+            compatibility,
+            source_kind="workspace",
+            source_id=str(operation_id),
+            workspace_id=str(workspace_id),
+            workspace_generation=workspace_generation,
+            validation_receipt=str(validation_receipt),
+            source_tree_sha256=source_tree_sha256,
+            # The feed is shared. The target is bound by the deployment
+            # request, while immutable bytes may be reused by another target.
+            intended_targets=(),
+        )
+
+    def _prepare(
+        self,
+        data: bytes,
+        compatibility: tuple[str, ...],
+        *,
+        source_kind: str,
+        source_id: str | None,
+        workspace_id: str | None,
+        workspace_generation: int | None,
+        validation_receipt: str | None,
+        source_tree_sha256: str | None,
+        intended_targets: tuple[str, ...],
+    ) -> DevelopmentPublicationRow:
         package = inspect_addon_zip(data)
         require_development_addon_id(package.addon_id)
         _version(package.version)
@@ -680,7 +741,22 @@ class DevelopmentRepositoryService:
             )
             if existing is not None:
                 if existing.zip_sha256 != package.sha256:
-                    raise ValueError("published add-on ID/version has different bytes")
+                    raise DevelopmentPublicationConflict(
+                        "published add-on ID/version has different bytes"
+                    )
+                if source_kind == "workspace" and (
+                    existing.source_kind != "workspace"
+                    or existing.workspace_id != workspace_id
+                    or existing.workspace_generation != workspace_generation
+                    or existing.source_tree_sha256 != source_tree_sha256
+                    or existing.validation_receipt != validation_receipt
+                    or not set(supported.split(",")).issubset(
+                        set(existing.compatible_generations.split(","))
+                    )
+                ):
+                    raise DevelopmentPublicationConflict(
+                        "published add-on ID/version has different provenance"
+                    )
                 return existing
             stored = list(
                 session.scalars(
@@ -707,12 +783,12 @@ class DevelopmentRepositoryService:
                 version=package.version,
                 addon_type="plugin.video",
                 status="prepared",
-                source_kind="web_import",
-                source_id=identifier,
-                workspace_id=None,
-                workspace_generation=None,
-                validation_receipt=None,
-                source_tree_sha256=None,
+                source_kind=source_kind,
+                source_id=source_id or identifier,
+                workspace_id=workspace_id,
+                workspace_generation=workspace_generation,
+                validation_receipt=validation_receipt,
+                source_tree_sha256=source_tree_sha256,
                 compatible_generations=supported,
                 scope_kind="development_only",
                 intended_targets=None,

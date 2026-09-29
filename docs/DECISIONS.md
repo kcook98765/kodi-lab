@@ -5089,3 +5089,33 @@ approvals atomically with the governing revision transition.
   stable provenance. Recovery requires the same stable candidate/base URL and
   restores the development subtree plus database before clearing the recovery
   marker. An interrupted restore must not serve development content.
+
+## D-0387: Repository-mode workspace deployment remains human-gated
+
+- The existing `workspace_deploy` operation accepts an explicit `direct` or
+  `repository` mode; its default selects repository mode only after an
+  external-development target has an operator-confirmed development repository.
+  Managed and existing direct deployments keep their controlled path. No MCP
+  tool, bridge method, or production authority is added.
+- Web confirmation requires Kodi Lab to observe the exact installed
+  `repository.kodi-lab-dev` descriptor through native inventory and the paired
+  bridge. The operator confirms target refresh at the configured URL and Kodi's
+  notify-without-auto-install setting. An HTTP feed alone does not prove Kodi
+  installed the repository.
+- An exact workspace generation, validation receipt, target/bridge identity,
+  explicit add-on version, ZIP hash and predicted installed-tree digest bind
+  each deployment request. Migration `0056` snapshots the validation receipt
+  before the mutable latest-validation row can be replaced. Web approval checks
+  those values again. Per-operation `publication_approved` is durable before
+  the feed changes, so a shared publication cannot approve another request on
+  restart. Publication
+  leaves the operation pending for manual Kodi install/update. Only matching
+  native identity and authenticated bridge tree evidence mark deployment
+  succeeded. Execution and promotion retain verified-deployment requirements;
+  promotion accepts the exact verified repository link as source proof, while
+  direct promotion still requires its external source baseline.
+- A same-ID/version package may be reused by another target-bound request only
+  with identical bytes and workspace generation/provenance. That request still
+  needs its own Web approval. Workspace edits never change pending or published
+  bytes. Offline observation stays pending; identity/classification changes
+  fail closed.

@@ -31,6 +31,29 @@
       <p>Bootstrap SHA-256: <code>{{ development_provenance.bootstrap_zip_sha256 }}</code></p>
       <p>Feed: <code>{{ base_url }}/development/addons.xml</code> · index SHA-256 <code>{{ development_provenance.addons_xml_sha256 }}</code></p>
       <p>Storage: {{ storage_usage[0] }} / {{ development_max_artifacts }} stored artifacts; {{ storage_usage[1] }} / {{ development_max_bytes }} bytes.</p>
+      <h3>External development target setup</h3>
+      <p>Install and enable Kodi Lab Development on the target. In Kodi, confirm its repository refresh can reach <code>{{ base_url }}</code>. Kodi Lab then checks the installed repository identity through native inventory and its paired bridge.</p>
+      <p>For this manual update workflow, set Kodi Settings → System → Add-ons → Updates to “Notify, but don't install updates” before confirming the target.</p>
+      <form id="development-target-confirm" data-csrf-token="{{ csrf_token }}" data-base-url="{{ base_url }}">
+        <label>Target <select name="target_id" required>{% for target in repository_targets %}<option value="{{ target.id }}">{{ target.name }} · {{ target.id }}{% if target.ready %} · confirmed {{ target.confirmed_at }}{% endif %}</option>{% endfor %}</select></label>
+        <label><input type="checkbox" name="reachable" required> I confirmed this Kodi can refresh the configured development repository.</label>
+        <label><input type="checkbox" name="manual_updates" required> I confirmed Kodi will notify about updates without installing them automatically.</label>
+        <button type="submit">Confirm target repository</button>
+      </form>
+      <p id="development-target-confirm-status" role="status"></p>
+      <h3>Workspace repository deployments</h3>
+      <p>Publication is a separate step from deployment. After approval, use Kodi Add-ons → Install from repository → Kodi Lab Development for a first install. For an update, use Kodi Add-ons → Check for updates, then update the intended add-on. Return here and select Recheck installation.</p>
+      {% for item in repository_deployments %}
+      <section class="repository-deployment" data-csrf-token="{{ csrf_token }}" data-operation-id="{{ item.operation_id }}" data-workspace-id="{{ item.workspace_id }}" data-target-id="{{ item.target_id }}" data-generation="{{ item.generation }}" data-addon-id="{{ item.addon_id }}" data-addon-version="{{ item.addon_version }}" data-zip-sha256="{{ item.zip_sha256 }}" data-manifest-digest="{{ item.expected_manifest_digest }}">
+        <h4>{{ item.addon_id }} {{ item.addon_version }} · {{ item.state }}</h4>
+        <p>Workspace <code>{{ item.workspace_id }}</code> generation {{ item.generation }} → {{ item.target_name }} (<code>{{ item.target_id }}</code>, {{ item.target_classification }}, Kodi {{ item.target_kodi_version }}). Operation <code>{{ item.operation_id }}</code>; publication <code>{{ item.publication_id }}</code>.</p>
+        <p>ZIP SHA-256 <code>{{ item.zip_sha256 }}</code>; expected installed tree <code>{{ item.expected_manifest_digest }}</code>; compatible generations {{ item.compatible_generations }}. {% if item.installed_before_version %}Updating installed {{ item.installed_before_version }}.{% else %}First install.{% endif %} Current feed version: {{ item.current_repository_version or 'none' }}.</p>
+        {% if item.state in ['awaiting_approval','publication_approved'] %}<button type="button" class="repository-approve">{% if item.state == 'awaiting_approval' %}Approve exact publication{% else %}Retry approved publication{% endif %}</button>{% endif %}
+        {% if item.state in ['awaiting_kodi_update','observed_identity'] %}<button type="button" class="repository-recheck">Recheck installation</button>{% endif %}
+        {% if item.failure_code %}<p>Failure: {{ item.failure_code }}</p>{% endif %}
+        <p class="repository-deployment-status" role="status"></p>
+      </section>
+      {% else %}<p>No workspace repository deployments.</p>{% endfor %}
       <form id="development-import" data-csrf-token="{{ csrf_token }}">
         <label>Development video-plugin ZIP <input type="file" name="zip" accept=".zip,application/zip" required></label>
         <fieldset><legend>Claimed Kodi compatibility</legend>

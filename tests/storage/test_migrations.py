@@ -152,7 +152,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0055_development_repository_publications",)
+        ).fetchone() == ("0056_repository_workspace_deployment",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -187,6 +187,9 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
+        "external_development_repository_readiness",
+        "repository_workspace_deployments",
+        "repository_workspace_validation_snapshots",
         "development_publications",
         "development_publication_holds",
         "development_repository_state",
@@ -7076,4 +7079,34 @@ def test_0055_development_publication_identity_is_durable_and_single_current(
         connection.execute(
             text("DELETE FROM development_publications WHERE id=:id"), {"id": first}
         )
+    engine.dispose()
+
+
+def test_0056_repository_workspace_deployment_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0055_development_repository_publications"
+    )
+    command.upgrade(config, "0056_repository_workspace_deployment")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert {
+        "external_development_repository_readiness",
+        "repository_workspace_deployments",
+        "repository_workspace_validation_snapshots",
+    } <= set(inspector.get_table_names())
+    columns = {
+        item["name"]: item
+        for item in inspector.get_columns("mcp_workspace_deployment_operations")
+    }
+    assert columns["deployment_mode"]["nullable"] is False
+    engine.dispose()
+    command.downgrade(config, "0055_development_repository_publications")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "deployment_mode" not in {
+        item["name"]
+        for item in inspector.get_columns("mcp_workspace_deployment_operations")
+    }
     engine.dispose()

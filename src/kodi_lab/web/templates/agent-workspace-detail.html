@@ -22,6 +22,7 @@
       {% if workspace.verification_outcome %}<dt>Kodi verification</dt><dd>{{ workspace.verification_outcome.value }}</dd>{% endif %}
     </dl>
     {% if entries %}<h2>Root directory</h2><ul>{% for entry in entries %}<li>{{ entry.name }} — {{ entry.entry_type }}</li>{% endfor %}</ul>{% endif %}
+    {% if repository_deployments %}<h2>Repository deployments</h2><ul>{% for item in repository_deployments %}<li><code>{{ item.addon_id }}</code> {{ item.addon_version }} → target <code>{{ item.target_id }}</code>: {{ item.state }} (operation <code>{{ item.operation_id }}</code>). {% if item.failure_code %}{{ item.failure_code }}.{% endif %} <a href="/kodi-repository">Review or recheck</a></li>{% endfor %}</ul>{% endif %}
     {% if workspace.state.value == "ready" %}
     <section id="workspace-editor" data-workspace-id="{{ workspace.id }}" data-generation="{{ workspace.generation }}" data-csrf="{{ csrf_token }}">
       <h2>Text file editing</h2>
