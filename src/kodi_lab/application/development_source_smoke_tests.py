@@ -558,7 +558,9 @@ class DevelopmentSourceSmokeTestService:
             if mismatch is not None:
                 return self._dependency_blocked("dependency_state_unknown", mismatch)
             dependencies = DevelopmentSourceEnablementService._preflight_dependencies(
-                descriptor.dependencies, inventory_by_id
+                descriptor.dependencies,
+                inventory_by_id,
+                kodi_release=profile.kodi_release.canonical,
             )
             blocked = next(
                 (

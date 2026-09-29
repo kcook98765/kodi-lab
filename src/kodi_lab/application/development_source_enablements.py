@@ -533,7 +533,9 @@ class DevelopmentSourceEnablementService:
                     handle, "dependency_state_unknown", mismatch, dependencies
                 )
             dependencies = evaluate_dependencies(
-                source_observation.dependencies, inventory_by_id
+                source_observation.dependencies,
+                inventory_by_id,
+                kodi_release=profile.kodi_release.canonical,
             )
             blocked = first_blocking_dependency(dependencies)
             if blocked is not None:
@@ -690,8 +692,10 @@ class DevelopmentSourceEnablementService:
     def _preflight_dependencies(
         declarations: tuple[DevelopmentSourceDependency, ...],
         inventory: Mapping[str, KodiAddonInventoryRecord],
+        *,
+        kodi_release: str | None = None,
     ) -> list[DevelopmentSourceDependencyState]:
-        return evaluate_dependencies(declarations, inventory)
+        return evaluate_dependencies(declarations, inventory, kodi_release=kodi_release)
 
     @staticmethod
     def _is_builtin(dependency_id: str) -> bool:

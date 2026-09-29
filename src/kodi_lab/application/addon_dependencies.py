@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Protocol
@@ -16,6 +17,16 @@ from kodi_lab.kodi.addons import (
 _BUILTIN_DEPENDENCY_IDS = frozenset(
     {"xbmc.gui", "xbmc.json", "xbmc.metadata", "xbmc.python"}
 )
+
+# Reviewed stable Kodi system descriptors, not JSON-RPC inventory records.
+# Matrix 19.4: 3.0.0 / ABI 3.0.0; Nexus 20.5 and Omega 21.3:
+# 3.0.1 / ABI 3.0.0. Unknown releases retain version-unverified behavior.
+_PYTHON_API_BY_RELEASE = {
+    "19.4": ((3, 0, 0), (3, 0, 0)),
+    "20.5": ((3, 0, 1), (3, 0, 0)),
+    "21.3": ((3, 0, 1), (3, 0, 0)),
+}
+_SYSTEM_API_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
 
 
 class AddonDependencyDeclaration(Protocol):
@@ -89,10 +100,19 @@ def declaration_mismatch(
         )
     for declared in declared_items:
         reported = reported_by_id[declared.dependency_id]
+        # Kodi expands a lone version bound into both JSON-RPC fields.
+        reported_minversion = reported_constraint(reported.minversion)
+        if (
+            declared.minversion is None
+            and declared.version is not None
+            and reported_constraint(reported.version) == declared.version
+            and reported_minversion == declared.version
+        ):
+            reported_minversion = None
         if (
             declared.optional != reported.optional
             or declared.version != reported_constraint(reported.version)
-            or declared.minversion != reported_constraint(reported.minversion)
+            or declared.minversion != reported_minversion
         ):
             return AddonDependencyState(
                 dependency_id=declared.dependency_id,
@@ -110,11 +130,34 @@ def declaration_mismatch(
 def evaluate_dependencies(
     declarations: Sequence[AddonDependencyDeclaration],
     inventory: Mapping[str, KodiAddonInventoryRecord],
+    *,
+    kodi_release: str | None = None,
 ) -> list[AddonDependencyState]:
     result: list[AddonDependencyState] = []
     for declared in declarations:
         record = inventory.get(declared.dependency_id)
         constraint = declared.version or declared.minversion
+        if declared.dependency_id == "xbmc.python" and constraint is not None:
+            status = _system_python_status(declared, record, kodi_release)
+            capability = _PYTHON_API_BY_RELEASE.get(kodi_release or "")
+            system_present = capability is not None and record is None
+            result.append(
+                AddonDependencyState(
+                    dependency_id=declared.dependency_id,
+                    declared_version=declared.version,
+                    declared_minversion=declared.minversion,
+                    optional=declared.optional,
+                    recognized=system_present,
+                    enabled=True if system_present else None,
+                    reported_version=(
+                        None
+                        if capability is None
+                        else ".".join(str(part) for part in capability[0])
+                    ),
+                    status=status,
+                )
+            )
+            continue
         if record is None and is_builtin_dependency(declared.dependency_id):
             result.append(
                 AddonDependencyState(
@@ -170,6 +213,29 @@ def evaluate_dependencies(
             )
         )
     return result
+
+
+def _system_python_status(
+    declared: AddonDependencyDeclaration,
+    record: KodiAddonInventoryRecord | None,
+    kodi_release: str | None,
+) -> DependencyStatus:
+    """Check a reviewed Kodi system API against its declared ABI interval."""
+
+    if record is not None:
+        # System APIs are absent from Addons.GetAddons on reviewed runtimes.
+        return DependencyStatus.UNKNOWN
+    capability = _PYTHON_API_BY_RELEASE.get(kodi_release or "")
+    if capability is None or declared.minversion is not None:
+        return DependencyStatus.VERSION_UNVERIFIED
+    version = declared.version
+    if version is None or _SYSTEM_API_VERSION.fullmatch(version) is None:
+        return DependencyStatus.VERSION_UNVERIFIED
+    required = tuple(int(part) for part in version.split("."))
+    installed, compatible_abi = capability
+    if compatible_abi <= required <= installed:
+        return DependencyStatus.PRESENT_ENABLED
+    return DependencyStatus.VERSION_UNVERIFIED
 
 
 def first_blocking_dependency(

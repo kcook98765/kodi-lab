@@ -550,7 +550,11 @@ class AddonZipEnablementService:
                     payload,
                     dependencies,
                 )
-            dependencies = evaluate_dependencies(artifact.dependencies, inventory_by_id)
+            dependencies = evaluate_dependencies(
+                artifact.dependencies,
+                inventory_by_id,
+                kodi_release=profile.kodi_release.canonical,
+            )
             blocked = first_blocking_dependency(dependencies)
             if blocked is not None:
                 return self._dependency_blocked(

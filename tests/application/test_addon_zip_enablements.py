@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import zipfile
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from uuid import UUID
 
@@ -36,6 +39,12 @@ from kodi_lab.broker.operations import (
     ObserveManagedKodiRuntimeResult,
     VerifyAddonZipEnablementDestinationResult,
 )
+from kodi_lab.development.addon_zip import (
+    create_upload_stage,
+    finish_upload_stage,
+    validate_and_publish_addon_zip,
+    write_upload_chunk,
+)
 from kodi_lab.domain import (
     AddonZipEnablementOperationState,
     AddonZipEnablementResult,
@@ -50,7 +59,7 @@ from kodi_lab.kodi.addons import (
     KodiAddonInventoryResult,
     KodiReportedAddonDependency,
 )
-from kodi_lab.kodi.readiness import KodiApplicationIdentity
+from kodi_lab.kodi.readiness import JsonRpcUnavailableError, KodiApplicationIdentity
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
@@ -341,9 +350,12 @@ class FakeInventory:
     def __init__(self, items: list[KodiAddonInventoryRecord]) -> None:
         self.items = items
         self.calls = 0
+        self.error: BaseException | None = None
 
     def get_inventory(self) -> KodiAddonInventoryResult:
         self.calls += 1
+        if self.error is not None:
+            raise self.error
         return KodiAddonInventoryResult(
             KodiApplicationIdentity("Kodi", 21, 3, "stable"), tuple(self.items)
         )
@@ -723,6 +735,104 @@ def test_dependency_declaration_mismatch_blocks_before_enable(
         INSTANCE_ID, ARTIFACT_ID
     )
     assert result.failure_reason == "dependency_state_unknown"
+    assert adapter.enable_calls == []
+
+
+def test_omega_system_python_dependency_allows_enablement(
+    factory: sessionmaker[Session],
+    tmp_path: Path,
+) -> None:
+    """A validated ZIP reaches enablement with Omega's actual dependency fields."""
+
+    payload = BytesIO()
+    with zipfile.ZipFile(payload, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            f"{ADDON_ID}/addon.xml",
+            f'<addon id="{ADDON_ID}" name="Uploaded" version="{VERSION}">'
+            '<requires><import addon="xbmc.python" version="3.0.0" /></requires>'
+            '<extension point="xbmc.python.pluginsource" library="default.py">'
+            "<provides>video</provides></extension>"
+            '<extension point="xbmc.addon.metadata" /></addon>',
+        )
+        archive.writestr(f"{ADDON_ID}/default.py", "import xbmcplugin\n")
+    stage_fd, _stage_path = create_upload_stage(tmp_path, ARTIFACT_ID)
+    try:
+        total = write_upload_chunk(stage_fd, payload.getvalue(), 0)
+        finish_upload_stage(stage_fd, total)
+    finally:
+        os.close(stage_fd)
+    validated = validate_and_publish_addon_zip(tmp_path, ARTIFACT_ID)
+    assert validated.addon_id == ADDON_ID
+    assert validated.addon_version == VERSION
+    assert [
+        (item.dependency_id, item.version, item.minversion)
+        for item in validated.dependencies
+    ] == [("xbmc.python", "3.0.0", None)]
+
+    mutate(
+        factory,
+        AddonZipArtifactRow,
+        dependencies_json=json.dumps(
+            [
+                {
+                    "id": item.dependency_id,
+                    "version": item.version,
+                    "minversion": item.minversion,
+                    "optional": item.optional,
+                }
+                for item in validated.dependencies
+            ]
+        ),
+    )
+    adapter = FakeEnableAdapter()
+    adapter.dependencies = (
+        KodiReportedAddonDependency("xbmc.python", "3.0.0", False, "3.0.0"),
+    )
+    result = service(factory, FakeBroker(), FakeInventory([target()]), adapter).enable(
+        INSTANCE_ID, ARTIFACT_ID
+    )
+    assert result.result is AddonZipEnablementResult.ENABLED
+    assert adapter.enable_calls == [ADDON_ID]
+
+
+def test_omega_python_requirement_above_installed_api_blocks_enablement(
+    factory: sessionmaker[Session],
+) -> None:
+    mutate(
+        factory,
+        AddonZipArtifactRow,
+        dependencies_json=json.dumps(
+            [
+                {
+                    "id": "xbmc.python",
+                    "version": "3.0.2",
+                    "minversion": None,
+                    "optional": False,
+                }
+            ]
+        ),
+    )
+    adapter = FakeEnableAdapter()
+    adapter.dependencies = (
+        KodiReportedAddonDependency("xbmc.python", "3.0.2", False, "3.0.2"),
+    )
+    result = service(factory, FakeBroker(), FakeInventory([target()]), adapter).enable(
+        INSTANCE_ID, ARTIFACT_ID
+    )
+    assert result.failure_reason == "dependency_version_unverified"
+    assert adapter.enable_calls == []
+
+
+def test_unavailable_dependency_inventory_blocks_before_enable(
+    factory: sessionmaker[Session],
+) -> None:
+    inventory = FakeInventory([target()])
+    inventory.error = JsonRpcUnavailableError("unavailable")
+    adapter = FakeEnableAdapter()
+    result = service(factory, FakeBroker(), inventory, adapter).enable(
+        INSTANCE_ID, ARTIFACT_ID
+    )
+    assert result.failure_reason == "jsonrpc_unavailable"
     assert adapter.enable_calls == []
 
 

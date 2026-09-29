@@ -1828,7 +1828,10 @@ details that it did not specify.
   Disagreement is `dependency_state_unknown`. Kodi's fixed dependency detail
   representation serializes an unset range bound as the exact neutral
   `0.0.0` sentinel; the reported string is retained, but only that sentinel is
-  treated as an absent declaration bound during cross-checking.
+  treated as an absent declaration bound during cross-checking. A live Omega
+  21.3 detail result also repeats a lone declared `version="3.0.0"` as both
+  `version` and `minversion`. That exact duplicate is treated as an implicit
+  bound; a different second bound or identity remains unknown.
 - Preflight: required external dependencies must be recognized and enabled.
   Required missing or disabled dependencies block; optional missing is allowed.
   Kodi Lab never installs or automatically enables dependencies. Closed Kodi
@@ -1838,12 +1841,25 @@ details that it did not specify.
 ## D-0142: Dependency versions are exact strings, not ordered versions
 
 - Status: approved for Phase 8 copied-add-on enablement
-- Decision: Kodi Lab implements neither SemVer nor generic string ordering and
-  preserves declared/reported strings exactly. The available fixed Kodi APIs
-  expose declarations and installed versions but no authoritative
-  compatibility Boolean. Every required version constraint therefore blocks
-  this first slice with `dependency_version_unverified`, including exact string
-  equality; equality is not promoted into a compatibility claim.
+- Decision: Kodi Lab implements neither SemVer nor generic ordering for ordinary
+  add-ons and preserves declared/reported strings exactly. The fixed Kodi APIs
+  expose declarations and ordinary installed versions but no authoritative
+  compatibility Boolean, so ordinary required version constraints remain
+  `dependency_version_unverified`, including exact string equality.
+- Reviewed system API exception: `xbmc.python` is a Kodi system add-on omitted
+  from `Addons.GetAddons`; a direct `Addons.GetAddonDetails` lookup is rejected.
+  For the exact supported stable Matrix 19.4, Nexus 20.5, and Omega 21.3
+  identities, the reviewed Kodi descriptors establish installed API versions
+  3.0.0, 3.0.1, and 3.0.1 respectively, each with ABI floor 3.0.0. A required
+  numeric three-component `version` is satisfied only within that inclusive
+  ABI-to-installed interval. Unknown releases, malformed versions, explicit
+  `minversion`, or contradictory inventory remain blocked. System API enable
+  state, type, origin, and repository are not ordinary inventory properties;
+  the exact reviewed runtime identity and system descriptor provide the proof.
+  Bounded `recognized`/`enabled` status for this case expresses that reviewed
+  system API presence, not a JSON-RPC enabled Boolean.
+  Sources: Kodi's `addon.xml` dependency contract and the `xbmc.python`
+  descriptors at `19.4-Matrix`, `20.5-Nexus`, and `21.3-Omega` in `xbmc/xbmc`.
 - States: bounded internal status is present-enabled, missing, disabled,
   optional-missing, version-unverified, or unknown. Kodi Lab does not claim
   generic dependency satisfaction.
