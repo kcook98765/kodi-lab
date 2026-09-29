@@ -1,4 +1,4 @@
-"""Read-only, narrow Kodi repository HTTP server; no application imports."""
+"""Read-only, narrow Kodi repository HTTP server with no application state mount."""
 
 from __future__ import annotations
 
@@ -17,6 +17,16 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+from kodi_lab.repository.development import (
+    VERSION as DEVELOPMENT_VERSION,
+)
+from kodi_lab.repository.development import (
+    initialize as initialize_development,
+)
+from kodi_lab.repository.development import (
+    load_current as load_development_current,
+)
+from kodi_lab.repository.policy import DEVELOPMENT_REPOSITORY_ID
 from kodi_lab.repository.stable import (
     BRIDGE_ID,
     BRIDGE_VERSION,
@@ -29,6 +39,9 @@ from kodi_lab.repository.stable import (
 
 PACKAGE_PATH = re.compile(
     r"/stable/zips/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)\.zip(\.sha256)?\Z"
+)
+DEVELOPMENT_PACKAGE_PATH = re.compile(
+    r"/development/zips/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)\.zip(\.sha256)?\Z"
 )
 
 
@@ -123,6 +136,20 @@ class RepositoryHandler(BaseHTTPRequestHandler):
                 content_type = "text/plain; charset=utf-8"
             elif path in {"/install", "/install/"}:
                 name = f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip"
+                dev_name = f"{DEVELOPMENT_REPOSITORY_ID}-{DEVELOPMENT_VERSION}.zip"
+                try:
+                    load_development_current(
+                        self.root / "development-data",
+                        expected_base_url=self.expected_base_url,
+                    )
+                    dev_link = (
+                        "<li>Kodi Lab Development (optional; "
+                        "development/test Kodi only): "
+                        f'<a href="{html.escape(dev_name, quote=True)}">'
+                        f"{html.escape(dev_name)}</a></li>"
+                    )
+                except (OSError, ValueError, KeyError, json.JSONDecodeError):
+                    dev_link = ""
                 content = (
                     "<!doctype html><html><head><meta charset='utf-8'>"
                     "<title>Kodi Lab</title></head>"
@@ -130,9 +157,78 @@ class RepositoryHandler(BaseHTTPRequestHandler):
                     + html.escape(name, quote=True)
                     + '">'
                     + html.escape(name)
-                    + "</a></li></ul></body></html>\n"
+                    + "</a></li>"
+                    + dev_link
+                    + "</ul></body></html>\n"
                 ).encode()
                 content_type = "text/html; charset=utf-8"
+            elif (
+                path.startswith("/development/")
+                or path
+                == f"/install/{DEVELOPMENT_REPOSITORY_ID}-{DEVELOPMENT_VERSION}.zip"
+            ):
+                dev_root = self.root / "development-data"
+                dev_generation, dev_provenance = load_development_current(
+                    dev_root, expected_base_url=self.expected_base_url
+                )
+                if path == "/development/health":
+                    content = b"ok\n"
+                    content_type = "text/plain; charset=utf-8"
+                elif (
+                    path
+                    == f"/install/{DEVELOPMENT_REPOSITORY_ID}-{DEVELOPMENT_VERSION}.zip"
+                ):
+                    content = (
+                        dev_generation
+                        / "install"
+                        / f"{DEVELOPMENT_REPOSITORY_ID}-{DEVELOPMENT_VERSION}.zip"
+                    ).read_bytes()
+                    content_type = "application/zip"
+                elif path == "/development/addons.xml":
+                    content = (dev_generation / "development/addons.xml").read_bytes()
+                    content_type = "application/xml; charset=utf-8"
+                elif path == "/development/addons.xml.sha256":
+                    content = (
+                        dev_generation / "development/addons.xml.sha256"
+                    ).read_bytes()
+                    content_type = "text/plain; charset=utf-8"
+                else:
+                    dev_match = DEVELOPMENT_PACKAGE_PATH.fullmatch(path)
+                    if dev_match is None:
+                        self.send_error(HTTPStatus.NOT_FOUND)
+                        return
+                    addon_id, name, sidecar = dev_match.groups()
+                    record = next(
+                        (
+                            item
+                            for item in cast(
+                                list[dict[str, str]], dev_provenance["packages"]
+                            )
+                            if item["id"] == addon_id
+                            and name == f"{addon_id}-{item['version']}"
+                        ),
+                        None,
+                    )
+                    if record is None:
+                        self.send_error(HTTPStatus.NOT_FOUND)
+                        return
+                    package = dev_root / "packages" / addon_id / f"{name}.zip"
+                    content = (
+                        package.with_name(package.name + ".sha256")
+                        if sidecar
+                        else package
+                    ).read_bytes()
+                    if (
+                        content.decode().strip() if sidecar else sha256(content)
+                    ) != record["sha256"]:
+                        raise ValueError("development package checksum differs")
+                    content_type = (
+                        "text/plain; charset=utf-8" if sidecar else "application/zip"
+                    )
+                    if not sidecar:
+                        content_sha256 = base64.b64encode(
+                            hashlib.sha256(content).digest()
+                        ).decode()
             elif path == f"/install/{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip":
                 content = (
                     generation / "install" / f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip"
@@ -214,7 +310,27 @@ def main() -> int:
     try:
         if args.command == "generate":
             result = generate(args.bundle, args.data_root, args.base_url)
-            print(json.dumps(result, sort_keys=True))
+            development = initialize_development(
+                args.data_root / "development-data", args.base_url, args.bundle
+            )
+            # Stable files remain root-owned. Only the development subtree is writable
+            # by the authenticated Web process; the HTTP process mounts it read-only.
+            if os.geteuid() == 0:
+                dev_root = args.data_root / "development-data"
+                for path in dev_root.rglob("*"):
+                    os.chown(path, 10001, 10001, follow_symlinks=False)
+                for path in (
+                    dev_root,
+                    dev_root / "generations",
+                    dev_root / "packages",
+                    dev_root / "pending",
+                ):
+                    os.chown(path, 10001, 10001)
+            print(
+                json.dumps(
+                    {"stable": result, "development": development}, sort_keys=True
+                )
+            )
         elif args.command == "verify":
             _, result = load_current(
                 args.data_root,
@@ -222,7 +338,15 @@ def main() -> int:
                 expected_bundle_sha256=os.getenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256")
                 or None,
             )
-            print(json.dumps(result, sort_keys=True))
+            _, dev_result = load_development_current(
+                args.data_root / "development-data",
+                expected_base_url=args.base_url or None,
+            )
+            print(
+                json.dumps(
+                    {"stable": result, "development": dev_result}, sort_keys=True
+                )
+            )
         else:
             load_current(
                 args.data_root,

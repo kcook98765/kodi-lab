@@ -9,6 +9,7 @@
   <body>
     <main>
       <h1>Kodi Repository</h1>
+      <h2>Stable · reviewed Kodi Lab infrastructure</h2>
       {% if provenance %}
       <p>Stable repository: <strong>{{ 'Serving' if healthy else 'Configured; service unavailable' }}</strong></p>
       <p>LAN install source: <code>{{ base_url }}/install/</code></p>
@@ -23,8 +24,41 @@
       <h2>Reviewed stable packages</h2>
       <ul>{% for package in provenance.packages %}<li><code>{{ package.id }}</code> {{ package.version }} — SHA-256 <code>{{ package.sha256 }}</code></li>{% endfor %}</ul>
       {% else %}<p>Stable repository is not configured or verified.</p>{% endif %}
+      <h2>Development · optional</h2>
+      {% if development_provenance %}
+      <p>Install only on a development or test Kodi. This feed contains operator-approved add-ons and is not a production deployment channel.</p>
+      <p>Bootstrap ZIP: <a href="{{ base_url }}/install/repository.kodi-lab-dev-1.0.0.zip">repository.kodi-lab-dev-1.0.0.zip</a></p>
+      <p>Bootstrap SHA-256: <code>{{ development_provenance.bootstrap_zip_sha256 }}</code></p>
+      <p>Feed: <code>{{ base_url }}/development/addons.xml</code> · index SHA-256 <code>{{ development_provenance.addons_xml_sha256 }}</code></p>
+      <p>Storage: {{ storage_usage[0] }} / {{ development_max_artifacts }} stored artifacts; {{ storage_usage[1] }} / {{ development_max_bytes }} bytes.</p>
+      <form id="development-import" data-csrf-token="{{ csrf_token }}">
+        <label>Development video-plugin ZIP <input type="file" name="zip" accept=".zip,application/zip" required></label>
+        <fieldset><legend>Claimed Kodi compatibility</legend>
+          <label><input type="checkbox" name="generation" value="matrix" checked> Matrix 19.4</label>
+          <label><input type="checkbox" name="generation" value="nexus" checked> Nexus 20.5</label>
+          <label><input type="checkbox" name="generation" value="omega" checked> Omega 21.3</label>
+        </fieldset>
+        <button type="submit">Prepare and validate</button>
+      </form>
+      <p id="development-import-status" role="status"></p>
+      <div id="development-review" hidden>
+        <h3>Review exact publication</h3>
+        <dl id="development-review-details"></dl>
+        <button id="development-approve" type="button">Approve this exact ID, version and ZIP hash</button>
+        <p id="development-approval-status" role="status"></p>
+      </div>
+      <h3>Publication history</h3>
+      <table><thead><tr><th>Add-on</th><th>Version</th><th>Status</th><th>ZIP SHA-256</th><th>Tree SHA-256</th><th>Source</th><th>Compatibility</th><th>Approval</th></tr></thead>
+      <tbody>{% for item in publications %}<tr>
+        <td><code>{{ item.addon_id }}</code></td><td>{{ item.version }}</td><td>{{ item.status }}</td>
+        <td><code>{{ item.zip_sha256 }}</code></td><td><code>{{ item.tree_sha256 }}</code></td>
+        <td>{{ item.source_kind }} · {{ item.source_id }}</td><td>{{ item.compatible_generations }}</td>
+        <td>{{ item.approval_identity or 'pending' }} {{ item.approved_at or '' }}</td>
+      </tr>{% else %}<tr><td colspan="8">No development publications.</td></tr>{% endfor %}</tbody></table>
+      {% else %}<p>Development repository is unavailable{% if development_error %}: {{ development_error }}{% endif %}.</p>{% endif %}
       <p>Private-LAN HTTP does not authenticate the server or protect artifacts against a malicious LAN actor. Use only on a trusted private network.</p>
       <p><a href="/">Back to dashboard</a></p>
     </main>
+    <script src="{{ url_for('static', path='/kodi-repository.js') }}" defer></script>
   </body>
 </html>

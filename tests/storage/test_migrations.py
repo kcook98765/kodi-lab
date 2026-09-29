@@ -152,7 +152,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0054_runtime_recipe_installations",)
+        ).fetchone() == ("0055_development_repository_publications",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -187,6 +187,9 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
+        "development_publications",
+        "development_publication_holds",
+        "development_repository_state",
         "addon_repository_candidates",
         "addon_repository_attachment_operations",
         "addon_repository_fetch_operations",
@@ -7020,5 +7023,57 @@ def test_0054_install_attempts_are_unique_active_and_terminal_immutable(
         connection.execute(
             text("DELETE FROM runtime_recipe_installations WHERE id=:id"),
             {"id": row["id"]},
+        )
+    engine.dispose()
+
+
+def test_0055_development_publication_identity_is_durable_and_single_current(
+    migration_templates: MigrationTemplateStore,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0054_runtime_recipe_installations"
+    )
+    command.upgrade(config, "0055_development_repository_publications")
+    engine = create_database_engine(database_url)
+    first = str(uuid4())
+    values = {
+        "id": first,
+        "channel": "development",
+        "addon_id": "plugin.video.kodi-lab-test",
+        "version": "1.0.0",
+        "addon_type": "plugin.video",
+        "status": "current",
+        "source_kind": "web_import",
+        "source_id": first,
+        "compatible_generations": "matrix,nexus,omega",
+        "scope_kind": "development_only",
+        "zip_sha256": "a" * 64,
+        "tree_sha256": "b" * 64,
+        "zip_bytes": 100,
+        "created_at": "2026-09-29T00:00:00+00:00",
+    }
+    insert = text(
+        "INSERT INTO development_publications "
+        "(id,channel,addon_id,version,addon_type,status,source_kind,source_id,"
+        "compatible_generations,scope_kind,zip_sha256,tree_sha256,"
+        "zip_bytes,created_at) "
+        "VALUES (:id,:channel,:addon_id,:version,:addon_type,:status,:source_kind,"
+        ":source_id,:compatible_generations,:scope_kind,:zip_sha256,:tree_sha256,"
+        ":zip_bytes,:created_at)"
+    )
+    with engine.begin() as connection:
+        connection.execute(insert, values)
+    with engine.begin() as connection, pytest.raises(IntegrityError):
+        connection.execute(insert, {**values, "id": str(uuid4()), "version": "1.0.1"})
+    with engine.begin() as connection, pytest.raises(IntegrityError):
+        connection.execute(
+            text("UPDATE development_publications SET zip_sha256=:hash WHERE id=:id"),
+            {"hash": "c" * 64, "id": first},
+        )
+    with engine.begin() as connection, pytest.raises(IntegrityError):
+        connection.execute(
+            text("DELETE FROM development_publications WHERE id=:id"), {"id": first}
         )
     engine.dispose()

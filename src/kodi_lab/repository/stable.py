@@ -87,10 +87,11 @@ class AddonPackage:
     sha256: str
     tree_sha256: str
     bytes: bytes
+    file_names: tuple[str, ...] = ()
 
 
 def inspect_addon_zip(
-    data: bytes, expected_id: str, expected_version: str
+    data: bytes, expected_id: str | None = None, expected_version: str | None = None
 ) -> AddonPackage:
     """Inspect bounded ZIP contents without extracting or trusting its descriptor."""
     if len(data) > MAX_ZIP_BYTES:
@@ -141,9 +142,14 @@ def inspect_addon_zip(
     except (zipfile.BadZipFile, RuntimeError) as error:
         raise ValueError("add-on ZIP is malformed") from error
     roots = {name.split("/", 1)[0] for name in seen}
-    if roots != {expected_id} or f"{expected_id}/addon.xml" not in files:
+    if len(roots) != 1:
+        raise ValueError("add-on ZIP must have one root")
+    root_id = next(iter(roots))
+    if (
+        expected_id is not None and root_id != expected_id
+    ) or f"{root_id}/addon.xml" not in files:
         raise ValueError("add-on ZIP root/descriptor differs")
-    descriptor_bytes = files[f"{expected_id}/addon.xml"]
+    descriptor_bytes = files[f"{root_id}/addon.xml"]
     if len(descriptor_bytes) > 1024 * 1024 or any(
         token in descriptor_bytes.upper() for token in (b"<!DOCTYPE", b"<!ENTITY")
     ):
@@ -158,8 +164,9 @@ def inspect_addon_zip(
         descriptor.tag != "addon"
         or not ID_PATTERN.fullmatch(addon_id)
         or not VERSION_PATTERN.fullmatch(version)
-        or addon_id != expected_id
-        or version != expected_version
+        or addon_id != root_id
+        or (expected_id is not None and addon_id != expected_id)
+        or (expected_version is not None and version != expected_version)
     ):
         raise ValueError("add-on ID/version differs from reviewed manifest")
     for asset in descriptor.findall(
@@ -170,15 +177,23 @@ def inspect_addon_zip(
         path = PurePosixPath(asset.text)
         if path.is_absolute() or ".." in path.parts or str(path) != asset.text:
             raise ValueError("declared add-on asset path is unsafe")
-        if f"{expected_id}/{path}" not in files:
+        if f"{root_id}/{path}" not in files:
             raise ValueError("declared add-on asset is missing")
     tree = canonical(
         [
-            {"path": name.removeprefix(expected_id + "/"), "sha256": sha256(content)}
+            {"path": name.removeprefix(root_id + "/"), "sha256": sha256(content)}
             for name, content in sorted(files.items())
         ]
     )
-    return AddonPackage(addon_id, version, descriptor, sha256(data), sha256(tree), data)
+    return AddonPackage(
+        addon_id,
+        version,
+        descriptor,
+        sha256(data),
+        sha256(tree),
+        data,
+        tuple(sorted(files)),
+    )
 
 
 def descriptor_xml(base_url: str) -> bytes:

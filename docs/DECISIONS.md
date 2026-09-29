@@ -5047,3 +5047,45 @@ approvals atomically with the governing revision transition.
   development-update proof is operator-triggered in Kodi. Production policies
   remain unchanged and arbitrary workspace artifacts cannot be authorized by
   repository presence. Managed Kodi keeps direct controlled install as default.
+
+## D-0385: Phase 2 development feed admission and approval
+
+- `repository.kodi-lab-dev` 1.0.0 is a separately installed, opt-in repository
+  pointing only at `/development/`. Its bootstrap ZIP is generated for the
+  configured base URL and recorded in per-install provenance. The stable index
+  and bridge bytes remain reviewed and separate.
+- Only authenticated Web import of a bounded Python `plugin.video.*` ZIP can
+  prepare a Phase 2 publication. The operator reviews exact ID, version, type,
+  import identity, Kodi compatibility, ZIP hash, tree digest and development-only
+  scope, then explicitly approves the same ID/version/hash. The public LAN
+  server is GET/HEAD only and has no publication authority. Workspace-origin
+  fields exist in the durable schema but workspace deployment is unchanged
+  until Phase 3. No MCP or bridge protocol change is authorized.
+- One reviewed policy reserves both repository IDs, `service.kodi_lab_bridge`,
+  and Kodi Lab infrastructure namespaces. Version admission uses a strict
+  `major.minor.patch` numeric subset whose ordering matches Kodi's add-on
+  comparison. A different ZIP under an existing ID/version is rejected forever;
+  a new advertised update must have a greater version. Source versions are not
+  silently rewritten.
+
+## D-0386: Durable publication, reconciliation and recovery
+
+- Migration `0055_development_repository_publications` stores typed publication,
+  feed-state and retention-hold records. ZIP bytes live in `repository_data`,
+  outside SQLite and the administrative Web file-serving surface. One writer
+  lock serializes approvals. An approved intent is durable before an atomic
+  development pointer switch. The static service serves only acknowledged,
+  hash-verified generations; startup reconciles known interrupted intents and
+  blocks only development serving on unexplained state. Stable serving is
+  independent.
+- The current advertised version, two previous versions, recently superseded
+  versions and artifacts with evidence holds are retained. Configurable global
+  count/byte quotas reject publication when protected content consumes capacity.
+  Retirement never advertises an older version as rollback and leaves a durable
+  ID/version/hash tombstone. Rollback UI is deferred.
+- A quiescent application backup includes the approved development subtree
+  and SQLite snapshot under one manifest, with their feed identity and hashes
+  cross-checked. Stable reviewed bytes are reconstructible and bound by exact
+  stable provenance. Recovery requires the same stable candidate/base URL and
+  restores the development subtree plus database before clearing the recovery
+  marker. An interrupted restore must not serve development content.

@@ -91,8 +91,8 @@ one-shot Web approval; `context_menu` and `select` are always prohibited.
 
 Production bridge bootstrap is manual installation of an exact reviewed ZIP
 whose published checksum and provenance are registered and confirmed through
-Web administration. A hosted Kodi repository is optional post-V1 convenience,
-not a production bootstrap dependency. Kodi Lab does not automatically install
+Web administration. The hosted stable Kodi repository is a V1 installation
+convenience, not a production bootstrap dependency. Kodi Lab does not automatically install
 or update its bridge on production. Any future updater/deployer requires a new
 architecture and security gate.
 
@@ -181,7 +181,7 @@ Supporting storage:
 - artifacts;
 - logs;
 - screenshot cache;
-- optional hosted Kodi repository (POST-V1 distribution convenience, not a
+- hosted Kodi repository (V1 distribution convenience, not a
   production bridge requirement).
 
 ## 6. Deployment
@@ -907,23 +907,26 @@ a new post-V1 architecture and security gate.
 ## 36. Hosted Kodi repository
 
 V1 has two distinct repository origins: reviewed infrastructure
-`repository.kodi-lab` and a later opt-in development feed
-`repository.kodi-lab-dev`. Phase 1 ships only the stable feed containing its
+`repository.kodi-lab` and a separate opt-in development feed
+`repository.kodi-lab-dev`. The stable feed contains its
 per-install bootstrap add-on and the exact reviewed bridge ZIP. Its public-to-LAN
 distribution server is unauthenticated, read-only HTTP on an explicitly chosen
 private-LAN address. It has no administrative Web, API, MCP, database, secrets,
 or Docker/broker socket. HTTP gives no transport authenticity against a malicious
 LAN actor; a later TLS reverse proxy does not change repository content.
 
-The installer selects the durable base URL and deterministically generates the
-repository add-on for that URL. Installation provenance records the generated
-hashes separately from immutable bundle inputs. Published ID/version/ZIP bytes
-are immutable and metadata changes atomically. The stable feed accepts only
-reviewed infrastructure; workspaces cannot replace either repository identity
-or the bridge. Development publication, workspace deployment integration, and
-the first manual Kodi development-update proof belong to later phases. Repository
-availability grants no production mutation authority. Managed Kodi retains its
-direct controlled install path as the deterministic default.
+The installer selects the durable base URL and deterministically generates both
+repository add-ons for that URL. Installation provenance records generated hashes
+separately from immutable bundle inputs. Published ID/version/ZIP bytes are
+immutable and metadata changes atomically. The stable feed accepts only reviewed
+infrastructure. The development feed accepts only explicitly Web-approved,
+bounded Python video-plugin ZIPs and advertises the latest approved version per
+add-on. Both repository IDs and the bridge are reserved. A source-free backup
+binds publication records to exact development artifact and feed bytes; a
+mismatch blocks development serving while stable serving remains available.
+Workspace deployment integration and the first manual Kodi development-update
+proof belong to Phase 3. Repository availability grants no production mutation
+authority. Managed Kodi retains its direct controlled install path.
 
 ## 37. MCP add-on sources
 

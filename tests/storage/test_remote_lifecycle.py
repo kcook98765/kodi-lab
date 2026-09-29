@@ -11,6 +11,8 @@ import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
+from uuid import UUID
 
 import pytest
 from alembic import command
@@ -34,7 +36,18 @@ from kodi_lab.remote_lifecycle import (
     upgrade,
     validate,
 )
+from kodi_lab.repository.development import (
+    DevelopmentRepositoryService,
+)
+from kodi_lab.repository.development import (
+    initialize as initialize_development,
+)
+from kodi_lab.repository.stable import generate as generate_stable
+from kodi_lab.repository.stable import sha256
 from kodi_lab.storage import packaged_migrations
+from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from tests.repository.test_development import BASE as REPOSITORY_BASE
+from tests.repository.test_development import fixture_zip, phase2_candidate
 
 
 @pytest.fixture(autouse=True)
@@ -137,6 +150,86 @@ def test_backup_is_private_complete_and_uses_sqlite_backup_api(tmp_path: Path) -
         second_lock()
 
 
+def test_development_repository_backup_recover_clean_round_trip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = phase2_candidate(tmp_path)
+    repository_data = tmp_path / "repository-data"
+    generate_stable(bundle, repository_data, REPOSITORY_BASE)
+    initialize_development(
+        repository_data / "development-data", REPOSITORY_BASE, bundle
+    )
+    root = tmp_path / "state"
+    initialize(root, _url(root))
+    engine = create_database_engine(_url(root))
+    service = DevelopmentRepositoryService(
+        create_session_factory(engine), repository_data, REPOSITORY_BASE
+    )
+    service.reconcile()
+    body = fixture_zip("1.0.0")
+    prepared = service.prepare_import(body, ("matrix", "nexus", "omega"))
+    published = service.approve(UUID(prepared.id), observed_sha256=sha256(body))
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(repository_data))
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BASE_URL", REPOSITORY_BASE)
+    with lifecycle_lock(root):
+        identifier = backup(root, _url(root))
+    manifest = _verify_backup(root, identifier)
+    assert (
+        cast(dict[str, str], manifest["repository_identity"])["base_url"]
+        == REPOSITORY_BASE
+    )
+    backed_up_package = (
+        root
+        / "backups"
+        / identifier
+        / "repository-data"
+        / "development-data"
+        / "packages"
+        / prepared.addon_id
+        / f"{prepared.addon_id}-1.0.0.zip"
+    )
+    assert backed_up_package.read_bytes() == body
+    backed_up_package.chmod(0o600)
+    backed_up_package.write_bytes(b"tampered")
+    backed_up_package.chmod(0o444)
+    with pytest.raises(HostBootstrapError, match="content differs"):
+        _verify_backup(root, identifier)
+    backed_up_package.chmod(0o600)
+    backed_up_package.write_bytes(body)
+    backed_up_package.chmod(0o444)
+    assert (
+        _verify_backup(root, identifier)["repository_identity"]
+        == manifest["repository_identity"]
+    )
+    engine.dispose()
+
+    recovered_repository = tmp_path / "recovered-repository"
+    generate_stable(bundle, recovered_repository, REPOSITORY_BASE)
+    initialize_development(
+        recovered_repository / "development-data", REPOSITORY_BASE, bundle
+    )
+    recovered_root = tmp_path / "recovered-state"
+    recovered_root.mkdir(mode=0o700)
+    (recovered_root / "backups").mkdir(mode=0o700)
+    shutil.copytree(
+        root / "backups" / identifier,
+        recovered_root / "backups" / identifier,
+    )
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(recovered_repository))
+    assert recover_clean(
+        recovered_root, _url(recovered_root), identifier, identifier
+    ) == ("0055_development_repository_publications")
+    recovered_engine = create_database_engine(_url(recovered_root))
+    recovered_service = DevelopmentRepositoryService(
+        create_session_factory(recovered_engine), recovered_repository, REPOSITORY_BASE
+    )
+    assert recovered_service.reconcile()["tree_sha256"] == published.feed_generation
+    recovered_publication = recovered_service.get_publication(UUID(prepared.id))
+    assert recovered_publication is not None
+    assert recovered_publication.zip_sha256 == sha256(body)
+    recovered_engine.dispose()
+
+
 def test_historical_transition_and_matching_rollback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -147,7 +240,7 @@ def test_historical_transition_and_matching_rollback(
     previous, current, identifier = upgrade(root, _url(root))
     assert identifier is not None
     assert previous == before
-    assert current == "0054_runtime_recipe_installations"
+    assert current == "0055_development_repository_publications"
     assert upgrade(root, _url(root)) == (current, current, None)
     assert (
         _revision(root / "backups" / identifier / "database" / "kodi-lab.db") == before

@@ -18,8 +18,8 @@ configuration example, optional development-source Compose overlay, bundle
 verifier, manifest and checksums, three reviewed
 recipe descriptions in `runtime-recipes/`, license and notices, and recovery
 documents. It also contains `bridge/service.kodi_lab_bridge-1.1.13.zip` and its
-`bridge/BRIDGE.json` provenance and the reviewed `repository/STABLE.json` feed
-input. The same recipes are wheel resources inside
+`bridge/BRIDGE.json` provenance and the reviewed `repository/STABLE.json` and
+`repository/DEVELOPMENT.json` feed inputs. The same recipes are wheel resources inside
 both installed images.
 No Kodi binary, runtime image export, `.deb`, or package cache is distributed.
 
@@ -78,6 +78,28 @@ Private-LAN HTTP does not authenticate the server against a malicious LAN actor.
 The exact `bridge/service.kodi_lab_bridge-1.1.13.zip` remains a manual fallback.
 Verify its SHA-256 against `bridge/BRIDGE.json` and the `BUNDLE.json` file record
 before transferring it. The stable feed serves these identical reviewed bytes.
+
+## Optional development repository
+
+`BASE/install/` also lists `repository.kodi-lab-dev-1.0.0.zip`, clearly marked
+for development/test Kodi installations. Install it separately through Kodi's
+normal **Install from zip file** flow; installing the stable repository does
+not install the development repository. Its descriptor points only at
+`BASE/development/`. No Kodi Lab administrator credential belongs in this URL.
+
+An authenticated operator opens **Kodi Repository** in the loopback Web UI,
+selects a bounded Python video-plugin ZIP and its claimed Matrix/Nexus/Omega
+compatibility, then reviews the exact ID, version, import UUID, SHA-256 and
+tree digest. The final approval repeats the exact identity/hash. A new update
+requires a greater explicit `major.minor.patch` source version; same-version
+different bytes fail. The feed is development-only; Kodi Lab production target
+authority is unchanged. Publication does not automatically trigger Kodi update
+or workspace deployment. The default retained set is the current version plus
+two prior versions and a seven-day grace period; count and byte caps can be
+lowered through `KODI_LAB_DEVELOPMENT_REPOSITORY_MAX_ARTIFACTS` and
+`KODI_LAB_DEVELOPMENT_REPOSITORY_MAX_BYTES` in `.env` (defaults 128 and 268435456).
+Stop Web before `kodi-lab-admin backup`; Phase 2 backup includes the exact
+development feed bytes and publication records. See `MANAGED-STATE-RECOVERY.md`.
 
 1. On the remote Kodi box, enable Kodi's HTTP control service and allow the
    Kodi Lab server to reach its native Kodi port and the bridge port (normally

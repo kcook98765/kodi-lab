@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid4
 
 from alembic.script import ScriptDirectory
@@ -26,6 +27,13 @@ from kodi_lab.host_bootstrap import (
     generate_master_key,
     initialize_state,
 )
+from kodi_lab.repository.development import (
+    load_current as load_development_current,
+)
+from kodi_lab.repository.development import (
+    verify_artifact_inventory,
+)
+from kodi_lab.repository.stable import load_current as load_stable_current
 from kodi_lab.snapshot.recovery import published_snapshot_inventory
 from kodi_lab.storage.packaged_migrations import migrate_database, packaged_config
 from kodi_lab.storage.secrets import (
@@ -71,6 +79,176 @@ NESTED_STAGING = frozenset(
     }
 )
 BACKUP_ID = re.compile(r"[0-9a-f]{32}\Z")
+REPOSITORY_BACKUP_ROOT = "repository-data"
+
+
+def _repository_root() -> Path | None:
+    configured = os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT")
+    if configured is None:
+        return None
+    path = Path(configured)
+    if not path.is_absolute() or not path.is_dir() or path.is_symlink():
+        raise HostBootstrapError("configured repository data is unavailable")
+    return path
+
+
+def _repository_identity(repository_root: Path) -> dict[str, str]:
+    try:
+        _, stable = load_stable_current(
+            repository_root,
+            expected_base_url=os.getenv("KODI_LAB_REPOSITORY_BASE_URL") or None,
+            expected_bundle_sha256=os.getenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256")
+            or None,
+        )
+        return {
+            "base_url": str(stable["base_url"]),
+            "stable_tree_sha256": str(stable["tree_sha256"]),
+            "stable_bootstrap_sha256": str(stable["bootstrap_zip_sha256"]),
+        }
+    except (OSError, ValueError, KeyError) as error:
+        raise HostBootstrapError(
+            "stable repository provenance is unverified"
+        ) from error
+
+
+def _verify_repository_pair(
+    database: Path, development_root: Path, base_url: str
+) -> None:
+    """Bind one SQLite snapshot to exact acknowledged development bytes."""
+    try:
+        _, feed = load_development_current(development_root, expected_base_url=base_url)
+        with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True) as connection:
+            row = connection.execute(
+                "SELECT base_url,bootstrap_sha256,bootstrap_tree_sha256,"
+                "current_generation,current_index_sha256,pending_generation "
+                "FROM development_repository_state WHERE id=1"
+            ).fetchone()
+            if row != (
+                base_url,
+                feed["bootstrap_zip_sha256"],
+                feed["bootstrap_tree_sha256"],
+                feed["tree_sha256"],
+                feed["addons_xml_sha256"],
+                None,
+            ):
+                raise ValueError("development repository state differs")
+            published_rows = connection.execute(
+                "SELECT id,addon_id,version,zip_sha256,tree_sha256,status "
+                "FROM development_publications "
+                "WHERE status IN ('current','superseded')"
+            )
+            records = {tuple(row) for row in published_rows}
+            actual = {
+                (
+                    item["publication_id"],
+                    item["id"],
+                    item["version"],
+                    item["sha256"],
+                    item["tree_sha256"],
+                    item["status"],
+                )
+                for item in cast(list[dict[str, str]], feed["packages"])
+            }
+            if records != actual:
+                raise ValueError("development publication inventory differs")
+            pending = {
+                f"{identifier}.zip": zip_hash
+                for identifier, zip_hash in connection.execute(
+                    "SELECT id,zip_sha256 FROM development_publications "
+                    "WHERE status='prepared'"
+                )
+            }
+            actual_pending = {
+                path.name: _digest(path)
+                for path in (development_root / "pending").glob("*.zip")
+            }
+            if pending != actual_pending:
+                raise ValueError("development pending artifact inventory differs")
+            storage_rows = connection.execute(
+                "SELECT id,addon_id,version,zip_sha256,status "
+                "FROM development_publications"
+            )
+            verify_artifact_inventory(development_root, list(storage_rows))
+    except (OSError, ValueError, KeyError, sqlite3.Error) as error:
+        raise HostBootstrapError(
+            "development repository and database disagree"
+        ) from error
+
+
+def _copy_repository_backup(
+    repository_root: Path, staging: Path, database: Path
+) -> dict[str, str]:
+    identity = _repository_identity(repository_root)
+    source = repository_root / "development-data"
+    if not source.is_dir() or source.is_symlink():
+        raise HostBootstrapError("development repository data is unavailable")
+    _verify_repository_pair(database, source, identity["base_url"])
+    for current, directories, files in os.walk(source, followlinks=False):
+        for name in (*directories, *files):
+            _rollback_entry(Path(current) / name, directory=name in directories)
+    target = staging / REPOSITORY_BACKUP_ROOT / "development-data"
+    target.parent.mkdir(mode=0o700)
+    shutil.copytree(source, target, symlinks=False)
+    _verify_repository_pair(database, target, identity["base_url"])
+    return identity
+
+
+def _has_development_repository_tables(database: Path) -> bool:
+    with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True) as connection:
+        names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+    return (
+        "development_publications" in names or "development_repository_state" in names
+    )
+
+
+def _development_repository_has_state(database: Path) -> bool:
+    with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True) as connection:
+        return bool(
+            connection.execute(
+                "SELECT 1 FROM development_repository_state LIMIT 1"
+            ).fetchone()
+            or connection.execute(
+                "SELECT 1 FROM development_publications LIMIT 1"
+            ).fetchone()
+        )
+
+
+def _restore_repository(
+    repository_root: Path, backup: Path, identity: dict[str, str]
+) -> None:
+    if _repository_identity(repository_root) != identity:
+        raise HostBootstrapError("stable repository differs from backup binding")
+    target = repository_root / "development-data"
+    source = backup / REPOSITORY_BACKUP_ROOT / "development-data"
+    if not target.is_dir() or target.is_symlink() or not source.is_dir():
+        raise HostBootstrapError("development repository restore path is unavailable")
+    (target / "ACK").unlink(missing_ok=True)
+    temporary = target / f".restore-{uuid4().hex}"
+    shutil.copytree(source, temporary)
+
+    def remove_tree(path: Path) -> None:
+        item = path.lstat()
+        if stat.S_ISDIR(item.st_mode):
+            os.chmod(path, 0o700, follow_symlinks=False)
+            for child in path.iterdir():
+                remove_tree(child)
+            path.rmdir()
+        else:
+            path.unlink()
+
+    for child in list(target.iterdir()):
+        if child == temporary:
+            continue
+        remove_tree(child)
+    for child in sorted(temporary.iterdir(), key=lambda item: item.name == "ACK"):
+        os.rename(child, target / child.name)
+    temporary.rmdir()
+    _fsync(target)
 
 
 def _private(path: Path, *, directory: bool) -> None:
@@ -463,9 +641,42 @@ def backup(root: Path, database_url: str) -> str:
                 "gid": os.getgid(),
                 "mode": source_mode,
             }
+        repository_identity: dict[str, str] | None = None
+        repository_root = _repository_root()
+        if _has_development_repository_tables(staging / DATABASE):
+            if repository_root is None:
+                if _development_repository_has_state(staging / DATABASE):
+                    raise HostBootstrapError("Phase 2 backup requires repository data")
+            else:
+                repository_identity = _copy_repository_backup(
+                    repository_root, staging, staging / DATABASE
+                )
+                copied = staging / REPOSITORY_BACKUP_ROOT
+                repository_files = [
+                    Path(REPOSITORY_BACKUP_ROOT) / path
+                    for path in _files(copied, exclude_management=False)
+                ]
+                repository_directories = [Path(REPOSITORY_BACKUP_ROOT)] + [
+                    Path(REPOSITORY_BACKUP_ROOT) / path
+                    for path in _directories(copied, exclude_management=False)
+                ]
+                for relative in repository_files:
+                    item = staging / relative
+                    manifest_files[relative.as_posix()] = {
+                        "sha256": _digest(item),
+                        "size": item.stat().st_size,
+                        "uid": os.getuid(),
+                        "gid": os.getgid(),
+                        "mode": stat.S_IMODE(item.stat().st_mode),
+                    }
+                directories += repository_directories
         directory_modes = {
             relative.as_posix(): stat.S_IMODE(
-                _rollback_entry(root / relative, directory=True).st_mode
+                _rollback_entry(
+                    (staging if relative.parts[0] == REPOSITORY_BACKUP_ROOT else root)
+                    / relative,
+                    directory=True,
+                ).st_mode
             )
             for relative in directories
         }
@@ -489,6 +700,7 @@ def backup(root: Path, database_url: str) -> str:
             "snapshot_dependencies": published_snapshot_inventory(
                 root, web_gid=os.getgid()
             ),
+            "repository_identity": repository_identity,
             "complete": True,
         }
         _write_json(staging / "manifest.json", metadata)
@@ -533,7 +745,7 @@ def _verify_backup(
             and "\\" not in name
             and all(part not in {"", ".", ".."} for part in name.split("/"))
             and Path(name).as_posix() == name
-            and Path(name).parts[0] in ROLLBACK_ROOTS
+            and Path(name).parts[0] in ROLLBACK_ROOTS | {REPOSITORY_BACKUP_ROOT}
             and not _skip(Path(name))
         )
 
@@ -633,6 +845,24 @@ def _verify_backup(
         raise HostBootstrapError("backup database revision differs from manifest")
     if _key_digest(directory) != metadata.get("key_sha256"):
         raise HostBootstrapError("backup master key differs from manifest")
+    repository_identity = metadata.get("repository_identity")
+    if repository_identity is not None:
+        if not isinstance(repository_identity, dict) or set(repository_identity) != {
+            "base_url",
+            "stable_tree_sha256",
+            "stable_bootstrap_sha256",
+        }:
+            raise HostBootstrapError("backup repository identity is invalid")
+        _verify_repository_pair(
+            directory / DATABASE,
+            directory / REPOSITORY_BACKUP_ROOT / "development-data",
+            str(repository_identity["base_url"]),
+        )
+    elif any(name.startswith(REPOSITORY_BACKUP_ROOT + "/") for name in entries) or (
+        _has_development_repository_tables(directory / DATABASE)
+        and _development_repository_has_state(directory / DATABASE)
+    ):
+        raise HostBootstrapError("backup repository inventory lacks binding")
     return metadata
 
 
@@ -676,12 +906,23 @@ def _verify_restored(root: Path, metadata: dict[str, object]) -> None:
     files = metadata["files"]
     directories = metadata["directories"]
     assert isinstance(files, dict) and isinstance(directories, list)
-    if {path.as_posix() for path in _files(root)} != set(files):
+    application_files = {
+        name for name in files if not name.startswith(REPOSITORY_BACKUP_ROOT + "/")
+    }
+    application_directories = {
+        name
+        for name in directories
+        if name != REPOSITORY_BACKUP_ROOT
+        and not name.startswith(REPOSITORY_BACKUP_ROOT + "/")
+    }
+    if {path.as_posix() for path in _files(root)} != application_files:
         raise HostBootstrapError("restored file inventory differs from backup")
-    if {path.as_posix() for path in _directories(root)} != set(directories):
+    if {path.as_posix() for path in _directories(root)} != application_directories:
         raise HostBootstrapError("restored directory inventory differs from backup")
     for name, record in files.items():
         assert isinstance(name, str) and isinstance(record, dict)
+        if name.startswith(REPOSITORY_BACKUP_ROOT + "/"):
+            continue
         item = _rollback_entry(root / name, directory=False)
         expected_mode = record.get("mode", 0o600)
         if (
@@ -694,6 +935,10 @@ def _verify_restored(root: Path, metadata: dict[str, object]) -> None:
     assert isinstance(directory_modes, dict)
     for name in directories:
         assert isinstance(name, str)
+        if name == REPOSITORY_BACKUP_ROOT or name.startswith(
+            REPOSITORY_BACKUP_ROOT + "/"
+        ):
+            continue
         item = _rollback_entry(root / name, directory=True)
         if stat.S_IMODE(item.st_mode) != directory_modes.get(name, 0o700):
             raise HostBootstrapError("restored directory mode differs from backup")
@@ -726,17 +971,38 @@ def recover_clean(
             raise HostBootstrapError("clean recovery requires empty application state")
         metadata = _verify_backup(root, identifier)
         _verify_snapshot_dependencies(root, metadata)
+        repository_identity = metadata.get("repository_identity")
+        repository_root = (
+            _repository_root() if repository_identity is not None else None
+        )
+        if repository_identity is not None and (
+            repository_root is None
+            or _repository_identity(repository_root) != repository_identity
+        ):
+            raise HostBootstrapError(
+                "repository recovery requires matching stable feed"
+            )
         _write_json(root / ".recovery-pending.json", {"backup_id": identifier})
         source = root / "backups" / identifier
         for child in source.iterdir():
-            if child.name != "manifest.json":
+            if child.name not in {"manifest.json", REPOSITORY_BACKUP_ROOT}:
                 if child.is_dir():
                     shutil.copytree(child, root / child.name)
                 else:
                     shutil.copyfile(child, root / child.name, follow_symlinks=False)
                     os.chmod(root / child.name, 0o600)
+        if repository_identity is not None:
+            assert repository_root is not None and isinstance(repository_identity, dict)
+            _restore_repository(repository_root, source, repository_identity)
         _fsync(root)
         _verify_restored(root, metadata)
+        if repository_identity is not None:
+            assert repository_root is not None and isinstance(repository_identity, dict)
+            _verify_repository_pair(
+                root / DATABASE,
+                repository_root / "development-data",
+                str(repository_identity["base_url"]),
+            )
         revision = validate(root, database_url, allow_pending=True)
         if (
             revision != metadata["revision"]
@@ -774,6 +1040,15 @@ def restore(
             raise HostBootstrapError("backup does not match the most recent upgrade")
         metadata = _verify_backup(root, identifier)
         _verify_snapshot_dependencies(root, metadata)
+        repository_identity = metadata.get("repository_identity")
+        repository_root = (
+            _repository_root() if repository_identity is not None else None
+        )
+        if repository_identity is not None and (
+            repository_root is None
+            or _repository_identity(repository_root) != repository_identity
+        ):
+            raise HostBootstrapError("repository restore requires matching stable feed")
         _top_level(root)
         if receipt_path != restore_pending:
             _write_json(restore_pending, {"backup_id": identifier})
@@ -798,14 +1073,24 @@ def restore(
                 os.rename(child, destination / child.name)
         source = root / "backups" / identifier
         for child in source.iterdir():
-            if child.name != "manifest.json":
+            if child.name not in {"manifest.json", REPOSITORY_BACKUP_ROOT}:
                 if child.is_dir():
                     shutil.copytree(child, root / child.name)
                 else:
                     shutil.copyfile(child, root / child.name, follow_symlinks=False)
                     os.chmod(root / child.name, 0o600)
+        if repository_identity is not None:
+            assert repository_root is not None and isinstance(repository_identity, dict)
+            _restore_repository(repository_root, source, repository_identity)
         _fsync(root)
         _verify_restored(root, metadata)
+        if repository_identity is not None:
+            assert repository_root is not None and isinstance(repository_identity, dict)
+            _verify_repository_pair(
+                root / DATABASE,
+                repository_root / "development-data",
+                str(repository_identity["base_url"]),
+            )
         restored = validate(root, database_url, allow_pending=True)
         if (
             restored != metadata["revision"]

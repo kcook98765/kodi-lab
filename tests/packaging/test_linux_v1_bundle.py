@@ -67,7 +67,7 @@ def bundle(tmp_path: Path) -> Path:
     for name in bundle_tool["RELEASE_FILES"]:
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        if name == "repository/STABLE.json":
+        if name in {"repository/STABLE.json", "repository/DEVELOPMENT.json"}:
             path.write_bytes((root / name).read_bytes())
         elif name.startswith("runtime-recipes/"):
             path.write_bytes(
@@ -157,6 +157,9 @@ def bundle(tmp_path: Path) -> Path:
             "stable_manifest": "repository/STABLE.json",
             "generator": "kodi-lab-stable-repository-v1",
             "per_install_generation": True,
+            "development_manifest": "repository/DEVELOPMENT.json",
+            "development_generator": "kodi-lab-development-repository-v1",
+            "publication_migration": "0055_development_repository_publications",
         },
         "files": files,
     }
@@ -186,6 +189,29 @@ def test_bundle_detects_missing_and_changed_artifacts(bundle: Path) -> None:
         verify(bundle)
     (bundle / "INSTALL.md").write_bytes(b"altered")
     with pytest.raises(ValueError, match="artifact differs"):
+        verify(bundle)
+
+
+def test_verifier_rejects_repository_write_mount_even_when_rehashed(
+    bundle: Path,
+) -> None:
+    compose = bundle / "compose.release.yaml"
+    body = compose.read_text()
+    repository_start = body.index("\n  repository:\n")
+    initializer_start = body.index("\n  repository-init:\n")
+    repository = body[repository_start:initializer_start].replace(
+        "repository_data:/srv/kodi-lab-repository:ro",
+        "repository_data:/srv/kodi-lab-repository",
+    )
+    compose.write_text(body[:repository_start] + repository + body[initializer_start:])
+    document = json.loads((bundle / "BUNDLE.json").read_bytes())
+    document["files"]["compose.release.yaml"] = {
+        "sha256": digest(compose),
+        "size": compose.stat().st_size,
+    }
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="service isolation"):
         verify(bundle)
 
 

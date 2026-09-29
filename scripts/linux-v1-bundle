@@ -25,6 +25,7 @@ APP_ARCHIVE = "kodi-lab-application-images.tar"
 BRIDGE_ZIP = "bridge/service.kodi_lab_bridge-1.1.13.zip"
 BRIDGE_PROVENANCE = "bridge/BRIDGE.json"
 STABLE_MANIFEST = "repository/STABLE.json"
+DEVELOPMENT_MANIFEST = "repository/DEVELOPMENT.json"
 BRIDGE_FILES = (
     "LICENSE",
     "README.md",
@@ -46,6 +47,7 @@ RELEASE_FILES = {
     BRIDGE_ZIP,
     BRIDGE_PROVENANCE,
     STABLE_MANIFEST,
+    DEVELOPMENT_MANIFEST,
     ".env.example",
     "compose.release.yaml",
     "compose.lab.yaml",
@@ -121,6 +123,66 @@ def verify_stable_manifest(bundle: pathlib.Path) -> dict[str, Any]:
     }:
         raise ValueError("stable repository input manifest differs")
     return manifest
+
+
+def verify_development_manifest(bundle: pathlib.Path) -> dict[str, Any]:
+    content = (bundle / DEVELOPMENT_MANIFEST).read_bytes()
+    manifest = cast(dict[str, Any], json.loads(content))
+    if canonical(manifest) != content or manifest != {
+        "schema": "kodi-lab-development-repository-input-v1",
+        "repository_id": "repository.kodi-lab-dev",
+        "repository_version": "1.0.0",
+        "generator": "kodi-lab-development-repository-v1",
+        "allowed_type": "plugin.video",
+        "reserved_ids": [
+            "repository.kodi-lab",
+            "repository.kodi-lab-dev",
+            "service.kodi_lab_bridge",
+        ],
+    }:
+        raise ValueError("development repository input manifest differs")
+    return manifest
+
+
+def verify_repository_service_boundary(bundle: pathlib.Path) -> None:
+    compose = (bundle / "compose.release.yaml").read_text()
+    try:
+        web = compose.split("\n  web:\n", 1)[1].split("\n  repository:\n", 1)[0]
+        repository = compose.split("\n  repository:\n", 1)[1].split(
+            "\n  repository-init:\n", 1
+        )[0]
+        initializer = compose.split("\n  repository-init:\n", 1)[1].split(
+            "\n  broker:\n", 1
+        )[0]
+    except IndexError as error:
+        raise ValueError("repository service layout differs") from error
+    if (
+        "127.0.0.1:${KODI_LAB_PUBLISHED_PORT:-18100}:8100" not in web
+        or "repository_data:/srv/kodi-lab-repository:ro" not in repository
+        or "repository_data:/srv/kodi-lab-repository\n" not in web
+        or "entrypoint: [kodi-lab-repository]" not in repository
+        or "command: [serve]" not in repository
+        or "read_only: true" not in repository
+        or 'user: "10002:10002"' not in repository
+        or "network_mode: none" not in initializer
+        or "${KODI_LAB_REPOSITORY_BIND:?explicit private LAN bind required}"
+        not in repository
+        or any(
+            forbidden in repository
+            for forbidden in (
+                "docker.sock",
+                "broker_socket",
+                "remote_state",
+                "master-key",
+                "database",
+                "session",
+                "MCP",
+                "cap_add",
+                "privileged: true",
+            )
+        )
+    ):
+        raise ValueError("repository service isolation differs")
 
 
 def development_source_path(value: str, *, require_directory: bool) -> pathlib.Path:
@@ -591,6 +653,9 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             "stable_manifest": STABLE_MANIFEST,
             "generator": "kodi-lab-stable-repository-v1",
             "per_install_generation": True,
+            "development_manifest": DEVELOPMENT_MANIFEST,
+            "development_generator": "kodi-lab-development-repository-v1",
+            "publication_migration": "0055_development_repository_publications",
         },
         "files": files,
     }
@@ -648,10 +713,15 @@ def verify(
         raise ValueError("reviewed recipe metadata differs")
     verify_bridge(bundle, data)
     verify_stable_manifest(bundle)
+    verify_development_manifest(bundle)
+    verify_repository_service_boundary(bundle)
     if data.get("repository") != {
         "stable_manifest": STABLE_MANIFEST,
         "generator": "kodi-lab-stable-repository-v1",
         "per_install_generation": True,
+        "development_manifest": DEVELOPMENT_MANIFEST,
+        "development_generator": "kodi-lab-development-repository-v1",
+        "publication_migration": "0055_development_repository_publications",
     }:
         raise ValueError("stable repository bundle capability differs")
     env_path = bundle / ".env"

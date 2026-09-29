@@ -436,6 +436,12 @@ from kodi_lab.mcp.authorization import (
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
+from kodi_lab.repository.development import (
+    DevelopmentRepositoryService,
+)
+from kodi_lab.repository.development import (
+    load_current as load_development_current,
+)
 from kodi_lab.repository.stable import load_current
 from kodi_lab.storage.models import McpWorkspaceDeploymentOperationRow
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
@@ -1788,8 +1794,39 @@ def create_app(
         mcp_transport=mcp_transport,
     )
 
+    repository_base_url = os.getenv("KODI_LAB_REPOSITORY_BASE_URL", "")
+    repository_data_root = Path(
+        os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
+    )
+    development_repository = (
+        DevelopmentRepositoryService(
+            session_factory,
+            repository_data_root,
+            repository_base_url,
+            max_artifacts=int(
+                os.getenv("KODI_LAB_DEVELOPMENT_REPOSITORY_MAX_ARTIFACTS", "128")
+            ),
+            max_bytes=int(
+                os.getenv("KODI_LAB_DEVELOPMENT_REPOSITORY_MAX_BYTES", "268435456")
+            ),
+        )
+        if repository_base_url and (repository_data_root / "development-data").is_dir()
+        else None
+    )
+    development_repository_error: str | None = None
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        nonlocal development_repository_error
+        if development_repository is not None:
+            try:
+                development_repository.reconcile()
+                development_repository_error = None
+            except (OSError, ValueError, KeyError):
+                development_repository_error = (
+                    "Development feed requires reconciliation."
+                )
+                (development_repository.root / "ACK").unlink(missing_ok=True)
         context.agent_workspace_promotions.sweep_startup()
         context.promotion_verifications.sweep_startup()
         context.mcp_workspace_development.sweep_startup()
@@ -2980,7 +3017,7 @@ def create_app(
     @app.get("/kodi-repository", response_class=HTMLResponse)
     async def kodi_repository_page(request: Request) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         base_url = os.getenv("KODI_LAB_REPOSITORY_BASE_URL", "")
@@ -3004,11 +3041,120 @@ def create_app(
                     healthy = result.status_code == 200 and result.content == b"ok\n"
             except (OSError, ValueError, KeyError, httpx.HTTPError):
                 pass
+        dev_provenance: dict[str, object] | None = None
+        publications: list[Any] = []
+        storage_usage = (0, 0)
+        if development_repository is not None and development_repository_error is None:
+            try:
+                _, dev_provenance = load_development_current(
+                    development_repository.root, expected_base_url=base_url
+                )
+                publications = development_repository.list_publications()
+                storage_usage = development_repository.storage_usage()
+            except (OSError, ValueError, KeyError):
+                pass
         return templates.TemplateResponse(
             request,
             "kodi-repository.html",
-            {"base_url": base_url, "healthy": healthy, "provenance": provenance},
+            {
+                "base_url": base_url,
+                "healthy": healthy,
+                "provenance": provenance,
+                "development_provenance": dev_provenance,
+                "development_error": development_repository_error,
+                "publications": publications,
+                "storage_usage": storage_usage,
+                "development_max_artifacts": development_repository.max_artifacts
+                if development_repository
+                else 0,
+                "development_max_bytes": development_repository.max_bytes
+                if development_repository
+                else 0,
+                "csrf_token": authenticated.csrf_token,
+            },
         )
+
+    @app.post("/api/kodi-repository/development/import")
+    async def import_development_publication(
+        request: Request,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, str]:
+        if development_repository is None or development_repository_error is not None:
+            raise HTTPException(
+                status_code=503, detail="Development repository is unavailable"
+            )
+        if request.headers.get("content-type") != "application/zip":
+            raise HTTPException(status_code=415, detail="A ZIP body is required")
+        compatibility = tuple(
+            item.strip()
+            for item in request.headers.get("x-kodi-lab-compatibility", "").split(",")
+        )
+        parts: list[bytes] = []
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > 32 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=413, detail="Development ZIP exceeds 32 MiB"
+                )
+            parts.append(chunk)
+        try:
+            record = development_repository.prepare_import(
+                b"".join(parts), compatibility
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {
+            "publication_id": record.id,
+            "addon_id": record.addon_id,
+            "version": record.version,
+            "addon_type": record.addon_type,
+            "source_kind": record.source_kind,
+            "source_id": record.source_id,
+            "compatible_generations": record.compatible_generations,
+            "scope_kind": record.scope_kind,
+            "zip_sha256": record.zip_sha256,
+            "tree_sha256": record.tree_sha256,
+            "status": record.status,
+        }
+
+    @app.post("/api/kodi-repository/development/{publication_id}/approve")
+    async def approve_development_publication(
+        request: Request,
+        publication_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, str]:
+        if development_repository is None or development_repository_error is not None:
+            raise HTTPException(
+                status_code=503, detail="Development repository is unavailable"
+            )
+        payload = await request.json()
+        if not isinstance(payload, dict) or set(payload) != {
+            "addon_id",
+            "version",
+            "zip_sha256",
+        }:
+            raise HTTPException(
+                status_code=400, detail="Exact publication confirmation is required"
+            )
+        record = development_repository.get_publication(publication_id)
+        if (
+            record is None
+            or record.addon_id != payload["addon_id"]
+            or record.version != payload["version"]
+        ):
+            raise HTTPException(status_code=409, detail="Publication identity changed")
+        try:
+            approved = development_repository.approve(
+                publication_id, observed_sha256=payload["zip_sha256"]
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {
+            "publication_id": approved.id,
+            "status": approved.status,
+            "feed_generation": approved.feed_generation or "",
+        }
 
     @app.get("/instances/{instance_id}", response_class=HTMLResponse)
     async def instance_detail_page(request: Request, instance_id: UUID) -> Response:

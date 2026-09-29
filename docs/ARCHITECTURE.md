@@ -2769,6 +2769,15 @@ the generator publishes a complete generation into a separate repository-data
 volume and records per-install provenance. The static service mounts only that
 volume read-only and serves the exact `/install/` and `/stable/` distribution
 routes with GET/HEAD. Administrative Web stays on loopback and reads only the
-public provenance/status view. The future opt-in development feed will reuse
-validated generation and serving primitives under a separate origin and
-publication authority. See D-0384.
+public provenance/status view. The opt-in `repository.kodi-lab-dev` feed has
+its own bootstrap ZIP and `/development/` index. Authenticated Web validates
+bounded video-plugin packages, then requires exact identity/hash review before
+an approved publication intent and atomic generation switch. SQLite stores
+typed provenance, approval, status and retention references; the dedicated
+repository volume stores immutable ZIPs and generations. The static process
+runs under a separate UID with only read access to published bytes; its UID
+cannot read private pending imports. Startup reconciliation compares SQLite
+with the selected generation and package hashes. A development inconsistency
+blocks only development routes. Quiescent backup binds the development subtree to one
+SQLite snapshot; stable bytes remain reconstructible from the reviewed
+candidate and URL. See D-0384 through D-0386.

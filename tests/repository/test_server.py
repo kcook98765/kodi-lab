@@ -12,8 +12,10 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+from kodi_lab.repository.development import initialize as initialize_development
 from kodi_lab.repository.server import RepositoryHandler
 from kodi_lab.repository.stable import generate, sha256
+from tests.repository.test_development import phase2_candidate
 from tests.repository.test_stable import BASE, candidate
 
 
@@ -73,6 +75,42 @@ def test_distribution_allowlist_and_methods(tmp_path: Path) -> None:
         with pytest.raises(HTTPError) as error:
             urlopen(url + "/stable/addons.xml")
         assert error.value.code == 503
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_development_routes_fail_independently_of_stable(tmp_path: Path) -> None:
+    bundle = phase2_candidate(tmp_path)
+    data = tmp_path / "repository-data"
+    generate(bundle, data, BASE)
+    initialize_development(data / "development-data", BASE, bundle)
+    handler = type("DevelopmentHandler", (RepositoryHandler,), {"root": data})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        with urlopen(url + "/install/") as response:
+            assert b"repository.kodi-lab-dev-1.0.0.zip" in response.read()
+        for path in (
+            "/install/repository.kodi-lab-dev-1.0.0.zip",
+            "/development/addons.xml",
+            "/development/addons.xml.sha256",
+        ):
+            with urlopen(url + path) as response:
+                assert response.status == 200
+        for path in ("/development/../PROVENANCE.json", "/development/private", "/api"):
+            with pytest.raises(HTTPError) as error:
+                urlopen(url + path)
+            assert error.value.code == 404
+        (data / "development-data/ACK").unlink()
+        with pytest.raises(HTTPError) as error:
+            urlopen(url + "/development/addons.xml")
+        assert error.value.code == 503
+        with urlopen(url + "/stable/addons.xml") as response:
+            assert b"service.kodi_lab_bridge" in response.read()
     finally:
         server.shutdown()
         server.server_close()

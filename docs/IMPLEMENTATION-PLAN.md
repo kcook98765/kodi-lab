@@ -1860,7 +1860,9 @@ shared fixture adapter's exact-release admission.
 Phase 1 implements reviewed stable `repository.kodi-lab` distribution, private
 LAN static serving, source-free per-install generation/provenance, and sequential
 disposable Matrix/Nexus/Omega discovery proof. Phase 2 implements the separate
-durable opt-in development feed and publication authority. Phase 3 integrates
-`workspace_deploy` and proves a manual Kodi update. Physical target acceptance
+durable opt-in `repository.kodi-lab-dev` feed, authenticated Web approval,
+immutable publication history, quota/retention and coherent backup/recovery.
+Its first artifact type is a bounded Python video plugin. Phase 3 integrates
+`workspace_deploy` and proves a manually triggered Kodi update. Physical target acceptance
 remains paused until those repository phases are reviewed. No phase broadens
 production authority or replaces managed Kodi's direct install default.

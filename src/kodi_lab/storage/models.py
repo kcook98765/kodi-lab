@@ -133,6 +133,124 @@ from kodi_lab.domain import (
 from kodi_lab.storage.metadata import Base
 
 
+class DevelopmentRepositoryStateRow(Base):
+    """One durable binding between the configured origin and selected index."""
+
+    __tablename__ = "development_repository_state"
+    __table_args__ = (CheckConstraint("id=1", name="development_repository_singleton"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    base_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    bootstrap_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    bootstrap_tree_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    current_generation: Mapped[str] = mapped_column(String(64), nullable=False)
+    current_index_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    pending_generation: Mapped[str | None] = mapped_column(String(64))
+    pending_index_sha256: Mapped[str | None] = mapped_column(String(64))
+    pending_retirements: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class DevelopmentPublicationRow(Base):
+    """Immutable artifact identity with a mutable, closed publication state."""
+
+    __tablename__ = "development_publications"
+    __table_args__ = (
+        UniqueConstraint(
+            "addon_id", "version", name="uq_development_publication_identity"
+        ),
+        CheckConstraint(
+            "channel='development'", name="development_publication_channel"
+        ),
+        CheckConstraint(
+            "addon_type='plugin.video'", name="development_publication_type"
+        ),
+        CheckConstraint(
+            "scope_kind='development_only'", name="development_publication_scope"
+        ),
+        CheckConstraint(
+            "status IN ('prepared','publishing','current',"
+            "'superseded','retired','failed')",
+            name="development_publication_status",
+        ),
+        CheckConstraint(
+            "source_kind IN ('web_import','workspace')",
+            name="development_publication_source_kind",
+        ),
+        CheckConstraint("zip_bytes > 0", name="development_publication_nonempty"),
+        CheckConstraint(
+            "(source_kind='web_import' AND workspace_id IS NULL "
+            "AND workspace_generation IS NULL) OR "
+            "(source_kind='workspace' AND workspace_id IS NOT NULL "
+            "AND workspace_generation IS NOT NULL "
+            "AND validation_receipt IS NOT NULL "
+            "AND source_tree_sha256 IS NOT NULL)",
+            name="development_publication_source_binding",
+        ),
+        Index(
+            "uq_development_publication_current",
+            "addon_id",
+            unique=True,
+            sqlite_where=text("status='current'"),
+        ),
+        Index("ix_development_publication_status", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    addon_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("agent_workspaces.id", ondelete="RESTRICT")
+    )
+    workspace_generation: Mapped[int | None] = mapped_column(Integer)
+    validation_receipt: Mapped[str | None] = mapped_column(String(71))
+    source_tree_sha256: Mapped[str | None] = mapped_column(String(71))
+    compatible_generations: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    intended_targets: Mapped[str | None] = mapped_column(Text)
+    zip_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    tree_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    zip_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    feed_generation: Mapped[str | None] = mapped_column(String(64))
+    index_sha256: Mapped[str | None] = mapped_column(String(64))
+    approval_identity: Mapped[str | None] = mapped_column(String(128))
+    approved_at: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    published_at: Mapped[str | None] = mapped_column(String(32))
+    superseded_at: Mapped[str | None] = mapped_column(String(32))
+    retired_at: Mapped[str | None] = mapped_column(String(32))
+    failure_reason: Mapped[str | None] = mapped_column(String(128))
+
+
+class DevelopmentPublicationHoldRow(Base):
+    """Durable evidence reference that blocks retention removal."""
+
+    __tablename__ = "development_publication_holds"
+    __table_args__ = (
+        UniqueConstraint(
+            "publication_id",
+            "reason",
+            "reference_id",
+            name="uq_development_publication_hold",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    publication_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_publications.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    reason: Mapped[str] = mapped_column(String(48), nullable=False)
+    reference_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
 def _enum_values(enum_type: type[StrEnum]) -> list[str]:
     return [item.value for item in enum_type]
 
