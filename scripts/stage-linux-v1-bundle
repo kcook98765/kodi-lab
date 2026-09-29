@@ -2,14 +2,13 @@
 # Local release-candidate staging. No upload, tag publication, or Docker load.
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "usage: $0 REVIEWED_ARCHIVE_DIRECTORY EMPTY_OUTPUT_DIRECTORY" >&2
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 EMPTY_OUTPUT_DIRECTORY" >&2
   exit 2
 fi
 
 repository=$(cd "$(dirname "$0")/.." && pwd -P)
-archives=$(realpath "$1")
-output=$(realpath -m "$2")
+output=$(realpath -m "$1")
 version=$(python3 - "$repository/pyproject.toml" <<'PY'
 import pathlib
 import sys
@@ -17,79 +16,44 @@ import tomllib
 print(tomllib.loads(pathlib.Path(sys.argv[1]).read_text())["project"]["version"])
 PY
 )
-if [[ -n "$(git -C "$repository" status --porcelain)" ]]; then
-  echo "release source worktree must be clean and committed" >&2
+if ! git -C "$repository" diff --quiet || \
+   [[ -n "$(git -C "$repository" ls-files --others --exclude-standard)" ]]; then
+  echo "release source must match the staged Git index" >&2
   exit 2
 fi
-source_commit=$(git -C "$repository" rev-parse HEAD)
-if [[ ! -d "$archives" ]]; then
-  echo "reviewed archive directory is missing" >&2
-  exit 2
-fi
+source_tree=$(git -C "$repository" write-tree)
 if [[ -e "$output" ]] && [[ -n "$(ls -A "$output")" ]]; then
   echo "output directory must be empty" >&2
   exit 2
 fi
 mkdir -p "$output"
 
-for name in kodi-19.5 kodi-20.5 kodi-21.3 kodi-22.0-beta2; do
-  python3 - "$repository/src/kodi_lab/runtime/catalog/$name.json" "$archives/$name.tar" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
-
-manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
-archive = pathlib.Path(sys.argv[2])
-expected = manifest["distribution"]
-if not archive.is_file() or archive.is_symlink():
-    raise SystemExit(f"reviewed archive is missing or unsafe: {archive.name}")
-if archive.stat().st_size != expected["archive_size"]:
-    raise SystemExit(f"reviewed archive size differs: {archive.name}")
-digest = hashlib.file_digest(archive.open("rb"), "sha256").hexdigest()
-if f"sha256:{digest}" != expected["archive_digest"]:
-    raise SystemExit(f"reviewed archive hash differs: {archive.name}")
-print(f"verified {archive.name}")
-PY
-  cp --reflink=auto "$archives/$name.tar" "$output/$name.tar"
-done
-
 build_network=${KODI_LAB_BUNDLE_BUILD_NETWORK:-default}
 docker build --network "$build_network" --provenance=false --quiet --target web \
-  --build-arg "KODI_LAB_SOURCE_COMMIT=$source_commit" \
+  --build-arg "KODI_LAB_SOURCE_TREE=$source_tree" \
   --build-arg "KODI_LAB_RELEASE_VERSION=$version" \
   -t "kodi-lab-v1-web:$version" -f "$repository/runtime/remote-web/Dockerfile" \
   "$repository"
 docker build --network "$build_network" --provenance=false --quiet --target broker \
-  --build-arg "KODI_LAB_SOURCE_COMMIT=$source_commit" \
+  --build-arg "KODI_LAB_SOURCE_TREE=$source_tree" \
   --build-arg "KODI_LAB_RELEASE_VERSION=$version" \
   -t "kodi-lab-v1-broker:$version" -f "$repository/runtime/remote-web/Dockerfile" \
   "$repository"
 docker save --output "$output/kodi-lab-application-images.tar" \
   "kodi-lab-v1-web:$version" "kodi-lab-v1-broker:$version"
-git -C "$repository" archive --format=tar HEAD > "$output/kodi-lab-source.tar"
-
 cp "$repository/compose.release.yaml" "$repository/compose.lab.yaml" "$output/"
 cp "$repository/LICENSE" "$repository/THIRD_PARTY_NOTICES.md" "$output/"
 cp "$repository/docs/LINUX-V1-INSTALL.md" "$output/INSTALL.md"
-cp "$repository/docs/KODI-VERSION-EXTENSIBILITY.md" \
-  "$output/KODI-VERSION-EXTENSIBILITY.md"
-cp "$repository/docs/CURATED-IMAGE-DISTRIBUTION.md" \
-  "$output/CURATED-IMAGE-DISTRIBUTION.md"
 cp "$repository/docs/LINUX-V1-UPGRADE-ROLLBACK.md" \
   "$output/UPGRADE-ROLLBACK.md"
 cp "$repository/docs/MANAGED-STATE-RECOVERY.md" \
   "$output/MANAGED-STATE-RECOVERY.md"
-cp "$repository/docs/MANAGED-LAB-WORKFLOW.md" \
-  "$output/MANAGED-LAB-WORKFLOW.md"
-cp "$repository/docs/BROKER-SECURITY.md" \
-  "$output/BROKER-SECURITY.md"
 cp "$repository/docs/LINUX-V1-RELEASE.md" \
   "$output/RELEASE.md"
 cp "$repository/scripts/linux-v1-bundle" "$output/linux-v1-bundle"
-mkdir "$output/runtime-manifests" "$output/runtime-evidence"
-cp "$repository"/src/kodi_lab/runtime/catalog/kodi-*.json "$output/runtime-manifests/"
-cp "$repository"/src/kodi_lab/runtime/evidence/kodi-*.json "$output/runtime-evidence/"
+mkdir "$output/runtime-recipes"
+cp "$repository"/src/kodi_lab/runtime/recipes/{matrix-19.4-r1,nexus-20.5-r1,omega-21.3-r1}.json \
+  "$output/runtime-recipes/"
 cat > "$output/.env.example" <<'EOF'
 # Run python3 linux-v1-bundle configure . after loading the application archive.
 # The generated .env pins image IDs recognized on this Docker Engine.

@@ -24,7 +24,11 @@ from kodi_lab.domain import (
     RuntimeSupportTier,
     effective_validation_state,
 )
-from kodi_lab.runtime.recipes import REVIEWED_SIGNED_DISTRO_SOURCE_KIND
+from kodi_lab.runtime.recipes import (
+    REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+    load_reviewed_recipe,
+    supported_generations,
+)
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeDefinitionRepository,
@@ -94,6 +98,8 @@ class RuntimeMatrixEntry(BaseModel):
     requires_prerelease_opt_in: bool
     requires_custom_build_trust: bool
     pinned_instance_count: int = Field(ge=0)
+    supported_generation: str | None = None
+    validated_install_record: bool = False
 
 
 class RuntimeMatrixResponse(BaseModel):
@@ -145,6 +151,41 @@ class RuntimeMatrixService:
                 self._entry(session, definition, policy, pin_counts[definition.id])
                 for definition in definitions
             ]
+            existing_ids = {definition.id for definition in definitions}
+            for generation in supported_generations():
+                recipe = load_reviewed_recipe(generation).recipe
+                if recipe.definition_id in existing_ids:
+                    index = next(
+                        index
+                        for index, entry in enumerate(entries)
+                        if entry.runtime_definition_id == recipe.definition_id
+                    )
+                    entry = entries[index]
+                    entries[index] = entry.model_copy(
+                        update={
+                            "supported_generation": generation,
+                            "validated_install_record": entry.selectable,
+                        }
+                    )
+                    continue
+                definition = RuntimeDefinition(
+                    id=recipe.definition_id,
+                    slug=recipe.definition_slug,
+                    kodi_version=recipe.kodi_version,
+                    support_tier=RuntimeSupportTier.CURRENT,
+                )
+                entry = self._entry(session, definition, policy, 0)
+                entries.append(
+                    entry.model_copy(
+                        update={
+                            "supported_generation": generation,
+                            "availability_detail": (
+                                "Supported reviewed recipe; not locally acquired. "
+                                f"Install {generation} to validate a local image."
+                            ),
+                        }
+                    )
+                )
         entries.sort(key=self._entry_sort_key)
         return RuntimeMatrixResponse(
             include_legacy=include_legacy,

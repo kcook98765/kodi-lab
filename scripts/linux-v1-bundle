@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and verify the self-contained Linux V1 release inventory."""
+"""Stage and verify the binary-free Kodi Lab Linux V1 inventory."""
 
 from __future__ import annotations
 
@@ -13,9 +13,27 @@ import sys
 import tarfile
 import tomllib
 
-RUNTIMES = ("kodi-19.5", "kodi-20.5", "kodi-21.3", "kodi-22.0-beta2")
 APP_ARCHIVE = "kodi-lab-application-images.tar"
+RECIPES = {
+    "matrix": "matrix-19.4-r1.json",
+    "nexus": "nexus-20.5-r1.json",
+    "omega": "omega-21.3-r1.json",
+}
+RELEASE_FILES = {
+    APP_ARCHIVE,
+    ".env.example",
+    "compose.release.yaml",
+    "compose.lab.yaml",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "INSTALL.md",
+    "RELEASE.md",
+    "UPGRADE-ROLLBACK.md",
+    "MANAGED-STATE-RECOVERY.md",
+    "linux-v1-bundle",
+} | {f"runtime-recipes/{name}" for name in RECIPES.values()}
 HEX = re.compile(r"sha256:[0-9a-f]{64}\Z")
+TREE = re.compile(r"[0-9a-f]{40}\Z")
 
 
 def digest(path: pathlib.Path) -> str:
@@ -28,7 +46,7 @@ def canonical(data: object) -> bytes:
 
 
 def archive_images(path: pathlib.Path) -> tuple[dict[str, str], set[str]]:
-    """Get each saved tag's immutable OCI config digest from reviewed tar bytes."""
+    """Get each saved tag's immutable OCI config digest from tar bytes."""
     with tarfile.open(path, "r:") as archive:
         member = archive.extractfile("manifest.json")
         if member is None:
@@ -73,17 +91,65 @@ def _file_record(path: pathlib.Path) -> dict[str, str | int]:
     return {"sha256": digest(path), "size": path.stat().st_size}
 
 
+def _inventory(bundle: pathlib.Path) -> set[str]:
+    if any(p.is_symlink() for p in bundle.rglob("*")):
+        raise ValueError("bundle contains a symlink")
+    return {p.relative_to(bundle).as_posix() for p in bundle.rglob("*") if p.is_file()}
+
+
+def _recipe_record(path: pathlib.Path) -> dict[str, str | int]:
+    recipe = json.loads(path.read_bytes())
+    if (
+        recipe.get("generation") not in RECIPES
+        or recipe.get("platform") != "linux/amd64"
+        or recipe.get("provider", {}).get("type") != "signed_distro_apt"
+        or recipe.get("recipe_revision") != 1
+    ):
+        raise ValueError("release recipe identity differs")
+    return {
+        "generation": recipe["generation"],
+        "release": recipe["kodi_version"],
+        "recipe_id": recipe["recipe_id"],
+        "recipe_revision": recipe["recipe_revision"],
+        "recipe_digest": digest(path),
+        "provider": recipe["provider"]["distribution"],
+        "suite": recipe["provider"]["suite"],
+        "file": path.relative_to(path.parent.parent).as_posix(),
+    }
+
+
+def _recipes(bundle: pathlib.Path) -> list[dict[str, str | int]]:
+    result = []
+    for generation, filename in RECIPES.items():
+        item = _recipe_record(bundle / "runtime-recipes" / filename)
+        if item["generation"] != generation:
+            raise ValueError("release recipe generation differs")
+        result.append(item)
+    if [(item["release"], item["suite"]) for item in result] != [
+        ("19.4", "jammy"),
+        ("20.5", "noble"),
+        ("21.3", "resolute"),
+    ]:
+        raise ValueError("release recipe set differs")
+    return result
+
+
 def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
     version = tomllib.loads((repository / "pyproject.toml").read_text())["project"][
         "version"
     ]
-    commit = subprocess.check_output(
-        ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
+    source_tree = subprocess.check_output(
+        ["git", "-C", str(repository), "write-tree"], text=True
     ).strip()
-    if subprocess.check_output(
-        ["git", "-C", str(repository), "status", "--porcelain"], text=True
-    ).strip():
-        raise ValueError("release source worktree must be clean and committed")
+    if (
+        not TREE.fullmatch(source_tree)
+        or subprocess.run(
+            ["git", "-C", str(repository), "diff", "--quiet"], check=False
+        ).returncode
+    ):
+        raise ValueError("release source differs from staged Git tree")
+    if _inventory(bundle) != RELEASE_FILES:
+        raise ValueError("release file inventory differs")
     tags = {role: f"kodi-lab-v1-{role}:{version}" for role in ("web", "broker")}
     configs, _ = archive_images(bundle / APP_ARCHIVE)
     if set(configs) != set(tags.values()):
@@ -126,10 +192,10 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             )
         )
         if (
-            labels.get("org.opencontainers.image.revision") != commit
+            labels.get("org.opencontainers.image.revision") != source_tree
             or labels.get("org.opencontainers.image.version") != version
         ):
-            raise ValueError("application build labels differ from release source")
+            raise ValueError("application build labels differ from staged source")
         package_identity = subprocess.check_output(
             [
                 "docker",
@@ -157,48 +223,36 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
         }
     if len(package_identities) != 1:
         raise ValueError("Web and broker have different installed package bytes")
-    runtimes = []
-    for name in RUNTIMES:
-        relative_manifest = f"runtime-manifests/{name}.json"
-        relative_evidence = f"runtime-evidence/{name}.json"
-        metadata = json.loads((bundle / relative_manifest).read_text())
-        catalog = metadata["catalog"]
-        distribution = metadata["distribution"]
-        archive_name = f"{name}.tar"
-        if _file_record(bundle / archive_name) != {
-            "sha256": distribution["archive_digest"],
-            "size": distribution["archive_size"],
-        }:
-            raise ValueError(f"reviewed archive differs: {name}")
-        if digest(bundle / relative_evidence) != catalog["validation_report_digest"]:
-            raise ValueError(f"runtime evidence differs: {name}")
-        tags_for_runtime, configs_for_runtime = archive_images(bundle / archive_name)
-        if tags_for_runtime or configs_for_runtime != {distribution["loaded_image_id"]}:
-            raise ValueError(f"reviewed runtime archive identity differs: {name}")
-        runtimes.append(
-            {
-                "name": name,
-                "release": metadata["kodi_version"],
-                "tier": catalog["support_tier"],
-                "revision_id": catalog["revision_id"],
-                "manifest": relative_manifest,
-                "evidence": relative_evidence,
-                "archive": archive_name,
-                "reviewed_image_id": metadata["result"]["image_id"],
-                "archive_config_image_id": distribution["loaded_image_id"],
-            }
+    recipes = _recipes(bundle)
+    installed_recipes = json.loads(
+        subprocess.check_output(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--entrypoint",
+                "python",
+                tags["broker"],
+                "-c",
+                "import json; from kodi_lab.runtime.recipes import "
+                "load_reviewed_recipe, supported_generations; "
+                "print(json.dumps({g:load_reviewed_recipe(g).digest "
+                "for g in supported_generations()}))",
+            ],
+            text=True,
         )
-    names = sorted(
-        p.relative_to(bundle).as_posix() for p in bundle.rglob("*") if p.is_file()
     )
-    if any(p.is_symlink() for p in bundle.rglob("*")):
-        raise ValueError("bundle contains a symlink")
-    files = {name: _file_record(bundle / name) for name in names}
+    if installed_recipes != {
+        item["generation"]: item["recipe_digest"] for item in recipes
+    }:
+        raise ValueError("bundle recipes differ from installed wheel")
+    files = {name: _file_record(bundle / name) for name in sorted(RELEASE_FILES)}
     manifest = {
-        "schema": "kodi-lab-linux-v1-bundle-v1",
+        "schema": "kodi-lab-linux-v1-bundle-v2",
         "version": version,
-        "source_commit": commit,
-        "source_archive": "kodi-lab-source.tar",
+        "source_tree": source_tree,
         "platform": "linux/amd64",
         "build": {
             "process": "Docker multi-stage wheel build using pinned base and uv.lock",
@@ -211,49 +265,41 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             "installed_package_identity": package_identities.pop(),
             "images": images,
         },
-        "runtimes": runtimes,
+        "runtimes": recipes,
         "files": files,
     }
     (bundle / "BUNDLE.json").write_bytes(canonical(manifest))
-    checksums = "".join(
-        f"{digest(bundle / name).removeprefix('sha256:')}  {name}\n"
-        for name in sorted((*names, "BUNDLE.json"))
+    (bundle / "SHA256SUMS").write_text(
+        "".join(
+            f"{digest(bundle / name).removeprefix('sha256:')}  {name}\n"
+            for name in sorted((*RELEASE_FILES, "BUNDLE.json"))
+        )
     )
-    (bundle / "SHA256SUMS").write_text(checksums)
 
 
 def verify(bundle: pathlib.Path) -> dict:
     data = json.loads((bundle / "BUNDLE.json").read_bytes())
     if (
-        data.get("schema") != "kodi-lab-linux-v1-bundle-v1"
+        data.get("schema") != "kodi-lab-linux-v1-bundle-v2"
         or data.get("platform") != "linux/amd64"
+        or not isinstance(data.get("source_tree"), str)
+        or not TREE.fullmatch(data["source_tree"])
+        or set(data.get("files", {})) != RELEASE_FILES
     ):
-        raise ValueError("unsupported bundle manifest")
+        raise ValueError("unsupported bundle manifest or inventory")
     if canonical(data) != (bundle / "BUNDLE.json").read_bytes():
         raise ValueError("bundle manifest is not canonical")
-    if (
-        data.get("source_archive") != "kodi-lab-source.tar"
-        or data["source_archive"] not in data["files"]
-    ):
-        raise ValueError("source archive is missing from inventory")
-    expected_names = set(data["files"])
-    observed_names = {
-        p.relative_to(bundle).as_posix() for p in bundle.rglob("*") if p.is_file()
-    }
-    if any(p.is_symlink() for p in bundle.rglob("*")):
-        raise ValueError("bundle contains a symlink")
-    if observed_names != expected_names | {"BUNDLE.json", "SHA256SUMS"} | (
+    observed_names = _inventory(bundle)
+    if observed_names != RELEASE_FILES | {"BUNDLE.json", "SHA256SUMS"} | (
         {".env"} if (bundle / ".env").is_file() else set()
     ):
         raise ValueError("bundle file inventory differs")
     for name, record in data["files"].items():
-        if name.startswith("/") or ".." in pathlib.PurePosixPath(name).parts:
-            raise ValueError("unsafe bundle path")
         if _file_record(bundle / name) != record:
             raise ValueError(f"artifact differs: {name}")
     expected_sums = "".join(
         f"{digest(bundle / name).removeprefix('sha256:')}  {name}\n"
-        for name in sorted((*expected_names, "BUNDLE.json"))
+        for name in sorted((*RELEASE_FILES, "BUNDLE.json"))
     )
     if (bundle / "SHA256SUMS").read_text() != expected_sums:
         raise ValueError("checksum inventory differs")
@@ -261,44 +307,15 @@ def verify(bundle: pathlib.Path) -> dict:
     configs, _ = archive_images(bundle / app["archive"])
     if configs != {
         value["tag_hint"]: value["config_image_id"] for value in app["images"].values()
-    }:
+    } or set(app["images"]) != {"web", "broker"}:
         raise ValueError("application archive image identities differ")
-    if set(app["images"]) != {"web", "broker"}:
-        raise ValueError("application roles differ")
     if any(
         not archive_contains_digest(bundle / app["archive"], value["saved_image_id"])
         for value in app["images"].values()
     ):
         raise ValueError("saved application image identity is absent from archive")
-    if len(data["runtimes"]) != 4 or {r["name"] for r in data["runtimes"]} != set(
-        RUNTIMES
-    ):
-        raise ValueError("runtime set differs")
-    for runtime in data["runtimes"]:
-        metadata = json.loads((bundle / runtime["manifest"]).read_text())
-        distribution = metadata["distribution"]
-        catalog = metadata["catalog"]
-        tags, config_ids = archive_images(bundle / runtime["archive"])
-        if (
-            metadata["kodi_version"] != runtime["release"]
-            or catalog["support_tier"] != runtime["tier"]
-            or catalog["revision_id"] != runtime["revision_id"]
-            or metadata["result"]["image_id"] != runtime["reviewed_image_id"]
-            or distribution["loaded_image_id"] != runtime["archive_config_image_id"]
-            or _file_record(bundle / runtime["archive"])
-            != {
-                "sha256": distribution["archive_digest"],
-                "size": distribution["archive_size"],
-            }
-            or digest(bundle / runtime["evidence"])
-            != catalog["validation_report_digest"]
-            or tags
-            or config_ids != {distribution["loaded_image_id"]}
-            or not archive_contains_digest(
-                bundle / runtime["archive"], runtime["reviewed_image_id"]
-            )
-        ):
-            raise ValueError(f"runtime metadata differs: {runtime['name']}")
+    if data["runtimes"] != _recipes(bundle):
+        raise ValueError("reviewed recipe metadata differs")
     env_path = bundle / ".env"
     if env_path.exists():
         lines = env_path.read_text().splitlines()

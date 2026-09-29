@@ -199,7 +199,11 @@ def matrix_client(
 def by_release(document: dict[str, object]) -> dict[str, dict[str, object]]:
     runtimes = document["runtimes"]
     assert isinstance(runtimes, list)
-    return {item["canonical_release"]: item for item in runtimes}
+    return {
+        item["canonical_release"]: item
+        for item in runtimes
+        if item["supported_generation"] is None
+    }
 
 
 def test_matrix_routes_require_authentication(

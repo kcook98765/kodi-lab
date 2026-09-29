@@ -451,6 +451,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     try:
+        if os.environ.get("KODI_LAB_RELEASE_BUNDLE") == "1" and arguments.command in {
+            "list",
+            "verify",
+            "load",
+            "bootstrap",
+        }:
+            parser.error("private archive commands are unavailable in release images")
         if arguments.command == "recipes":
             from kodi_lab.runtime.recipes import (
                 load_reviewed_recipe,
@@ -488,6 +495,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"image={installed.image_id} reused={installed.reused}"
             )
             return 0
+        if arguments.command == "network-ensure":
+            import docker
+
+            client = docker.from_env()
+            try:
+                created = ensure_managed_network(client.api)
+            finally:
+                client.close()
+            print(
+                "Managed network created." if created else "Managed network verified."
+            )
+            return 0
         runtimes = load_curated_runtimes()
         if arguments.command == "list":
             print(
@@ -506,18 +525,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     distribution.loaded_image_id,
                     distribution.archive_digest,
                 )
-            return 0
-        if arguments.command == "network-ensure":
-            import docker
-
-            client = docker.from_env()
-            try:
-                created = ensure_managed_network(client.api)
-            finally:
-                client.close()
-            print(
-                "Managed network created." if created else "Managed network verified."
-            )
             return 0
         if arguments.command == "load":
             runtime = next(item for item in runtimes if item.name == arguments.name)

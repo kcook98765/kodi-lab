@@ -35,7 +35,7 @@
               <td>{{ runtime.support_tier|capitalize }}</td>
               <td>{{ runtime.effective_validation_state|capitalize }}{% if runtime.effective_validation_state == 'validated' %}<span class="secondary"> under kodi-runtime-v1</span>{% endif %}</td>
               <td>{% if runtime.selected_revision_number %}{{ runtime.selected_revision_number }}{% elif runtime.newest_revision_number %}No eligible revision; newest is {{ runtime.newest_revision_number }}{% else %}None{% endif %}</td>
-              <td><strong>{{ runtime.availability|replace('_', ' ')|title }}</strong><br><span>{{ runtime.availability_detail }}</span>{% if runtime.pinned_instance_count %}<br><span class="secondary">{{ runtime.pinned_instance_count }} existing pinned instance{% if runtime.pinned_instance_count != 1 %}s{% endif %}</span>{% endif %}</td>
+              <td>{% if runtime.supported_generation %}<span>Reviewed {{ runtime.supported_generation }} recipe · {% if runtime.validated_install_record %}validated installation record{% else %}not locally acquired{% endif %}</span><br>{% endif %}<strong>{{ runtime.availability|replace('_', ' ')|title }}</strong><br><span>{{ runtime.availability_detail }}</span>{% if runtime.pinned_instance_count %}<br><span class="secondary">{{ runtime.pinned_instance_count }} existing pinned instance{% if runtime.pinned_instance_count != 1 %}s{% endif %}</span>{% endif %}</td>
             </tr>
             {% else %}
             <tr><td colspan="6">No curated runtimes are registered.</td></tr>

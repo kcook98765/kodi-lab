@@ -36,6 +36,7 @@ from kodi_lab.runtime.install import (
     bootstrap_recipe_instance,
     recipe_target_id,
 )
+from kodi_lab.runtime.lab import LabWorkflowError, repin_reviewed_runtime
 from kodi_lab.runtime.recipes import load_reviewed_recipe
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
 from kodi_lab.runtime.validation import ValidationResult
@@ -540,6 +541,40 @@ def test_reinstallation_creates_new_artifact_without_rebinding_existing_pin(
         instance = ManagedInstanceRepository(session).get(recipe_target_id(reviewed))
         assert instance is not None
         assert instance.runtime_revision_id == first_revision_id
+
+
+def test_explicit_repin_selects_only_latest_ready_reviewed_revision(
+    factory: sessionmaker[Session],
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    first = _ready(factory)
+    with factory() as session:
+        first_row = RuntimeRecipeInstallationRepository(session).get(first)
+        assert first_row is not None and first_row.runtime_revision_id is not None
+        first_revision_id = UUID(first_row.runtime_revision_id)
+    bootstrap_recipe_instance(factory, reviewed, first_revision_id)
+    second = _ready(factory, "sha256:" + "e" * 64)
+    with factory() as session:
+        second_row = RuntimeRecipeInstallationRepository(session).get(second)
+        assert second_row is not None and second_row.runtime_revision_id is not None
+        second_revision_id = UUID(second_row.runtime_revision_id)
+
+    with pytest.raises(LabWorkflowError, match="exact ready recipe revision"):
+        repin_reviewed_runtime(factory, "matrix", first_revision_id)
+    with factory() as session:
+        instance = ManagedInstanceRepository(session).get(recipe_target_id(reviewed))
+        assert instance is not None
+        assert instance.runtime_revision_id == first_revision_id
+
+    assert repin_reviewed_runtime(factory, "matrix", second_revision_id) == (
+        second_revision_id
+    )
+    with factory() as session:
+        instance = ManagedInstanceRepository(session).get(recipe_target_id(reviewed))
+        assert instance is not None
+        assert instance.runtime_revision_id == second_revision_id
+    with pytest.raises(LabWorkflowError, match="already pinned"):
+        repin_reviewed_runtime(factory, "matrix", second_revision_id)
 
 
 def test_interrupted_validating_attempt_is_failed_before_new_pending_attempt(

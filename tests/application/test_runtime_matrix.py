@@ -183,7 +183,11 @@ def seed_curated_matrix(
 
 
 def selectable(response: RuntimeMatrixResponse) -> dict[str, bool]:
-    return {item.canonical_release: item.selectable for item in response.runtimes}
+    return {
+        item.canonical_release: item.selectable
+        for item in response.runtimes
+        if item.supported_generation is None
+    }
 
 
 def test_curated_matrix_policy_combinations(factory: sessionmaker[Session]) -> None:

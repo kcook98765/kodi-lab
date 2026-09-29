@@ -10,21 +10,24 @@ RUN uv export --locked --no-dev --no-emit-project --format requirements-txt --ou
 
 FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS installed-runtime
 
-ARG KODI_LAB_SOURCE_COMMIT=unknown
+ARG KODI_LAB_SOURCE_TREE=unknown
 ARG KODI_LAB_RELEASE_VERSION=unknown
-LABEL org.opencontainers.image.revision="$KODI_LAB_SOURCE_COMMIT" \
+LABEL org.opencontainers.image.revision="$KODI_LAB_SOURCE_TREE" \
       org.opencontainers.image.version="$KODI_LAB_RELEASE_VERSION"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     KODI_LAB_DATA_ROOT=/var/lib/kodi-lab \
-    KODI_LAB_RUNTIME_ROOT=/run/kodi-lab
+    KODI_LAB_RUNTIME_ROOT=/run/kodi-lab \
+    KODI_LAB_RELEASE_BUNDLE=1
 
 COPY --from=wheel-build /build/requirements.txt /tmp/requirements.txt
 COPY --from=wheel-build /wheels/*.whl /tmp/wheels/
 RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
     && python -m pip install --no-cache-dir --no-deps /tmp/wheels/*.whl \
     && python -m pip check \
+    && rm -rf /usr/local/lib/python3.12/site-packages/kodi_lab/runtime/catalog \
+              /usr/local/lib/python3.12/site-packages/kodi_lab/runtime/evidence \
     && rm -rf /tmp/requirements.txt /tmp/wheels \
     && groupadd --gid 10001 kodi-lab \
     && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent kodi-lab \

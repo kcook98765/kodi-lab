@@ -57,6 +57,7 @@ from kodi_lab.storage.engine import create_database_engine, create_session_facto
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeExecutionProfileRepository,
+    RuntimeRecipeInstallationRepository,
     RuntimeRevisionRepository,
     TargetRepository,
 )
@@ -351,6 +352,7 @@ def _run_control(settings: Settings, command: str, selectors: Sequence[str]) -> 
     readiness = ReadinessTaskRegistry()
     try:
         factory = create_session_factory(engine)
+        release_bundle = os.environ.get("KODI_LAB_RELEASE_BUNDLE") == "1"
         if selectors:
             chosen = select_runtimes(selectors)
         else:
@@ -361,11 +363,28 @@ def _run_control(settings: Settings, command: str, selectors: Sequence[str]) -> 
                     if ManagedInstanceRepository(session).get(canonical_id(generation))
                     is not None
                 )
-            chosen = installed_generations or SELECTORS
+            chosen = (
+                supported_generations()
+                if release_bundle
+                else installed_generations or SELECTORS
+            )
+        if release_bundle and any(selector in SELECTORS for selector in chosen):
+            raise LabWorkflowError("private archive selectors are unavailable")
         if any(selector in SELECTORS for selector in chosen):
             _verify_records(factory)
+        with factory() as session:
+            missing_generations = {
+                selector
+                for selector in chosen
+                if selector in supported_generations()
+                and ManagedInstanceRepository(session).get(canonical_id(selector))
+                is None
+            }
         for selector in chosen:
-            if selector in supported_generations():
+            if (
+                selector in supported_generations()
+                and selector not in missing_generations
+            ):
                 _verify_recipe_record(factory, selector)
         broker = BrokerClient()
         try:
@@ -382,6 +401,10 @@ def _run_control(settings: Settings, command: str, selectors: Sequence[str]) -> 
         )
 
         def perform(selector: str) -> str:
+            if selector in missing_generations:
+                if command == "status":
+                    return "supported unacquired"
+                raise LabWorkflowError("reviewed runtime is not installed")
             instance_id = canonical_id(selector)
             status = status_service.get(instance_id)
             if command == "start":
@@ -461,6 +484,76 @@ def _run_fixture_assignment(settings: Settings, selector: str, slug: str) -> Non
         engine.dispose()
 
 
+def repin_reviewed_runtime(
+    factory: sessionmaker[Session], generation: str, revision_id: UUID
+) -> UUID:
+    """Explicitly select the latest ready recipe revision for an existing pin."""
+
+    reviewed = load_reviewed_recipe(generation)
+    target_id = recipe_target_id(reviewed)
+    with factory() as session:
+        installed = RuntimeRecipeInstallationRepository(session).latest_ready(
+            generation
+        )
+        current = ManagedInstanceRepository(session).get(target_id)
+        if (
+            installed is None
+            or installed.recipe_id != reviewed.recipe.recipe_id
+            or installed.recipe_revision != reviewed.recipe.recipe_revision
+            or installed.recipe_digest != reviewed.digest
+            or installed.runtime_revision_id != str(revision_id)
+            or current is None
+        ):
+            raise LabWorkflowError("exact ready recipe revision is unavailable")
+        if current.runtime_revision_id == revision_id:
+            raise LabWorkflowError("revision is already pinned")
+    try:
+        ManagedInstanceService(factory).reassign_runtime(
+            target_id=target_id,
+            selection=ExactRevisionSelection(
+                reviewed.recipe.definition_id, revision_id
+            ),
+        )
+    except ApplicationServiceError as error:
+        raise LabWorkflowError(
+            f"reviewed revision selection failed ({type(error).__name__})"
+        ) from error
+    return revision_id
+
+
+def _run_repin(settings: Settings, generation: str, revision_id: UUID) -> None:
+    with lifecycle_lock(settings.data_root):
+        remote_validate(
+            settings.data_root,
+            settings.database_url,
+            require_head=True,
+            require_marker=True,
+        )
+        engine = create_database_engine(settings.database_url)
+        readiness = ReadinessTaskRegistry()
+        try:
+            factory = create_session_factory(engine)
+            _verify_recipe_record(factory, generation)
+            broker = BrokerClient()
+            try:
+                broker.ping()
+                status = ManagedRuntimeStatusService(factory, broker, readiness).get(
+                    canonical_id(generation)
+                )
+            except ClientError as error:
+                raise LabWorkflowError("broker unavailable") from error
+            if (
+                status.provision_state is not ProvisionState.UNPROVISIONED
+                or status.container_state is not ContainerRuntimeState.STOPPED
+            ):
+                raise LabWorkflowError("stop and deprovision before repinning")
+            repin_reviewed_runtime(factory, generation, revision_id)
+        finally:
+            readiness.close()
+            engine.dispose()
+    print(f"{generation}: explicitly pinned revision={revision_id}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="kodi-lab-lab")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -471,6 +564,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     assign = fixture_commands.add_parser("assign")
     assign.add_argument("selector", choices=KNOWN_SELECTORS)
     assign.add_argument("slug", choices=sorted(TRUSTED_FIXTURE_SLUGS))
+    repin = commands.add_parser(
+        "repin", help="select an exact reacquired revision after recovery"
+    )
+    repin.add_argument("generation", choices=supported_generations())
+    repin.add_argument("revision_id", type=UUID)
     for name in ("start", "stop", "status"):
         command = commands.add_parser(name)
         command.add_argument("selectors", nargs="*")
@@ -482,6 +580,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if arguments.command == "fixture":
             _run_fixture_assignment(settings, arguments.selector, arguments.slug)
+            return 0
+        if arguments.command == "repin":
+            _run_repin(settings, arguments.generation, arguments.revision_id)
             return 0
         return _run_control(settings, arguments.command, arguments.selectors)
     except ValidationError as error:
