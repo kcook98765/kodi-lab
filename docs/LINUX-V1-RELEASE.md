@@ -14,6 +14,7 @@ download checks integrity but does not establish publisher identity.
 | Deployment | `compose.release.yaml`, `compose.lab.yaml`, `compose.development.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs and may record one host source directory |
 | Reviewed runtime inputs | `runtime-recipes/matrix-19.4-r1.json`, `nexus-20.5-r1.json`, `omega-21.3-r1.json` | File hashes and installed wheel recipe digests; provider, suite, version |
 | Remote bridge | `bridge/service.kodi_lab_bridge-1.1.13.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
+| Stable Kodi feed input | `repository/STABLE.json`, installed repository generator/server | Reviewed ID/version/bridge hash; generated bootstrap and feed bytes have separate per-install provenance |
 | Verification | `BUNDLE.json`, `SHA256SUMS` | Canonical inventory and byte hashes |
 | Guidance | `LICENSE`, `THIRD_PARTY_NOTICES.md`, `INSTALL.md`, `RELEASE.md`, `PRODUCTION-OPERATIONS.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Exact file hashes |
 
@@ -58,6 +59,20 @@ control that service or its volumes. Runtime installation is available through
 the authenticated reviewed-runtime Web flow and the explicit administrator
 command in the installed broker image. The broker owns the bounded installation
 worker; its lifecycle protocol enforces exact reviewed images and revisions.
+
+The explicit repository service binds only the chosen private-LAN host address
+and port. It shares the installed Web image bytes but runs a separate static
+entry point with only the read-only `repository_data` mount, no private state,
+broker/Docker socket, credentials or administrative routes. A one-shot offline
+generator receives the verified candidate read-only and writes the dedicated
+volume. `BUNDLE.json` records its reviewed inputs and capability, while
+`PROVENANCE.json` in the volume binds the actual configured URL, generated
+repository ZIP/index hashes and package hashes to the BUNDLE digest. HTTP is
+unauthenticated; malicious-LAN transport authenticity is not claimed. A later
+TLS terminator can preserve the same paths and content.
+The repository descriptor selects Kodi's `<dir>` format, verified SHA-256 index
+checksum and SHA-256 package hashes. The server supplies both the package
+`Content-SHA256` header and immutable `.zip.sha256` fallback sidecar.
 
 Local add-on source access is disabled in the base Compose deployment. An
 administrator may use the bundled development overlay to bind one validated

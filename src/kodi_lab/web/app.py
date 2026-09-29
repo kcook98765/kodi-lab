@@ -436,6 +436,7 @@ from kodi_lab.mcp.authorization import (
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
+from kodi_lab.repository.stable import load_current
 from kodi_lab.storage.models import McpWorkspaceDeploymentOperationRow
 from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
 from kodi_lab.storage.secrets import (
@@ -2974,6 +2975,39 @@ def create_app(
                 "instances": context.status.list_statuses(),
                 "csrf_token": authenticated.csrf_token,
             },
+        )
+
+    @app.get("/kodi-repository", response_class=HTMLResponse)
+    async def kodi_repository_page(request: Request) -> Response:
+        try:
+            current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        base_url = os.getenv("KODI_LAB_REPOSITORY_BASE_URL", "")
+        data_path = Path(
+            os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
+        )
+        provenance: dict[str, Any] | None = None
+        healthy = False
+        if base_url and data_path.is_dir():
+            try:
+                _, provenance = load_current(
+                    data_path,
+                    expected_base_url=base_url,
+                    expected_bundle_sha256=os.getenv(
+                        "KODI_LAB_REPOSITORY_BUNDLE_SHA256"
+                    )
+                    or None,
+                )
+                async with httpx.AsyncClient(timeout=2) as client:
+                    result = await client.get("http://repository:8110/health")
+                    healthy = result.status_code == 200 and result.content == b"ok\n"
+            except (OSError, ValueError, KeyError, httpx.HTTPError):
+                pass
+        return templates.TemplateResponse(
+            request,
+            "kodi-repository.html",
+            {"base_url": base_url, "healthy": healthy, "provenance": provenance},
         )
 
     @app.get("/instances/{instance_id}", response_class=HTMLResponse)

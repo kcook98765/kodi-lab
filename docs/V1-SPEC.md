@@ -906,11 +906,24 @@ a new post-V1 architecture and security gate.
 
 ## 36. Hosted Kodi repository
 
-**POST-V1 optional distribution convenience.** A hosted Kodi repository is not
-required for Phase 14, V1 production validation, or bridge functionality.
-Canonical V1 bridge distribution is a release ZIP with published checksum and
-provenance. Generic repository-driven production installation/update and
-automatic bridge upgrade remain outside Kodi Lab product authority.
+V1 has two distinct repository origins: reviewed infrastructure
+`repository.kodi-lab` and a later opt-in development feed
+`repository.kodi-lab-dev`. Phase 1 ships only the stable feed containing its
+per-install bootstrap add-on and the exact reviewed bridge ZIP. Its public-to-LAN
+distribution server is unauthenticated, read-only HTTP on an explicitly chosen
+private-LAN address. It has no administrative Web, API, MCP, database, secrets,
+or Docker/broker socket. HTTP gives no transport authenticity against a malicious
+LAN actor; a later TLS reverse proxy does not change repository content.
+
+The installer selects the durable base URL and deterministically generates the
+repository add-on for that URL. Installation provenance records the generated
+hashes separately from immutable bundle inputs. Published ID/version/ZIP bytes
+are immutable and metadata changes atomically. The stable feed accepts only
+reviewed infrastructure; workspaces cannot replace either repository identity
+or the bridge. Development publication, workspace deployment integration, and
+the first manual Kodi development-update proof belong to later phases. Repository
+availability grants no production mutation authority. Managed Kodi retains its
+direct controlled install path as the deterministic default.
 
 ## 37. MCP add-on sources
 

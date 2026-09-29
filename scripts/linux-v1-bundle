@@ -7,6 +7,7 @@ import argparse
 import ast
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import pathlib
@@ -18,10 +19,12 @@ import tomllib
 import xml.etree.ElementTree as ET
 import zipfile
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 APP_ARCHIVE = "kodi-lab-application-images.tar"
 BRIDGE_ZIP = "bridge/service.kodi_lab_bridge-1.1.13.zip"
 BRIDGE_PROVENANCE = "bridge/BRIDGE.json"
+STABLE_MANIFEST = "repository/STABLE.json"
 BRIDGE_FILES = (
     "LICENSE",
     "README.md",
@@ -42,6 +45,7 @@ RELEASE_FILES = {
     APP_ARCHIVE,
     BRIDGE_ZIP,
     BRIDGE_PROVENANCE,
+    STABLE_MANIFEST,
     ".env.example",
     "compose.release.yaml",
     "compose.lab.yaml",
@@ -58,6 +62,65 @@ RELEASE_FILES = {
 HEX = re.compile(r"sha256:[0-9a-f]{64}\Z")
 TREE = re.compile(r"[0-9a-f]{40}\Z")
 DEVELOPMENT_SOURCE_KEY = "KODI_LAB_DEVELOPMENT_SOURCE"
+REPOSITORY_KEYS = {
+    "KODI_LAB_REPOSITORY_BIND",
+    "KODI_LAB_REPOSITORY_PORT",
+    "KODI_LAB_REPOSITORY_BASE_URL",
+    "KODI_LAB_REPOSITORY_BUNDLE_SHA256",
+}
+PRIVATE_LAN_NETWORKS = tuple(
+    ipaddress.ip_network(value)
+    for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+
+
+def validate_repository_config(bind: str, port: int, base_url: str) -> None:
+    try:
+        address = ipaddress.ip_address(bind)
+        parsed = urlsplit(base_url)
+        parsed_port = parsed.port
+    except ValueError as error:
+        raise ValueError("invalid repository bind address or base URL") from error
+    if (
+        address.version != 4
+        or not any(address in network for network in PRIVATE_LAN_NETWORKS)
+        or not 1 <= port <= 65535
+        or parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.hostname in {"localhost", "127.0.0.1"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+        or not parsed_port
+        or any(ord(char) < 33 or ord(char) > 126 for char in base_url)
+        or any(char in base_url for char in "'$#\\")
+    ):
+        raise ValueError(
+            "repository requires private bind and credential-free origin URL"
+        )
+
+
+def verify_stable_manifest(bundle: pathlib.Path) -> dict[str, Any]:
+    content = (bundle / STABLE_MANIFEST).read_bytes()
+    manifest = cast(dict[str, Any], json.loads(content))
+    if canonical(manifest) != content or manifest != {
+        "schema": "kodi-lab-stable-repository-input-v1",
+        "repository_id": "repository.kodi-lab",
+        "repository_version": "1.0.0",
+        "generator": "kodi-lab-stable-repository-v1",
+        "bridge_id": "service.kodi_lab_bridge",
+        "bridge_version": "1.1.13",
+        "bridge_zip_sha256": (
+            "665b15cb6597f6a8e40b3cbdfc29606f453f567d49b6877a1ca2ee704c90f5f3"
+        ),
+        "bridge_semantic_fingerprint": (
+            "764d42dc3d86dd0d46452c14661f2dd771f9cba9542b8cfc7ab8886c56ad4e33"
+        ),
+    }:
+        raise ValueError("stable repository input manifest differs")
+    return manifest
 
 
 def development_source_path(value: str, *, require_directory: bool) -> pathlib.Path:
@@ -396,6 +459,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             "source_tree": source_tree,
         },
     )
+    verify_stable_manifest(bundle)
     if (
         not TREE.fullmatch(source_tree)
         or subprocess.run(
@@ -505,7 +569,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
         raise ValueError("bundle recipes differ from installed wheel")
     files = {name: _file_record(bundle / name) for name in sorted(RELEASE_FILES)}
     manifest = {
-        "schema": "kodi-lab-linux-v1-bundle-v2",
+        "schema": "kodi-lab-linux-v1-bundle-v3",
         "version": version,
         "source_tree": source_tree,
         "source_commit": source_commit,
@@ -523,6 +587,11 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
         },
         "runtimes": recipes,
         "bridge": {"zip": BRIDGE_ZIP, "provenance": BRIDGE_PROVENANCE},
+        "repository": {
+            "stable_manifest": STABLE_MANIFEST,
+            "generator": "kodi-lab-stable-repository-v1",
+            "per_install_generation": True,
+        },
         "files": files,
     }
     (bundle / "BUNDLE.json").write_bytes(canonical(manifest))
@@ -539,7 +608,7 @@ def verify(
 ) -> dict[str, Any]:
     data = cast(dict[str, Any], json.loads((bundle / "BUNDLE.json").read_bytes()))
     if (
-        data.get("schema") != "kodi-lab-linux-v1-bundle-v2"
+        data.get("schema") != "kodi-lab-linux-v1-bundle-v3"
         or data.get("platform") != "linux/amd64"
         or not isinstance(data.get("source_tree"), str)
         or not TREE.fullmatch(data["source_tree"])
@@ -578,6 +647,13 @@ def verify(
     if data["runtimes"] != _recipes(bundle):
         raise ValueError("reviewed recipe metadata differs")
     verify_bridge(bundle, data)
+    verify_stable_manifest(bundle)
+    if data.get("repository") != {
+        "stable_manifest": STABLE_MANIFEST,
+        "generator": "kodi-lab-stable-repository-v1",
+        "per_install_generation": True,
+    }:
+        raise ValueError("stable repository bundle capability differs")
     env_path = bundle / ".env"
     if env_path.exists():
         values = local_environment(
@@ -590,9 +666,10 @@ def verify(
         if (
             set(values)
             not in (
-                set(expected_keys) | {"KODI_LAB_PUBLISHED_PORT"},
+                set(expected_keys) | {"KODI_LAB_PUBLISHED_PORT"} | REPOSITORY_KEYS,
                 set(expected_keys)
-                | {"KODI_LAB_PUBLISHED_PORT", DEVELOPMENT_SOURCE_KEY},
+                | {"KODI_LAB_PUBLISHED_PORT", DEVELOPMENT_SOURCE_KEY}
+                | REPOSITORY_KEYS,
             )
             or any(
                 values[key] not in {item["saved_image_id"], item["config_image_id"]}
@@ -602,12 +679,29 @@ def verify(
             or not 1 <= int(values["KODI_LAB_PUBLISHED_PORT"]) <= 65535
         ):
             raise ValueError("local image selection differs from reviewed bundle")
+        validate_repository_config(
+            values["KODI_LAB_REPOSITORY_BIND"],
+            int(values["KODI_LAB_REPOSITORY_PORT"]),
+            values["KODI_LAB_REPOSITORY_BASE_URL"],
+        )
+        if values["KODI_LAB_REPOSITORY_BUNDLE_SHA256"] != digest(
+            bundle / "BUNDLE.json"
+        ).removeprefix("sha256:"):
+            raise ValueError("repository configuration bundle identity differs")
     return data
 
 
-def configure(bundle: pathlib.Path, data: dict[str, Any], port: int) -> None:
+def configure(
+    bundle: pathlib.Path,
+    data: dict[str, Any],
+    port: int,
+    repository_bind: str,
+    repository_port: int,
+    repository_base_url: str,
+) -> None:
     if (bundle / ".env").exists() or not 1 <= port <= 65535:
         raise ValueError(".env already exists or port is invalid")
+    validate_repository_config(repository_bind, repository_port, repository_base_url)
     chosen = {}
     for role, item in data["application"]["images"].items():
         for candidate in (item["saved_image_id"], item["config_image_id"]):
@@ -631,10 +725,15 @@ def configure(bundle: pathlib.Path, data: dict[str, Any], port: int) -> None:
                 break
         else:
             raise ValueError(f"verified {role} image is not loaded for linux/amd64")
+    bundle_identity = digest(bundle / "BUNDLE.json").removeprefix("sha256:")
     (bundle / ".env").write_text(
         f"KODI_LAB_REMOTE_IMAGE={chosen['web']}\n"
         f"KODI_LAB_BROKER_IMAGE={chosen['broker']}\n"
         f"KODI_LAB_PUBLISHED_PORT={port}\n"
+        f"KODI_LAB_REPOSITORY_BIND={repository_bind}\n"
+        f"KODI_LAB_REPOSITORY_PORT={repository_port}\n"
+        f"KODI_LAB_REPOSITORY_BASE_URL={repository_base_url}\n"
+        f"KODI_LAB_REPOSITORY_BUNDLE_SHA256={bundle_identity}\n"
     )
     print("configured exact application image IDs for this Docker Engine")
 
@@ -657,6 +756,9 @@ def main() -> int:
     parser.add_argument("bundle", type=pathlib.Path)
     parser.add_argument("repository", type=pathlib.Path, nargs="?")
     parser.add_argument("--port", type=int, default=18100)
+    parser.add_argument("--repository-bind", default="")
+    parser.add_argument("--repository-port", type=int, default=0)
+    parser.add_argument("--repository-base-url", default="")
     parser.add_argument("--source")
     args = parser.parse_args()
     try:
@@ -670,7 +772,14 @@ def main() -> int:
                 require_development_directory=args.command != "development-source",
             )
             if args.command == "configure":
-                configure(args.bundle, data, args.port)
+                configure(
+                    args.bundle,
+                    data,
+                    args.port,
+                    args.repository_bind,
+                    args.repository_port,
+                    args.repository_base_url,
+                )
             elif args.command == "development-source":
                 if args.source is None or not (args.bundle / ".env").exists():
                     raise ValueError(

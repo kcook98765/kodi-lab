@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kodi Repository · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main>
+      <h1>Kodi Repository</h1>
+      {% if provenance %}
+      <p>Stable repository: <strong>{{ 'Serving' if healthy else 'Configured; service unavailable' }}</strong></p>
+      <p>LAN install source: <code>{{ base_url }}/install/</code></p>
+      <p>Bootstrap ZIP: <a href="{{ base_url }}/install/repository.kodi-lab-1.0.0.zip">repository.kodi-lab-1.0.0.zip</a></p>
+      <p>Bootstrap SHA-256: <code>{{ provenance.bootstrap_zip_sha256 }}</code></p>
+      <h2>Install on Kodi</h2>
+      <ol>
+        <li>In Kodi File Manager, add <code>{{ base_url }}/install/</code> as a source.</li>
+        <li>Choose Add-ons, Install from zip file, then select <code>repository.kodi-lab-1.0.0.zip</code>.</li>
+        <li>Choose Install from repository, Kodi Lab, then Kodi Lab Narrow Bridge.</li>
+      </ol>
+      <h2>Reviewed stable packages</h2>
+      <ul>{% for package in provenance.packages %}<li><code>{{ package.id }}</code> {{ package.version }} — SHA-256 <code>{{ package.sha256 }}</code></li>{% endfor %}</ul>
+      {% else %}<p>Stable repository is not configured or verified.</p>{% endif %}
+      <p>Private-LAN HTTP does not authenticate the server or protect artifacts against a malicious LAN actor. Use only on a trusted private network.</p>
+      <p><a href="/">Back to dashboard</a></p>
+    </main>
+  </body>
+</html>

@@ -1854,3 +1854,13 @@ create/restore, simultaneous readiness, source-state isolation, control-plane
 recreation, stop/start/subset selection, and Kodi 22 Preview gates. Kodi 22's
 exact Beta 2 schema requires the audited `small-mixed-v5` fixture and the
 shared fixture adapter's exact-release admission.
+
+## Kodi repository phases
+
+Phase 1 implements reviewed stable `repository.kodi-lab` distribution, private
+LAN static serving, source-free per-install generation/provenance, and sequential
+disposable Matrix/Nexus/Omega discovery proof. Phase 2 implements the separate
+durable opt-in development feed and publication authority. Phase 3 integrates
+`workspace_deploy` and proves a manual Kodi update. Physical target acceptance
+remains paused until those repository phases are reviewed. No phase broadens
+production authority or replaces managed Kodi's direct install default.

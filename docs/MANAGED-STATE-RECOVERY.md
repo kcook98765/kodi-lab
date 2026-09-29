@@ -130,3 +130,20 @@ snapshot hash before recovery, recovered the application set, and started and
 recreated both installed-wheel services. HTTP login, scoped MCP, broker ping,
 the encrypted fixture, snapshot validator, and ownership checks passed. No
 managed Kodi runtime or physical target was involved.
+
+## Stable Kodi repository volume
+
+`repository_data` is separate from private application state and is not included
+in `kodi-lab-admin backup`. In Phase 1 it contains only stable reviewed packages,
+a generated repository add-on for the configured URL, index/checksums, an atomic
+generation pointer and `PROVENANCE.json`. Preserve the source-free candidate,
+its trusted BUNDLE digest, the configured URL and a copy of `PROVENANCE.json` as
+part of an installation recovery record. Stop the repository service before
+restoring this volume. On a fresh volume, run the installed one-shot
+`repository-init` generator with the *same* candidate and URL, then compare the
+generated provenance and ZIP/index/package hashes to the retained record before
+starting the static service. A mismatch is a recovery failure. Do not generate
+a new repository 1.0.0 ZIP for a changed URL; that would reuse an ID/version with
+new bytes. Phase 2 must add a coherent backup/export contract for approved
+non-reconstructible development artifacts and publication receipts before
+workspace publication is enabled.

@@ -57,6 +57,10 @@ def test_source_free_compose_mount_is_opt_in_fixed_and_space_safe(
         "KODI_LAB_REMOTE_IMAGE=example/web:local\n"
         "KODI_LAB_BROKER_IMAGE=example/broker:local\n"
         "KODI_LAB_PUBLISHED_PORT=18100\n"
+        "KODI_LAB_REPOSITORY_BIND=192.168.50.10\n"
+        "KODI_LAB_REPOSITORY_PORT=18120\n"
+        "KODI_LAB_REPOSITORY_BASE_URL=http://192.168.50.10:18120\n"
+        "KODI_LAB_REPOSITORY_BUNDLE_SHA256=" + "a" * 64 + "\n"
     )
     environment = os.environ.copy()
     environment.pop("KODI_LAB_DEVELOPMENT_SOURCE", None)
@@ -76,6 +80,17 @@ def test_source_free_compose_mount_is_opt_in_fixed_and_space_safe(
     assert "KODI_LAB_DEVELOPMENT_ROOT" not in web["environment"]
     assert not any(
         item["target"] == "/mnt/kodi-lab-development" for item in web["volumes"]
+    )
+    repository = json.loads(remote.stdout)["services"]["repository"]
+    assert repository["ports"][0]["host_ip"] == "192.168.50.10"
+    assert repository["ports"][0]["published"] == "18120"
+    assert [item["target"] for item in repository["volumes"]] == [
+        "/srv/kodi-lab-repository"
+    ]
+    assert repository["volumes"][0]["read_only"] is True
+    assert not any(
+        "docker.sock" in str(item) or "broker" in str(item)
+        for item in repository["volumes"]
     )
 
     empty = config("compose.release.yaml", "compose.development.yaml")

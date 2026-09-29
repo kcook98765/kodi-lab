@@ -27,6 +27,8 @@ if [[ -e "$output" ]] && [[ -n "$(ls -A "$output")" ]]; then
 fi
 mkdir -p "$output"
 mkdir "$output/bridge"
+mkdir "$output/repository"
+cp "$repository/repository/STABLE.json" "$output/repository/STABLE.json"
 python3 "$repository/scripts/build_narrow_bridge.py" \
   --output "$output/bridge/service.kodi_lab_bridge-1.1.13.zip" \
   --provenance "$output/bridge/BRIDGE.json"
@@ -60,9 +62,12 @@ mkdir "$output/runtime-recipes"
 cp "$repository"/src/kodi_lab/runtime/recipes/{matrix-19.4-r1,nexus-20.5-r1,omega-21.3-r1}.json \
   "$output/runtime-recipes/"
 cat > "$output/.env.example" <<'EOF'
-# Run python3 linux-v1-bundle configure . after loading the application archive.
+# Run python3 linux-v1-bundle configure . --repository-bind PRIVATE_LAN_IP
+#   --repository-port PORT --repository-base-url http://DURABLE_LAN_HOST:PORT
+# after loading the application archive.
 # The generated .env pins image IDs recognized on this Docker Engine.
 KODI_LAB_PUBLISHED_PORT=18100
+# There is no default LAN bind or public URL. Choose both explicitly.
 # Optional: run `python3 linux-v1-bundle development-source . --source /absolute/path`
 # to add the host source directory, then include compose.development.yaml.
 # Example host path (not required): /srv/kodi-lab/addon-sources

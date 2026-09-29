@@ -48,6 +48,10 @@ def _archive(path: Path, tags: tuple[str, ...]) -> dict[str, str]:
     return {tag: "sha256:" + value[0] for tag, value in configs.items()}
 
 
+def _bundle_hash(bundle: Path) -> str:
+    return str(digest(bundle / "BUNDLE.json")).removeprefix("sha256:")
+
+
 def _checksums(bundle: Path, files: Mapping[str, object]) -> None:
     (bundle / "SHA256SUMS").write_text(
         "".join(
@@ -63,7 +67,9 @@ def bundle(tmp_path: Path) -> Path:
     for name in bundle_tool["RELEASE_FILES"]:
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        if name.startswith("runtime-recipes/"):
+        if name == "repository/STABLE.json":
+            path.write_bytes((root / name).read_bytes())
+        elif name.startswith("runtime-recipes/"):
             path.write_bytes(
                 (root / "src/kodi_lab/runtime/recipes" / path.name).read_bytes()
             )
@@ -126,7 +132,7 @@ def bundle(tmp_path: Path) -> Path:
         for name in bundle_tool["RELEASE_FILES"]
     }
     document = {
-        "schema": "kodi-lab-linux-v1-bundle-v2",
+        "schema": "kodi-lab-linux-v1-bundle-v3",
         "platform": "linux/amd64",
         "version": "1.0.0rc1",
         "source_tree": "a" * 40,
@@ -147,6 +153,11 @@ def bundle(tmp_path: Path) -> Path:
             },
         },
         "runtimes": bundle_tool["_recipes"](tmp_path),
+        "repository": {
+            "stable_manifest": "repository/STABLE.json",
+            "generator": "kodi-lab-stable-repository-v1",
+            "per_install_generation": True,
+        },
         "files": files,
     }
     (tmp_path / "BUNDLE.json").write_bytes(canonical(document))
@@ -203,6 +214,36 @@ def test_bridge_artifact_is_exact_and_tamper_is_rejected(bundle: Path) -> None:
     archive.unlink()
     with pytest.raises(ValueError, match="bundle file inventory differs"):
         verify(bundle)
+
+
+def test_stable_manifest_is_reviewed_and_cannot_change_id(bundle: Path) -> None:
+    assert verify(bundle)["repository"]["stable_manifest"] == "repository/STABLE.json"
+    path = bundle / "repository/STABLE.json"
+    stable = json.loads(path.read_bytes())
+    stable["bridge_id"] = "plugin.video.unreviewed"
+    path.write_bytes(canonical(stable))
+    document = json.loads((bundle / "BUNDLE.json").read_bytes())
+    document["files"]["repository/STABLE.json"] = {
+        "sha256": digest(path),
+        "size": path.stat().st_size,
+    }
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="stable repository input manifest differs"):
+        verify(bundle)
+
+
+@pytest.mark.parametrize(
+    "bind,base",
+    (
+        ("0.0.0.0", "http://192.168.50.10:18120"),
+        ("192.168.50.10", "http://admin:secret@192.168.50.10:18120"),
+        ("192.168.50.10", "http://192.168.50.10:18120/path"),
+    ),
+)
+def test_repository_configuration_rejects_unsafe_values(bind: str, base: str) -> None:
+    with pytest.raises(ValueError, match="repository"):
+        bundle_tool["validate_repository_config"](bind, 18120, base)
 
 
 def test_bridge_identity_and_provenance_mismatch_are_rejected(bundle: Path) -> None:
@@ -276,6 +317,10 @@ def test_bundle_rejects_local_image_selection_outside_manifest(bundle: Path) -> 
         "KODI_LAB_REMOTE_IMAGE=sha256:" + "0" * 64 + "\n"
         "KODI_LAB_BROKER_IMAGE=sha256:" + "0" * 64 + "\n"
         "KODI_LAB_PUBLISHED_PORT=18100\n"
+        "KODI_LAB_REPOSITORY_BIND=192.168.50.10\n"
+        "KODI_LAB_REPOSITORY_PORT=18120\n"
+        "KODI_LAB_REPOSITORY_BASE_URL=http://192.168.50.10:18120\n"
+        f"KODI_LAB_REPOSITORY_BUNDLE_SHA256={_bundle_hash(bundle)}\n"
     )
     with pytest.raises(ValueError, match="local image selection"):
         verify(bundle)
@@ -291,6 +336,10 @@ def test_bundle_accepts_local_development_configuration_without_capturing_source
         f"KODI_LAB_REMOTE_IMAGE={document['application']['images']['web']['saved_image_id']}\n"
         f"KODI_LAB_BROKER_IMAGE={document['application']['images']['broker']['saved_image_id']}\n"
         "KODI_LAB_PUBLISHED_PORT=18100\n"
+        "KODI_LAB_REPOSITORY_BIND=192.168.50.10\n"
+        "KODI_LAB_REPOSITORY_PORT=18120\n"
+        "KODI_LAB_REPOSITORY_BASE_URL=http://192.168.50.10:18120\n"
+        f"KODI_LAB_REPOSITORY_BUNDLE_SHA256={_bundle_hash(bundle)}\n"
     )
     installed_tool = runpy.run_path(str(bundle / "linux-v1-bundle"))
     installed_tool["configure_development_source"](bundle, str(source))
@@ -314,6 +363,10 @@ def test_bundle_rejects_removed_or_relinked_development_directory(
         f"KODI_LAB_REMOTE_IMAGE={document['application']['images']['web']['saved_image_id']}\n"
         f"KODI_LAB_BROKER_IMAGE={document['application']['images']['broker']['saved_image_id']}\n"
         "KODI_LAB_PUBLISHED_PORT=18100\n"
+        "KODI_LAB_REPOSITORY_BIND=192.168.50.10\n"
+        "KODI_LAB_REPOSITORY_PORT=18120\n"
+        "KODI_LAB_REPOSITORY_BASE_URL=http://192.168.50.10:18120\n"
+        f"KODI_LAB_REPOSITORY_BUNDLE_SHA256={_bundle_hash(bundle)}\n"
         f"KODI_LAB_DEVELOPMENT_SOURCE='{source}'\n"
     )
     assert verify(bundle)
@@ -335,6 +388,10 @@ def test_bundle_rejects_malformed_local_development_source(
         f"KODI_LAB_REMOTE_IMAGE={document['application']['images']['web']['saved_image_id']}\n"
         f"KODI_LAB_BROKER_IMAGE={document['application']['images']['broker']['saved_image_id']}\n"
         "KODI_LAB_PUBLISHED_PORT=18100\n"
+        "KODI_LAB_REPOSITORY_BIND=192.168.50.10\n"
+        "KODI_LAB_REPOSITORY_PORT=18120\n"
+        "KODI_LAB_REPOSITORY_BASE_URL=http://192.168.50.10:18120\n"
+        f"KODI_LAB_REPOSITORY_BUNDLE_SHA256={_bundle_hash(bundle)}\n"
         f"KODI_LAB_DEVELOPMENT_SOURCE='{source}'\n"
     )
     with pytest.raises(ValueError, match="development source"):

@@ -2759,3 +2759,16 @@ distributed files. The installer selects exact loaded application image IDs
 in `.env`; reviewed wheel recipes and validated acquisition evidence govern
 runtime eligibility. Exact-candidate acceptance and publication remain
 separate gates. See `LINUX-V1-RELEASE.md`.
+
+## Stable Kodi repository distribution
+
+The installed candidate carries the reviewed bridge ZIP, a fixed stable
+manifest, a deterministic repository-add-on generator, and a dedicated static
+server entry point. At install time the operator selects a persistent LAN URL;
+the generator publishes a complete generation into a separate repository-data
+volume and records per-install provenance. The static service mounts only that
+volume read-only and serves the exact `/install/` and `/stable/` distribution
+routes with GET/HEAD. Administrative Web stays on loopback and reads only the
+public provenance/status view. The future opt-in development feed will reuse
+validated generation and serving primitives under a separate origin and
+publication authority. See D-0384.

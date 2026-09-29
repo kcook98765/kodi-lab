@@ -15,6 +15,9 @@ services:
       - no-new-privileges:true
     environment:
       KODI_LAB_WEB_ALLOWED_HOSTS: '["127.0.0.1"]'
+      KODI_LAB_REPOSITORY_BASE_URL: ${KODI_LAB_REPOSITORY_BASE_URL:?configure repository first}
+      KODI_LAB_REPOSITORY_DATA_ROOT: /srv/kodi-lab-repository
+      KODI_LAB_REPOSITORY_BUNDLE_SHA256: ${KODI_LAB_REPOSITORY_BUNDLE_SHA256:?configure repository first}
     ports:
       - "127.0.0.1:${KODI_LAB_PUBLISHED_PORT:-18100}:8100"
     healthcheck:
@@ -30,6 +33,49 @@ services:
     volumes:
       - remote_state:/var/lib/kodi-lab
       - broker_socket:/run/kodi-lab:ro
+      - repository_data:/srv/kodi-lab-repository:ro
+
+  repository:
+    # The process listens inside its isolated container namespace. Host
+    # publication is restricted to the explicit private-LAN address below.
+    image: ${KODI_LAB_REMOTE_IMAGE:?run linux-v1-bundle configure first}
+    entrypoint: [kodi-lab-repository]
+    command: [serve]
+    init: true
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      KODI_LAB_REPOSITORY_DATA_ROOT: /srv/kodi-lab-repository
+      KODI_LAB_REPOSITORY_BASE_URL: ${KODI_LAB_REPOSITORY_BASE_URL:?configure repository first}
+      KODI_LAB_REPOSITORY_BUNDLE_SHA256: ${KODI_LAB_REPOSITORY_BUNDLE_SHA256:?configure repository first}
+    ports:
+      - "${KODI_LAB_REPOSITORY_BIND:?explicit private LAN bind required}:${KODI_LAB_REPOSITORY_PORT:?repository port required}:8110"
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8110/health', timeout=2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - repository_data:/srv/kodi-lab-repository:ro
+
+  repository-init:
+    profiles: [repository-init]
+    image: ${KODI_LAB_REMOTE_IMAGE:?run linux-v1-bundle configure first}
+    entrypoint: [kodi-lab-repository]
+    command: [generate]
+    network_mode: none
+    read_only: true
+    user: "0:0"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      KODI_LAB_REPOSITORY_BASE_URL: ${KODI_LAB_REPOSITORY_BASE_URL:?configure repository first}
+    volumes:
+      - ./:/candidate:ro
+      - repository_data:/srv/kodi-lab-repository
 
   broker:
     profiles:
@@ -61,3 +107,4 @@ services:
 volumes:
   remote_state:
   broker_socket:
+  repository_data:
