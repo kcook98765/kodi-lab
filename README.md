@@ -40,17 +40,16 @@ The supported development host baseline is Python 3.12 on Ubuntu 24.04.
 
 ```console
 uv sync --dev
-./scripts/check-smoke
-./scripts/check-fast
-./scripts/check
+./scripts/check-focused tests/runtime/test_manifest.py
+./scripts/check-integration --focused tests/runtime/test_manifest.py --integration tests/runtime/test_distribution.py
+./scripts/check  # release coverage only
 ```
 
-`./scripts/check-smoke` is the inner-loop lane: static checks plus a deliberately
-selected representative pytest core. `./scripts/check-fast` is the broader
-sub-slice gate and skips only tests marked `slow`. `./scripts/check` remains the
-complete authoritative milestone, pre-commit, and final gate. Passing smoke or
-fast does not substitute for the full gate when a milestone requires it.
-Migration fixture design and performance policy are documented in
+The focused command is the default for ordinary changes; select every new or
+materially changed test file and its affected subsystem. Use integration when
+real subsystem interaction warrants it. `./scripts/check` is the complete
+release gate and is not mandatory for every task. The selection rules and
+measured costs are in [CONTRIBUTING.md](CONTRIBUTING.md) and
 [docs/TEST-PERFORMANCE.md](docs/TEST-PERFORMANCE.md).
 
 For optional local path overrides, copy `.env.example` to `.env` and edit the

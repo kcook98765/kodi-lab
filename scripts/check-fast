@@ -38,4 +38,4 @@ run_check "Ruff lint" uv run --locked ruff check .
 run_check "mypy" uv run --locked mypy src tests migrations
 run_check "Alembic heads" uv run --locked alembic heads
 
-printf '\nFast development checks passed. Run ./scripts/check for the full gate.\n'
+printf '\nBroad non-slow checks passed. Select the next validation level in CONTRIBUTING.md.\n'

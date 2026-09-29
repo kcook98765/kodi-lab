@@ -1,9 +1,9 @@
 # Test performance and database fixtures
 
-`./scripts/check` remains the authoritative gate. It runs the complete pytest
+`./scripts/check` remains the complete RELEASE gate. It runs the full pytest
 suite, Ruff formatting and linting, strict mypy, package build, Alembic history,
-and the package/configuration import. Performance work must not remove, skip, or
-make any part of that gate optional.
+and the package/configuration import. Its coverage remains intact, while ordinary
+tasks may finish at FOCUSED or INTEGRATION without invoking the full gate.
 
 The gate keeps ordinary pytest temporary files on `/dev/shm` when at least 1 GiB
 is available. Snapshot publication tests use a separate private, run-owned
@@ -73,11 +73,52 @@ database initialization was changed in this pass. A shared current-head template
 for non-migration application tests remains a possible future optimization, but
 the present improvement does not justify adding that extra fixture layer.
 
+## Idle-host baseline (2026-09-28)
+
+With the four legacy Kodi containers and two disposable current development
+containers stopped, one pytest run collected **2,668 tests in 165 files** and
+passed in **521.60 seconds** of pytest time (**542.31 seconds** end to end with
+`uv run`, verbose output, and duration reporting). The 99 `slow` cases were all
+in `tests/storage/test_migrations.py` and consumed **37.20 seconds** of reported
+test phases. Excluding that marker alone would save only about seven percent of
+the suite's time.
+
+Reported test phases totaled 510.49 seconds: 335.84 call, 159.95 setup, and
+14.70 teardown. The largest file groups were Web 174.95 seconds, application
+166.64 seconds, storage 83.69 seconds, broker 32.05 seconds, Kodi adapters
+25.57 seconds, and packaging 11.95 seconds. Migration tests were 37.20 seconds;
+remote lifecycle storage tests were 41.34 seconds. Screenshot-named tests
+accounted for 24.50 seconds, and the related live-display file for 27.04
+seconds. These file/name sums overlap; they are selection guides, not additive
+cost categories.
+
+Available RAM stayed above 8.69 GB during the run. The observer recorded no
+Docker events, new containers, DinD, live Kodi, image build, or pull. Pytest
+used roughly one CPU core and peaked near 1.60 GB RSS. The isolated pytest
+basetemp briefly used about 2.2 GB of `/dev/shm` and was removed afterward.
+The prior long release-migration workflow also ran several cold acquisitions,
+clean-host/recovery checks, repeated bundle staging, and five full-gate attempts;
+its total duration should not be attributed to pytest alone.
+
+The five gate attempts in that workflow took approximately **84 minutes**:
+15m02s and 40m01s timed out while disposable Docker daemons remained active,
+one near-complete run found a mypy error, then two clean passes took 9m44s and
+9m39s. The last clean pass spent 9m34s in its pytest stage, leaving about five
+seconds for Ruff, mypy, build, Alembic history, and import combined. On the
+exact final bundle, cold Matrix, Nexus, and Omega acquisition took 175, 178,
+and 201 seconds respectively (**9m14s** total). The prior workflow repeated
+acquisition and clean-host acceptance on several candidates; those costs
+overlap and are separate from the pytest suite.
+
 ## Development and future tuning policy
 
-Use the narrow affected pytest module while editing, `./scripts/check-smoke` for
-the inner loop, and `./scripts/check-fast` for a broader sub-slice gate. Run
-`./scripts/check` after the final content change and before committing.
+Use `./scripts/check-focused` by default with each new/materially changed test
+file and directly affected subsystem paths. Use `./scripts/check-integration`
+only for actual subsystem interaction. Run `./scripts/check` once on settled
+bytes when RELEASE coverage is warranted; it is not a routine pre-commit
+requirement. Keep live Kodi, DinD, cold acquisition, and other heavy acceptance
+out of the full-gate window. The exact escalation and runtime selection policy
+is in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 Do not add `pytest-xdist` to any gate without a separate isolation review.
 Likely blockers include process-global environment mutation, fixed socket and

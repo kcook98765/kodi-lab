@@ -63,4 +63,4 @@ run_check \
     "pytest (smoke core)" \
     uv run --locked pytest --basetemp "$pytest_tmpdir" "${smoke_tests[@]}"
 
-printf '\nSmoke checks passed. Run ./scripts/check-fast for the sub-slice gate.\n'
+printf '\nSmoke checks passed. Select the next validation level in CONTRIBUTING.md.\n'
