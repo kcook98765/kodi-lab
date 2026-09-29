@@ -4654,6 +4654,36 @@ class RuntimeRecipeInstallationRepository:
         self._session.flush()
         return row
 
+    def create_failed_before_start(
+        self,
+        *,
+        operation_id: UUID,
+        recipe_id: str,
+        recipe_revision: int,
+        recipe_digest: str,
+        generation: str,
+        code: str,
+        now: datetime,
+    ) -> RuntimeRecipeInstallationRow:
+        """Record an accepted worker that failed before it could enter pending."""
+
+        timestamp = _timestamp_to_text(now)
+        row = RuntimeRecipeInstallationRow(
+            id=str(operation_id),
+            recipe_id=recipe_id,
+            recipe_revision=recipe_revision,
+            recipe_digest=recipe_digest,
+            generation=generation,
+            state=RuntimeRecipeInstallationState.FAILED,
+            created_at=timestamp,
+            updated_at=timestamp,
+            completed_at=timestamp,
+            failure_code=code,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return row
+
     def get(self, operation_id: UUID) -> RuntimeRecipeInstallationRow | None:
         return self._session.get(RuntimeRecipeInstallationRow, str(operation_id))
 

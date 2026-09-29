@@ -183,6 +183,7 @@ def test_capabilities_reports_exact_semantic_operations() -> None:
         )
     )
     assert result.model_dump(mode="json")["operations"] == [
+        "active_reviewed_runtime_installation",
         "apply_addon_zip_installation",
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",
@@ -198,12 +199,15 @@ def test_capabilities_reports_exact_semantic_operations() -> None:
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
         "inspect_repository_replacement",
+        "launch_reviewed_runtime_installation",
         "managed_container_inventory",
         "observe_addon_zip_destination",
         "observe_managed_kodi_runtime",
+        "observe_reviewed_runtime_installation",
         "ping",
         "provision_managed_container",
         "read_promotion_kodi_log_window",
+        "reviewed_runtime_image_present",
         "start_managed_container",
         "stop_managed_container",
         "verify_addon_zip_enablement_destination",
@@ -298,6 +302,7 @@ def test_success_audit_contains_count_not_inventory_data(
 def test_registry_has_no_generic_docker_or_execution_operation() -> None:
     names = build_foundation_registry(FakeInventoryProvider()).names
     assert names == (
+        "active_reviewed_runtime_installation",
         "apply_addon_zip_installation",
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",
@@ -313,12 +318,15 @@ def test_registry_has_no_generic_docker_or_execution_operation() -> None:
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
         "inspect_repository_replacement",
+        "launch_reviewed_runtime_installation",
         "managed_container_inventory",
         "observe_addon_zip_destination",
         "observe_managed_kodi_runtime",
+        "observe_reviewed_runtime_installation",
         "ping",
         "provision_managed_container",
         "read_promotion_kodi_log_window",
+        "reviewed_runtime_image_present",
         "start_managed_container",
         "stop_managed_container",
         "verify_addon_zip_enablement_destination",

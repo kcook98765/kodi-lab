@@ -2708,6 +2708,26 @@ stop/start, and reobservation after Web/broker recreation. Kodi 22 Beta 2 uses
 an audited configuration-only `MyVideos149.db` fixture seed and an exact
 fixture-adapter release gate; no generic Preview relaxation was added.
 
+## Reviewed runtime Web installation
+
+The `/runtimes` page offers only Matrix 19.4, Nexus 20.5, and Omega 21.3 for
+local installation. The authenticated Web API accepts a generation with an
+empty body and creates a semantic UUID. The broker alone derives and launches
+the installed one-shot `kodi-lab-runtime install` worker. Its image is the
+running broker's exact installed image, and its state and lock mounts are the
+broker's named volumes. Only this temporary worker receives Docker socket
+access and `SETUID`/`SETGID`; Web and the long-running broker capability sets
+are unchanged. The worker has a fixed command, no own network, and no caller
+Docker inputs.
+
+The existing installation rows provide phases and terminal evidence. The
+broker observes exact worker identity and the global installer lock to
+reconcile interrupted rows without elapsed-time guesses. Ready presentation
+also requires existing revision eligibility and broker-verified exact image
+presence. Reacquisition may create a new revision but never rewrites a managed
+instance's prior exact pin. The installer continues to bootstrap a stopped
+managed instance without provisioning or starting Kodi. See D-0380.
+
 ## Linux amd64 V1 release artifact boundary
 
 The local `1.0.0rc1` candidate packages the committed source tar, installed

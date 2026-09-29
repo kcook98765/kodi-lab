@@ -9,7 +9,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -319,6 +319,15 @@ from kodi_lab.application.reset_operations import (
 from kodi_lab.application.reset_status import (
     ManagedInstanceResetStatus,
     ResetStatusService,
+)
+from kodi_lab.application.runtime_installations import (
+    GENERATIONS as REVIEWED_INSTALL_GENERATIONS,
+)
+from kodi_lab.application.runtime_installations import (
+    RuntimeInstallationActionConflict,
+    RuntimeInstallationBusy,
+    RuntimeInstallationService,
+    RuntimeInstallationUnavailable,
 )
 from kodi_lab.application.runtime_lifecycle import (
     LifecycleConflictError,
@@ -1825,6 +1834,9 @@ def create_app(
         openapi_url=None,
         lifespan=lifespan,
     )
+    runtime_installations = RuntimeInstallationService(
+        session_factory, broker, data_root=settings.data_root
+    )
     app.state.kodi_lab = context
     app.add_middleware(
         TrustedHostMiddleware,
@@ -2718,7 +2730,7 @@ def create_app(
         include_prerelease: Literal["false", "true"] = "false",
     ) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         matrix = context.matrix.list_matrix(
@@ -2728,8 +2740,63 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "runtimes.html",
-            {"matrix": matrix},
+            {
+                "matrix": matrix,
+                "installations": runtime_installations.list(),
+                "csrf_token": authenticated.csrf_token,
+            },
         )
+
+    @app.get("/api/runtime-installations")
+    def list_runtime_installations(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> dict[str, object]:
+        return {
+            "installations": [asdict(item) for item in runtime_installations.list()]
+        }
+
+    @app.get("/api/runtime-installations/{operation_id}")
+    def get_runtime_installation(
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> dict[str, object]:
+        try:
+            item = runtime_installations.get(operation_id)
+        except RuntimeInstallationUnavailable as error:
+            raise HTTPException(
+                status_code=503, detail="installation_unavailable"
+            ) from error
+        if item is None:
+            raise HTTPException(status_code=404, detail="installation_not_found")
+        return asdict(item)
+
+    @app.post("/api/runtime-installations/{generation}")
+    async def start_runtime_installation(
+        request: Request,
+        generation: str,
+        action: Literal["install", "retry", "reacquire"] = "install",
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> JSONResponse:
+        if generation not in REVIEWED_INSTALL_GENERATIONS:
+            raise HTTPException(status_code=404, detail="generation_not_supported")
+        if await request.body():
+            raise HTTPException(status_code=400, detail="request_body_must_be_empty")
+        try:
+            item = runtime_installations.start(
+                generation,
+                action=action,
+            )
+        except RuntimeInstallationBusy as error:
+            raise HTTPException(status_code=409, detail="installation_busy") from error
+        except RuntimeInstallationActionConflict as error:
+            raise HTTPException(
+                status_code=409, detail="installation_action_conflict"
+            ) from error
+        except RuntimeInstallationUnavailable as error:
+            raise HTTPException(
+                status_code=503, detail="installation_unavailable"
+            ) from error
+        return JSONResponse(asdict(item), status_code=202)
 
     @app.get("/development-sources", response_class=HTMLResponse)
     async def development_source_list_page(request: Request) -> Response:

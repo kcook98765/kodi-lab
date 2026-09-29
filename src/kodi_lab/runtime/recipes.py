@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from importlib import resources
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -190,6 +190,18 @@ class ReviewedRecipe:
     reference: str
     assets: dict[str, bytes]
     raw: bytes
+
+
+_TARGET_NAMESPACE = UUID("dc264ebb-d7c8-4ea7-8d54-77d5e7624e09")
+
+
+def recipe_target_id(reviewed: ReviewedRecipe) -> UUID:
+    """A new exact Kodi release gets a new target; old instance pins survive."""
+
+    recipe = reviewed.recipe
+    return uuid5(
+        _TARGET_NAMESPACE, f"managed-{recipe.generation}-{recipe.kodi_version}"
+    )
 
 
 def supported_generations() -> tuple[str, ...]:

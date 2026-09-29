@@ -4898,3 +4898,34 @@ approvals atomically with the governing revision transition.
   JSON-RPC 12, Python 3.10, and MyVideos119 in the accepted images. Nexus's
   synthetic Python add-on executed after normal ZIP installation and enablement.
   Omega remains a separate package, fixture, and live-validation review task.
+
+## D-0380: Closed reviewed-runtime Web installation worker
+
+- The normal `/runtimes` choices are exactly Matrix 19.4, Nexus 20.5, and
+  Omega 21.3. Authenticated Web can request a generation and semantic operation
+  UUID only. The broker derives the running installed broker image ID, the
+  exact state and socket volume names, a fixed `kodi-lab-runtime install`
+  command, and a deterministic worker name. It accepts no Docker image,
+  command, mount, capability, package, URL, or network input from Web.
+- The one-shot worker mounts the shared state and lock volumes and the Docker
+  socket, runs without its own network, uses a read-only root filesystem, and
+  receives only temporary `SETUID` and `SETGID` capabilities to preserve the
+  existing state-owner SQLite transaction model. The long-running broker and
+  Web Compose capability and mount sets are unchanged. The worker's UUID,
+  generation, image ID, and resource identity are sealed in ownership labels;
+  observation verifies these plus its fixed execution and mount contract.
+- Broker admission refuses another running reviewed worker or a held global
+  acquisition lock. Web first checks durable active rows, returning an active
+  same-generation attempt or a semantic busy response for another generation.
+  The existing worker file lock remains authoritative when an independent CLI
+  installer races Web. A stopped or missing exact worker and a free lock permit
+  durable interruption reconciliation without an elapsed-time failure rule.
+- The existing installation table and phase states are sufficient; there is no
+  jobs table or migration. A ready row is presented as Ready only while the
+  existing eligibility policy verifies its approved revision and HMAC-bound
+  evidence and the broker verifies its exact reviewed image remains present.
+  Missing image bytes require explicit Reacquire. Existing managed-instance
+  revision pins are never changed by reacquisition; the page links to the
+  existing instance and says when it retains a previous exact revision.
+  Successful acquisition keeps the installer's stopped-instance bootstrap
+  behavior and does not start Kodi.

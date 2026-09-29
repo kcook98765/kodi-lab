@@ -34,3 +34,25 @@ dd { margin: 0; }
 .instance-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .managed-screenshot { display: block; width: min(100%, 1280px); height: auto; border: 1px solid #9ca3af; background: #111827; pointer-events: none; user-select: none; }
 .live-display { margin-top: 1rem; }
+.runtime-install-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 2rem;
+}
+
+.runtime-install-card {
+  border: 1px solid #777;
+  border-radius: 0.4rem;
+  padding: 1rem;
+}
+
+.runtime-install-card h2 { margin-top: 0; }
+.runtime-install-phase { font-weight: 600; }
+.runtime-install-message:empty { display: none; }
+.runtime-install-note:empty { display: none; }
+.runtime-install-card details { margin-top: 1rem; }
+.runtime-install-card dl { overflow-wrap: anywhere; }
+.runtime-install-card dt { font-weight: 600; }
+.runtime-install-card dd { margin: 0 0 0.5rem; }
+.runtime-matrix-details { margin-top: 2rem; }

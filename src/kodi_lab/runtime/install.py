@@ -11,7 +11,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import UUID, uuid4, uuid5
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -54,6 +54,7 @@ from kodi_lab.runtime.recipes import (
     ReviewedRecipe,
     load_reviewed_recipe,
 )
+from kodi_lab.runtime.recipes import recipe_target_id as recipe_target_id
 from kodi_lab.runtime.validation import ValidationResult, validate_reviewed_image
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
@@ -67,8 +68,6 @@ from kodi_lab.storage.repositories import (
     TargetRepository,
 )
 
-_NAMESPACE = UUID("dc264ebb-d7c8-4ea7-8d54-77d5e7624e09")
-
 
 class RecipeInstallationError(RuntimeError):
     """The reviewed installation cannot safely proceed or be committed."""
@@ -80,13 +79,6 @@ class InstallOutcome:
     runtime_revision_id: UUID
     image_id: str
     reused: bool
-
-
-def recipe_target_id(reviewed: ReviewedRecipe) -> UUID:
-    """A new exact Kodi release gets a new target; old instance pins survive."""
-
-    recipe = reviewed.recipe
-    return uuid5(_NAMESPACE, f"managed-{recipe.generation}-{recipe.kodi_version}")
 
 
 def _canonical_json(value: object, *, maximum: int) -> str:
@@ -182,6 +174,51 @@ def _fail(
             operation_id, code=code, now=datetime.now(UTC)
         )
     return {"state": "failed"}
+
+
+def _record_early_failure(
+    factory: sessionmaker[Session], reviewed: ReviewedRecipe, operation_id: UUID
+) -> dict[str, str]:
+    """Keep a broker-accepted attempt visible if startup fails before pending."""
+
+    with factory.begin() as session:
+        repo = RuntimeRecipeInstallationRepository(session)
+        existing = repo.get(operation_id)
+        now = datetime.now(UTC)
+        if existing is None:
+            repo.create_failed_before_start(
+                operation_id=operation_id,
+                recipe_id=reviewed.recipe.recipe_id,
+                recipe_revision=reviewed.recipe.recipe_revision,
+                recipe_digest=reviewed.digest,
+                generation=reviewed.recipe.generation,
+                code="installation_failed",
+                now=now,
+            )
+        elif existing.state not in (
+            RuntimeRecipeInstallationState.READY,
+            RuntimeRecipeInstallationState.FAILED,
+        ):
+            repo.fail(operation_id, code="installation_failed", now=now)
+    return {"state": "failed"}
+
+
+@contextmanager
+def _record_worker_start_failure(
+    settings: Settings, reviewed: ReviewedRecipe, operation_id: UUID | None
+) -> Iterator[None]:
+    try:
+        yield
+    except Exception:
+        if operation_id is not None:
+            with suppress(Exception):
+                _database_call(
+                    settings,
+                    lambda factory: _record_early_failure(
+                        factory, reviewed, operation_id
+                    ),
+                )
+        raise
 
 
 def _ready_installation(
@@ -502,11 +539,15 @@ def install_reviewed_runtime(
     *,
     settings: Settings,
     report: Callable[[str], None] = print,
+    operation_id: UUID | None = None,
 ) -> InstallOutcome:
     """Install or ensure one reviewed generation through exact local evidence."""
 
     reviewed = load_reviewed_recipe(generation)
-    with _installation_lock(settings.runtime_root):
+    with (
+        _record_worker_start_failure(settings, reviewed, operation_id),
+        _installation_lock(settings.runtime_root),
+    ):
         import docker
 
         network_client = docker.from_env(timeout=30)
@@ -528,7 +569,7 @@ def install_reviewed_runtime(
             return InstallOutcome(
                 UUID(prior["operation_id"]), revision_id, prior["image_id"], True
             )
-        operation_id = uuid4()
+        operation_id = operation_id or uuid4()
         _database_call(
             settings,
             lambda factory: _create_operation(factory, reviewed, operation_id),

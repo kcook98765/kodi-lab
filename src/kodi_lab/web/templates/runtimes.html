@@ -3,17 +3,47 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Curated runtime matrix · Kodi Lab</title>
+    <title>Reviewed runtimes · Kodi Lab</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <script src="{{ url_for('static', path='/runtime-installations.js') }}" defer></script>
   </head>
   <body>
     <header>
       <div>
-        <h1>Curated runtime matrix</h1>
+        <h1>Reviewed runtimes</h1>
         <a href="/">Managed instances</a>
       </div>
     </header>
     <main>
+      <p class="notice">Installation downloads packages and may use several GB of Docker storage while building.</p>
+      <div class="runtime-install-grid" data-runtime-installations>
+        {% for item in installations %}
+        <section class="runtime-install-card" data-generation="{{ item.generation }}" data-state="{{ item.status }}">
+          <h2>{{ item.display_name }}</h2>
+          <p class="secondary">{{ item.version }}</p>
+          <p class="runtime-install-phase" aria-live="polite">{{ item.phase }}</p>
+          <p class="runtime-install-message">{{ item.failure_message or '' }}</p>
+          <p class="runtime-install-note">{{ item.note or '' }}</p>
+          <div class="runtime-install-action">
+            {% if item.action == 'open' %}<a href="{{ item.managed_instance_url }}">Open managed instance</a>
+            {% elif item.action in ('install', 'retry', 'reacquire') %}<button type="button" data-install-action="{{ item.action }}">{{ item.action|capitalize }}</button>{% endif %}
+          </div>
+          {% if item.technical_details %}
+          <details>
+            <summary>Technical details</summary>
+            <dl>
+              {% for label, value in item.technical_details.items() %}
+              {% if value %}<dt>{{ label|replace('_', ' ')|capitalize }}</dt><dd>{{ value }}</dd>{% endif %}
+              {% endfor %}
+            </dl>
+          </details>
+          {% endif %}
+        </section>
+        {% endfor %}
+      </div>
+      <details class="runtime-matrix-details">
+        <summary>Curated runtime matrix · Technical details</summary>
       <form method="get" action="/runtimes" class="matrix-filters">
         <label><input type="checkbox" name="include_legacy" value="true" {% if matrix.include_legacy %}checked{% endif %}> Include Legacy</label>
         <label><input type="checkbox" name="include_prerelease" value="true" {% if matrix.include_prerelease %}checked{% endif %}> Include Pre-release</label>
@@ -43,6 +73,7 @@
           </tbody>
         </table>
       </div>
+      </details>
     </main>
   </body>
 </html>

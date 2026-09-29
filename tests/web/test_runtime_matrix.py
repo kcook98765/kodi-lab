@@ -323,7 +323,7 @@ def test_matrix_html_is_explicit_and_omits_backend_authority(
             assert text in page.text
         for forbidden in (IMAGE_ID, "evidence_reference", "source_reference"):
             assert forbidden not in page.text
-        assert "Curated runtime matrix" in client.get("/").text
+        assert "Reviewed runtimes" in client.get("/").text
 
 
 def test_target_selection_preview_is_exact_and_server_resolved(

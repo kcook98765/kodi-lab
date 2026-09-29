@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
 from typing import Any
-from uuid import uuid5
+from uuid import UUID, uuid5
 
 from docker.errors import DockerException  # type: ignore[import-untyped]
 from pydantic import ValidationError
@@ -441,6 +441,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from kodi_lab.runtime.recipes import supported_generations
 
     install_command.add_argument("generation", choices=supported_generations())
+    install_command.add_argument("--operation-id", type=UUID, default=None)
     commands.add_parser("verify", help="verify all exact local Docker images")
     load_command = commands.add_parser("load", help="verify and load one archive")
     load_command.add_argument("name", choices=RUNTIME_NAMES)
@@ -484,6 +485,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 installed = install_reviewed_runtime(
                     arguments.generation,
                     settings=settings,
+                    operation_id=arguments.operation_id,
                     report=lambda state: print(
                         f"{arguments.generation}: {state}", flush=True
                     ),

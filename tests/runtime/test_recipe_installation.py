@@ -3,6 +3,8 @@
 import base64
 import json
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,12 +30,14 @@ from kodi_lab.runtime.attestation_integrity import (
     installed_package_digest,
 )
 from kodi_lab.runtime.install import (
+    RecipeInstallationError,
     _advance,
     _commit_ready,
     _create_operation,
     _fail,
     _ready_installation,
     bootstrap_recipe_instance,
+    install_reviewed_runtime,
     recipe_target_id,
 )
 from kodi_lab.runtime.lab import LabWorkflowError, repin_reviewed_runtime
@@ -55,6 +59,34 @@ from kodi_lab.storage.repositories import (
 )
 
 IMAGE = "sha256:" + "a" * 64
+
+
+def test_broker_accepted_worker_failure_before_pending_is_durable(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    operation_id = uuid4()
+
+    @contextmanager
+    def busy_lock(_path: Path) -> Iterator[None]:
+        raise RecipeInstallationError("another runtime installation is active")
+        yield
+
+    monkeypatch.setattr("kodi_lab.runtime.install._installation_lock", busy_lock)
+    monkeypatch.setattr(
+        "kodi_lab.runtime.install._database_call",
+        lambda _settings, action: action(factory),
+    )
+    with pytest.raises(RecipeInstallationError):
+        install_reviewed_runtime(
+            "matrix",
+            settings=Settings(runtime_root=tmp_path / "lock"),
+            operation_id=operation_id,
+        )
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation_id)
+        assert row is not None
+        assert row.state.value == "failed"
+        assert row.failure_code == "installation_failed"
 
 
 @pytest.fixture

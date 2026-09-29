@@ -93,6 +93,12 @@ from kodi_lab.broker.operations import (
     ProvisionManagedContainerResult,
     ReadPromotionKodiLogWindowParams,
     ReadPromotionKodiLogWindowResult,
+    ReviewedInstallationActiveResult,
+    ReviewedInstallationIdParams,
+    ReviewedInstallationImageResult,
+    ReviewedInstallationLaunchParams,
+    ReviewedInstallationLaunchResult,
+    ReviewedInstallationWorkerResult,
     StartManagedContainerParams,
     StartManagedContainerResult,
     StopManagedContainerParams,
@@ -163,6 +169,47 @@ class BrokerClient:
         """Return the exact allowlisted operation names."""
 
         return self._call("capabilities", EmptyParams(), CapabilitiesResult)
+
+    def active_reviewed_runtime_installation(self) -> ReviewedInstallationActiveResult:
+        return self._call(
+            "active_reviewed_runtime_installation",
+            EmptyParams(),
+            ReviewedInstallationActiveResult,
+        )
+
+    def launch_reviewed_runtime_installation(
+        self,
+        *,
+        generation: Literal["matrix", "nexus", "omega"],
+        operation_id: str,
+    ) -> ReviewedInstallationLaunchResult:
+        params = ReviewedInstallationLaunchParams(
+            generation=generation, operation_id=operation_id
+        )
+        return self._call(
+            "launch_reviewed_runtime_installation",
+            params,
+            ReviewedInstallationLaunchResult,
+            response_timeout=30.0,
+        )
+
+    def observe_reviewed_runtime_installation(
+        self, operation_id: str
+    ) -> ReviewedInstallationWorkerResult:
+        return self._call(
+            "observe_reviewed_runtime_installation",
+            ReviewedInstallationIdParams(operation_id=operation_id),
+            ReviewedInstallationWorkerResult,
+        )
+
+    def reviewed_runtime_image_present(
+        self, operation_id: str
+    ) -> ReviewedInstallationImageResult:
+        return self._call(
+            "reviewed_runtime_image_present",
+            ReviewedInstallationIdParams(operation_id=operation_id),
+            ReviewedInstallationImageResult,
+        )
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         """Return only bounded, exactly labelled Kodi Lab container records."""

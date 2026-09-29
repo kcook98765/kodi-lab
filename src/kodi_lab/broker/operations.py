@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network
 from typing import Literal, TypeVar, cast
+from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
@@ -110,6 +111,11 @@ from kodi_lab.broker.provisioning import (
     SqliteProvisioningResolver,
     SqliteRuntimeObservationResolver,
 )
+from kodi_lab.broker.reviewed_installations import (
+    DockerReviewedInstallationWorker,
+    ReviewedWorkerBusy,
+    ReviewedWorkerError,
+)
 from kodi_lab.broker.screenshots import (
     DockerManagedScreenshotCaptureProvider,
     ManagedScreenshotCaptureProvider,
@@ -135,6 +141,52 @@ from kodi_lab.snapshot.storage import SnapshotArtifactDeletionError
 
 class EmptyParams(StrictModel):
     """An operation that accepts no caller-controlled parameters."""
+
+
+class ReviewedInstallationLaunchParams(StrictModel):
+    generation: Literal["matrix", "nexus", "omega"]
+    operation_id: str
+
+    @field_validator("operation_id")
+    @classmethod
+    def _uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("operation identity must be canonical")
+        return value
+
+
+class ReviewedInstallationIdParams(StrictModel):
+    operation_id: str
+
+    @field_validator("operation_id")
+    @classmethod
+    def _uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("operation identity must be canonical")
+        return value
+
+
+class ReviewedInstallationLaunchResult(StrictModel):
+    operation_id: str
+    generation: Literal["matrix", "nexus", "omega"]
+    newly_accepted: bool
+
+
+class ReviewedInstallationActiveResult(StrictModel):
+    operation_id: str | None
+    generation: Literal["matrix", "nexus", "omega"] | None
+    lock_held: bool
+
+
+class ReviewedInstallationWorkerResult(StrictModel):
+    operation_id: str
+    state: Literal["running", "exited", "missing", "mismatch"]
+    lock_held: bool
+
+
+class ReviewedInstallationImageResult(StrictModel):
+    operation_id: str
+    present: bool
 
 
 class PromotionKodiLogParams(StrictModel):
@@ -1245,10 +1297,12 @@ def build_foundation_registry(
     addon_zip_installation_provider: AddonZipInstallationProvider | None = None,
     kodi_log_resolver: KodiLogAuthorityResolver | None = None,
     kodi_log_provider: KodiLogWindowProvider | None = None,
+    reviewed_installation_worker: DockerReviewedInstallationWorker | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
     registry = OperationRegistry()
+    reviewed_worker = reviewed_installation_worker or DockerReviewedInstallationWorker()
     provider = container_provider or DockerManagedContainerAdapter()
     resolver = provisioning_resolver or SqliteProvisioningResolver.production()
     provisioner = provisioning_provider or cast(
@@ -1323,6 +1377,106 @@ def build_foundation_registry(
         params_model=EmptyParams,
         result_model=BrokerInfoResult,
         handler=_broker_info,
+    )
+
+    def launch_reviewed_installation(
+        params: ReviewedInstallationLaunchParams,
+    ) -> ReviewedInstallationLaunchResult:
+        try:
+            accepted = reviewed_worker.launch(
+                params.generation, UUID(params.operation_id)
+            )
+        except ReviewedWorkerBusy as error:
+            raise OperationError(
+                "runtime_installation_busy", "Another runtime installation is active."
+            ) from error
+        except ReviewedWorkerError as error:
+            raise OperationError(
+                "runtime_installation_unavailable",
+                "Reviewed runtime installation is unavailable.",
+            ) from error
+        return ReviewedInstallationLaunchResult(
+            operation_id=params.operation_id,
+            generation=params.generation,
+            newly_accepted=accepted,
+        )
+
+    registry.register(
+        name="launch_reviewed_runtime_installation",
+        params_model=ReviewedInstallationLaunchParams,
+        result_model=ReviewedInstallationLaunchResult,
+        handler=launch_reviewed_installation,
+    )
+
+    def active_reviewed_installation(
+        _params: EmptyParams,
+    ) -> ReviewedInstallationActiveResult:
+        try:
+            active = reviewed_worker.active()
+            lock_held = reviewed_worker.lock_held()
+        except ReviewedWorkerError as error:
+            raise OperationError(
+                "runtime_installation_unavailable",
+                "Reviewed runtime installation is unavailable.",
+            ) from error
+        return ReviewedInstallationActiveResult(
+            operation_id=str(active[0]) if active else None,
+            generation=cast(
+                Literal["matrix", "nexus", "omega"] | None,
+                active[1] if active else None,
+            ),
+            lock_held=lock_held,
+        )
+
+    registry.register(
+        name="active_reviewed_runtime_installation",
+        params_model=EmptyParams,
+        result_model=ReviewedInstallationActiveResult,
+        handler=active_reviewed_installation,
+    )
+
+    def observe_reviewed_installation(
+        params: ReviewedInstallationIdParams,
+    ) -> ReviewedInstallationWorkerResult:
+        try:
+            observed = reviewed_worker.observe(UUID(params.operation_id))
+        except ReviewedWorkerError as error:
+            raise OperationError(
+                "runtime_installation_unavailable",
+                "Reviewed runtime installation is unavailable.",
+            ) from error
+        return ReviewedInstallationWorkerResult(
+            operation_id=params.operation_id,
+            state=observed.state,
+            lock_held=observed.lock_held,
+        )
+
+    registry.register(
+        name="observe_reviewed_runtime_installation",
+        params_model=ReviewedInstallationIdParams,
+        result_model=ReviewedInstallationWorkerResult,
+        handler=observe_reviewed_installation,
+    )
+
+    def reviewed_image_present(
+        params: ReviewedInstallationIdParams,
+    ) -> ReviewedInstallationImageResult:
+        try:
+            present = reviewed_worker.image_present(UUID(params.operation_id))
+        except ReviewedWorkerError as error:
+            raise OperationError(
+                "runtime_installation_unavailable",
+                "Reviewed runtime installation is unavailable.",
+            ) from error
+        return ReviewedInstallationImageResult(
+            operation_id=params.operation_id, present=present
+        )
+
+    registry.register(
+        name="reviewed_runtime_image_present",
+        params_model=ReviewedInstallationIdParams,
+        result_model=ReviewedInstallationImageResult,
+        handler=reviewed_image_present,
     )
 
     def capabilities(_params: EmptyParams) -> CapabilitiesResult:

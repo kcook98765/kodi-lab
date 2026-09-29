@@ -252,6 +252,7 @@ def test_capabilities_contains_exact_bounded_operation_set() -> None:
     provider = FakeContainerProvider()
     registry = build_foundation_registry(provider)
     assert registry.names == (
+        "active_reviewed_runtime_installation",
         "apply_addon_zip_installation",
         "apply_assigned_fixture",
         "apply_managed_instance_snapshot",
@@ -267,12 +268,15 @@ def test_capabilities_contains_exact_bounded_operation_set() -> None:
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
         "inspect_repository_replacement",
+        "launch_reviewed_runtime_installation",
         "managed_container_inventory",
         "observe_addon_zip_destination",
         "observe_managed_kodi_runtime",
+        "observe_reviewed_runtime_installation",
         "ping",
         "provision_managed_container",
         "read_promotion_kodi_log_window",
+        "reviewed_runtime_image_present",
         "start_managed_container",
         "stop_managed_container",
         "verify_addon_zip_enablement_destination",

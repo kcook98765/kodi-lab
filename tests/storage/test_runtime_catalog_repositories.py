@@ -15,15 +15,18 @@ from kodi_lab.domain import (
     ManagedInstance,
     RevisionApprovalState,
     RuntimeDefinition,
+    RuntimeRecipeInstallationState,
     RuntimeRevision,
     Target,
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.runtime.recipes import load_reviewed_recipe
 from kodi_lab.storage.models import RuntimeDefinitionRow, RuntimeRevisionRow
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeDefinitionRepository,
+    RuntimeRecipeInstallationRepository,
     RuntimeRevisionRepository,
     TargetRepository,
 )
@@ -33,6 +36,39 @@ BUILT_AT = datetime(2026, 9, 14, 12, 0, tzinfo=UTC)
 
 def make_definition(slug: str = "kodi-21.3") -> RuntimeDefinition:
     return RuntimeDefinition(id=uuid4(), slug=slug, kodi_version="21.3")
+
+
+def test_failed_worker_start_can_be_recorded_beside_active_cli_attempt(
+    db_session: Session,
+) -> None:
+    reviewed = load_reviewed_recipe("matrix")
+    repo = RuntimeRecipeInstallationRepository(db_session)
+    active_id = uuid4()
+    failed_id = uuid4()
+    repo.create(
+        operation_id=active_id,
+        recipe_id=reviewed.recipe.recipe_id,
+        recipe_revision=reviewed.recipe.recipe_revision,
+        recipe_digest=reviewed.digest,
+        generation="matrix",
+        now=BUILT_AT,
+    )
+    repo.create_failed_before_start(
+        operation_id=failed_id,
+        recipe_id=reviewed.recipe.recipe_id,
+        recipe_revision=reviewed.recipe.recipe_revision,
+        recipe_digest=reviewed.digest,
+        generation="matrix",
+        code="installation_failed",
+        now=BUILT_AT,
+    )
+    db_session.commit()
+    assert repo.get(active_id).state is RuntimeRecipeInstallationState.PENDING  # type: ignore[union-attr]
+    failed = repo.get(failed_id)
+    assert failed is not None
+    assert failed.state is RuntimeRecipeInstallationState.FAILED
+    assert failed.failure_code == "installation_failed"
+    assert failed.completed_at is not None
 
 
 def make_revision(
