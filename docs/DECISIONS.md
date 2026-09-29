@@ -4988,3 +4988,18 @@ approvals atomically with the governing revision transition.
 - The legacy long-token service/client methods remain for historical tests.
   Normal external-development and production Web routes no longer issue tokens
   or call `pair_bridge`.
+
+## D-0383: Closed bridge ZIP and local deployment candidate provenance
+
+- Bridge 1.1.13 keeps its accepted protocol 1 / `otp-1` behavior unchanged.
+  Packaging admits only the nine explicit tracked release files; incidental
+  source-directory files never enter the ZIP. ZIP paths, order, timestamps,
+  modes and compression are normalized by builder v2.
+- The local Linux amd64 candidate includes the bridge ZIP and `BRIDGE.json`.
+  The provenance binds the exact committed source, bridge Git subtree, builder,
+  file inventory, license and ZIP digest. `BUNDLE.json` binds that provenance
+  and ZIP to the application images and reviewed runtime recipes. Verification
+  checks both ZIP structure and bytes, not only a listed checksum.
+- The bridge is Kodi Lab's companion artifact. The bundle continues to exclude
+  Kodi binaries, packages and runtime image exports. This local candidate is
+  for extended server testing before any RC or public release decision.

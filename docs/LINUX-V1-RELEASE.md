@@ -1,9 +1,10 @@
-# Linux amd64 V1 release candidate contract
+# Linux amd64 V1 local deployment candidate contract
 
-The V1 bundle distributes Kodi Lab application images and three reviewed
-runtime recipes. It distributes no Kodi binaries. The candidate is local and
-unpublished. `BUNDLE.json` records the exact staged Git tree, application
-image identities, recipe metadata, and every distributed file. `SHA256SUMS`
+The V1 bundle distributes Kodi Lab application images, the reviewed bridge
+1.1.13 ZIP, and three reviewed runtime recipes. It distributes no Kodi binaries.
+The candidate is local and unpublished. `BUNDLE.json` records the exact source
+Git commit/tree, application image identities, bridge artifact identity, recipe
+metadata, and every distributed file. `SHA256SUMS`
 covers each distributed file except itself. A checksum from the same untrusted
 download checks integrity but does not establish publisher identity.
 
@@ -12,15 +13,16 @@ download checks integrity but does not establish publisher identity.
 | Application | `kodi-lab-application-images.tar` | Saved image IDs, OCI config IDs, linux/amd64 platform, installed package identity |
 | Deployment | `compose.release.yaml`, `compose.lab.yaml`, `compose.development.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs and may record one host source directory |
 | Reviewed runtime inputs | `runtime-recipes/matrix-19.4-r1.json`, `nexus-20.5-r1.json`, `omega-21.3-r1.json` | File hashes and installed wheel recipe digests; provider, suite, version |
+| Remote bridge | `bridge/service.kodi_lab_bridge-1.1.13.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
 | Verification | `BUNDLE.json`, `SHA256SUMS` | Canonical inventory and byte hashes |
-| Guidance | `LICENSE`, `THIRD_PARTY_NOTICES.md`, `INSTALL.md`, `RELEASE.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Exact file hashes |
+| Guidance | `LICENSE`, `THIRD_PARTY_NOTICES.md`, `INSTALL.md`, `RELEASE.md`, `PRODUCTION-OPERATIONS.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Exact file hashes |
 
 The wheel is built inside the pinned-base Docker multi-stage build and installed
 with locked dependencies. The bundle contains no source checkout at install
 time. The recorded Git tree, Dockerfile and lockfile digests, application export
 hash, and immutable image IDs identify the candidate; a reproducible-build
-claim is not made. The final publication commit must contain exactly the
-recorded Git tree. Release staging verifies that copied recipe bytes match the
+claim is not made. The local candidate's commit contains exactly the recorded
+Git tree. Staging verifies that copied recipe bytes match the
 installed wheel's reviewed recipe digests.
 
 The V1 set is Matrix 19.4 on Ubuntu Jammy, Nexus 20.5 on Ubuntu Noble, and
@@ -81,3 +83,4 @@ No earlier public V1 exists. Future publication requires separate approval,
 an authenticated channel for the accepted manifest digest, and verification of
 downloaded bytes. No independent signature or GitHub attestation is claimed
 for this local candidate.
+This candidate is for extended real server testing before any RC decision.

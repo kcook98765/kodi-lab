@@ -6,8 +6,9 @@ external-development targets and reviewed production targets. Installation is
 manual. After enabling the bridge, open **Pair Kodi Lab** in its settings to
 view the four-character code. The code lasts five minutes, can be replaced
 locally after a 30-second cooldown, and is never the normal request credential.
-The `otp-1` HTTP bootstrap protocol and Kodi Lab direct client are available
-for bounded native validation. The Web onboarding wizard is a later slice.
+The `otp-1` HTTP bootstrap protocol is used by the implemented Kodi Lab Web
+**Pair Kodi** workflow for external development targets and by the separate
+production target pairing form.
 Existing paired targets keep their credential and normal authenticated
 protocol. New bridge builds do not accept the old long-token bootstrap
 operation; older bridge builds retain their existing long-token client path.

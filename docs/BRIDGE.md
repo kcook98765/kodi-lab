@@ -6,8 +6,9 @@ models. It is not a generic Kodi control, file or lifecycle agent.
 ## External-development use
 
 For an approved `external_development` target, Web administration registers and
-native-verifies the target, creates a show-once token, performs possession
-pairing and explicitly confirms the observed bridge identity. Protocol 1 may
+native-verifies the target, submits the four-character code displayed in Kodi,
+performs `otp-1` pairing and confirms the authenticated bridge identity.
+Protocol 1 may
 advertise `screenshot` and `workspace_deployment`. Deployment is pathless and
 content-addressed for one exactly authorized workspace; fixed execution remains
 a closed native Kodi call. Source baseline establishment and ambiguous receipt
@@ -37,8 +38,8 @@ reverifies trust afterward. See [PRODUCTION-OPERATIONS.md](PRODUCTION-OPERATIONS
 
 ## Transport and screenshot privacy
 
-The bridge uses a fixed endpoint, target/bridge identity, mutual possession-
-derived secret, separately labelled HMAC keys, timestamp/nonce replay bounds
+The bridge uses a fixed endpoint, target/bridge identity, an independent random
+32-byte persistent credential, separately labelled HMAC keys, timestamp/nonce replay bounds
 and bounded durable replay identity. It accepts no caller path, URL, raw
 JSON-RPC method, shell command or lifecycle request.
 
@@ -48,38 +49,21 @@ durably retains no production pixels or raw bridge response. HTTP HMAC protects
 identity and integrity but not confidentiality; prefer normally validated
 HTTPS when pixels may be sensitive.
 
-## Release identity note
+## Local deployment candidate artifact
 
-The local 1.1.11 successor tightens Windows child-directory ACL assurance; see the
-[cross-platform assurance model](BRIDGE-SCREENSHOT-ASSURANCE.md). Historical
-1.1.8 fixture trust remains pinned to its exact reviewed bytes. The audited
-1.1.9 and 1.1.10 candidates were never published, registered, or installed as
-production builds. New behavior uses a new 1.1.11 identity. The successor is a local
-candidate and is not registered, installed, or published.
+The source-free Linux amd64 candidate carries
+`bridge/service.kodi_lab_bridge-1.1.13.zip` and `bridge/BRIDGE.json`. The latter
+binds the ZIP SHA-256, exact nine-file release inventory and hash, Git source
+commit/tree and bridge subtree, builder identity/hash, protocol `1`, bootstrap
+`otp-1`, semantic fingerprint, and MIT license. Verify the full bundle and the
+ZIP before installing it on a remote Kodi box. The ZIP root is
+`service.kodi_lab_bridge/`; the add-on does not accept legacy `pair_bridge`.
+The installed Web **Pair Kodi** flow supports external development targets;
+production uses separate target and reviewed-build administration. See
+[LINUX-V1-INSTALL.md](LINUX-V1-INSTALL.md) and
+[PRODUCTION-OPERATIONS.md](PRODUCTION-OPERATIONS.md).
 
-The deterministic ZIP builder includes the packaged README and `addon.xml`.
-Bridge 1.1.7's packaged wording says external-development-only/never production.
-Changing that wording changes the ZIP SHA-256 even though it does not by itself
-change the hard-coded semantic fingerprint formula. Because reviewed builds
-bind both, 1.1.7 remains historical Phase 13 evidence and must not be relabelled
-as corrected production bytes. Its historical ZIP SHA-256 is
-`a632f26ac7d6f2fb908577d4c75c9afc344ab138c1803f87132abefcf9c99a5c`
-and semantic fingerprint is
-`3f9eea79fcf03c3bd2d24e4aab8a61ffa98ed093e1c1185d9e9a3911d41b7486`.
-
-Bridge 1.1.8 is the packaging-only production-validation candidate. Its runtime
-source differs from reviewed 1.1.7 only in the package-version identity input;
-protocol and capability behavior are unchanged. Builder
-`kodi-lab-narrow-bridge-zip-v1` produces:
-
-- ZIP: `service.kodi_lab_bridge-1.1.8.zip`
-- ZIP SHA-256:
-  `20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
-- semantic fingerprint:
-  `4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`
-- protocol/capabilities: `1`; `screenshot`, `workspace_deployment`
-- supported Kodi versions: `19.5`, `20.5`, `21.3`, and the `22.0` line
-
-Build locally with `.venv/bin/python scripts/build_narrow_bridge.py`; compare
-the entire lowercase SHA-256 before review or use. The candidate has not been
-installed on production, Web-registered, published or used for Stage B.
+Older bridge 1.1.7 and 1.1.8 hashes remain historical evidence tied only to
+those exact bytes. The current 1.1.13 artifact is a local deployment candidate,
+not a public release. Screenshot platform assurance is described in the
+[cross-platform assurance model](BRIDGE-SCREENSHOT-ASSURANCE.md).

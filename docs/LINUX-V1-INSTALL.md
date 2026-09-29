@@ -1,9 +1,10 @@
-# Linux amd64 V1 installation from a local release bundle
+# Linux amd64 V1 installation from a local deployment candidate
 
 This candidate installs Kodi Lab from bundled files. Managed Kodi runtimes are
 acquired later, one generation at a time, through the installed reviewed recipe
-worker. The candidate is local and unpublished. Obtain the `BUNDLE.json` digest
-through a trusted publication channel before treating its hashes as authentic.
+worker. The candidate is local and unpublished. Preserve the Git commit and a
+trusted copy of the `BUNDLE.json` SHA-256 when transferring it to the server;
+hashes inside the bundle establish integrity against that trusted copy.
 
 ## Platform and contents
 
@@ -16,7 +17,9 @@ The bundle contains Web/broker application images, source-free Compose files,
 configuration example, optional development-source Compose overlay, bundle
 verifier, manifest and checksums, three reviewed
 recipe descriptions in `runtime-recipes/`, license and notices, and recovery
-documents. The same recipes are wheel resources inside both installed images.
+documents. It also contains `bridge/service.kodi_lab_bridge-1.1.13.zip` and its
+`bridge/BRIDGE.json` provenance. The same recipes are wheel resources inside
+both installed images.
 No Kodi binary, runtime image export, `.deb`, or package cache is distributed.
 
 Kodi Lab itself installs from the bundle. First Kodi acquisition needs network
@@ -47,6 +50,60 @@ the installed head, and binds the state marker. The password command prompts
 without echo. Open `http://127.0.0.1:18100/login` and sign in. Web has no Docker
 socket. Its remote-target functions need no managed Kodi image. The runtime
 matrix shows three supported but unacquired generations at this point.
+
+## Install and pair a remote Kodi bridge
+
+The bundle's `bridge/service.kodi_lab_bridge-1.1.13.zip` is the Kodi Lab service
+add-on for remote Kodi boxes. Verify the bundle first, then compare the ZIP's
+SHA-256 with `bridge/BRIDGE.json` and the `BUNDLE.json` file record. Preserve
+those records with the deployment candidate. Kodi Lab does not install or
+update the remote bridge for you.
+
+1. On the remote Kodi box, enable Kodi's HTTP control service and allow the
+   Kodi Lab server to reach its native Kodi port and the bridge port (normally
+   `8765`) over the intended private network. Set a Kodi HTTP credential if
+   that installation requires one.
+2. Transfer the exact ZIP to that Kodi box. In Kodi, open **Add-ons → Install
+   from zip file**, select the ZIP, then enable **Kodi Lab Narrow Bridge** under
+   service add-ons. Use Kodi's local add-on settings to open **Pair Kodi Lab**.
+   The displayed four-character `otp-1` code lasts five minutes; a replacement
+   has a cooldown. Do not retain the code in an issue log.
+3. For a development target, open Kodi Lab Web **Pair Kodi**. Enter the Kodi
+   box's private address, the code, and ports if different from the defaults.
+   The Web flow registers and verifies the native target, stages the new
+   independent bridge credential, and displays the authenticated bridge
+   identity. If the response is uncertain, use **Resume pairing**; do not
+   submit the code a second time. Check the observed UUID, add-on version
+   `1.1.13`, protocol `1`, Kodi version, and capabilities under **Connected
+   Kodi targets**. Advanced external target administration supports explicit
+   target approval and capability limits before development deployment.
+4. For a production target, use **Production targets** instead. Register and
+   verify its native identity, designate it as production, and register the
+   exact reviewed bridge build using the ZIP hash, semantic fingerprint and
+   source reference in `bridge/BRIDGE.json`. Record required private HTTP risk
+   acknowledgements, then enter the code in that target's production pairing
+   form. Check the provisional UUID, build fingerprint, protocol and Kodi
+   identity against the reviewed record, and explicitly confirm provenance.
+   Pairing alone grants no production scope. Follow `PRODUCTION-OPERATIONS.md`
+   before authorizing screenshots or semantic remote actions.
+
+The bridge provides authenticated identity and bounded screenshots. An
+approved external development target may also use its pathless workspace
+deployment capability. Production uses only the bridge screenshot capability;
+production remote actions use separate native Kodi calls under explicit Web
+policy. Native target registration, verification, status, and read-only Kodi
+inspection do not require the bridge. Managed Kodi acquisition and Web
+administration do not require a remote bridge either. Bridge HTTP HMAC protects
+integrity, while screenshot pixels are cleartext on HTTP; use a trusted private
+network or normally validated HTTPS where confidentiality is required.
+
+For reproducible real-world issue reports, record the Git `source_commit` and
+`source_tree`, SHA-256 of `BUNDLE.json`, bridge ZIP SHA-256, application
+`saved_image_id`/`config_image_id` values, and the three runtime recipe IDs and
+digests from `BUNDLE.json`. The local runtime acquisition record adds the exact
+installed revision and image identity if a managed Kodi generation is used.
+Record bounded error codes and target UUIDs, never pairing codes, credentials,
+raw payloads or screenshot pixels.
 
 ## Optional local add-on source development
 

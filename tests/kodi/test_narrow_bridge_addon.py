@@ -405,7 +405,7 @@ def test_deterministic_successor_review_archive(
 ) -> None:
     first = tmp_path / "first.zip"
     second = tmp_path / "second.zip"
-    assert BUILDER_ID == "kodi-lab-narrow-bridge-zip-v1"
+    assert BUILDER_ID == "kodi-lab-narrow-bridge-zip-v2"
     first_digest = build_archive(ADDON_ROOT, first)
     second_digest = build_archive(ADDON_ROOT, second)
     assert first.read_bytes() == second.read_bytes()

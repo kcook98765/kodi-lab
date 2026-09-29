@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
+import io
 import json
 import os
 import pathlib
@@ -13,8 +15,24 @@ import subprocess
 import sys
 import tarfile
 import tomllib
+import xml.etree.ElementTree as ET
+import zipfile
+from typing import Any, cast
 
 APP_ARCHIVE = "kodi-lab-application-images.tar"
+BRIDGE_ZIP = "bridge/service.kodi_lab_bridge-1.1.13.zip"
+BRIDGE_PROVENANCE = "bridge/BRIDGE.json"
+BRIDGE_FILES = (
+    "LICENSE",
+    "README.md",
+    "addon.xml",
+    "narrow_bridge.py",
+    "onboarding.py",
+    "pairing_ui.py",
+    "resources/language/resource.language.en_gb/strings.po",
+    "resources/settings.xml",
+    "service.py",
+)
 RECIPES = {
     "matrix": "matrix-19.4-r1.json",
     "nexus": "nexus-20.5-r1.json",
@@ -22,6 +40,8 @@ RECIPES = {
 }
 RELEASE_FILES = {
     APP_ARCHIVE,
+    BRIDGE_ZIP,
+    BRIDGE_PROVENANCE,
     ".env.example",
     "compose.release.yaml",
     "compose.lab.yaml",
@@ -32,6 +52,7 @@ RELEASE_FILES = {
     "RELEASE.md",
     "UPGRADE-ROLLBACK.md",
     "MANAGED-STATE-RECOVERY.md",
+    "PRODUCTION-OPERATIONS.md",
     "linux-v1-bundle",
 } | {f"runtime-recipes/{name}" for name in RECIPES.values()}
 HEX = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -95,6 +116,173 @@ def digest(path: pathlib.Path) -> str:
 
 def canonical(data: object) -> bytes:
     return (json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def _bridge_tree(files: dict[str, bytes]) -> str:
+    """Compute the Git tree identity for the exact regular-file bridge inventory."""
+
+    def tree(prefix: str) -> bytes:
+        children: dict[str, tuple[str, bytes]] = {}
+        for path, content in files.items():
+            if not path.startswith(prefix):
+                continue
+            remainder = path[len(prefix) :]
+            name, _, suffix = remainder.partition("/")
+            if suffix:
+                children[name] = ("40000", tree(prefix + name + "/"))
+            else:
+                payload = b"blob " + str(len(content)).encode() + b"\0" + content
+                children[name] = ("100644", hashlib.sha1(payload).digest())
+        body = b"".join(
+            mode.encode() + b" " + name.encode() + b"\0" + identity
+            for name, (mode, identity) in sorted(children.items())
+        )
+        return hashlib.sha1(b"tree " + str(len(body)).encode() + b"\0" + body).digest()
+
+    return tree("").hex()
+
+
+def verify_bridge(bundle: pathlib.Path, data: dict[str, Any]) -> dict[str, Any]:
+    """Verify both bridge provenance and the ZIP's exact semantic inventory."""
+    bridge = data.get("bridge")
+    if bridge != {"zip": BRIDGE_ZIP, "provenance": BRIDGE_PROVENANCE}:
+        raise ValueError("bridge bundle identity differs")
+    provenance_path = bundle / BRIDGE_PROVENANCE
+    provenance = cast(dict[str, Any], json.loads(provenance_path.read_bytes()))
+    if canonical(provenance) != provenance_path.read_bytes():
+        raise ValueError("bridge provenance is not canonical")
+    if (
+        provenance.get("schema") != "kodi-lab-bridge-artifact-v1"
+        or provenance.get("addon_id") != "service.kodi_lab_bridge"
+        or provenance.get("version") != "1.1.13"
+        or provenance.get("protocol") != "1"
+        or provenance.get("bootstrap") != "otp-1"
+        or provenance.get("license") != "MIT"
+        or provenance.get("semantic_fingerprint")
+        != "764d42dc3d86dd0d46452c14661f2dd771f9cba9542b8cfc7ab8886c56ad4e33"
+        or provenance.get("capabilities") != ["screenshot", "workspace_deployment"]
+        or provenance.get("builder") != "kodi-lab-narrow-bridge-zip-v2"
+        or provenance.get("source_commit") != data.get("source_commit")
+        or provenance.get("source_tree") != data.get("source_tree")
+        or provenance.get("filename") != pathlib.Path(BRIDGE_ZIP).name
+        or not re.fullmatch(r"[0-9a-f]{40}", provenance.get("bridge_tree", ""))
+        or not re.fullmatch(r"[0-9a-f]{64}", provenance.get("builder_sha256", ""))
+    ):
+        raise ValueError("bridge provenance identity differs")
+    archive_path = bundle / BRIDGE_ZIP
+    if hashlib.sha256(archive_path.read_bytes()).hexdigest() != provenance.get(
+        "sha256"
+    ):
+        raise ValueError("bridge ZIP digest differs from provenance")
+    inventory = provenance.get("inventory")
+    if (
+        not isinstance(inventory, list)
+        or not all(isinstance(item, dict) for item in inventory)
+        or [item.get("path") for item in inventory] != list(BRIDGE_FILES)
+    ):
+        raise ValueError("bridge release inventory differs")
+    if hashlib.sha256(canonical(inventory)).hexdigest() != provenance.get(
+        "inventory_sha256"
+    ):
+        raise ValueError("bridge release inventory hash differs")
+    expected_dirs: set[str] = set()
+    for name in BRIDGE_FILES:
+        parent = pathlib.PurePosixPath(name).parent
+        while parent != pathlib.PurePosixPath("."):
+            expected_dirs.add(str(parent) + "/")
+            parent = parent.parent
+    expected_members = ("", *sorted((*expected_dirs, *BRIDGE_FILES)))
+    file_bytes: dict[str, bytes] = {}
+    with zipfile.ZipFile(archive_path) as archive:
+        members = archive.infolist()
+        if tuple(item.filename for item in members) != tuple(
+            "service.kodi_lab_bridge/" + name for name in expected_members
+        ):
+            raise ValueError("bridge ZIP member inventory differs")
+        for item in members:
+            name = item.filename.removeprefix("service.kodi_lab_bridge/")
+            directory = name == "" or name.endswith("/")
+            if (
+                item.date_time != (2026, 9, 21, 0, 0, 0)
+                or item.create_system != 3
+                or item.external_attr >> 16 != (0o40755 if directory else 0o100644)
+                or item.compress_type
+                != (zipfile.ZIP_STORED if directory else zipfile.ZIP_DEFLATED)
+            ):
+                raise ValueError("bridge ZIP normalization differs")
+            content = archive.read(item)
+            if directory:
+                if content:
+                    raise ValueError("bridge ZIP directory has content")
+            else:
+                if len(content) > 2 * 1024 * 1024:
+                    raise ValueError("bridge ZIP member exceeds release bound")
+                file_bytes[name] = content
+    rebuilt = io.BytesIO()
+    with zipfile.ZipFile(rebuilt, "w") as archive:
+        for name in expected_members:
+            directory = name == "" or name.endswith("/")
+            info = zipfile.ZipInfo(
+                "service.kodi_lab_bridge/" + name, (2026, 9, 21, 0, 0, 0)
+            )
+            info.create_system = 3
+            info.external_attr = ((0o40755 if directory else 0o100644) << 16) | (
+                0x10 if directory else 0
+            )
+            info.compress_type = (
+                zipfile.ZIP_STORED if directory else zipfile.ZIP_DEFLATED
+            )
+            if not directory:
+                cast(Any, info)._compresslevel = 9
+            archive.writestr(info, b"" if directory else file_bytes[name])
+    if rebuilt.getvalue() != archive_path.read_bytes():
+        raise ValueError("bridge ZIP differs from deterministic builder form")
+    for item in inventory:
+        content = file_bytes[item["path"]]
+        if item != {
+            "path": item["path"],
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size": len(content),
+        }:
+            raise ValueError("bridge source inventory differs from ZIP")
+    if _bridge_tree(file_bytes) != provenance["bridge_tree"]:
+        raise ValueError("bridge Git tree differs from ZIP inventory")
+
+    def source_constant(name: str, key: str) -> str | None:
+        for node in ast.parse(file_bytes[name]).body:
+            if (
+                isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == key
+                    for target in node.targets
+                )
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                return node.value.value
+        return None
+
+    if (
+        source_constant("narrow_bridge.py", "PROTOCOL") != "1"
+        or source_constant("narrow_bridge.py", "ADDON_ID") != "service.kodi_lab_bridge"
+        or source_constant("narrow_bridge.py", "ADDON_VERSION") != "1.1.13"
+        or source_constant("onboarding.py", "BOOTSTRAP_VERSION") != "otp-1"
+    ):
+        raise ValueError("bridge ZIP source identity differs")
+    descriptor = ET.fromstring(file_bytes["addon.xml"])
+    if (
+        descriptor.attrib.get("id") != provenance["addon_id"]
+        or descriptor.attrib.get("version") != provenance["version"]
+        or descriptor.findtext("./extension[@point='xbmc.addon.metadata']/license")
+        != "MIT"
+        or descriptor.find("./requires/import[@addon='xbmc.python'][@version='3.0.0']")
+        is None
+        or descriptor.find("./extension[@point='xbmc.service'][@library='service.py']")
+        is None
+        or not file_bytes["LICENSE"].startswith(b"MIT License\n")
+    ):
+        raise ValueError("bridge ZIP descriptor or license differs")
+    return provenance
 
 
 def archive_images(path: pathlib.Path) -> tuple[dict[str, str], set[str]]:
@@ -191,8 +379,23 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
         "version"
     ]
     source_tree = subprocess.check_output(
-        ["git", "-C", str(repository), "write-tree"], text=True
+        ["git", "-C", str(repository), "rev-parse", "HEAD^{tree}"], text=True
     ).strip()
+    source_commit = subprocess.check_output(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
+    ).strip()
+    if subprocess.check_output(
+        ["git", "-C", str(repository), "status", "--porcelain"], text=True
+    ).strip():
+        raise ValueError("bundle source must be a clean commit")
+    verify_bridge(
+        bundle,
+        {
+            "bridge": {"zip": BRIDGE_ZIP, "provenance": BRIDGE_PROVENANCE},
+            "source_commit": source_commit,
+            "source_tree": source_tree,
+        },
+    )
     if (
         not TREE.fullmatch(source_tree)
         or subprocess.run(
@@ -305,6 +508,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
         "schema": "kodi-lab-linux-v1-bundle-v2",
         "version": version,
         "source_tree": source_tree,
+        "source_commit": source_commit,
         "platform": "linux/amd64",
         "build": {
             "process": "Docker multi-stage wheel build using pinned base and uv.lock",
@@ -318,6 +522,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             "images": images,
         },
         "runtimes": recipes,
+        "bridge": {"zip": BRIDGE_ZIP, "provenance": BRIDGE_PROVENANCE},
         "files": files,
     }
     (bundle / "BUNDLE.json").write_bytes(canonical(manifest))
@@ -329,13 +534,17 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
     )
 
 
-def verify(bundle: pathlib.Path, *, require_development_directory: bool = True) -> dict:
-    data = json.loads((bundle / "BUNDLE.json").read_bytes())
+def verify(
+    bundle: pathlib.Path, *, require_development_directory: bool = True
+) -> dict[str, Any]:
+    data = cast(dict[str, Any], json.loads((bundle / "BUNDLE.json").read_bytes()))
     if (
         data.get("schema") != "kodi-lab-linux-v1-bundle-v2"
         or data.get("platform") != "linux/amd64"
         or not isinstance(data.get("source_tree"), str)
         or not TREE.fullmatch(data["source_tree"])
+        or not isinstance(data.get("source_commit"), str)
+        or not TREE.fullmatch(data["source_commit"])
         or set(data.get("files", {})) != RELEASE_FILES
     ):
         raise ValueError("unsupported bundle manifest or inventory")
@@ -368,6 +577,7 @@ def verify(bundle: pathlib.Path, *, require_development_directory: bool = True) 
         raise ValueError("saved application image identity is absent from archive")
     if data["runtimes"] != _recipes(bundle):
         raise ValueError("reviewed recipe metadata differs")
+    verify_bridge(bundle, data)
     env_path = bundle / ".env"
     if env_path.exists():
         values = local_environment(
@@ -395,7 +605,7 @@ def verify(bundle: pathlib.Path, *, require_development_directory: bool = True) 
     return data
 
 
-def configure(bundle: pathlib.Path, data: dict, port: int) -> None:
+def configure(bundle: pathlib.Path, data: dict[str, Any], port: int) -> None:
     if (bundle / ".env").exists() or not 1 <= port <= 65535:
         raise ValueError(".env already exists or port is invalid")
     chosen = {}
@@ -477,6 +687,9 @@ def main() -> int:
         KeyError,
         TypeError,
         tarfile.TarError,
+        zipfile.BadZipFile,
+        ET.ParseError,
+        SyntaxError,
         json.JSONDecodeError,
     ) as error:
         print(f"bundle {args.command} failed: {error}", file=sys.stderr)

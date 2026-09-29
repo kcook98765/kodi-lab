@@ -209,12 +209,11 @@ updates, hosted-repository bootstrap, generic production add-on installation,
 raw JSON-RPC, shell/SSH/filesystem access and workspace deployment to production
 are outside V1 authority.
 
-Bridge 1.1.7 remains exact Phase 13 review evidence, but its packaged README
-and metadata describe development-only use. Correcting those bytes changes the
-reviewed ZIP digest. Bridge 1.1.8 is the local packaging-only corrected
-candidate; it is not published, Web-registered or installed on production, and
-Stage A-D remain unexecuted. Stage B must use its exact independently accepted
-artifact. See the [bridge trust model](docs/BRIDGE.md),
+The source-free local deployment candidate includes the exact reviewed
+`service.kodi_lab_bridge-1.1.13.zip` and `BRIDGE.json` provenance under `bridge/`.
+The bundle verifier checks the ZIP hash, closed inventory, descriptor, license,
+and Git source identity. Historical 1.1.7/1.1.8 packages remain separate review
+evidence; they are not the current `otp-1` package. See the [bridge trust model](docs/BRIDGE.md),
 [production operations](docs/PRODUCTION-OPERATIONS.md), the
 [non-executed validation runbook](docs/PHASE14-VALIDATION-RUNBOOK.md) and the
 [redacted evidence template](docs/PHASE14-EVIDENCE-TEMPLATE.md).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local release-candidate staging. No upload, tag publication, or Docker load.
+# Local deployment-candidate staging. No upload, tag publication, or Docker load.
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
@@ -16,17 +16,20 @@ import tomllib
 print(tomllib.loads(pathlib.Path(sys.argv[1]).read_text())["project"]["version"])
 PY
 )
-if ! git -C "$repository" diff --quiet || \
-   [[ -n "$(git -C "$repository" ls-files --others --exclude-standard)" ]]; then
-  echo "release source must match the staged Git index" >&2
+if [[ -n "$(git -C "$repository" status --porcelain)" ]]; then
+  echo "deployment candidate source must be a clean commit" >&2
   exit 2
 fi
-source_tree=$(git -C "$repository" write-tree)
+source_tree=$(git -C "$repository" rev-parse 'HEAD^{tree}')
 if [[ -e "$output" ]] && [[ -n "$(ls -A "$output")" ]]; then
   echo "output directory must be empty" >&2
   exit 2
 fi
 mkdir -p "$output"
+mkdir "$output/bridge"
+python3 "$repository/scripts/build_narrow_bridge.py" \
+  --output "$output/bridge/service.kodi_lab_bridge-1.1.13.zip" \
+  --provenance "$output/bridge/BRIDGE.json"
 
 build_network=${KODI_LAB_BUNDLE_BUILD_NETWORK:-default}
 docker build --network "$build_network" --provenance=false --quiet --target web \
@@ -49,6 +52,7 @@ cp "$repository/docs/LINUX-V1-UPGRADE-ROLLBACK.md" \
   "$output/UPGRADE-ROLLBACK.md"
 cp "$repository/docs/MANAGED-STATE-RECOVERY.md" \
   "$output/MANAGED-STATE-RECOVERY.md"
+cp "$repository/docs/PRODUCTION-OPERATIONS.md" "$output/PRODUCTION-OPERATIONS.md"
 cp "$repository/docs/LINUX-V1-RELEASE.md" \
   "$output/RELEASE.md"
 cp "$repository/scripts/linux-v1-bundle" "$output/linux-v1-bundle"
@@ -65,4 +69,4 @@ KODI_LAB_PUBLISHED_PORT=18100
 EOF
 python3 "$repository/scripts/linux-v1-bundle" finalize "$output" "$repository"
 python3 "$repository/scripts/linux-v1-bundle" verify "$output"
-echo "Local Linux V1 candidate staged in $output"
+echo "Local Linux V1 deployment candidate staged in $output"

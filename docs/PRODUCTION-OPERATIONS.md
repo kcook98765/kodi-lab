@@ -22,30 +22,22 @@ production identity/generation remains coherent.
 
 ## Required production artifact
 
-Canonical V1 distribution is a release ZIP plus a published SHA-256 checksum
-and provenance statement. A hosted Kodi repository and automatic updater are
+The local deployment candidate contains `bridge/service.kodi_lab_bridge-1.1.13.zip`
+and `bridge/BRIDGE.json`. Verify the full source-free bundle and compare the
+exact ZIP hash with both provenance and `BUNDLE.json`. A hosted Kodi repository
+and automatic updater are
 not required or authorized.
 
 Do not use a source tree, locally rebuilt archive or filename/version alone.
-Obtain the exact independently reviewed ZIP and compare its complete lowercase
+Obtain the exact reviewed ZIP and compare its complete lowercase
 SHA-256 with the value in its reviewed provenance. The reviewed record must
 also identify add-on ID/version, protocol, semantic fingerprint, capabilities,
 supported Kodi versions and source reference.
 
-Bridge 1.1.7 remains exact Phase 13 review evidence, but its packaged README
-and metadata describe external-development-only use. Correcting those packaged
-bytes changes its ZIP digest. Phase 14 production Stage B therefore requires a
-separately reviewed corrected successor; the minimum recommended transition is
-1.1.8. Its local reviewed-candidate identity is:
-
-- filename: `service.kodi_lab_bridge-1.1.8.zip`
-- ZIP SHA-256:
-  `20a14873a46969cd3f1f962875a3905caa56ce6f088e95f6d3b2b8de6e666762`
-- semantic fingerprint:
-  `4a055b9479aeb72d2f8fe16d317ed525f69991908b28580d8a071be33aa26e5a`
-
-Do not claim the 1.1.7 checksum for changed bytes. The 1.1.8 candidate has not
-yet been installed on production or registered as a live reviewed build.
+Bridge 1.1.7 and 1.1.8 are historical review evidence. The current 1.1.13
+artifact uses `otp-1`; its exact hash and source identity are in the local
+candidate's `bridge/BRIDGE.json`. Neither this document nor a filename alone
+approves any other ZIP bytes.
 
 ## Manual production bridge installation and onboarding
 
@@ -53,12 +45,10 @@ Keep production mutations globally blocked and the target mutation suspension
 set while onboarding.
 Bridge 1.1.13 uses the shared `otp-1` protocol. The bridge displays a temporary
 four-character code; Kodi Lab creates a separate protected 32-byte credential.
-The historical 1.1.8 candidate above is not the current pairing contract or an
-accepted 1.1.13 release artifact.
+The candidate's reviewed 1.1.13 ZIP is the current pairing artifact.
 
-1. Obtain the exact reviewed bridge release ZIP and its published provenance
-   from the approved release channel.
-2. Compute SHA-256 locally and compare the entire value with the published
+1. Obtain the exact bridge ZIP and provenance from the verified local bundle.
+2. Compute SHA-256 locally and compare the entire value with the recorded
    checksum. Stop on any mismatch.
 3. As the operator, manually install the ZIP through the normal local Kodi
    add-on procedure. This is not a Kodi Lab operation. Do not present SSH as the

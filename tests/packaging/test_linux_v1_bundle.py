@@ -7,10 +7,18 @@ import io
 import json
 import runpy
 import tarfile
+import zipfile
 from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
+
+from scripts.build_narrow_bridge import (
+    BUILDER_ID,
+    RELEASE_INVENTORY,
+    SEMANTIC_FINGERPRINT,
+    build_archive,
+)
 
 bundle_tool = runpy.run_path(str(Path(__file__).parents[2] / "scripts/linux-v1-bundle"))
 verify = bundle_tool["verify"]
@@ -65,8 +73,47 @@ def bundle(tmp_path: Path) -> Path:
             path.write_bytes((root / name).read_bytes())
         elif name in {"INSTALL.md", "RELEASE.md"}:
             path.write_bytes((root / "docs" / f"LINUX-V1-{name}").read_bytes())
+        elif name == "PRODUCTION-OPERATIONS.md":
+            path.write_bytes((root / "docs/PRODUCTION-OPERATIONS.md").read_bytes())
         else:
             path.write_bytes(b"release artifact\n")
+    addon_root = root / "bridge/service.kodi_lab_bridge"
+    bridge_zip = tmp_path / bundle_tool["BRIDGE_ZIP"]
+    build_archive(addon_root, bridge_zip)
+    contents = {name: (addon_root / name).read_bytes() for name in RELEASE_INVENTORY}
+    bridge_provenance = {
+        "schema": "kodi-lab-bridge-artifact-v1",
+        "addon_id": "service.kodi_lab_bridge",
+        "version": "1.1.13",
+        "protocol": "1",
+        "bootstrap": "otp-1",
+        "license": "MIT",
+        "semantic_fingerprint": SEMANTIC_FINGERPRINT,
+        "capabilities": ["screenshot", "workspace_deployment"],
+        "source_commit": "c" * 40,
+        "source_tree": "a" * 40,
+        "bridge_tree": bundle_tool["_bridge_tree"](contents),
+        "builder": BUILDER_ID,
+        "builder_sha256": hashlib.sha256(
+            (root / "scripts/build_narrow_bridge.py").read_bytes()
+        ).hexdigest(),
+        "filename": bridge_zip.name,
+        "sha256": hashlib.sha256(bridge_zip.read_bytes()).hexdigest(),
+        "inventory": [
+            {
+                "path": name,
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "size": len(content),
+            }
+            for name, content in contents.items()
+        ],
+    }
+    bridge_provenance["inventory_sha256"] = hashlib.sha256(
+        canonical(bridge_provenance["inventory"])
+    ).hexdigest()
+    (tmp_path / bundle_tool["BRIDGE_PROVENANCE"]).write_bytes(
+        canonical(bridge_provenance)
+    )
     app_archive = tmp_path / bundle_tool["APP_ARCHIVE"]
     app_configs = _archive(
         app_archive, ("kodi-lab-v1-web:1.0.0rc1", "kodi-lab-v1-broker:1.0.0rc1")
@@ -83,6 +130,11 @@ def bundle(tmp_path: Path) -> Path:
         "platform": "linux/amd64",
         "version": "1.0.0rc1",
         "source_tree": "a" * 40,
+        "source_commit": "c" * 40,
+        "bridge": {
+            "zip": bundle_tool["BRIDGE_ZIP"],
+            "provenance": bundle_tool["BRIDGE_PROVENANCE"],
+        },
         "application": {
             "archive": app_archive.name,
             "images": {
@@ -108,6 +160,13 @@ def test_bundle_detects_missing_and_changed_artifacts(bundle: Path) -> None:
         "nexus",
         "omega",
     ]
+    assert (
+        "Install and pair a remote Kodi bridge" in (bundle / "INSTALL.md").read_text()
+    )
+    assert (
+        "Manual production bridge installation"
+        in (bundle / "PRODUCTION-OPERATIONS.md").read_text()
+    )
     document = json.loads((bundle / "BUNDLE.json").read_text())
     document["application"]["images"].pop("broker")
     (bundle / "BUNDLE.json").write_bytes(canonical(document))
@@ -119,9 +178,96 @@ def test_bundle_detects_missing_and_changed_artifacts(bundle: Path) -> None:
         verify(bundle)
 
 
-def test_bundle_rejects_kodi_archive_even_with_checksum(bundle: Path) -> None:
-    (bundle / "kodi-22.0-beta2.tar").write_bytes(b"private")
+@pytest.mark.parametrize(
+    "name", ("kodi-22.0-beta2.tar", "kodi_21.3_amd64.deb", "kodi-runtime-image.tar")
+)
+def test_bundle_rejects_kodi_archive_even_with_checksum(
+    bundle: Path, name: str
+) -> None:
+    (bundle / name).write_bytes(b"private")
     with pytest.raises(ValueError, match="bundle file inventory differs"):
+        verify(bundle)
+
+
+def test_bridge_artifact_is_exact_and_tamper_is_rejected(bundle: Path) -> None:
+    document = verify(bundle)
+    assert document["bridge"]["zip"] == bundle_tool["BRIDGE_ZIP"]
+    archive = bundle / bundle_tool["BRIDGE_ZIP"]
+    with zipfile.ZipFile(archive) as package:
+        assert package.read("service.kodi_lab_bridge/addon.xml").count(b"1.1.13") == 1
+    original = archive.read_bytes()
+    archive.write_bytes(original + b"tampered")
+    with pytest.raises(ValueError, match="artifact differs"):
+        verify(bundle)
+    archive.write_bytes(original)
+    archive.unlink()
+    with pytest.raises(ValueError, match="bundle file inventory differs"):
+        verify(bundle)
+
+
+def test_bridge_identity_and_provenance_mismatch_are_rejected(bundle: Path) -> None:
+    document = json.loads((bundle / "BUNDLE.json").read_bytes())
+    document["bridge"]["zip"] = "bridge/wrong.zip"
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="bridge bundle identity"):
+        verify(bundle)
+    document["bridge"]["zip"] = bundle_tool["BRIDGE_ZIP"]
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    provenance_path = bundle / bundle_tool["BRIDGE_PROVENANCE"]
+    provenance = json.loads(provenance_path.read_bytes())
+    provenance["source_commit"] = "d" * 40
+    provenance_path.write_bytes(canonical(provenance))
+    document["files"][bundle_tool["BRIDGE_PROVENANCE"]] = {
+        "sha256": digest(provenance_path),
+        "size": provenance_path.stat().st_size,
+    }
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="bridge provenance identity"):
+        verify(bundle)
+
+
+@pytest.mark.parametrize(
+    "field,value", (("version", "1.1.12"), ("inventory_sha256", "0" * 64))
+)
+def test_bridge_wrong_version_or_inventory_rejected_after_rehash(
+    bundle: Path, field: str, value: str
+) -> None:
+    manifest_path = bundle / "BUNDLE.json"
+    document = json.loads(manifest_path.read_bytes())
+    provenance_path = bundle / bundle_tool["BRIDGE_PROVENANCE"]
+    provenance = json.loads(provenance_path.read_bytes())
+    provenance[field] = value
+    provenance_path.write_bytes(canonical(provenance))
+    document["files"][bundle_tool["BRIDGE_PROVENANCE"]] = {
+        "sha256": digest(provenance_path),
+        "size": provenance_path.stat().st_size,
+    }
+    manifest_path.write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(
+        ValueError, match=r"bridge provenance identity|bridge release inventory hash"
+    ):
+        verify(bundle)
+
+
+def test_bridge_zip_noncanonical_tamper_rejected_after_rehash(bundle: Path) -> None:
+    archive = bundle / bundle_tool["BRIDGE_ZIP"]
+    archive.write_bytes(archive.read_bytes() + b"trailing bytes")
+    provenance_path = bundle / bundle_tool["BRIDGE_PROVENANCE"]
+    provenance = json.loads(provenance_path.read_bytes())
+    provenance["sha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
+    provenance_path.write_bytes(canonical(provenance))
+    manifest_path = bundle / "BUNDLE.json"
+    document = json.loads(manifest_path.read_bytes())
+    for path in (archive, provenance_path):
+        name = path.relative_to(bundle).as_posix()
+        document["files"][name] = {"sha256": digest(path), "size": path.stat().st_size}
+    manifest_path.write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="deterministic builder form"):
         verify(bundle)
 
 
