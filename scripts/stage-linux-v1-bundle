@@ -41,7 +41,8 @@ docker build --network "$build_network" --provenance=false --quiet --target brok
   "$repository"
 docker save --output "$output/kodi-lab-application-images.tar" \
   "kodi-lab-v1-web:$version" "kodi-lab-v1-broker:$version"
-cp "$repository/compose.release.yaml" "$repository/compose.lab.yaml" "$output/"
+cp "$repository/compose.release.yaml" "$repository/compose.lab.yaml" \
+  "$repository/compose.development.yaml" "$output/"
 cp "$repository/LICENSE" "$repository/THIRD_PARTY_NOTICES.md" "$output/"
 cp "$repository/docs/LINUX-V1-INSTALL.md" "$output/INSTALL.md"
 cp "$repository/docs/LINUX-V1-UPGRADE-ROLLBACK.md" \
@@ -58,6 +59,9 @@ cat > "$output/.env.example" <<'EOF'
 # Run python3 linux-v1-bundle configure . after loading the application archive.
 # The generated .env pins image IDs recognized on this Docker Engine.
 KODI_LAB_PUBLISHED_PORT=18100
+# Optional: run `python3 linux-v1-bundle development-source . --source /absolute/path`
+# to add the host source directory, then include compose.development.yaml.
+# Example host path (not required): /srv/kodi-lab/addon-sources
 EOF
 python3 "$repository/scripts/linux-v1-bundle" finalize "$output" "$repository"
 python3 "$repository/scripts/linux-v1-bundle" verify "$output"

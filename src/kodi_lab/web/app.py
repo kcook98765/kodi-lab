@@ -2810,6 +2810,9 @@ def create_app(
             {
                 "sources": context.development_sources.list_sources(),
                 "csrf_token": authenticated.csrf_token,
+                "development_root_available": DevelopmentSourceValidator(
+                    context.settings.development_root
+                ).root_available(),
             },
         )
 

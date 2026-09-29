@@ -155,6 +155,16 @@ class DevelopmentSourceValidator:
     def __init__(self, development_root: Path | None) -> None:
         self._development_root = development_root
 
+    def root_available(self) -> bool:
+        """Report whether the configured root can be opened without following links."""
+
+        try:
+            root_fd = self._open_root()
+        except DevelopmentSourceValidationError:
+            return False
+        os.close(root_fd)
+        return True
+
     def validate(self, relative_locator: str) -> DevelopmentSourceValidationResult:
         """Return a current read-only observation of one confined local source."""
 

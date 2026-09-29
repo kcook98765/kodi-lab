@@ -59,6 +59,12 @@ def bundle(tmp_path: Path) -> Path:
             path.write_bytes(
                 (root / "src/kodi_lab/runtime/recipes" / path.name).read_bytes()
             )
+        elif name == "linux-v1-bundle":
+            path.write_bytes((root / "scripts/linux-v1-bundle").read_bytes())
+        elif name in {"compose.release.yaml", "compose.development.yaml"}:
+            path.write_bytes((root / name).read_bytes())
+        elif name in {"INSTALL.md", "RELEASE.md"}:
+            path.write_bytes((root / "docs" / f"LINUX-V1-{name}").read_bytes())
         else:
             path.write_bytes(b"release artifact\n")
     app_archive = tmp_path / bundle_tool["APP_ARCHIVE"]
@@ -126,4 +132,64 @@ def test_bundle_rejects_local_image_selection_outside_manifest(bundle: Path) -> 
         "KODI_LAB_PUBLISHED_PORT=18100\n"
     )
     with pytest.raises(ValueError, match="local image selection"):
+        verify(bundle)
+
+
+def test_bundle_accepts_local_development_configuration_without_capturing_source(
+    bundle: Path, tmp_path: Path
+) -> None:
+    document = json.loads((bundle / "BUNDLE.json").read_text())
+    source = tmp_path.parent / f"{tmp_path.name} Source Trees"
+    source.mkdir()
+    (bundle / ".env").write_text(
+        f"KODI_LAB_REMOTE_IMAGE={document['application']['images']['web']['saved_image_id']}\n"
+        f"KODI_LAB_BROKER_IMAGE={document['application']['images']['broker']['saved_image_id']}\n"
+        "KODI_LAB_PUBLISHED_PORT=18100\n"
+    )
+    installed_tool = runpy.run_path(str(bundle / "linux-v1-bundle"))
+    installed_tool["configure_development_source"](bundle, str(source))
+    assert verify(bundle)["files"].keys() == document["files"].keys()
+    assert str(source) in (bundle / ".env").read_text()
+    assert str(source) not in (bundle / "BUNDLE.json").read_text()
+    assert str(source) not in (bundle / "SHA256SUMS").read_text()
+    for name in document["files"]:
+        assert str(source) not in (bundle / name).read_bytes().decode(
+            "utf-8", errors="ignore"
+        )
+
+
+def test_bundle_rejects_removed_or_relinked_development_directory(
+    bundle: Path, tmp_path: Path
+) -> None:
+    document = json.loads((bundle / "BUNDLE.json").read_text())
+    source = tmp_path.parent / f"{tmp_path.name} Source Trees"
+    source.mkdir()
+    (bundle / ".env").write_text(
+        f"KODI_LAB_REMOTE_IMAGE={document['application']['images']['web']['saved_image_id']}\n"
+        f"KODI_LAB_BROKER_IMAGE={document['application']['images']['broker']['saved_image_id']}\n"
+        "KODI_LAB_PUBLISHED_PORT=18100\n"
+        f"KODI_LAB_DEVELOPMENT_SOURCE='{source}'\n"
+    )
+    assert verify(bundle)
+    source.rmdir()
+    with pytest.raises(OSError):
+        verify(bundle)
+    source.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(OSError):
+        verify(bundle)
+    source.unlink()
+
+
+@pytest.mark.parametrize("source", ("", ".", "relative", "/", "/tmp/../tmp"))
+def test_bundle_rejects_malformed_local_development_source(
+    bundle: Path, source: str
+) -> None:
+    document = json.loads((bundle / "BUNDLE.json").read_text())
+    (bundle / ".env").write_text(
+        f"KODI_LAB_REMOTE_IMAGE={document['application']['images']['web']['saved_image_id']}\n"
+        f"KODI_LAB_BROKER_IMAGE={document['application']['images']['broker']['saved_image_id']}\n"
+        "KODI_LAB_PUBLISHED_PORT=18100\n"
+        f"KODI_LAB_DEVELOPMENT_SOURCE='{source}'\n"
+    )
+    with pytest.raises(ValueError, match="development source"):
         verify(bundle)

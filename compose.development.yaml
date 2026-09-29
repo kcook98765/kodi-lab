@@ -1,0 +1,14 @@
+# Opt-in local development sources. Add this file after compose.release.yaml.
+# The host directory is chosen before Compose starts; Web receives only this
+# fixed container path. Source writes require separate host OS permissions.
+services:
+  web:
+    environment:
+      KODI_LAB_DEVELOPMENT_ROOT: /mnt/kodi-lab-development
+    volumes:
+      - type: bind
+        source: ${KODI_LAB_DEVELOPMENT_SOURCE:?configure one absolute development source directory}
+        target: /mnt/kodi-lab-development
+        read_only: false
+        bind:
+          create_host_path: false

@@ -6,6 +6,7 @@ from typing import cast
 from uuid import UUID
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -18,6 +19,7 @@ from kodi_lab.application.development_sources import (
     DevelopmentSourceRead,
 )
 from kodi_lab.application.errors import DevelopmentSourceAddonConflictError
+from kodi_lab.config import Settings
 from kodi_lab.development import DevelopmentSourceValidator
 from kodi_lab.domain import (
     DevelopmentSource,
@@ -39,8 +41,10 @@ from kodi_lab.storage.repositories import (
     DevelopmentSourceRepository,
     ManagedInstanceDevelopmentSourceRepository,
 )
+from kodi_lab.web.app import create_app
 
 from .conftest import INSTANCE_ID, ORIGIN, REVISION_ID, FakeBroker, login
+from .test_addon_zips import _valid_zip, _wait_for_import
 
 SOURCE_A = UUID("88000000-0000-4000-8000-000000000001")
 SOURCE_B = UUID("88000000-0000-4000-8000-000000000002")
@@ -215,6 +219,53 @@ def test_empty_catalog_and_missing_source(
     missing = client.get(f"/api/development-sources/{SOURCE_A}")
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "development_source_not_found"
+
+
+def test_unconfigured_source_root_keeps_web_and_zip_available(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    data_root: Path,
+) -> None:
+    context = cast(FastAPI, client.app).state.kodi_lab
+    settings = Settings(
+        data_root=data_root,
+        development_root=None,
+        external_target_master_key=context.settings.external_target_master_key,
+    )
+    app = create_app(
+        settings=settings,
+        session_factory=database,
+        broker=broker,
+        auth=context.auth,
+    )
+    with TestClient(app, base_url="http://127.0.0.1") as unconfigured:
+        csrf = login(unconfigured)
+        page = unconfigured.get("/development-sources")
+        assert page.status_code == 200
+        assert "Local development sources are unavailable" in page.text
+        assert "Uploaded ZIP testing remains available" in page.text
+        assert 'id="development-source-registration"' not in page.text
+        response = unconfigured.post(
+            "/api/development-sources",
+            json={"logical_name": "Unavailable", "relative_locator": "project"},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+        )
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "root_not_configured"
+        data_root.mkdir(mode=0o700, exist_ok=True)
+        uploaded = unconfigured.post(
+            "/api/addon-zips",
+            files={"zip": ("synthetic.zip", _valid_zip(), "application/zip")},
+            data={"logical_label": "Without source root"},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+        )
+        assert uploaded.status_code == 202
+        assert (
+            _wait_for_import(unconfigured, uploaded.json()["status_url"])["state"]
+            == "succeeded"
+        )
+        assert len(unconfigured.get("/api/addon-zips").json()) == 1
 
 
 def test_registration_requires_auth_origin_csrf_strict_schema_and_is_path_free(

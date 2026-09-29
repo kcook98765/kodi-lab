@@ -13,7 +13,8 @@ neither host routes nor another Docker network before enabling the managed lab.
 The Web port defaults to `127.0.0.1:18100`.
 
 The bundle contains Web/broker application images, source-free Compose files,
-configuration example, bundle verifier, manifest and checksums, three reviewed
+configuration example, optional development-source Compose overlay, bundle
+verifier, manifest and checksums, three reviewed
 recipe descriptions in `runtime-recipes/`, license and notices, and recovery
 documents. The same recipes are wheel resources inside both installed images.
 No Kodi binary, runtime image export, `.deb`, or package cache is distributed.
@@ -46,6 +47,63 @@ the installed head, and binds the state marker. The password command prompts
 without echo. Open `http://127.0.0.1:18100/login` and sign in. Web has no Docker
 socket. Its remote-target functions need no managed Kodi image. The runtime
 matrix shows three supported but unacquired generations at this point.
+
+## Optional local add-on source development
+
+The default deployment exposes no host source directory. Remote Kodi control,
+managed runtimes, uploaded ZIP testing, and reviewed runtime acquisition work
+without one. To opt in, choose one host directory containing Kodi add-on source
+projects. For example, `/srv/kodi-lab/addon-sources` is only an example. Create
+and populate it before starting the development overlay. The directory must be
+an existing normalized absolute path, not `/` or a symlink at any component.
+
+After `configure` has created `.env`, run this from the unpacked bundle:
+
+```sh
+python3 linux-v1-bundle development-source . \
+  --source '/srv/kodi-lab/addon-sources'
+python3 linux-v1-bundle verify .
+docker compose -f compose.release.yaml -f compose.development.yaml config --quiet
+docker compose -f compose.release.yaml -f compose.development.yaml \
+  up -d --wait --no-build web
+```
+
+The command and subsequent bundle verification validate the host directory
+without following symlinks. The command writes only
+`KODI_LAB_DEVELOPMENT_SOURCE` into the local, unbundled `.env`. It accepts
+spaces in paths. Dot, parent, trailing slash, empty, relative, or missing paths
+are rejected. Single/double quotes, `$`, `#`, backslashes, and control
+characters in the host path are unsupported because the generated Compose
+dotenv value cannot represent them safely. An unset or empty variable stops
+Compose interpolation; `create_host_path: false` prevents a missing directory
+from being created. The staged bundle contains no actual host source path.
+
+The overlay binds that one host directory read/write at the fixed Web path
+`/mnt/kodi-lab-development` and sets `KODI_LAB_DEVELOPMENT_ROOT` to that path.
+Web accepts only root-relative project locators through its existing registration
+form; it does not browse host paths or create mounts. Register each project
+beneath the chosen root on **Development Sources**. Registration, copy/sync,
+workspace creation, deployment, execution, and MCP development tools continue
+through the existing registered-source services. Uploaded ZIPs remain separate.
+
+The bind is read/write because reviewed promotion can patch a registered
+original after a Web review and explicit confirmation. Registration and ordinary
+source copy need only read permission. The Web container runs as UID/GID
+`10001:10001`; give it read/traverse access to the chosen root and source
+trees, but keep the root directory itself non-writable to that account. Grant
+write permission only within project trees intentionally enabled for patch-back.
+Kodi Lab does not change ownership or permissions. A compromise of the Web
+service account could modify every mounted file it can write, so select a
+dedicated root and keep OS permissions narrow.
+
+For a managed Lab with local development, include the overlay after the network
+overlay: `docker compose -f compose.release.yaml -f compose.lab.yaml -f
+compose.development.yaml --profile lab up -d --wait --no-build web broker`.
+Use this three-file command in place of the two-file Web/broker `up` commands
+below, and keep the same overlay list on restarts. To return to remote-only
+operation, stop Web and start it with only `compose.release.yaml`; the existing
+source records remain listed but registration and source-backed operations are
+unavailable.
 
 To start the Lab broker before any Kodi acquisition, create or verify its fixed
 network and attach Web to it. This still downloads no Kodi image:

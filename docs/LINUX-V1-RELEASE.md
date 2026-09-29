@@ -10,7 +10,7 @@ download checks integrity but does not establish publisher identity.
 | Class | Distributed files | Authority |
 | --- | --- | --- |
 | Application | `kodi-lab-application-images.tar` | Saved image IDs, OCI config IDs, linux/amd64 platform, installed package identity |
-| Deployment | `compose.release.yaml`, `compose.lab.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs |
+| Deployment | `compose.release.yaml`, `compose.lab.yaml`, `compose.development.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs and may record one host source directory |
 | Reviewed runtime inputs | `runtime-recipes/matrix-19.4-r1.json`, `nexus-20.5-r1.json`, `omega-21.3-r1.json` | File hashes and installed wheel recipe digests; provider, suite, version |
 | Verification | `BUNDLE.json`, `SHA256SUMS` | Canonical inventory and byte hashes |
 | Guidance | `LICENSE`, `THIRD_PARTY_NOTICES.md`, `INSTALL.md`, `RELEASE.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Exact file hashes |
@@ -56,6 +56,19 @@ control that service or its volumes. Runtime installation is available through
 the authenticated reviewed-runtime Web flow and the explicit administrator
 command in the installed broker image. The broker owns the bounded installation
 worker; its lifecycle protocol enforces exact reviewed images and revisions.
+
+Local add-on source access is disabled in the base Compose deployment. An
+administrator may use the bundled development overlay to bind one validated
+host directory read/write at `/mnt/kodi-lab-development` in Web only. The
+overlay fixes `KODI_LAB_DEVELOPMENT_ROOT`; only the host source is configured
+through `KODI_LAB_DEVELOPMENT_SOURCE` in local `.env`, which is excluded from
+the staged bundle. The release helper rejects non-canonical, relative, empty,
+missing, or symlinked source directories; Compose rejects an unset or empty
+variable and never creates a missing bind source. Web/API registration remains
+root-relative and no-follow. The writable mount preserves reviewed patch-back;
+the Web service account receives write access only where the administrator
+separately grants filesystem permissions. No broker protocol or schema change
+is involved. Remote-only and uploaded ZIP paths need no source mount.
 
 Application backup contains SQLite, keys, recipe installation records,
 revisions, and HMAC evidence. Docker image bytes and broker snapshot artifacts

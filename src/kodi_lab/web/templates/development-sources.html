@@ -12,6 +12,7 @@
     <main>
       <h1>Development Sources</h1>
       <p class="secondary">Registered source metadata observed at its validation time. Registration and attachment do not indicate deployment or current filesystem validity.</p>
+      {% if development_root_available %}
       <section>
         <h2>Register Development Source</h2>
         <form id="development-source-registration">
@@ -24,6 +25,9 @@
           <p id="development-source-registration-status" class="secondary" role="status" hidden></p>
         </form>
       </section>
+      {% else %}
+      <p role="status">Local development sources are unavailable. Ask the host administrator to configure the optional development-source mount. Uploaded ZIP testing remains available.</p>
+      {% endif %}
       {% for item in sources %}
       <article data-development-source-id="{{ item.source.id }}">
         <h2><a href="/development-sources/{{ item.source.id }}">{{ item.source.logical_name }}</a></h2>

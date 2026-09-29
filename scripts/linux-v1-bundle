@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -24,6 +25,7 @@ RELEASE_FILES = {
     ".env.example",
     "compose.release.yaml",
     "compose.lab.yaml",
+    "compose.development.yaml",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "INSTALL.md",
@@ -34,6 +36,56 @@ RELEASE_FILES = {
 } | {f"runtime-recipes/{name}" for name in RECIPES.values()}
 HEX = re.compile(r"sha256:[0-9a-f]{64}\Z")
 TREE = re.compile(r"[0-9a-f]{40}\Z")
+DEVELOPMENT_SOURCE_KEY = "KODI_LAB_DEVELOPMENT_SOURCE"
+
+
+def development_source_path(value: str, *, require_directory: bool) -> pathlib.Path:
+    """Accept a canonical host directory representable in Compose dotenv syntax."""
+
+    if (
+        not value.startswith("/")
+        or value == "/"
+        or os.path.normpath(value) != value
+        or any(ord(character) < 32 or character in "'\"$#\\" for character in value)
+    ):
+        raise ValueError(
+            "development source must be a normalized absolute non-root path "
+            "without dotenv metacharacters"
+        )
+    path = pathlib.Path(value)
+    if require_directory:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+        current = os.open("/", flags)
+        try:
+            for part in path.parts[1:]:
+                following = os.open(part, flags, dir_fd=current)
+                os.close(current)
+                current = following
+        finally:
+            os.close(current)
+    return path
+
+
+def local_environment(
+    bundle: pathlib.Path, *, require_development_directory: bool = True
+) -> dict[str, str]:
+    lines = (bundle / ".env").read_text().splitlines()
+    values: dict[str, str] = {}
+    for line in lines:
+        if "=" not in line:
+            raise ValueError("local environment is malformed")
+        key, value = line.split("=", 1)
+        if key in values:
+            raise ValueError("local environment has duplicate keys")
+        values[key] = value
+    if DEVELOPMENT_SOURCE_KEY in values:
+        quoted = values[DEVELOPMENT_SOURCE_KEY]
+        if not (quoted.startswith("'") and quoted.endswith("'")):
+            raise ValueError("development source must use single-quoted dotenv syntax")
+        development_source_path(
+            quoted[1:-1], require_directory=require_development_directory
+        )
+    return values
 
 
 def digest(path: pathlib.Path) -> str:
@@ -277,7 +329,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
     )
 
 
-def verify(bundle: pathlib.Path) -> dict:
+def verify(bundle: pathlib.Path, *, require_development_directory: bool = True) -> dict:
     data = json.loads((bundle / "BUNDLE.json").read_bytes())
     if (
         data.get("schema") != "kodi-lab-linux-v1-bundle-v2"
@@ -318,15 +370,20 @@ def verify(bundle: pathlib.Path) -> dict:
         raise ValueError("reviewed recipe metadata differs")
     env_path = bundle / ".env"
     if env_path.exists():
-        lines = env_path.read_text().splitlines()
+        values = local_environment(
+            bundle, require_development_directory=require_development_directory
+        )
         expected_keys = {
             "KODI_LAB_REMOTE_IMAGE": app["images"]["web"],
             "KODI_LAB_BROKER_IMAGE": app["images"]["broker"],
         }
-        values = dict(line.split("=", 1) for line in lines)
         if (
-            len(lines) != 3
-            or set(values) != set(expected_keys) | {"KODI_LAB_PUBLISHED_PORT"}
+            set(values)
+            not in (
+                set(expected_keys) | {"KODI_LAB_PUBLISHED_PORT"},
+                set(expected_keys)
+                | {"KODI_LAB_PUBLISHED_PORT", DEVELOPMENT_SOURCE_KEY},
+            )
             or any(
                 values[key] not in {item["saved_image_id"], item["config_image_id"]}
                 for key, item in expected_keys.items()
@@ -372,12 +429,25 @@ def configure(bundle: pathlib.Path, data: dict, port: int) -> None:
     print("configured exact application image IDs for this Docker Engine")
 
 
+def configure_development_source(bundle: pathlib.Path, source: str) -> None:
+    development_source_path(source, require_directory=True)
+    values = local_environment(bundle, require_development_directory=False)
+    values[DEVELOPMENT_SOURCE_KEY] = f"'{source}'"
+    (bundle / ".env").write_text(
+        "".join(f"{key}={value}\n" for key, value in values.items())
+    )
+    print("configured one local development source directory")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("finalize", "verify", "configure"))
+    parser.add_argument(
+        "command", choices=("finalize", "verify", "configure", "development-source")
+    )
     parser.add_argument("bundle", type=pathlib.Path)
     parser.add_argument("repository", type=pathlib.Path, nargs="?")
     parser.add_argument("--port", type=int, default=18100)
+    parser.add_argument("--source")
     args = parser.parse_args()
     try:
         if args.command == "finalize":
@@ -385,9 +455,18 @@ def main() -> int:
                 raise ValueError("finalize requires repository")
             finalize(args.bundle, args.repository)
         else:
-            data = verify(args.bundle)
+            data = verify(
+                args.bundle,
+                require_development_directory=args.command != "development-source",
+            )
             if args.command == "configure":
                 configure(args.bundle, data, args.port)
+            elif args.command == "development-source":
+                if args.source is None or not (args.bundle / ".env").exists():
+                    raise ValueError(
+                        "development-source needs --source and configured .env"
+                    )
+                configure_development_source(args.bundle, args.source)
             else:
                 print(
                     f"verified Kodi Lab {data['version']} bundle for {data['platform']}"
