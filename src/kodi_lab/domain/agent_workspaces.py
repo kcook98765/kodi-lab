@@ -17,6 +17,7 @@ from kodi_lab.domain.runtime_catalog import normalize_sha256_digest
 
 class AgentWorkspaceState(StrEnum):
     CREATING = "creating"
+    CAPTURING = "capturing"
     READY = "ready"
     PROMOTED = "promoted"
     ABANDONED = "abandoned"
@@ -101,6 +102,10 @@ class AgentWorkspace:
     captured_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    creation_baseline_digest: str | None = None
+    active_baseline_artifact_id: UUID | None = None
+    active_capture_id: UUID | None = None
+    active_observed_version: str | None = None
     bytes_state: AgentWorkspaceBytesState = AgentWorkspaceBytesState.PRESENT
     promoted_at: datetime | None = None
     abandoned_at: datetime | None = None
@@ -114,7 +119,10 @@ class AgentWorkspace:
             ("source_logical_name", 120),
             ("source_observed_name", 256),
             ("source_observed_version", 128),
+            ("active_observed_version", 128),
         ):
+            if getattr(self, field) is None:
+                continue
             object.__setattr__(
                 self,
                 field,
@@ -122,7 +130,11 @@ class AgentWorkspace:
                     getattr(self, field), field=field, maximum=maximum
                 ),
             )
-        for field in ("baseline_manifest_digest", "current_tree_digest"):
+        for field in (
+            "baseline_manifest_digest",
+            "creation_baseline_digest",
+            "current_tree_digest",
+        ):
             value = getattr(self, field)
             if value is not None:
                 object.__setattr__(self, field, normalize_sha256_digest(value, field))

@@ -5226,3 +5226,33 @@ approvals atomically with the governing revision transition.
   needs separate review. Since the accepted B package has no such command, it
   remains immutable and must be superseded by a newly built candidate before
   an affected A installation can use the supported compatibility operation.
+
+## D-0392: External working source and explicit existing-workspace capture
+
+- A registered local DevelopmentSource remains a normal human-editable project.
+  Registration is an initial observation, not a frozen source version. Fresh
+  scanning is explicit; Git is optional and never substitutes for the captured
+  tree digest. Direct MCP writes to host-backed source are deferred.
+- Capture reuses the existing workspace. It requires a ready workspace whose
+  current tree equals its active captured baseline and no unresolved promotion
+  or repository deployment. It safely stages a complete source tree, checks the
+  exact add-on ID and a second source scan, then advances one generation for
+  the entire changed tree. Equal bytes are idempotent and do not advance it.
+- The original creation baseline ID/digest remain durable. Each capture records
+  its own source digest/version and prior/resulting generation and baseline
+  identity. Prior baseline bytes are archived under UUID-derived private state.
+  The active baseline changes only with the workspace tree and receipt. A
+  `capturing` workspace cannot be used for validation, deployment or editing;
+  interrupted staging fails safely, while a partially switched capture is
+  reconciled from exact old/new digests before returning to `ready`.
+- Validation and deployment continue to bind workspace generation and exact
+  bytes. Publications remain immutable; later external edits only make the
+  working source newer than the captured/tested/deployed state. Historical
+  receipts are not rewritten. Existing capture history is retained and blocks
+  whole-workspace cleanup until a separately reviewed reference-aware cleanup
+  exists. No automatic capture pruning is added.
+- Migration `0058_workspace_source_capture` backfills active identity from
+  existing 0057 workspaces without rewriting their bytes. The generation-0
+  physical acceptance workspace remains representable. Downgrade refuses to
+  discard any capture operation/evidence. Gate 1 adds storage/application
+  foundations only; Web and MCP scan/capture surfaces require a later gate.

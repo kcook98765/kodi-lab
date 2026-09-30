@@ -10,6 +10,7 @@ import sqlite3
 import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
@@ -19,6 +20,9 @@ from alembic import command
 from alembic.config import Config
 
 from kodi_lab import remote_lifecycle
+from kodi_lab.application.agent_workspaces import AgentWorkspaceService
+from kodi_lab.application.workspace_source_captures import WorkspaceSourceCaptureService
+from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
 from kodi_lab.host_bootstrap import (
     HostBootstrapError,
     generate_master_key,
@@ -50,6 +54,10 @@ from kodi_lab.storage.models import (
     McpWorkspaceDeploymentOperationRow,
     RepositoryWorkspaceDeploymentRow,
     RepositoryWorkspaceValidationSnapshotRow,
+)
+from kodi_lab.storage.repositories import (
+    AgentWorkspaceRepository,
+    DevelopmentSourceRepository,
 )
 from tests.application.test_mcp_workspace_development import EXTERNAL_TARGET_ID
 from tests.application.test_repository_workspace_deployment import (
@@ -233,7 +241,7 @@ def test_development_repository_backup_recover_clean_round_trip(
     monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(recovered_repository))
     assert recover_clean(
         recovered_root, _url(recovered_root), identifier, identifier
-    ) == ("0057_development_capability_amendments")
+    ) == ("0058_workspace_source_capture")
     recovered_engine = create_database_engine(_url(recovered_root))
     recovered_service = DevelopmentRepositoryService(
         create_session_factory(recovered_engine), recovered_repository, REPOSITORY_BASE
@@ -341,7 +349,7 @@ def test_historical_transition_and_matching_rollback(
     previous, current, identifier = upgrade(root, _url(root))
     assert identifier is not None
     assert previous == before
-    assert current == "0057_development_capability_amendments"
+    assert current == "0058_workspace_source_capture"
     assert upgrade(root, _url(root)) == (current, current, None)
     assert (
         _revision(root / "backups" / identifier / "database" / "kodi-lab.db") == before
@@ -548,6 +556,81 @@ def test_backup_manifest_metadata_and_path_attacks_fail_closed(tmp_path: Path) -
     (folder / "master-key").symlink_to(root / "master-key")
     with pytest.raises(HostBootstrapError, match="metadata is unsafe"):
         _verify_backup(root, identifier)
+
+
+def test_capture_history_backup_and_clean_restore(tmp_path: Path) -> None:
+    root = tmp_path / "state"
+    initialize(root, _url(root))
+    source_root = tmp_path / "sources"
+    source = source_root / "plugin.video.capture"
+    source.mkdir(parents=True)
+    (source / "addon.xml").write_text(
+        '<addon id="plugin.video.capture" name="Capture" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="default.py" />'
+        "</addon>\n",
+        encoding="utf-8",
+    )
+    (source / "default.py").write_text("print('v1')\n", encoding="utf-8")
+    engine = create_database_engine(_url(root))
+    sessions = create_session_factory(engine)
+    source_id = uuid4()
+    now = datetime(2026, 9, 30, tzinfo=UTC)
+    with sessions.begin() as session:
+        DevelopmentSourceRepository(session).create(
+            DevelopmentSource(
+                id=source_id,
+                logical_name="Capture",
+                source_kind=DevelopmentSourceKind.LOCAL_DIRECTORY,
+                relative_locator="plugin.video.capture",
+                addon_id="plugin.video.capture",
+                observed_name="Capture",
+                observed_version="1.0.0",
+                extension_types=("xbmc.python.pluginsource",),
+                registered_at=now,
+                validated_at=now,
+            )
+        )
+    workspaces = AgentWorkspaceService(
+        sessions,
+        data_root=root,
+        development_root=source_root,
+        clock=lambda: now,
+    )
+    queued = workspaces.queue_creation(source_id)
+    lease = workspaces.acquire(queued.operation_id)
+    assert lease is not None
+    workspaces.run(lease)
+    workspace_id = queued.workspace_id
+    (source / "addon.xml").write_text(
+        (source / "addon.xml").read_text(encoding="utf-8").replace("1.0.0", "1.0.1"),
+        encoding="utf-8",
+    )
+    capture = WorkspaceSourceCaptureService(
+        sessions,
+        data_root=root,
+        development_root=source_root,
+        clock=lambda: now,
+    ).capture(workspace_id, expected_generation=0)
+    assert capture.generation == 1
+    with lifecycle_lock(root):
+        identifier = backup(root, _url(root))
+    assert _verify_backup(root, identifier)["complete"] is True
+    engine.dispose()
+    restored = tmp_path / "restored"
+    restored.mkdir(mode=0o700)
+    (restored / "backups").mkdir(mode=0o700)
+    shutil.copytree(root / "backups" / identifier, restored / "backups" / identifier)
+    assert recover_clean(restored, _url(restored), identifier, identifier)
+    restored_engine = create_database_engine(_url(restored))
+    with create_session_factory(restored_engine)() as session:
+        row = AgentWorkspaceRepository(session).get(workspace_id)
+        assert row is not None and row.generation == 1
+        assert row.active_capture_id == capture.operation_id
+        assert row.current_tree_digest == capture.tree_digest
+    restored_engine.dispose()
+    workspace_path = restored / "agent-workspaces" / str(workspace_id)
+    assert (workspace_path / "baseline" / "tree" / "addon.xml").is_file()
+    assert (workspace_path / "history").is_dir()
 
 
 def test_verified_backup_recovers_fresh_application_volume(tmp_path: Path) -> None:

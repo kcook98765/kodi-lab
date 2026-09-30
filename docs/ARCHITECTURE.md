@@ -2839,3 +2839,26 @@ can freeze an explicit subset of a non-production built-in ceiling using the
 existing preset tables. Exact target/source grants, workspace ownership,
 technical capability, production veto, human publication approval, manual Kodi
 update and Web installed-tree recheck remain separate checks.
+
+## Explicit source capture into an existing workspace
+
+The registered local DevelopmentSource is externally editable. Its registration
+observation is historical; a fresh safe scan derives the current normalized tree
+digest. The private workspace retains its creation baseline and one active
+captured baseline. An internal capture operation stages an entire source tree in
+UUID-derived application state, checks identity and a second scan, and switches
+baseline/tree under the workspace lock. The workspace enters `capturing` before
+filesystem mutation, so ordinary readers and mutations fail closed. Its durable
+receipt records prior and resulting generation, source identity/version and
+digests. Recovery compares staged, active and archived bytes before completing
+or requiring reconciliation. One changed capture means one generation; equal
+bytes mean no new generation. The 0058 migration backfills active identity for
+existing 0057 workspaces without changing baseline files.
+
+Validation, repository deployment, publication and exact installed-tree checks
+remain generation-bound. Later source edits do not change a captured artifact.
+Application backup contains the operation row, active and historical baselines,
+and staging/recovery bytes. Capture history blocks existing whole-workspace
+cleanup; reference-aware pruning is deferred. No Web or MCP source scan/capture
+endpoint is exposed by the storage foundation alone, and direct source writes
+remain outside V1 MCP authority.

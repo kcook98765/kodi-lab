@@ -415,6 +415,10 @@ class AgentWorkspaceRow(Base):
         String(36), nullable=False, unique=True
     )
     baseline_manifest_digest: Mapped[str | None] = mapped_column(String(71))
+    creation_baseline_digest: Mapped[str | None] = mapped_column(String(71))
+    active_baseline_artifact_id: Mapped[str | None] = mapped_column(String(36))
+    active_capture_id: Mapped[str | None] = mapped_column(String(36))
+    active_observed_version: Mapped[str | None] = mapped_column(String(128))
     generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     current_tree_digest: Mapped[str | None] = mapped_column(String(71))
     capture_started_at: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -424,6 +428,68 @@ class AgentWorkspaceRow(Base):
     promoted_at: Mapped[str | None] = mapped_column(String(32))
     abandoned_at: Mapped[str | None] = mapped_column(String(32))
     cleaned_at: Mapped[str | None] = mapped_column(String(32))
+
+
+class AgentWorkspaceCaptureOperationRow(Base):
+    """One bounded, durable source-to-existing-workspace capture attempt."""
+
+    __tablename__ = "agent_workspace_capture_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('staging','switching','succeeded','failed',"
+            "'reconciliation_required')",
+            name="agent_workspace_capture_state_closed",
+        ),
+        CheckConstraint(
+            "prior_generation >= 0 AND resulting_generation = prior_generation + 1",
+            name="agent_workspace_capture_generation_step",
+        ),
+        CheckConstraint(
+            "length(prior_baseline_digest)=71 AND length(prior_tree_digest)=71 "
+            "AND (captured_digest IS NULL OR length(captured_digest)=71) "
+            "AND (captured_version IS NULL OR "
+            "length(captured_version) BETWEEN 1 AND 128)",
+            name="agent_workspace_capture_digests_bounded",
+        ),
+        CheckConstraint(
+            "(state IN ('staging','failed') OR captured_digest IS NOT NULL) AND "
+            "(state NOT IN ('succeeded','failed','reconciliation_required') "
+            "OR completed_at IS NOT NULL)",
+            name="agent_workspace_capture_completion_consistent",
+        ),
+        Index(
+            "ix_agent_workspace_capture_workspace_time", "workspace_id", "requested_at"
+        ),
+        Index(
+            "uq_agent_workspace_capture_active",
+            "workspace_id",
+            unique=True,
+            sqlite_where=text("state IN ('staging','switching')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    development_source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("development_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    prior_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    resulting_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    prior_baseline_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    prior_baseline_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    prior_tree_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    captured_digest: Mapped[str | None] = mapped_column(String(71))
+    captured_version: Mapped[str | None] = mapped_column(String(128))
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(32))
+    failure_code: Mapped[str | None] = mapped_column(String(128))
 
 
 class AgentWorkspaceCleanupOperationRow(Base):

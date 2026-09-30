@@ -621,6 +621,43 @@ Kodi Lab mechanism.**
 
 Original registered host source remains protected/read-only from MCP.
 
+The registered `local_directory` DevelopmentSource is the user's normal
+externally editable working tree. Human editors, Git and other host tools may
+change it without Kodi Lab. Registration records identity and an initial
+observation; it does not freeze the directory or automatically update an
+existing workspace. Git metadata is optional and advisory. Captured bytes and
+their normalized tree digest are authoritative.
+
+An explicit fresh scan observes the current source without mutating a workspace.
+An explicit whole-source capture into an **existing**, ready, clean workspace
+stages and verifies the complete source tree, including additions and removals,
+then switches the active protected baseline and tree together under a durable
+capture operation. A changed capture advances exactly one workspace generation
+regardless of file count. An identical capture is a no-op. The original creation
+baseline and each superseded capture baseline remain distinct and recoverable.
+Unincorporated private workspace edits or an unresolved promotion/deployment
+block capture; Kodi Lab never silently overwrites them. A source race during
+staging fails before the switch. An interrupted switch leaves the workspace
+unavailable until deterministic reconciliation proves old/new bytes and receipt.
+
+Validation, deployment, publication, installed-tree verification and execution
+continue to bind exact workspace generations and bytes, never the live source.
+External source edits do not retroactively invalidate historical receipts. A
+source scan and workspace status must distinguish current working source,
+active captured generation, latest validation, deployed generation, and verified
+target generation; differing digests/generations are shown as stale.
+
+MCP source inspection and explicit capture require source-specific and exact
+workspace authorization when surfaced. Direct MCP/agent writes to the host
+source are deferred. `workspace_edit` remains a bounded private-workspace tool;
+no automatic reverse synchronization overwrites the external source.
+
+Captured baseline bytes named by durable validation, deployment, publication,
+verification, execution or recovery evidence are retained. V1 does not
+automatically prune capture history. Existing whole-workspace cleanup refuses a
+workspace with capture history until a separately reviewed reference-aware
+cleanup exists. Application backup/restore includes capture bytes and receipts.
+
 MCP agents modify a Kodi Lab-managed working copy.
 
 Working-copy tools:

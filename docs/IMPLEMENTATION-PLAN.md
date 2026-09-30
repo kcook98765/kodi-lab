@@ -1884,3 +1884,24 @@ operation lifecycle. The Web **Kodi Repository** and workspace detail pages
 show pending/verified state and a bounded **Recheck installation** action.
 Disposable Kodi is the first acceptance tier; headless inability to perform a
 normal user update is an honest acceptance boundary before physical Kodi.
+
+## Source-to-workspace capture gates after physical v1 acceptance
+
+Gate 1 establishes migration 0058, an active captured baseline and durable
+source-capture receipt on the existing workspace. Storage safely stages and
+verifies a whole source tree, switches under the workspace lock, advances one
+generation, treats identical capture as a no-op, retains old baseline bytes and
+reconciles interruption. Backup/restore and retention preserve this evidence.
+No Web/MCP surface or real installation change occurs in this gate.
+
+Gate 2 exposes explicit fresh source scan and human Web capture with reviewable
+current/captured/validated/deployed/verified identities and stale-state labels.
+Add narrowly authorized MCP source inspection/capture only after the same
+source grant, workspace binding and existing target/production boundaries are
+verified. Direct MCP source editing remains deferred.
+
+After a reviewed 0058 candidate is upgraded on the real server, resume the
+paused physical v2 acceptance by scanning the already edited 1.0.1 source,
+capturing it once into the existing generation-0 workspace, validating and
+requesting repository deployment. Preserve human Web approval, manual Kodi
+update, Web Recheck and generation-bound MCP execution.

@@ -12,6 +12,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -28,6 +29,7 @@ from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     PromotionVerificationState,
 )
+from kodi_lab.storage.models import AgentWorkspaceCaptureOperationRow
 from kodi_lab.storage.repositories import (
     AgentWorkspaceCleanupOperationRepository,
     AgentWorkspaceCreationOperationRepository,
@@ -118,6 +120,22 @@ class AgentWorkspaceCleanupService:
             )
         if workspace.bytes_state is AgentWorkspaceBytesState.CLEANED:
             return
+        # Captured baselines may be named by validation/deployment/publication
+        # history. V1 has no per-generation reference-aware byte cleanup.
+        if (
+            session.scalar(
+                select(AgentWorkspaceCaptureOperationRow.id)
+                .where(
+                    AgentWorkspaceCaptureOperationRow.workspace_id == str(workspace_id)
+                )
+                .limit(1)
+            )
+            is not None
+        ):
+            raise AgentWorkspaceCleanupError(
+                "workspace_capture_history_retained",
+                "Workspace capture evidence must be retained.",
+            )
         if workspace.state is AgentWorkspaceState.RECONCILIATION_REQUIRED:
             raise AgentWorkspaceCleanupError(
                 "workspace_reconciliation_blocked",

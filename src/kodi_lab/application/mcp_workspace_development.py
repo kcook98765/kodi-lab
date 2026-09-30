@@ -107,6 +107,7 @@ from kodi_lab.repository.workspace_package import (
     build_workspace_package,
 )
 from kodi_lab.storage.models import (
+    AgentWorkspaceCaptureOperationRow,
     AgentWorkspacePromotionPlanRow,
     AgentWorkspaceRow,
     DevelopmentPublicationHoldRow,
@@ -1294,6 +1295,13 @@ class McpWorkspaceDevelopmentService:
 
     def retention_blocker(self, workspace_id: UUID, generation: int) -> str | None:
         with self._sessions() as session:
+            captured_history = session.scalar(
+                select(AgentWorkspaceCaptureOperationRow.id)
+                .where(
+                    AgentWorkspaceCaptureOperationRow.workspace_id == str(workspace_id)
+                )
+                .limit(1)
+            )
             unresolved_deployment = session.scalar(
                 select(func.count())
                 .select_from(McpWorkspaceDeploymentOperationRow)
@@ -1325,6 +1333,8 @@ class McpWorkspaceDevelopmentService:
                     McpWorkspaceDeploymentOperationRow.state == "succeeded",
                 )
             )
+        if captured_history is not None:
+            return "workspace_capture_history_retained"
         if unresolved_deployment or unresolved_execution:
             return "workspace_development_operation_unresolved"
         if current:

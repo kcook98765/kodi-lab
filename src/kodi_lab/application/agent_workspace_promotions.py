@@ -716,7 +716,9 @@ class AgentWorkspacePromotionService:
             target_instance_id=target_id,
             workspace_generation=workspace.generation,
             workspace_digest=workspace.current_tree_digest,
-            baseline_artifact_id=workspace.baseline_artifact_id,
+            baseline_artifact_id=(
+                workspace.active_baseline_artifact_id or workspace.baseline_artifact_id
+            ),
             baseline_digest=workspace.baseline_manifest_digest,
             source_capture_digest="sha256:" + "0" * 64,
             addon_id=workspace.source_addon_id,
@@ -843,7 +845,9 @@ class AgentWorkspacePromotionService:
             target_instance_id=target_id,
             workspace_generation=workspace.generation,
             workspace_digest=workspace.current_tree_digest,
-            baseline_artifact_id=workspace.baseline_artifact_id,
+            baseline_artifact_id=(
+                workspace.active_baseline_artifact_id or workspace.baseline_artifact_id
+            ),
             baseline_digest=workspace.baseline_manifest_digest,
             source_capture_digest=review.source_capture_digest,
             addon_id=workspace.source_addon_id,

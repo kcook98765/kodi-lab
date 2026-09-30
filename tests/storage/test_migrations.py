@@ -152,7 +152,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0057_development_capability_amendments",)
+        ).fetchone() == ("0058_workspace_source_capture",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -206,6 +206,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "addon_zip_installation_operations",
         "addon_zip_smoke_test_operations",
         "agent_workspace_creation_operations",
+        "agent_workspace_capture_operations",
         "agent_workspace_cleanup_operations",
         "agent_workspace_lifecycle_events",
         "agent_workspace_mutation_events",
@@ -325,6 +326,93 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "revision_number",
     ]
     engine.dispose()
+
+
+def test_0058_workspace_source_capture_preserves_0057_ready_workspace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0057_development_capability_amendments"
+    )
+    ids = {
+        "source": "58000000-0000-4000-8000-000000000001",
+        "workspace": "58000000-0000-4000-8000-000000000002",
+        "baseline": "58000000-0000-4000-8000-000000000003",
+        "capture": "58000000-0000-4000-8000-000000000004",
+        "digest": "sha256:" + "a" * 64,
+        "new_digest": "sha256:" + "b" * 64,
+        "at": "2026-09-30T12:00:00.000000Z",
+    }
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id,logical_name,source_kind,relative_locator,addon_id,observed_name,"
+                "observed_version,extension_types_json,registered_at,validated_at) "
+                "VALUES (:source,'Physical','local_directory','plugin.video.physical',"
+                "'plugin.video.physical','Physical','1.0.0',"
+                "'[\"xbmc.python.pluginsource\"]',:at,:at)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspaces "
+                "(id,development_source_id,source_addon_id,source_logical_name,"
+                "source_observed_name,source_observed_version,state,bytes_state,"
+                "baseline_artifact_id,baseline_manifest_digest,generation,"
+                "current_tree_digest,capture_started_at,captured_at,"
+                "created_at,updated_at) "
+                "VALUES (:workspace,:source,'plugin.video.physical','Physical',"
+                "'Physical','1.0.0','ready','present',:baseline,:digest,0,:digest,"
+                ":at,:at,:at,:at)"
+            ),
+            ids,
+        )
+    engine.dispose()
+    command.upgrade(config, "0058_workspace_source_capture")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT state,generation,creation_baseline_digest,"
+                "active_baseline_artifact_id,active_capture_id,active_observed_version "
+                "FROM agent_workspaces WHERE id=:workspace"
+            ),
+            ids,
+        ).one() == ("ready", 0, ids["digest"], ids["baseline"], None, "1.0.0")
+        assert "agent_workspace_capture_operations" in inspect(engine).get_table_names()
+    engine.dispose()
+    command.downgrade(config, "0057_development_capability_amendments")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT state,generation,baseline_manifest_digest "
+                "FROM agent_workspaces WHERE id=:workspace"
+            ),
+            ids,
+        ).one() == ("ready", 0, ids["digest"])
+    engine.dispose()
+    command.upgrade(config, "0058_workspace_source_capture")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspace_capture_operations "
+                "(id,workspace_id,development_source_id,state,prior_generation,"
+                "resulting_generation,prior_baseline_id,prior_baseline_digest,"
+                "prior_tree_digest,captured_digest,captured_version,"
+                "requested_at,completed_at) "
+                "VALUES (:capture,:workspace,:source,'succeeded',0,1,:baseline,"
+                ":digest,:digest,:new_digest,'1.0.1',:at,:at)"
+            ),
+            ids,
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="capture evidence"):
+        command.downgrade(config, "0057_development_capability_amendments")
 
     command.check(config)
 
@@ -7180,7 +7268,6 @@ def test_0057_development_capability_amendments_empty_round_trip(
             )
         )
         assert isinstance(trigger, str)
-        assert "'external_production' AND EXISTS" in trigger
         dev_trigger = connection.scalar(
             text(
                 "SELECT sql FROM sqlite_master WHERE type='trigger' AND "

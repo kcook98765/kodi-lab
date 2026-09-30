@@ -977,7 +977,8 @@ class AgentWorkspaceService:
         observed = result.current_addon
         if (
             baseline.addon_id != workspace.source_addon_id
-            or baseline.observed_version != workspace.source_observed_version
+            or baseline.observed_version
+            != (workspace.active_observed_version or workspace.source_observed_version)
         ):
             self._mark_reconciliation(workspace)
             raise AgentWorkspaceStorageError(

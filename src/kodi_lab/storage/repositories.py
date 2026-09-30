@@ -879,6 +879,16 @@ def _agent_workspace_from_row(row: AgentWorkspaceRow) -> AgentWorkspace:
         bytes_state=row.bytes_state,
         baseline_artifact_id=UUID(row.baseline_artifact_id),
         baseline_manifest_digest=row.baseline_manifest_digest,
+        creation_baseline_digest=row.creation_baseline_digest,
+        active_baseline_artifact_id=(
+            None
+            if row.active_baseline_artifact_id is None
+            else UUID(row.active_baseline_artifact_id)
+        ),
+        active_capture_id=(
+            None if row.active_capture_id is None else UUID(row.active_capture_id)
+        ),
+        active_observed_version=row.active_observed_version,
         generation=row.generation,
         current_tree_digest=row.current_tree_digest,
         capture_started_at=_timestamp_from_text(row.capture_started_at),
@@ -1434,6 +1444,18 @@ class AgentWorkspaceRepository:
                 bytes_state=workspace.bytes_state,
                 baseline_artifact_id=str(workspace.baseline_artifact_id),
                 baseline_manifest_digest=workspace.baseline_manifest_digest,
+                creation_baseline_digest=workspace.creation_baseline_digest,
+                active_baseline_artifact_id=(
+                    None
+                    if workspace.active_baseline_artifact_id is None
+                    else str(workspace.active_baseline_artifact_id)
+                ),
+                active_capture_id=(
+                    None
+                    if workspace.active_capture_id is None
+                    else str(workspace.active_capture_id)
+                ),
+                active_observed_version=workspace.active_observed_version,
                 generation=workspace.generation,
                 current_tree_digest=workspace.current_tree_digest,
                 capture_started_at=_timestamp_to_text(workspace.capture_started_at),
@@ -1480,6 +1502,9 @@ class AgentWorkspaceRepository:
             .values(
                 state=AgentWorkspaceState.READY,
                 baseline_manifest_digest=manifest_digest,
+                creation_baseline_digest=manifest_digest,
+                active_baseline_artifact_id=AgentWorkspaceRow.baseline_artifact_id,
+                active_observed_version=AgentWorkspaceRow.source_observed_version,
                 current_tree_digest=tree_digest,
                 captured_at=_timestamp_to_text(now),
                 updated_at=_timestamp_to_text(now),

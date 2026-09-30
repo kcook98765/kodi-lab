@@ -68,9 +68,7 @@ def phase2_candidate(tmp_path: Path) -> Path:
     reviewed = Path(__file__).parents[2] / "repository/DEVELOPMENT.json"
     (bundle / "repository/DEVELOPMENT.json").write_bytes(reviewed.read_bytes())
     manifest = json.loads((bundle / "BUNDLE.json").read_bytes())
-    manifest["repository"] = {
-        "migration_head": "0057_development_capability_amendments"
-    }
+    manifest["repository"] = {"migration_head": "0058_workspace_source_capture"}
     manifest["files"]["repository/DEVELOPMENT.json"] = {
         "sha256": "sha256:" + sha256(reviewed.read_bytes()),
         "size": reviewed.stat().st_size,

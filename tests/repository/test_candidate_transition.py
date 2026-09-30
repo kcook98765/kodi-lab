@@ -52,6 +52,8 @@ from tests.application.test_repository_workspace_deployment import (
 )
 from tests.repository.test_development import BASE, fixture_zip, phase2_candidate
 
+CURRENT_HEAD = "0058_workspace_source_capture"
+
 
 @pytest.fixture(autouse=True)
 def migrations(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,8 +107,8 @@ def _setup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    old_revision: str = "0057_development_capability_amendments",
-    new_revision: str = "0057_development_capability_amendments",
+    old_revision: str = CURRENT_HEAD,
+    new_revision: str = CURRENT_HEAD,
     legacy_old: bool = False,
     live_revision: str | None = None,
 ) -> tuple[Path, Path, Path, Path, str, str, str]:
@@ -127,7 +129,7 @@ def _setup(
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     initialize(state, url)
     initial_revision = live_revision or old_revision
-    if initial_revision != "0057_development_capability_amendments":
+    if initial_revision != CURRENT_HEAD:
         with packaged_migrations.packaged_config(url) as config:
             command.downgrade(config, initial_revision)
     engine = create_database_engine(url)
@@ -161,18 +163,16 @@ def test_forward_migration_transition_before_application_upgrade(
     )
     receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
     assert receipt["old_migration_revision"] == "0056_repository_workspace_deployment"
-    assert receipt["new_migration_revision"] == "0057_development_capability_amendments"
+    assert receipt["new_migration_revision"] == CURRENT_HEAD
     assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == (
         "0056_repository_workspace_deployment"
     )
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
     assert upgrade(state, url)[:2] == (
         "0056_repository_workspace_deployment",
-        "0057_development_capability_amendments",
+        CURRENT_HEAD,
     )
-    assert remote_lifecycle.validate(state, url, require_head=True) == (
-        "0057_development_capability_amendments"
-    )
+    assert remote_lifecycle.validate(state, url, require_head=True) == (CURRENT_HEAD)
     assert remote_lifecycle.verify_candidate_transition_completion(state, url)
     assert (
         transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
@@ -229,12 +229,12 @@ def test_packaged_transition_preserves_web_owned_repository_for_upgrade(
 
     receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
     assert receipt["old_migration_revision"] == "0056_repository_workspace_deployment"
-    assert receipt["new_migration_revision"] == "0057_development_capability_amendments"
+    assert receipt["new_migration_revision"] == CURRENT_HEAD
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
     with _identity(web_uid, web_gid):
         assert upgrade(state, url)[:2] == (
             "0056_repository_workspace_deployment",
-            "0057_development_capability_amendments",
+            CURRENT_HEAD,
         )
         assert remote_lifecycle.verify_candidate_transition_completion(state, url)
 
@@ -347,7 +347,7 @@ def test_packaged_transition_retry_preserves_web_owner(
                 interrupt_after=stage,
             )
     receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
-    assert receipt["new_migration_revision"] == "0057_development_capability_amendments"
+    assert receipt["new_migration_revision"] == CURRENT_HEAD
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
     with _identity(10001, 10001), lifecycle_lock(state):
         assert _verify_backup(
@@ -409,7 +409,7 @@ def test_same_head_root_transition_keeps_web_owned_development_state(
         _web_owned_transition_fixture(
             tmp_path,
             monkeypatch,
-            old_revision="0057_development_capability_amendments",
+            old_revision=CURRENT_HEAD,
         )
     )
     receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
@@ -433,7 +433,7 @@ def test_retained_0056_bundle_migration_marker_is_accepted(
     )
     receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
     assert receipt["old_migration_revision"] == "0056_repository_workspace_deployment"
-    assert receipt["new_migration_revision"] == "0057_development_capability_amendments"
+    assert receipt["new_migration_revision"] == CURRENT_HEAD
 
 
 def test_completion_rejects_tampered_receipt_and_missing_upgrade(
@@ -499,7 +499,7 @@ def test_missing_transition_receipt_blocks_upgrade_and_completion(
     "wrong",
     [
         "0055_development_repository_publications",
-        "0057_development_capability_amendments",
+        CURRENT_HEAD,
     ],
 )
 def test_forward_transition_rejects_wrong_live_revision_before_switch(
@@ -579,7 +579,7 @@ def test_forward_migration_transition_interruption_is_resumable(
     monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
     assert upgrade(state, f"sqlite:///{state / 'database/kodi-lab.db'}")[:2] == (
         "0056_repository_workspace_deployment",
-        "0057_development_capability_amendments",
+        CURRENT_HEAD,
     )
 
 
@@ -734,14 +734,21 @@ def test_0057_evidence_refuses_downgrade_but_a_backup_can_be_restored(
         external = session.get(ExternalKodiTargetRow, target_id)
         assert external is not None
         external.configured_capabilities_json = after
+    # Exercise downgrade refusal on a copy: Alembic may complete the safe
+    # 0058 -> 0057 step before 0057 refuses to discard amendment evidence.
+    downgrade_database = tmp_path / "downgrade-check.db"
+    shutil.copy2(state / remote_lifecycle.DATABASE, downgrade_database)
     with (
-        packaged_migrations.packaged_config(url) as config,
+        packaged_migrations.packaged_config(
+            f"sqlite:///{downgrade_database}"
+        ) as config,
         pytest.raises(RuntimeError, match="refusing to discard"),
     ):
         command.downgrade(config, "0056_repository_workspace_deployment")
-    assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == (
+    assert remote_lifecycle._revision(downgrade_database) == (
         "0057_development_capability_amendments"
     )
+    assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == CURRENT_HEAD
     transition(
         new, old, data, state, BASE, new_hash, old_hash, backup_id, rollback=True
     )
@@ -789,9 +796,7 @@ def test_later_same_head_transition_rollback_preserves_prior_upgrade_evidence(
         b_backup,
         rollback=True,
     )
-    assert restore(state, url, b_backup, b_backup)[0] == (
-        "0057_development_capability_amendments"
-    )
+    assert restore(state, url, b_backup, b_backup)[0] == (CURRENT_HEAD)
     assert load_current(data, expected_bundle_sha256=new_hash)
     assert remote_lifecycle.verify_candidate_transition_completion(state, url)
 
@@ -828,7 +833,7 @@ def test_interrupted_application_upgrade_restores_intermediate_binding(
     assert (state / ".repository-candidate-transition.json").exists()
     assert upgrade(state, url)[:2] == (
         "0056_repository_workspace_deployment",
-        "0057_development_capability_amendments",
+        CURRENT_HEAD,
     )
     assert remote_lifecycle.verify_candidate_transition_completion(state, url)
 
@@ -966,7 +971,7 @@ def test_reverse_transition_restores_old_backup_coherently(
         restore(
             state, f"sqlite:///{state / 'database/kodi-lab.db'}", backup_id, backup_id
         )[0]
-        == "0057_development_capability_amendments"
+        == CURRENT_HEAD
     )
     assert load_current(data, expected_bundle_sha256=old_hash)[1] == old_stable
     assert load_development_current(data / "development-data")[1] == old_development
