@@ -396,7 +396,8 @@ class RepositoryHandler(BaseHTTPRequestHandler):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "command", choices=("generate", "serve", "verify", "transition")
+        "command",
+        choices=("generate", "serve", "verify", "transition", "repair-legacy-pointer"),
     )
     parser.add_argument(
         "--data-root", type=Path, default=Path("/srv/kodi-lab-repository")
@@ -458,6 +459,38 @@ def main() -> int:
                     {"stable": result, "development": dev_result}, sort_keys=True
                 )
             )
+        elif args.command == "repair-legacy-pointer":
+            from kodi_lab.repository.legacy_pointer_repair import (
+                repair_legacy_development_current,
+            )
+
+            configured = os.getenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256")
+            if (
+                args.data_root != Path("/srv/kodi-lab-repository")
+                or args.state_root != Path("/var/lib/kodi-lab")
+                or args.bundle != Path("/candidate")
+                or args.previous_bundle != Path("/previous")
+                or not args.expected_old_bundle
+                or not configured
+                or not args.base_url
+                or args.base_url != os.getenv("KODI_LAB_REPOSITORY_BASE_URL")
+                or args.expected_new_bundle is not None
+                or args.backup_id is not None
+                or args.rollback
+            ):
+                raise ValueError(
+                    "legacy repair requires fixed packaged paths and exact A"
+                )
+            result = repair_legacy_development_current(
+                args.previous_bundle,
+                args.bundle,
+                args.data_root,
+                args.state_root,
+                args.base_url,
+                args.expected_old_bundle,
+                configured,
+            )
+            print(json.dumps(result, sort_keys=True))
         elif args.command == "transition":
             from kodi_lab.repository.transition import transition
 

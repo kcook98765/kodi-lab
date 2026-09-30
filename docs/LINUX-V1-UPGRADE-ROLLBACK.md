@@ -15,9 +15,46 @@ docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
   exec -T web kodi-lab-lab stop
 docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
   stop web broker
+# If the exact reviewed legacy A pointer defect is present, complete the
+# separately documented compatibility repair below before this backup.
 docker compose -f compose.release.yaml run --rm --no-deps \
   --entrypoint kodi-lab-admin web backup
 ```
+
+### Reviewed legacy A development pointer before backup
+
+The candidate-transition implementation preceding D-0390 could create
+`development-data/CURRENT` as root even though its generation and ACK were
+correctly Web-owned. The ordinary backup must continue to reject that inode.
+Only an installation still serving A BUNDLE
+`e68e66d271e8a36873f830526c53c1f253ef48afdda260e589a5e5eaaff41709`
+with its matching completed transition evidence is eligible for the packaged
+compatibility repair. First verify both retained candidate bundles, configure
+the successor candidate with the same BASE URL and named volumes, and stop A
+Web/broker as above. Keep the read-only repository service running. From the
+**successor candidate** directory, before creating the A backup, run:
+
+```sh
+docker compose -f compose.release.yaml --profile repository-legacy-pointer-repair \
+  run --rm --no-deps \
+  --volume /absolute/path/to/old-A-candidate:/previous:ro \
+  repository-legacy-pointer-repair \
+  --previous-bundle /previous \
+  --expected-old-bundle e68e66d271e8a36873f830526c53c1f253ef48afdda260e589a5e5eaaff41709
+```
+
+The one-shot profile has no network, Docker socket, broker socket or ports.
+It verifies the exact A revision/provenance/active generation and every other
+development entry before changing only the fixed `CURRENT` inode owner from
+`0:0` to `10001:10001`. It does not change bytes, mode, pointers, ACK, database
+or candidate identity. The root-owned administration receipt distinguishes
+pending and completed attempts; rerun only the identical command after an
+interruption. A different or additional safety failure is a stop, not
+permission to chown by hand. The ordinary A `kodi-lab-admin backup` above must
+then complete and be independently verified before stopping the repository or
+starting a candidate transition. This compatibility command is absent from the
+retained A package and earlier immutable candidate B; use only a separately
+reviewed successor package that contains it.
 
 ## Repository candidate transition
 

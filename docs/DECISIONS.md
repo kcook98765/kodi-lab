@@ -5197,3 +5197,32 @@ approvals atomically with the governing revision transition.
   development subtree during the subsequent application upgrade. Transition
   checks the same metadata before and after its writes, including on retry and
   rollback, so provenance alone cannot bless unsafe filesystem ownership.
+
+## D-0391: Repair only the reviewed legacy development pointer inode
+
+- The accepted A candidate with BUNDLE
+  `e68e66d271e8a36873f830526c53c1f253ef48afdda260e589a5e5eaaff41709`
+  used a root transition job to atomically replace development `CURRENT` before
+  D-0390 moved that write to the Web state owner. A real A installation and its
+  completed transition receipt identify the resulting root-owned `CURRENT`;
+  the unchanged application backup correctly refuses it.
+- A later reviewed candidate may provide one networkless, Docker-admin-only
+  compatibility command. It requires the exact A BUNDLE, its completed
+  transition receipt, its live 0056 database, matching stable/development
+  provenance, acknowledged generation, exact pointer bytes and mode, and a
+  complete development subtree safety audit with no other defect. It accepts
+  no caller path or UID/GID. A dedicated Compose profile grants CHOWN only to
+  that one-shot job; repository transition and serving authority do not grow.
+- The command changes only the already-open no-follow `development-data/CURRENT`
+  inode from `0:0` to the packaged Web state owner `10001:10001`. It records a
+  durable pending/completed receipt outside the served development subtree,
+  so interruption can be retried without confusing a corrected inode with a
+  completed audit. Completion follows the original backup ownership check and
+  repository/DB verification. A canonical pointer without repair intent is a
+  read-only no-op. The ordinary backup validator is unchanged and must pass
+  afterward before any candidate transition.
+- This command is not an installation repair framework. A different candidate,
+  unsafe mode/content, extra ownership error, symlink, or unmatched provenance
+  needs separate review. Since the accepted B package has no such command, it
+  remains immutable and must be superseded by a newly built candidate before
+  an affected A installation can use the supported compatibility operation.

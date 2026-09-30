@@ -274,6 +274,25 @@ def test_verifier_requires_narrow_transition_identity_capabilities(
         verify(bundle)
 
 
+def test_verifier_requires_networkless_legacy_repair_boundary(bundle: Path) -> None:
+    compose = bundle / "compose.release.yaml"
+    body = compose.read_text()
+    body = body.replace(
+        "cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]",
+        "cap_add: [DAC_OVERRIDE, SETUID, SETGID]",
+    )
+    compose.write_text(body)
+    document = json.loads((bundle / "BUNDLE.json").read_bytes())
+    document["files"]["compose.release.yaml"] = {
+        "sha256": digest(compose),
+        "size": compose.stat().st_size,
+    }
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="service isolation"):
+        verify(bundle)
+
+
 @pytest.mark.parametrize(
     "name", ("kodi-22.0-beta2.tar", "kodi_21.3_amd64.deb", "kodi-runtime-image.tar")
 )

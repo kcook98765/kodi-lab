@@ -2792,6 +2792,16 @@ validator; the later application upgrade independently checks it again. Root
 authority in the transition job does not authorize root-owned Web state. See
 D-0390.
 
+An installation left by the reviewed pre-D-0390 A transition can have one
+root-owned development `CURRENT` while every other development entry is
+Web-owned. The backup rejects that state. A separate networkless compatibility
+profile in a successor package verifies the exact A identity, completed prior
+transition, DB/repository binding, and all other development metadata before
+changing only that fixed pointer inode to `10001:10001`. It keeps a durable
+pending/completed receipt in root-owned repository administration storage and
+reruns the unchanged backup safety check before completion. The ordinary
+transition profile gains no CHOWN authority. See D-0391.
+
 ## Repository workspace deployment linkage
 
 Migration `0056_repository_workspace_deployment` retains the existing operation
