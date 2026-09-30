@@ -455,7 +455,9 @@ def verify_bridge(bundle: pathlib.Path, data: dict[str, Any]) -> dict[str, Any]:
     return provenance
 
 
-def archive_images(path: pathlib.Path) -> tuple[dict[str, str], set[str]]:
+def archive_images(
+    path: pathlib.Path,
+) -> tuple[dict[str, str], set[str], dict[str, dict[str, str]]]:
     """Get each saved tag's immutable OCI config digest from tar bytes."""
     with tarfile.open(path, "r:") as archive:
         member = archive.extractfile("manifest.json")
@@ -466,6 +468,7 @@ def archive_images(path: pathlib.Path) -> tuple[dict[str, str], set[str]]:
             raise ValueError("archive manifest is invalid")
         result: dict[str, str] = {}
         config_ids: set[str] = set()
+        labels_by_tag: dict[str, dict[str, str]] = {}
         for entry in entries:
             config = entry["Config"]
             if not re.fullmatch(r"blobs/sha256/[0-9a-f]{64}", config):
@@ -473,15 +476,24 @@ def archive_images(path: pathlib.Path) -> tuple[dict[str, str], set[str]]:
             config_bytes = archive.extractfile(config)
             if config_bytes is None:
                 raise ValueError("archive config is absent")
-            actual = "sha256:" + hashlib.sha256(config_bytes.read()).hexdigest()
+            content = config_bytes.read()
+            actual = "sha256:" + hashlib.sha256(content).hexdigest()
             if actual != "sha256:" + config.rsplit("/", 1)[1]:
                 raise ValueError("archive config digest differs")
             config_ids.add(actual)
+            configuration = json.loads(content)
+            labels = configuration.get("config", {}).get("Labels", {})
+            if not isinstance(labels, dict) or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in labels.items()
+            ):
+                raise ValueError("archive image labels are invalid")
             for tag in entry.get("RepoTags") or []:
                 if tag in result:
                     raise ValueError("duplicate archive tag")
                 result[tag] = actual
-        return result, config_ids
+                labels_by_tag[tag] = labels
+        return result, config_ids, labels_by_tag
 
 
 def archive_contains_digest(path: pathlib.Path, identity: str) -> bool:
@@ -577,7 +589,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
     if _inventory(bundle) != RELEASE_FILES:
         raise ValueError("release file inventory differs")
     tags = {role: f"kodi-lab-v1-{role}:{version}" for role in ("web", "broker")}
-    configs, _ = archive_images(bundle / APP_ARCHIVE)
+    configs, _, archive_labels = archive_images(bundle / APP_ARCHIVE)
     if set(configs) != set(tags.values()):
         raise ValueError("application archive tags differ from release roles")
     images = {}
@@ -620,6 +632,8 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
         if (
             labels.get("org.opencontainers.image.revision") != source_tree
             or labels.get("org.opencontainers.image.version") != version
+            or labels.get("io.kodi-lab.migration-head")
+            != archive_labels[tag].get("io.kodi-lab.migration-head")
         ):
             raise ValueError("application build labels differ from staged source")
         package_identity = subprocess.check_output(
@@ -669,6 +683,11 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
     ).strip()
     if not re.fullmatch(r"[0-9]{4}_[a-z][a-z0-9_]*", migration_head):
         raise ValueError("installed migration head is invalid")
+    if any(
+        labels.get("io.kodi-lab.migration-head") != migration_head
+        for labels in archive_labels.values()
+    ):
+        raise ValueError("installed migration head differs from image labels")
     recipes = _recipes(bundle)
     installed_recipes = json.loads(
         subprocess.check_output(
@@ -770,7 +789,7 @@ def verify(
     if (bundle / "SHA256SUMS").read_text() != expected_sums:
         raise ValueError("checksum inventory differs")
     app = data["application"]
-    configs, _ = archive_images(bundle / app["archive"])
+    configs, _, archive_labels = archive_images(bundle / app["archive"])
     if configs != {
         value["tag_hint"]: value["config_image_id"] for value in app["images"].values()
     } or set(app["images"]) != {"web", "broker"}:
@@ -786,7 +805,22 @@ def verify(
     verify_stable_manifest(bundle)
     verify_development_manifest(bundle)
     verify_repository_service_boundary(bundle)
-    if data.get("repository") != {
+    repository = data.get("repository")
+    if not isinstance(repository, dict):
+        raise ValueError("stable repository bundle capability differs")
+    migration_head = repository.get("migration_head")
+    if not isinstance(migration_head, str) or not re.fullmatch(
+        r"[0-9]{4}_[a-z][a-z0-9_]*", migration_head
+    ):
+        raise ValueError("stable repository bundle capability differs")
+    if any(
+        labels.get("io.kodi-lab.migration-head") != migration_head
+        or labels.get("org.opencontainers.image.revision") != data["source_tree"]
+        or labels.get("org.opencontainers.image.version") != data["version"]
+        for labels in archive_labels.values()
+    ):
+        raise ValueError("application image migration identity differs")
+    if repository != {
         "stable_manifest": STABLE_MANIFEST,
         "generator": "kodi-lab-stable-repository-v1",
         "per_install_generation": True,
@@ -798,7 +832,7 @@ def verify(
             "0057_development_capability_amendments"
         ),
         "candidate_transition": "explicit-reviewed-a-b-v1",
-        "migration_head": "0057_development_capability_amendments",
+        "migration_head": migration_head,
     }:
         raise ValueError("stable repository bundle capability differs")
     env_path = bundle / ".env"

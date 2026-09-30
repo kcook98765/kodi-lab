@@ -5280,3 +5280,15 @@ approvals atomically with the governing revision transition.
   Downgrade refuses to discard a digest that can no longer be derived from the
   current workspace. Validation/deployment/publication/verification receipts
   stay immutable.
+
+## D-0394: Candidate verification binds migration head to packaged images
+
+- Candidate staging derives the reviewed Alembic head from the clean source
+  checkout and records it in both application image configs. Finalization
+  independently runs the installed Web image to read its actual migration head
+  and requires the image labels to match. The source-free verifier compares
+  the BUNDLE migration identity with the digest-checked image config labels.
+- This replaces the stale verifier assumption that every subsequent candidate
+  must end at 0057. It retains an exact, networkless identity check for each
+  candidate and rejects rehashed BUNDLE metadata whose head differs from the
+  archived application images.

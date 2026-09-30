@@ -21,6 +21,8 @@ if [[ -n "$(git -C "$repository" status --porcelain)" ]]; then
   exit 2
 fi
 source_tree=$(git -C "$repository" rev-parse 'HEAD^{tree}')
+migration_head="$(cd "$repository" && uv run --locked python -c \
+  'from alembic.config import Config; from alembic.script import ScriptDirectory; print(ScriptDirectory.from_config(Config("alembic.ini")).get_current_head())')"
 if [[ -e "$output" ]] && [[ -n "$(ls -A "$output")" ]]; then
   echo "output directory must be empty" >&2
   exit 2
@@ -38,11 +40,13 @@ build_network=${KODI_LAB_BUNDLE_BUILD_NETWORK:-default}
 docker build --network "$build_network" --provenance=false --quiet --target web \
   --build-arg "KODI_LAB_SOURCE_TREE=$source_tree" \
   --build-arg "KODI_LAB_RELEASE_VERSION=$version" \
+  --build-arg "KODI_LAB_MIGRATION_HEAD=$migration_head" \
   -t "kodi-lab-v1-web:$version" -f "$repository/runtime/remote-web/Dockerfile" \
   "$repository"
 docker build --network "$build_network" --provenance=false --quiet --target broker \
   --build-arg "KODI_LAB_SOURCE_TREE=$source_tree" \
   --build-arg "KODI_LAB_RELEASE_VERSION=$version" \
+  --build-arg "KODI_LAB_MIGRATION_HEAD=$migration_head" \
   -t "kodi-lab-v1-broker:$version" -f "$repository/runtime/remote-web/Dockerfile" \
   "$repository"
 docker save --output "$output/kodi-lab-application-images.tar" \

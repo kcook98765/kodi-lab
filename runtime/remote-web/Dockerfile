@@ -12,8 +12,10 @@ FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e6
 
 ARG KODI_LAB_SOURCE_TREE=unknown
 ARG KODI_LAB_RELEASE_VERSION=unknown
+ARG KODI_LAB_MIGRATION_HEAD=unknown
 LABEL org.opencontainers.image.revision="$KODI_LAB_SOURCE_TREE" \
-      org.opencontainers.image.version="$KODI_LAB_RELEASE_VERSION"
+      org.opencontainers.image.version="$KODI_LAB_RELEASE_VERSION" \
+      io.kodi-lab.migration-head="$KODI_LAB_MIGRATION_HEAD"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

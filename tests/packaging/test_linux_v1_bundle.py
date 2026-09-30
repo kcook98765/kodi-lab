@@ -26,12 +26,28 @@ canonical = bundle_tool["canonical"]
 digest = bundle_tool["digest"]
 
 
-def _archive(path: Path, tags: tuple[str, ...]) -> dict[str, str]:
+TEST_MIGRATION_HEAD = "0059_workspace_validation_digest"
+
+
+def _archive(
+    path: Path, tags: tuple[str, ...], *, migration_head: str = TEST_MIGRATION_HEAD
+) -> dict[str, str]:
     descriptors = []
     configs = {}
     for tag in tags:
         config = json.dumps(
-            {"architecture": "amd64", "os": "linux", "tag": tag}
+            {
+                "architecture": "amd64",
+                "os": "linux",
+                "tag": tag,
+                "config": {
+                    "Labels": {
+                        "org.opencontainers.image.revision": "a" * 40,
+                        "org.opencontainers.image.version": "1.0.0rc1",
+                        "io.kodi-lab.migration-head": migration_head,
+                    }
+                },
+            }
         ).encode()
         config_hash = hashlib.sha256(config).hexdigest()
         configs[tag] = (config_hash, config)
@@ -165,7 +181,7 @@ def bundle(tmp_path: Path) -> Path:
                 "0057_development_capability_amendments"
             ),
             "candidate_transition": "explicit-reviewed-a-b-v1",
-            "migration_head": "0057_development_capability_amendments",
+            "migration_head": TEST_MIGRATION_HEAD,
         },
         "files": files,
     }
@@ -205,7 +221,29 @@ def test_bundle_rejects_changed_migration_head_even_when_rehashed(
     document["repository"]["migration_head"] = "0056_repository_workspace_deployment"
     (bundle / "BUNDLE.json").write_bytes(canonical(document))
     _checksums(bundle, document["files"])
-    with pytest.raises(ValueError, match="bundle capability differs"):
+    with pytest.raises(ValueError, match="migration identity differs"):
+        verify(bundle)
+
+
+def test_bundle_rejects_migration_label_different_from_manifest(bundle: Path) -> None:
+    document = json.loads((bundle / "BUNDLE.json").read_bytes())
+    archive = bundle / bundle_tool["APP_ARCHIVE"]
+    identities = _archive(
+        archive,
+        ("kodi-lab-v1-web:1.0.0rc1", "kodi-lab-v1-broker:1.0.0rc1"),
+        migration_head="0058_workspace_source_capture",
+    )
+    for role in ("web", "broker"):
+        identity = identities[f"kodi-lab-v1-{role}:1.0.0rc1"]
+        document["application"]["images"][role]["config_image_id"] = identity
+        document["application"]["images"][role]["saved_image_id"] = identity
+    document["files"][bundle_tool["APP_ARCHIVE"]] = {
+        "sha256": digest(archive),
+        "size": archive.stat().st_size,
+    }
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="migration identity differs"):
         verify(bundle)
 
 
