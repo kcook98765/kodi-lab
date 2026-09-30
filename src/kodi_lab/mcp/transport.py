@@ -71,10 +71,13 @@ from kodi_lab.mcp.tools import (
     ScreenshotToolResult,
     TargetListResult,
     TargetStatusResult,
+    WorkspaceCaptureToolInput,
+    WorkspaceCaptureToolResult,
     WorkspaceDeployInput,
     WorkspaceEditInput,
     WorkspaceEditResult,
     WorkspaceReadResult,
+    WorkspaceSourceScanToolResult,
     WorkspaceStatusResult,
     WorkspaceTargetOperationInput,
     WorkspaceTreeResult,
@@ -120,6 +123,8 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "workspace_create",
         "workspace_deploy",
         "workspace_edit",
+        "workspace_source_scan",
+        "workspace_capture",
         "workspace_execute",
         "workspace_read",
         "workspace_status",
@@ -280,6 +285,12 @@ class _WorkspaceStatusInput(BaseModel):
     workspace_id: UUID | None = None
     cursor: str | None = Field(default=None, min_length=36, max_length=36)
     limit: int = Field(default=50, ge=1, le=100)
+
+
+class _WorkspaceSourceScanInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
 
 
 class _WorkspaceTreeInput(BaseModel):
@@ -835,6 +846,31 @@ def build_mcp_http_transport(
             annotations=edit_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "workspace_source_scan": Tool(
+            name="workspace_source_scan",
+            title="Scan a bound workspace's registered source",
+            description=(
+                "Freshly inspect exact source identity, version and tree digest for "
+                "one granted source and bound workspace. "
+                "Does not change workspace bytes."
+            ),
+            input_schema=_WorkspaceSourceScanInput.model_json_schema(),
+            output_schema=WorkspaceSourceScanToolResult.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "workspace_capture": Tool(
+            name="workspace_capture",
+            title="Capture registered source into a bound workspace",
+            description=(
+                "Explicitly capture the entire current granted source into its "
+                "bound clean workspace with an expected generation."
+            ),
+            input_schema=WorkspaceCaptureToolInput.model_json_schema(),
+            output_schema=WorkspaceCaptureToolResult.model_json_schema(),
+            annotations=edit_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_deploy": Tool(
             name="workspace_deploy",
             title="Deploy an exact workspace generation",
@@ -934,6 +970,8 @@ def build_mcp_http_transport(
                 | WorkspaceReadResult
                 | WorkspaceCreateResult
                 | WorkspaceEditResult
+                | WorkspaceSourceScanToolResult
+                | WorkspaceCaptureToolResult
                 | WorkspaceStatusResult
                 | WorkspaceTreeResult
                 | WorkspaceValidateResult
@@ -947,11 +985,13 @@ def build_mcp_http_transport(
                 "workspace_status",
                 "workspace_tree",
                 "workspace_validate",
+                "workspace_source_scan",
             } and not development_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
-            if params.name == "workspace_edit" and not edit_limiter.allow(
-                str(principal.client_id)
-            ):
+            if params.name in {
+                "workspace_edit",
+                "workspace_capture",
+            } and not edit_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
             if params.name == "addon_list":
                 parsed_addons = _AddonListInput.model_validate(arguments)
@@ -1054,6 +1094,21 @@ def build_mcp_http_transport(
                 relative_path = parsed_edit.relative_path
                 result = await asyncio.to_thread(
                     tools.workspace_edit, principal, parsed_edit
+                )
+                source_id = result.source_id
+            elif params.name == "workspace_source_scan":
+                parsed_scan = _WorkspaceSourceScanInput.model_validate(arguments)
+                workspace_id = parsed_scan.workspace_id
+                result = await asyncio.to_thread(
+                    tools.workspace_source_scan, principal, workspace_id
+                )
+                source_id = result.source_id
+            elif params.name == "workspace_capture":
+                parsed_capture = WorkspaceCaptureToolInput.model_validate(arguments)
+                workspace_id = parsed_capture.workspace_id
+                generation = parsed_capture.expected_generation
+                result = await asyncio.to_thread(
+                    tools.workspace_capture, principal, parsed_capture
                 )
                 source_id = result.source_id
             elif params.name == "workspace_tree":

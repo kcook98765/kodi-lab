@@ -6,16 +6,20 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_administration import FULL_LAB_CONTROL_PRESET_ID
+from kodi_lab.application.workspace_source_captures import WorkspaceSourceCaptureService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
 from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.storage.models import (
+    AgentWorkspaceCaptureOperationRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
     ManagedInstanceDevelopmentSourceRow,
@@ -239,6 +243,185 @@ def test_workspace_routes_do_not_expose_mutation_verbs(client: TestClient) -> No
             f"/api/agent-workspaces/{workspace_id}/{suffix}", json={}, headers=headers
         )
         assert response.status_code in {404, 405}
+
+
+def test_source_scan_then_explicit_whole_capture_is_csrf_bound(
+    client: TestClient, database: sessionmaker[Session], data_root: Path
+) -> None:
+    _seed_source(database, data_root)
+    workspace_id = _create_workspace_for_capture(client)
+    source = data_root.parent / "development-root" / "plugin.video.workspace"
+    base = f"/api/agent-workspaces/{workspace_id}"
+    client.cookies.clear()
+    assert client.get(f"{base}/source-scan").status_code == 401
+    csrf = login(client)
+    first = client.get(f"{base}/source-scan")
+    assert first.status_code == 200
+    assert first.json()["source_state"] == "matches_active_capture"
+    assert first.json()["source_scan"]["addon_version"] == "1.0.0"
+    assert client.get(base).json()["generation"] == 0
+    (source / "addon.xml").write_text(
+        '<addon id="plugin.video.workspace" name="Workspace" version="1.0.1">'
+        '<extension point="xbmc.python.pluginsource" library="main.py" />'
+        "</addon>\n",
+        encoding="utf-8",
+    )
+    (source / "resources/main.py").write_text("print('v2')\n", encoding="utf-8")
+    changed = client.get(f"{base}/source-scan")
+    assert changed.status_code == 200
+    assert changed.json()["source_state"] == "differs_from_active_capture"
+    assert changed.json()["source_scan"]["addon_version"] == "1.0.1"
+    assert client.get(base).json()["generation"] == 0
+    assert (
+        client.post(
+            f"{base}/source-capture", json={"expected_generation": 0}
+        ).status_code
+        == 403
+    )
+    captured = client.post(
+        f"{base}/source-capture",
+        json={"expected_generation": 0},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert captured.status_code == 200
+    assert captured.json()["changed"] is True
+    assert captured.json()["generation"] == 1
+    assert (
+        captured.json()["tree_digest"] == changed.json()["source_scan"]["tree_digest"]
+    )
+    assert client.get(base).json()["generation"] == 1
+    unchanged = client.post(
+        f"{base}/source-capture",
+        json={"expected_generation": 1},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert unchanged.status_code == 200
+    assert unchanged.json()["changed"] is False
+    assert unchanged.json()["generation"] == 1
+    assert (
+        client.get(f"{base}/capture-status").json()["source_state"]
+        == "not_freshly_scanned"
+    )
+    assert client.get(f"/agent-workspaces/{workspace_id}").status_code == 200
+
+
+def _create_workspace_for_capture(client: TestClient) -> str:
+    csrf = login(client)
+    accepted = client.post(
+        "/api/agent-workspaces",
+        json={"development_source_id": str(SOURCE_ID)},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    ).json()
+    for _ in range(100):
+        status = client.get(accepted["status_url"]).json()
+        if status["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+    assert status["state"] == "succeeded"
+    return cast(str, accepted["operation"]["workspace_id"])
+
+
+def test_source_capture_rejects_private_edits_identity_drift_and_unsafe_source(
+    client: TestClient, database: sessionmaker[Session], data_root: Path
+) -> None:
+    _seed_source(database, data_root)
+    workspace_id = _create_workspace_for_capture(client)
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    base = f"/api/agent-workspaces/{workspace_id}"
+    source = data_root.parent / "development-root" / "plugin.video.workspace"
+    (source / "resources/main.py").write_text("changed\n", encoding="utf-8")
+    assert (
+        client.post(
+            f"{base}/source-capture", json={"expected_generation": 99}, headers=headers
+        ).status_code
+        == 409
+    )
+    edited = client.put(
+        f"{base}/files",
+        json={
+            "expected_generation": 0,
+            "path": "resources/main.py",
+            "content": "private\n",
+        },
+        headers=headers,
+    )
+    assert edited.status_code == 200
+    denied = client.post(
+        f"{base}/source-capture", json={"expected_generation": 1}, headers=headers
+    )
+    assert denied.status_code == 409
+    assert denied.json()["error"]["code"] == "workspace_private_edits_present"
+    (source / "addon.xml").write_text(
+        '<addon id="plugin.video.other" name="Other" version="1.0.1">'
+        '<extension point="xbmc.python.pluginsource" library="main.py" />'
+        "</addon>\n",
+        encoding="utf-8",
+    )
+    drift = client.get(f"{base}/source-scan")
+    assert drift.status_code == 409
+    (source / "addon.xml").write_text(
+        '<addon id="plugin.video.workspace" name="Workspace" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="main.py" />'
+        "</addon>\n",
+        encoding="utf-8",
+    )
+    (source / "unsafe.py").symlink_to("/etc/passwd")
+    assert client.get(f"{base}/source-scan").status_code == 422
+
+
+def test_interrupted_capture_is_visible_and_recoverable_through_web(
+    client: TestClient, database: sessionmaker[Session], data_root: Path
+) -> None:
+    _seed_source(database, data_root)
+    workspace_id = _create_workspace_for_capture(client)
+    source = data_root.parent / "development-root" / "plugin.video.workspace"
+    (source / "resources/main.py").write_text("new source\n", encoding="utf-8")
+    captures = WorkspaceSourceCaptureService(
+        database,
+        data_root=data_root,
+        development_root=data_root.parent / "development-root",
+    )
+
+    def interrupt(stage: str) -> None:
+        if stage == "pending":
+            raise RuntimeError("interrupted")
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        captures.capture(
+            UUID(workspace_id), expected_generation=0, checkpoint=interrupt
+        )
+    with database() as session:
+        operation = session.scalar(select(AgentWorkspaceCaptureOperationRow))
+        assert operation is not None
+        operation_id = operation.id
+    status = client.get(f"/api/agent-workspaces/{workspace_id}/capture-status").json()
+    assert status["recovery_state"] == "staging"
+    assert status["capture_available"] is False
+    assert (
+        "Reconcile interrupted capture"
+        in client.get(f"/agent-workspaces/{workspace_id}").text
+    )
+    csrf = login(client)
+    assert (
+        client.post(
+            f"/api/agent-workspace-capture-operations/{operation_id}/recover", json={}
+        ).status_code
+        == 403
+    )
+    recovered = client.post(
+        f"/api/agent-workspace-capture-operations/{operation_id}/recover",
+        json={},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert recovered.status_code == 200
+    assert (
+        client.get(f"/api/agent-workspaces/{workspace_id}/capture-status").json()[
+            "recovery_state"
+        ]
+        is None
+    )
+    assert client.get(f"/api/agent-workspaces/{workspace_id}").json()["generation"] == 0
 
 
 def test_workspace_mutation_and_changes_api_is_strict_private_and_generation_bound(

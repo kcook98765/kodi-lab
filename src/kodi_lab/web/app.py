@@ -241,6 +241,9 @@ from kodi_lab.application.live_display import (
     ManagedLiveDisplayService,
 )
 from kodi_lab.application.mcp_administration import (
+    ADDON_DEVELOPMENT_PRESET_ID,
+    EXPLICIT_SOURCE_CAPTURE_PERMISSIONS,
+    FULL_LAB_CONTROL_PRESET_ID,
     McpAdministrationError,
     McpAdministrationService,
     McpAuthenticationService,
@@ -392,6 +395,15 @@ from kodi_lab.application.snapshots import (
     SnapshotCreateExecutor,
     SnapshotServiceFactory,
 )
+from kodi_lab.application.workspace_capture_presentation import (
+    WorkspaceCapturePresentationService,
+    WorkspaceCaptureStatus,
+)
+from kodi_lab.application.workspace_source_captures import (
+    WorkspaceSourceCaptureError,
+    WorkspaceSourceCaptureResult,
+    WorkspaceSourceCaptureService,
+)
 from kodi_lab.auth import (
     AuthenticatedWebSession,
     LoginThrottler,
@@ -416,6 +428,7 @@ from kodi_lab.development import (
     remove_upload_stage,
     write_upload_chunk,
 )
+from kodi_lab.development.deployment import DevelopmentTreeError
 from kodi_lab.domain import (
     MAX_DEVELOPMENT_SOURCE_LOCATOR,
     MAX_DEVELOPMENT_SOURCE_LOGICAL_NAME,
@@ -557,6 +570,12 @@ class AgentWorkspaceCreationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     development_source_id: UUID
+
+
+class AgentWorkspaceCaptureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_generation: int = Field(ge=0)
 
 
 class AgentWorkspaceCreationAccepted(BaseModel):
@@ -1093,6 +1112,8 @@ class WebApplicationContext:
     repository_replacements: RepositoryReplacementCoordinator
     repository_replacement_executor: RepositoryReplacementExecutor
     agent_workspaces: AgentWorkspaceService
+    workspace_source_captures: WorkspaceSourceCaptureService | None
+    workspace_capture_presentation: WorkspaceCapturePresentationService | None
     agent_workspace_executor: AgentWorkspaceCreationExecutor
     agent_workspace_cleanups: AgentWorkspaceCleanupService
     agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
@@ -1241,6 +1262,22 @@ def create_app(
         session_factory,
         data_root=settings.data_root,
         development_root=settings.development_root,
+    )
+    workspace_source_captures = (
+        None
+        if settings.development_root is None
+        else WorkspaceSourceCaptureService(
+            session_factory,
+            data_root=settings.data_root,
+            development_root=settings.development_root,
+        )
+    )
+    workspace_capture_presentation = (
+        None
+        if workspace_source_captures is None
+        else WorkspaceCapturePresentationService(
+            session_factory, workspace_source_captures
+        )
     )
     agent_workspace_executor = AgentWorkspaceCreationExecutor(agent_workspaces)
     agent_workspace_cleanups = (
@@ -1706,6 +1743,7 @@ def create_app(
             target_adapters=mcp_target_adapters,
             production_screenshots=production_screenshots,
             production_transient_approvals=production_transient_approvals,
+            workspace_source_captures=workspace_source_captures,
         ),
         additional_allowed_hosts=tuple(
             entry
@@ -1798,6 +1836,8 @@ def create_app(
         repository_replacements=repository_replacements,
         repository_replacement_executor=repository_replacement_executor,
         agent_workspaces=agent_workspaces,
+        workspace_source_captures=workspace_source_captures,
+        workspace_capture_presentation=workspace_capture_presentation,
         agent_workspace_executor=agent_workspace_executor,
         agent_workspace_cleanups=agent_workspace_cleanups,
         agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
@@ -2033,6 +2073,18 @@ def create_app(
     ) -> JSONResponse:
         http_status = 409 if isinstance(error, AgentWorkspaceConflictError) else 422
         return _json_error(http_status, error.code, error.safe_message)
+
+    @app.exception_handler(WorkspaceSourceCaptureError)
+    async def workspace_source_capture_failed(
+        _request: Request, error: WorkspaceSourceCaptureError
+    ) -> JSONResponse:
+        return _json_error(409, error.code, "Source capture could not proceed safely.")
+
+    @app.exception_handler(DevelopmentTreeError)
+    async def workspace_source_scan_unsafe(
+        _request: Request, _error: DevelopmentTreeError
+    ) -> JSONResponse:
+        return _json_error(422, "development_source_unsafe", "Source scan was unsafe.")
 
     @app.exception_handler(AgentWorkspacePromotionError)
     async def agent_workspace_promotion_failed(
@@ -2748,7 +2800,12 @@ def create_app(
                         }
                         for permission in preset.permissions
                     }
+                    | EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
                 ),
+                "capture_permission_template_ids": {
+                    ADDON_DEVELOPMENT_PRESET_ID,
+                    FULL_LAB_CONTROL_PRESET_ID,
+                },
                 "targets": context.mcp_administration.list_target_policies(),
                 "production_scopes": (
                     context.mcp_administration.list_production_inspection_scopes()
@@ -2987,6 +3044,11 @@ def create_app(
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         workspace = context.agent_workspaces.get(workspace_id)
+        capture_status = (
+            None
+            if context.workspace_capture_presentation is None
+            else context.workspace_capture_presentation.status(workspace_id)
+        )
         entries = (
             context.agent_workspaces.inspect_directory(workspace_id, "")
             if workspace.state.value == "ready"
@@ -3012,6 +3074,7 @@ def create_app(
             "agent-workspace-detail.html",
             {
                 "workspace": workspace,
+                "capture_status": capture_status,
                 "entries": entries,
                 "changes": changes,
                 "activity": activity,
@@ -4751,6 +4814,72 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> AgentWorkspaceRead:
         return context.agent_workspaces.get(workspace_id)
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/capture-status",
+        response_model=WorkspaceCaptureStatus,
+    )
+    def get_workspace_capture_status(
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> WorkspaceCaptureStatus:
+        if context.workspace_capture_presentation is None:
+            raise HTTPException(
+                status_code=503, detail="Development source unavailable"
+            )
+        return context.workspace_capture_presentation.status(workspace_id)
+
+    @app.get(
+        "/api/agent-workspaces/{workspace_id}/source-scan",
+        response_model=WorkspaceCaptureStatus,
+    )
+    def scan_workspace_source(
+        workspace_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> WorkspaceCaptureStatus:
+        if (
+            context.workspace_source_captures is None
+            or context.workspace_capture_presentation is None
+        ):
+            raise HTTPException(
+                status_code=503, detail="Development source unavailable"
+            )
+        observed = context.workspace_source_captures.scan_source(workspace_id)
+        return context.workspace_capture_presentation.status(
+            workspace_id, scan=observed
+        )
+
+    @app.post(
+        "/api/agent-workspaces/{workspace_id}/source-capture",
+        response_model=WorkspaceSourceCaptureResult,
+    )
+    def capture_workspace_source(
+        workspace_id: UUID,
+        body: AgentWorkspaceCaptureRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> WorkspaceSourceCaptureResult:
+        if context.workspace_source_captures is None:
+            raise HTTPException(
+                status_code=503, detail="Development source unavailable"
+            )
+        return context.workspace_source_captures.capture(
+            workspace_id, expected_generation=body.expected_generation
+        )
+
+    @app.post(
+        "/api/agent-workspace-capture-operations/{operation_id}/recover",
+        response_model=WorkspaceSourceCaptureResult | None,
+    )
+    def recover_workspace_source_capture(
+        operation_id: UUID,
+        _body: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> WorkspaceSourceCaptureResult | None:
+        if context.workspace_source_captures is None:
+            raise HTTPException(
+                status_code=503, detail="Development source unavailable"
+            )
+        return context.workspace_source_captures.recover(operation_id)
 
     @app.post(
         "/api/agent-workspaces/{workspace_id}/abandon",

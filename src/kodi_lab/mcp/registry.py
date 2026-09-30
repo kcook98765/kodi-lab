@@ -131,6 +131,8 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "workspace.inspect",
                 "workspace.edit",
                 "workspace.deploy",
+                "development_source.inspect",
+                "workspace.capture",
                 "development.execute",
                 "development.request_promotion",
             }
@@ -309,6 +311,38 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             required_states=frozenset({"ready", "present"}),
             rate_class=ToolRateClass.DEVELOPMENT_EDIT,
             adapter="agent_workspace.edit_generation_bound",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="workspace_source_scan",
+            schema_revision=1,
+            permissions=frozenset({"development_source.inspect"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"registered_development_source"}),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.DEVELOPMENT_READ,
+            adapter="agent_workspace.scan_registered_source",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="workspace_capture",
+            schema_revision=1,
+            permissions=frozenset({"workspace.capture"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"registered_development_source"}),
+            required_states=frozenset({"ready", "present"}),
+            rate_class=ToolRateClass.DEVELOPMENT_EDIT,
+            adapter="agent_workspace.capture_registered_source",
             production_eligible=False,
             target_scope_required=False,
             scope=ToolScope.WORKSPACE,

@@ -67,6 +67,9 @@ _DEVELOPMENT_PERMISSIONS = (
     "development.execute",
     "development.request_promotion",
 )
+EXPLICIT_SOURCE_CAPTURE_PERMISSIONS = frozenset(
+    {"development_source.inspect", "workspace.capture"}
+)
 
 _BUILTINS = (
     (
@@ -363,15 +366,25 @@ class McpAdministrationService:
                         .order_by(McpPresetPermissionRow.permission)
                     ).all()
                 )
-                known_permissions = frozenset(
-                    permission
-                    for _id, _name, _assignable, builtin_permissions in _BUILTINS
-                    for permission in builtin_permissions
+                known_permissions = (
+                    frozenset(
+                        permission
+                        for _id, _name, _assignable, builtin_permissions in _BUILTINS
+                        for permission in builtin_permissions
+                    )
+                    | EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
                 )
                 if not template_permissions.issubset(known_permissions):
                     raise McpAdministrationError("mcp_preset_template_invalid")
                 selected = template_permissions if permissions is None else permissions
-                if not selected or not selected <= template_permissions:
+                opt_in = (
+                    EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
+                    if template_preset_id
+                    in {ADDON_DEVELOPMENT_PRESET_ID, FULL_LAB_CONTROL_PRESET_ID}
+                    and permissions is not None
+                    else frozenset()
+                )
+                if not selected or not selected <= template_permissions | opt_in:
                     raise McpAdministrationError("mcp_preset_permissions_invalid")
                 session.add(
                     McpPresetRow(

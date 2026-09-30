@@ -52,7 +52,7 @@ from tests.application.test_repository_workspace_deployment import (
 )
 from tests.repository.test_development import BASE, fixture_zip, phase2_candidate
 
-CURRENT_HEAD = "0058_workspace_source_capture"
+CURRENT_HEAD = "0059_workspace_validation_digest"
 
 
 @pytest.fixture(autouse=True)

@@ -67,6 +67,16 @@ class WorkspaceSourceCaptureResult:
     changed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class WorkspaceSourceScanResult:
+    workspace_id: UUID
+    source_id: UUID
+    addon_id: str
+    addon_version: str
+    tree_digest: str
+    scanned_at: datetime
+
+
 class WorkspaceSourceCaptureService:
     """Capture current registered source bytes into an existing clean workspace."""
 
@@ -175,7 +185,7 @@ class WorkspaceSourceCaptureService:
             raise WorkspaceSourceCaptureError("workspace_bytes_changed")
         return workspace, source
 
-    def scan_source(self, workspace_id: UUID) -> str:
+    def scan_source(self, workspace_id: UUID) -> WorkspaceSourceScanResult:
         """Read-only, fresh, two-pass source digest for later status surfaces."""
 
         with self._sessions() as session:
@@ -205,7 +215,26 @@ class WorkspaceSourceCaptureService:
         compare_captures(first, second)
         if observation.addon_id != workspace.source_addon_id:
             raise WorkspaceSourceCaptureError("source_addon_identity_changed")
-        return first.digest
+        return WorkspaceSourceScanResult(
+            workspace_id=workspace_id,
+            source_id=source.id,
+            addon_id=observation.addon_id,
+            addon_version=observation.observed_version,
+            tree_digest=first.digest,
+            scanned_at=self._clock(),
+        )
+
+    def capture_eligibility(self, workspace_id: UUID, generation: int) -> str | None:
+        """Return a bounded reason, or None when ordinary capture may begin."""
+
+        try:
+            with self._sessions() as session:
+                self._preflight(session, workspace_id, generation)
+        except WorkspaceSourceCaptureError as error:
+            return error.code
+        except AgentWorkspaceStorageError as error:
+            return error.code
+        return None
 
     def capture(
         self,

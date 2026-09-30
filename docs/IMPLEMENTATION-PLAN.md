@@ -1894,13 +1894,17 @@ generation, treats identical capture as a no-op, retains old baseline bytes and
 reconciles interruption. Backup/restore and retention preserve this evidence.
 No Web/MCP surface or real installation change occurs in this gate.
 
-Gate 2 exposes explicit fresh source scan and human Web capture with reviewable
-current/captured/validated/deployed/verified identities and stale-state labels.
-Add narrowly authorized MCP source inspection/capture only after the same
-source grant, workspace binding and existing target/production boundaries are
-verified. Direct MCP source editing remains deferred.
+Gate 2 exposes separate fresh source scan and explicit human Web capture on the
+workspace detail page, with reviewable current/captured/validated/deployed/verified
+identities and stale-state labels. MCP adds `workspace_source_scan` and
+`workspace_capture` behind opt-in `development_source.inspect` and
+`workspace.capture` permissions, an exact source grant and a workspace binding.
+Built-in presets and existing clients stay unchanged. Migration 0059 preserves
+the exact latest validation digest for stale-state presentation. Direct MCP
+source editing remains deferred.
 
-After a reviewed 0058 candidate is upgraded on the real server, resume the
+Gate 3 is candidate build, isolated upgrade and real-server acceptance of this
+feature. After a reviewed 0059 candidate is upgraded on the real server, resume the
 paused physical v2 acceptance by scanning the already edited 1.0.1 source,
 capturing it once into the existing generation-0 workspace, validating and
 requesting repository deployment. Preserve human Web approval, manual Kodi

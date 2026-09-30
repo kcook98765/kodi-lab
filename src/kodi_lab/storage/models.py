@@ -6033,6 +6033,11 @@ class McpWorkspaceValidationRow(Base):
             "length(validated_at) = 27",
             name="mcp_workspace_validation_timestamp_format",
         ),
+        CheckConstraint(
+            "tree_digest IS NULL OR (length(tree_digest)=71 AND "
+            "substr(tree_digest,1,7)='sha256:')",
+            name="mcp_workspace_validation_tree_digest_valid",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -6048,6 +6053,7 @@ class McpWorkspaceValidationRow(Base):
         nullable=False,
     )
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    tree_digest: Mapped[str | None] = mapped_column(String(71))
     classification: Mapped[str] = mapped_column(String(16), nullable=False)
     addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
     addon_version: Mapped[str] = mapped_column(String(128), nullable=False)

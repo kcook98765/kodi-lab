@@ -61,7 +61,7 @@ v1 must provide:
 This section supersedes the broader speculative MCP catalog and production
 capabilities retained later in this document as design history.
 
-The authoritative V1 MCP catalog contains exactly fifteen tools:
+The authoritative V1 MCP catalog contains seventeen tools:
 
 - `target_list`
 - `target_status`
@@ -69,11 +69,13 @@ The authoritative V1 MCP catalog contains exactly fifteen tools:
 - `screenshot_capture`
 - `remote_action`
 - `development_source_list`
+- `workspace_source_scan`
 - `workspace_create`
 - `workspace_status`
 - `workspace_tree`
 - `workspace_read`
 - `workspace_edit`
+- `workspace_capture`
 - `workspace_validate`
 - `workspace_deploy`
 - `workspace_execute`
@@ -651,6 +653,28 @@ MCP source inspection and explicit capture require source-specific and exact
 workspace authorization when surfaced. Direct MCP/agent writes to the host
 source are deferred. `workspace_edit` remains a bounded private-workspace tool;
 no automatic reverse synchronization overwrites the external source.
+
+The workspace detail page offers separate authenticated **Scan current source**
+and CSRF-protected **Capture current source** actions. A fresh scan returns the
+observed add-on ID/version, normalized tree digest and scan time without changing
+workspace bytes or generation. Its result is evidence from that instant only;
+an unscanned page always says the live source has not been freshly scanned.
+Capture re-reads and stages current source bytes using the same internal service,
+requires an expected generation and a clean workspace, and never trusts a prior
+scan as a lock on externally edited source. An interrupted capture is shown with
+a bounded receipt-based reconciliation action; inconsistent evidence remains
+unavailable for ordinary capture.
+
+MCP `workspace_source_scan` requires the opt-in `development_source.inspect`
+permission, an exact source grant and an exact workspace binding. The distinct
+mutating `workspace_capture` requires opt-in `workspace.capture` with those same
+grants and an expected generation. Neither grants source write access. Existing
+built-in presets and pre-existing custom clients gain no new permission. The
+status page distinguishes the most recently scanned source, active capture,
+private workspace edits, current or stale validation, latest repository
+deployment and latest exactly verified target generation. The latest validation
+retains its exact tree digest; migration 0059 backfills it only when the old
+validation generation still matches the current workspace.
 
 Captured baseline bytes named by durable validation, deployment, publication,
 verification, execution or recovery evidence are retained. V1 does not

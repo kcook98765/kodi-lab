@@ -21,6 +21,31 @@
       {% if workspace.promotion_outcome %}<dt>Source promotion</dt><dd>{{ workspace.promotion_outcome.value }}</dd>{% endif %}
       {% if workspace.verification_outcome %}<dt>Kodi verification</dt><dd>{{ workspace.verification_outcome.value }}</dd>{% endif %}
     </dl>
+    {% if capture_status %}
+    <section id="workspace-source-capture" data-workspace-id="{{ workspace.id }}" data-generation="{{ workspace.generation }}" data-csrf="{{ csrf_token }}">
+      <h2>Working source and captured workspace</h2>
+      <p>Registered source: {{ capture_status.source_name }} · <code>{{ capture_status.source_addon_id }}</code>. Edit the project with your normal editor, then scan and explicitly capture it.</p>
+      <p id="source-scan-state">Source not freshly scanned. The source may have changed since its last observation.</p>
+      <dl id="source-scan-evidence" hidden>
+        <dt>Observed add-on</dt><dd id="source-scan-addon"></dd>
+        <dt>Observed version</dt><dd id="source-scan-version"></dd>
+        <dt>Source tree digest</dt><dd id="source-scan-digest"></dd>
+        <dt>Scanned at</dt><dd id="source-scan-time"></dd>
+      </dl>
+      <p>Active capture: {{ capture_status.active_capture_version }} · <code>{{ capture_status.active_capture_digest or 'not captured' }}</code>.</p>
+      <p>Workspace generation {{ capture_status.workspace_generation }} · tree <code>{{ capture_status.workspace_tree_digest or 'unavailable' }}</code>.</p>
+      {% if capture_status.private_edits %}<p>Workspace contains private edits. Capture is blocked to preserve them.</p>{% endif %}
+      <p>Latest validation: {{ capture_status.validation_state }}{% if capture_status.validation_generation is not none %} · generation {{ capture_status.validation_generation }} · <code>{{ capture_status.validation_digest or 'historical digest unavailable' }}</code>{% endif %}.</p>
+      <p>Latest repository deployment: {% if capture_status.deployment_generation is not none %}generation {{ capture_status.deployment_generation }} · {{ capture_status.deployment_state }}{% else %}none{% endif %}.</p>
+      <p>Exactly verified installation: {% if capture_status.verified_generation is not none %}{{ capture_status.verified_target_name or capture_status.verified_target_id }} · generation {{ capture_status.verified_generation }} · <span id="verified-source-state">{% if capture_status.verified_state == 'current' %}matches captured workspace{% elif capture_status.verified_state == 'older_than_workspace' %}older than workspace{% else %}older than freshly scanned source{% endif %}</span>{% else %}none{% endif %}.</p>
+      {% if capture_status.recovery_state %}<p>Capture recovery state: {{ capture_status.recovery_state }}. Ordinary capture is unavailable until this is resolved.</p>{% endif %}
+      {% if capture_status.recover_operation_id %}<button id="recover-source-capture" type="button" data-operation-id="{{ capture_status.recover_operation_id }}">Reconcile interrupted capture</button>{% endif %}
+      <button id="scan-workspace-source" type="button">Scan current source</button>
+      <button id="capture-workspace-source" type="button" {% if not capture_status.capture_available %}disabled{% endif %}>Capture current source</button>
+      {% if capture_status.capture_unavailable_reason %}<p>Capture unavailable: {{ capture_status.capture_unavailable_reason }}.</p>{% endif %}
+      <p id="source-capture-result" role="status"></p>
+    </section>
+    {% endif %}
     {% if entries %}<h2>Root directory</h2><ul>{% for entry in entries %}<li>{{ entry.name }} — {{ entry.entry_type }}</li>{% endfor %}</ul>{% endif %}
     {% if repository_deployments %}<h2>Repository deployments</h2><ul>{% for item in repository_deployments %}<li><code>{{ item.addon_id }}</code> {{ item.addon_version }} → target <code>{{ item.target_id }}</code>: {{ item.state }} (operation <code>{{ item.operation_id }}</code>). {% if item.failure_code %}{{ item.failure_code }}.{% endif %} <a href="/kodi-repository">Review or recheck</a></li>{% endfor %}</ul>{% endif %}
     {% if workspace.state.value == "ready" %}
@@ -68,5 +93,6 @@
     <script src="{{ url_for('static', path='/agent-workspace-edit.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-promotion.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-retention.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/agent-workspace-source-capture.js') }}" defer></script>
   </main></body>
 </html>

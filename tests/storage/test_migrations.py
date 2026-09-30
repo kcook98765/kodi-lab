@@ -152,7 +152,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0058_workspace_source_capture",)
+        ).fetchone() == ("0059_workspace_validation_digest",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -414,7 +414,95 @@ def test_0058_workspace_source_capture_preserves_0057_ready_workspace(
     with pytest.raises(RuntimeError, match="capture evidence"):
         command.downgrade(config, "0057_development_capability_amendments")
 
+    command.upgrade(config, "0059_workspace_validation_digest")
     command.check(config)
+
+
+def test_0059_backfills_only_exact_current_validation_digest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0058_workspace_source_capture"
+    )
+    ids = {
+        "source": "59000000-0000-4000-8000-000000000001",
+        "workspace": "59000000-0000-4000-8000-000000000002",
+        "validation": "59000000-0000-4000-8000-000000000003",
+        "baseline": "59000000-0000-4000-8000-000000000004",
+        "digest": "sha256:" + "a" * 64,
+        "at": "2026-09-30T12:00:00.000000Z",
+    }
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO development_sources "
+                "(id,logical_name,source_kind,relative_locator,addon_id,observed_name,"
+                "observed_version,extension_types_json,registered_at,validated_at) "
+                "VALUES (:source,'Physical','local_directory','plugin.video.physical',"
+                "'plugin.video.physical','Physical','1.0.0',"
+                "'[\"xbmc.python.pluginsource\"]',:at,:at)"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO agent_workspaces "
+                "(id,development_source_id,source_addon_id,source_logical_name,"
+                "source_observed_name,source_observed_version,state,bytes_state,"
+                "baseline_artifact_id,baseline_manifest_digest,generation,"
+                "current_tree_digest,capture_started_at,captured_at,created_at,updated_at,"
+                "creation_baseline_digest,active_baseline_artifact_id,"
+                "active_observed_version) "
+                "VALUES (:workspace,:source,'plugin.video.physical','Physical',"
+                "'Physical','1.0.0','ready','present',:baseline,:digest,0,:digest,"
+                ":at,:at,:at,:at,:digest,:baseline,'1.0.0')"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_workspace_validations "
+                "(id,workspace_id,development_source_id,generation,classification,"
+                "addon_id,addon_version,extension_types_json,validated_at) "
+                "VALUES (:validation,:workspace,:source,0,'passed',"
+                "'plugin.video.physical','1.0.0',"
+                "'[\"xbmc.python.pluginsource\"]',:at)"
+            ),
+            ids,
+        )
+    engine.dispose()
+    command.upgrade(config, "0059_workspace_validation_digest")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT tree_digest FROM mcp_workspace_validations "
+                    "WHERE id=:validation"
+                ),
+                ids,
+            ).scalar_one()
+            == ids["digest"]
+        )
+    engine.dispose()
+    command.downgrade(config, "0058_workspace_source_capture")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert "tree_digest" not in {
+            column["name"]
+            for column in inspect(engine).get_columns("mcp_workspace_validations")
+        }
+    engine.dispose()
+    command.upgrade(config, "0059_workspace_validation_digest")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE agent_workspaces SET generation=1 WHERE id=:workspace"), ids
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="historical validation tree digest"):
+        command.downgrade(config, "0058_workspace_source_capture")
 
 
 def test_0035_managed_screenshot_populated_downgrade_is_guarded(

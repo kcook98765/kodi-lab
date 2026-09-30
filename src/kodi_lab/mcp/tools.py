@@ -81,6 +81,12 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotService,
     ScreenshotServiceError,
 )
+from kodi_lab.application.workspace_source_captures import (
+    WorkspaceSourceCaptureError,
+    WorkspaceSourceCaptureService,
+)
+from kodi_lab.development.deployment import DevelopmentTreeError
+from kodi_lab.development.sources import DevelopmentSourceValidationError
 from kodi_lab.domain import AgentWorkspace, TargetType
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
@@ -191,6 +197,43 @@ class DevelopmentSourceListResult(BaseModel):
     schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
     sources: tuple[DevelopmentSourceSummary, ...] = Field(max_length=100)
     next_cursor: str | None = Field(default=None, max_length=36)
+
+
+class WorkspaceSourceScanToolResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    workspace_id: UUID
+    source_id: UUID
+    addon_id: str = Field(max_length=128)
+    addon_version: str = Field(max_length=128)
+    source_tree_digest: str = Field(max_length=71)
+    scanned_at: datetime
+    active_capture_version: str = Field(max_length=128)
+    active_capture_digest: str | None = Field(default=None, max_length=71)
+    workspace_generation: int = Field(ge=0)
+    workspace_tree_digest: str | None = Field(default=None, max_length=71)
+    source_matches_capture: bool
+    private_workspace_edits: bool
+
+
+class WorkspaceCaptureToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    expected_generation: int = Field(ge=0)
+
+
+class WorkspaceCaptureToolResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = KODI_LAB_MCP_SCHEMA_VERSION
+    workspace_id: UUID
+    source_id: UUID
+    operation_id: UUID | None
+    generation: int = Field(ge=0)
+    tree_digest: str = Field(max_length=71)
+    changed: bool
 
 
 class WorkspaceSummary(BaseModel):
@@ -423,6 +466,7 @@ class McpTargetToolService:
         production_transient_approvals: (
             ProductionTransientApprovalService | None
         ) = None,
+        workspace_source_captures: WorkspaceSourceCaptureService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
@@ -438,6 +482,7 @@ class McpTargetToolService:
         self._target_adapters = target_adapters
         self._production_screenshots = production_screenshots
         self._production_transient_approvals = production_transient_approvals
+        self._workspace_source_captures = workspace_source_captures
         self._active_edit_lock = threading.Lock()
         self._active_edits: set[UUID] = set()
         self._validation_lock = threading.Lock()
@@ -553,6 +598,76 @@ class McpTargetToolService:
             prior_generation=edit.expected_generation,
             new_generation=mutation.generation,
             file_byte_size=len(content.encode("utf-8")),
+        )
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_source_scan(
+        self, principal: McpPrincipal, workspace_id: UUID
+    ) -> WorkspaceSourceScanToolResult:
+        workspace = self._authorization.authorize_workspace(
+            principal, "workspace_source_scan", workspace_id
+        )
+        if self._workspace_source_captures is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            scan = self._workspace_source_captures.scan_source(workspace_id)
+        except (
+            WorkspaceSourceCaptureError,
+            DevelopmentTreeError,
+            AgentWorkspaceStorageError,
+            DevelopmentSourceValidationError,
+        ) as error:
+            raise McpAuthorizationError("development_source_scan_unsafe") from error
+        result = WorkspaceSourceScanToolResult(
+            workspace_id=workspace_id,
+            source_id=workspace.development_source_id,
+            addon_id=scan.addon_id,
+            addon_version=scan.addon_version,
+            source_tree_digest=scan.tree_digest,
+            scanned_at=scan.scanned_at,
+            active_capture_version=(
+                workspace.active_observed_version or workspace.source_observed_version
+            ),
+            active_capture_digest=workspace.baseline_manifest_digest,
+            workspace_generation=workspace.generation,
+            workspace_tree_digest=workspace.current_tree_digest,
+            source_matches_capture=scan.tree_digest
+            == workspace.baseline_manifest_digest,
+            private_workspace_edits=(
+                workspace.current_tree_digest != workspace.baseline_manifest_digest
+            ),
+        )
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_capture(
+        self, principal: McpPrincipal, operation: WorkspaceCaptureToolInput
+    ) -> WorkspaceCaptureToolResult:
+        workspace = self._authorization.authorize_workspace(
+            principal, "workspace_capture", operation.workspace_id
+        )
+        if self._workspace_source_captures is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            captured = self._workspace_source_captures.capture(
+                operation.workspace_id,
+                expected_generation=operation.expected_generation,
+            )
+        except (
+            WorkspaceSourceCaptureError,
+            DevelopmentTreeError,
+            AgentWorkspaceStorageError,
+            DevelopmentSourceValidationError,
+        ) as error:
+            raise McpAuthorizationError("workspace_capture_rejected") from error
+        result = WorkspaceCaptureToolResult(
+            workspace_id=captured.workspace_id,
+            source_id=workspace.development_source_id,
+            operation_id=captured.operation_id,
+            generation=captured.generation,
+            tree_digest=captured.tree_digest,
+            changed=captured.changed,
         )
         self._require_development_bounded(result)
         return result

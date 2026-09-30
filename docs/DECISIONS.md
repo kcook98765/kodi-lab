@@ -5256,3 +5256,27 @@ approvals atomically with the governing revision transition.
   physical acceptance workspace remains representable. Downgrade refuses to
   discard any capture operation/evidence. Gate 1 adds storage/application
   foundations only; Web and MCP scan/capture surfaces require a later gate.
+
+## D-0393: Separate fresh scan, explicit capture, and opt-in MCP authority
+
+- The externally editable DevelopmentSource is observed only by an explicit
+  fresh scan. Scan returns bounded identity/version/digest/time evidence but does
+  not mutate the workspace, its generation or historical source registration.
+  A later manual edit makes that scan historical; ordinary page load says
+  `not_freshly_scanned` rather than asserting a live match.
+- Web Capture is a separate authenticated, CSRF-protected operator action. It
+  requires the expected generation and invokes the same Gate 1 capture service
+  after fresh traversal; private edits and uncertain capture state block it.
+  Receipt-based recovery is exposed only for recorded interrupted operations.
+- The MCP catalog adds `workspace_source_scan` and `workspace_capture`, yielding
+  seventeen tools. Inspection and mutation have distinct opt-in permissions,
+  `development_source.inspect` and `workspace.capture`. Each call requires the
+  exact source grant and workspace binding. Existing built-in presets and
+  already created clients acquire neither permission automatically. Source edit
+  authority remains deferred.
+- Migration 0059 adds the exact tree digest to the latest validation row. It
+  backfills only rows whose generation still matches the current workspace;
+  historical stale rows without provable bytes remain unknown, not invented.
+  Downgrade refuses to discard a digest that can no longer be derived from the
+  current workspace. Validation/deployment/publication/verification receipts
+  stay immutable.

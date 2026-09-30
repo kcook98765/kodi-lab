@@ -1054,6 +1054,14 @@ class McpWorkspaceDevelopmentService:
         evidence_id = uuid4()
         encoded_types = json.dumps(list(extension_types), separators=(",", ":"))
         with self._sessions.begin() as session:
+            workspace = session.get(AgentWorkspaceRow, str(workspace_id))
+            if (
+                workspace is None
+                or workspace.development_source_id != str(source_id)
+                or workspace.generation != generation
+                or workspace.current_tree_digest is None
+            ):
+                raise McpWorkspaceDevelopmentError("validation_generation_changed")
             row = session.scalar(
                 select(McpWorkspaceValidationRow).where(
                     McpWorkspaceValidationRow.workspace_id == str(workspace_id)
@@ -1063,6 +1071,7 @@ class McpWorkspaceDevelopmentService:
                 "id": str(evidence_id),
                 "development_source_id": str(source_id),
                 "generation": generation,
+                "tree_digest": workspace.current_tree_digest,
                 "classification": "passed",
                 "addon_id": addon_id,
                 "addon_version": addon_version,

@@ -2859,6 +2859,14 @@ Validation, repository deployment, publication and exact installed-tree checks
 remain generation-bound. Later source edits do not change a captured artifact.
 Application backup contains the operation row, active and historical baselines,
 and staging/recovery bytes. Capture history blocks existing whole-workspace
-cleanup; reference-aware pruning is deferred. No Web or MCP source scan/capture
-endpoint is exposed by the storage foundation alone, and direct source writes
-remain outside V1 MCP authority.
+cleanup; reference-aware pruning is deferred. Gate 2 exposes fresh Web and MCP
+source scan and explicit capture, both backed by the same Gate 1 service. Scan
+evidence is returned per request and is not a claim that the externally editable
+source remains unchanged later. Capture requires an expected workspace generation
+and repeats safe source traversal. The Web action uses normal authentication and
+CSRF protection. The MCP actions use distinct opt-in permissions plus exact source
+grant and workspace binding. Existing built-in presets do not gain these rights.
+Migration 0059 retains the exact digest of a successful validation for honest
+current/stale presentation; older validation rows are backfilled only when their
+generation still matches the workspace. Direct source writes remain outside V1
+MCP authority.

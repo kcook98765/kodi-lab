@@ -131,7 +131,7 @@ def test_fresh_scan_observes_external_edits_without_mutating_workspace(
     workspace, capture, source, sessions = _fixture(tmp_path)
     before = _record(sessions)
     _v2(source)
-    assert capture.scan_source(WORKSPACE_ID) != before.current_tree_digest
+    assert capture.scan_source(WORKSPACE_ID).tree_digest != before.current_tree_digest
     assert _record(sessions).generation == 0
     assert workspace.get(WORKSPACE_ID).generation == 0
 

@@ -1386,6 +1386,25 @@ def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
     assert custom["display_name"] == custom_name
     assert custom["builtin"] is False
     assert custom["permissions"] == ["target.inspect", "target.visual"]
+    development = next(
+        item for item in presets if item["display_name"] == "Add-on Development"
+    )
+    capture_subset = client.post(
+        "/api/mcp/presets",
+        headers=mutation_headers,
+        json={
+            "display_name": "Explicit source capture",
+            "template_preset_id": development["id"],
+            "permissions": ["development_source.inspect", "workspace.capture"],
+        },
+    )
+    assert capture_subset.status_code == 201
+    assert set(capture_subset.json()["permissions"]) == {
+        "development_source.inspect",
+        "workspace.capture",
+    }
+    assert "development_source.inspect" not in development["permissions"]
+    assert "workspace.capture" not in development["permissions"]
     duplicate = client.post(
         "/api/mcp/presets",
         headers=mutation_headers,

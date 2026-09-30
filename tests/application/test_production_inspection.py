@@ -711,7 +711,7 @@ def test_registry_allows_exactly_five_production_tools() -> None:
         if definition.production_eligible
         and TargetClass.EXTERNAL_PRODUCTION in definition.allowed_target_classes
     }
-    assert len(registry.names()) == 15
+    assert len(registry.names()) == 17
     assert eligible == {
         "target_list",
         "target_status",
