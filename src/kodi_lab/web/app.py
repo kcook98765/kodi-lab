@@ -137,6 +137,11 @@ from kodi_lab.application.browser_remote import (
     RemoteActorContext,
     RemoteAdapterFactory,
 )
+from kodi_lab.application.development_capability_amendments import (
+    DevelopmentCapabilityAmendmentError,
+    DevelopmentCapabilityAmendmentRead,
+    DevelopmentCapabilityAmendmentService,
+)
 from kodi_lab.application.development_source_attachments import (
     AttachedDevelopmentSourceRead,
     DevelopmentSourceAttachmentService,
@@ -426,7 +431,7 @@ from kodi_lab.kodi.bridge import (
     SUPPORTED_V1_BRIDGE_ADDON_VERSION,
     ExternalBridgeClient,
 )
-from kodi_lab.kodi.external import ExternalEndpointPolicy
+from kodi_lab.kodi.external import ExternalEndpointPolicy, NativeExternalKodiVerifier
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
 from kodi_lab.mcp.authorization import (
@@ -766,6 +771,7 @@ class McpPresetCreateRequest(BaseModel):
 
     display_name: str = Field(min_length=1, max_length=120)
     template_preset_id: UUID
+    permissions: set[str] | None = Field(default=None, min_length=1, max_length=12)
 
 
 class McpClientRenameRequest(BaseModel):
@@ -892,6 +898,16 @@ class ExternalTargetEnabledRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: StrictBool
+
+
+class DevelopmentCapabilityAmendmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_capabilities: set[str] = Field(min_length=1, max_length=6)
+    requested_capabilities: set[str] = Field(min_length=1, max_length=6)
+    expected_bridge_id: UUID
+    expected_bridge_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
+    confirmed: Literal[True]
 
 
 class ProductionDesignationConfirmationRequest(BaseModel):
@@ -1093,6 +1109,7 @@ class WebApplicationContext:
     external_onboarding: ExternalKodiOnboardingService
     production_targets: ExternalTargetAdministrationService
     production_capability_amendments: ProductionCapabilityAmendmentService
+    development_capability_amendments: DevelopmentCapabilityAmendmentService
     external_bridges: ExternalBridgeService
     production_native_control_acknowledgements: (
         ProductionNativeControlAcknowledgementService
@@ -1313,6 +1330,13 @@ def create_app(
     )
     production_capability_amendments = ProductionCapabilityAmendmentService(
         session_factory, bridge_secrets=external_bridge_secret_store
+    )
+    development_capability_amendments = DevelopmentCapabilityAmendmentService(
+        session_factory,
+        endpoint_policy=external_endpoint_policy,
+        credential_store=external_credential_store,
+        bridges=external_bridges,
+        verifier=NativeExternalKodiVerifier(transport=external_target_transport),
     )
     mcp_registry = build_mcp_tool_registry()
     managed_target_authority = InternalManagedTargetAuthorityProvider(
@@ -1790,6 +1814,7 @@ def create_app(
         external_onboarding=external_onboarding,
         production_targets=production_targets,
         production_capability_amendments=production_capability_amendments,
+        development_capability_amendments=development_capability_amendments,
         external_bridges=external_bridges,
         production_native_control_acknowledgements=(
             production_native_control_acknowledgements
@@ -2464,6 +2489,21 @@ def create_app(
         }.get(error.code, 409)
         return _json_error(status_code, error.code, "External target request rejected.")
 
+    @app.exception_handler(DevelopmentCapabilityAmendmentError)
+    async def development_capability_amendment_failure(
+        _request: Request, error: DevelopmentCapabilityAmendmentError
+    ) -> JSONResponse:
+        status_code = (
+            404
+            if error.code == "target_not_found"
+            else 422
+            if error.code in {"capabilities_invalid", "administrator_invalid"}
+            else 409
+        )
+        return _json_error(
+            status_code, error.code, "Development capability amendment rejected."
+        )
+
     @app.exception_handler(ExternalKodiOnboardingError)
     async def external_onboarding_failure(
         _request: Request, error: ExternalKodiOnboardingError
@@ -2694,6 +2734,21 @@ def create_app(
                 "csrf_token": authenticated.csrf_token,
                 "clients": context.mcp_administration.list_clients(),
                 "presets": context.mcp_administration.list_presets(),
+                "custom_preset_permissions": sorted(
+                    {
+                        permission
+                        for preset in context.mcp_administration.list_presets()
+                        if preset.builtin
+                        and preset.assignable
+                        and preset.display_name
+                        not in {
+                            "Production Inspection",
+                            "Production Visual Inspection",
+                            "Production Remote Kodi",
+                        }
+                        for permission in preset.permissions
+                    }
+                ),
                 "targets": context.mcp_administration.list_target_policies(),
                 "production_scopes": (
                     context.mcp_administration.list_production_inspection_scopes()
@@ -2719,6 +2774,7 @@ def create_app(
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
         targets = context.external_targets.list_targets()
+        amendments = context.development_capability_amendments
         return templates.TemplateResponse(
             request,
             "external-targets.html",
@@ -2727,6 +2783,10 @@ def create_app(
                 "targets": targets,
                 "bridge_statuses": {
                     target.target_id: context.external_bridges.status(target.target_id)
+                    for target in targets
+                },
+                "capability_amendments": {
+                    target.target_id: amendments.list_receipts(target.target_id)
                     for target in targets
                 },
                 "allowed_ports": settings.external_target_allowed_ports,
@@ -3645,6 +3705,9 @@ def create_app(
         return context.mcp_administration.create_custom_preset(
             display_name=payload.display_name,
             template_preset_id=payload.template_preset_id,
+            permissions=(
+                None if payload.permissions is None else frozenset(payload.permissions)
+            ),
         )
 
     @app.get("/api/mcp/clients", response_model=list[McpClientRead])
@@ -4011,6 +4074,33 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[ExternalTargetEventRead]:
         return context.external_targets.events(target_id)
+
+    @app.get(
+        "/api/external-targets/{target_id}/capability-amendments",
+        response_model=list[DevelopmentCapabilityAmendmentRead],
+    )
+    def list_development_capability_amendments(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> tuple[DevelopmentCapabilityAmendmentRead, ...]:
+        return context.development_capability_amendments.list_receipts(target_id)
+
+    @app.post(
+        "/api/external-targets/{target_id}/capability-amendments",
+        response_model=DevelopmentCapabilityAmendmentRead,
+    )
+    def amend_development_capabilities(
+        target_id: UUID,
+        payload: DevelopmentCapabilityAmendmentRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> DevelopmentCapabilityAmendmentRead:
+        return context.development_capability_amendments.amend(
+            target_id,
+            expected_capabilities=frozenset(payload.expected_capabilities),
+            requested_capabilities=frozenset(payload.requested_capabilities),
+            expected_bridge_id=payload.expected_bridge_id,
+            expected_bridge_fingerprint=payload.expected_bridge_fingerprint,
+        )
 
     @app.put(
         "/api/external-targets/{target_id}/endpoint",

@@ -40,6 +40,21 @@
           <p>Kodi: {{ target.kodi_name or 'not observed' }} {{ target.kodi_version or '' }} · JSON-RPC {{ target.protocol_version or 'not observed' }} · last verification {{ target.last_observed_at or 'never' }}</p>
           <p>Configured: {{ target.configured_capabilities | join(', ') }} · verified: {{ target.verified_capabilities | join(', ') if target.verified_capabilities else 'none' }}</p>
           {% set bridge = bridge_statuses[target.target_id] %}
+          {% if target.administrative_state.value == 'enabled' and target.verification_state.value == 'verified' and bridge.pairing_state.value == 'paired' %}
+          <details><summary>Amend development capability maximum</summary>
+            <p>This changes only this development target's configured maximum. Live Kodi and authenticated bridge capabilities must also pass. Pairing and credentials remain in place.</p>
+            <form data-capability-amendment data-current="{{ target.configured_capabilities | join(',') }}" data-bridge-id="{{ bridge.pinned_bridge_id }}" data-bridge-fingerprint="{{ bridge.build_fingerprint }}">
+              <p>Target: <strong>{{ target.logical_name }}</strong> · {{ target.target_class }} · bridge {{ bridge.pinned_bridge_id }} · {{ bridge.addon_id }} {{ bridge.addon_version }} · protocol {{ bridge.protocol_version }} · fingerprint {{ bridge.build_fingerprint }}</p>
+              <p>Current maximum: <strong>{{ target.configured_capabilities | join(', ') }}</strong></p>
+              <fieldset><legend>Requested maximum</legend>
+                {% for capability in ['target_inspect','addon_inventory','semantic_remote','screenshot','workspace_deployment','fixed_execution'] %}<label><input type="checkbox" name="capability" value="{{ capability }}"{% if capability in target.configured_capabilities %} checked{% endif %}> {{ capability }}</label>{% endfor %}
+              </fieldset>
+              <p>Resulting maximum: <strong data-resulting-capabilities>{{ target.configured_capabilities | join(', ') }}</strong></p>
+              <label><input type="checkbox" name="confirmed" required> I confirm this exact capability maximum for this paired external-development target.</label>
+              <button type="submit">Apply reviewed amendment</button>
+            </form>
+          </details>{% endif %}
+          {% if capability_amendments[target.target_id] %}<details><summary>Capability amendment history</summary><ul>{% for amendment in capability_amendments[target.target_id] %}<li>{{ amendment.completed_at }} · {{ amendment.actor }} · {{ amendment.before_capabilities | join(', ') }} → {{ amendment.resulting_capabilities | join(', ') }} · bridge {{ amendment.bridge_id }}</li>{% endfor %}</ul></details>{% endif %}
           <section data-bridge>
             <h4>Screenshot bridge</h4>
             <p>Pairing: <span data-bridge-state>{{ bridge.pairing_state.value }}</span> · reachability: {{ bridge.reachability_state.value }} · port: {{ bridge.bridge_port or 'not configured' }}</p>

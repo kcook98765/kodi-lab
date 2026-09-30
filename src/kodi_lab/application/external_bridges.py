@@ -1353,6 +1353,26 @@ class ExternalBridgeService:
         except ExternalBridgeServiceError:
             return False
 
+    def observe_development_amendment_identity(
+        self, target_id: UUID
+    ) -> tuple[BridgeIdentity, tuple[str, ...]]:
+        """Authenticate the pinned development bridge without changing pairing state."""
+
+        snapshot = self._active_snapshot(
+            target_id, allow_no_configured_bridge_capability=True
+        )
+        if snapshot.target_type is not TargetType.EXTERNAL_DEVELOPMENT:
+            raise ExternalBridgeServiceError("bridge_not_paired")
+        identity, capabilities = self._observe_authenticated(snapshot)
+        self._require_pinned_identity(snapshot, identity)
+        if (
+            identity.addon_id != BRIDGE_ADDON_ID
+            or identity.addon_version != SUPPORTED_V1_BRIDGE_ADDON_VERSION
+            or identity.protocol_version != BRIDGE_PROTOCOL_VERSION
+        ):
+            raise ExternalBridgeServiceError("bridge_identity_mismatch")
+        return identity, capabilities
+
     def authenticate_production_identity(self, target_id: UUID) -> None:
         """Fresh fixed read-only bridge identity proof; never a command channel."""
 
@@ -1869,9 +1889,16 @@ class ExternalBridgeService:
         allow_transient_unreachable: bool = False,
         required_capability: str | None = None,
         require_production_http_acknowledgement: bool = True,
+        allow_no_configured_bridge_capability: bool = False,
     ) -> _Snapshot:
         with self._sessions() as session:
-            external = self._require_native_verified(session, target_id)
+            external = self._require_native_verified(
+                session,
+                target_id,
+                allow_no_configured_bridge_capability=(
+                    allow_no_configured_bridge_capability
+                ),
+            )
             target = session.get(TargetRow, str(target_id))
             policy = session.get(ExternalProductionPolicyRow, str(target_id))
             if (
@@ -2296,7 +2323,12 @@ class ExternalBridgeService:
 
     @classmethod
     def _require_native_verified(
-        cls, session: Session, target_id: UUID, *, allow_disabled: bool = False
+        cls,
+        session: Session,
+        target_id: UUID,
+        *,
+        allow_disabled: bool = False,
+        allow_no_configured_bridge_capability: bool = False,
     ) -> ExternalKodiTargetRow:
         external = cls._require_external(session, target_id)
         target = session.get(TargetRow, str(target_id))
@@ -2315,7 +2347,9 @@ class ExternalBridgeService:
         ):
             raise ExternalBridgeServiceError("needs_reverification")
         configured = cls._parse_closed(external.configured_capabilities_json)
-        if not configured.intersection({"screenshot", "workspace_deployment"}):
+        if not allow_no_configured_bridge_capability and not configured.intersection(
+            {"screenshot", "workspace_deployment"}
+        ):
             raise ExternalBridgeServiceError("bridge_capability_unavailable")
         if target is not None and target.target_type is TargetType.EXTERNAL_PRODUCTION:
             try:

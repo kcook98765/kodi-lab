@@ -130,6 +130,10 @@ from kodi_lab.domain import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.storage.development_capability_sql import (
+    DEVELOPMENT_CAPABILITY_TRIGGERS,
+    PRODUCTION_SCREENSHOT_TARGET_GUARD,
+)
 from kodi_lab.storage.metadata import Base
 
 
@@ -1472,6 +1476,60 @@ class ExternalKodiTargetEventRow(Base):
     classification: Mapped[str | None] = mapped_column(String(64))
     observation_id: Mapped[str | None] = mapped_column(String(36))
     occurred_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ExternalDevelopmentCapabilityAmendmentRow(Base):
+    """Immutable evidence for an approved development target maximum change."""
+
+    __tablename__ = "external_development_capability_amendments"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND length(target_id)=36 AND length(bridge_id)=36 "
+            "AND target_classification='external_development' "
+            "AND bridge_addon_id='service.kodi_lab_bridge' "
+            "AND length(bridge_version) BETWEEN 1 AND 64 "
+            "AND bridge_protocol='1' AND length(bridge_fingerprint)=64",
+            name="development_capability_amendment_identity_bounded",
+        ),
+        CheckConstraint(
+            "length(before_json) BETWEEN 2 AND 512 AND "
+            "length(requested_json) BETWEEN 2 AND 512 AND "
+            "resulting_json=requested_json AND before_json<>requested_json AND "
+            "length(native_verified_json) BETWEEN 2 AND 512 AND "
+            "length(bridge_verified_json) BETWEEN 2 AND 256",
+            name="development_capability_amendment_sets_bounded",
+        ),
+        CheckConstraint(
+            "length(actor) BETWEEN 1 AND 64 AND length(requested_at)=27 "
+            "AND length(completed_at)=27 AND completed_at>=requested_at",
+            name="development_capability_amendment_audit_bounded",
+        ),
+        Index(
+            "ix_development_capability_amendment_target_time",
+            "target_id",
+            "completed_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("targets.id", ondelete="RESTRICT"), nullable=False
+    )
+    target_classification: Mapped[str] = mapped_column(String(32), nullable=False)
+    bridge_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    bridge_addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    bridge_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    bridge_protocol: Mapped[str] = mapped_column(String(16), nullable=False)
+    bridge_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    before_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    requested_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    resulting_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    native_verified_json: Mapped[str] = mapped_column(String(512), nullable=False)
+    bridge_verified_json: Mapped[str] = mapped_column(String(256), nullable=False)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
 class ExternalProductionPolicyRow(Base):
@@ -7087,7 +7145,8 @@ _CAPABILITY_AMENDMENT_CREATE_TRIGGERS = (
     "RAISE(ABORT, 'production_capability_amendment_required'); END",
     "CREATE TRIGGER trg_production_screenshot_removal_safe BEFORE UPDATE OF "
     "configured_capabilities_json ON external_kodi_targets WHEN "
-    "EXISTS(SELECT 1 FROM json_each(OLD.configured_capabilities_json) WHERE "
+    + PRODUCTION_SCREENSHOT_TARGET_GUARD
+    + "EXISTS(SELECT 1 FROM json_each(OLD.configured_capabilities_json) WHERE "
     "value='screenshot') AND NOT EXISTS(SELECT 1 FROM "
     "json_each(NEW.configured_capabilities_json) WHERE value='screenshot') AND "
     "(NOT EXISTS(SELECT 1 FROM production_capability_amendments a WHERE "
@@ -7110,6 +7169,13 @@ _CAPABILITY_AMENDMENT_CREATE_TRIGGERS = (
 )
 
 for _trigger_sql in _CAPABILITY_AMENDMENT_CREATE_TRIGGERS:
+    event.listen(
+        Base.metadata,
+        "after_create",
+        DDL(_trigger_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )
+
+for _trigger_sql in DEVELOPMENT_CAPABILITY_TRIGGERS:
     event.listen(
         Base.metadata,
         "after_create",

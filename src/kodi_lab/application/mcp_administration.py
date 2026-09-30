@@ -342,9 +342,13 @@ class McpAdministrationService:
             return [self._preset_read(session, row) for row in rows]
 
     def create_custom_preset(
-        self, *, display_name: str, template_preset_id: UUID
+        self,
+        *,
+        display_name: str,
+        template_preset_id: UUID,
+        permissions: frozenset[str] | None = None,
     ) -> McpPresetRead:
-        """Clone one active built-in into an independent permission snapshot."""
+        """Freeze an explicit subset of a built-in permission ceiling."""
 
         name = self._preset_name(display_name)
         now = self._clock()
@@ -352,7 +356,7 @@ class McpAdministrationService:
         try:
             with self._session_factory.begin() as session:
                 template = self._require_clone_template(session, template_preset_id)
-                permissions = tuple(
+                template_permissions = frozenset(
                     session.scalars(
                         select(McpPresetPermissionRow.permission)
                         .where(McpPresetPermissionRow.preset_id == template.id)
@@ -364,8 +368,11 @@ class McpAdministrationService:
                     for _id, _name, _assignable, builtin_permissions in _BUILTINS
                     for permission in builtin_permissions
                 )
-                if not set(permissions).issubset(known_permissions):
+                if not template_permissions.issubset(known_permissions):
                     raise McpAdministrationError("mcp_preset_template_invalid")
+                selected = template_permissions if permissions is None else permissions
+                if not selected or not selected <= template_permissions:
+                    raise McpAdministrationError("mcp_preset_permissions_invalid")
                 session.add(
                     McpPresetRow(
                         id=str(preset_id),
@@ -375,7 +382,7 @@ class McpAdministrationService:
                     )
                 )
                 session.flush()
-                for permission in permissions:
+                for permission in sorted(selected):
                     session.add(
                         McpPresetPermissionRow(
                             preset_id=str(preset_id), permission=permission

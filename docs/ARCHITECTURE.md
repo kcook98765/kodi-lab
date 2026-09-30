@@ -2802,3 +2802,20 @@ already carries the SQLite linkage and repository-data generation together.
 Promotion still requires exact successful deployment and execution evidence;
 for repository mode its source proof is the verified publication/deployment
 link, while direct mode retains the external source baseline requirement.
+
+## Paired development target capability administration
+
+Migration `0057_development_capability_amendments` adds immutable, typed receipts
+for explicit Web changes to an existing paired external-development target's
+configured maximum. Each receipt records canonical before/requested/resulting
+sets, target and pinned bridge identity, live native and authenticated bridge
+capability observations, and administrator/time. The receipt and maximum update
+commit in one SQLite transaction. The target UUID, OTP pairing and protected
+credential reference do not change. Expansion requires a fresh native probe and
+authenticated bridge identity/capability check; reduction uses the same review
+path. The production screenshot-removal guard applies only to production targets;
+its pairing tombstone and scope protections remain unchanged. MCP custom presets
+can freeze an explicit subset of a non-production built-in ceiling using the
+existing preset tables. Exact target/source grants, workspace ownership,
+technical capability, production veto, human publication approval, manual Kodi
+update and Web installed-tree recheck remain separate checks.

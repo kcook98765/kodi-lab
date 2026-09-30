@@ -13,10 +13,12 @@
       <p class="error" data-error role="alert" hidden></p>
       <section>
         <h2>Create custom preset</h2>
-        <p>Custom presets are fixed permission snapshots copied from an active built-in. Later built-in permissions are not added automatically.</p>
+        <p>Select an explicit permission subset below a built-in ceiling. The saved snapshot is immutable. For validation, repository deployment and verified execution, select <code>workspace.inspect</code>, <code>workspace.deploy</code>, and <code>development.execute</code>. The inspect permission also permits read/status tools for the bound workspace.</p>
         <form data-create-preset>
           <label>Name <input name="display_name" required maxlength="120"></label>
-          <label>Built-in template <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
+          <label>Permission ceiling <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
+          <fieldset><legend>Exact permissions to grant</legend>{% for permission in custom_preset_permissions %}<label data-permission-choice><input type="checkbox" name="permission" value="{{ permission }}"> {{ permission }}</label>{% endfor %}</fieldset>
+          <p>Selected permissions: <strong data-selected-permissions>none</strong></p>
           <button type="submit">Create preset</button>
         </form>
       </section>

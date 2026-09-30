@@ -30,10 +30,27 @@
     await request("/api/mcp/clients", "POST", {display_name: form.get("display_name"), preset_id: form.get("preset_id")});
     location.reload();
   }));
-  root.querySelector("[data-create-preset]")?.addEventListener("submit", (event) => run(async () => {
+  const presetForm = root.querySelector("[data-create-preset]");
+  if (presetForm) {
+    const refreshPermissions = () => {
+      const allowed = new Set(presetForm.querySelector('select[name="template_preset_id"]').selectedOptions[0].dataset.permissions.split(","));
+      for (const choice of presetForm.querySelectorAll("[data-permission-choice]")) {
+        const input = choice.querySelector("input");
+        input.disabled = !allowed.has(input.value);
+        if (input.disabled) input.checked = false;
+        choice.hidden = input.disabled;
+      }
+      presetForm.querySelector("[data-selected-permissions]").textContent = new FormData(presetForm).getAll("permission").sort().join(", ") || "none";
+    };
+    presetForm.addEventListener("change", refreshPermissions);
+    refreshPermissions();
+  }
+  presetForm?.addEventListener("submit", (event) => run(async () => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    await request("/api/mcp/presets", "POST", {display_name: form.get("display_name"), template_preset_id: form.get("template_preset_id")});
+    const permissions = form.getAll("permission").sort();
+    if (!permissions.length || !confirm(`Create preset ${form.get("display_name")} with exactly: ${permissions.join(", ")}?`)) return;
+    await request("/api/mcp/presets", "POST", {display_name: form.get("display_name"), template_preset_id: form.get("template_preset_id"), permissions});
     location.reload();
   }));
   root.querySelectorAll("[data-client-id]").forEach((card) => {

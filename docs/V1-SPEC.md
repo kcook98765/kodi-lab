@@ -845,12 +845,16 @@ Built-in immutable presets:
 - Full Lab Control (target-use maximum, not infrastructure admin)
 - Production Remote Kodi
 
-Users duplicate an active built-in into a custom preset with a new UUID and
-bounded unique name. V1 custom permissions are an immutable creation-time
-snapshot: there is no arbitrary permission editor, later built-in permissions
-are not inherited automatically, and the custom preset may be assigned at the
-client and internal-target policy layers. Custom rename and deletion are
-deferred.
+Users select an explicit nonempty subset of an active non-production built-in's
+permissions for a custom preset with a new UUID and bounded unique name. V1
+custom permissions are an immutable creation-time snapshot: there is no later
+permission editor, later built-in permissions are not inherited automatically,
+and the custom preset may be assigned at client and non-production target policy
+layers. Custom rename and deletion are deferred. `workspace_validate` uses the
+existing `workspace.inspect` permission, so that one permission also admits
+read/status tools for the exact bound workspace. The narrow physical development
+client uses only `workspace.inspect`, `workspace.deploy`, and
+`development.execute`; it has no promotion, control, or visual permission.
 
 Assign preset at client/token and target.
 Effective access is intersection.

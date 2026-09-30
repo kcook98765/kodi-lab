@@ -5137,3 +5137,24 @@ approvals atomically with the governing revision transition.
   SQLite state pointer advance to the new candidate identity. An explicit
   reverse transition to the backup's candidate precedes restoring its database
   and development bytes. No schema migration or bridge change is needed.
+
+## D-0389: Audited paired-development capability changes and narrow MCP presets
+
+- An existing external-development target may change its configured maximum only
+  through explicit authenticated Web administration. A fresh native probe and
+  authenticated pinned bridge identity/capability observation must support the
+  requested set. The target and bridge UUIDs, classification, pairing and secret
+  reference remain unchanged. Exact replay returns the original receipt.
+- The content-free external-target event table cannot preserve before/requested/
+  resulting sets and bridge evidence. The production screenshot amendment table
+  is intentionally restricted to production. Migration 0057 therefore adds a
+  purpose-built immutable development receipt and transaction guard. It scopes
+  the existing screenshot-removal trigger to production without relaxing its
+  tombstone, scope, or approval conditions. Downgrade refuses to discard receipts.
+- Custom MCP presets may contain an explicit nonempty subset of a non-production
+  built-in ceiling. Existing built-ins and the client/target/grant/workspace/
+  capability intersection stay intact. The physical development client needs
+  only `workspace.inspect`, `workspace.deploy`, `development.execute`;
+  `workspace.inspect` is technically shared by validation and bound-workspace
+  read/status tools. This grants no promotion, remote control, or screenshot
+  authority and does not bypass Web publication approval or installed-tree proof.

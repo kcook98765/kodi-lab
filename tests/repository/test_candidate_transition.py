@@ -212,7 +212,7 @@ def test_reverse_transition_restores_old_backup_coherently(
         restore(
             state, f"sqlite:///{state / 'database/kodi-lab.db'}", backup_id, backup_id
         )[0]
-        == "0056_repository_workspace_deployment"
+        == "0057_development_capability_amendments"
     )
     assert load_current(data, expected_bundle_sha256=old_hash)[1] == old_stable
     assert load_development_current(data / "development-data")[1] == old_development

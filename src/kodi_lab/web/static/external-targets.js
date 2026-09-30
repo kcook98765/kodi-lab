@@ -30,6 +30,26 @@
   }));
   root.querySelectorAll("[data-target-id]").forEach((card) => {
     const id = card.dataset.targetId;
+    const capabilityForm = card.querySelector("[data-capability-amendment]");
+    if (capabilityForm) {
+      const selected = () => [...capabilityForm.querySelectorAll('input[name="capability"]:checked')].map((input) => input.value).sort();
+      capabilityForm.addEventListener("change", () => {
+        capabilityForm.querySelector("[data-resulting-capabilities]").textContent = selected().join(", ") || "none";
+      });
+      capabilityForm.addEventListener("submit", (event) => run(async () => {
+        event.preventDefault();
+        const requested = selected();
+        const current = capabilityForm.dataset.current.split(",").filter(Boolean).sort();
+        if (!confirm(`Amend ${card.querySelector("h3").textContent} from [${current.join(", ")}] to [${requested.join(", ")}] for bridge ${capabilityForm.dataset.bridgeId}?`)) return;
+        await request(`/api/external-targets/${id}/capability-amendments`, "POST", {
+          expected_capabilities: current, requested_capabilities: requested,
+          expected_bridge_id: capabilityForm.dataset.bridgeId,
+          expected_bridge_fingerprint: capabilityForm.dataset.bridgeFingerprint,
+          confirmed: true,
+        });
+        location.reload();
+      }));
+    }
     card.querySelector("[data-endpoint]")?.addEventListener("submit", (event) => run(async () => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
       await request(`/api/external-targets/${id}/endpoint`, "PUT", {protocol_kind: form.get("protocol_kind"), host: form.get("host"), port: Number(form.get("port"))}); location.reload();

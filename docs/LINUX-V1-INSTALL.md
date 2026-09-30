@@ -312,6 +312,34 @@ Use the generation and UUID printed by its own successful `install` command.
 only the latest ready, HMAC-eligible revision of that exact reviewed recipe.
 Repeat explicitly for Nexus or Omega if their restored images are missing.
 
+## Paired development target and narrow MCP administration
+
+After installing a candidate with migration 0057, sign in to the loopback Web
+administrator page. Open **External development targets**, select the paired
+target, and expand **Amend development capability maximum**. Review the target,
+bridge UUID/version/protocol/fingerprint and current set. Select the exact new
+set and confirm. Kodi Lab performs fresh native and authenticated bridge checks
+before committing the new maximum and immutable receipt. For a repository-mode
+video-plugin development target the set is `target_inspect`, `screenshot`,
+`addon_inventory`, `workspace_deployment`, and `fixed_execution`. Reduce the
+maximum through the same form after the workflow if those capabilities are no
+longer needed. Reduction does not revoke or rotate the bridge credential;
+revoke pairing separately if trust itself should end. A bridge identity change
+or unsupported capability blocks the amendment and requires review.
+
+Open **MCP clients** and create a custom preset under the **Add-on Development**
+ceiling with exactly `workspace.inspect`, `workspace.deploy`, and
+`development.execute`. The inspect permission is shared with validation and
+read/status of a bound workspace. Create a client with that preset, issue a
+short-lived bearer token, and deliver it through the protected
+`KODI_LAB_MCP_TOKEN` environment variable; do not put it in command arguments
+or logs. Assign the target policy preset, grant only the exact development target
+and DevelopmentSource, and bind the Web-created workspace to this client. Do not
+grant promotion, remote control, visual, or production permissions. Revoke the
+token and exact grants or disable the client when the bounded acceptance ends.
+These permissions cannot skip Web publication approval, manual Kodi
+install/update, or Web Recheck of the exact installed tree.
+
 ## Candidate staging
 
 From a reviewed checkout with every candidate change staged in Git's index,

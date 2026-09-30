@@ -177,7 +177,12 @@ def verify_repository_service_boundary(bundle: pathlib.Path) -> None:
         or "KODI_LAB_REPOSITORY_BUNDLE_SHA256:" not in transition
         or any(
             forbidden in transition
-            for forbidden in ("docker.sock", "broker_socket", "ports:", "privileged: true")
+            for forbidden in (
+                "docker.sock",
+                "broker_socket",
+                "ports:",
+                "privileged: true",
+            )
         )
         or "${KODI_LAB_REPOSITORY_BIND:?explicit private LAN bind required}"
         not in repository
@@ -671,6 +676,9 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             "development_generator": "kodi-lab-development-repository-v1",
             "publication_migration": "0055_development_repository_publications",
             "workspace_deployment_migration": "0056_repository_workspace_deployment",
+            "development_capability_amendment_migration": (
+                "0057_development_capability_amendments"
+            ),
             "candidate_transition": "explicit-reviewed-a-b-v1",
         },
         "files": files,
@@ -739,6 +747,9 @@ def verify(
         "development_generator": "kodi-lab-development-repository-v1",
         "publication_migration": "0055_development_repository_publications",
         "workspace_deployment_migration": "0056_repository_workspace_deployment",
+        "development_capability_amendment_migration": (
+            "0057_development_capability_amendments"
+        ),
         "candidate_transition": "explicit-reviewed-a-b-v1",
     }:
         raise ValueError("stable repository bundle capability differs")

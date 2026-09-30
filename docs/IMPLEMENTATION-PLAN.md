@@ -1857,6 +1857,14 @@ shared fixture adapter's exact-release admission.
 
 ## Kodi repository phases
 
+Paired external-development capability amendments and narrow MCP custom presets
+are a prerequisite to physical repository-mode workspace acceptance. The
+implementation adds an authenticated Web review/confirmation path, a purpose-built
+immutable receipt in migration 0057, and explicit non-production permission
+subsets. The existing production, repository approval and installed verification
+boundaries remain in force. Real target administration and optional DevelopmentSource
+configuration occur only after a new reviewed source-free candidate is deployed.
+
 Phase 1 implements reviewed stable `repository.kodi-lab` distribution, private
 LAN static serving, source-free per-install generation/provenance, and sequential
 disposable Matrix/Nexus/Omega discovery proof. Phase 2 implements the separate

@@ -119,13 +119,13 @@ def test_packaged_migration_from_other_cwd_is_fresh_and_idempotent(
             capture_output=True,
             text=True,
         )
-        assert "current=0056_repository_workspace_deployment" in result.stdout
-        assert "head=0056_repository_workspace_deployment" in result.stdout
+        assert "current=0057_development_capability_amendments" in result.stdout
+        assert "head=0057_development_capability_amendments" in result.stdout
     database = state / "database" / "kodi-lab.db"
     with sqlite3.connect(database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0056_repository_workspace_deployment",)
+        ).fetchone() == ("0057_development_capability_amendments",)
     assert (state / "secrets" / "external-targets").is_dir()
     assert (state / "secrets" / "external-bridges").is_dir()
 
@@ -163,7 +163,7 @@ def test_packaged_migration_from_other_cwd_is_fresh_and_idempotent(
         capture_output=True,
         text=True,
     )
-    assert "current=0056_repository_workspace_deployment" in upgraded.stdout
+    assert "current=0057_development_capability_amendments" in upgraded.stdout
 
     unversioned = tmp_path / "unversioned-state"
     unversioned.mkdir(mode=0o700)

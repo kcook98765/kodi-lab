@@ -152,7 +152,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0056_repository_workspace_deployment",)
+        ).fetchone() == ("0057_development_capability_amendments",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -227,6 +227,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "development_sources",
         "fixture_definitions",
         "external_kodi_target_events",
+        "external_development_capability_amendments",
         "external_kodi_target_observations",
         "external_kodi_targets",
         "external_bridge_events",
@@ -7109,4 +7110,99 @@ def test_0056_repository_workspace_deployment_empty_round_trip(
         item["name"]
         for item in inspector.get_columns("mcp_workspace_deployment_operations")
     }
+    engine.dispose()
+
+
+def test_0057_development_capability_amendments_empty_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0056_repository_workspace_deployment"
+    )
+    baseline_engine = create_database_engine(database_url)
+    baseline_tables = [
+        name
+        for name in inspect(baseline_engine).get_table_names()
+        if name != "alembic_version"
+    ]
+    with baseline_engine.connect() as connection:
+        baseline_rows = {
+            name: sorted(
+                (
+                    tuple(row)
+                    for row in connection.execute(text(f"SELECT * FROM {name}"))
+                ),
+                key=repr,
+            )
+            for name in baseline_tables
+        }
+    assert baseline_rows["mcp_presets"]
+    baseline_engine.dispose()
+    command.upgrade(config, "0057_development_capability_amendments")
+    engine = create_database_engine(database_url)
+    inspector = inspect(engine)
+    assert "external_development_capability_amendments" in inspector.get_table_names()
+    columns = {
+        item["name"]
+        for item in inspector.get_columns("external_development_capability_amendments")
+    }
+    assert {
+        "id",
+        "target_id",
+        "target_classification",
+        "bridge_id",
+        "bridge_fingerprint",
+        "before_json",
+        "requested_json",
+        "resulting_json",
+        "native_verified_json",
+        "bridge_verified_json",
+        "actor",
+        "requested_at",
+        "completed_at",
+    } <= columns
+    with engine.connect() as connection:
+        for name, rows in baseline_rows.items():
+            assert (
+                sorted(
+                    (
+                        tuple(row)
+                        for row in connection.execute(text(f"SELECT * FROM {name}"))
+                    ),
+                    key=repr,
+                )
+                == rows
+            )
+        trigger = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='trigger' AND "
+                "name='trg_production_screenshot_removal_safe'"
+            )
+        )
+        assert isinstance(trigger, str)
+        assert "'external_production' AND EXISTS" in trigger
+        dev_trigger = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='trigger' AND "
+                "name='trg_development_configured_capability_amendment_required'"
+            )
+        )
+        assert isinstance(dev_trigger, str)
+        assert "'external_development' AND EXISTS" in dev_trigger
+    engine.dispose()
+    command.downgrade(config, "0056_repository_workspace_deployment")
+    engine = create_database_engine(database_url)
+    assert (
+        "external_development_capability_amendments"
+        not in inspect(engine).get_table_names()
+    )
+    with engine.connect() as connection:
+        trigger = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='trigger' AND "
+                "name='trg_production_screenshot_removal_safe'"
+            )
+        )
+        assert isinstance(trigger, str)
+        assert "'external_production' AND EXISTS" not in trigger
     engine.dispose()
