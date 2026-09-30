@@ -43,6 +43,58 @@ PACKAGE_PATH = re.compile(
 DEVELOPMENT_PACKAGE_PATH = re.compile(
     r"/development/zips/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)\.zip(\.sha256)?\Z"
 )
+BYTE_RANGE = re.compile(r"(\d*)-(\d*)\Z")
+MAX_RANGE_HEADER_LENGTH = 128
+WRITE_CHUNK_BYTES = 64 * 1024
+
+
+class RangeSyntaxError(ValueError):
+    """The request's Range header is malformed or unsupported."""
+
+
+class RangeNotSatisfiable(ValueError):
+    """A valid single byte range selects no bytes from this resource."""
+
+
+def single_byte_range(header: str, total: int) -> tuple[int, int] | None:
+    """Return an inclusive byte interval; ignore valid multi-range requests.
+
+    Kodi uses a single interval. Returning the full representation for a valid
+    multi-range request is permitted by HTTP and avoids multipart responses.
+    Limit header length before parsing integers to bound hostile input.
+    """
+    if len(header) > MAX_RANGE_HEADER_LENGTH:
+        raise RangeSyntaxError("invalid byte range")
+    unit, separator, specifier = header.strip().partition("=")
+    if not separator:
+        raise RangeSyntaxError("invalid range")
+    if unit.lower() != "bytes":
+        # An origin server must ignore a range unit it does not understand.
+        return None
+    ranges = specifier.split(",")
+    parsed: list[tuple[str, str]] = []
+    for item in ranges:
+        match = BYTE_RANGE.fullmatch(item.strip())
+        if match is None or not any(match.groups()):
+            raise RangeSyntaxError("invalid byte range")
+        first, last = match.groups()
+        if first and last and int(first) > int(last):
+            raise RangeSyntaxError("range end precedes start")
+        parsed.append((first, last))
+    if len(parsed) > 1:
+        return None
+    first, last = parsed[0]
+    if total == 0:
+        raise RangeNotSatisfiable("empty resource")
+    if first:
+        start = int(first)
+        if start >= total:
+            raise RangeNotSatisfiable("range starts after resource")
+        return start, min(int(last), total - 1) if last else total - 1
+    suffix_length = int(last)
+    if suffix_length == 0:
+        raise RangeNotSatisfiable("empty suffix")
+    return max(0, total - suffix_length), total - 1
 
 
 class BoundedRepositoryServer(ThreadingHTTPServer):
@@ -273,9 +325,36 @@ class RepositoryHandler(BaseHTTPRequestHandler):
                     content_sha256 = base64.b64encode(
                         hashlib.sha256(content).digest()
                     ).decode()
-            self.send_response(HTTPStatus.OK)
+            selected: tuple[int, int] | None = None
+            if send_body:
+                range_headers = self.headers.get_all("Range", [])
+                try:
+                    if len(range_headers) > 1:
+                        raise RangeSyntaxError("multiple Range headers")
+                    # No strong validator is emitted, so If-Range cannot match.
+                    if range_headers and self.headers.get("If-Range") is None:
+                        selected = single_byte_range(range_headers[0], len(content))
+                except RangeSyntaxError:
+                    self._range_error(HTTPStatus.BAD_REQUEST)
+                    return
+                except RangeNotSatisfiable:
+                    self._range_error(
+                        HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+                        total=len(content),
+                    )
+                    return
+            self.send_response(
+                HTTPStatus.PARTIAL_CONTENT if selected is not None else HTTPStatus.OK
+            )
             self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Accept-Ranges", "bytes")
+            if selected is not None:
+                start, end = selected
+                self.send_header("Content-Range", f"bytes {start}-{end}/{len(content)}")
+                self.send_header("Content-Length", str(end - start + 1))
+            else:
+                start, end = 0, len(content) - 1
+                self.send_header("Content-Length", str(len(content)))
             if content_sha256 is not None:
                 self.send_header("Content-SHA256", content_sha256)
             self.send_header(
@@ -286,9 +365,22 @@ class RepositoryHandler(BaseHTTPRequestHandler):
             )
             self.end_headers()
             if send_body:
-                self.wfile.write(content)
+                view = memoryview(content)
+                for offset in range(start, end + 1, WRITE_CHUNK_BYTES):
+                    self.wfile.write(
+                        view[offset : min(offset + WRITE_CHUNK_BYTES, end + 1)]
+                    )
         except (OSError, ValueError, KeyError, StopIteration, json.JSONDecodeError):
             self.send_error(HTTPStatus.SERVICE_UNAVAILABLE)
+
+    def _range_error(self, status: HTTPStatus, *, total: int | None = None) -> None:
+        self.send_response(status)
+        self.send_header("Accept-Ranges", "bytes")
+        if total is not None:
+            self.send_header("Content-Range", f"bytes */{total}")
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
         # Paths can contain credentials in malformed requests. Log only status and peer.
