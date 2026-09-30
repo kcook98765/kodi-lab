@@ -5119,3 +5119,21 @@ approvals atomically with the governing revision transition.
   needs its own Web approval. Workspace edits never change pending or published
   bytes. Offline observation stays pending; identity/classification changes
   fail closed.
+
+## D-0388: Reviewed candidate changes require an explicit repository transition
+
+- Stable generations remain bound to the BUNDLE that produced them. The static
+  server and ordinary generator continue to reject unexpected BUNDLE identities.
+  An operator selects exact old and new verified source-free candidates, their
+  BUNDLE digests, and a complete pre-transition backup for a one-off transition.
+- The operation verifies old stable and development generations, reviewed
+  candidate inputs, base URL, publication inventory, and backup binding before
+  preparing new immutable generations. A durable intent records both candidate
+  and feed identities before either pointer moves. Web and repository startup
+  refuse service during an unfinished transition. Rerunning the exact request
+  completes a known interruption; another request fails closed.
+- Development artifact bytes, publication rows, holds, history and deployment
+  links stay unchanged. Only the development feed generation and its existing
+  SQLite state pointer advance to the new candidate identity. An explicit
+  reverse transition to the backup's candidate precedes restoring its database
+  and development bytes. No schema migration or bridge change is needed.

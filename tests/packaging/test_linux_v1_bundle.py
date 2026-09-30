@@ -161,6 +161,7 @@ def bundle(tmp_path: Path) -> Path:
             "development_generator": "kodi-lab-development-repository-v1",
             "publication_migration": "0055_development_repository_publications",
             "workspace_deployment_migration": "0056_repository_workspace_deployment",
+            "candidate_transition": "explicit-reviewed-a-b-v1",
         },
         "files": files,
     }

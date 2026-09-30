@@ -71,6 +71,12 @@ def test_distribution_allowlist_and_methods(tmp_path: Path) -> None:
             with pytest.raises(HTTPError) as error:
                 urlopen(Request(url + "/install/", data=b"x", method=method))
             assert error.value.code == 405
+        (data / "TRANSITION.json").write_text("pending\n")
+        for path in ("/health", "/install/", "/stable/addons.xml"):
+            with pytest.raises(HTTPError) as error:
+                urlopen(url + path)
+            assert error.value.code == 503
+        (data / "TRANSITION.json").unlink()
         (data / "CURRENT").write_text("f" * 64 + "\n")
         with pytest.raises(HTTPError) as error:
             urlopen(url + "/stable/addons.xml")

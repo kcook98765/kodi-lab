@@ -55,6 +55,7 @@ EXCLUDED = frozenset(
         ".restore-pending.json",
         ".recovery-pending.json",
         ".last-upgrade.json",
+        ".repository-candidate-transition.json",
         "snapshots",
         "screenshots",
         "development-source-staging",
@@ -93,6 +94,10 @@ def _repository_root() -> Path | None:
 
 
 def _repository_identity(repository_root: Path) -> dict[str, str]:
+    if (repository_root / "TRANSITION.json").exists() or (
+        repository_root / "TRANSITION.json"
+    ).is_symlink():
+        raise HostBootstrapError("repository candidate transition is incomplete")
     try:
         _, stable = load_stable_current(
             repository_root,
@@ -1024,13 +1029,18 @@ def restore(
             )
         restore_pending = root / ".restore-pending.json"
         pending_path = root / ".upgrade-pending.json"
+        repository_transition = root / ".repository-candidate-transition.json"
         receipt_path = (
             restore_pending
             if restore_pending.exists() or restore_pending.is_symlink()
             else (
-                pending_path
-                if pending_path.exists() or pending_path.is_symlink()
-                else root / ".last-upgrade.json"
+                repository_transition
+                if repository_transition.exists() or repository_transition.is_symlink()
+                else (
+                    pending_path
+                    if pending_path.exists() or pending_path.is_symlink()
+                    else root / ".last-upgrade.json"
+                )
             )
         )
         if not receipt_path.exists() and not receipt_path.is_symlink():
@@ -1098,5 +1108,7 @@ def restore(
         ):
             raise HostBootstrapError("restored state verification failed")
         restore_pending.unlink()
+        if repository_transition.exists():
+            repository_transition.unlink()
         _fsync(root)
         return restored, quarantine_id

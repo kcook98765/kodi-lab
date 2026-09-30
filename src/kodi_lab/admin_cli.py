@@ -6,6 +6,7 @@ import argparse
 import getpass
 import os
 from collections.abc import Sequence
+from pathlib import Path
 
 from alembic.util.exc import CommandError
 from pydantic import ValidationError
@@ -90,6 +91,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise HostBootstrapError(
                     "application state is not initialized; run "
                     "kodi-lab-admin initialize before starting Web"
+                )
+            repository_root = os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT")
+            if repository_root and (
+                (Path(repository_root) / "TRANSITION.json").exists()
+                or (Path(repository_root) / "TRANSITION.json").is_symlink()
+            ):
+                raise HostBootstrapError(
+                    "repository candidate transition is incomplete"
                 )
             with lifecycle_lock(data_root) as lock_fd:
                 remote_validate(

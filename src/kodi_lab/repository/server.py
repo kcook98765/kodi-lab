@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+from kodi_lab.host_bootstrap import HostBootstrapError
 from kodi_lab.repository.development import (
     VERSION as DEVELOPMENT_VERSION,
 )
@@ -164,6 +165,11 @@ class RepositoryHandler(BaseHTTPRequestHandler):
     do_PUT = do_PATCH = do_DELETE = do_POST
 
     def _serve(self, *, send_body: bool) -> None:
+        if (self.root / "TRANSITION.json").exists() or (
+            self.root / "TRANSITION.json"
+        ).is_symlink():
+            self.send_error(HTTPStatus.SERVICE_UNAVAILABLE)
+            return
         parsed = urlsplit(self.path)
         path = parsed.path
         if (
@@ -389,7 +395,9 @@ class RepositoryHandler(BaseHTTPRequestHandler):
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("generate", "serve", "verify"))
+    parser.add_argument(
+        "command", choices=("generate", "serve", "verify", "transition")
+    )
     parser.add_argument(
         "--data-root", type=Path, default=Path("/srv/kodi-lab-repository")
     )
@@ -398,8 +406,19 @@ def main() -> int:
         "--base-url", default=os.getenv("KODI_LAB_REPOSITORY_BASE_URL", "")
     )
     parser.add_argument("--port", type=int, default=8110)
+    parser.add_argument("--previous-bundle", type=Path)
+    parser.add_argument("--expected-old-bundle")
+    parser.add_argument("--expected-new-bundle")
+    parser.add_argument("--backup-id")
+    parser.add_argument("--state-root", type=Path, default=Path("/var/lib/kodi-lab"))
+    parser.add_argument("--rollback", action="store_true")
     args = parser.parse_args()
     try:
+        if args.command != "transition" and (
+            (args.data_root / "TRANSITION.json").exists()
+            or (args.data_root / "TRANSITION.json").is_symlink()
+        ):
+            raise ValueError("repository candidate transition is incomplete")
         if args.command == "generate":
             result = generate(args.bundle, args.data_root, args.base_url)
             development = initialize_development(
@@ -439,6 +458,37 @@ def main() -> int:
                     {"stable": result, "development": dev_result}, sort_keys=True
                 )
             )
+        elif args.command == "transition":
+            from kodi_lab.repository.transition import transition
+
+            if not all(
+                (
+                    args.previous_bundle,
+                    args.expected_old_bundle,
+                    args.expected_new_bundle,
+                    args.backup_id,
+                )
+            ):
+                raise ValueError(
+                    "transition requires both candidates, exact hashes and backup ID"
+                )
+            configured = os.getenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256")
+            if configured and configured != (
+                args.expected_old_bundle if args.rollback else args.expected_new_bundle
+            ):
+                raise ValueError("transition differs from configured candidate")
+            result = transition(
+                args.previous_bundle,
+                args.bundle,
+                args.data_root,
+                args.state_root,
+                args.base_url,
+                args.expected_old_bundle,
+                args.expected_new_bundle,
+                args.backup_id,
+                rollback=args.rollback,
+            )
+            print(json.dumps(result, sort_keys=True))
         else:
             load_current(
                 args.data_root,
@@ -458,7 +508,13 @@ def main() -> int:
             )
             server = BoundedRepositoryServer(("0.0.0.0", args.port), handler)
             server.serve_forever()
-    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        json.JSONDecodeError,
+        HostBootstrapError,
+    ) as error:
         parser.exit(1, f"repository {args.command} failed: {error}\n")
     return 0
 

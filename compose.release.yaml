@@ -80,6 +80,24 @@ services:
       - ./:/candidate:ro
       - repository_data:/srv/kodi-lab-repository
 
+  repository-transition:
+    profiles: [repository-transition]
+    image: ${KODI_LAB_REMOTE_IMAGE:?run linux-v1-bundle configure first}
+    entrypoint: [kodi-lab-repository, transition]
+    network_mode: none
+    read_only: true
+    user: "0:0"
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    environment:
+      KODI_LAB_REPOSITORY_BASE_URL: ${KODI_LAB_REPOSITORY_BASE_URL:?configure repository first}
+      KODI_LAB_REPOSITORY_BUNDLE_SHA256: ${KODI_LAB_REPOSITORY_BUNDLE_SHA256:?configure repository first}
+    volumes:
+      - ./:/candidate:ro
+      - repository_data:/srv/kodi-lab-repository
+      - remote_state:/var/lib/kodi-lab
+
   broker:
     profiles:
       - lab

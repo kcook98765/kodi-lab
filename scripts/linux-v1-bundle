@@ -152,6 +152,9 @@ def verify_repository_service_boundary(bundle: pathlib.Path) -> None:
             "\n  repository-init:\n", 1
         )[0]
         initializer = compose.split("\n  repository-init:\n", 1)[1].split(
+            "\n  repository-transition:\n", 1
+        )[0]
+        transition = compose.split("\n  repository-transition:\n", 1)[1].split(
             "\n  broker:\n", 1
         )[0]
     except IndexError as error:
@@ -166,6 +169,16 @@ def verify_repository_service_boundary(bundle: pathlib.Path) -> None:
         or 'user: "10002:10002"' not in repository
         or "network_mode: none" not in initializer
         or "cap_drop: [ALL]\n    cap_add: [CHOWN]" not in initializer
+        or "entrypoint: [kodi-lab-repository, transition]" not in transition
+        or "network_mode: none" not in transition
+        or "- ./:/candidate:ro" not in transition
+        or "- repository_data:/srv/kodi-lab-repository\n" not in transition
+        or "- remote_state:/var/lib/kodi-lab" not in transition
+        or "KODI_LAB_REPOSITORY_BUNDLE_SHA256:" not in transition
+        or any(
+            forbidden in transition
+            for forbidden in ("docker.sock", "broker_socket", "ports:", "privileged: true")
+        )
         or "${KODI_LAB_REPOSITORY_BIND:?explicit private LAN bind required}"
         not in repository
         or any(
@@ -658,6 +671,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
             "development_generator": "kodi-lab-development-repository-v1",
             "publication_migration": "0055_development_repository_publications",
             "workspace_deployment_migration": "0056_repository_workspace_deployment",
+            "candidate_transition": "explicit-reviewed-a-b-v1",
         },
         "files": files,
     }
@@ -725,6 +739,7 @@ def verify(
         "development_generator": "kodi-lab-development-repository-v1",
         "publication_migration": "0055_development_repository_publications",
         "workspace_deployment_migration": "0056_repository_workspace_deployment",
+        "candidate_transition": "explicit-reviewed-a-b-v1",
     }:
         raise ValueError("stable repository bundle capability differs")
     env_path = bundle / ".env"

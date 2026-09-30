@@ -336,7 +336,14 @@ def _read_reviewed_bridge(
     return bridge, manifest, provenance
 
 
-def generate(bundle: Path, data_root: Path, base_url: str) -> dict[str, object]:
+def generate(
+    bundle: Path,
+    data_root: Path,
+    base_url: str,
+    *,
+    expected_previous_bundle_sha256: str | None = None,
+    activate: bool = True,
+) -> dict[str, object]:
     """Publish a complete stable generation after validating exact candidate inputs."""
     parsed = urlsplit(base_url)
     if (
@@ -402,13 +409,14 @@ def generate(bundle: Path, data_root: Path, base_url: str) -> dict[str, object]:
     pointer = data_root / "CURRENT"
     if pointer.exists():
         _, prior = load_current(data_root)
-        if (
-            prior.get("base_url") != base_url
-            or prior.get("bundle_sha256") != provenance["bundle_sha256"]
+        if prior.get("base_url") != base_url or prior.get("bundle_sha256") != (
+            expected_previous_bundle_sha256 or provenance["bundle_sha256"]
         ):
             raise ValueError(
                 "repository is already configured for another origin/candidate"
             )
+    elif expected_previous_bundle_sha256 is not None:
+        raise ValueError("previous repository generation is absent")
     for package in packages:
         relative = f"{package.addon_id}/{package.addon_id}-{package.version}.zip"
         path = data_root / "packages" / relative
@@ -455,8 +463,17 @@ def generate(bundle: Path, data_root: Path, base_url: str) -> dict[str, object]:
                     else:
                         path.rmdir()
                 temp.rmdir()
-    if pointer.exists() and pointer.read_text().strip() == feed_tree:
+    if not activate or (pointer.exists() and pointer.read_text().strip() == feed_tree):
         return provenance
+    _switch_pointer(data_root, feed_tree)
+    return provenance
+
+
+def _switch_pointer(data_root: Path, feed_tree: str) -> None:
+    """Atomically select one already prepared, fully verified generation."""
+    if not HEX_PATTERN.fullmatch(feed_tree):
+        raise ValueError("repository generation identity is invalid")
+    pointer = data_root / "CURRENT"
     descriptor, temp_name = tempfile.mkstemp(prefix=".CURRENT-", dir=data_root)
     temp_pointer = Path(temp_name)
     try:
@@ -473,7 +490,6 @@ def generate(bundle: Path, data_root: Path, base_url: str) -> dict[str, object]:
             os.close(directory)
     finally:
         temp_pointer.unlink(missing_ok=True)
-    return provenance
 
 
 def load_current(
@@ -486,6 +502,22 @@ def load_current(
     if (data_root / "CURRENT").is_symlink() or (data_root / "generations").is_symlink():
         raise ValueError("repository state path is unsafe")
     pointer = (data_root / "CURRENT").read_text().strip()
+    return load_generation(
+        data_root,
+        pointer,
+        expected_base_url=expected_base_url,
+        expected_bundle_sha256=expected_bundle_sha256,
+    )
+
+
+def load_generation(
+    data_root: Path,
+    pointer: str,
+    *,
+    expected_base_url: str | None = None,
+    expected_bundle_sha256: str | None = None,
+) -> tuple[Path, dict[str, object]]:
+    """Verify an immutable stable generation, including every package byte."""
     if not HEX_PATTERN.fullmatch(pointer):
         raise ValueError("repository generation pointer is invalid")
     root = data_root / "generations" / pointer
