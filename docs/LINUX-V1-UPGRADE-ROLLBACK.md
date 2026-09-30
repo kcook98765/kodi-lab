@@ -27,6 +27,13 @@ From the **new candidate** directory, configure its `.env` with the same durable
 BASE URL and named volumes, then run the explicit transition with the complete
 backup ID from the command above:
 
+The old candidate's reviewed migration identity must equal the live database
+revision and the complete backup revision. The new candidate's BUNDLE records
+its installed Alembic head. The transition accepts the same head or a reviewed,
+unbranched ancestor-to-descendant path. It records both revisions and switches
+repository provenance while the database deliberately remains at the old
+revision. Do not migrate the database before this transition.
+
 ```sh
 python3 linux-v1-bundle verify .
 python3 /absolute/path/to/old-candidate/linux-v1-bundle verify /absolute/path/to/old-candidate
@@ -44,6 +51,10 @@ only the two candidates read-only and the existing application/repository
 volumes. Web and repository serving refuse an unfinished transition. If the
 command is interrupted, rerun the **identical** command; do not edit the volume.
 The old and new candidate identities are never inferred from directory names.
+After a completed transition, keep Web and broker stopped. The repository
+service is read-only and may safely serve its verified new generation, but the
+operator workflow keeps it stopped until the application upgrade is complete.
+New Web startup rejects the old database revision.
 
 Verify and load the new application image artifact and set the reviewed image
 references in `.env`. Before starting Web, run the explicit upgrade command
@@ -58,7 +69,11 @@ docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
 
 `upgrade` verifies the old state, creates and verifies its own pre-upgrade
 backup when a migration is needed, migrates to the new installed head, and
-records a receipt. Ordinary Web startup never migrates. Verify login, catalog,
+records a receipt linked to the exact repository transition operation. The
+intermediate backup retains that binding. Ordinary Web startup never migrates
+and requires the new database head plus matching completion evidence. Verify
+the final database revision, stable and development BUNDLE provenance, absence
+of pending transition/upgrade files, login, catalog,
 MCP clients, exact runtime pins, and wanted secrets after startup. The
 application backup records managed snapshot hashes as dependencies; it does
 not contain Docker image bytes or the snapshot tree. When a Phase 2 development
@@ -84,20 +99,32 @@ docker compose -f compose.release.yaml run --rm --no-deps \
 
 After restore, use the retained old candidate and its original `.env` to verify
 and start its images. Do not remove generations or artifact bytes for rollback.
+The same reverse-transition and original A-backup restore apply either before
+the new schema migration or after it completes, provided the operator accepts
+discarding all work after that A backup. Never invoke a lossy schema downgrade
+to roll back a candidate. Migration 0057 deliberately refuses downgrade when
+development capability-amendment receipts exist; restoring the old A backup
+then explicitly discards those post-upgrade receipts and any other later work.
 
-For a schema-changing rollback, stop Web and broker and use only the exact
-backup ID printed by `upgrade` (also recorded in the state receipt). The
-confirmation must repeat that ID:
+If the application migration was interrupted, stop all three services and use
+only the exact intermediate backup ID printed by `upgrade` (also recorded in
+`.upgrade-pending.json`). The confirmation must repeat that ID. Restore this
+pre-migration backup first. It retains the completed repository-transition
+binding at the old schema revision. Then either retry the exact B upgrade or
+follow the reverse-transition procedure above with the original A backup.
+Do not start Web while the intermediate revision remains below B's head.
 
 ```sh
 docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
   stop web broker repository
 docker compose -f compose.release.yaml run --rm --no-deps \
   --entrypoint kodi-lab-admin web restore BACKUP_ID --confirm BACKUP_ID
-# Set .env back to the retained prior reviewed application images.
-docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
-  up -d --wait --no-build web broker
 ```
+
+For a schema-only upgrade without a repository candidate transition, restore
+its verified pre-upgrade backup and then select the retained old application
+images before restarting. A repository candidate transition always requires
+the reverse transition plus original A backup described above.
 
 Restore verifies the backup, key binding, schema revision, repository binding,
 development artifact hashes and snapshot dependencies before replacing state.

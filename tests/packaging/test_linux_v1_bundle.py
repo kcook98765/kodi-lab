@@ -165,6 +165,7 @@ def bundle(tmp_path: Path) -> Path:
                 "0057_development_capability_amendments"
             ),
             "candidate_transition": "explicit-reviewed-a-b-v1",
+            "migration_head": "0057_development_capability_amendments",
         },
         "files": files,
     }
@@ -194,6 +195,17 @@ def test_bundle_detects_missing_and_changed_artifacts(bundle: Path) -> None:
         verify(bundle)
     (bundle / "INSTALL.md").write_bytes(b"altered")
     with pytest.raises(ValueError, match="artifact differs"):
+        verify(bundle)
+
+
+def test_bundle_rejects_changed_migration_head_even_when_rehashed(
+    bundle: Path,
+) -> None:
+    document = json.loads((bundle / "BUNDLE.json").read_bytes())
+    document["repository"]["migration_head"] = "0056_repository_workspace_deployment"
+    (bundle / "BUNDLE.json").write_bytes(canonical(document))
+    _checksums(bundle, document["files"])
+    with pytest.raises(ValueError, match="bundle capability differs"):
         verify(bundle)
 
 

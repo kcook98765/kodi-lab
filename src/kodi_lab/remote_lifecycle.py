@@ -54,8 +54,6 @@ EXCLUDED = frozenset(
         ".upgrade-pending.json",
         ".restore-pending.json",
         ".recovery-pending.json",
-        ".last-upgrade.json",
-        ".repository-candidate-transition.json",
         "snapshots",
         "screenshots",
         "development-source-staging",
@@ -63,6 +61,8 @@ EXCLUDED = frozenset(
 )
 ROLLBACK_ROOTS = frozenset(
     {
+        ".last-upgrade.json",
+        ".repository-candidate-transition.json",
         "database",
         "secrets",
         "master-key",
@@ -461,6 +461,103 @@ def validate(
             f"database revision {revision} does not match installed head"
         )
     return revision
+
+
+def verify_candidate_transition_completion(
+    root: Path, database_url: str, *, before_upgrade: bool = False
+) -> dict[str, object] | None:
+    """Bind an installed schema to its reviewed repository transition."""
+    path = root / ".repository-candidate-transition.json"
+    if not path.exists() and not path.is_symlink():
+        last_upgrade = root / ".last-upgrade.json"
+        if (
+            last_upgrade.exists() or last_upgrade.is_symlink()
+        ) and "repository_transition_operation_id" in _read_json(last_upgrade):
+            raise HostBootstrapError("candidate transition receipt is missing")
+        if before_upgrade:
+            repository_root = _repository_root()
+            if repository_root is not None and (repository_root / "CURRENT").exists():
+                raise HostBootstrapError("candidate transition receipt is missing")
+        return None
+    receipt = _read_json(path)
+    if set(receipt) != {
+        "backup_id",
+        "operation_id",
+        "old_bundle_sha256",
+        "new_bundle_sha256",
+        "old_migration_revision",
+        "new_migration_revision",
+    } or any(not isinstance(receipt[field], str) for field in receipt):
+        raise HostBootstrapError("candidate transition receipt is invalid")
+    if not BACKUP_ID.fullmatch(str(receipt["operation_id"])) or any(
+        not re.fullmatch(r"[0-9a-f]{64}", str(receipt[field]))
+        for field in ("old_bundle_sha256", "new_bundle_sha256")
+    ):
+        raise HostBootstrapError("candidate transition identity is invalid")
+    old_revision = str(receipt["old_migration_revision"])
+    new_revision = str(receipt["new_migration_revision"])
+    if (
+        new_revision != _head(database_url)
+        or receipt["new_bundle_sha256"]
+        != os.getenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256")
+        or _revision(root / DATABASE)
+        != (old_revision if before_upgrade else new_revision)
+    ):
+        raise HostBootstrapError("candidate transition schema or bundle differs")
+    backup_metadata = _verify_backup(root, str(receipt["backup_id"]))
+    if backup_metadata["revision"] != old_revision:
+        raise HostBootstrapError("candidate transition backup revision differs")
+    try:
+        old_development = load_development_current(
+            root
+            / "backups"
+            / str(receipt["backup_id"])
+            / REPOSITORY_BACKUP_ROOT
+            / "development-data",
+            expected_base_url=os.getenv("KODI_LAB_REPOSITORY_BASE_URL"),
+        )[1]
+        if old_development["bundle_sha256"] != receipt["old_bundle_sha256"]:
+            raise ValueError("old candidate differs")
+    except (OSError, ValueError, KeyError) as error:
+        raise HostBootstrapError(
+            "candidate transition backup candidate differs"
+        ) from error
+    repository_root = _repository_root()
+    if repository_root is None:
+        raise HostBootstrapError("candidate transition repository is unavailable")
+    if (repository_root / "TRANSITION.json").exists():
+        raise HostBootstrapError("repository candidate transition is incomplete")
+    try:
+        load_stable_current(
+            repository_root,
+            expected_base_url=os.getenv("KODI_LAB_REPOSITORY_BASE_URL"),
+            expected_bundle_sha256=str(receipt["new_bundle_sha256"]),
+        )
+        development = load_development_current(
+            repository_root / "development-data",
+            expected_base_url=os.getenv("KODI_LAB_REPOSITORY_BASE_URL"),
+        )[1]
+        if development["bundle_sha256"] != receipt["new_bundle_sha256"]:
+            raise ValueError("development candidate differs")
+        _verify_repository_pair(
+            root / DATABASE,
+            repository_root / "development-data",
+            str(development["base_url"]),
+        )
+    except (OSError, ValueError, KeyError) as error:
+        raise HostBootstrapError("candidate transition repository differs") from error
+    if not before_upgrade and old_revision != new_revision:
+        completed = _read_json(root / ".last-upgrade.json")
+        if any(
+            completed.get(field) != value
+            for field, value in (
+                ("from_revision", old_revision),
+                ("to_revision", new_revision),
+                ("repository_transition_operation_id", receipt["operation_id"]),
+            )
+        ):
+            raise HostBootstrapError("candidate transition upgrade is incomplete")
+    return receipt
 
 
 def initialize(root: Path, database_url: str) -> str:
@@ -875,6 +972,9 @@ def upgrade(root: Path, database_url: str) -> tuple[str, str, str | None]:
     with lifecycle_lock(root):
         current = validate(root, database_url)
         head = _head(database_url)
+        transition_receipt = verify_candidate_transition_completion(
+            root, database_url, before_upgrade=current != head
+        )
         marker = root / ".state.json"
         if current == head and marker.exists():
             return current, head, None
@@ -899,11 +999,25 @@ def upgrade(root: Path, database_url: str) -> tuple[str, str, str | None]:
         )
         _write_json(
             root / ".last-upgrade.json",
-            {"backup_id": identifier, "from_revision": current, "to_revision": head},
+            {
+                "backup_id": identifier,
+                "from_revision": current,
+                "to_revision": head,
+                **(
+                    {
+                        "repository_transition_operation_id": transition_receipt[
+                            "operation_id"
+                        ]
+                    }
+                    if transition_receipt is not None
+                    else {}
+                ),
+            },
         )
         (root / ".upgrade-pending.json").unlink()
         _fsync(root)
         validate(root, database_url, require_head=True, require_marker=True)
+        verify_candidate_transition_completion(root, database_url)
         return current, head, identifier
 
 
@@ -1034,11 +1148,12 @@ def restore(
             restore_pending
             if restore_pending.exists() or restore_pending.is_symlink()
             else (
-                repository_transition
-                if repository_transition.exists() or repository_transition.is_symlink()
+                pending_path
+                if pending_path.exists() or pending_path.is_symlink()
                 else (
-                    pending_path
-                    if pending_path.exists() or pending_path.is_symlink()
+                    repository_transition
+                    if repository_transition.exists()
+                    or repository_transition.is_symlink()
                     else root / ".last-upgrade.json"
                 )
             )
@@ -1108,7 +1223,5 @@ def restore(
         ):
             raise HostBootstrapError("restored state verification failed")
         restore_pending.unlink()
-        if repository_transition.exists():
-            repository_transition.unlink()
         _fsync(root)
         return restored, quarantine_id

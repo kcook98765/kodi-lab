@@ -30,6 +30,7 @@ from kodi_lab.remote_lifecycle import (
 )
 from kodi_lab.remote_lifecycle import (
     lifecycle_lock,
+    verify_candidate_transition_completion,
 )
 from kodi_lab.remote_lifecycle import (
     recover_clean as remote_recover_clean,
@@ -107,6 +108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     require_head=True,
                     require_marker=True,
                 )
+                verify_candidate_transition_completion(data_root, settings.database_url)
                 os.environ["KODI_LAB_EXTERNAL_TARGET_MASTER_KEY"] = (
                     (data_root / "master-key").read_text(encoding="ascii").strip()
                 )

@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+from alembic.script import ScriptDirectory
+
+from kodi_lab import remote_lifecycle
 from kodi_lab.remote_lifecycle import (
     DATABASE,
     _verify_backup,
@@ -44,6 +47,7 @@ from kodi_lab.repository.stable import (
     load_generation,
     sha256,
 )
+from kodi_lab.storage import packaged_migrations
 
 PENDING = "TRANSITION.json"
 RECEIPT = ".repository-candidate-transition.json"
@@ -130,7 +134,38 @@ def _bundle(bundle: Path, expected_hash: str) -> dict[str, str]:
         or identity["source_tree"] != manifest["source_tree"]
     ):
         raise ValueError("candidate reviewed inputs differ")
-    return identity
+    repository = manifest.get("repository")
+    if not isinstance(repository, dict):
+        raise ValueError("candidate migration identity is missing")
+    revision = repository.get("migration_head")
+    if revision is None:
+        # The retained pre-0057 candidate records its last migration under
+        # the repository capability name. New bundles record the head directly.
+        if "development_capability_amendment_migration" in repository:
+            revision = repository["development_capability_amendment_migration"]
+        else:
+            revision = repository.get("workspace_deployment_migration")
+    if not isinstance(revision, str) or not re.fullmatch(
+        r"[0-9]{4}_[a-z][a-z0-9_]*", revision
+    ):
+        raise ValueError("candidate migration identity is invalid")
+    return {**identity, "migration_revision": revision}
+
+
+def _verify_migration_relationship(
+    database_url: str, installed_head: str, ancestor: str
+) -> None:
+    """Require one unbranched reviewed ancestry path in the installed wheel."""
+    with packaged_migrations.packaged_config(database_url) as config:
+        scripts = ScriptDirectory.from_config(config)
+        if scripts.get_current_head() != installed_head:
+            raise ValueError("candidate migration head differs from installed wheel")
+        current = installed_head
+        while current != ancestor:
+            script = scripts.get_revision(current)
+            if script is None or not isinstance(script.down_revision, str):
+                raise ValueError("candidate migrations are unrelated or branched")
+            current = script.down_revision
 
 
 def _development_records(
@@ -173,15 +208,39 @@ def transition(
         raise ValueError("candidate transition requires two distinct identities")
     dev_root = repository_root / "development-data"
     database = state_root / DATABASE
+    old_revision = old["migration_revision"]
+    new_revision = new["migration_revision"]
+    _verify_migration_relationship(
+        f"sqlite:///{database}",
+        old_revision if rollback else new_revision,
+        new_revision if rollback else old_revision,
+    )
     owner = state_root.stat()
     process_identity = (os.geteuid(), os.getegid())
     with _identity(owner.st_uid, owner.st_gid), lifecycle_lock(state_root):
         revision = validate(
-            state_root, f"sqlite:///{database}", require_head=True, require_marker=True
+            state_root,
+            f"sqlite:///{database}",
+            require_marker=True,
         )
         backup = _verify_backup(state_root, backup_id)
-        if backup["revision"] != revision:
-            raise ValueError("backup revision differs from installed state")
+        if backup["revision"] != (new_revision if rollback else old_revision):
+            raise ValueError("backup revision differs from selected old candidate")
+        if revision not in {old_revision, new_revision}:
+            raise ValueError("live database revision differs from candidate transition")
+        if rollback:
+            forward = remote_lifecycle._read_json(state_root / RECEIPT)
+            if any(
+                forward.get(field) != value
+                for field, value in (
+                    ("backup_id", backup_id),
+                    ("old_bundle_sha256", expected_new_bundle),
+                    ("new_bundle_sha256", expected_old_bundle),
+                    ("old_migration_revision", new_revision),
+                    ("new_migration_revision", old_revision),
+                )
+            ):
+                raise ValueError("rollback lacks the matching forward transition")
         backup_repository = backup.get("repository_identity")
         if (
             not isinstance(backup_repository, dict)
@@ -201,6 +260,8 @@ def transition(
             key = {
                 "old_bundle_sha256": expected_old_bundle,
                 "new_bundle_sha256": expected_new_bundle,
+                "old_migration_revision": old_revision,
+                "new_migration_revision": new_revision,
                 "base_url": base_url,
                 "backup_id": backup_id,
                 "rollback": rollback,
@@ -227,6 +288,8 @@ def transition(
                         and development_now["bundle_sha256"] == expected_new_bundle
                     ):
                         return cast(dict[str, object], receipt)
+            if not rollback and revision != old_revision:
+                raise ValueError("live database revision differs from old candidate")
             if pending_path.exists():
                 if pending_path.is_symlink():
                     raise ValueError("transition intent is unsafe")
@@ -270,7 +333,10 @@ def transition(
                     dev_root,
                     base_url,
                     _development_records(dev_root, old_dev),
-                    candidate_identity=new,
+                    candidate_identity={
+                        field: new[field]
+                        for field in ("bundle_sha256", "source_commit", "source_tree")
+                    },
                 )
                 if process_identity != (owner.st_uid, owner.st_gid):
                     selected = dev_root / "generations" / new_dev["tree_sha256"]
@@ -378,6 +444,8 @@ def transition(
                             "operation_id": operation_id,
                             "old_bundle_sha256": expected_old_bundle,
                             "new_bundle_sha256": expected_new_bundle,
+                            "old_migration_revision": old_revision,
+                            "new_migration_revision": new_revision,
                         },
                     )
             load_current(

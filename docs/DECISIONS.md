@@ -5136,7 +5136,28 @@ approvals atomically with the governing revision transition.
   links stay unchanged. Only the development feed generation and its existing
   SQLite state pointer advance to the new candidate identity. An explicit
   reverse transition to the backup's candidate precedes restoring its database
-  and development bytes. No schema migration or bridge change is needed.
+  and development bytes. The transition itself needs no schema or bridge change.
+- A candidate may introduce a reviewed forward schema migration. Its bundle
+  records the installed migration head; the retained pre-0057 candidate's
+  existing 0056 capability marker supplies its legacy head. The transition
+  requires the live database and complete backup at the old head and checks an
+  unbranched Alembic ancestry path to the new installed head. It records both
+  revisions in the durable intent and receipt, switches repository generations,
+  then leaves the database at the old head for the explicit application upgrade.
+  Web startup stays blocked until the new head and linked upgrade receipt exist.
+  Read-only repository serving from verified new generations is safe during
+  this stopped application interval, but the documented workflow keeps services
+  stopped until upgrade completes. A missing or tampered transition receipt
+  blocks repository-backed schema upgrade and Web completion.
+- The original old-candidate backup is the A rollback boundary both before and
+  after schema migration. A backup taken during the intermediate state retains
+  its transition binding so an interrupted migration can restore and retry
+  without losing provenance. Later backups also retain the linked application
+  upgrade receipt, so a future same-head candidate rollback can restore an
+  already migrated candidate coherently. Migration 0057 still refuses a lossy
+  downgrade
+  after amendment receipts; choosing the old backup then intentionally discards
+  post-upgrade operations rather than downgrading their evidence.
 
 ## D-0389: Audited paired-development capability changes and narrow MCP presets
 

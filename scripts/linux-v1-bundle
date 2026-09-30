@@ -623,6 +623,26 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
         }
     if len(package_identities) != 1:
         raise ValueError("Web and broker have different installed package bytes")
+    migration_head = subprocess.check_output(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--entrypoint",
+            "python",
+            tags["web"],
+            "-c",
+            "from alembic.script import ScriptDirectory\n"
+            "from kodi_lab.storage.packaged_migrations import packaged_config\n"
+            "with packaged_config('sqlite://') as config:\n"
+            "    print(ScriptDirectory.from_config(config).get_current_head())\n",
+        ],
+        text=True,
+    ).strip()
+    if not re.fullmatch(r"[0-9]{4}_[a-z][a-z0-9_]*", migration_head):
+        raise ValueError("installed migration head is invalid")
     recipes = _recipes(bundle)
     installed_recipes = json.loads(
         subprocess.check_output(
@@ -680,6 +700,7 @@ def finalize(bundle: pathlib.Path, repository: pathlib.Path) -> None:
                 "0057_development_capability_amendments"
             ),
             "candidate_transition": "explicit-reviewed-a-b-v1",
+            "migration_head": migration_head,
         },
         "files": files,
     }
@@ -751,6 +772,7 @@ def verify(
             "0057_development_capability_amendments"
         ),
         "candidate_transition": "explicit-reviewed-a-b-v1",
+        "migration_head": "0057_development_capability_amendments",
     }:
         raise ValueError("stable repository bundle capability differs")
     env_path = bundle / ".env"
