@@ -88,7 +88,7 @@ services:
     read_only: true
     user: "0:0"
     cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
+    cap_add: [DAC_OVERRIDE, SETUID, SETGID]
     security_opt: [no-new-privileges:true]
     environment:
       KODI_LAB_REPOSITORY_BASE_URL: ${KODI_LAB_REPOSITORY_BASE_URL:?configure repository first}

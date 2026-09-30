@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import importlib
 import json
+import os
 import shutil
 import sqlite3
+import stat
 from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
@@ -27,7 +30,7 @@ from kodi_lab.repository.development import DevelopmentRepositoryService
 from kodi_lab.repository.development import initialize as initialize_development
 from kodi_lab.repository.development import load_current as load_development_current
 from kodi_lab.repository.stable import canonical, generate, load_current, sha256
-from kodi_lab.repository.transition import transition
+from kodi_lab.repository.transition import _identity, transition
 from kodi_lab.storage import packaged_migrations
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.models import (
@@ -175,6 +178,248 @@ def test_forward_migration_transition_before_application_upgrade(
         transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
         == receipt
     )
+
+
+def _web_owned_transition_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    old_revision: str = "0056_repository_workspace_deployment",
+) -> tuple[Path, Path, Path, Path, str, str, str]:
+    old, new, data, state, old_hash, new_hash, _ = _setup(
+        tmp_path,
+        monkeypatch,
+        old_revision=old_revision,
+    )
+    # The application UID must traverse pytest's root-owned scratch parents.
+    tmp_path.parent.parent.chmod(0o755)
+    tmp_path.parent.chmod(0o755)
+    tmp_path.chmod(0o755)
+    web_uid = web_gid = 10001
+
+    def make_web_owned(root: Path) -> None:
+        for parent, directories, files in os.walk(root, followlinks=False):
+            for name in (*directories, *files):
+                os.chown(Path(parent) / name, web_uid, web_gid, follow_symlinks=False)
+        os.chown(root, web_uid, web_gid, follow_symlinks=False)
+
+    make_web_owned(state)
+    make_web_owned(data / "development-data")
+    url = f"sqlite:///{state / 'database/kodi-lab.db'}"
+    with _identity(web_uid, web_gid), lifecycle_lock(state):
+        backup_id = backup(state, url)
+        assert _verify_backup(state, backup_id)["revision"] == old_revision
+    return old, new, data, state, old_hash, new_hash, backup_id
+
+
+@pytest.mark.skipif(
+    os.geteuid() != 0, reason="requires packaged root transition identity"
+)
+def test_packaged_transition_preserves_web_owned_repository_for_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Root transition and Web backup must agree on real inode ownership."""
+    old, new, data, state, old_hash, new_hash, backup_id = (
+        _web_owned_transition_fixture(tmp_path, monkeypatch)
+    )
+    url = f"sqlite:///{state / 'database/kodi-lab.db'}"
+    web_uid = web_gid = 10001
+    previous_dev_inode = (data / "development-data/CURRENT").stat().st_ino
+    previous_stable_inode = (data / "CURRENT").stat().st_ino
+
+    receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+    assert receipt["old_migration_revision"] == "0056_repository_workspace_deployment"
+    assert receipt["new_migration_revision"] == "0057_development_capability_amendments"
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
+    with _identity(web_uid, web_gid):
+        assert upgrade(state, url)[:2] == (
+            "0056_repository_workspace_deployment",
+            "0057_development_capability_amendments",
+        )
+        assert remote_lifecycle.verify_candidate_transition_completion(state, url)
+
+    stable_pointer = data / "CURRENT"
+    development = data / "development-data"
+    assert (development / "CURRENT").stat().st_ino != previous_dev_inode
+    assert stable_pointer.stat().st_ino != previous_stable_inode
+    assert not tuple(development.glob(".CURRENT-*"))
+    assert not tuple(data.glob(".CURRENT-*"))
+    for pointer in (development / "CURRENT", development / "ACK"):
+        info = pointer.lstat()
+        assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (
+            web_uid,
+            web_gid,
+            0o644,
+        )
+    stable_info = stable_pointer.lstat()
+    assert (
+        stable_info.st_uid,
+        stable_info.st_gid,
+        stat.S_IMODE(stable_info.st_mode),
+    ) == (
+        0,
+        0,
+        0o644,
+    )
+    new_generation = (
+        development / "generations" / str(receipt["new_development_generation"])
+    )
+    for item in (new_generation, *new_generation.rglob("*")):
+        info = item.lstat()
+        assert (info.st_uid, info.st_gid) == (web_uid, web_gid)
+        assert stat.S_IMODE(info.st_mode) == (0o555 if item.is_dir() else 0o444)
+    stable_generation = data / "generations" / str(receipt["new_stable_generation"])
+    for item in (stable_generation, *stable_generation.rglob("*")):
+        info = item.lstat()
+        assert (info.st_uid, info.st_gid) == (0, 0)
+        assert stat.S_IMODE(info.st_mode) == (0o755 if item.is_dir() else 0o644)
+    for item, mode in (
+        (data / "transitions", 0o700),
+        (data / "transitions" / f"{receipt['operation_id']}.json", 0o600),
+        (data / "LAST_TRANSITION.json", 0o600),
+    ):
+        info = item.lstat()
+        assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (0, 0, mode)
+
+    transition(
+        new, old, data, state, BASE, new_hash, old_hash, backup_id, rollback=True
+    )
+    for pointer in (development / "CURRENT", development / "ACK"):
+        info = pointer.lstat()
+        assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (
+            web_uid,
+            web_gid,
+            0o644,
+        )
+    stable_info = stable_pointer.lstat()
+    assert (
+        stable_info.st_uid,
+        stable_info.st_gid,
+        stat.S_IMODE(stable_info.st_mode),
+    ) == (
+        0,
+        0,
+        0o644,
+    )
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", old_hash)
+    with _identity(web_uid, web_gid):
+        assert restore(state, url, backup_id, backup_id)[0] == (
+            "0056_repository_workspace_deployment"
+        )
+    assert (development / "CURRENT").stat().st_uid == web_uid
+    assert stable_pointer.stat().st_uid == 0
+
+
+@pytest.mark.skipif(
+    os.geteuid() != 0, reason="requires packaged root transition identity"
+)
+@pytest.mark.parametrize("stage", ["stable", "development", "database", "receipt"])
+def test_packaged_transition_retry_preserves_web_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    old, new, data, state, old_hash, new_hash, backup_id = (
+        _web_owned_transition_fixture(tmp_path, monkeypatch)
+    )
+    if stage == "receipt":
+        module = importlib.import_module("kodi_lab.repository.transition")
+        original_write = module._write
+
+        def interrupt_last_pointer(path: Path, value: dict[str, object]) -> None:
+            if path.name == "LAST_TRANSITION.json":
+                raise RuntimeError("injected interruption after receipt")
+            original_write(path, value)
+
+        monkeypatch.setattr(module, "_write", interrupt_last_pointer)
+        with pytest.raises(RuntimeError, match="injected interruption"):
+            transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+        monkeypatch.setattr(module, "_write", original_write)
+    else:
+        with pytest.raises(RuntimeError, match="injected interruption"):
+            transition(
+                old,
+                new,
+                data,
+                state,
+                BASE,
+                old_hash,
+                new_hash,
+                backup_id,
+                interrupt_after=stage,
+            )
+    receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+    assert receipt["new_migration_revision"] == "0057_development_capability_amendments"
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
+    with _identity(10001, 10001), lifecycle_lock(state):
+        assert _verify_backup(
+            state, backup(state, f"sqlite:///{state / 'database/kodi-lab.db'}")
+        )
+    for pointer in (data / "development-data/CURRENT", data / "development-data/ACK"):
+        info = pointer.stat()
+        assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (
+            10001,
+            10001,
+            0o644,
+        )
+
+
+@pytest.mark.skipif(
+    os.geteuid() != 0, reason="requires packaged root transition identity"
+)
+@pytest.mark.parametrize("defect", ["owner", "mode", "symlink"])
+def test_packaged_transition_rejects_unsafe_development_pointer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, defect: str
+) -> None:
+    old, new, data, state, old_hash, new_hash, backup_id = (
+        _web_owned_transition_fixture(tmp_path, monkeypatch)
+    )
+    pointer = data / "development-data/CURRENT"
+    original = pointer.read_bytes()
+    sentinel = tmp_path / "outside-current"
+    sentinel.write_bytes(original)
+    if defect == "owner":
+        os.chown(pointer, 0, 0)
+    elif defect == "mode":
+        pointer.chmod(0o666)
+    else:
+        pointer.unlink()
+        pointer.symlink_to(sentinel)
+    if defect != "symlink":
+        with (
+            _identity(10001, 10001),
+            lifecycle_lock(state),
+            pytest.raises(
+                HostBootstrapError, match="rollback state metadata is unsafe"
+            ),
+        ):
+            backup(state, f"sqlite:///{state / 'database/kodi-lab.db'}")
+    with pytest.raises(HostBootstrapError, match="rollback state metadata is unsafe"):
+        transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+    assert sentinel.read_bytes() == original
+    assert load_current(data, expected_bundle_sha256=old_hash)
+    assert not (data / "TRANSITION.json").exists()
+
+
+@pytest.mark.skipif(
+    os.geteuid() != 0, reason="requires packaged root transition identity"
+)
+def test_same_head_root_transition_keeps_web_owned_development_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, new, data, state, old_hash, new_hash, backup_id = (
+        _web_owned_transition_fixture(
+            tmp_path,
+            monkeypatch,
+            old_revision="0057_development_capability_amendments",
+        )
+    )
+    receipt = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+    assert receipt["old_migration_revision"] == receipt["new_migration_revision"]
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", new_hash)
+    with _identity(10001, 10001), lifecycle_lock(state):
+        _verify_backup(
+            state, backup(state, f"sqlite:///{state / 'database/kodi-lab.db'}")
+        )
+    assert (data / "development-data/CURRENT").stat().st_uid == 10001
 
 
 def test_retained_0056_bundle_migration_marker_is_accepted(

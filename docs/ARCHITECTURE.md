@@ -2782,6 +2782,16 @@ blocks only development routes. Quiescent backup binds the development subtree t
 SQLite snapshot; stable bytes remain reconstructible from the reviewed
 candidate and URL. See D-0384 through D-0386.
 
+A candidate transition keeps stable generations and its transition evidence
+root-owned. Its networkless root job changes to the validated application state
+owner when it creates a development generation or atomically replaces the
+development `CURRENT`/`ACK` pointers. The standard packaged Web/state owner is
+`10001:10001`, and repository initialization gives that owner the development
+subtree. The transition checks the subtree with the unchanged backup metadata
+validator; the later application upgrade independently checks it again. Root
+authority in the transition job does not authorize root-owned Web state. See
+D-0390.
+
 ## Repository workspace deployment linkage
 
 Migration `0056_repository_workspace_deployment` retains the existing operation

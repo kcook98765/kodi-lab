@@ -5179,3 +5179,21 @@ approvals atomically with the governing revision transition.
   `workspace.inspect` is technically shared by validation and bound-workspace
   read/status tools. This grants no promotion, remote control, or screenshot
   authority and does not bypass Web publication approval or installed-tree proof.
+
+## D-0390: Repository transition preserves application-owned development files
+
+- The networkless candidate-transition job runs as root only to coordinate the
+  root-owned stable repository, transition evidence, and a temporary switch to
+  the verified application state owner. Its development generation and atomic
+  `CURRENT`/`ACK` writes execute as that state owner; atomic replacement must not
+  leave a root-owned inode in the Web-writable development subtree. The
+  transition no longer needs CHOWN authority for this path.
+- The state root validated by the existing lifecycle lock supplies the canonical
+  application UID/GID. The standard packaged image fixes that identity at
+  `10001:10001`; development repository initialization assigns its subtree to
+  the same identity. Stable generations and transition intent/receipts remain
+  root-owned. No caller-supplied host UID/GID or path is accepted.
+- The unchanged backup metadata validator independently checks the complete
+  development subtree during the subsequent application upgrade. Transition
+  checks the same metadata before and after its writes, including on retry and
+  rollback, so provenance alone cannot bless unsafe filesystem ownership.

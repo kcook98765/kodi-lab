@@ -171,6 +171,9 @@ def verify_repository_service_boundary(bundle: pathlib.Path) -> None:
         or "cap_drop: [ALL]\n    cap_add: [CHOWN]" not in initializer
         or "entrypoint: [kodi-lab-repository, transition]" not in transition
         or "network_mode: none" not in transition
+        or 'user: "0:0"' not in transition
+        or "cap_drop: [ALL]\n    cap_add: [DAC_OVERRIDE, SETUID, SETGID]"
+        not in transition
         or "- ./:/candidate:ro" not in transition
         or "- repository_data:/srv/kodi-lab-repository\n" not in transition
         or "- remote_state:/var/lib/kodi-lab" not in transition

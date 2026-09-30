@@ -51,6 +51,12 @@ only the two candidates read-only and the existing application/repository
 volumes. Web and repository serving refuse an unfinished transition. If the
 command is interrupted, rerun the **identical** command; do not edit the volume.
 The old and new candidate identities are never inferred from directory names.
+The transition job runs with narrow root authority, but writes development
+generations and pointers as the verified application state owner. Do not change
+ownership manually if its metadata check fails. The following application
+upgrade independently checks development repository ownership and modes while
+creating its backup; a failure is an upgrade stop, not permission to bypass the
+backup check.
 After a completed transition, keep Web and broker stopped. The repository
 service is read-only and may safely serve its verified new generation, but the
 operator workflow keeps it stopped until the application upgrade is complete.

@@ -76,6 +76,16 @@ def _write(path: Path, value: dict[str, object]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _verify_development_metadata(root: Path) -> None:
+    """Apply the unchanged application backup's ownership gate to live data."""
+    remote_lifecycle._rollback_entry(root, directory=True)
+    for current, directories, files in os.walk(root, followlinks=False):
+        for name in directories:
+            remote_lifecycle._rollback_entry(Path(current) / name, directory=True)
+        for name in files:
+            remote_lifecycle._rollback_entry(Path(current) / name, directory=False)
+
+
 @contextmanager
 def _identity(uid: int, gid: int) -> Iterator[None]:
     previous_uids, previous_gids = os.getresuid(), os.getresgid()
@@ -247,6 +257,7 @@ def transition(
             or backup_repository.get("base_url") != base_url
         ):
             raise ValueError("backup repository origin differs")
+        _verify_development_metadata(dev_root)
         with _identity(*process_identity):
             pending_path = repository_root / PENDING
             complete_dir = repository_root / "transitions"
@@ -287,6 +298,8 @@ def transition(
                         stable_now["bundle_sha256"] == expected_new_bundle
                         and development_now["bundle_sha256"] == expected_new_bundle
                     ):
+                        with _identity(owner.st_uid, owner.st_gid):
+                            _verify_development_metadata(dev_root)
                         return cast(dict[str, object], receipt)
             if not rollback and revision != old_revision:
                 raise ValueError("live database revision differs from old candidate")
@@ -329,24 +342,21 @@ def transition(
                     expected_previous_bundle_sha256=expected_old_bundle,
                     activate=False,
                 )
-                new_dev = _generation(
-                    dev_root,
-                    base_url,
-                    _development_records(dev_root, old_dev),
-                    candidate_identity={
-                        field: new[field]
-                        for field in ("bundle_sha256", "source_commit", "source_tree")
-                    },
-                )
-                if process_identity != (owner.st_uid, owner.st_gid):
-                    selected = dev_root / "generations" / new_dev["tree_sha256"]
-                    for path in selected.rglob("*"):
-                        os.chown(
-                            path, owner.st_uid, owner.st_gid, follow_symlinks=False
-                        )
-                    os.chown(
-                        selected, owner.st_uid, owner.st_gid, follow_symlinks=False
+                with _identity(owner.st_uid, owner.st_gid):
+                    new_dev = _generation(
+                        dev_root,
+                        base_url,
+                        _development_records(dev_root, old_dev),
+                        candidate_identity={
+                            field: new[field]
+                            for field in (
+                                "bundle_sha256",
+                                "source_commit",
+                                "source_tree",
+                            )
+                        },
                     )
+                    _verify_development_metadata(dev_root)
                 if (
                     rollback
                     and backup_repository.get("stable_tree_sha256")
@@ -421,8 +431,10 @@ def transition(
             _switch_pointer(repository_root, new_stable_tree)
             if interrupt_after == "stable":
                 raise RuntimeError("injected interruption after stable switch")
-            (dev_root / "ACK").unlink(missing_ok=True)
-            _pointer(dev_root / "CURRENT", new_dev_tree)
+            with _identity(owner.st_uid, owner.st_gid):
+                (dev_root / "ACK").unlink(missing_ok=True)
+                _pointer(dev_root / "CURRENT", new_dev_tree)
+                _verify_development_metadata(dev_root)
             if interrupt_after == "development":
                 raise RuntimeError("injected interruption after development switch")
             with _identity(owner.st_uid, owner.st_gid):
@@ -436,6 +448,7 @@ def transition(
                     raise RuntimeError("injected interruption after database update")
                 _pointer(dev_root / "ACK", new_dev_tree)
                 _verify_repository_pair(database, dev_root, base_url)
+                _verify_development_metadata(dev_root)
                 if not rollback:
                     _write_json(
                         state_root / RECEIPT,
