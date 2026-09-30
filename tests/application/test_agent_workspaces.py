@@ -131,6 +131,30 @@ def test_create_workspace_publishes_equal_private_baseline_and_tree(
     assert os.stat(tree / "addon.xml").st_uid == os.geteuid()
 
 
+def test_creation_records_captured_version_after_registration_observation(
+    tmp_path: Path,
+) -> None:
+    service, source = _service(tmp_path)
+    descriptor = source / "addon.xml"
+    descriptor.write_text(
+        descriptor.read_text(encoding="utf-8").replace(
+            'version="1.0.0"', 'version="1.0.1"'
+        ),
+        encoding="utf-8",
+    )
+
+    workspace_id = _create(service)
+
+    assert service.get(workspace_id).source_observed_version == "1.0.0"
+    with service._session_factory() as session:
+        stored = AgentWorkspaceRepository(session).get(workspace_id)
+    assert stored is not None
+    assert stored.active_observed_version == "1.0.1"
+    validated = service.validate_structure(workspace_id, expected_generation=0)
+    assert validated.addon_version == "1.0.1"
+    assert validated.version_classification == "unchanged"
+
+
 def test_read_inspect_is_text_only_bounded_and_no_follow(tmp_path: Path) -> None:
     service, _source = _service(tmp_path)
     workspace_id = _create(service)

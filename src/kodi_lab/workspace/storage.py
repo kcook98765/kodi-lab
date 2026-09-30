@@ -49,6 +49,7 @@ class AgentWorkspaceStorageError(RuntimeError):
 class WorkspaceCreationResult:
     manifest_digest: str
     tree_digest: str
+    observed_version: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -453,7 +454,9 @@ def create_workspace_storage(
         compare_captures(first, baseline_manifest)
         compare_captures(first, tree_manifest)
         _remove_exact_private_tree(stage)
-        return WorkspaceCreationResult(first.digest, tree_manifest.digest)
+        return WorkspaceCreationResult(
+            first.digest, tree_manifest.digest, observation.observed_version
+        )
     except DevelopmentTreeError:
         if not published:
             _remove_exact_private_tree(stage)

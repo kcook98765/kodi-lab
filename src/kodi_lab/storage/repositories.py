@@ -1491,6 +1491,7 @@ class AgentWorkspaceRepository:
         *,
         manifest_digest: str,
         tree_digest: str,
+        observed_version: str,
         now: datetime,
     ) -> bool:
         result = self._session.execute(
@@ -1504,7 +1505,7 @@ class AgentWorkspaceRepository:
                 baseline_manifest_digest=manifest_digest,
                 creation_baseline_digest=manifest_digest,
                 active_baseline_artifact_id=AgentWorkspaceRow.baseline_artifact_id,
-                active_observed_version=AgentWorkspaceRow.source_observed_version,
+                active_observed_version=observed_version,
                 current_tree_digest=tree_digest,
                 captured_at=_timestamp_to_text(now),
                 updated_at=_timestamp_to_text(now),

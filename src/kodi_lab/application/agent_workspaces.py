@@ -481,6 +481,7 @@ class AgentWorkspaceService:
                         lease.workspace_id,
                         manifest_digest=result.manifest_digest,
                         tree_digest=result.tree_digest,
+                        observed_version=result.observed_version,
                         now=now,
                     )
                     or not operations.finish(
