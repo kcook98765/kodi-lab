@@ -819,7 +819,7 @@ def test_omega_python_requirement_above_installed_api_blocks_enablement(
     result = service(factory, FakeBroker(), FakeInventory([target()]), adapter).enable(
         INSTANCE_ID, ARTIFACT_ID
     )
-    assert result.failure_reason == "dependency_version_unverified"
+    assert result.failure_reason == "dependency_incompatible"
     assert adapter.enable_calls == []
 
 
