@@ -4975,19 +4975,33 @@ approvals atomically with the governing revision transition.
 - Decision: the source-free Linux amd64 bundle includes a separate optional
   `compose.development.yaml` overlay. It binds one administrator-selected host
   directory into Web at fixed `/mnt/kodi-lab-development` and sets the existing
-  `KODI_LAB_DEVELOPMENT_ROOT` to that fixed path. Base release Compose exposes
-  no source directory; broker receives no source mount or protocol change.
+  `KODI_LAB_DEVELOPMENT_ROOT` to that fixed path. The same overlay binds that
+  host directory read-only into broker at the same fixed path and sets broker's
+  `KODI_LAB_DEVELOPMENT_ROOT` to it. Base release Compose exposes no source
+  directory to either service. Repository and managed Kodi receive no source
+  mount. This corrects the original Web-only wiring: D-0129's existing
+  attached-source and promotion-sync broker operations already require source
+  reads. Their semantic protocol and server-derived locators do not change.
 - Access: the bind is read/write because the accepted reviewed promotion flow
   writes exact approved paths back to the original registered source. The Web
   service account receives only the host filesystem permissions that the
   administrator grants. Keep the root itself non-writable and grant project
   write permission only where patch-back is intentional, as D-0208 requires.
+  Broker is root with Docker authority and gains read/confidentiality access
+  within the selected root, including files unreadable to Web's UID. Select a
+  dedicated root containing only intended development material. Broker verifies
+  the fixed read-only mount and fails closed when absent, writable or wrongly
+  configured. Shared Linux `openat2` source traversal forbids symlink and nested
+  mount crossings beneath the opened root; unavailable confinement fails closed.
 - Configuration: `linux-v1-bundle development-source` validates a canonical
   existing absolute non-symlink host directory and writes its quoted path only
   to local `.env`. Compose requires a nonempty variable and does not create a
   missing bind source. The staged artifact never contains the chosen path.
   Registration remains restricted to normalized relative locators through the
   existing no-follow validator; Web and MCP gain no host-path or mount API.
+  Linux amd64 V1 is qualified; Windows Docker/Desktop source sharing needs a
+  separate gate. Deployment does not automatically relabel host files for
+  SELinux or AppArmor.
 
 ## D-0383: Shared OTP bridge pairing with distinct production policy
 

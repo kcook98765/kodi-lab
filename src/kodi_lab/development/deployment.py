@@ -14,6 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from kodi_lab.development.confined_fs import (
+    open_development_root,
+    open_source_component,
+)
+
 MAX_REGULAR_FILES = 25_000
 MAX_ENTRIES = 50_000
 MAX_INCLUDED_BYTES = 1024 * 1024 * 1024
@@ -191,22 +196,22 @@ def _open_development_source(development_root: Path, locator: str) -> int:
         raise DevelopmentTreeError(
             "development_source_root_invalid", "Development root is not safe."
         )
-    current_fd = -1
     try:
-        current_fd = os.open("/", _DIRECTORY_FLAGS)
-        for component in development_root.parts[1:]:
-            next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=current_fd)
-            os.close(current_fd)
-            current_fd = next_fd
+        current_fd = open_development_root(development_root)
+    except (OSError, ValueError) as error:
+        raise DevelopmentTreeError(
+            "development_source_unavailable",
+            "Development source is unavailable or link-unsafe.",
+        ) from error
+    try:
         for component in locator.split("/"):
             _safe_component(component)
-            next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=current_fd)
+            next_fd = open_source_component(current_fd, component, _DIRECTORY_FLAGS)
             os.close(current_fd)
             current_fd = next_fd
         return current_fd
     except (OSError, ValueError) as error:
-        if current_fd >= 0:
-            os.close(current_fd)
+        os.close(current_fd)
         raise DevelopmentTreeError(
             "development_source_unavailable",
             "Development source is unavailable or link-unsafe.",
@@ -269,7 +274,7 @@ def _walk_directory(
             ) from error
         if stat.S_ISDIR(before.st_mode):
             try:
-                child_fd = os.open(name, _DIRECTORY_FLAGS, dir_fd=directory_fd)
+                child_fd = open_source_component(directory_fd, name, _DIRECTORY_FLAGS)
             except OSError as error:
                 raise DevelopmentTreeError(
                     "development_source_unsafe_entry",
@@ -335,7 +340,7 @@ def _capture_file(
     capture: _Capture,
 ) -> None:
     try:
-        source_fd = os.open(name, _FILE_FLAGS, dir_fd=directory_fd)
+        source_fd = open_source_component(directory_fd, name, _FILE_FLAGS)
     except OSError as error:
         raise DevelopmentTreeError(
             "development_source_unsafe_entry", "Source file cannot be opened safely."

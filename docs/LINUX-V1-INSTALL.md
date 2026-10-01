@@ -192,8 +192,13 @@ dotenv value cannot represent them safely. An unset or empty variable stops
 Compose interpolation; `create_host_path: false` prevents a missing directory
 from being created. The staged bundle contains no actual host source path.
 
-The overlay binds that one host directory read/write at the fixed Web path
-`/mnt/kodi-lab-development` and sets `KODI_LAB_DEVELOPMENT_ROOT` to that path.
+The overlay binds that one host directory read/write into Web and read-only
+into broker, both at fixed `/mnt/kodi-lab-development`, and sets
+`KODI_LAB_DEVELOPMENT_ROOT` in both services to that path. Broker independently
+resolves a registered, bounded relative locator; requests never carry a host
+root or absolute source path. Broker requires the fixed read-only mount and
+fails closed when it is absent, writable, or misconfigured. The shared Linux
+source reader rejects symlink and nested-mount crossings beneath the root.
 Web accepts only root-relative project locators through its existing registration
 form; it does not browse host paths or create mounts. Register each project
 beneath the chosen root on **Development Sources**. Registration, copy/sync,
@@ -208,7 +213,13 @@ trees, but keep the root directory itself non-writable to that account. Grant
 write permission only within project trees intentionally enabled for patch-back.
 Kodi Lab does not change ownership or permissions. A compromise of the Web
 service account could modify every mounted file it can write, so select a
-dedicated root and keep OS permissions narrow.
+dedicated root and keep OS permissions narrow. Broker already holds Docker
+authority and runs as root: its read-only bind expands its ability to read
+material within the selected host root, even where Web's UID lacks access.
+Place only intended development material there. Repository and managed Kodi
+containers do not receive this mount. Kodi Lab does not automatically relabel
+host files for SELinux or AppArmor. This feature is qualified for Linux amd64
+V1; Windows Docker/Desktop source sharing remains separately unqualified.
 
 For a managed Lab with local development, include the overlay after the network
 overlay: `docker compose -f compose.release.yaml -f compose.lab.yaml -f

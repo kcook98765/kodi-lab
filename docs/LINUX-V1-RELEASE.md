@@ -84,16 +84,24 @@ checksum and SHA-256 package hashes. The server supplies both the package
 
 Local add-on source access is disabled in the base Compose deployment. An
 administrator may use the bundled development overlay to bind one validated
-host directory read/write at `/mnt/kodi-lab-development` in Web only. The
-overlay fixes `KODI_LAB_DEVELOPMENT_ROOT`; only the host source is configured
+host directory read/write in Web and read-only in broker, both at fixed
+`/mnt/kodi-lab-development`. The overlay fixes `KODI_LAB_DEVELOPMENT_ROOT` in
+both services; only the host source is configured
 through `KODI_LAB_DEVELOPMENT_SOURCE` in local `.env`, which is excluded from
 the staged bundle. The release helper rejects non-canonical, relative, empty,
 missing, or symlinked source directories; Compose rejects an unset or empty
 variable and never creates a missing bind source. Web/API registration remains
-root-relative and no-follow. The writable mount preserves reviewed patch-back;
+root-relative, no-follow, and rejects nested mount crossings. The writable Web
+mount preserves reviewed patch-back;
 the Web service account receives write access only where the administrator
-separately grants filesystem permissions. No broker protocol or schema change
-is involved. Remote-only and uploaded ZIP paths need no source mount.
+separately grants filesystem permissions. Broker requires its fixed read-only
+mount, independently resolves the registered source, and gains read authority
+within the administrator-selected root. Use a dedicated root containing only
+intended material. Repository and Kodi containers receive no external source
+mount; missing or incorrect broker wiring fails closed. No broker protocol or
+schema change is involved. Remote-only and uploaded ZIP paths need no source
+mount. Linux amd64 V1 is qualified; Windows Docker/Desktop remains unqualified
+for this feature. Host SELinux/AppArmor labels are not changed automatically.
 
 Application backup contains SQLite, keys, recipe installation records,
 revisions, and HMAC evidence. Docker image bytes and broker snapshot artifacts

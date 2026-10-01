@@ -12,6 +12,19 @@ The `kodi-lab` application account and all request data are less trusted. Docker
 daemon access is host-root-equivalent, so application code must never receive the
 Docker socket or Docker-group membership.
 
+The optional Linux V1 development overlay gives broker a read-only bind of the
+same administrator-selected source root that Web uses, at fixed
+`/mnt/kodi-lab-development`. This expands broker confidentiality authority
+within that root; root and `CAP_DAC_OVERRIDE` can read files Web's UID cannot.
+Administrators should select a dedicated root containing only intended source
+material. The semantic source operations still accept identities only, derive
+registered relative locators from trusted state, require the fixed read-only
+mount, and reject nested mount and symlink traversal with shared fail-closed
+Linux `openat2` confinement. Base Compose, repository, and managed Kodi have no
+source bind. No generic file-read or mount API is exposed. Windows Docker/Desktop
+remains unqualified for this feature, and Kodi Lab does not relabel host files
+for SELinux or AppArmor.
+
 Primary abuse cases are unauthorized local peers, request-supplied identity,
 operation-name dispatch tricks, malformed or oversized input, unsafe socket-path
 replacement, handler exception disclosure, and attempts to turn semantic

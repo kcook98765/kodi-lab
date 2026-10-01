@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -13,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.config import Settings
+from kodi_lab.development.confined_fs import open_development_root
 from kodi_lab.domain import (
     AddonZipInstallationConfidence,
     AddonZipInstallationResult,
@@ -21,6 +23,7 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentMode,
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceDeploymentResult,
+    DevelopmentSourceKind,
     InstanceType,
     PromotionVerificationPhase,
     PromotionVerificationState,
@@ -48,6 +51,8 @@ from kodi_lab.storage.repositories import (
     RuntimeRevisionRepository,
 )
 
+BROKER_DEVELOPMENT_ROOT = Path("/mnt/kodi-lab-development")
+
 
 class DevelopmentSourceDeploymentStateError(RuntimeError):
     code = "development_source_deployment_state_invalid"
@@ -56,6 +61,36 @@ class DevelopmentSourceDeploymentStateError(RuntimeError):
         super().__init__(message)
         if code is not None:
             self.code = code
+
+
+def require_readonly_source_mount(
+    root: Path | None,
+    *,
+    expected_root: Path = BROKER_DEVELOPMENT_ROOT,
+    mountinfo: Path = Path("/proc/self/mountinfo"),
+) -> None:
+    """Require the fixed read-only bind before broker reads a host source."""
+
+    if root is None or root != expected_root:
+        raise DevelopmentSourceDeploymentStateError(
+            "Broker development root is absent or not the fixed mount path."
+        )
+    try:
+        root_fd = open_development_root(root)
+        os.close(root_fd)
+        entries = [
+            fields
+            for line in mountinfo.read_text().splitlines()
+            if len(fields := line.split()) >= 6 and fields[4] == str(expected_root)
+        ]
+    except (OSError, ValueError) as error:
+        raise DevelopmentSourceDeploymentStateError(
+            "Broker development root or mount state is unavailable."
+        ) from error
+    if len(entries) != 1 or "ro" not in entries[0][5].split(","):
+        raise DevelopmentSourceDeploymentStateError(
+            "Broker development root must be a single read-only mount."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,10 +184,12 @@ class SqliteDevelopmentSourceDeploymentResolver:
         *,
         development_root: Path | None,
         data_root: Path,
+        enforce_source_mount: bool = False,
     ) -> None:
         self._session_factory = session_factory
         self._development_root = development_root
         self._data_root = data_root
+        self._enforce_source_mount = enforce_source_mount
 
     @classmethod
     def production(cls) -> SqliteDevelopmentSourceDeploymentResolver:
@@ -162,7 +199,18 @@ class SqliteDevelopmentSourceDeploymentResolver:
             sessionmaker(engine, expire_on_commit=False),
             development_root=settings.development_root,
             data_root=settings.data_root,
+            enforce_source_mount=True,
         )
+
+    def _require_source_root(self) -> Path:
+        root = self._development_root
+        if self._enforce_source_mount:
+            require_readonly_source_mount(root)
+        if root is None:
+            raise DevelopmentSourceDeploymentStateError(
+                "Development root is not configured."
+            )
+        return root
 
     def resolve(
         self,
@@ -190,10 +238,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
             raise DevelopmentSourceDeploymentStateError(
                 "Deployment identities are not canonical."
             ) from error
-        if self._development_root is None:
-            raise DevelopmentSourceDeploymentStateError(
-                "Development root is not configured."
-            )
+        development_root = self._require_source_root()
         try:
             with self._session_factory() as session:
                 instance = ManagedInstanceRepository(session).get(instance_id)
@@ -204,7 +249,12 @@ class SqliteDevelopmentSourceDeploymentResolver:
                 operation = DevelopmentSourceDeploymentOperationRepository(session).get(
                     operation_id
                 )
-                if instance is None or source is None or attachment is None:
+                if (
+                    instance is None
+                    or source is None
+                    or source.source_kind is not DevelopmentSourceKind.LOCAL_DIRECTORY
+                    or attachment is None
+                ):
                     raise DevelopmentSourceDeploymentStateError(
                         "Attached development-source state does not exist."
                     )
@@ -321,7 +371,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
                     runtime_revision_id=str(revision.id),
                     runtime_uid=profile.runtime_uid,
                     runtime_gid=profile.runtime_gid,
-                    development_root=self._development_root,
+                    development_root=development_root,
                     relative_locator=source.relative_locator,
                     addon_id=source.addon_id,
                     observed_name=source.observed_name,
@@ -443,10 +493,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
             raise DevelopmentSourceDeploymentStateError(
                 "Promotion verification identities are not canonical."
             ) from error
-        if self._development_root is None:
-            raise DevelopmentSourceDeploymentStateError(
-                "Development root is not configured."
-            )
+        development_root = self._require_source_root()
         with self._session_factory() as session:
             verification = PromotionVerificationOperationRepository(session).get(
                 verification_id
@@ -542,6 +589,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
             or promotion is None
             or plan is None
             or source is None
+            or source.source_kind is not DevelopmentSourceKind.LOCAL_DIRECTORY
             or attachment is None
             or evidence is None
             or deployment is None
@@ -579,7 +627,7 @@ class SqliteDevelopmentSourceDeploymentResolver:
             runtime_revision_id=str(instance.runtime_revision_id),
             runtime_uid=profile.runtime_uid,
             runtime_gid=profile.runtime_gid,
-            development_root=self._development_root,
+            development_root=development_root,
             relative_locator=source.relative_locator,
             addon_id=source.addon_id,
             observed_name=verification.expected_name,

@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from kodi_lab.development.confined_fs import (
+    open_development_root,
+    open_source_component,
+)
 from kodi_lab.domain import (
     MAX_ADDON_NAME,
     MAX_ADDON_VERSION,
@@ -194,26 +198,13 @@ class DevelopmentSourceValidator:
                 DevelopmentSourceValidationCode.ROOT_NOT_CONFIGURED,
                 "development root is not configured",
             )
-        if (
-            not root.is_absolute()
-            or root == Path("/")
-            or root != Path(os.path.normpath(root))
-        ):
+        try:
+            return open_development_root(root)
+        except ValueError as error:
             raise DevelopmentSourceValidationError(
                 DevelopmentSourceValidationCode.ROOT_INVALID,
                 "development root must be a normalized non-root absolute path",
-            )
-        try:
-            current_fd = os.open("/", _DIRECTORY_FLAGS)
-            try:
-                for component in root.parts[1:]:
-                    next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=current_fd)
-                    os.close(current_fd)
-                    current_fd = next_fd
-                return current_fd
-            except BaseException:
-                os.close(current_fd)
-                raise
+            ) from error
         except OSError as error:
             raise DevelopmentSourceValidationError(
                 DevelopmentSourceValidationCode.ROOT_UNAVAILABLE,
@@ -226,7 +217,9 @@ class DevelopmentSourceValidator:
             current_fd = os.dup(root_fd)
             try:
                 for component in locator.split("/"):
-                    next_fd = os.open(component, _DIRECTORY_FLAGS, dir_fd=current_fd)
+                    next_fd = open_source_component(
+                        current_fd, component, _DIRECTORY_FLAGS
+                    )
                     os.close(current_fd)
                     current_fd = next_fd
                 return current_fd
@@ -242,7 +235,7 @@ class DevelopmentSourceValidator:
     @staticmethod
     def _read_addon_xml(source_fd: int) -> bytes:
         try:
-            addon_fd = os.open("addon.xml", _FILE_FLAGS, dir_fd=source_fd)
+            addon_fd = open_source_component(source_fd, "addon.xml", _FILE_FLAGS)
         except FileNotFoundError as error:
             raise DevelopmentSourceValidationError(
                 DevelopmentSourceValidationCode.ADDON_XML_MISSING,

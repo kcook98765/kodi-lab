@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
+from kodi_lab.development.confined_fs import open_source_component
 from kodi_lab.development.deployment import (
     DevelopmentTreeEntry,
     DevelopmentTreeError,
@@ -101,10 +102,10 @@ def _read_source_file(
     try:
         parts = relative_path.split("/")
         for index, part in enumerate(parts):
-            next_fd = os.open(
+            next_fd = open_source_component(
+                current,
                 part,
                 _DIRECTORY_FLAGS if index < len(parts) - 1 else _FILE_FLAGS,
-                dir_fd=current,
             )
             os.close(current)
             current = next_fd
@@ -432,7 +433,7 @@ def _open_parent(source_fd: int, relative_path: str) -> tuple[int, str]:
     parts = relative_path.split("/")
     try:
         for part in parts[:-1]:
-            next_fd = os.open(part, _DIRECTORY_FLAGS, dir_fd=current)
+            next_fd = open_source_component(current, part, _DIRECTORY_FLAGS)
             os.close(current)
             current = next_fd
         return current, parts[-1]
@@ -537,7 +538,7 @@ def _publish_backup(
             if item.change_kind == "modify":
                 parent_fd, target = _open_parent(source_fd, item.relative_path)
                 try:
-                    fd = os.open(target, _FILE_FLAGS, dir_fd=parent_fd)
+                    fd = open_source_component(parent_fd, target, _FILE_FLAGS)
                     try:
                         raw_mode = stat.S_IMODE(os.fstat(fd).st_mode) & 0o777
                         payload, mode, _identity = _read_exact_fd(fd)
@@ -819,7 +820,9 @@ def execute_promotion(
                     _renameat2(parent_fd, temporary, target, 1)
                 else:
                     _renameat2(parent_fd, temporary, target, 2)
-                    displaced_fd = os.open(temporary, _FILE_FLAGS, dir_fd=parent_fd)
+                    displaced_fd = open_source_component(
+                        parent_fd, temporary, _FILE_FLAGS
+                    )
                     try:
                         displaced, displaced_mode, _ = _read_exact_fd(displaced_fd)
                     finally:
@@ -842,7 +845,7 @@ def execute_promotion(
                             "Development source changed during exact exchange.",
                         )
                     os.unlink(temporary, dir_fd=parent_fd)
-                target_fd = os.open(target, _FILE_FLAGS, dir_fd=parent_fd)
+                target_fd = open_source_component(parent_fd, target, _FILE_FLAGS)
                 try:
                     current_payload, current_mode, identity = _read_exact_fd(target_fd)
                 finally:
@@ -912,7 +915,7 @@ def execute_promotion(
             temporary = f".promotion-rollback-{operation_id.hex}-{item.ordinal}"
             try:
                 parent_fd, target = _open_parent(source_fd, item.relative_path)
-                current_fd = os.open(target, _FILE_FLAGS, dir_fd=parent_fd)
+                current_fd = open_source_component(parent_fd, target, _FILE_FLAGS)
                 try:
                     current_payload, current_mode, current_identity = _read_exact_fd(
                         current_fd
@@ -944,7 +947,9 @@ def execute_promotion(
                         backup_raw_modes[item.ordinal],
                     )
                     _renameat2(parent_fd, temporary, target, 2)
-                    displaced_fd = os.open(temporary, _FILE_FLAGS, dir_fd=parent_fd)
+                    displaced_fd = open_source_component(
+                        parent_fd, temporary, _FILE_FLAGS
+                    )
                     try:
                         displaced, displaced_mode, _ = _read_exact_fd(displaced_fd)
                     finally:

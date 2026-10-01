@@ -706,6 +706,15 @@ carries only instance, source, expected container, and operation UUIDs; the
 broker independently resolves all filesystem, runtime, ownership, destination,
 policy, and Docker authority.
 
+For the opt-in Linux V1 development deployment, the administrator-selected host
+source root is bound into Web for registration, scan, Capture, and approved
+patch-back, and into broker read-only at the same fixed
+`/mnt/kodi-lab-development` path. Broker requires that fixed read-only mount;
+the base deployment has no source mount. Requests cannot select another host
+root. Shared Linux `openat2` traversal begins beneath an opened root descriptor
+and rejects symlinks and nested mount crossings. Repository and managed Kodi
+containers receive no source bind. See D-0382.
+
 The broker captures the tree twice descriptor-relatively and no-follow into a
 root-private immutable stage. Only directories and single-link regular files
 are admitted under fixed entry, byte, path, depth, component, and manifest

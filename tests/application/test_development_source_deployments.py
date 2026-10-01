@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 
 import pytest
@@ -38,6 +40,7 @@ from kodi_lab.development import DevelopmentSourceValidator
 from kodi_lab.domain import (
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperationState,
+    DevelopmentSourceKind,
     GlobalHeavyOperationKind,
     ManagedInstanceMutationKind,
 )
@@ -55,6 +58,7 @@ from kodi_lab.storage.models import (
 from kodi_lab.storage.repositories import (
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
+    DevelopmentSourceRepository,
     GlobalHeavyOperationLeaseRepository,
     ManagedInstanceMutationLeaseRepository,
 )
@@ -324,6 +328,42 @@ def test_broker_resolver_derives_synthetic_runtime_ownership_and_rejects_corrupt
             {"source_id": str(SOURCE_ID)},
         )
         session.execute(text("PRAGMA ignore_check_constraints = OFF"))
+    with pytest.raises(DevelopmentSourceDeploymentStateError):
+        resolver.resolve(
+            str(INSTANCE_ID), str(SOURCE_ID), str(queued.operation_id), CONTAINER_ID
+        )
+
+
+def test_broker_resolver_rejects_wrong_root_and_unsupported_source_kind(
+    factory: sessionmaker[Session], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    coordinator = _coordinator(factory, tmp_path, FakeBroker(), Clock())
+    queued = coordinator.queue(INSTANCE_ID, SOURCE_ID)
+    assert coordinator.acquire(queued.operation_id) is not None
+    wrong_root = SqliteDevelopmentSourceDeploymentResolver(
+        factory,
+        development_root=tmp_path,
+        data_root=tmp_path / "data",
+        enforce_source_mount=True,
+    )
+    with pytest.raises(DevelopmentSourceDeploymentStateError):
+        wrong_root.resolve(
+            str(INSTANCE_ID), str(SOURCE_ID), str(queued.operation_id), CONTAINER_ID
+        )
+
+    original_get = DevelopmentSourceRepository.get
+
+    def unsupported_get(
+        repository: DevelopmentSourceRepository, source_id: UUID
+    ) -> object:
+        source = original_get(repository, source_id)
+        assert source is not None
+        return replace(source, source_kind=cast(DevelopmentSourceKind, "future_kind"))
+
+    monkeypatch.setattr(DevelopmentSourceRepository, "get", unsupported_get)
+    resolver = SqliteDevelopmentSourceDeploymentResolver(
+        factory, development_root=tmp_path, data_root=tmp_path / "data"
+    )
     with pytest.raises(DevelopmentSourceDeploymentStateError):
         resolver.resolve(
             str(INSTANCE_ID), str(SOURCE_ID), str(queued.operation_id), CONTAINER_ID

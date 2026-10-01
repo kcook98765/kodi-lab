@@ -81,6 +81,11 @@ def test_source_free_compose_mount_is_opt_in_fixed_and_space_safe(
     assert not any(
         item["target"] == "/mnt/kodi-lab-development" for item in web["volumes"]
     )
+    base_broker = json.loads(remote.stdout)["services"]["broker"]
+    assert "KODI_LAB_DEVELOPMENT_ROOT" not in base_broker.get("environment", {})
+    assert all(
+        item["target"] != "/mnt/kodi-lab-development" for item in base_broker["volumes"]
+    )
     repository = json.loads(remote.stdout)["services"]["repository"]
     assert repository["ports"][0]["host_ip"] == "192.168.50.10"
     assert repository["ports"][0]["published"] == "18120"
@@ -125,6 +130,25 @@ def test_source_free_compose_mount_is_opt_in_fixed_and_space_safe(
     assert web["environment"]["KODI_LAB_DEVELOPMENT_ROOT"] == (
         "/mnt/kodi-lab-development"
     )
-    broker = json.loads(enabled.stdout)["services"]["broker"]
-    assert "KODI_LAB_DEVELOPMENT_ROOT" not in broker.get("environment", {})
-    assert all(item["source"] != str(source) for item in broker["volumes"])
+    services = json.loads(enabled.stdout)["services"]
+    broker = services["broker"]
+    assert broker["environment"]["KODI_LAB_DEVELOPMENT_ROOT"] == (
+        "/mnt/kodi-lab-development"
+    )
+    broker_mount = next(
+        item
+        for item in broker["volumes"]
+        if item["target"] == "/mnt/kodi-lab-development"
+    )
+    assert broker_mount["type"] == "bind"
+    assert broker_mount["source"] == str(source)
+    assert broker_mount["read_only"] is True
+    assert broker_mount["bind"]["create_host_path"] is False
+    for name in ("repository", "repository-init", "repository-transition"):
+        if name not in services:
+            continue
+        assert "KODI_LAB_DEVELOPMENT_ROOT" not in services[name].get("environment", {})
+        assert all(
+            item["target"] != "/mnt/kodi-lab-development"
+            for item in services[name]["volumes"]
+        )

@@ -327,6 +327,12 @@ whose only inputs are instance, source, expected container, and operation UUIDs.
 
 The application revalidates registered root `addon.xml`; the broker then
 independently resolves persistence, runtime ownership, and the configured root.
+For the opt-in Linux V1 deployment, Web mounts the administrator-selected root
+for read and approved patch-back, while broker mounts the same fixed root
+read-only. Neither repository nor managed Kodi receives that mount. Broker
+requires the fixed read-only mount before attached-source or promotion sync.
+The shared Linux reader starts below an opened root descriptor and forbids both
+symlink and nested-mount crossing; unavailable `openat2` fails closed.
 It walks the source twice descriptor-relatively without following links and
 requires identical captures. Only directories and single-link regular files
 are allowed. Exact `.git`, `.hg`, and `.svn` directories are skipped after their
