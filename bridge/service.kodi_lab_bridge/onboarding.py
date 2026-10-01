@@ -26,7 +26,7 @@ MAX_BOOTSTRAP_REPLAY = 32
 BOOTSTRAP_REPLAY_TTL = 600
 PROVISIONAL_TTL = 300
 BOOTSTRAP_VERSION = "otp-1"
-_THREAD_LOCK = threading.Lock()
+_THREAD_LOCK = threading.RLock()
 
 
 class OnboardingError(RuntimeError):
@@ -242,6 +242,11 @@ class OnboardingStore:
         self.clock = clock or time.time
         self.choose = choose or secrets.choice
         self.event = event or (lambda _name: None)
+
+    def reset_pairing(self):
+        """Discard OTP and provisional credentials after local user confirmation."""
+        with _file_lock(self.path):
+            self._write(_default())
 
     def _read(self):
         try:

@@ -249,9 +249,9 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.13"
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.14"
     assert bridge["BUILD_FINGERPRINT"] == (
-        "764d42dc3d86dd0d46452c14661f2dd771f9cba9542b8cfc7ab8886c56ad4e33"
+        "64bd532dcbb11fd655f347038b50fc9e6cbd1db74d262d9588b534c66312bb4b"
     )
     assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_11_SEMANTIC_FINGERPRINT
     assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_8_SEMANTIC_FINGERPRINT

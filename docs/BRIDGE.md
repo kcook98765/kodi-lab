@@ -8,6 +8,11 @@ models. It is not a generic Kodi control, file or lifecycle agent.
 For an approved `external_development` target, Web administration registers and
 native-verifies the target, submits the four-character code displayed in Kodi,
 performs `otp-1` pairing and confirms the authenticated bridge identity.
+If the bridge is paired to an obsolete Kodi Lab target, use **Pair Kodi Lab** →
+**Reset pairing** on the Kodi device and confirm. Generate a new code there,
+then pair with the current Kodi Lab. This local action removes the old
+credential and target binding, preserves the bridge ID, and needs no old server.
+It does not reset the Kodi profile or other add-ons.
 Protocol 1 may
 advertise `screenshot` and `workspace_deployment`. Deployment is pathless and
 content-addressed for one exactly authorized workspace; fixed execution remains
@@ -51,7 +56,7 @@ HTTPS when pixels may be sensitive.
 
 ## Local deployment candidate artifact
 
-The source-free Linux amd64 candidate carries
+The currently installed source-free Linux amd64 candidate carries
 `bridge/service.kodi_lab_bridge-1.1.13.zip` and `bridge/BRIDGE.json`. The latter
 binds the ZIP SHA-256, exact nine-file release inventory and hash, Git source
 commit/tree and bridge subtree, builder identity/hash, protocol `1`, bootstrap
@@ -64,6 +69,7 @@ production uses separate target and reviewed-build administration. See
 [PRODUCTION-OPERATIONS.md](PRODUCTION-OPERATIONS.md).
 
 Older bridge 1.1.7 and 1.1.8 hashes remain historical evidence tied only to
-those exact bytes. The current 1.1.13 artifact is a local deployment candidate,
-not a public release. Screenshot platform assurance is described in the
+those exact bytes. The installed 1.1.13 artifact is a local deployment candidate,
+not a public release. Source 1.1.14 adds local pairing reset and awaits a later
+candidate transition. Screenshot platform assurance is described in the
 [cross-platform assurance model](BRIDGE-SCREENSHOT-ASSURANCE.md).

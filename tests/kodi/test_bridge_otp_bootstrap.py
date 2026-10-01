@@ -94,6 +94,154 @@ def _bootstrap(
     return info, result, secret
 
 
+def test_local_pairing_reset_invalidates_old_credential_and_preserves_identity(
+    runtime: tuple[dict[str, Any], Path, Path, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge, state_path, onboarding_path, _commands = runtime
+    client = ExternalBridgeClient()
+    with _server(bridge) as port:
+        _info, result, secret = _bootstrap(client, bridge, port)
+        client.commit_pairing(_endpoint(), bridge_port=port, transaction=result)
+        assert bridge["_local_pairing_status"]() is True
+        state = json.loads(state_path.read_text())
+        state["deployments"] = {str(uuid4()): {"state": "succeeded", "created": 1}}
+        state["rollback"] = {"retained": True}
+        bridge["_save_state"](state)
+        old_bridge_id = state["bridge_id"]
+        envelope: dict[str, Any] = {
+            "protocol_version": "1",
+            "operation": "bridge_identity",
+            "target_id": str(result.target_id),
+            "bridge_id": old_bridge_id,
+            "request_id": str(uuid4()),
+            "timestamp": timestamp_text(client._clock()),
+            "nonce": b64url(os.urandom(32)),
+            "payload": {},
+        }
+        envelope["signature"] = request_signature(secret, envelope)
+        with httpx.Client(trust_env=False) as http:
+            url = f"http://127.0.0.1:{port}/kodi-lab/bridge/v1"
+            first = http.post(url, json=envelope)
+            assert first.status_code == 200
+            assert bridge["_reset_pairing"]() is True
+            assert bridge["_reset_pairing"]() is False
+            # Even an identical cached request must not recover an old receipt.
+            assert http.post(url, json=envelope).status_code == 401
+            envelope["request_id"] = str(uuid4())
+            envelope["nonce"] = b64url(os.urandom(32))
+            envelope["signature"] = request_signature(secret, envelope)
+            assert http.post(url, json=envelope).status_code == 410
+            assert http.get(f"http://127.0.0.1:{port}/reset").status_code == 404
+            assert (
+                http.post(f"http://127.0.0.1:{port}/reset", json={}).status_code == 404
+            )
+        reset = json.loads(state_path.read_text())
+        assert reset["bridge_id"] == old_bridge_id
+        assert reset["target_id"] is None
+        assert reset["secret"] is None
+        assert reset["replay"] == []
+        assert reset["deployments"] == state["deployments"]
+        assert reset["rollback"] == state["rollback"]
+        assert json.loads(onboarding_path.read_text())["committed_request_id"] is None
+        assert json.loads(onboarding_path.read_text())["transaction"] is None
+        assert bridge["_local_pairing_status"]() is False
+        with pytest.raises(ExternalBridgeError, match="pairing_code_unavailable"):
+            client.bootstrap_info(_endpoint(), bridge_port=port)
+        store = bridge["_onboarding_store"]()
+        fresh_code = store.generate_new_code(paired=False)
+        assert len(fresh_code) == 4
+        assert store.status(paired=False)["code"] == fresh_code
+        info = client.bootstrap_info(_endpoint(), bridge_port=port)
+        assert str(info.bridge_id) == old_bridge_id
+        assert info.addon_version == "1.1.14"
+    restarted = _load(
+        monkeypatch, state_path=state_path, onboarding_path=onboarding_path
+    )
+    monkeypatch.setattr(
+        sys.modules["xbmcaddon"],
+        "Addon",
+        lambda _id: SimpleNamespace(getSettingBool=lambda name: name == "enabled"),
+    )
+    assert restarted["_local_pairing_status"]() is False
+    assert restarted["_load_state"]()["bridge_id"] == old_bridge_id
+    assert restarted["_onboarding_store"]().status(paired=False)["code"] == fresh_code
+    with _server(restarted) as restarted_port:
+        with pytest.raises(ExternalBridgeError):
+            client.identity(
+                _endpoint(),
+                bridge_port=restarted_port,
+                target_id=result.target_id,
+                bridge_id=result.bridge_id,
+                secret=secret,
+            )
+        assert (
+            str(
+                client.bootstrap_info(_endpoint(), bridge_port=restarted_port).bridge_id
+            )
+            == old_bridge_id
+        )
+
+
+def test_local_reset_needs_no_old_server_and_failed_state_write_stays_paired(
+    runtime: tuple[dict[str, Any], Path, Path, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge, state_path, onboarding_path, _commands = runtime
+    state = bridge["_load_state"]()
+    old_bridge_id = state["bridge_id"]
+    state["target_id"] = str(uuid4())
+    state["secret"] = b64url(os.urandom(32))
+    bridge["_save_state"](state)
+    globals_ = bridge["_reset_pairing"].__globals__
+    save = globals_["_save_state"]
+
+    def fail_write(_state: object) -> None:
+        raise RuntimeError("simulated write failure")
+
+    monkeypatch.setitem(globals_, "_save_state", fail_write)
+    with pytest.raises(RuntimeError, match="simulated write failure"):
+        bridge["_reset_pairing"]()
+    assert json.loads(state_path.read_text())["target_id"] == state["target_id"]
+    assert json.loads(state_path.read_text())["secret"] == state["secret"]
+    assert json.loads(onboarding_path.read_text())["transaction"] is None
+    monkeypatch.setitem(globals_, "_save_state", save)
+    assert bridge["_reset_pairing"]() is True
+    assert bridge["_load_state"]()["bridge_id"] == old_bridge_id
+    assert bridge["_local_pairing_status"]() is False
+
+
+def test_local_reset_keeps_standard_otp_lifetime_and_attempt_limit(
+    runtime: tuple[dict[str, Any], Path, Path, list[str]],
+) -> None:
+    bridge, _state_path, onboarding_path, _commands = runtime
+    state = bridge["_load_state"]()
+    state["target_id"] = str(uuid4())
+    state["secret"] = b64url(os.urandom(32))
+    bridge["_save_state"](state)
+    assert bridge["_reset_pairing"]() is True
+    now = [1000.0]
+    store = bridge["OnboardingStore"](
+        onboarding_path,
+        clock=lambda: now[0],
+        choose=lambda _alphabet: "7" if now[0] < 1300 else "8",
+    )
+    code = store.generate_new_code(paired=False)
+    initial = json.loads(onboarding_path.read_text())
+    assert initial["expires_at"] - initial["created_at"] == 300
+    assert initial["failed_attempts"] == 0
+    now[0] = 1301.0
+    assert store.status(paired=False)["status"] == "Pairing code expired"
+    code = store.generate_new_code(paired=False)
+    wrong = "2222" if code != "2222" else "3333"
+    for attempt in range(5):
+        assert not store.verify_and_reserve(
+            wrong, "192.168.2.10", uuid4(), uuid4(), paired=False
+        )
+        assert json.loads(onboarding_path.read_text())["failed_attempts"] == attempt + 1
+    assert store.status(paired=False)["status"] == "Pairing temporarily locked"
+
+
 def test_bootstrap_provisional_commit_and_idempotent_recovery(
     runtime: tuple[dict[str, Any], Path, Path, list[str]],
 ) -> None:
@@ -120,7 +268,7 @@ def test_bootstrap_provisional_commit_and_idempotent_recovery(
             bridge_id=result.bridge_id,
             secret=secret,
         )
-        assert identity.addon_version == "1.1.13"
+        assert identity.addon_version == "1.1.14"
         assert identity.build_fingerprint == info.build_fingerprint
         with pytest.raises(ExternalBridgeError, match="pairing_code_unavailable"):
             client.bootstrap_info(_endpoint(), bridge_port=port)

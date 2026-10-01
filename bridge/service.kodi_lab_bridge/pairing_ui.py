@@ -1,4 +1,4 @@
-"""Local Kodi settings action for viewing or replacing a bridge pairing code."""
+"""Local Kodi settings action for pairing codes and confirmed pairing reset."""
 
 import math
 import time
@@ -6,7 +6,12 @@ from datetime import datetime
 
 import xbmcaddon
 import xbmcgui
-from narrow_bridge import ADDON_ID, _load_state, _onboarding_store, _paired
+from narrow_bridge import (
+    ADDON_ID,
+    _local_pairing_status,
+    _onboarding_store,
+    _reset_pairing,
+)
 from onboarding import OnboardingError
 
 
@@ -33,9 +38,24 @@ def main():
     dialog = xbmcgui.Dialog()
     addon = xbmcaddon.Addon(ADDON_ID)
     try:
-        paired = _paired(_load_state())
-        if paired:
-            dialog.ok("Pair Kodi Lab", "Paired")
+        if _local_pairing_status():
+            if dialog.yesno(
+                "Pair Kodi Lab",
+                "Reset pairing? This removes the current Kodi Lab connection. "
+                "You can pair this bridge again with a new code.",
+                nolabel="Cancel",
+                yeslabel="Reset pairing",
+            ):
+                if _reset_pairing():
+                    dialog.ok(
+                        "Pair Kodi Lab",
+                        "Pairing reset. Generate a new code to pair Kodi Lab.",
+                    )
+                else:
+                    dialog.ok(
+                        "Pair Kodi Lab",
+                        "Already unpaired. Generate a new code to pair Kodi Lab.",
+                    )
             return
         if not addon.getSettingBool("enabled"):
             dialog.ok("Pair Kodi Lab", "Enable bridge in its settings first.")

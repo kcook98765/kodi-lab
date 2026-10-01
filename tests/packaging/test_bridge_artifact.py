@@ -1,4 +1,4 @@
-"""Bridge 1.1.13 release ZIP has a closed, reproducible source inventory."""
+"""Bridge 1.1.14 release ZIP has a closed, reproducible source inventory."""
 
 from __future__ import annotations
 

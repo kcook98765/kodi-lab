@@ -325,8 +325,8 @@ def test_kodi_dialog_shows_active_code_and_local_replacement(
         _module(
             "narrow_bridge",
             ADDON_ID="service.kodi_lab_bridge",
-            _load_state=lambda: {"target_id": None, "secret": None},
-            _paired=lambda _state: False,
+            _local_pairing_status=lambda: False,
+            _reset_pairing=lambda: pytest.fail("unpaired reset must not be offered"),
             _onboarding_store=lambda: store,
         ),
     )
@@ -345,12 +345,18 @@ def test_kodi_dialog_shows_active_code_and_local_replacement(
     assert store.status(paired=False)["code"] == "A7H2"
 
 
-def test_kodi_dialog_paired_status_never_reads_code(
+def test_kodi_dialog_paired_reset_cancel_never_reads_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     messages: list[str] = []
 
     class Dialog:
+        def yesno(self, heading: str, message: str, **labels: str) -> bool:
+            assert heading == "Pair Kodi Lab"
+            assert "current Kodi Lab connection" in message
+            assert labels == {"nolabel": "Cancel", "yeslabel": "Reset pairing"}
+            return False
+
         def ok(self, _heading: str, message: str) -> None:
             messages.append(message)
 
@@ -369,8 +375,8 @@ def test_kodi_dialog_paired_status_never_reads_code(
         _module(
             "narrow_bridge",
             ADDON_ID="service.kodi_lab_bridge",
-            _load_state=lambda: {"target_id": str(uuid4()), "secret": "valid"},
-            _paired=lambda _state: True,
+            _local_pairing_status=lambda: True,
+            _reset_pairing=lambda: pytest.fail("cancel must not mutate pairing"),
             _onboarding_store=lambda: pytest.fail("paired code state must not be read"),
         ),
     )
@@ -378,7 +384,43 @@ def test_kodi_dialog_paired_status_never_reads_code(
         sys.modules, "onboarding", _module("onboarding", OnboardingError=Error)
     )
     cast(Any, runpy.run_path(str(ADDON_ROOT / "pairing_ui.py"))["main"])()
-    assert messages == ["Paired"]
+    assert messages == []
+
+
+def test_kodi_dialog_paired_reset_confirm_calls_narrow_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class Dialog:
+        def yesno(self, _heading: str, _message: str, **_labels: str) -> bool:
+            return True
+
+        def ok(self, _heading: str, message: str) -> None:
+            calls.append(message)
+
+    monkeypatch.setitem(sys.modules, "xbmcgui", _module("xbmcgui", Dialog=Dialog))
+    monkeypatch.setitem(
+        sys.modules,
+        "xbmcaddon",
+        _module("xbmcaddon", Addon=lambda _id: _module("addon")),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "narrow_bridge",
+        _module(
+            "narrow_bridge",
+            ADDON_ID="service.kodi_lab_bridge",
+            _local_pairing_status=lambda: True,
+            _reset_pairing=lambda: calls.append("reset") or True,
+            _onboarding_store=lambda: pytest.fail("paired code state must not be read"),
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules, "onboarding", _module("onboarding", OnboardingError=Error)
+    )
+    cast(Any, runpy.run_path(str(ADDON_ROOT / "pairing_ui.py"))["main"])()
+    assert calls == ["reset", "Pairing reset. Generate a new code to pair Kodi Lab."]
 
 
 def test_kodi_dialog_has_expired_and_locked_messages(
@@ -392,9 +434,9 @@ def test_kodi_dialog_has_expired_and_locked_messages(
         _module(
             "narrow_bridge",
             ADDON_ID="service.kodi_lab_bridge",
-            _load_state=lambda: {},
+            _local_pairing_status=lambda: False,
             _onboarding_store=lambda: None,
-            _paired=lambda _state: False,
+            _reset_pairing=lambda: None,
         ),
     )
     monkeypatch.setitem(

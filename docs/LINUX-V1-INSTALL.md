@@ -17,7 +17,7 @@ The bundle contains Web/broker application images, source-free Compose files,
 configuration example, optional development-source Compose overlay, bundle
 verifier, manifest and checksums, three reviewed
 recipe descriptions in `runtime-recipes/`, license and notices, and recovery
-documents. It also contains `bridge/service.kodi_lab_bridge-1.1.13.zip` and its
+documents. It also contains `bridge/service.kodi_lab_bridge-1.1.14.zip` and its
 `bridge/BRIDGE.json` provenance and the reviewed `repository/STABLE.json` and
 `repository/DEVELOPMENT.json` feed inputs. The same recipes are wheel resources inside
 both installed images.
@@ -127,7 +127,7 @@ shell access or an already-paired bridge. Kodi may require its normal explicit
 permission/warning for HTTP sources; do not disable unrelated protections.
 Private-LAN HTTP does not authenticate the server against a malicious LAN actor.
 
-The exact `bridge/service.kodi_lab_bridge-1.1.13.zip` remains a manual fallback.
+The exact `bridge/service.kodi_lab_bridge-1.1.14.zip` remains a manual fallback.
 Verify its SHA-256 against `bridge/BRIDGE.json` and the `BUNDLE.json` file record
 before transferring it. The stable feed serves these identical reviewed bytes.
 
@@ -177,13 +177,16 @@ reporting deployment success. [Kodi Add-on manager](https://kodi.wiki/view/Add-o
    Kodi's local add-on settings to open **Pair Kodi Lab**.
    The displayed four-character `otp-1` code lasts five minutes; a replacement
    has a cooldown. Do not retain the code in an issue log.
+   If the bridge says it is paired to an obsolete Kodi Lab target, choose
+   **Reset pairing** there, confirm locally, then open **Pair Kodi Lab** again
+   to generate a new code. This keeps the Kodi profile and bridge identity.
 3. For a development target, open Kodi Lab Web **Pair Kodi**. Enter the Kodi
    box's private address, the code, and ports if different from the defaults.
    The Web flow registers and verifies the native target, stages the new
    independent bridge credential, and displays the authenticated bridge
    identity. If the response is uncertain, use **Resume pairing**; do not
    submit the code a second time. Check the observed UUID, add-on version
-   `1.1.13`, protocol `1`, Kodi version, and capabilities under **Connected
+   `1.1.14`, protocol `1`, Kodi version, and capabilities under **Connected
    Kodi targets**. Advanced external target administration supports explicit
    target approval and capability limits before development deployment.
 4. For a production target, use **Production targets** instead. Register and

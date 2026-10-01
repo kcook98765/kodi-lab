@@ -19,9 +19,9 @@ from urllib.parse import urlsplit
 REPOSITORY_ID = "repository.kodi-lab"
 REPOSITORY_VERSION = "1.0.0"
 BRIDGE_ID = "service.kodi_lab_bridge"
-BRIDGE_VERSION = "1.1.13"
-BRIDGE_SHA256 = "665b15cb6597f6a8e40b3cbdfc29606f453f567d49b6877a1ca2ee704c90f5f3"
-BRIDGE_FINGERPRINT = "764d42dc3d86dd0d46452c14661f2dd771f9cba9542b8cfc7ab8886c56ad4e33"
+BRIDGE_VERSION = "1.1.14"
+BRIDGE_SHA256 = "bf0b4f441c310f0621458792ccf4d05227576086186c65843fb66e5da6811832"
+BRIDGE_FINGERPRINT = "64bd532dcbb11fd655f347038b50fc9e6cbd1db74d262d9588b534c66312bb4b"
 GENERATOR_ID = "kodi-lab-stable-repository-v1"
 ZIP_DATE = (2026, 9, 29, 0, 0, 0)
 ID_PATTERN = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}\Z")
@@ -311,7 +311,7 @@ def _read_reviewed_bridge(
         or stable.get("bridge_semantic_fingerprint") != BRIDGE_FINGERPRINT
     ):
         raise ValueError("stable repository reviewed inputs differ")
-    bridge_name = "bridge/service.kodi_lab_bridge-1.1.13.zip"
+    bridge_name = "bridge/service.kodi_lab_bridge-1.1.14.zip"
     bridge = (bundle / bridge_name).read_bytes()
     record = manifest["files"][bridge_name]
     provenance_bytes = (bundle / "bridge/BRIDGE.json").read_bytes()

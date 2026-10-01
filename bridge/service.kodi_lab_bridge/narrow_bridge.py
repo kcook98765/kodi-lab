@@ -23,16 +23,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import xbmc
 import xbmcaddon
 import xbmcvfs
-from onboarding import BOOTSTRAP_VERSION, OnboardingError, OnboardingStore
+from onboarding import BOOTSTRAP_VERSION, OnboardingError, OnboardingStore, _file_lock
 
 PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.13"
+ADDON_VERSION = "1.1.14"
 CAPABILITIES = ["screenshot", "workspace_deployment"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.13|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1"
+    b"kodi-lab-narrow-bridge|1.1.14|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -80,6 +80,13 @@ _RESPONSE_LOCK = threading.Lock()
 _CAPTURE_LOCK = threading.Lock()
 _DEPLOYMENT_LOCK = threading.Lock()
 _RESPONSES = OrderedDict()
+
+
+@contextmanager
+def _state_guard():
+    """Serialize state changes across Kodi service and local UI interpreters."""
+    with _STATE_LOCK, _file_lock(xbmcvfs.translatePath(STATE_PATH)):
+        yield
 
 
 class AuthenticationError(Exception):
@@ -316,6 +323,37 @@ def _onboarding_store():
             "[service.kodi_lab_bridge] onboarding=" + name, xbmc.LOGINFO
         ),
     )
+
+
+def _local_pairing_status():
+    with _state_guard():
+        return _paired(_load_state())
+
+
+def _reset_pairing():
+    """Clear only server pairing material; the bridge identity and Kodi stay put."""
+    with _state_guard():
+        state = _load_state()
+        if not _paired(state):
+            return False
+        # Clear provisional/OTP material first. An interrupted reset then still
+        # appears paired until the old credential is durably removed below.
+        _onboarding_store().reset_pairing()
+        state["target_id"] = None
+        state["secret"] = None
+        state["replay"] = []
+        _save_state(state)
+        return True
+
+
+def _require_current_pairing(state, request, secret):
+    if (
+        not _paired(state)
+        or state["target_id"] != request["target_id"]
+        or state["bridge_id"] != request["bridge_id"]
+        or not hmac.compare_digest(_decode_b64(state["secret"], 32), secret)
+    ):
+        raise AuthenticationError
 
 
 def _kodi_version():
@@ -1613,7 +1651,7 @@ class Handler(BaseHTTPRequestHandler):
             self._bootstrap_error("bridge_disabled")
             return
         try:
-            with _STATE_LOCK:
+            with _state_guard():
                 state = _load_state()
                 if _paired(state):
                     self._bootstrap_error("already_paired")
@@ -1666,6 +1704,23 @@ class Handler(BaseHTTPRequestHandler):
             _uuid(request_id)
             cached = _cache_get(request_id, request_hash)
             if cached is not None:
+                with _state_guard():
+                    state = _load_state()
+                    if _paired(state):
+                        secret = _decode_b64(state["secret"], 32)
+                        _require_current_pairing(state, document, secret)
+                    else:
+                        try:
+                            transaction = _onboarding_store().provisional(
+                                document["target_id"], document["bridge_id"]
+                            )
+                        except OnboardingError:
+                            raise AuthenticationError from None
+                        secret = bytes.fromhex(transaction["secret"])
+                    if not hmac.compare_digest(
+                        _request_signature(secret, document), document["signature"]
+                    ):
+                        raise AuthenticationError
                 self._send(*cached)
                 return
             if document.get("operation") == "pair_bridge":
@@ -1725,7 +1780,7 @@ class Handler(BaseHTTPRequestHandler):
             raise OnboardingError("pairing_request_invalid")
         if not xbmcaddon.Addon(ADDON_ID).getSettingBool("enabled"):
             raise OnboardingError("bridge_disabled")
-        with _STATE_LOCK:
+        with _state_guard():
             state = _load_state()
             if _paired(state):
                 raise OnboardingError("already_paired")
@@ -1816,7 +1871,7 @@ class Handler(BaseHTTPRequestHandler):
             document["timestamp"]
         ):
             raise ValueError
-        with _STATE_LOCK:
+        with _state_guard():
             state = _load_state()
             provisional = not _paired(state)
             if provisional:
@@ -1897,7 +1952,7 @@ class Handler(BaseHTTPRequestHandler):
                 document, request_hash, secret, "conflicting_commit"
             )
             return
-        with _STATE_LOCK:
+        with _state_guard():
             state = _load_state()
             if _paired(state):
                 if (
@@ -1958,8 +2013,9 @@ class Handler(BaseHTTPRequestHandler):
     def _deployment_response(self, request, request_hash, secret, state):
         operation = request["operation"]
         payload = request["payload"]
-        with _DEPLOYMENT_LOCK, _STATE_LOCK:
+        with _DEPLOYMENT_LOCK, _state_guard():
             state = _load_state()
+            _require_current_pairing(state, request, secret)
             if operation == "inspect_addon":
                 addon_id = _addon_id(payload.get("addon_id"))
                 if set(payload) != {"addon_id"}:
@@ -2510,7 +2566,8 @@ def run():
         xbmc.log("[service.kodi_lab_bridge] invalid port", xbmc.LOGERROR)
         return
     try:
-        _onboarding_store().initialize(paired=_paired(_load_state()))
+        with _state_guard():
+            _onboarding_store().initialize(paired=_paired(_load_state()))
     except (OnboardingError, OSError, RuntimeError):
         xbmc.log(
             "[service.kodi_lab_bridge] onboarding state unavailable", xbmc.LOGERROR

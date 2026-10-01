@@ -13,6 +13,13 @@ Existing paired targets keep their credential and normal authenticated
 protocol. New bridge builds do not accept the old long-token bootstrap
 operation; older bridge builds retain their existing long-token client path.
 
+If this bridge is paired to a Kodi Lab that no longer has its target, open
+**Pair Kodi Lab** in this Kodi device's bridge settings, choose **Reset pairing**,
+and confirm locally. This removes the old target binding, credential, and any
+pending code while retaining the bridge ID and other Kodi state. Then open
+**Pair Kodi Lab** again, generate a fresh code, and pair with the current Kodi
+Lab. The old server need not be reachable. No network reset endpoint exists.
+
 While an unpaired code is active, `GET /kodi-lab/bridge/bootstrap/v1` advertises
 only the bridge UUID, candidate version and fingerprint, and bootstrap version.
 Kodi Lab creates a fresh 32-byte random credential and sends it with the OTP,

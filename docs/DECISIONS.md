@@ -5350,3 +5350,19 @@ approvals atomically with the governing revision transition.
   Docker address-pool exhaustion code requires Docker's matching returned
   error. Unknown failures keep a generic or phase-specific safe code; raw
   Docker diagnostics and host inventory are not shown in Web.
+
+## D-0397: Local bridge pairing reset for orphaned server targets
+
+- A bridge ID identifies the Kodi bridge installation independently of a Kodi
+  Lab target pairing. A locally confirmed reset preserves that ID, installed
+  bridge, deployment history, rollback state, and the rest of the Kodi profile.
+- The paired bridge settings action requires Kodi's own confirmation dialog.
+  Confirmation clears the onboarding transaction/OTP state first, then removes
+  the target ID, persistent credential, and replay ledger from the durable
+  bridge state. An interruption before the latter write leaves the bridge
+  visibly paired; an interruption after it leaves the old credential unusable.
+- The Kodi service and local settings script serialize state changes with a
+  private cross-process file lock. Cached signed responses are reauthenticated
+  against current pairing state, so an obsolete credential cannot recover a
+  cached receipt after reset. No HTTP reset operation or server-side target
+  reconstruction is introduced. Fresh pairing uses the existing `otp-1` flow.

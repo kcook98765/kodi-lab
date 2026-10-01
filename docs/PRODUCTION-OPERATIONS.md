@@ -22,7 +22,7 @@ production identity/generation remains coherent.
 
 ## Required production artifact
 
-The local deployment candidate contains `bridge/service.kodi_lab_bridge-1.1.13.zip`
+A candidate built from this source contains `bridge/service.kodi_lab_bridge-1.1.14.zip`
 and `bridge/BRIDGE.json`. Verify the full source-free bundle and compare the
 exact ZIP hash with both provenance and `BUNDLE.json`. A hosted Kodi repository
 and automatic updater are
@@ -34,7 +34,7 @@ SHA-256 with the value in its reviewed provenance. The reviewed record must
 also identify add-on ID/version, protocol, semantic fingerprint, capabilities,
 supported Kodi versions and source reference.
 
-Bridge 1.1.7 and 1.1.8 are historical review evidence. The current 1.1.13
+Bridge 1.1.7 and 1.1.8 are historical review evidence. Source bridge 1.1.14
 artifact uses `otp-1`; its exact hash and source identity are in the local
 candidate's `bridge/BRIDGE.json`. Neither this document nor a filename alone
 approves any other ZIP bytes.
@@ -43,9 +43,9 @@ approves any other ZIP bytes.
 
 Keep production mutations globally blocked and the target mutation suspension
 set while onboarding.
-Bridge 1.1.13 uses the shared `otp-1` protocol. The bridge displays a temporary
+Bridge 1.1.14 uses the shared `otp-1` protocol. The bridge displays a temporary
 four-character code; Kodi Lab creates a separate protected 32-byte credential.
-The candidate's reviewed 1.1.13 ZIP is the current pairing artifact.
+The candidate's reviewed 1.1.14 ZIP is the pairing artifact after transition.
 
 1. Obtain the exact bridge ZIP and provenance from the verified local bundle.
 2. Compute SHA-256 locally and compare the entire value with the recorded

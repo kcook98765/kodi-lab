@@ -40,5 +40,5 @@ msgid "Pair Kodi Lab"
 msgstr ""
 
 msgctxt "#32041"
-msgid "Show this bridge's temporary four-character pairing code and status."
+msgid "Show a temporary pairing code or reset the current pairing locally."
 msgstr ""
