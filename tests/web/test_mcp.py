@@ -34,7 +34,9 @@ from kodi_lab.application.mcp_workspace_development import (
     WorkspaceExecutionResult,
 )
 from kodi_lab.broker.errors import BrokerUnavailableError
+from kodi_lab.domain import ConnectionState, HealthStatus, TargetAvailability
 from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
+from kodi_lab.kodi.external import ExternalProbeError
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import PNG_SIGNATURE, validate_png
@@ -267,6 +269,110 @@ def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
         ).json()["result"]
         assert unavailable["isError"] is True
         assert unavailable["structuredContent"] == {"error": "target_not_running"}
+
+
+def test_managed_target_list_projects_supported_tools_without_grant_escalation(
+    client: TestClient,
+    database: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _client_id, token = _authority(client)
+    status_service = cast(FastAPI, client.app).state.kodi_lab.status
+    original_get = status_service.get
+    status_lookups: list[UUID] = []
+
+    def counted_get(target_id: UUID) -> object:
+        status_lookups.append(target_id)
+        return original_get(target_id)
+
+    monkeypatch.setattr(status_service, "get", counted_get)
+    with database.begin() as session:
+        target = session.get(TargetRow, str(INSTANCE_ID))
+        assert target is not None
+        target.availability = TargetAvailability.UNAVAILABLE
+        target.health = HealthStatus.WARNING
+        target.connection_state = ConnectionState.DISCONNECTED
+
+    listed = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "target_list", "arguments": {}},
+    ).json()["result"]["structuredContent"]["targets"][0]
+    assert listed["capabilities"] == [
+        "target_status",
+        "addon_list",
+        "remote_action",
+        "screenshot_capture",
+    ]
+    assert status_lookups == [INSTANCE_ID]
+    assert listed["process_state"] != "running"
+    denied = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "remote_action",
+            "arguments": {
+                "target_id": str(INSTANCE_ID),
+                "action": "home",
+                "request_id": str(uuid4()),
+            },
+        },
+    ).json()["result"]
+    assert denied["isError"] is True
+    assert denied["structuredContent"] == {"error": "permission_denied"}
+
+
+def test_external_target_list_is_unprobed_even_when_previously_verified_offline(
+    client: TestClient,
+    database: sessionmaker[Session],
+    external_kodi: FakeExternalKodi,
+) -> None:
+    seed_external_target(database)
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="External list freshness", preset_id=READ_ONLY_INSPECTION_PRESET_ID
+    )
+    administration.assign_target_preset(
+        EXTERNAL_TARGET_ID, READ_ONLY_INSPECTION_PRESET_ID
+    )
+    administration.grant_target(mcp_client.id, EXTERNAL_TARGET_ID)
+    token = administration.issue_credential(mcp_client.id).token
+
+    def offline() -> None:
+        raise ExternalProbeError("target_unreachable")
+
+    external_kodi.on_identity = offline
+    listed = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "target_list", "arguments": {}},
+    ).json()["result"]["structuredContent"]["targets"]
+    external = next(
+        item for item in listed if item["target_id"] == str(EXTERNAL_TARGET_ID)
+    )
+    assert external_kodi.methods == []
+    assert external["kodi_version"] == "21.3"
+    assert external["capabilities"] == ["target_status", "addon_list", "remote_action"]
+    assert external["process_state"] == "unknown"
+    assert external["jsonrpc_state"] == "not_checked"
+    assert external["usability_state"] == "not_checked"
+    assert external["readiness_state"] == "not_checked"
+
+    status = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "target_status",
+            "arguments": {"target_id": str(EXTERNAL_TARGET_ID)},
+        },
+    ).json()["result"]
+    assert status["isError"] is True
+    assert status["structuredContent"] == {"error": "target_unreachable"}
+    assert external_kodi.methods == ["JSONRPC.Ping", "Application.GetProperties"]
 
 
 def test_pinned_official_sdk_uses_only_modern_stateless_requests(

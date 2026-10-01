@@ -121,6 +121,32 @@ def _authorize(
         authorization.authorize_target(principal, tool, TARGET_ID)
 
 
+def test_external_summary_projects_only_verified_capabilities_without_duplicates(
+    external_authority: tuple[
+        sessionmaker[Session],
+        McpAdministrationService,
+        KodiTargetAdapterService,
+    ],
+) -> None:
+    factory, _administration, adapters = external_authority
+    limited = adapters.summaries([TARGET_ID])[0]
+    assert limited.capabilities == ("target_status",)
+    assert limited.process_state == "unknown"
+    assert limited.jsonrpc_state == "not_checked"
+    assert limited.usability_state == "not_checked"
+    assert limited.readiness_state == "not_checked"
+
+    with factory.begin() as session:
+        row = session.get(ExternalKodiTargetRow, str(TARGET_ID))
+        assert row is not None
+        row.verified_capabilities_json = row.configured_capabilities_json
+    complete = adapters.summaries([TARGET_ID])[0]
+    assert complete.capabilities == ("target_status", "addon_list", "remote_action")
+    assert len(complete.capabilities) == len(set(complete.capabilities))
+    assert "screenshot_capture" not in complete.capabilities
+    assert adapters.summaries([TARGET_ID])[0].capabilities == complete.capabilities
+
+
 @pytest.mark.parametrize(
     ("tool", "capability"),
     [

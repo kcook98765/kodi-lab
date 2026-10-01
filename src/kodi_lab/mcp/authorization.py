@@ -117,9 +117,8 @@ class InternalManagedTargetAuthorityProvider:
         self._screenshots = screenshots
         self._status = status
 
-    def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
+    def capabilities(self, target_id: UUID) -> frozenset[str]:
         capabilities = {"managed_runtime_status", "target_inspect", "addon_inventory"}
-        states: set[str] = set()
         instance = None
         if self._session_factory is not None:
             with self._session_factory() as session:
@@ -144,6 +143,11 @@ class InternalManagedTargetAuthorityProvider:
                         session, revision_id, "navigation"
                     ):
                         capabilities.add("semantic_remote")
+        return frozenset(capabilities)
+
+    def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
+        capabilities = self.capabilities(target_id)
+        states: set[str] = set()
         if self._status is not None:
             runtime = self._status.get(target_id)
             if runtime.container_state is ContainerRuntimeState.RUNNING:
@@ -160,7 +164,7 @@ class InternalManagedTargetAuthorityProvider:
             states.add("reconciled")
         return TargetTechnicalAuthority(
             target_class=TargetClass.INTERNAL_LAB,
-            capabilities=frozenset(capabilities),
+            capabilities=capabilities,
             current_states=frozenset(states),
         )
 

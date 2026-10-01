@@ -123,6 +123,23 @@ class KodiTargetSummaryData:
     capabilities: tuple[str, ...]
 
 
+_TARGET_TOOL_CAPABILITIES = (
+    ("target_status", "target_inspect"),
+    ("addon_list", "addon_inventory"),
+    ("remote_action", "semantic_remote"),
+    ("screenshot_capture", "screenshot"),
+)
+
+
+def _target_tool_capabilities(capabilities: frozenset[str]) -> tuple[str, ...]:
+    """Project established target capabilities, independent of grants and liveness."""
+    return tuple(
+        tool
+        for tool, capability in _TARGET_TOOL_CAPABILITIES
+        if capability in capabilities
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class KodiTargetScreenshotData:
     target_id: UUID
@@ -182,6 +199,8 @@ class _ExternalOperationGate:
 
 class _ManagedAuthority(Protocol):
     def resolve(self, target_id: UUID) -> TargetTechnicalAuthority: ...
+
+    def capabilities(self, target_id: UUID) -> frozenset[str]: ...
 
 
 class KodiTargetAdapterService:
@@ -296,7 +315,7 @@ class KodiTargetAdapterService:
         if fresh:
             with self._gate.enter(target_id):
                 self._require_identity(snapshot, self._external_adapter(snapshot))
-        return self._external_summary(snapshot)
+        return self._external_summary(snapshot, fresh=fresh)
 
     def summaries(self, target_ids: list[UUID]) -> tuple[KodiTargetSummaryData, ...]:
         if not target_ids:
@@ -343,7 +362,8 @@ class KodiTargetAdapterService:
             elif target_type is TargetType.EXTERNAL_DEVELOPMENT:
                 results.append(
                     self._external_summary(
-                        self._external_snapshot(target_id, load_secret=False)
+                        self._external_snapshot(target_id, load_secret=False),
+                        fresh=False,
                     )
                 )
             elif target_type is TargetType.EXTERNAL_PRODUCTION:
@@ -940,20 +960,9 @@ class KodiTargetAdapterService:
         if name != snapshot.kodi_name or version != snapshot.kodi_version:
             raise KodiTargetAdapterError("identity_mismatch")
 
-    def _external_summary(self, snapshot: _ExternalSnapshot) -> KodiTargetSummaryData:
-        tools = ["target_status"]
-        if "addon_inventory" in snapshot.capabilities:
-            tools.append("addon_list")
-        if "semantic_remote" in snapshot.capabilities:
-            tools.append("remote_action")
-        if "semantic_remote" in snapshot.capabilities:
-            tools.append("remote_action")
-        if (
-            self._external_bridges is not None
-            and "screenshot" in snapshot.capabilities
-            and self._external_bridges.screenshot_available(snapshot.target_id)
-        ):
-            tools.append("screenshot_capture")
+    def _external_summary(
+        self, snapshot: _ExternalSnapshot, *, fresh: bool
+    ) -> KodiTargetSummaryData:
         return KodiTargetSummaryData(
             target_id=snapshot.target_id,
             display_name=snapshot.logical_name,
@@ -962,11 +971,11 @@ class KodiTargetAdapterService:
             runtime_profile="external_native",
             provision_state="enabled",
             runtime_state="external",
-            process_state="running",
-            jsonrpc_state="responsive",
-            usability_state="usable",
-            readiness_state="ready",
-            capabilities=tuple(tools),
+            process_state="running" if fresh else "unknown",
+            jsonrpc_state="responsive" if fresh else "not_checked",
+            usability_state="usable" if fresh else "not_checked",
+            readiness_state="ready" if fresh else "not_checked",
+            capabilities=_target_tool_capabilities(snapshot.capabilities),
         )
 
     @staticmethod
@@ -1017,8 +1026,10 @@ class KodiTargetAdapterService:
             ],
         )
 
-    @staticmethod
-    def _managed_summary(status: object, profile: str) -> KodiTargetSummaryData:
+    def _managed_summary(self, status: object, profile: str) -> KodiTargetSummaryData:
+        capabilities = self._managed_authority.capabilities(
+            status.managed_instance_id  # type: ignore[attr-defined]
+        )
         return KodiTargetSummaryData(
             target_id=status.managed_instance_id,  # type: ignore[attr-defined]
             display_name=status.name,  # type: ignore[attr-defined]
@@ -1031,5 +1042,5 @@ class KodiTargetAdapterService:
             jsonrpc_state=status.jsonrpc_state.value,  # type: ignore[attr-defined]
             usability_state=status.usability_state.value,  # type: ignore[attr-defined]
             readiness_state=status.readiness_state.value,  # type: ignore[attr-defined]
-            capabilities=("target_status",),
+            capabilities=_target_tool_capabilities(capabilities),
         )
