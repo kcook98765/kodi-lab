@@ -2122,6 +2122,29 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
     assert deployment_calls == 1
 
     execute_arguments = {**arguments, "request_id": str(uuid4())}
+    isolated_execute = _post(
+        client,
+        other_token,
+        "tools/call",
+        params={"name": "workspace_execute", "arguments": execute_arguments},
+    ).json()["result"]
+    assert isolated_execute["structuredContent"] == {
+        "error": "workspace_not_found_or_not_authorized"
+    }
+    assert execution_calls == 0
+
+    injected_release = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "workspace_execute",
+            "arguments": {**execute_arguments, "kodi_release": "20.5"},
+        },
+    ).json()["result"]
+    assert injected_release["isError"] is True
+    assert execution_calls == 0
+
     modern_execute = _post(
         client,
         token,

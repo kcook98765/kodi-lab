@@ -34,6 +34,7 @@ from kodi_lab.application.mcp_workspace_development import (
     BoundedIntervalRateLimiter,
     McpWorkspaceDevelopmentError,
     McpWorkspaceDevelopmentService,
+    WorkspaceExecutionResult,
 )
 from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
@@ -61,6 +62,7 @@ from kodi_lab.kodi.addons import (
     KodiAddonInventoryResult,
     KodiAddonSmokeResult,
     KodiAddonSmokeTimeoutError,
+    KodiReportedAddonDependency,
 )
 from kodi_lab.kodi.bridge import BridgeAddonTree, BridgeDeploymentReceipt
 from kodi_lab.kodi.readiness import KodiApplicationIdentity, UsabilityState
@@ -101,12 +103,15 @@ EXTERNAL_BRIDGE_ID = UUID("72000000-0000-4000-8000-000000000007")
 
 
 class FakeInventory:
+    def __init__(self, kodi_release: str = "21.3") -> None:
+        self.kodi_release = kodi_release
+
     def get(self, target_id: UUID) -> ManagedInstanceAddonInventory:
         assert target_id == TARGET_ID
         return ManagedInstanceAddonInventory(
             instance_id=target_id,
             observed_at=NOW,
-            kodi_release="21.3",
+            kodi_release=self.kodi_release,
             query_status=AddonInventoryQueryStatus.AVAILABLE,
             complete=True,
             items=[
@@ -227,9 +232,13 @@ class SmokeCounter:
 
 
 class InventoryAdapter:
+    def __init__(self, kodi_release: str = "21.3") -> None:
+        self.kodi_release = kodi_release
+
     def get_inventory(self) -> KodiAddonInventoryResult:
+        major, minor = (int(part) for part in self.kodi_release.split("."))
         return KodiAddonInventoryResult(
-            identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"),
+            identity=KodiApplicationIdentity("Kodi", major, minor, "stable"),
             items=(
                 KodiAddonInventoryRecord(
                     addon_id="plugin.video.slice4",
@@ -243,6 +252,9 @@ class InventoryAdapter:
 
 
 class DetailsAdapter:
+    def __init__(self, dependency: KodiReportedAddonDependency | None = None) -> None:
+        self.dependency = dependency
+
     def get_addon_details(self, addon_id: str) -> KodiAddonDetailsRecord:
         return KodiAddonDetailsRecord(
             addon_id=addon_id,
@@ -250,7 +262,7 @@ class DetailsAdapter:
             version="1.0.0",
             enabled=True,
             kodi_type="xbmc.python.pluginsource",
-            dependencies=(),
+            dependencies=() if self.dependency is None else (self.dependency,),
         )
 
 
@@ -386,7 +398,13 @@ def _source() -> DevelopmentSource:
     )
 
 
-def _environment(tmp_path: Path, *, database_path: Path | None = None) -> Environment:
+def _environment(
+    tmp_path: Path,
+    *,
+    database_path: Path | None = None,
+    kodi_release: str = "21.3",
+    dependency: tuple[str, str | None] | None = None,
+) -> Environment:
     tmp_path.mkdir(parents=True, exist_ok=True)
     engine = create_database_engine(
         f"sqlite:///{database_path or (tmp_path / 'slice4.db')}"
@@ -396,8 +414,15 @@ def _environment(tmp_path: Path, *, database_path: Path | None = None) -> Enviro
     sessions = create_session_factory(engine)
     source_root = tmp_path / "sources" / "plugin.video.slice4"
     source_root.mkdir(parents=True)
+    dependency_xml = ""
+    if dependency is not None:
+        version = "" if dependency[1] is None else f' version="{dependency[1]}"'
+        dependency_xml = (
+            f'<requires><import addon="{dependency[0]}"{version} /></requires>'
+        )
     (source_root / "addon.xml").write_text(
-        '<addon id="plugin.video.slice4" name="Slice 4" version="1.0.0">'
+        f'<addon id="plugin.video.slice4" name="Slice 4" version="1.0.0">'
+        f"{dependency_xml}"
         '<extension point="xbmc.python.pluginsource" library="main.py">'
         "<provides>video</provides></extension>"
         "</addon>\n",
@@ -410,8 +435,8 @@ def _environment(tmp_path: Path, *, database_path: Path | None = None) -> Enviro
         session.add(
             RuntimeDefinitionRow(
                 id=str(RUNTIME_DEFINITION_ID),
-                slug="kodi-21.3-slice4",
-                kodi_version="21.3",
+                slug=f"kodi-{kodi_release}-slice4",
+                kodi_version=kodi_release,
             )
         )
         session.flush()
@@ -439,7 +464,7 @@ def _environment(tmp_path: Path, *, database_path: Path | None = None) -> Enviro
                 id=str(TARGET_ID),
                 name="Slice 4 disposable",
                 target_type="managed",
-                kodi_version="21.3",
+                kodi_version=kodi_release,
                 availability="available",
                 health="healthy",
                 connection_state="connected",
@@ -465,7 +490,7 @@ def _environment(tmp_path: Path, *, database_path: Path | None = None) -> Enviro
                 runtime_gid=1000,
                 python_bytecode_policy="suppress",
                 expected_application_name="Kodi",
-                expected_kodi_version="21.3",
+                expected_kodi_version=kodi_release,
                 expected_version_tag="stable",
                 jsonrpc_port=8080,
                 jsonrpc_path="/jsonrpc",
@@ -560,7 +585,7 @@ def _environment(tmp_path: Path, *, database_path: Path | None = None) -> Enviro
     development = McpWorkspaceDevelopmentService(
         sessions,
         broker,
-        FakeInventory(),  # type: ignore[arg-type]
+        FakeInventory(kodi_release),  # type: ignore[arg-type]
         workspaces,
         data_root=tmp_path / "data",
         clock=lambda: NOW,
@@ -571,8 +596,14 @@ def _environment(tmp_path: Path, *, database_path: Path | None = None) -> Enviro
         ),
         deployment_rate=BoundedIntervalRateLimiter(300, clock=lambda: 1000.0),
         execution_rate=BoundedIntervalRateLimiter(60, clock=lambda: 1000.0),
-        inventory_adapter_factory=lambda _observation, _profile: InventoryAdapter(),
-        details_adapter_factory=lambda _observation, _profile: DetailsAdapter(),
+        inventory_adapter_factory=lambda _observation, _profile: InventoryAdapter(
+            kodi_release
+        ),
+        details_adapter_factory=lambda _observation, _profile: DetailsAdapter(
+            None
+            if dependency is None
+            else KodiReportedAddonDependency(dependency[0], dependency[1], False)
+        ),
         smoke_adapter_factory=lambda _observation, _profile: smoke,
     )
     development.record_validation(
@@ -1011,6 +1042,107 @@ def test_exact_generation_deploy_execute_and_replay_counts(tmp_path: Path) -> No
         assert set(deployment.__dict__).isdisjoint(
             {"path", "content", "container_id", "raw_response", "log"}
         )
+
+
+def _deploy_workspace(env: Environment) -> None:
+    deployed = env.development.deploy(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+    assert deployed.state == "succeeded"
+
+
+def _execute_workspace(env: Environment) -> WorkspaceExecutionResult:
+    return env.development.execute(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        workspace_id=env.workspace_id,
+        expected_generation=0,
+        target_id=TARGET_ID,
+    )
+
+
+def test_execute_uses_verified_kodi_release_for_compatible_python_api(
+    tmp_path: Path,
+) -> None:
+    env = _environment(
+        tmp_path, kodi_release="20.5", dependency=("xbmc.python", "3.0.0")
+    )
+    _deploy_workspace(env)
+    with env.sessions.begin() as session:
+        session.execute(
+            update(TargetRow)
+            .where(TargetRow.id == str(TARGET_ID))
+            .values(kodi_version="22.0")
+        )
+
+    executed = _execute_workspace(env)
+
+    assert executed.state == "succeeded"
+    assert env.smoke.count == 1
+
+
+def test_execute_rejects_incompatible_python_api_on_verified_kodi_release(
+    tmp_path: Path,
+) -> None:
+    env = _environment(
+        tmp_path, kodi_release="20.5", dependency=("xbmc.python", "4.0.0")
+    )
+    _deploy_workspace(env)
+
+    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_unsupported"):
+        _execute_workspace(env)
+
+    assert env.smoke.count == 0
+
+
+def test_execute_rejects_python_api_when_kodi_release_is_unverified(
+    tmp_path: Path,
+) -> None:
+    env = _environment(
+        tmp_path, kodi_release="22.0", dependency=("xbmc.python", "3.0.0")
+    )
+    _deploy_workspace(env)
+
+    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_unsupported"):
+        _execute_workspace(env)
+
+    assert env.smoke.count == 0
+
+
+def test_execute_preserves_non_python_builtin_dependency_behavior(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path, dependency=("xbmc.gui", None))
+    _deploy_workspace(env)
+
+    executed = _execute_workspace(env)
+
+    assert executed.state == "succeeded"
+    assert env.smoke.count == 1
+
+
+def test_execute_still_requires_succeeded_deployment(tmp_path: Path) -> None:
+    env = _environment(
+        tmp_path, kodi_release="20.5", dependency=("xbmc.python", "3.0.0")
+    )
+    _deploy_workspace(env)
+    with env.sessions.begin() as session:
+        session.execute(
+            update(McpWorkspaceDeploymentOperationRow)
+            .where(
+                McpWorkspaceDeploymentOperationRow.workspace_id == str(env.workspace_id)
+            )
+            .values(state="failed")
+        )
+
+    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_not_deployed"):
+        _execute_workspace(env)
+
+    assert env.smoke.count == 0
 
 
 def test_validation_generation_conflict_and_edit_blocks_old_deployment(

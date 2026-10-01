@@ -2503,7 +2503,9 @@ class McpWorkspaceDevelopmentService:
                 descriptor.dependencies, details.dependencies
             )
             dependencies = DevelopmentSourceEnablementService._preflight_dependencies(
-                descriptor.dependencies, by_id
+                descriptor.dependencies,
+                by_id,
+                kodi_release=profile.kodi_release.canonical,
             )
             if mismatch is not None or any(
                 not item.optional
