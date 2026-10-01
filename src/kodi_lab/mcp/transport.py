@@ -876,10 +876,13 @@ def build_mcp_http_transport(
             name="workspace_deploy",
             title="Deploy an exact workspace generation",
             description=(
-                "Deploy one validated exact workspace generation. An opted-in "
-                "external development target uses Web-approved repository publication "
-                "and waits for a user Kodi update and exact installed-tree "
-                "verification."
+                "Deploy one validated exact workspace generation. Managed disposable "
+                "(internal_lab) targets use direct deployment without repository "
+                "publication, Web approval, user Kodi install/update, or Web Recheck. "
+                "An opted-in external_development target with repository readiness "
+                "uses repository publication, Web approval, user Kodi install/update, "
+                "and exact installed-tree Recheck. external_production targets never "
+                "accept development workspace deployment in any mode."
             ),
             input_schema=WorkspaceDeployInput.model_json_schema(),
             output_schema=WorkspaceDeploymentResult.model_json_schema(),

@@ -2071,6 +2071,51 @@ def test_workspace_edit_rate_class_is_two_per_second_with_burst_four(
     assert limiter.allow("client") is True
 
 
+def test_workspace_deploy_catalog_explains_target_modes(client: TestClient) -> None:
+    administration = _administration(client)
+    principal = administration.create_client(
+        display_name="Deployment catalog inspection",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.assign_target_preset(INSTANCE_ID, FULL_LAB_CONTROL_PRESET_ID)
+    administration.grant_target(principal.id, INSTANCE_ID)
+    token = administration.issue_credential(principal.id).token
+
+    listed = _post(client, token, "tools/list")
+    assert listed.status_code == 200
+    tool = next(
+        item
+        for item in listed.json()["result"]["tools"]
+        if item["name"] == "workspace_deploy"
+    )
+    description = tool["description"].lower()
+    assert "managed disposable (internal_lab)" in description
+    assert "direct deployment" in description
+    assert "without repository publication, web approval" in description
+    assert "external_development" in description
+    assert (
+        "repository publication, web approval, user kodi install/update" in description
+    )
+    assert "exact installed-tree recheck" in description
+    assert "external_production targets never accept" in description
+    assert "in any mode" in description
+
+    schema = tool["inputSchema"]
+    mode = schema["properties"]["deployment_mode"]
+    assert mode["enum"] == ["auto", "direct", "repository"]
+    assert mode["default"] == "auto"
+    assert "deployment_mode" not in schema["required"]
+    mode_description = mode["description"].lower()
+    assert (
+        "auto selects repository only for an external_development target"
+        in mode_description
+    )
+    assert (
+        "otherwise it selects direct, subject to target eligibility checks"
+        in mode_description
+    )
+
+
 def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
     client: TestClient,
 ) -> None:

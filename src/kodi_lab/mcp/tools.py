@@ -485,7 +485,15 @@ class WorkspaceTargetOperationInput(BaseModel):
 class WorkspaceDeployInput(WorkspaceTargetOperationInput):
     """Existing deployment tool with an explicit transport selection."""
 
-    deployment_mode: Literal["auto", "direct", "repository"] = "auto"
+    deployment_mode: Literal["auto", "direct", "repository"] = Field(
+        default="auto",
+        description=(
+            "auto selects repository only for an external_development target with "
+            "repository readiness; otherwise it selects direct, subject to target "
+            "eligibility checks. direct is the managed deployment path; repository "
+            "uses the external-development human approval and Kodi update path."
+        ),
+    )
 
 
 class WorkspaceValidatedPath(BaseModel):
