@@ -17,8 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_dependencies import (
+    dependency_failure_code,
+    first_blocking_dependency,
+)
 from kodi_lab.application.development_source_enablements import (
-    DependencyStatus,
     DevelopmentSourceDependencyState,
     DevelopmentSourceEnablementService,
 )
@@ -562,31 +565,11 @@ class DevelopmentSourceSmokeTestService:
                 inventory_by_id,
                 kodi_release=profile.kodi_release.canonical,
             )
-            blocked = next(
-                (
-                    item
-                    for item in dependencies
-                    if not item.optional
-                    and item.status
-                    in {
-                        DependencyStatus.MISSING,
-                        DependencyStatus.DISABLED,
-                        DependencyStatus.VERSION_UNVERIFIED,
-                        DependencyStatus.UNKNOWN,
-                    }
-                ),
-                None,
-            )
+            blocked = first_blocking_dependency(dependencies)
             if blocked is not None:
-                code = {
-                    DependencyStatus.MISSING: "dependency_missing",
-                    DependencyStatus.DISABLED: "dependency_disabled",
-                    DependencyStatus.VERSION_UNVERIFIED: (
-                        "dependency_version_unverified"
-                    ),
-                    DependencyStatus.UNKNOWN: "dependency_state_unknown",
-                }[blocked.status]
-                return self._dependency_blocked(code, blocked)
+                return self._dependency_blocked(
+                    dependency_failure_code(blocked.status), blocked
+                )
             self._coordinator.update_phase(
                 self._lease,
                 DevelopmentSourceSmokeTestOperationPhase.VERIFY_PRE_EXECUTION,

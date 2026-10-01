@@ -106,6 +106,71 @@ MAX_MCP_DEVELOPMENT_TEXT_BYTES = 44 * 1024
 MAX_MCP_DEVELOPMENT_EDIT_TEXT_BYTES = 48 * 1024
 MAX_MCP_DEVELOPMENT_EDIT_ARGUMENT_BYTES = 60 * 1024
 
+_SOURCE_CAPTURE_REASONS = frozenset(
+    {
+        "workspace_generation_conflict",
+        "workspace_private_edits_present",
+        "registered_source_unavailable",
+        "workspace_not_clean_and_ready",
+        "capture_reconciliation_required",
+    }
+)
+
+
+def _source_capture_reason(error: Exception) -> str | None:
+    if isinstance(error, WorkspaceSourceCaptureError):
+        if error.code == "source_addon_identity_changed":
+            return "source_identity_changed"
+        if error.code in {
+            "workspace_capture_evidence_changed",
+            "workspace_bytes_changed",
+        }:
+            return "capture_reconciliation_required"
+        return error.code if error.code in _SOURCE_CAPTURE_REASONS else None
+    if isinstance(error, AgentWorkspaceStorageError):
+        return {
+            "agent_workspace_capture_identity_changed": "source_identity_changed",
+            "agent_workspace_capture_private_edits": "workspace_private_edits_present",
+            "agent_workspace_capture_reconciliation_required": (
+                "capture_reconciliation_required"
+            ),
+            "agent_workspace_capture_addon_invalid": "source_invalid",
+        }.get(error.code)
+    if isinstance(error, DevelopmentTreeError):
+        if error.code in {
+            "development_source_unavailable",
+            "development_source_unreadable",
+        }:
+            return "registered_source_unavailable"
+        if error.code in {
+            "development_source_unsafe_name",
+            "development_source_tree_bounds",
+            "development_source_root_invalid",
+            "development_source_unsafe_entry",
+            "development_source_type_conflict",
+        }:
+            return "source_invalid"
+        return None
+    if isinstance(error, DevelopmentSourceValidationError):
+        if error.code in {
+            "root_not_configured",
+            "root_unavailable",
+            "source_unavailable",
+        }:
+            return "registered_source_unavailable"
+        if error.code in {
+            "root_invalid",
+            "locator_invalid",
+            "addon_xml_missing",
+            "addon_xml_unsafe",
+            "addon_xml_too_large",
+            "addon_xml_malformed",
+            "addon_metadata_invalid",
+        }:
+            return "source_invalid"
+        return None
+    return None
+
 
 class AddonSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -628,6 +693,10 @@ class McpTargetToolService:
             AgentWorkspaceStorageError,
             DevelopmentSourceValidationError,
         ) as error:
+            raise McpAuthorizationError(
+                "development_source_scan_unsafe", reason=_source_capture_reason(error)
+            ) from error
+        except Exception as error:
             raise McpAuthorizationError("development_source_scan_unsafe") from error
         result = WorkspaceSourceScanToolResult(
             workspace_id=workspace_id,
@@ -670,6 +739,10 @@ class McpTargetToolService:
             AgentWorkspaceStorageError,
             DevelopmentSourceValidationError,
         ) as error:
+            raise McpAuthorizationError(
+                "workspace_capture_rejected", reason=_source_capture_reason(error)
+            ) from error
+        except Exception as error:
             raise McpAuthorizationError("workspace_capture_rejected") from error
         result = WorkspaceCaptureToolResult(
             workspace_id=captured.workspace_id,
@@ -803,7 +876,10 @@ class McpTargetToolService:
                 target_id=operation.target_id,
             )
         except McpWorkspaceDevelopmentError as error:
-            raise McpAuthorizationError(error.code) from error
+            raise McpAuthorizationError(
+                error.code,
+                reason=error.reason if error.code == "execution_unsupported" else None,
+            ) from error
         self._require_development_bounded(result)
         return result
 

@@ -100,6 +100,17 @@ class WorkspaceSourceCaptureService:
     ) -> tuple[AgentWorkspace, DevelopmentSource]:
         workspace = AgentWorkspaceRepository(session).get(workspace_id)
         if (
+            workspace is not None
+            and workspace.state is AgentWorkspaceState.RECONCILIATION_REQUIRED
+        ):
+            raise WorkspaceSourceCaptureError("capture_reconciliation_required")
+        if (
+            workspace is not None
+            and workspace.state is AgentWorkspaceState.READY
+            and workspace.generation != generation
+        ):
+            raise WorkspaceSourceCaptureError("workspace_generation_conflict")
+        if (
             workspace is None
             or workspace.state is not AgentWorkspaceState.READY
             or workspace.bytes_state is not AgentWorkspaceBytesState.PRESENT

@@ -21,13 +21,17 @@ from sqlalchemy import delete, exists, func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_dependencies import (
+    DependencyStatus,
+    dependency_failure_code,
+    first_blocking_dependency,
+)
 from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
     ManagedInstanceAddonInventoryService,
 )
 from kodi_lab.application.agent_workspaces import AgentWorkspaceService
 from kodi_lab.application.development_source_enablements import (
-    DependencyStatus,
     DevelopmentSourceEnablementService,
 )
 from kodi_lab.application.external_bridges import (
@@ -173,9 +177,27 @@ def _fingerprint(
 
 
 class McpWorkspaceDevelopmentError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, reason: str | None = None) -> None:
         self.code = code
+        self.reason = reason
         super().__init__(code)
+
+
+EXECUTION_DEPENDENCY_REASONS = frozenset(
+    {
+        "dependency_declaration_mismatch",
+        *(
+            dependency_failure_code(status)
+            for status in (
+                DependencyStatus.MISSING,
+                DependencyStatus.DISABLED,
+                DependencyStatus.INCOMPATIBLE,
+                DependencyStatus.VERSION_UNVERIFIED,
+                DependencyStatus.UNKNOWN,
+            )
+        ),
+    }
+)
 
 
 class WorkspaceDeploymentResult(BaseModel):
@@ -1218,6 +1240,13 @@ class McpWorkspaceDevelopmentService:
                     digest=digest,
                     execution_classification=(
                         "ambiguous" if dispatched else "not_attempted"
+                    ),
+                    result_classification=(
+                        error.reason
+                        if not dispatched
+                        and error.code == "execution_unsupported"
+                        and error.reason in EXECUTION_DEPENDENCY_REASONS
+                        else None
                     ),
                 )
                 if dispatched:
@@ -2507,18 +2536,16 @@ class McpWorkspaceDevelopmentService:
                 by_id,
                 kodi_release=profile.kodi_release.canonical,
             )
-            if mismatch is not None or any(
-                not item.optional
-                and item.status
-                in {
-                    DependencyStatus.MISSING,
-                    DependencyStatus.DISABLED,
-                    DependencyStatus.VERSION_UNVERIFIED,
-                    DependencyStatus.UNKNOWN,
-                }
-                for item in dependencies
-            ):
-                raise McpWorkspaceDevelopmentError("execution_unsupported")
+            if mismatch is not None:
+                raise McpWorkspaceDevelopmentError(
+                    "execution_unsupported", reason="dependency_declaration_mismatch"
+                )
+            blocked = first_blocking_dependency(dependencies)
+            if blocked is not None:
+                raise McpWorkspaceDevelopmentError(
+                    "execution_unsupported",
+                    reason=dependency_failure_code(blocked.status),
+                )
         except McpWorkspaceDevelopmentError:
             raise
         except (
@@ -3181,7 +3208,15 @@ class McpWorkspaceDevelopmentService:
         if row.state == "succeeded":
             return self._execution_result(row)
         if row.state == "failed" and row.failure_code:
-            raise McpWorkspaceDevelopmentError(row.failure_code)
+            raise McpWorkspaceDevelopmentError(
+                row.failure_code,
+                reason=(
+                    row.result_classification
+                    if row.failure_code == "execution_unsupported"
+                    and row.result_classification in EXECUTION_DEPENDENCY_REASONS
+                    else None
+                ),
+            )
         raise McpWorkspaceDevelopmentError("execution_ambiguous")
 
     def _deployment_result(

@@ -51,6 +51,7 @@ from kodi_lab.application.mcp_administration import (
 from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
 from kodi_lab.application.mcp_workspace_development import (
+    EXECUTION_DEPENDENCY_REASONS,
     WorkspaceDeploymentResult,
     WorkspaceExecutionResult,
 )
@@ -955,6 +956,7 @@ def build_mcp_http_transport(
         promotion_plan_id: UUID | None = None
         audit_outcome = "internal_error"
         result_code = "internal_error"
+        result_reason: str | None = None
         diagnostic_context = None
         try:
             arguments = params.arguments or {}
@@ -1182,6 +1184,7 @@ def build_mcp_http_transport(
             result_code = "invalid_params"
         except McpAuthorizationError as error:
             result_code = error.code
+            result_reason = error.reason
             audit_outcome = _audit_outcome_for_tool_error(result_code)
             emit_screenshot_stage("mcp_result", "failed", result_code)
         except BaseException:
@@ -1292,7 +1295,7 @@ def build_mcp_http_transport(
                     lambda: diagnostic_context.__exit__(None, None, None)
                 )
             return response
-        response = _tool_error_result(result_code)
+        response = _tool_error_result(result_code, reason=result_reason)
         _audit_safely(
             principal,
             params.name,
@@ -1369,10 +1372,34 @@ def build_mcp_http_transport(
     )
 
 
-def _tool_error_result(result_code: str) -> CallToolResult:
+_SAFE_TOOL_REASONS = {
+    "development_source_scan_unsafe": frozenset(
+        {"source_identity_changed", "source_invalid", "registered_source_unavailable"}
+    ),
+    "workspace_capture_rejected": frozenset(
+        {
+            "workspace_generation_conflict",
+            "workspace_private_edits_present",
+            "source_identity_changed",
+            "source_invalid",
+            "registered_source_unavailable",
+            "workspace_not_clean_and_ready",
+            "capture_reconciliation_required",
+        }
+    ),
+    "execution_unsupported": EXECUTION_DEPENDENCY_REASONS,
+}
+
+
+def _tool_error_result(
+    result_code: str, *, reason: str | None = None
+) -> CallToolResult:
+    structured: dict[str, str] = {"error": result_code}
+    if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
+        structured["reason"] = reason
     return CallToolResult(
         content=[TextContent(text=result_code)],
-        structured_content={"error": result_code},
+        structured_content=structured,
         is_error=True,
     )
 

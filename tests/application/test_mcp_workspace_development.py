@@ -232,8 +232,13 @@ class SmokeCounter:
 
 
 class InventoryAdapter:
-    def __init__(self, kodi_release: str = "21.3") -> None:
+    def __init__(
+        self,
+        kodi_release: str = "21.3",
+        extra: KodiAddonInventoryRecord | None = None,
+    ) -> None:
         self.kodi_release = kodi_release
+        self.extra = extra
 
     def get_inventory(self) -> KodiAddonInventoryResult:
         major, minor = (int(part) for part in self.kodi_release.split("."))
@@ -247,7 +252,8 @@ class InventoryAdapter:
                     enabled=True,
                     kodi_type="xbmc.python.pluginsource",
                 ),
-            ),
+            )
+            + (() if self.extra is None else (self.extra,)),
         )
 
 
@@ -404,6 +410,8 @@ def _environment(
     database_path: Path | None = None,
     kodi_release: str = "21.3",
     dependency: tuple[str, str | None] | None = None,
+    dependency_inventory: KodiAddonInventoryRecord | None = None,
+    reported_dependency: KodiReportedAddonDependency | None = None,
 ) -> Environment:
     tmp_path.mkdir(parents=True, exist_ok=True)
     engine = create_database_engine(
@@ -597,12 +605,16 @@ def _environment(
         deployment_rate=BoundedIntervalRateLimiter(300, clock=lambda: 1000.0),
         execution_rate=BoundedIntervalRateLimiter(60, clock=lambda: 1000.0),
         inventory_adapter_factory=lambda _observation, _profile: InventoryAdapter(
-            kodi_release
+            kodi_release, dependency_inventory
         ),
         details_adapter_factory=lambda _observation, _profile: DetailsAdapter(
-            None
-            if dependency is None
-            else KodiReportedAddonDependency(dependency[0], dependency[1], False)
+            reported_dependency
+            if reported_dependency is not None
+            else (
+                None
+                if dependency is None
+                else KodiReportedAddonDependency(dependency[0], dependency[1], False)
+            )
         ),
         smoke_adapter_factory=lambda _observation, _profile: smoke,
     )
@@ -1055,10 +1067,12 @@ def _deploy_workspace(env: Environment) -> None:
     assert deployed.state == "succeeded"
 
 
-def _execute_workspace(env: Environment) -> WorkspaceExecutionResult:
+def _execute_workspace(
+    env: Environment, *, request_id: UUID | None = None
+) -> WorkspaceExecutionResult:
     return env.development.execute(
         client_id=env.client_id,
-        request_id=uuid4(),
+        request_id=request_id or uuid4(),
         workspace_id=env.workspace_id,
         expected_generation=0,
         target_id=TARGET_ID,
@@ -1093,9 +1107,12 @@ def test_execute_rejects_incompatible_python_api_on_verified_kodi_release(
     )
     _deploy_workspace(env)
 
-    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_unsupported"):
+    with pytest.raises(
+        McpWorkspaceDevelopmentError, match="execution_unsupported"
+    ) as caught:
         _execute_workspace(env)
 
+    assert caught.value.reason == "dependency_incompatible"
     assert env.smoke.count == 0
 
 
@@ -1107,9 +1124,84 @@ def test_execute_rejects_python_api_when_kodi_release_is_unverified(
     )
     _deploy_workspace(env)
 
-    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_unsupported"):
+    with pytest.raises(
+        McpWorkspaceDevelopmentError, match="execution_unsupported"
+    ) as caught:
         _execute_workspace(env)
 
+    assert caught.value.reason == "dependency_version_unverified"
+    assert env.smoke.count == 0
+
+
+@pytest.mark.parametrize(
+    ("inventory", "reason"),
+    [
+        (None, "dependency_missing"),
+        (
+            KodiAddonInventoryRecord(
+                "script.module.example", "Example", "1.0.0", False, "xbmc.python.module"
+            ),
+            "dependency_disabled",
+        ),
+    ],
+)
+def test_execute_reports_blocking_dependency_reason(
+    tmp_path: Path,
+    inventory: KodiAddonInventoryRecord | None,
+    reason: str,
+) -> None:
+    env = _environment(
+        tmp_path,
+        dependency=("script.module.example", None),
+        dependency_inventory=inventory,
+    )
+    _deploy_workspace(env)
+
+    with pytest.raises(
+        McpWorkspaceDevelopmentError, match="execution_unsupported"
+    ) as caught:
+        _execute_workspace(env)
+
+    assert caught.value.reason == reason
+    assert env.smoke.count == 0
+
+
+def test_execute_reports_dependency_declaration_mismatch(tmp_path: Path) -> None:
+    env = _environment(
+        tmp_path,
+        dependency=("script.module.example", None),
+        reported_dependency=KodiReportedAddonDependency(
+            "script.module.other", None, False
+        ),
+    )
+    _deploy_workspace(env)
+
+    with pytest.raises(
+        McpWorkspaceDevelopmentError, match="execution_unsupported"
+    ) as caught:
+        _execute_workspace(env)
+
+    assert caught.value.reason == "dependency_declaration_mismatch"
+    assert env.smoke.count == 0
+
+
+def test_execute_replay_retains_bounded_dependency_reason(tmp_path: Path) -> None:
+    env = _environment(tmp_path, dependency=("script.module.example", None))
+    _deploy_workspace(env)
+    request_id = uuid4()
+
+    for _ in range(2):
+        with pytest.raises(
+            McpWorkspaceDevelopmentError, match="execution_unsupported"
+        ) as caught:
+            _execute_workspace(env, request_id=request_id)
+        assert caught.value.reason == "dependency_missing"
+
+    with env.sessions() as session:
+        operation = session.scalar(select(McpWorkspaceExecutionOperationRow))
+        assert operation is not None
+        assert operation.failure_code == "execution_unsupported"
+        assert operation.result_classification == "dependency_missing"
     assert env.smoke.count == 0
 
 

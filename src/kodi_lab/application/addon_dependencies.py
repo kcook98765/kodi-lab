@@ -49,6 +49,7 @@ class DependencyStatus(StrEnum):
     DISABLED = "disabled"
     OPTIONAL_MISSING = "optional_missing"
     VERSION_UNVERIFIED = "version_unverified"
+    INCOMPATIBLE = "incompatible"
     UNKNOWN = "unknown"
 
 
@@ -235,7 +236,7 @@ def _system_python_status(
     installed, compatible_abi = capability
     if compatible_abi <= required <= installed:
         return DependencyStatus.PRESENT_ENABLED
-    return DependencyStatus.VERSION_UNVERIFIED
+    return DependencyStatus.INCOMPATIBLE
 
 
 def first_blocking_dependency(
@@ -251,6 +252,7 @@ def first_blocking_dependency(
                 DependencyStatus.MISSING,
                 DependencyStatus.DISABLED,
                 DependencyStatus.VERSION_UNVERIFIED,
+                DependencyStatus.INCOMPATIBLE,
                 DependencyStatus.UNKNOWN,
             }
         ),
@@ -263,6 +265,7 @@ def dependency_failure_code(status: DependencyStatus) -> str:
         DependencyStatus.MISSING: "dependency_missing",
         DependencyStatus.DISABLED: "dependency_disabled",
         DependencyStatus.VERSION_UNVERIFIED: "dependency_version_unverified",
+        DependencyStatus.INCOMPATIBLE: "dependency_incompatible",
         DependencyStatus.UNKNOWN: "dependency_state_unknown",
     }[status]
 

@@ -5,6 +5,7 @@ import pytest
 from kodi_lab.application.addon_dependencies import (
     DependencyStatus,
     declaration_mismatch,
+    dependency_failure_code,
     evaluate_dependencies,
     first_blocking_dependency,
 )
@@ -80,15 +81,21 @@ def test_reviewed_system_python_api_satisfies_compatible_minimum(
 
 
 @pytest.mark.parametrize(
-    ("release", "required", "minversion", "inventory"),
+    ("release", "required", "minversion", "inventory", "expected"),
     [
-        ("19.4", "3.0.1", None, {}),
-        ("21.3", "3.0.2", None, {}),
-        ("21.3", "2.26.0", None, {}),
-        ("21.3", "3.bad", None, {}),
-        ("21.3", "3.0.0", "3.0.0", {}),
-        ("22.0", "3.0.0", None, {}),
-        ("21.3", "3.0.0", None, {"xbmc.python": inventory_record("xbmc.python")}),
+        ("19.4", "3.0.1", None, {}, DependencyStatus.INCOMPATIBLE),
+        ("21.3", "3.0.2", None, {}, DependencyStatus.INCOMPATIBLE),
+        ("21.3", "2.26.0", None, {}, DependencyStatus.INCOMPATIBLE),
+        ("21.3", "3.bad", None, {}, DependencyStatus.VERSION_UNVERIFIED),
+        ("21.3", "3.0.0", "3.0.0", {}, DependencyStatus.VERSION_UNVERIFIED),
+        ("22.0", "3.0.0", None, {}, DependencyStatus.VERSION_UNVERIFIED),
+        (
+            "21.3",
+            "3.0.0",
+            None,
+            {"xbmc.python": inventory_record("xbmc.python")},
+            DependencyStatus.UNKNOWN,
+        ),
     ],
 )
 def test_unproven_system_python_dependency_stays_blocked(
@@ -96,19 +103,18 @@ def test_unproven_system_python_dependency_stays_blocked(
     required: str,
     minversion: str | None,
     inventory: dict[str, KodiAddonInventoryRecord],
+    expected: DependencyStatus,
 ) -> None:
     states = evaluate_dependencies(
         (declaration(version=required, minversion=minversion),),
         inventory,
         kodi_release=release,
     )
-    assert states[0].status in {
-        DependencyStatus.VERSION_UNVERIFIED,
-        DependencyStatus.UNKNOWN,
-    }
+    assert states[0].status is expected
     if release == "21.3" and not inventory:
         assert states[0].recognized is True
     assert first_blocking_dependency(states) is states[0]
+    assert dependency_failure_code(states[0].status).startswith("dependency_")
 
 
 def test_ordinary_dependency_and_optional_missing_semantics_remain_closed() -> None:

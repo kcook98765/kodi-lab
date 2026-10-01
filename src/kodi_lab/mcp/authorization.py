@@ -85,9 +85,10 @@ _ResultT = TypeVar("_ResultT")
 
 
 class McpAuthorizationError(PermissionError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, reason: str | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.reason = reason
 
 
 @dataclass(frozen=True, slots=True)
