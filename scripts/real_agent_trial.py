@@ -19,12 +19,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import httpx2
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
+
+from kodi_lab.kodi.remote import BrowserRemoteAction
 
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _TARGET_FIELDS = (
@@ -120,6 +122,19 @@ def safe_tool_result(name: str, payload: Any) -> dict[str, Any]:
             ),
             "has_next_cursor": payload.get("next_cursor") is not None,
         }
+    if name == "remote_action":
+        return {
+            key: payload[key]
+            for key in (
+                "request_id",
+                "invocation_id",
+                "target_id",
+                "action",
+                "outcome",
+                "completed_at",
+            )
+            if key in payload
+        }
     return {"classification": "unsupported_result"}
 
 
@@ -140,6 +155,23 @@ def safe_mcp_error(payload: Any) -> dict[str, str]:
 def safe_arguments(name: str, arguments: Any) -> dict[str, Any]:
     if not isinstance(arguments, dict):
         raise ValueError("tool_arguments_not_object")
+    if name == "remote_action":
+        if set(arguments) != {"request_id", "target_id", "action"}:
+            raise ValueError("tool_arguments_out_of_scope")
+        for key in ("request_id", "target_id"):
+            value = arguments[key]
+            if not isinstance(value, str):
+                raise ValueError("tool_arguments_invalid")
+            try:
+                if str(UUID(value)) != value:
+                    raise ValueError("noncanonical_uuid")
+            except ValueError as error:
+                raise ValueError("tool_arguments_invalid") from error
+        try:
+            BrowserRemoteAction(arguments["action"])
+        except (ValueError, TypeError) as error:
+            raise ValueError("tool_arguments_invalid") from error
+        return arguments
     allowed = {
         "target_list": {"cursor", "limit"},
         "target_status": {"target_id"},
@@ -154,6 +186,21 @@ def safe_arguments(name: str, arguments: Any) -> dict[str, Any]:
         elif not isinstance(value, str) or len(value) > 128:
             raise ValueError("tool_arguments_invalid")
     return arguments
+
+
+def remote_action_allowed(
+    arguments: dict[str, Any],
+    *,
+    trial_target_id: str,
+    allowed_actions: set[str],
+    dispatched_count: int,
+    max_dispatches: int,
+) -> bool:
+    return (
+        arguments["target_id"] == trial_target_id
+        and arguments["action"] in allowed_actions
+        and dispatched_count < max_dispatches
+    )
 
 
 def answer_is_complete(choice: dict[str, Any]) -> bool:
@@ -188,11 +235,14 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--max-turns", type=int, default=8)
     p.add_argument("--timeout", type=int, default=120)
+    p.add_argument("--allowed-remote-actions", default="")
+    p.add_argument("--max-remote-actions", type=int, default=0)
     return p
 
 
 async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> None:
     exposed = set(record["tools_exposed"])
+    allowed_remote_actions = set(filter(None, args.allowed_remote_actions.split(",")))
     async with httpx2.AsyncClient(
         headers={"Authorization": f"Bearer {token}"}, timeout=30
     ) as http:
@@ -276,8 +326,8 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                 {
                                     "role": "user",
                                     "content": (
-                                        "Continue this task. Finish the inspection "
-                                        "and give a factual final answer."
+                                        "Continue this task and give a factual "
+                                        "final answer."
                                     ),
                                 }
                             )
@@ -300,6 +350,40 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                 arguments = safe_arguments(
                                     name, json.loads(call["function"]["arguments"])
                                 )
+                                if (
+                                    name == "remote_action"
+                                    and not remote_action_allowed(
+                                        arguments,
+                                        trial_target_id=args.target_id,
+                                        allowed_actions=allowed_remote_actions,
+                                        dispatched_count=record["remote_dispatches"],
+                                        max_dispatches=args.max_remote_actions,
+                                    )
+                                ):
+                                    result_for_model = {
+                                        "error": {"code": "trial_action_not_allowed"}
+                                    }
+                                    event = {
+                                        "kind": "tool",
+                                        "turn": turn,
+                                        "name": name,
+                                        "arguments": arguments,
+                                        "dispatched": False,
+                                        "error": result_for_model["error"],
+                                    }
+                                    record["events"].append(event)
+                                    messages.append(
+                                        {
+                                            "role": "tool",
+                                            "tool_call_id": call["id"],
+                                            "content": bounded_model_tool_payload(
+                                                result_for_model
+                                            ),
+                                        }
+                                    )
+                                    continue
+                                if name == "remote_action":
+                                    record["remote_dispatches"] += 1
                                 actual = await mcp.call_tool(name, arguments)
                                 structured = actual.structured_content
                                 if actual.is_error:
@@ -311,6 +395,7 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                         "turn": turn,
                                         "name": name,
                                         "arguments": arguments,
+                                        "dispatched": name == "remote_action",
                                         "error": result_for_model["error"],
                                     }
                                 else:
@@ -320,6 +405,7 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                         "turn": turn,
                                         "name": name,
                                         "arguments": arguments,
+                                        "dispatched": name == "remote_action",
                                         "result": safe_tool_result(name, structured),
                                     }
                             except (ValueError, KeyError, TypeError):
@@ -349,6 +435,16 @@ def main() -> int:
     args.mcp_endpoint = endpoint_identity(args.mcp_endpoint)
     if not 1 <= args.max_turns <= 16 or not 10 <= args.timeout <= 600:
         raise ValueError("trial_bounds_invalid")
+    actions = set(filter(None, args.allowed_remote_actions.split(",")))
+    try:
+        for action in actions:
+            BrowserRemoteAction(action)
+    except ValueError as error:
+        raise ValueError("remote_action_bounds_invalid") from error
+    if not 0 <= args.max_remote_actions <= 2 or (
+        actions and args.max_remote_actions == 0
+    ):
+        raise ValueError("remote_action_bounds_invalid")
     tools = args.tools.split(",")
     if len(tools) != len(set(tools)) or not tools:
         raise ValueError("tool_allowlist_invalid")
@@ -369,6 +465,9 @@ def main() -> int:
         "expected_behavior": args.expected,
         "events": [],
         "retries": 0,
+        "allowed_remote_actions": sorted(actions),
+        "max_remote_actions": args.max_remote_actions,
+        "remote_dispatches": 0,
         "final_answer": None,
         "completion_status": "started",
         "turn_count": 0,

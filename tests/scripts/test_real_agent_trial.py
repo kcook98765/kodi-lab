@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -11,6 +12,7 @@ from scripts.real_agent_trial import (
     bounded_model_tool_payload,
     credential_from_file,
     endpoint_identity,
+    remote_action_allowed,
     safe_arguments,
     safe_mcp_error,
     safe_tool_result,
@@ -119,3 +121,60 @@ def test_tool_arguments_and_empty_model_answer_fail_closed() -> None:
     assert json.loads(
         bounded_model_tool_payload({"large": "x" * 100}, max_chars=10)
     ) == {"error": {"code": "tool_result_too_large"}}
+
+
+def test_remote_action_is_canonical_and_limited_to_trial_target() -> None:
+    target_id = str(uuid4())
+    arguments = {"target_id": target_id, "request_id": str(uuid4()), "action": "home"}
+    assert safe_arguments("remote_action", arguments) == arguments
+    assert remote_action_allowed(
+        arguments,
+        trial_target_id=target_id,
+        allowed_actions={"home"},
+        dispatched_count=0,
+        max_dispatches=1,
+    )
+    assert not remote_action_allowed(
+        arguments,
+        trial_target_id=target_id,
+        allowed_actions={"home"},
+        dispatched_count=1,
+        max_dispatches=1,
+    )
+    assert not remote_action_allowed(
+        arguments,
+        trial_target_id=str(uuid4()),
+        allowed_actions={"home"},
+        dispatched_count=0,
+        max_dispatches=1,
+    )
+    assert not remote_action_allowed(
+        arguments,
+        trial_target_id=target_id,
+        allowed_actions=set(),
+        dispatched_count=0,
+        max_dispatches=0,
+    )
+    with pytest.raises(ValueError):
+        safe_arguments("remote_action", {**arguments, "action": "open_settings"})
+    with pytest.raises(ValueError):
+        safe_arguments("remote_action", {**arguments, "request_id": "not-a-uuid"})
+
+
+def test_remote_receipt_record_drops_unrelated_fields() -> None:
+    result = safe_tool_result(
+        "remote_action",
+        {
+            "request_id": "one",
+            "target_id": "mini",
+            "action": "home",
+            "outcome": "succeeded",
+            "host_path": "/private/secret",
+        },
+    )
+    assert result == {
+        "request_id": "one",
+        "target_id": "mini",
+        "action": "home",
+        "outcome": "succeeded",
+    }
