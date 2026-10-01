@@ -20,7 +20,7 @@ import struct
 import time
 from collections import Counter
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
@@ -48,6 +48,88 @@ _TARGET_FIELDS = (
     "usability_state",
     "readiness_state",
     "capabilities",
+)
+_DEVELOPMENT_MUTATIONS = frozenset(
+    {"workspace_create", "workspace_validate", "workspace_deploy", "workspace_execute"}
+)
+_DEVELOPMENT_FIELDS: dict[str, tuple[str, ...]] = {
+    "workspace_create": (
+        "workspace_id",
+        "source_id",
+        "creation_operation_state",
+        "lifecycle_state",
+        "binding_classification",
+    ),
+    "workspace_source_scan": (
+        "workspace_id",
+        "source_id",
+        "addon_id",
+        "addon_version",
+        "workspace_generation",
+        "source_matches_capture",
+        "private_workspace_edits",
+    ),
+    "workspace_validate": (
+        "workspace_id",
+        "source_id",
+        "observed_generation",
+        "addon_id",
+        "addon_version",
+        "identity_classification",
+        "changed_file_count",
+        "promotable",
+    ),
+    "workspace_deploy": (
+        "deployment_id",
+        "workspace_id",
+        "source_id",
+        "target_id",
+        "generation",
+        "addon_id",
+        "addon_version",
+        "state",
+        "deployment_mode",
+        "phase",
+        "next_action",
+        "result_classification",
+        "inventory_classification",
+        "addon_enabled",
+        "reconciliation_required",
+    ),
+    "workspace_execute": (
+        "execution_id",
+        "deployment_id",
+        "workspace_id",
+        "source_id",
+        "target_id",
+        "generation",
+        "addon_id",
+        "addon_version",
+        "state",
+        "execution_classification",
+        "result_classification",
+        "item_count",
+        "reconciliation_required",
+    ),
+}
+_WORKSPACE_SUMMARY_FIELDS = (
+    "workspace_id",
+    "source_id",
+    "lifecycle_state",
+    "bytes_state",
+    "generation",
+    "creation_state",
+    "latest_validation_state",
+    "latest_validation_generation",
+    "latest_deployment_state",
+    "latest_deployment_mode",
+    "latest_deployment_phase",
+    "latest_deployment_next_action",
+    "latest_deployment_generation",
+    "latest_deployment_target_id",
+    "latest_execution_state",
+    "latest_execution_generation",
+    "latest_execution_target_id",
 )
 
 
@@ -156,6 +238,74 @@ def safe_tool_result(name: str, payload: Any) -> dict[str, Any]:
             )
             if key in payload
         }
+    if name == "development_source_list":
+        sources = payload.get("sources", [])
+        return {
+            "sources": [
+                {
+                    key: item[key]
+                    for key in (
+                        "source_id",
+                        "logical_name",
+                        "addon_id",
+                        "version",
+                        "availability",
+                    )
+                    if key in item
+                }
+                for item in sources[:10]
+                if isinstance(item, dict)
+            ]
+            if isinstance(sources, list)
+            else [],
+            "has_next_cursor": payload.get("next_cursor") is not None,
+        }
+    if name == "workspace_status":
+        workspaces = payload.get("workspaces", [])
+        return {
+            "workspaces": [
+                {key: item[key] for key in _WORKSPACE_SUMMARY_FIELDS if key in item}
+                for item in workspaces[:10]
+                if isinstance(item, dict)
+            ]
+            if isinstance(workspaces, list)
+            else [],
+            "has_next_cursor": payload.get("next_cursor") is not None,
+        }
+    if name == "workspace_tree":
+        entries = payload.get("entries", [])
+        return {
+            "workspace_id": payload.get("workspace_id"),
+            "observed_generation": payload.get("observed_generation"),
+            "entries": [
+                {
+                    key: item[key]
+                    for key in ("path", "entry_type", "byte_size")
+                    if key in item
+                }
+                for item in entries[:100]
+                if isinstance(item, dict)
+            ]
+            if isinstance(entries, list)
+            else [],
+        }
+    if name == "workspace_read":
+        return {
+            key: payload[key]
+            for key in (
+                "workspace_id",
+                "path",
+                "observed_generation",
+                "sha256",
+                "returned_line_count",
+                "truncated",
+            )
+            if key in payload
+        }
+    if name in _DEVELOPMENT_FIELDS:
+        return {
+            key: payload[key] for key in _DEVELOPMENT_FIELDS[name] if key in payload
+        }
     return {"classification": "unsupported_result"}
 
 
@@ -212,6 +362,74 @@ def safe_arguments(name: str, arguments: Any) -> dict[str, Any]:
             except ValueError as error:
                 raise ValueError("tool_arguments_invalid") from error
         return arguments
+    development_keys = {
+        "development_source_list": {"cursor", "limit"},
+        "workspace_status": {"workspace_id", "cursor", "limit"},
+        "workspace_create": {"request_id", "source_id"},
+        "workspace_source_scan": {"workspace_id"},
+        "workspace_tree": {"workspace_id", "relative_path", "cursor", "limit"},
+        "workspace_read": {"workspace_id", "relative_path", "start_line", "max_lines"},
+        "workspace_validate": {"workspace_id", "expected_generation"},
+        "workspace_deploy": {
+            "request_id",
+            "workspace_id",
+            "expected_generation",
+            "target_id",
+            "deployment_mode",
+        },
+        "workspace_execute": {
+            "request_id",
+            "workspace_id",
+            "expected_generation",
+            "target_id",
+        },
+    }
+    if name in development_keys:
+        required = {
+            "workspace_create": {"request_id", "source_id"},
+            "workspace_source_scan": {"workspace_id"},
+            "workspace_tree": {"workspace_id"},
+            "workspace_read": {"workspace_id", "relative_path"},
+            "workspace_validate": {"workspace_id", "expected_generation"},
+            "workspace_deploy": {
+                "request_id",
+                "workspace_id",
+                "expected_generation",
+                "target_id",
+            },
+            "workspace_execute": {
+                "request_id",
+                "workspace_id",
+                "expected_generation",
+                "target_id",
+            },
+        }.get(name, set())
+        if not required <= set(arguments) <= development_keys[name]:
+            raise ValueError("tool_arguments_out_of_scope")
+        for key, value in arguments.items():
+            if key in {"request_id", "source_id", "workspace_id", "target_id"}:
+                if not isinstance(value, str) or str(UUID(value)) != value:
+                    raise ValueError("tool_arguments_invalid")
+            elif key in {"limit", "start_line", "max_lines"}:
+                if type(value) is not int or not 1 <= value <= 2000:
+                    raise ValueError("tool_arguments_invalid")
+            elif key == "expected_generation":
+                if type(value) is not int or value < 0:
+                    raise ValueError("tool_arguments_invalid")
+            elif key == "deployment_mode":
+                if value not in {"auto", "direct", "repository"}:
+                    raise ValueError("tool_arguments_invalid")
+            elif key == "relative_path":
+                if (
+                    not isinstance(value, str)
+                    or len(value) > 512
+                    or value.startswith("/")
+                    or ".." in PurePosixPath(value).parts
+                ):
+                    raise ValueError("tool_arguments_invalid")
+            elif not isinstance(value, str) or len(value) > 512:
+                raise ValueError("tool_arguments_invalid")
+        return arguments
     allowed = {
         "target_list": {"cursor", "limit"},
         "target_status": {"target_id"},
@@ -241,6 +459,57 @@ def remote_action_allowed(
         and arguments["action"] in allowed_actions
         and dispatched_count < max_dispatches
     )
+
+
+def development_action_allowed(
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    source_id: str,
+    target_id: str,
+    workspace_id: str | None,
+    dispatches: dict[str, int],
+    mutation_limit: int,
+) -> bool:
+    """Constrain model-selected development calls to one trial's authority."""
+    if name == "workspace_create":
+        return (
+            arguments["source_id"] == source_id
+            and workspace_id is None
+            and dispatches.get(name, 0) < mutation_limit
+        )
+    if name == "development_source_list":
+        return True
+    if name == "workspace_status" and "workspace_id" not in arguments:
+        return True
+    if arguments.get("workspace_id") != workspace_id or workspace_id is None:
+        return False
+    if name in {"workspace_deploy", "workspace_execute"}:
+        if arguments["target_id"] != target_id:
+            return False
+        if (
+            name == "workspace_deploy"
+            and arguments.get("deployment_mode", "auto") == "repository"
+        ):
+            return False
+    limit = mutation_limit * 2 if name == "workspace_validate" else mutation_limit
+    return name not in _DEVELOPMENT_MUTATIONS or dispatches.get(name, 0) < limit
+
+
+def created_workspace_id(payload: Any, source_id: str) -> str | None:
+    if not isinstance(payload, dict) or payload.get("source_id") != source_id:
+        return None
+    value = payload.get("workspace_id")
+    if not isinstance(value, str):
+        return None
+    try:
+        return value if str(UUID(value)) == value else None
+    except ValueError:
+        return None
+
+
+def records_mutation_dispatch(name: str) -> bool:
+    return name == "remote_action" or name in _DEVELOPMENT_MUTATIONS
 
 
 def answer_is_complete(choice: dict[str, Any]) -> bool:
@@ -336,12 +605,16 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--allowed-remote-actions", default="")
     p.add_argument("--max-remote-actions", type=int, default=0)
     p.add_argument("--max-screenshots", type=int, default=0)
+    p.add_argument("--source-id")
+    p.add_argument("--workspace-id")
+    p.add_argument("--max-development-mutations", type=int, default=1)
     return p
 
 
 async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> None:
     exposed = set(record["tools_exposed"])
     allowed_remote_actions = set(filter(None, args.allowed_remote_actions.split(",")))
+    development_dispatches: dict[str, int] = record["development_dispatches"]
     async with httpx2.AsyncClient(
         headers={"Authorization": f"Bearer {token}"}, timeout=30
     ) as http:
@@ -485,6 +758,53 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                     continue
                                 if name == "remote_action":
                                     record["remote_dispatches"] += 1
+                                if name in _DEVELOPMENT_MUTATIONS or name in {
+                                    "development_source_list",
+                                    "workspace_status",
+                                    "workspace_source_scan",
+                                    "workspace_tree",
+                                    "workspace_read",
+                                }:
+                                    if (
+                                        not args.source_id
+                                        or not development_action_allowed(
+                                            name,
+                                            arguments,
+                                            source_id=args.source_id,
+                                            target_id=args.target_id,
+                                            workspace_id=record["workspace_id"],
+                                            dispatches=development_dispatches,
+                                            mutation_limit=args.max_development_mutations,
+                                        )
+                                    ):
+                                        result_for_model = {
+                                            "error": {
+                                                "code": "trial_action_not_allowed"
+                                            }
+                                        }
+                                        event = {
+                                            "kind": "tool",
+                                            "turn": turn,
+                                            "name": name,
+                                            "arguments": arguments,
+                                            "dispatched": False,
+                                            "error": result_for_model["error"],
+                                        }
+                                        record["events"].append(event)
+                                        messages.append(
+                                            {
+                                                "role": "tool",
+                                                "tool_call_id": call["id"],
+                                                "content": bounded_model_tool_payload(
+                                                    result_for_model
+                                                ),
+                                            }
+                                        )
+                                        continue
+                                    if name in _DEVELOPMENT_MUTATIONS:
+                                        development_dispatches[name] = (
+                                            development_dispatches.get(name, 0) + 1
+                                        )
                                 if name == "screenshot_capture":
                                     if (
                                         arguments["target_id"] != args.target_id
@@ -518,6 +838,15 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                     record["screenshot_dispatches"] += 1
                                 actual = await mcp.call_tool(name, arguments)
                                 structured = actual.structured_content
+                                if name == "workspace_create" and not actual.is_error:
+                                    bound = created_workspace_id(
+                                        structured, args.source_id
+                                    )
+                                    if bound is None:
+                                        raise RuntimeError(
+                                            "workspace_creation_receipt_invalid"
+                                        )
+                                    record["workspace_id"] = bound
                                 if actual.is_error:
                                     result_for_model = {
                                         "error": safe_mcp_error(structured)
@@ -527,7 +856,7 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                         "turn": turn,
                                         "name": name,
                                         "arguments": arguments,
-                                        "dispatched": name == "remote_action",
+                                        "dispatched": records_mutation_dispatch(name),
                                         "error": result_for_model["error"],
                                     }
                                 else:
@@ -537,7 +866,7 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                         "turn": turn,
                                         "name": name,
                                         "arguments": arguments,
-                                        "dispatched": name == "remote_action",
+                                        "dispatched": records_mutation_dispatch(name),
                                         "result": safe_tool_result(name, structured),
                                     }
                                     if name == "screenshot_capture":
@@ -593,7 +922,7 @@ def main() -> int:
     args = parser().parse_args()
     args.model_endpoint = endpoint_identity(args.model_endpoint)
     args.mcp_endpoint = endpoint_identity(args.mcp_endpoint)
-    if not 1 <= args.max_turns <= 16 or not 10 <= args.timeout <= 600:
+    if not 1 <= args.max_turns <= 24 or not 10 <= args.timeout <= 1800:
         raise ValueError("trial_bounds_invalid")
     actions = set(filter(None, args.allowed_remote_actions.split(",")))
     try:
@@ -607,6 +936,12 @@ def main() -> int:
         raise ValueError("remote_action_bounds_invalid")
     if not 0 <= args.max_screenshots <= 2:
         raise ValueError("screenshot_bounds_invalid")
+    if args.source_id is not None:
+        UUID(args.source_id)
+    if args.workspace_id is not None:
+        UUID(args.workspace_id)
+    if not 0 <= args.max_development_mutations <= 2:
+        raise ValueError("development_mutation_bounds_invalid")
     tools = args.tools.split(",")
     if len(tools) != len(set(tools)) or not tools:
         raise ValueError("tool_allowlist_invalid")
@@ -633,6 +968,10 @@ def main() -> int:
         "max_screenshots": args.max_screenshots,
         "screenshot_dispatches": 0,
         "screenshot_artifacts": [],
+        "source_id": args.source_id,
+        "workspace_id": args.workspace_id,
+        "max_development_mutations": args.max_development_mutations,
+        "development_dispatches": {},
         "final_answer": None,
         "completion_status": "started",
         "turn_count": 0,
