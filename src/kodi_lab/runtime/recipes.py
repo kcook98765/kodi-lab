@@ -30,17 +30,29 @@ _RECIPES = {
             "matrix-19.4-r1.json",
             "sha256:306b3b22ce57d23987b20dd37738a253ef4511ae1754f231d3738efb0db3a482",
         ),
+        (
+            "matrix-19.4-r2.json",
+            "sha256:2f962f50580c53e9aa98447975617b2bc18552f6d8a7e645f07d90fa19641e70",
+        ),
     ),
     "nexus": (
         (
             "nexus-20.5-r1.json",
             "sha256:2cec5cbd0f72cd6c973bfa91091f6d340eddcd08336a500176ee91dcdfcac842",
         ),
+        (
+            "nexus-20.5-r2.json",
+            "sha256:9845a930212f91c20e1313f03cc289882b8555f6067a5bf22e11e724b9821631",
+        ),
     ),
     "omega": (
         (
             "omega-21.3-r1.json",
             "sha256:df950df28255f2ec40f2e69b812bb58f2fb8902fddbccf3a89da7a75e0af62c8",
+        ),
+        (
+            "omega-21.3-r2.json",
+            "sha256:4cb4a003da6d119018738db06aed6789c0acaee2b5ed89b210b93db5526d7140",
         ),
     ),
 }
@@ -49,6 +61,7 @@ _ASSETS = (
     "healthcheck.sh",
     "profile/guisettings.xml",
 )
+_DISPLAY_GUARD_ASSET = "xvfb_guard.py"
 REVIEWED_SIGNED_DISTRO_SOURCE_KIND = "reviewed-signed-distro-package"
 
 
@@ -166,7 +179,10 @@ class RuntimeRecipe(_ClosedModel):
             _NAME.fullmatch(name) for name in self.support_packages
         ):
             raise ValueError("recipe support package set is invalid")
-        if set(self.asset_hashes) != set(_ASSETS) or any(
+        expected_assets = set(_ASSETS)
+        if self.recipe_revision >= 2:
+            expected_assets.add(_DISPLAY_GUARD_ASSET)
+        if set(self.asset_hashes) != expected_assets or any(
             value != normalize_sha256_digest(value)
             for value in self.asset_hashes.values()
         ):
@@ -260,7 +276,8 @@ def _load_recipe_file(
     if not asset_root.is_dir():
         asset_root = package.joinpath("assembly_assets")
     assets = {
-        name: asset_root.joinpath(*name.split("/")).read_bytes() for name in _ASSETS
+        name: asset_root.joinpath(*name.split("/")).read_bytes()
+        for name in recipe.asset_hashes
     }
     for name, payload in assets.items():
         if "sha256:" + hashlib.sha256(payload).hexdigest() != recipe.asset_hashes[name]:

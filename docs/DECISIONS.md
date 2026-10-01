@@ -5292,3 +5292,20 @@ approvals atomically with the governing revision transition.
   must end at 0057. It retains an exact, networkless identity check for each
   candidate and rejects rehashed BUNDLE metadata whose head differs from the
   archived application images.
+
+## D-0395: Managed display recovery retains historical runtime pins
+
+- A managed container's private writable layer can retain Xvfb display-99
+  lock and socket files after abrupt termination, while its private PID
+  namespace no longer contains the old server. Reused PIDs can make X server's
+  own lock check reject an otherwise restartable container.
+- New reviewed runtime revision 2 performs a fixed, non-root display-99
+  preflight before Xvfb starts. It checks trusted directory and artifact
+  identity, both filesystem and abstract listener state, and process identity.
+  Only proved-stale `/tmp/.X99-lock` and `/tmp/.X11-unix/X99` are removed.
+  Uncertain or live state stops startup. Readiness requires the newly launched
+  Xvfb child and its own lock before Kodi starts.
+- Revision 1 recipe bytes and assets remain packaged for existing exact pins.
+  A current managed container keeps its old image on application upgrade; no
+  existing container is silently repaired or repinned. The reviewed revision
+  change does not add a general container or filesystem repair capability.

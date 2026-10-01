@@ -14,7 +14,7 @@ def test_omega_recipe_binds_reviewed_resolute_inputs() -> None:
     recipe = reviewed.recipe
     assert (recipe.recipe_id, recipe.recipe_revision) == (
         "ubuntu-resolute-omega-21.3",
-        1,
+        2,
     )
     assert (recipe.generation, recipe.kodi_version, recipe.platform) == (
         "omega",

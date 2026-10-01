@@ -4,6 +4,8 @@ set -eu
 mkdir -p "$HOME/.kodi" "$XDG_RUNTIME_DIR"
 chmod 0700 "$XDG_RUNTIME_DIR"
 
+/usr/bin/python3 /usr/local/bin/kodi-lab-xvfb-guard
+
 Xvfb :99 -screen 0 1280x720x24 -nolisten tcp -ac \
     >"$HOME/.kodi/xvfb.log" 2>&1 &
 xvfb_pid=$!
@@ -21,9 +23,20 @@ trap cleanup INT TERM EXIT
 
 ready=0
 for _ in $(seq 1 100); do
-    if xdpyinfo -display :99 >/dev/null 2>&1; then
-        ready=1
+    if ! kill -0 "$xvfb_pid" 2>/dev/null; then
         break
+    fi
+    xvfb_state=$(ps -o stat= -p "$xvfb_pid" 2>/dev/null || true)
+    case "$xvfb_state" in
+        ""|Z*) break ;;
+    esac
+    if xdpyinfo -display :99 >/dev/null 2>&1; then
+        if read -r lock_pid </tmp/.X99-lock \
+            && [ "$lock_pid" = "$xvfb_pid" ] \
+            && kill -0 "$xvfb_pid" 2>/dev/null; then
+            ready=1
+            break
+        fi
     fi
     sleep 0.1
 done

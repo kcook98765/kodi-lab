@@ -223,6 +223,15 @@ healthcheck. Kodi runs as non-root user `kodi`; the container publishes no ports
 declares no volumes, and uses no host display, device, capability, or legacy
 runtime resource.
 
+Reviewed runtime revision 2 checks its private display-99 lock and Unix socket
+before launching Xvfb. The fixed preflight rejects live or uncertain listener,
+process, path, type, and owner evidence; it removes only proved-stale
+`/tmp/.X99-lock` and `/tmp/.X11-unix/X99`. The entrypoint then requires its newly
+launched Xvfb child and matching lock as well as display readiness before Kodi
+starts. Historical revision 1 assets remain immutable for exact existing pins.
+Application/candidate upgrades do not replace a provisioned container's pinned
+runtime image or its writable profile.
+
 Each Kodi revision used for execution has one immutable trusted execution
 profile. The profile carries only bounded semantic expectations: exact Kodi
 identity, fixed non-root runtime UID/GID, internal JSON-RPC endpoint, process

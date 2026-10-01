@@ -16,7 +16,7 @@ def test_nexus_recipe_binds_signed_noble_packages_and_assets() -> None:
     recipe = reviewed.recipe
     assert (recipe.recipe_id, recipe.recipe_revision) == (
         "ubuntu-noble-nexus-20.5",
-        1,
+        2,
     )
     assert (recipe.generation, recipe.kodi_version, recipe.platform) == (
         "nexus",

@@ -38,9 +38,9 @@ BRIDGE_FILES = (
     "service.py",
 )
 RECIPES = {
-    "matrix": "matrix-19.4-r1.json",
-    "nexus": "nexus-20.5-r1.json",
-    "omega": "omega-21.3-r1.json",
+    "matrix": "matrix-19.4-r2.json",
+    "nexus": "nexus-20.5-r2.json",
+    "omega": "omega-21.3-r2.json",
 }
 RELEASE_FILES = {
     APP_ARCHIVE,
@@ -525,7 +525,7 @@ def _recipe_record(path: pathlib.Path) -> dict[str, str | int]:
         recipe.get("generation") not in RECIPES
         or recipe.get("platform") != "linux/amd64"
         or recipe.get("provider", {}).get("type") != "signed_distro_apt"
-        or recipe.get("recipe_revision") != 1
+        or recipe.get("recipe_revision") != 2
     ):
         raise ValueError("release recipe identity differs")
     return {

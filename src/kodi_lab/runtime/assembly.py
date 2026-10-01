@@ -104,6 +104,11 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         "rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb",
     ]
     joined = " \\\n    && ".join(commands)
+    display_guard_copy = (
+        "COPY --chown=kodi:kodi xvfb_guard.py /usr/local/bin/kodi-lab-xvfb-guard\n"
+        if "xvfb_guard.py" in reviewed.assets
+        else ""
+    )
     return (
         f"FROM {recipe.base_image_reference}\n"
         "ENV DEBIAN_FRONTEND=noninteractive\n"
@@ -127,6 +132,7 @@ def _dockerfile(reviewed: ReviewedRecipe) -> str:
         "/home/kodi/.kodi/userdata /run/kodi \\\n"
         "    && install -d -m 1777 -o root -g root /tmp/.X11-unix\n"
         "COPY --chown=kodi:kodi entrypoint.sh /usr/local/bin/kodi-lab-entrypoint\n"
+        f"{display_guard_copy}"
         "COPY --chown=kodi:kodi healthcheck.sh "
         "/usr/local/bin/kodi-lab-kodi-healthcheck\n"
         "COPY --chown=kodi:kodi profile/guisettings.xml "

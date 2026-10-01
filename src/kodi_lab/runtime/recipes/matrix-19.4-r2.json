@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "recipe_id": "ubuntu-jammy-matrix-19.4",
+  "recipe_revision": 2,
+  "generation": "matrix",
+  "display_generation": "Matrix 19",
+  "kodi_version": "19.4",
+  "platform": "linux/amd64",
+  "definition_id": "51940000-0000-4000-8000-000000000001",
+  "definition_slug": "kodi-matrix-19.4",
+  "base_image_reference": "ubuntu:22.04@sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986",
+  "base_image_digest": "sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986",
+  "provider": {
+    "type": "signed_distro_apt",
+    "distribution": "Ubuntu",
+    "suite": "jammy",
+    "repository_url": "http://archive.ubuntu.com/ubuntu",
+    "security_repository_url": "http://security.ubuntu.com/ubuntu",
+    "components": [
+      "main",
+      "universe"
+    ],
+    "pockets": [
+      "jammy",
+      "jammy-updates",
+      "jammy-security"
+    ],
+    "keyring_path": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
+    "keyring_sha256": "sha256:1a4dd63e5c76728960a2edddae22e2e0fc53df8e8b87806deb971030ac704eb0",
+    "verification_policy": "apt-signed-metadata-and-critical-sha256-v1"
+  },
+  "critical_packages": [
+    {
+      "name": "kodi",
+      "version": "2:19.4+dfsg1-2",
+      "architecture": "amd64",
+      "archive_name": "kodi_19.4+dfsg1-2_amd64.deb",
+      "sha256": "sha256:feb9c22be3fbb3dd2842792971ab2a4cf873822f00d0dd5c97694cd143c1429e"
+    },
+    {
+      "name": "kodi-bin",
+      "version": "2:19.4+dfsg1-2",
+      "architecture": "amd64",
+      "archive_name": "kodi-bin_19.4+dfsg1-2_amd64.deb",
+      "sha256": "sha256:94154d64a3c4ae77e72dacc025e7d78c390fdce4cb3d3814192198d54834642b"
+    },
+    {
+      "name": "kodi-data",
+      "version": "2:19.4+dfsg1-2",
+      "architecture": "all",
+      "archive_name": "kodi-data_19.4+dfsg1-2_all.deb",
+      "sha256": "sha256:03451090c49f8514b5b57a415b5ffad6889f5f5198c751e302562bc694be03b6"
+    },
+    {
+      "name": "kodi-repository-kodi",
+      "version": "2:19.4+dfsg1-2",
+      "architecture": "all",
+      "archive_name": "kodi-repository-kodi_19.4+dfsg1-2_all.deb",
+      "sha256": "sha256:b9d75240a9231f01d6eace0e1a9d03f596adc23e01291babb77a89d22e78ce68"
+    }
+  ],
+  "support_packages": [
+    "ca-certificates",
+    "dbus-x11",
+    "fonts-noto-core",
+    "fonts-roboto-unhinted",
+    "libgl1-mesa-dri",
+    "procps",
+    "python3-minimal",
+    "tzdata",
+    "x11-utils",
+    "xauth",
+    "xvfb"
+  ],
+  "asset_hashes": {
+    "entrypoint.sh": "sha256:cd2f1e63fbf09a2edb3e8179e483e3f445816b983d2818d7c2f6cae4fcd0fb36",
+    "healthcheck.sh": "sha256:b1230cb9a455d29021e60ae9fafd081b95cc003bbc2014d5d0fd198131a8cd1b",
+    "profile/guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8",
+    "xvfb_guard.py": "sha256:7e7c4a7874567586a4344e948ef32830d2ed3a34072d6e0cfb7a86e8515afc98"
+  },
+  "execution_profile": {
+    "runtime_kind": "kodi",
+    "runtime_uid": 1000,
+    "runtime_gid": 1000,
+    "python_bytecode_policy": "suppress",
+    "expected_application_name": "Kodi",
+    "expected_kodi_version": "19.4",
+    "expected_version_tag": "stable",
+    "expected_prerelease_ordinal": null,
+    "jsonrpc_port": 8080,
+    "jsonrpc_path": "/jsonrpc",
+    "process_observation": "docker_healthcheck",
+    "readiness_probe": "kodi_jsonrpc",
+    "readiness_timeout_seconds": 90,
+    "poll_interval_seconds": 1.0,
+    "http_timeout_seconds": 3.0
+  },
+  "validation_contract": "kodi-runtime-v1",
+  "source_references": [
+    "https://packages.ubuntu.com/jammy/kodi",
+    "https://packages.ubuntu.com/jammy/kodi-bin",
+    "https://packages.ubuntu.com/jammy/kodi-data",
+    "https://packages.ubuntu.com/jammy/kodi-repository-kodi"
+  ],
+  "license_references": [
+    "https://packages.ubuntu.com/jammy/kodi",
+    "https://kodi.wiki/view/License"
+  ]
+}

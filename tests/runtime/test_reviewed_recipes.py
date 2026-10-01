@@ -158,8 +158,45 @@ def test_historical_recipe_resolution_requires_exact_reviewed_identity() -> None
     )
     with pytest.raises(ValueError, match="no longer reviewed"):
         load_recorded_reviewed_recipe(
-            "matrix", reviewed.recipe.recipe_id, 2, reviewed.digest
+            "matrix", reviewed.recipe.recipe_id, 3, reviewed.digest
         )
+
+
+@pytest.mark.parametrize("generation", ("matrix", "nexus", "omega"))
+def test_historical_runtime_asset_identity_is_preserved(generation: str) -> None:
+    current = load_reviewed_recipe(generation)
+    assert current.recipe.recipe_revision == 2
+    assert "xvfb_guard.py" in current.assets
+    assert build_context(current) == build_context(current)
+    assert "kodi-lab-xvfb-guard" in current.assets["entrypoint.sh"].decode()
+    historical = load_recorded_reviewed_recipe(
+        generation,
+        current.recipe.recipe_id,
+        1,
+        {
+            "matrix": (
+                "sha256:306b3b22ce57d23987b20dd37738a253ef4511ae1754f231"
+                "d3738efb0db3a482"
+            ),
+            "nexus": (
+                "sha256:2cec5cbd0f72cd6c973bfa91091f6d340eddcd08336a50017"
+                "6ee91dcdfcac842"
+            ),
+            "omega": (
+                "sha256:df950df28255f2ec40f2e69b812bb58f2fb8902fddbccf3a89"
+                "da7a75e0af62c8"
+            ),
+        }[generation],
+    )
+    assert historical.recipe.recipe_revision == 1
+    assert set(historical.assets) == {
+        "entrypoint.sh",
+        "healthcheck.sh",
+        "profile/guisettings.xml",
+    }
+    assert "kodi-lab-xvfb-guard" not in historical.assets["entrypoint.sh"].decode()
+    assert "xvfb_guard.py" not in _dockerfile(historical)
+    assert "xvfb_guard.py" in _dockerfile(current)
 
 
 def test_apt_download_report_excludes_raw_build_output() -> None:
