@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import binascii
+import hashlib
 import json
 import os
 import re
+import struct
 import time
 from collections import Counter
 from datetime import UTC, datetime
@@ -25,10 +29,13 @@ import httpx
 import httpx2
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp_types import ImageContent
 
 from kodi_lab.kodi.remote import BrowserRemoteAction
 
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
 _TARGET_FIELDS = (
     "target_id",
     "display_name",
@@ -135,6 +142,20 @@ def safe_tool_result(name: str, payload: Any) -> dict[str, Any]:
             )
             if key in payload
         }
+    if name == "screenshot_capture":
+        return {
+            key: payload[key]
+            for key in (
+                "target_id",
+                "capture_id",
+                "captured_at",
+                "width",
+                "height",
+                "mime_type",
+                "byte_size",
+            )
+            if key in payload
+        }
     return {"classification": "unsupported_result"}
 
 
@@ -142,6 +163,12 @@ def safe_mcp_error(payload: Any) -> dict[str, str]:
     if not isinstance(payload, dict):
         return {"code": "unknown_mcp_error"}
     error = payload.get("error", payload)
+    if isinstance(error, str) and _SAFE_CODE.fullmatch(error):
+        result = {"code": error}
+        reason = payload.get("reason")
+        if isinstance(reason, str) and _SAFE_CODE.fullmatch(reason):
+            result["reason"] = reason
+        return result
     if not isinstance(error, dict):
         return {"code": "unknown_mcp_error"}
     result = {}
@@ -171,6 +198,19 @@ def safe_arguments(name: str, arguments: Any) -> dict[str, Any]:
             BrowserRemoteAction(arguments["action"])
         except (ValueError, TypeError) as error:
             raise ValueError("tool_arguments_invalid") from error
+        return arguments
+    if name == "screenshot_capture":
+        if not {"target_id"} <= set(arguments) <= {"target_id", "request_id"}:
+            raise ValueError("tool_arguments_out_of_scope")
+        for key in arguments:
+            value = arguments[key]
+            if not isinstance(value, str):
+                raise ValueError("tool_arguments_invalid")
+            try:
+                if str(UUID(value)) != value:
+                    raise ValueError("noncanonical_uuid")
+            except ValueError as error:
+                raise ValueError("tool_arguments_invalid") from error
         return arguments
     allowed = {
         "target_list": {"cursor", "limit"},
@@ -219,6 +259,64 @@ def bounded_model_tool_payload(payload: Any, *, max_chars: int = 64000) -> str:
     return encoded
 
 
+def visual_tool_payload(
+    content: list[Any], metadata: Any, artifact_path: Path
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Validate and retain exactly one PNG; deliver its pixels to the model."""
+    images = [item for item in content if isinstance(item, ImageContent)]
+    if len(images) != 1 or images[0].mime_type != "image/png":
+        raise ValueError("screenshot_invalid")
+    try:
+        raw = base64.b64decode(images[0].data, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise ValueError("screenshot_invalid") from error
+    if (
+        raw[:8] != _PNG_SIGNATURE
+        or not 45 <= len(raw) <= _MAX_SCREENSHOT_BYTES
+        or raw[12:16] != b"IHDR"
+        or not isinstance(metadata, dict)
+    ):
+        raise ValueError("screenshot_invalid")
+    width, height = struct.unpack(">II", raw[16:24])
+    if (
+        not 1 <= width <= 4096
+        or not 1 <= height <= 2160
+        or metadata.get("width") != width
+        or metadata.get("height") != height
+        or metadata.get("byte_size") != len(raw)
+        or metadata.get("mime_type") != "image/png"
+    ):
+        raise ValueError("screenshot_invalid")
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(artifact_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as output:
+        output.write(raw)
+    evidence = {
+        "artifact": artifact_path.name,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "byte_size": len(raw),
+        "width": width,
+        "height": height,
+        "capture_id": metadata.get("capture_id"),
+    }
+    model_content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": bounded_model_tool_payload(
+                safe_tool_result("screenshot_capture", metadata)
+            ),
+        },
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": "data:image/png;base64," + images[0].data,
+                "detail": "high",
+            },
+        },
+    ]
+    return model_content, evidence
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model-endpoint", required=True)
@@ -237,6 +335,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=int, default=120)
     p.add_argument("--allowed-remote-actions", default="")
     p.add_argument("--max-remote-actions", type=int, default=0)
+    p.add_argument("--max-screenshots", type=int, default=0)
     return p
 
 
@@ -252,8 +351,9 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
         async with Client(streams, mode="auto", cache=None) as mcp:
             listed = await mcp.list_tools()
             available = {tool.name: tool for tool in listed.tools}
-            if set(available) != exposed:
+            if not exposed <= set(available):
                 raise ValueError("discovered_tool_surface_mismatch")
+            record["server_discovered_tools"] = sorted(available)
             definitions = [
                 {
                     "type": "function",
@@ -277,7 +377,7 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                 },
                 {"role": "user", "content": args.task},
             ]
-            async with httpx.AsyncClient(timeout=60) as model_http:
+            async with httpx.AsyncClient(timeout=90) as model_http:
                 for turn in range(1, args.max_turns + 1):
                     response = await model_http.post(
                         args.model_endpoint + "/chat/completions",
@@ -337,6 +437,7 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                         return
                     for call in calls:
                         name = call.get("function", {}).get("name")
+                        tool_content: Any = None
                         if name not in exposed:
                             result_for_model = {"error": {"code": "tool_not_exposed"}}
                             event = {
@@ -384,6 +485,37 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                     continue
                                 if name == "remote_action":
                                     record["remote_dispatches"] += 1
+                                if name == "screenshot_capture":
+                                    if (
+                                        arguments["target_id"] != args.target_id
+                                        or record["screenshot_dispatches"]
+                                        >= args.max_screenshots
+                                    ):
+                                        result_for_model = {
+                                            "error": {
+                                                "code": "trial_capture_not_allowed"
+                                            }
+                                        }
+                                        event = {
+                                            "kind": "tool",
+                                            "turn": turn,
+                                            "name": name,
+                                            "arguments": arguments,
+                                            "dispatched": False,
+                                            "error": result_for_model["error"],
+                                        }
+                                        record["events"].append(event)
+                                        messages.append(
+                                            {
+                                                "role": "tool",
+                                                "tool_call_id": call["id"],
+                                                "content": bounded_model_tool_payload(
+                                                    result_for_model
+                                                ),
+                                            }
+                                        )
+                                        continue
+                                    record["screenshot_dispatches"] += 1
                                 actual = await mcp.call_tool(name, arguments)
                                 structured = actual.structured_content
                                 if actual.is_error:
@@ -408,6 +540,30 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                                         "dispatched": name == "remote_action",
                                         "result": safe_tool_result(name, structured),
                                     }
+                                    if name == "screenshot_capture":
+                                        image_path = args.output.parent / (
+                                            f"{args.output.stem}-screenshot-"
+                                            f"{record['screenshot_dispatches']}.png"
+                                        )
+                                        try:
+                                            tool_content, evidence = (
+                                                visual_tool_payload(
+                                                    actual.content,
+                                                    structured,
+                                                    image_path,
+                                                )
+                                            )
+                                        except ValueError:
+                                            result_for_model = {
+                                                "error": {"code": "screenshot_invalid"}
+                                            }
+                                            event["error"] = result_for_model["error"]
+                                            event.pop("result", None)
+                                        else:
+                                            record["screenshot_artifacts"].append(
+                                                evidence
+                                            )
+                                            event["image"] = evidence
                             except (ValueError, KeyError, TypeError):
                                 result_for_model = {
                                     "error": {"code": "invalid_tool_arguments"}
@@ -423,7 +579,11 @@ async def run(args: argparse.Namespace, record: dict[str, Any], token: str) -> N
                             {
                                 "role": "tool",
                                 "tool_call_id": call["id"],
-                                "content": bounded_model_tool_payload(result_for_model),
+                                "content": (
+                                    tool_content
+                                    if tool_content is not None
+                                    else bounded_model_tool_payload(result_for_model)
+                                ),
                             }
                         )
             record["completion_status"] = "turn_limit"
@@ -445,6 +605,8 @@ def main() -> int:
         actions and args.max_remote_actions == 0
     ):
         raise ValueError("remote_action_bounds_invalid")
+    if not 0 <= args.max_screenshots <= 2:
+        raise ValueError("screenshot_bounds_invalid")
     tools = args.tools.split(",")
     if len(tools) != len(set(tools)) or not tools:
         raise ValueError("tool_allowlist_invalid")
@@ -468,6 +630,9 @@ def main() -> int:
         "allowed_remote_actions": sorted(actions),
         "max_remote_actions": args.max_remote_actions,
         "remote_dispatches": 0,
+        "max_screenshots": args.max_screenshots,
+        "screenshot_dispatches": 0,
+        "screenshot_artifacts": [],
         "final_answer": None,
         "completion_status": "started",
         "turn_count": 0,

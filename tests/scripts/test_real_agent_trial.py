@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
+import struct
+import zlib
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from mcp_types import ImageContent
 
 from scripts.real_agent_trial import (
     answer_is_complete,
@@ -16,6 +21,7 @@ from scripts.real_agent_trial import (
     safe_arguments,
     safe_mcp_error,
     safe_tool_result,
+    visual_tool_payload,
 )
 
 
@@ -100,6 +106,12 @@ def test_mcp_error_keeps_safe_codes_only() -> None:
     assert safe_mcp_error({"error": {"code": "/private/secret"}}) == {
         "code": "unknown_mcp_error"
     }
+    assert safe_mcp_error(
+        {"error": "permission_denied", "reason": "target_unavailable"}
+    ) == {
+        "code": "permission_denied",
+        "reason": "target_unavailable",
+    }
 
 
 def test_tool_arguments_and_empty_model_answer_fail_closed() -> None:
@@ -178,3 +190,66 @@ def test_remote_receipt_record_drops_unrelated_fields() -> None:
         "action": "home",
         "outcome": "succeeded",
     }
+
+
+def test_screenshot_argument_scope_and_visual_delivery(tmp_path: Path) -> None:
+    target_id = str(uuid4())
+    assert safe_arguments("screenshot_capture", {"target_id": target_id}) == {
+        "target_id": target_id
+    }
+    with pytest.raises(ValueError):
+        safe_arguments("screenshot_capture", {"target_id": target_id, "path": "/tmp/x"})
+    raw_scanline = b"\0\xff\0\0"
+
+    def chunk(tag: bytes, body: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(body))
+            + tag
+            + body
+            + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+        )
+
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw_scanline))
+        + chunk(b"IEND", b"")
+    )
+    encoded = base64.b64encode(png).decode()
+    meta = {
+        "target_id": target_id,
+        "capture_id": str(uuid4()),
+        "width": 1,
+        "height": 1,
+        "mime_type": "image/png",
+        "byte_size": len(png),
+        "host_path": "/private/secret",
+    }
+    path = tmp_path / "capture.png"
+    content, evidence = visual_tool_payload(
+        [ImageContent(data=encoded, mime_type="image/png")], meta, path
+    )
+    assert path.read_bytes() == png
+    assert evidence["sha256"] == hashlib.sha256(png).hexdigest()
+    assert content[1]["image_url"]["url"] == "data:image/png;base64," + encoded
+    assert "/private/secret" not in content[0]["text"]
+    assert "/private/secret" not in json.dumps(
+        safe_tool_result("screenshot_capture", meta)
+    )
+
+
+def test_visual_delivery_rejects_missing_or_invalid_image(tmp_path: Path) -> None:
+    meta = {"width": 1, "height": 1, "mime_type": "image/png", "byte_size": 100}
+    with pytest.raises(ValueError, match="screenshot_invalid"):
+        visual_tool_payload([], meta, tmp_path / "missing.png")
+    with pytest.raises(ValueError, match="screenshot_invalid"):
+        visual_tool_payload(
+            [
+                ImageContent(
+                    data=base64.b64encode(b"not png").decode(), mime_type="image/png"
+                )
+            ],
+            meta,
+            tmp_path / "bad.png",
+        )
+    assert not (tmp_path / "bad.png").exists()
