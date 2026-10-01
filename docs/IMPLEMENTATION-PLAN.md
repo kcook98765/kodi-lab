@@ -1872,8 +1872,10 @@ durable opt-in `repository.kodi-lab-dev` feed, authenticated Web approval,
 immutable publication history, quota/retention and coherent backup/recovery.
 Its first artifact type is a bounded Python video plugin. Phase 3 integrates
 `workspace_deploy` and proves a manually triggered Kodi update. Physical target acceptance
-remains paused until those repository phases are reviewed. No phase broadens
-production authority or replaces managed Kodi's direct install default.
+followed review of those repository phases; its completed source-capture result
+is recorded in [the physical acceptance checkpoint](PHYSICAL-SOURCE-CAPTURE-ACCEPTANCE.md).
+No phase broadens production authority or replaces managed Kodi's direct install
+default.
 
 Repository Phase 3 adds mode-aware `workspace_deploy` for verified
 external-development targets, exact Web approval of workspace-derived
@@ -1903,9 +1905,12 @@ Built-in presets and existing clients stay unchanged. Migration 0059 preserves
 the exact latest validation digest for stale-state presentation. Direct MCP
 source editing remains deferred.
 
-Gate 3 is candidate build, isolated upgrade and real-server acceptance of this
-feature. After a reviewed 0059 candidate is upgraded on the real server, resume the
-paused physical v2 acceptance by scanning the already edited 1.0.1 source,
-capturing it once into the existing generation-0 workspace, validating and
-requesting repository deployment. Preserve human Web approval, manual Kodi
-update, Web Recheck and generation-bound MCP execution.
+Gate 3 covered candidate build, isolated upgrade and real-server acceptance of
+this feature. The reviewed 0059 candidate completed physical v2 acceptance:
+the edited 1.0.1 source was scanned and captured once into the existing
+generation-0 workspace, then validated, prepared for repository deployment,
+approved by a human, manually installed in Kodi, exactly Rechecked and executed
+through MCP. The [physical acceptance checkpoint](PHYSICAL-SOURCE-CAPTURE-ACCEPTANCE.md)
+records the exact identities and deferred managed-target status defect. That
+defect is separate from source-capture acceptance and requires review before
+managed-workspace promotion acceptance.

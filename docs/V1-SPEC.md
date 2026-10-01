@@ -996,15 +996,19 @@ authority. Managed Kodi retains its direct controlled install path.
 Repository-mode `workspace_deploy` is available only to a paired, verified
 external-development target whose separately installed development repository
 has been observed and whose LAN reachability/manual-update setting the operator
-confirmed. It packages an explicit source version from one validated workspace
-generation and creates an exact Web-approved, target-bound publication request.
-Publication remains pending until the user installs or updates the add-on in
-Kodi and selects **Recheck installation**. Kodi Lab observes the native add-on
-ID/version/enabled state and then compares the authenticated bridge's complete
-installed-tree digest, file count and byte count with the predicted package.
-Only that match completes deployment. A matching version with different tree
-bytes fails closed. Direct deployment remains available; production deployment
-and automatic repository refresh/install remain prohibited.
+confirmed. Preparation reads target inventory and the paired bridge's installed
+development-repository tree as preconditions. It packages an explicit source
+version from one validated workspace generation and creates a target-bound
+deployment plus a prepared, unpublished publication before stopping at
+`awaiting_approval`. Exact human Web approval makes that publication live in the
+development feed and advances deployment to `awaiting_kodi_update`. The user
+then installs or updates the add-on in Kodi and selects **Recheck installation**.
+Kodi Lab observes the native add-on ID/version/enabled state and compares the
+authenticated bridge's complete installed-tree digest, file count and byte
+count with the predicted package. Only that match completes deployment. A
+matching version with different tree bytes fails closed. Direct deployment
+remains available; production deployment and automatic repository
+refresh/install remain prohibited.
 
 ## 37. MCP add-on sources
 

@@ -2817,17 +2817,22 @@ Migration `0056_repository_workspace_deployment` retains the existing operation
 table and adds a closed `deployment_mode`, target repository readiness, and an
 exact publication/installed-evidence link. It also snapshots the exact
 validation receipt because the existing workspace validation row retains only
-the latest generation. The workspace service captures a
-source generation under its coordination lock, packages normalized ZIP bytes,
-and predicts the bridge manifest before preparing publication. Phase 2's
-publication lock and immutable package/generation machinery remain the only
-feed writer. Web approval is bound to the deployment operation and exact
-identity/hash; a published package leaves the deployment in a durable pending
-state. A later Web recheck first observes native inventory, then the existing
-authenticated `inspect_addon` tree. Startup preserves linked pending operations
-instead of treating the user wait as an interrupted mutation. Existing MCP
-status/deploy results report the pending phase and next human action. Backup
-already carries the SQLite linkage and repository-data generation together.
+the latest generation. Repository-mode preparation checks target preconditions
+through read-only native inventory and paired-bridge inspection of the installed
+development repository. The workspace service captures a source generation
+under its coordination lock, packages normalized ZIP bytes, predicts the bridge
+manifest, and creates the prepared, unpublished publication and target-bound
+deployment before the `awaiting_approval` wait. Phase 2's publication lock and
+immutable package/generation machinery remain the only feed writer. Exact human
+Web approval is bound to the deployment operation and identity/hash; it advances
+the publication into the served development feed and the deployment to
+`awaiting_kodi_update`. Kodi installation or update remains manual. A later Web
+recheck first observes native inventory, then the existing authenticated
+`inspect_addon` tree; an exact match completes deployment. Startup preserves
+linked pending operations instead of treating the user wait as an interrupted
+mutation. Existing MCP status/deploy results report the pending phase and next
+human action. Backup already carries the SQLite linkage and repository-data
+generation together.
 Promotion still requires exact successful deployment and execution evidence;
 for repository mode its source proof is the verified publication/deployment
 link, while direct mode retains the external source baseline requirement.
