@@ -589,6 +589,15 @@ class AgentWorkspaceService:
             )
         return _creation_status(operation)
 
+    def creation_status_for_workspace(
+        self, workspace_id: UUID
+    ) -> AgentWorkspaceCreationStatus | None:
+        with self._session_factory() as session:
+            operation = AgentWorkspaceCreationOperationRepository(
+                session
+            ).get_for_workspace(workspace_id)
+        return None if operation is None else _creation_status(operation)
+
     def _require_ready(self, workspace_id: UUID) -> AgentWorkspace:
         with self._session_factory() as session:
             workspace = AgentWorkspaceRepository(session).get(workspace_id)

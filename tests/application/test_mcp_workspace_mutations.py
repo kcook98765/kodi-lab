@@ -34,6 +34,8 @@ from kodi_lab.application.mcp_workspace_retention import (
     McpWorkspaceRetentionService,
 )
 from kodi_lab.domain import (
+    AgentWorkspaceCreationPhase,
+    AgentWorkspaceCreationState,
     AgentWorkspaceState,
     DevelopmentSource,
     DevelopmentSourceKind,
@@ -151,6 +153,85 @@ def _finish(workspaces: AgentWorkspaceService, operation_id: UUID) -> None:
     lease = workspaces.acquire(operation_id)
     assert lease is not None
     workspaces.run(lease)
+
+
+def test_workspace_status_creation_pending_then_ready_is_read_only(
+    tmp_path: Path,
+) -> None:
+    sessions, workspaces, administration, tools, _submitted = _environment(tmp_path)
+    client_id, principal = _principal(administration, sessions, "Creation status")
+    administration.grant_development_source(client_id, SOURCE_ID)
+    created = tools.workspace_create(principal, request_id=uuid4(), source_id=SOURCE_ID)
+
+    pending = tools.workspace_status(principal, workspace_id=created.workspace_id)
+    assert pending.workspaces[0].creation_state == "pending"
+    assert pending.workspaces[0].generation == 0
+    assert pending.workspaces[0].latest_deployment_id is None
+    with sessions() as session:
+        operation = session.get(
+            AgentWorkspaceCreationOperationRow, str(created.creation_operation_id)
+        )
+        assert operation is not None
+        assert operation.state is AgentWorkspaceCreationState.QUEUED
+
+    _finish(workspaces, created.creation_operation_id)
+    ready = tools.workspace_status(principal, workspace_id=created.workspace_id)
+    assert ready.workspaces[0].creation_state == "ready"
+    assert ready.workspaces[0].generation == 0
+    assert workspaces.creation_status(created.creation_operation_id).state is (
+        AgentWorkspaceCreationState.SUCCEEDED
+    )
+    with sessions.begin() as session:
+        operation = session.get(
+            AgentWorkspaceCreationOperationRow, str(created.creation_operation_id)
+        )
+        assert operation is not None
+        operation.development_source_id = str(OTHER_SOURCE_ID)
+    inconsistent = tools.workspace_status(principal, workspace_id=created.workspace_id)
+    assert inconsistent.workspaces[0].creation_state == "reconciliation_required"
+
+
+@pytest.mark.parametrize(
+    ("operation_state", "workspace_state", "expected"),
+    [
+        (
+            AgentWorkspaceCreationState.FAILED,
+            AgentWorkspaceState.ABANDONED,
+            "abandoned",
+        ),
+        (
+            AgentWorkspaceCreationState.RECONCILIATION_REQUIRED,
+            AgentWorkspaceState.RECONCILIATION_REQUIRED,
+            "reconciliation_required",
+        ),
+    ],
+)
+def test_workspace_status_terminal_creation_uses_durable_operation(
+    tmp_path: Path,
+    operation_state: AgentWorkspaceCreationState,
+    workspace_state: AgentWorkspaceState,
+    expected: str,
+) -> None:
+    sessions, _workspaces, administration, tools, _submitted = _environment(tmp_path)
+    client_id, principal = _principal(administration, sessions, "Terminal creation")
+    administration.grant_development_source(client_id, SOURCE_ID)
+    created = tools.workspace_create(principal, request_id=uuid4(), source_id=SOURCE_ID)
+    with sessions.begin() as session:
+        operation = session.get(
+            AgentWorkspaceCreationOperationRow, str(created.creation_operation_id)
+        )
+        workspace = session.get(AgentWorkspaceRow, str(created.workspace_id))
+        assert operation is not None and workspace is not None
+        operation.state = operation_state
+        operation.phase = AgentWorkspaceCreationPhase.CAPTURING
+        operation.started_at = "2026-09-20T14:01:00.000000Z"
+        operation.completed_at = "2026-09-20T14:02:00.000000Z"
+        operation.failure_code = "agent_workspace_creation_failed"
+        workspace.state = workspace_state
+    summary = tools.workspace_status(principal, workspace_id=created.workspace_id)
+    assert summary.workspaces[0].creation_state == expected
+    assert summary.workspaces[0].lifecycle_state == workspace_state.value
+    assert "agent_workspace_creation_failed" not in summary.model_dump_json()
 
 
 def test_creation_replay_binding_restart_window_and_conflict(tmp_path: Path) -> None:

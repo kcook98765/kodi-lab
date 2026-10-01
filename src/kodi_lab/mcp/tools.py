@@ -87,7 +87,12 @@ from kodi_lab.application.workspace_source_captures import (
 )
 from kodi_lab.development.deployment import DevelopmentTreeError
 from kodi_lab.development.sources import DevelopmentSourceValidationError
-from kodi_lab.domain import AgentWorkspace, TargetType
+from kodi_lab.domain import (
+    AgentWorkspace,
+    AgentWorkspaceCreationState,
+    AgentWorkspaceState,
+    TargetType,
+)
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
@@ -257,6 +262,11 @@ class WorkspaceSummary(BaseModel):
     latest_validation_generation: int | None = Field(default=None, ge=0)
     latest_deployment_id: UUID | None = None
     latest_deployment_state: str | None = None
+    latest_deployment_mode: str | None = Field(default=None, max_length=16)
+    latest_deployment_phase: str | None = Field(default=None, max_length=32)
+    latest_deployment_publication_id: UUID | None = None
+    latest_deployment_installation_kind: str | None = Field(default=None, max_length=16)
+    latest_deployment_next_action: str | None = Field(default=None, max_length=160)
     latest_deployment_generation: int | None = Field(default=None, ge=0)
     latest_deployment_target_id: UUID | None = None
     latest_execution_id: UUID | None = None
@@ -1399,6 +1409,36 @@ class McpTargetToolService:
     def _workspace_summary(
         self, workspace: AgentWorkspaceRead, updated_at: datetime
     ) -> WorkspaceSummary:
+        creation = self._workspace_service().creation_status_for_workspace(workspace.id)
+        creation_state = "reconciliation_required"
+        if (
+            creation is not None
+            and creation.workspace_id == workspace.id
+            and creation.development_source_id == workspace.development_source_id
+        ):
+            if creation.state is AgentWorkspaceCreationState.SUCCEEDED:
+                if workspace.captured_at is not None and workspace.state not in {
+                    AgentWorkspaceState.CREATING,
+                    AgentWorkspaceState.CAPTURING,
+                }:
+                    creation_state = "ready"
+            elif creation.state is AgentWorkspaceCreationState.FAILED:
+                if (
+                    workspace.state is AgentWorkspaceState.ABANDONED
+                    and workspace.captured_at is None
+                ):
+                    creation_state = "abandoned"
+            elif (
+                creation.state
+                in {
+                    AgentWorkspaceCreationState.QUEUED,
+                    AgentWorkspaceCreationState.RUNNING,
+                }
+                and workspace.state
+                in {AgentWorkspaceState.CREATING, AgentWorkspaceState.CAPTURING}
+                and workspace.captured_at is None
+            ):
+                creation_state = "pending"
         projection = (
             None
             if self._workspace_retention is None
@@ -1420,9 +1460,7 @@ class McpTargetToolService:
             lifecycle_state=workspace.state.value,
             bytes_state=workspace.bytes_state.value,
             generation=workspace.generation,
-            creation_state=(
-                "ready" if workspace.captured_at is not None else "pending"
-            ),
+            creation_state=creation_state,
             created_at=workspace.created_at,
             updated_at=updated_at,
             latest_promotion_state=(
@@ -1458,6 +1496,23 @@ class McpTargetToolService:
             ),
             latest_deployment_state=(
                 None if development is None else development.deployment_state
+            ),
+            latest_deployment_mode=(
+                None if development is None else development.deployment_mode
+            ),
+            latest_deployment_phase=(
+                None if development is None else development.deployment_phase
+            ),
+            latest_deployment_publication_id=(
+                None if development is None else development.deployment_publication_id
+            ),
+            latest_deployment_installation_kind=(
+                None
+                if development is None
+                else development.deployment_installation_kind
+            ),
+            latest_deployment_next_action=(
+                None if development is None else development.deployment_next_action
             ),
             latest_deployment_generation=(
                 None if development is None else development.deployment_generation
