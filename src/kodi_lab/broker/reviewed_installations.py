@@ -29,6 +29,8 @@ IMAGE_LABEL = "io.kodi-lab.installation-worker-image-id"
 STATE_DESTINATION = "/var/lib/kodi-lab"
 LOCK_DESTINATION = "/run/kodi-lab"
 DOCKER_SOCKET = "/var/run/docker.sock"
+HOST_ROUTE_SOURCE = "/proc/1/net/route"
+HOST_ROUTE_DESTINATION = "/tmp/kodi-lab-host-ipv4-route"
 GENERATIONS = ("matrix", "nexus", "omega")
 
 
@@ -162,6 +164,7 @@ class DockerReviewedInstallationWorker:
             ("volume", state_volume, STATE_DESTINATION, True),
             ("volume", lock_volume, LOCK_DESTINATION, True),
             ("bind", DOCKER_SOCKET, DOCKER_SOCKET, True),
+            ("bind", HOST_ROUTE_SOURCE, HOST_ROUTE_DESTINATION, False),
         }
         actual_mounts = (
             {
@@ -254,6 +257,16 @@ class DockerReviewedInstallationWorker:
                 if self.lock_held():
                     raise ReviewedWorkerBusy("another runtime installation is active")
                 image_id, state_volume, lock_volume = self._self_contract(client)
+                settings = Settings()
+                worker_environment = {
+                    "KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX": str(
+                        settings.temporary_network_child_prefix
+                    )
+                }
+                if settings.temporary_network_pool is not None:
+                    worker_environment["KODI_LAB_TEMPORARY_NETWORK_POOL"] = (
+                        settings.temporary_network_pool
+                    )
                 container = client.containers.create(
                     image=image_id,
                     name=worker_name(operation_id),
@@ -277,7 +290,12 @@ class DockerReviewedInstallationWorker:
                         state_volume: {"bind": STATE_DESTINATION, "mode": "rw"},
                         lock_volume: {"bind": LOCK_DESTINATION, "mode": "rw"},
                         DOCKER_SOCKET: {"bind": DOCKER_SOCKET, "mode": "rw"},
+                        HOST_ROUTE_SOURCE: {
+                            "bind": HOST_ROUTE_DESTINATION,
+                            "mode": "ro",
+                        },
                     },
+                    environment=worker_environment,
                     labels={
                         WORKER_LABEL: WORKER_RESOURCE,
                         OPERATION_LABEL: str(operation_id),

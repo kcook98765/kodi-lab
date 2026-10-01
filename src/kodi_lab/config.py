@@ -38,6 +38,39 @@ class Settings(BaseSettings):
     external_bridge_allowed_ports: tuple[int, ...] = (8765,)
     external_target_ipv6_ula_networks: tuple[str, ...] = ()
     external_target_test_loopback_enabled: bool = False
+    # An administrator may reserve an IPv4 pool for reviewed runtime build and
+    # validation bridges. An absent pool retains Docker's ordinary allocator.
+    temporary_network_pool: str | None = None
+    temporary_network_child_prefix: int = Field(default=24, ge=24, le=28)
+
+    @field_validator("temporary_network_pool")
+    @classmethod
+    def _approved_temporary_network_pool(cls, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        try:
+            pool = ipaddress.IPv4Network(value, strict=True)
+        except (TypeError, ValueError) as error:
+            raise ValueError("temporary network pool must be an IPv4 CIDR") from error
+        private = (
+            ipaddress.IPv4Network("10.0.0.0/8"),
+            ipaddress.IPv4Network("172.16.0.0/12"),
+            ipaddress.IPv4Network("192.168.0.0/16"),
+        )
+        if not any(pool.subnet_of(parent) for parent in private):
+            raise ValueError("temporary network pool must use private IPv4 space")
+        return str(pool)
+
+    @model_validator(mode="after")
+    def _approved_temporary_network_size(self) -> "Settings":
+        if self.temporary_network_pool is not None:
+            pool = ipaddress.IPv4Network(self.temporary_network_pool)
+            if self.temporary_network_child_prefix <= pool.prefixlen:
+                raise ValueError("temporary network pool needs 2 to 256 child subnets")
+            children = 1 << (self.temporary_network_child_prefix - pool.prefixlen)
+            if not 2 <= children <= 256:
+                raise ValueError("temporary network pool needs 2 to 256 child subnets")
+        return self
 
     @field_validator("web_allowed_hosts")
     @classmethod

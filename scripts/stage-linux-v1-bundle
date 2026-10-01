@@ -73,6 +73,9 @@ cat > "$output/.env.example" <<'EOF'
 # The generated .env pins image IDs recognized on this Docker Engine.
 KODI_LAB_PUBLISHED_PORT=18100
 # There is no default LAN bind or public URL. Choose both explicitly.
+# Optional: configure --temporary-network-pool PRIVATE_CIDR
+#   --temporary-network-child-prefix 24 after checking LAN, VPN and Docker ranges.
+# The temporary pool is host-specific; Kodi Lab has no universal subnet default.
 # Optional: run `python3 linux-v1-bundle development-source . --source /absolute/path`
 # to add the host source directory, then include compose.development.yaml.
 # Example host path (not required): /srv/kodi-lab/addon-sources

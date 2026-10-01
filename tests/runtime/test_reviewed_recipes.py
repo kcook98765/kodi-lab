@@ -257,14 +257,19 @@ def test_assembly_redacts_package_acquisition_failure() -> None:
                 "Id": "isolated-network",
                 "Name": network_name,
                 "Driver": "bridge",
+                "Scope": "local",
                 "Internal": False,
                 "Attachable": False,
                 "EnableIPv6": False,
+                "Containers": {},
                 "Labels": {
                     "io.kodi-lab.resource": "recipe-acquisition-network",
                     "io.kodi-lab.operation-id": str(operation_id),
+                    "io.kodi-lab.purpose": "acquisition",
+                    "io.kodi-lab.temporary-network-schema": "reviewed-runtime-v1",
                 },
             },
+            remove_network=lambda _id: removed.append(True),
             build=failed_build,
         ),
     )
@@ -310,9 +315,9 @@ def test_assembly_rejects_substituted_acquisition_network_before_build() -> None
             build=forbidden_build,
         ),
     )
-    with pytest.raises(RecipeAssemblyError, match="network identity differs"):
+    with pytest.raises(RecipeAssemblyError, match="acquisition network failed"):
         assemble_reviewed_image(reviewed, operation_id=uuid4(), client=client)
-    assert removed == [True]
+    assert removed == []
 
 
 def test_new_generation_is_recipe_data_not_catalog_schema() -> None:

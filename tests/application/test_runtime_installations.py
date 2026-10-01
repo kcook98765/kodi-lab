@@ -138,6 +138,32 @@ def test_missing_worker_reconciles_without_elapsed_time(
     assert service.start("omega", action="retry").newly_accepted
 
 
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        ("acquisition_network_creation_failed", "acquisition network"),
+        ("validation_network_creation_failed", "validation network"),
+        ("docker_address_pool_exhausted", "acquisition network"),
+        ("validation_failed", "did not pass validation"),
+        ("installation_failed", "Check network access"),
+    ],
+)
+def test_safe_phase_specific_failure_message(
+    factory: sessionmaker[Session], code: str, expected: str
+) -> None:
+    operation_id = uuid4()
+    create_row(factory, "nexus", operation_id)
+    with factory.begin() as session:
+        RuntimeRecipeInstallationRepository(session).fail(
+            operation_id, code=code, now=datetime.now(UTC)
+        )
+    failed = RuntimeInstallationService(factory, FakeBroker()).get(operation_id)
+    assert failed is not None and failed.status == "failed"
+    assert expected in (failed.failure_message or "")
+    assert failed.technical_details is not None
+    assert failed.technical_details["failure_code"] == code
+
+
 def test_independent_cli_lock_and_row_are_respected(
     factory: sessionmaker[Session],
 ) -> None:

@@ -53,8 +53,10 @@ class FakeContainers:
         assert isinstance(volumes, dict)
         mounts = [
             {
-                "Type": "bind" if source == "/var/run/docker.sock" else "volume",
-                "Name": source if source != "/var/run/docker.sock" else None,
+                "Type": "bind"
+                if source.startswith(("/var/run/", "/proc/"))
+                else "volume",
+                "Name": None if source.startswith(("/var/run/", "/proc/")) else source,
                 "Source": source,
                 "Destination": spec["bind"],
                 "RW": spec["mode"] == "rw",
@@ -155,7 +157,12 @@ def test_exact_worker_launch_contract_and_liveness(
         "state-volume": {"bind": "/var/lib/kodi-lab", "mode": "rw"},
         "socket-volume": {"bind": "/run/kodi-lab", "mode": "rw"},
         "/var/run/docker.sock": {"bind": "/var/run/docker.sock", "mode": "rw"},
+        "/proc/1/net/route": {
+            "bind": "/tmp/kodi-lab-host-ipv4-route",
+            "mode": "ro",
+        },
     }
+    assert created["environment"] == {"KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX": "24"}
     added = created["cap_add"]
     assert isinstance(added, list)
     assert set(added) == {"SETUID", "SETGID"}

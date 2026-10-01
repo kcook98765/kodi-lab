@@ -120,6 +120,9 @@ services:
     profiles:
       - lab
     image: ${KODI_LAB_BROKER_IMAGE:?run linux-v1-bundle configure first}
+    environment:
+      KODI_LAB_TEMPORARY_NETWORK_POOL: ${KODI_LAB_TEMPORARY_NETWORK_POOL:-}
+      KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX: ${KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX:-24}
     init: true
     read_only: true
     tmpfs:
@@ -140,6 +143,7 @@ services:
       start_period: 15s
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /proc/1/net/route:/tmp/kodi-lab-host-ipv4-route:ro
       - broker_socket:/run/kodi-lab
       - remote_state:/var/lib/kodi-lab
 

@@ -29,6 +29,58 @@ the required Docker/package cache is already present. If exact reviewed inputs
 are unavailable, installation stops. There is no alternate Kodi version,
 provider, private archive, or source build fallback.
 
+## Temporary runtime network capacity
+
+Reviewed runtime acquisition creates a short-lived, non-internal Docker bridge
+for package assembly so the build can reach its reviewed package provider.
+Validation uses a different short-lived, internal bridge for the test Kodi
+container. Managed Kodi later uses `kodi-lab-managed-v1`; the application and
+repository Compose networks are separate. The temporary bridges are named and
+labeled for their exact installation operation and removed after normal success
+or failure. On a later installation, a terminal operation's abandoned bridge
+can be reclaimed only when its ownership labels and identity match and no
+container refers to it. Kodi Lab never prunes unrelated Docker networks.
+
+Docker's automatic bridge address pools have finite capacity. If no temporary
+pool is configured, Kodi Lab checks available Docker subnets before it pulls a
+reviewed runtime when Docker exposes its effective pools, and otherwise reports
+Docker's allocation error at network creation.
+On a host with many Docker networks, an administrator can reserve a separate
+private IPv4 CIDR for Kodi Lab's temporary bridges. Check all host LAN and VPN
+routes and existing Docker subnets first:
+
+```sh
+ip -4 route show table all
+ip -4 address show
+docker network ls -q | xargs -r docker network inspect \
+  --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}'
+```
+
+Choose a contiguous private range absent from all three outputs and from
+other networks the host may connect to later. The range must divide into 2 to
+256 child subnets with child prefix `/24` through `/28`; for example, a
+**site-verified** `/20` with `/24` children holds 16 temporary networks. The
+example is a sizing illustration, not a suggested universal address. When
+configuring the bundle, add:
+
+```sh
+python3 linux-v1-bundle configure . \
+  --repository-bind PRIVATE_LAN_IPV4 --repository-port PORT \
+  --repository-base-url http://DURABLE_LAN_HOST:PORT \
+  --temporary-network-pool SITE_VERIFIED_PRIVATE_CIDR \
+  --temporary-network-child-prefix 24
+```
+
+`configure` rechecks host addresses, routes and Docker networks before writing
+the local `.env`. The installed broker and its worker receive a fixed read-only
+host route view. Each acquisition checks again, skips occupied
+child subnets and stops if the configured pool is unusable. A Docker collision
+is also checked atomically when the bridge is created. The selected CIDR is a
+local deployment setting, never bundled into the generic product or chosen by
+Web/MCP. A changed VPN or Docker route may require selecting a new unused pool
+before retrying. A creation error is reported by phase; Docker address-pool
+exhaustion receives its own code only when Docker reports that condition.
+
 ## Install Kodi Lab with no Kodi image
 
 ```sh

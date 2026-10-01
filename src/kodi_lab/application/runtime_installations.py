@@ -48,6 +48,39 @@ FAILURE_MESSAGE = (
     "Could not acquire or build this reviewed runtime. "
     "Check network access and available disk space, then retry."
 )
+NETWORK_FAILURE_MESSAGES = {
+    "acquisition_network_creation_failed": (
+        "Could not create the temporary acquisition network. "
+        "Check Docker network capacity."
+    ),
+    "validation_network_creation_failed": (
+        "Could not create the isolated validation network. "
+        "Check Docker network capacity."
+    ),
+    "temporary_network_capacity_unavailable": (
+        "Docker has no available automatic subnet for temporary runtime networks. "
+        "Free an owned unused network or configure a Kodi Lab temporary pool."
+    ),
+    "temporary_network_pool_conflict": (
+        "The configured Kodi Lab temporary network pool conflicts with "
+        "a current route or Docker network."
+    ),
+    "temporary_network_pool_exhausted": (
+        "The configured Kodi Lab temporary network pool has no free child subnet."
+    ),
+    "temporary_network_route_inventory_unavailable": (
+        "Could not check host routes for temporary runtime networks."
+    ),
+    "temporary_network_inventory_unavailable": (
+        "Could not check Docker networks for temporary runtime networks."
+    ),
+    "temporary_network_identity_mismatch": (
+        "A temporary runtime network did not match its reviewed identity."
+    ),
+    "temporary_network_cleanup_failed": (
+        "A temporary runtime network could not be safely removed."
+    ),
+}
 REQUIRED_OPERATIONS = {
     "active_reviewed_runtime_installation",
     "launch_reviewed_runtime_installation",
@@ -244,7 +277,22 @@ class RuntimeInstallationService:
             technical_details=details,
         )
         if state == "failed":
-            return replace(current, action="retry", failure_message=FAILURE_MESSAGE)
+            code = row.failure_code or "installation_failed"
+            message = NETWORK_FAILURE_MESSAGES.get(code, FAILURE_MESSAGE)
+            if code == "docker_address_pool_exhausted":
+                phase = "validation" if row.image_id else "acquisition"
+                message = (
+                    "Docker address pools were exhausted while creating "
+                    f"the {phase} network."
+                )
+            elif code == "validation_failed":
+                message = "The assembled Kodi runtime did not pass validation."
+            return replace(
+                current,
+                action="retry",
+                failure_message=message,
+                technical_details={**details, "failure_code": code},
+            )
         if state != "ready":
             return current
         if not self._eligible_ready(row):

@@ -13,8 +13,15 @@ from uuid import UUID
 import docker  # type: ignore[import-untyped]
 
 from kodi_lab.broker.screenshots import FIXED_SCREENSHOT_COMMAND
+from kodi_lab.config import Settings
 from kodi_lab.kodi.screenshots import png_pixel_statistics, x11_frame_to_png
 from kodi_lab.runtime.recipes import ReviewedRecipe
+from kodi_lab.runtime.temporary_networks import (
+    TemporaryNetwork,
+    TemporaryNetworkError,
+    create_temporary_network,
+    remove_exact_temporary_network,
+)
 
 _RPC_PROGRAM = """
 import json, sys, urllib.request
@@ -145,6 +152,7 @@ def validate_reviewed_image(
     image_id: str,
     operation_id: UUID,
     client: Any | None = None,
+    settings: Settings | None = None,
 ) -> ValidationResult:
     """Require exact identity, non-root GUI, screenshot, RPC, and two cycles."""
 
@@ -152,30 +160,16 @@ def validate_reviewed_image(
     client = client or docker.from_env(timeout=15)
     started = datetime.now(UTC)
     container: Any | None = None
-    network: Any | None = None
+    network: TemporaryNetwork | None = None
     cycles: list[dict[str, object]] = []
     screenshot: dict[str, object] | None = None
     try:
-        network = client.networks.create(
-            f"kodi-lab-recipe-validation-{operation_id.hex}",
-            driver="bridge",
-            internal=True,
-            attachable=False,
-            enable_ipv6=False,
-            check_duplicate=True,
-            labels={
-                "io.kodi-lab.resource": "recipe-validation-network",
-                "io.kodi-lab.operation-id": str(operation_id),
-            },
+        network = create_temporary_network(
+            client,
+            settings or Settings(),
+            operation_id=operation_id,
+            purpose="validation",
         )
-        network.reload()
-        if (
-            network.attrs.get("Driver") != "bridge"
-            or network.attrs.get("Internal") is not True
-            or network.attrs.get("EnableIPv6") is not False
-            or network.attrs.get("Attachable") is not False
-        ):
-            raise RecipeValidationError("validation network isolation differs")
         container = client.containers.create(
             image_id,
             name=f"kodi-lab-recipe-validation-{operation_id.hex}",
@@ -282,6 +276,8 @@ def validate_reviewed_image(
         )
     except RecipeValidationError:
         raise
+    except TemporaryNetworkError as error:
+        raise RecipeValidationError("validation network failed") from error
     except Exception as error:
         raise RecipeValidationError("reviewed runtime validation failed") from error
     finally:
@@ -296,7 +292,7 @@ def validate_reviewed_image(
                 cleanup_failed = True
         if network is not None:
             try:
-                network.remove()
+                remove_exact_temporary_network(client, network)
             except Exception:
                 cleanup_failed = True
         if owned_client:

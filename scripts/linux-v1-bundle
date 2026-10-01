@@ -64,6 +64,8 @@ RELEASE_FILES = {
 HEX = re.compile(r"sha256:[0-9a-f]{64}\Z")
 TREE = re.compile(r"[0-9a-f]{40}\Z")
 DEVELOPMENT_SOURCE_KEY = "KODI_LAB_DEVELOPMENT_SOURCE"
+TEMP_POOL_KEY = "KODI_LAB_TEMPORARY_NETWORK_POOL"
+TEMP_PREFIX_KEY = "KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX"
 REPOSITORY_KEYS = {
     "KODI_LAB_REPOSITORY_BIND",
     "KODI_LAB_REPOSITORY_PORT",
@@ -74,6 +76,80 @@ PRIVATE_LAN_NETWORKS = tuple(
     ipaddress.ip_network(value)
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
+
+
+def validate_temporary_network_pool(
+    value: str, child_prefix: int, *, check_host: bool
+) -> str:
+    """Validate one administrator-selected pool without creating a network."""
+
+    try:
+        pool = ipaddress.IPv4Network(value, strict=True)
+    except (TypeError, ValueError) as error:
+        raise ValueError("temporary network pool must be an IPv4 CIDR") from error
+    if (
+        not any(pool.subnet_of(parent) for parent in PRIVATE_LAN_NETWORKS)
+        or not 24 <= child_prefix <= 28
+        or child_prefix <= pool.prefixlen
+        or not 2 <= 1 << (child_prefix - pool.prefixlen) <= 256
+    ):
+        raise ValueError("temporary network pool needs 2 to 256 private child subnets")
+    if not check_host:
+        return str(pool)
+    try:
+        routes = json.loads(
+            subprocess.check_output(
+                ["ip", "-j", "-4", "route", "show", "table", "all"], text=True
+            )
+        )
+        addresses = json.loads(
+            subprocess.check_output(["ip", "-j", "-4", "address", "show"], text=True)
+        )
+        ids = subprocess.check_output(
+            ["docker", "network", "ls", "-q"], text=True
+        ).split()
+        networks = (
+            json.loads(
+                subprocess.check_output(
+                    ["docker", "network", "inspect", *ids], text=True
+                )
+            )
+            if ids
+            else []
+        )
+        claimed = [
+            ipaddress.IPv4Network(route["dst"], strict=False)
+            for route in routes
+            if route.get("dst") not in (None, "default")
+            and route.get("type") not in ("broadcast", "multicast", "local")
+        ]
+        claimed.extend(
+            ipaddress.IPv4Network(
+                f"{entry['local']}/{entry['prefixlen']}", strict=False
+            )
+            for interface in addresses
+            for entry in interface.get("addr_info", [])
+            if entry.get("family") == "inet"
+        )
+        for network in networks:
+            for config in (network.get("IPAM") or {}).get("Config") or []:
+                if config.get("Subnet"):
+                    subnet = ipaddress.ip_network(config["Subnet"], strict=False)
+                    if isinstance(subnet, ipaddress.IPv4Network):
+                        claimed.append(subnet)
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        subprocess.CalledProcessError,
+    ) as error:
+        raise ValueError("could not inspect host routes and Docker networks") from error
+    if any(pool.overlaps(prefix) for prefix in claimed):
+        raise ValueError(
+            "temporary network pool conflicts with a host route or Docker network"
+        )
+    return str(pool)
 
 
 def validate_repository_config(bind: str, port: int, base_url: str) -> None:
@@ -844,13 +920,16 @@ def verify(
             "KODI_LAB_REMOTE_IMAGE": app["images"]["web"],
             "KODI_LAB_BROKER_IMAGE": app["images"]["broker"],
         }
+        base_keys = set(expected_keys) | {"KODI_LAB_PUBLISHED_PORT"} | REPOSITORY_KEYS
+        extras = set(values) - base_keys
         if (
-            set(values)
+            not base_keys.issubset(values)
+            or extras
             not in (
-                set(expected_keys) | {"KODI_LAB_PUBLISHED_PORT"} | REPOSITORY_KEYS,
-                set(expected_keys)
-                | {"KODI_LAB_PUBLISHED_PORT", DEVELOPMENT_SOURCE_KEY}
-                | REPOSITORY_KEYS,
+                set(),
+                {DEVELOPMENT_SOURCE_KEY},
+                {TEMP_POOL_KEY, TEMP_PREFIX_KEY},
+                {DEVELOPMENT_SOURCE_KEY, TEMP_POOL_KEY, TEMP_PREFIX_KEY},
             )
             or any(
                 values[key] not in {item["saved_image_id"], item["config_image_id"]}
@@ -860,6 +939,14 @@ def verify(
             or not 1 <= int(values["KODI_LAB_PUBLISHED_PORT"]) <= 65535
         ):
             raise ValueError("local image selection differs from reviewed bundle")
+        if TEMP_POOL_KEY in values:
+            try:
+                prefix = int(values[TEMP_PREFIX_KEY])
+            except ValueError as error:
+                raise ValueError("temporary network child prefix is invalid") from error
+            validate_temporary_network_pool(
+                values[TEMP_POOL_KEY], prefix, check_host=False
+            )
         validate_repository_config(
             values["KODI_LAB_REPOSITORY_BIND"],
             int(values["KODI_LAB_REPOSITORY_PORT"]),
@@ -879,10 +966,18 @@ def configure(
     repository_bind: str,
     repository_port: int,
     repository_base_url: str,
+    temporary_network_pool: str = "",
+    temporary_network_child_prefix: int = 24,
 ) -> None:
     if (bundle / ".env").exists() or not 1 <= port <= 65535:
         raise ValueError(".env already exists or port is invalid")
     validate_repository_config(repository_bind, repository_port, repository_base_url)
+    if temporary_network_pool:
+        temporary_network_pool = validate_temporary_network_pool(
+            temporary_network_pool,
+            temporary_network_child_prefix,
+            check_host=True,
+        )
     chosen = {}
     for role, item in data["application"]["images"].items():
         for candidate in (item["saved_image_id"], item["config_image_id"]):
@@ -915,6 +1010,12 @@ def configure(
         f"KODI_LAB_REPOSITORY_PORT={repository_port}\n"
         f"KODI_LAB_REPOSITORY_BASE_URL={repository_base_url}\n"
         f"KODI_LAB_REPOSITORY_BUNDLE_SHA256={bundle_identity}\n"
+        + (
+            f"{TEMP_POOL_KEY}={temporary_network_pool}\n"
+            f"{TEMP_PREFIX_KEY}={temporary_network_child_prefix}\n"
+            if temporary_network_pool
+            else ""
+        )
     )
     print("configured exact application image IDs for this Docker Engine")
 
@@ -941,6 +1042,8 @@ def main() -> int:
     parser.add_argument("--repository-port", type=int, default=0)
     parser.add_argument("--repository-base-url", default="")
     parser.add_argument("--source")
+    parser.add_argument("--temporary-network-pool", default="")
+    parser.add_argument("--temporary-network-child-prefix", type=int, default=24)
     args = parser.parse_args()
     try:
         if args.command == "finalize":
@@ -960,6 +1063,8 @@ def main() -> int:
                     args.repository_bind,
                     args.repository_port,
                     args.repository_base_url,
+                    args.temporary_network_pool,
+                    args.temporary_network_child_prefix,
                 )
             elif args.command == "development-source":
                 if args.source is None or not (args.bundle / ".env").exists():

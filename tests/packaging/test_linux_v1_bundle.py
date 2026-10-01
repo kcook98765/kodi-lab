@@ -10,6 +10,7 @@ import tarfile
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -214,6 +215,13 @@ def test_bundle_detects_missing_and_changed_artifacts(bundle: Path) -> None:
         verify(bundle)
 
 
+def test_release_broker_binds_host_route_inventory_read_only() -> None:
+    body = (Path(__file__).parents[2] / "compose.release.yaml").read_text()
+    before_broker, broker = body.split("\n  broker:\n", 1)
+    assert "- /proc/1/net/route:/tmp/kodi-lab-host-ipv4-route:ro" in broker
+    assert "/proc/1/net/route" not in before_broker
+
+
 def test_bundle_rejects_changed_migration_head_even_when_rehashed(
     bundle: Path,
 ) -> None:
@@ -386,6 +394,55 @@ def test_stable_manifest_is_reviewed_and_cannot_change_id(bundle: Path) -> None:
 def test_repository_configuration_rejects_unsafe_values(bind: str, base: str) -> None:
     with pytest.raises(ValueError, match="repository"):
         bundle_tool["validate_repository_config"](bind, 18120, base)
+
+
+def test_temporary_pool_configuration_checks_host_and_docker_routes() -> None:
+    validate = bundle_tool["validate_temporary_network_pool"]
+    commands = [
+        json.dumps([{"dst": "192.168.2.0/24"}]).encode(),
+        json.dumps(
+            [
+                {
+                    "addr_info": [
+                        {"family": "inet", "local": "192.168.2.4", "prefixlen": 24}
+                    ]
+                }
+            ]
+        ).encode(),
+        b"network-id\n",
+        json.dumps(
+            [
+                {
+                    "IPAM": {
+                        "Config": [{"Subnet": "172.30.0.0/16"}, {"Subnet": "fd00::/64"}]
+                    }
+                }
+            ]
+        ).encode(),
+    ]
+    with patch("subprocess.check_output", side_effect=commands):
+        assert validate("10.252.0.0/20", 24, check_host=True) == "10.252.0.0/20"
+    with (
+        patch("subprocess.check_output", side_effect=commands),
+        pytest.raises(ValueError, match="conflicts"),
+    ):
+        validate("192.168.2.0/24", 25, check_host=True)
+    with (
+        patch("subprocess.check_output", side_effect=commands),
+        pytest.raises(ValueError, match="conflicts"),
+    ):
+        validate("172.30.0.0/16", 24, check_host=True)
+
+
+@pytest.mark.parametrize(
+    "pool,prefix",
+    (("invalid", 24), ("10.252.0.0/20", 20), ("10.252.0.0/20", 29)),
+)
+def test_temporary_pool_configuration_rejects_invalid_ranges(
+    pool: str, prefix: int
+) -> None:
+    with pytest.raises(ValueError, match="temporary network pool"):
+        bundle_tool["validate_temporary_network_pool"](pool, prefix, check_host=False)
 
 
 def test_bridge_identity_and_provenance_mismatch_are_rejected(bundle: Path) -> None:

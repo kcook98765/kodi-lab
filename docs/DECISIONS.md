@@ -5323,3 +5323,30 @@ approvals atomically with the governing revision transition.
   A current managed container keeps its old image on application upgrade; no
   existing container is silently repaired or repinned. The reviewed revision
   change does not add a general container or filesystem repair capability.
+
+## D-0396: Administrator-selected temporary reviewed-runtime network pool
+
+- Linux V1 retains Docker automatic bridge allocation on clean hosts. Before
+  reviewed acquisition, a bounded preflight checks capacity when Docker
+  exposes its effective pools. If it does not, the worker lets Docker decide
+  at network creation and reports its specific exhaustion error safely.
+- An administrator may instead configure a private IPv4 parent CIDR and child
+  prefix in the source-free bundle's unbundled `.env`. No universal subnet is
+  selected. The installer checks host addresses, all visible routes and Docker
+  networks; the worker repeats Docker and host-route checks on each allocation.
+  The release broker and installation worker receive a fixed read-only host
+  route file for this check, including one-off CLI acquisition. It chooses one
+  free child subnet with Docker's atomic collision check. Web and MCP requests
+  never carry subnet choices.
+- Acquisition keeps a non-internal bridge for reviewed package downloads;
+  validation keeps a different internal bridge for the disposable test Kodi.
+  Neither bridge reuses the managed, Compose or repository networks. Exact
+  operation and purpose labels bind cleanup to a specific Docker network ID.
+- Normal cleanup removes the exact owned network after use. A later worker may
+  reclaim a labeled abandoned bridge only for a durable terminal operation
+  with no Docker container reference or running installation worker. No general
+  Docker pruning authority is added.
+- Operation records retain safe network creation/capacity codes. The specific
+  Docker address-pool exhaustion code requires Docker's matching returned
+  error. Unknown failures keep a generic or phase-specific safe code; raw
+  Docker diagnostics and host inventory are not shown in Web.

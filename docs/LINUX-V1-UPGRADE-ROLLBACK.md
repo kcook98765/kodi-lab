@@ -64,6 +64,11 @@ From the **new candidate** directory, configure its `.env` with the same durable
 BASE URL and named volumes, then run the explicit transition with the complete
 backup ID from the command above:
 
+If the old installation had a local temporary-network pool, carry its pool and
+child prefix into the new candidate's `configure` command after checking the
+current host routes and Docker networks. The pool lives only in the unbundled
+`.env`; candidate transition and rollback never rewrite Docker daemon settings.
+
 The old candidate's reviewed migration identity must equal the live database
 revision and the complete backup revision. The new candidate's BUNDLE records
 its installed Alembic head. The transition accepts the same head or a reviewed,

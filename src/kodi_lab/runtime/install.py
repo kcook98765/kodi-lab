@@ -55,6 +55,11 @@ from kodi_lab.runtime.recipes import (
     load_reviewed_recipe,
 )
 from kodi_lab.runtime.recipes import recipe_target_id as recipe_target_id
+from kodi_lab.runtime.temporary_networks import (
+    TemporaryNetworkError,
+    preflight_temporary_networks,
+    reclaim_terminal_orphans,
+)
 from kodi_lab.runtime.validation import ValidationResult, validate_reviewed_image
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import (
@@ -174,6 +179,28 @@ def _fail(
             operation_id, code=code, now=datetime.now(UTC)
         )
     return {"state": "failed"}
+
+
+def _installation_failure_code(error: BaseException) -> str:
+    current: BaseException | None = error
+    for _ in range(5):
+        if isinstance(current, TemporaryNetworkError):
+            return current.code
+        current = current.__cause__ if current is not None else None
+    return (
+        "validation_failed"
+        if type(error).__name__ == "RecipeValidationError"
+        else "installation_failed"
+    )
+
+
+def _terminal_operation(factory: sessionmaker[Session], operation_id: UUID) -> bool:
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation_id)
+        return row is not None and row.state in (
+            RuntimeRecipeInstallationState.READY,
+            RuntimeRecipeInstallationState.FAILED,
+        )
 
 
 def _record_early_failure(
@@ -583,6 +610,29 @@ def install_reviewed_runtime(
                     expected=RuntimeRecipeInstallationState.PENDING,
                 ),
             )
+            preflight_client = docker.from_env(timeout=30)
+            try:
+
+                def terminal(prior_id: UUID) -> bool:
+                    result = _database_call(
+                        settings,
+                        lambda factory: {
+                            "terminal": (
+                                "true"
+                                if _terminal_operation(factory, prior_id)
+                                else "false"
+                            )
+                        },
+                    )
+                    return result["terminal"] == "true"
+
+                reclaim_terminal_orphans(
+                    preflight_client,
+                    terminal=terminal,
+                )
+                preflight_temporary_networks(preflight_client, settings)
+            finally:
+                preflight_client.close()
             report("acquiring")
 
             def on_base_ready() -> None:
@@ -597,7 +647,10 @@ def install_reviewed_runtime(
                 report("assembling")
 
             assembly = assemble_reviewed_image(
-                reviewed, operation_id=operation_id, on_base_ready=on_base_ready
+                reviewed,
+                operation_id=operation_id,
+                on_base_ready=on_base_ready,
+                settings=settings,
             )
             attestation = acquisition_attestation(reviewed, assembly)
             _database_call(
@@ -612,7 +665,10 @@ def install_reviewed_runtime(
             )
             report("validating")
             validation = validate_reviewed_image(
-                reviewed, image_id=assembly.image_id, operation_id=operation_id
+                reviewed,
+                image_id=assembly.image_id,
+                operation_id=operation_id,
+                settings=settings,
             )
             committed = _database_call(
                 settings,
@@ -626,11 +682,7 @@ def install_reviewed_runtime(
                 ),
             )
         except Exception as error:
-            code = (
-                "validation_failed"
-                if type(error).__name__ == "RecipeValidationError"
-                else "installation_failed"
-            )
+            code = _installation_failure_code(error)
             with suppress(Exception):
                 _database_call(
                     settings,
