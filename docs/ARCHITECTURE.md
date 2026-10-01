@@ -1165,6 +1165,11 @@ Plans are private, expire 15 minutes after becoming reviewable, and bind exact
 workspace generation/tree, baseline, source capture, immutable add-on ID,
 affected pre/post identities, one eligible running disposable target, its
 RuntimeRevision/container, and exact retained verified source deployment.
+Managed-target eligibility proves the exact healthy running container, pinned
+revision, Kodi process, and expected add-on through fresh broker-backed JSON-RPC
+inventory at preparation, approval, and final source-success checks. The
+persisted managed Target availability, health, and connection fields are not
+current runtime authority; these checks do not reconcile or write them.
 Browser projections expose only logical names, safe UUIDs, add-on/version
 metadata, changed relative paths, full review text, bounds, and rollback/staging
 notices. Approval accepts only `{"confirmed": true}` and creates exactly one

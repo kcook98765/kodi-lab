@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 
 import pytest
@@ -16,6 +17,7 @@ from kodi_lab.application.addon_inventory import (
     KodiAddonProvenanceClassification,
     KodiAddonProvenanceEvidenceStatus,
     ManagedInstanceAddonInventoryService,
+    ManagedPromotionProofUnavailableError,
 )
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
 from kodi_lab.broker.docker_inventory import (
@@ -28,6 +30,12 @@ from kodi_lab.broker.operations import (
     ManagedContainerInventoryEntry,
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeResult,
+)
+from kodi_lab.domain import (
+    ConnectionState,
+    HealthStatus,
+    InstanceRuntimeState,
+    TargetAvailability,
 )
 from kodi_lab.kodi.addons import (
     KodiAddonInventoryLimitExceededError,
@@ -628,3 +636,114 @@ def test_adapter_failures_map_to_safe_whole_inventory_outcomes(
     assert result.unavailable_reason is reason
     assert result.complete is False
     assert result.items == []
+
+
+def test_promotion_proof_accepts_bootstrap_defaults_with_exact_live_target(
+    factory: sessionmaker[Session],
+) -> None:
+    with factory.begin() as session:
+        target = session.get(TargetRow, str(INSTANCE_ID))
+        instance = session.get(ManagedInstanceRow, str(INSTANCE_ID))
+        assert target is not None and instance is not None
+        target.availability = TargetAvailability.UNAVAILABLE
+        target.health = HealthStatus.WARNING
+        target.connection_state = ConnectionState.DISCONNECTED
+        instance.runtime_state = InstanceRuntimeState.STOPPED
+    proof = service(factory, FakeBroker()).get_promotion_proof(
+        INSTANCE_ID,
+        "plugin.video.example",
+        expected_revision_id=REVISION_ID,
+        expected_container_id=CONTAINER_ID,
+    )
+    assert proof.instance_id == INSTANCE_ID
+    assert proof.runtime_revision_id == REVISION_ID
+    assert proof.container_id == CONTAINER_ID
+    assert proof.addon_id == "plugin.video.example"
+    assert proof.enabled is False  # Promotion preserves a known disabled state.
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "missing_container",
+        "duplicate_container",
+        "stopped",
+        "unhealthy",
+        "broker_error",
+        "observation_error",
+        "revision_mismatch",
+        "observation_revision_mismatch",
+        "container_mismatch",
+        "process_failure",
+        "jsonrpc_failure",
+        "missing_addon",
+        "unknown_enabled",
+    ],
+)
+def test_promotion_proof_fails_closed_on_live_uncertainty(
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    broker = FakeBroker()
+    result: KodiAddonInventoryResult | BaseException | None = None
+    expected_revision = REVISION_ID
+    expected_container = CONTAINER_ID
+    if failure == "missing_container":
+        broker.container = None
+    elif failure == "duplicate_container":
+        monkeypatch.setattr(
+            broker,
+            "managed_container_inventory",
+            lambda: ManagedContainerInventoryResult(
+                containers=[broker._entry(), broker._entry()]
+            ),
+        )
+    elif failure == "stopped":
+        broker.container = broker._entry(state=ContainerRuntimeState.STOPPED)
+    elif failure == "unhealthy":
+        broker.container = broker._entry(health=ContainerHealthState.UNHEALTHY)
+    elif failure == "broker_error":
+
+        def unavailable() -> ManagedContainerInventoryResult:
+            raise ManagedRuntimeObservationClientError(
+                "broker_unavailable", "broker unavailable", request_id="test"
+            )
+
+        monkeypatch.setattr(broker, "managed_container_inventory", unavailable)
+    elif failure == "revision_mismatch":
+        expected_revision = OTHER_REVISION_ID
+    elif failure == "observation_revision_mismatch":
+        broker.observed_revision_id = OTHER_REVISION_ID
+    elif failure == "container_mismatch":
+        expected_container = "c" * 64
+    elif failure == "observation_error":
+        broker.observe_error = True
+    elif failure == "process_failure":
+        broker.process_state = KodiProcessState.NOT_RUNNING
+    elif failure == "jsonrpc_failure":
+        result = JsonRpcUnavailableError("unavailable")
+    elif failure == "missing_addon":
+        result = KodiAddonInventoryResult(
+            identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"), items=()
+        )
+    elif failure == "unknown_enabled":
+        result = KodiAddonInventoryResult(
+            identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"),
+            items=(
+                KodiAddonInventoryRecord(
+                    addon_id="plugin.video.example",
+                    name="Example",
+                    version="1.2.3",
+                    enabled=cast(bool, None),
+                    kodi_type="xbmc.python.pluginsource",
+                ),
+            ),
+        )
+    with pytest.raises(ManagedPromotionProofUnavailableError):
+        service(factory, broker, result).get_promotion_proof(
+            INSTANCE_ID,
+            "plugin.video.example",
+            expected_revision_id=expected_revision,
+            expected_container_id=expected_container,
+        )

@@ -1695,20 +1695,6 @@ def create_app(
             instance_id, ReconciliationAction.AGENT_WORKSPACE_PROMOTION
         )
 
-    def read_promotion_enabled_state(instance_id: UUID, addon_id: str) -> bool:
-        inventory = addon_inventory.get(instance_id)
-        item = next(
-            (
-                candidate
-                for candidate in inventory.items
-                if candidate.addon_id == addon_id
-            ),
-            None,
-        )
-        if not inventory.complete or item is None:
-            raise ValueError("target enabled state unavailable")
-        return item.enabled
-
     agent_workspace_promotions = (
         agent_workspace_promotion_service
         or AgentWorkspacePromotionService(
@@ -1718,7 +1704,7 @@ def create_app(
             reconciliation_gate=require_promotion_reconciliation,
             verification_publisher=promotion_verifications.publish_durable,
             verification_starter=promotion_verifications.queue_and_run,
-            enabled_state_reader=read_promotion_enabled_state,
+            live_proof_reader=addon_inventory.get_promotion_proof,
         )
     )
     mcp_promotion_requests = McpPromotionRequestService(

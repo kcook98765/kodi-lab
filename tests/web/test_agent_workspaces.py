@@ -14,8 +14,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_administration import FULL_LAB_CONTROL_PRESET_ID
 from kodi_lab.application.workspace_source_captures import WorkspaceSourceCaptureService
-from kodi_lab.broker.docker_inventory import ContainerRuntimeState
-from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
+from kodi_lab.broker.docker_inventory import ContainerHealthState, ContainerRuntimeState
+from kodi_lab.domain import (
+    ConnectionState,
+    DevelopmentSource,
+    DevelopmentSourceKind,
+    HealthStatus,
+    TargetAvailability,
+)
 from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.storage.models import (
@@ -23,7 +29,7 @@ from kodi_lab.storage.models import (
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
     ManagedInstanceDevelopmentSourceRow,
-    ManagedInstanceRow,
+    TargetRow,
 )
 from kodi_lab.storage.repositories import DevelopmentSourceRepository
 
@@ -72,9 +78,11 @@ def _seed_source(database: sessionmaker[Session], data_root: Path) -> None:
 def _seed_promotion_target(database: sessionmaker[Session]) -> None:
     now = datetime(2026, 9, 18, tzinfo=UTC).isoformat()
     with database.begin() as session:
-        session.query(ManagedInstanceRow).filter_by(target_id=str(INSTANCE_ID)).update(
-            {"runtime_state": "running"}
-        )
+        target = session.get(TargetRow, str(INSTANCE_ID))
+        assert target is not None
+        target.availability = TargetAvailability.UNAVAILABLE
+        target.health = HealthStatus.WARNING
+        target.connection_state = ConnectionState.DISCONNECTED
         session.add(
             ManagedInstanceDevelopmentSourceRow(
                 managed_instance_id=str(INSTANCE_ID),
@@ -721,6 +729,91 @@ def test_promotion_review_and_approval_are_strict_complete_and_private(
     assert workspace["state"] == "promoted"
     repeated = client.post(approve_url, json={"confirmed": True}, headers=headers)
     assert repeated.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("persisted_healthy", "live_failure"),
+    [(False, "unhealthy"), (True, "unhealthy"), (True, "stopped")],
+)
+def test_promotion_approval_rechecks_live_managed_state(
+    client: TestClient,
+    database: sessionmaker[Session],
+    data_root: Path,
+    broker: FakeBroker,
+    persisted_healthy: bool,
+    live_failure: str,
+) -> None:
+    _seed_source(database, data_root)
+    _seed_promotion_target(database)
+    if persisted_healthy:
+        with database.begin() as session:
+            target = session.get(TargetRow, str(INSTANCE_ID))
+            assert target is not None
+            target.availability = TargetAvailability.AVAILABLE
+            target.health = HealthStatus.HEALTHY
+            target.connection_state = ConnectionState.CONNECTED
+    broker.addon_inventory_result = KodiAddonInventoryResult(
+        identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"),
+        items=(
+            KodiAddonInventoryRecord(
+                addon_id="plugin.video.workspace",
+                name="Workspace",
+                version="1.0.0",
+                enabled=True,
+                kodi_type="xbmc.python.pluginsource",
+            ),
+        ),
+    )
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    created = client.post(
+        "/api/agent-workspaces",
+        json={"development_source_id": str(SOURCE_ID)},
+        headers=headers,
+    ).json()
+    for _ in range(100):
+        creation = client.get(created["status_url"]).json()
+        if creation["state"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+    assert creation["state"] == "succeeded"
+    workspace_id = created["operation"]["workspace_id"]
+    changed = client.put(
+        f"/api/agent-workspaces/{workspace_id}/files",
+        json={
+            "expected_generation": 0,
+            "path": "resources/main.py",
+            "content": "print('promoted')\n",
+        },
+        headers=headers,
+    )
+    assert changed.status_code == 200
+    plans_url = (
+        f"/api/instances/{INSTANCE_ID}/agent-workspaces/{workspace_id}/promotion-plans"
+    )
+    planned = client.post(plans_url, json={}, headers=headers)
+    assert planned.status_code == 201
+    broker.container = broker.container.model_copy(
+        update=(
+            {"runtime_state": ContainerRuntimeState.STOPPED}
+            if live_failure == "stopped"
+            else {"health_state": ContainerHealthState.UNHEALTHY}
+        )
+    )
+    approval = client.post(
+        f"{plans_url}/{planned.json()['plan_id']}/approve-and-execute",
+        json={"confirmed": True},
+        headers=headers,
+    )
+    assert approval.status_code == 409
+    assert approval.json()["error"]["code"] == "promotion_target_ineligible"
+    assert (
+        data_root.parent.joinpath(
+            "development-root/plugin.video.workspace/resources/main.py"
+        ).read_text()
+        == "print('web')\n"
+    )
 
 
 def test_promotion_rejection_is_confirmed_web_only_and_durable(

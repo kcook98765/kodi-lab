@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
@@ -166,6 +167,21 @@ class ManagedInstanceAddonInventory(BaseModel):
     )
 
 
+class ManagedPromotionProofUnavailableError(RuntimeError):
+    """The exact managed target cannot be proven live for promotion."""
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedPromotionLiveProof:
+    """Private, current promotion proof; never a public inventory projection."""
+
+    instance_id: UUID
+    runtime_revision_id: UUID
+    container_id: str
+    addon_id: str
+    enabled: bool
+
+
 class _BrokerInventoryClient(Protocol):
     def managed_container_inventory(self) -> ManagedContainerInventoryResult: ...
 
@@ -200,6 +216,84 @@ class ManagedInstanceAddonInventoryService:
             lambda observation, profile: KodiAddonInventoryAdapter(observation, profile)
         )
         self._now = now or (lambda: datetime.now(UTC))
+
+    def get_promotion_proof(
+        self,
+        instance_id: UUID,
+        addon_id: str,
+        *,
+        expected_revision_id: UUID,
+        expected_container_id: str,
+    ) -> ManagedPromotionLiveProof:
+        """Prove the deployment-bound runtime around one live JSON-RPC inventory."""
+
+        self._require_promotion_runtime(
+            instance_id, expected_revision_id, expected_container_id
+        )
+        try:
+            inventory = self.get(instance_id)
+        except Exception as error:
+            raise ManagedPromotionProofUnavailableError(
+                "managed inventory unavailable"
+            ) from error
+        if (
+            inventory.query_status is not AddonInventoryQueryStatus.AVAILABLE
+            or not inventory.complete
+        ):
+            raise ManagedPromotionProofUnavailableError("managed inventory unavailable")
+        items = [item for item in inventory.items if item.addon_id == addon_id]
+        if len(items) != 1:
+            raise ManagedPromotionProofUnavailableError("deployed add-on unavailable")
+        self._require_promotion_runtime(
+            instance_id, expected_revision_id, expected_container_id
+        )
+        return ManagedPromotionLiveProof(
+            instance_id=instance_id,
+            runtime_revision_id=expected_revision_id,
+            container_id=expected_container_id,
+            addon_id=addon_id,
+            enabled=items[0].enabled,
+        )
+
+    def _require_promotion_runtime(
+        self,
+        instance_id: UUID,
+        expected_revision_id: UUID,
+        expected_container_id: str,
+    ) -> None:
+        with self._session_factory() as session:
+            instance = ManagedInstanceRepository(session).get(instance_id)
+        if instance is None or instance.runtime_revision_id != expected_revision_id:
+            raise ManagedPromotionProofUnavailableError("runtime pin unavailable")
+        try:
+            matches = [
+                item
+                for item in self._broker.managed_container_inventory().containers
+                if item.managed_instance_id == str(instance_id)
+            ]
+            if (
+                len(matches) != 1
+                or matches[0].container_id != expected_container_id
+                or matches[0].runtime_state is not ContainerRuntimeState.RUNNING
+                or matches[0].health_state is not ContainerHealthState.HEALTHY
+            ):
+                raise ManagedPromotionProofUnavailableError("exact runtime unavailable")
+            observation = self._broker.observe_managed_kodi_runtime(
+                managed_instance_id=str(instance_id),
+                expected_container_id=expected_container_id,
+            )
+        except ClientError as error:
+            raise ManagedPromotionProofUnavailableError(
+                "runtime observation unavailable"
+            ) from error
+        if (
+            observation.managed_instance_id != str(instance_id)
+            or observation.runtime_revision_id != str(expected_revision_id)
+            or observation.container_id != expected_container_id
+            or observation.runtime_state is not ContainerRuntimeState.RUNNING
+            or observation.process_state is not KodiProcessState.RUNNING
+        ):
+            raise ManagedPromotionProofUnavailableError("runtime identity unavailable")
 
     def get(self, instance_id: UUID) -> ManagedInstanceAddonInventory:
         with self._session_factory() as session:

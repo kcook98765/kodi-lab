@@ -11,7 +11,11 @@ import pytest
 from sqlalchemy import delete, event, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from kodi_lab.application.addon_inventory import AddonInventoryQueryStatus
+from kodi_lab.application.addon_inventory import (
+    AddonInventoryQueryStatus,
+    ManagedPromotionLiveProof,
+    ManagedPromotionProofUnavailableError,
+)
 from kodi_lab.application.agent_workspace_cleanup import AgentWorkspaceCleanupService
 from kodi_lab.application.agent_workspace_promotions import (
     AgentWorkspacePromotionConflictError,
@@ -66,6 +70,7 @@ from kodi_lab.storage.models import (
     DevelopmentSourceSmokeTestOperationRow,
     GlobalHeavyOperationLeaseRow,
     ManagedInstanceDevelopmentSourceRow,
+    ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     McpClientRow,
@@ -109,6 +114,35 @@ class Clock:
         return self.now
 
 
+class LiveProofReader:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.fail_at: int | None = None
+
+    def __call__(
+        self,
+        instance_id: UUID,
+        addon_id: str,
+        *,
+        expected_revision_id: UUID,
+        expected_container_id: str,
+    ) -> ManagedPromotionLiveProof:
+        self.calls += 1
+        if self.fail_at == self.calls:
+            raise ManagedPromotionProofUnavailableError("live target unavailable")
+        assert instance_id == TARGET_ID
+        assert addon_id == "plugin.video.example"
+        assert expected_revision_id == REVISION_ID
+        assert expected_container_id == CONTAINER_ID
+        return ManagedPromotionLiveProof(
+            instance_id=instance_id,
+            runtime_revision_id=expected_revision_id,
+            container_id=expected_container_id,
+            addon_id=addon_id,
+            enabled=True,
+        )
+
+
 def _verification_publisher(factory: sessionmaker[Session], clock: Clock) -> Any:
     service = PromotionVerificationService(
         factory,
@@ -128,6 +162,7 @@ class Harness:
     data_root: Path
     workspace_id: UUID
     clock: Clock
+    live_proof: LiveProofReader
 
 
 def _harness(tmp_path: Path, *, failure_phase: str | None = None) -> Harness:
@@ -195,9 +230,9 @@ def _harness(tmp_path: Path, *, failure_phase: str | None = None) -> Harness:
                 name="verification target",
                 target_type="managed",
                 kodi_version="21.3",
-                availability="available",
-                health="healthy",
-                connection_state="connected",
+                availability="unavailable",
+                health="warning",
+                connection_state="disconnected",
             )
         )
         session.flush()
@@ -316,6 +351,7 @@ def _harness(tmp_path: Path, *, failure_phase: str | None = None) -> Harness:
         )
     data_root = tmp_path / "data"
     clock = Clock()
+    live_proof = LiveProofReader()
     workspaces = AgentWorkspaceService(
         factory,
         data_root=data_root,
@@ -340,9 +376,17 @@ def _harness(tmp_path: Path, *, failure_phase: str | None = None) -> Harness:
         clock=clock,
         uuid_factory=uuid4,
         failure_injector=inject,
+        live_proof_reader=live_proof,
     )
     return Harness(
-        factory, workspaces, promotions, source, data_root, queued.workspace_id, clock
+        factory,
+        workspaces,
+        promotions,
+        source,
+        data_root,
+        queued.workspace_id,
+        clock,
+        live_proof,
     )
 
 
@@ -403,6 +447,7 @@ def _promotion_with_durable_child(
         clock=harness.clock,
         verification_publisher=verification.publish_durable,
         verification_starter=starter,
+        live_proof_reader=harness.live_proof,
     )
 
 
@@ -480,6 +525,7 @@ def test_double_publication_reuses_sole_child_and_reservation(tmp_path: Path) ->
         development_root=harness.source.parent,
         verification_publisher=publish_twice,
         clock=harness.clock,
+        live_proof_reader=harness.live_proof,
     )
     _edit(harness)
     plan = promotions.prepare(TARGET_ID, harness.workspace_id)
@@ -599,6 +645,7 @@ def test_child_creation_failure_cannot_commit_source_success(tmp_path: Path) -> 
         clock=harness.clock,
         verification_publisher=fail_publication,
         verification_starter=lambda _operation_id: None,
+        live_proof_reader=harness.live_proof,
     )
     _edit(harness)
     plan = promotions.prepare(TARGET_ID, harness.workspace_id)
@@ -1442,17 +1489,98 @@ def test_expiry_workspace_generation_drift_and_target_drift_fail_closed(
     target = _harness(tmp_path / "target")
     _edit(target, add=False)
     plan = target.promotions.prepare(TARGET_ID, target.workspace_id)
-    with target.factory.begin() as session:
-        session.execute(
-            update(TargetRow)
-            .where(TargetRow.id == str(TARGET_ID))
-            .values(connection_state="disconnected")
-        )
+    target.live_proof.fail_at = target.live_proof.calls + 1
     with pytest.raises(AgentWorkspacePromotionConflictError) as drift:
         target.promotions.approve_and_execute(
             TARGET_ID, target.workspace_id, plan.plan_id
         )
     assert drift.value.code == "promotion_target_ineligible"
+
+
+def test_stale_persisted_healthy_state_cannot_grant_managed_promotion(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    with harness.factory.begin() as session:
+        session.execute(
+            update(TargetRow)
+            .where(TargetRow.id == str(TARGET_ID))
+            .values(
+                availability="available", health="healthy", connection_state="connected"
+            )
+        )
+    harness.live_proof.fail_at = 1
+    with pytest.raises(AgentWorkspacePromotionConflictError) as error:
+        harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    assert error.value.code == "promotion_target_ineligible"
+
+
+def test_bootstrap_default_target_is_eligible_with_fresh_live_proof(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    assert harness.promotions.eligible_targets(harness.workspace_id)[0].id == TARGET_ID
+    plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    assert plan.state.value == "reviewable"
+    with harness.factory() as session:
+        target = session.get(TargetRow, str(TARGET_ID))
+        instance = session.get(ManagedInstanceRow, str(TARGET_ID))
+        assert target is not None and instance is not None
+        assert (
+            target.availability.value,
+            target.health.value,
+            target.connection_state.value,
+        ) == ("unavailable", "warning", "disconnected")
+        assert instance.runtime_state.value == "stopped"
+
+
+def test_managed_promotion_proof_preserves_historical_lifecycle_state(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    operation_id = uuid4()
+    with harness.factory.begin() as session:
+        session.add(
+            ManagedInstanceLifecycleOperationRow(
+                id=str(operation_id),
+                original_managed_instance_id=str(TARGET_ID),
+                managed_instance_id=str(TARGET_ID),
+                instance_name="verification target",
+                kind="start",
+                requested_at=NOW.isoformat(),
+                started_at=NOW.isoformat(),
+                completed_at=NOW.isoformat(),
+                prior_state="stopped",
+                resulting_state="running_not_ready",
+                state="succeeded",
+                reconciliation_required=False,
+            )
+        )
+    harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    with harness.factory() as session:
+        history = session.get(ManagedInstanceLifecycleOperationRow, str(operation_id))
+        assert history is not None
+        assert history.prior_state.value == "stopped"
+        assert history.resulting_state == "running_not_ready"
+
+
+def test_managed_promotion_rechecks_live_proof_before_source_success(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness, add=False)
+    plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    assert harness.live_proof.calls == 1
+    harness.live_proof.fail_at = 3
+    result = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+    assert result.state.value == "failed"
+    assert harness.live_proof.calls == 3
+    assert harness.source.joinpath("main.py").read_text() == "print('old')\n"
 
 
 def test_safe_unrelated_source_drift_remains_executable_but_overlap_does_not(

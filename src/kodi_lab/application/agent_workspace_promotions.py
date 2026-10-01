@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.addon_inventory import ManagedPromotionLiveProof
 from kodi_lab.domain import (
     AgentWorkspace,
     AgentWorkspaceBytesState,
@@ -31,7 +33,6 @@ from kodi_lab.domain import (
     DevelopmentSource,
     DevelopmentSourceDeploymentConfidence,
     DevelopmentSourceDeploymentOperationState,
-    DevelopmentSourceEnablementOperationState,
     GlobalHeavyOperationKind,
     HealthStatus,
     InstanceType,
@@ -56,7 +57,6 @@ from kodi_lab.storage.repositories import (
     AgentWorkspaceRepository,
     DevelopmentSourceDeploymentOperationRepository,
     DevelopmentSourceDeploymentRepository,
-    DevelopmentSourceEnablementOperationRepository,
     DevelopmentSourcePromotionLeaseRepository,
     DevelopmentSourceRepository,
     GlobalHeavyOperationLeaseRepository,
@@ -186,6 +186,17 @@ class McpPromotionOrigin:
     execution_id: UUID
 
 
+class ManagedPromotionProofReader(Protocol):
+    def __call__(
+        self,
+        instance_id: UUID,
+        addon_id: str,
+        *,
+        expected_revision_id: UUID,
+        expected_container_id: str,
+    ) -> ManagedPromotionLiveProof: ...
+
+
 @dataclass(frozen=True, slots=True)
 class _Lease:
     operation_id: UUID
@@ -213,7 +224,7 @@ class AgentWorkspacePromotionService:
         reconciliation_gate: Callable[[UUID], None] | None = None,
         failure_injector: Callable[[str], None] = lambda _phase: None,
         verification_starter: Callable[[UUID], object] | None = None,
-        enabled_state_reader: Callable[[UUID, str], bool] | None = None,
+        live_proof_reader: ManagedPromotionProofReader | None = None,
     ) -> None:
         if verification_publisher is None:
             raise ValueError("verification_publisher is required")
@@ -226,7 +237,7 @@ class AgentWorkspacePromotionService:
         self._failure_injector = failure_injector
         self._verification_publisher = verification_publisher
         self._verification_starter = verification_starter
-        self._enabled_state_reader = enabled_state_reader
+        self._live_proof_reader = live_proof_reader
 
     def _workspace_and_source(
         self, workspace_id: UUID
@@ -299,9 +310,6 @@ class AgentWorkspacePromotionService:
             mutation = ManagedInstanceMutationLeaseRepository(session).current(
                 target_id
             )
-            enablements = DevelopmentSourceEnablementOperationRepository(
-                session
-            ).list_for_original_instance(target_id)
             mcp_deployment = (
                 None
                 if mcp_origin is None
@@ -420,10 +428,8 @@ class AgentWorkspacePromotionService:
             or attachment is None
             or deployment is None
             or operation is None
+            or target.target_type is not TargetType.MANAGED
             or instance.instance_type is not InstanceType.DISPOSABLE
-            or target.availability is not TargetAvailability.AVAILABLE
-            or target.health is not HealthStatus.HEALTHY
-            or target.connection_state is not ConnectionState.CONNECTED
             or (
                 mcp_origin is None
                 and deployment.confidence
@@ -448,29 +454,36 @@ class AgentWorkspacePromotionService:
                 "Selected verification target no longer has exact eligible "
                 "deployment state.",
             )
-        enabled = next(
-            (
-                item.result_enabled
-                for item in enablements
-                if item.development_source_id == source_id
-                and item.state is DevelopmentSourceEnablementOperationState.SUCCEEDED
-                and item.result_enabled is not None
-            ),
-            None,
-        )
-        if self._enabled_state_reader is not None:
-            try:
-                enabled = self._enabled_state_reader(target_id, deployment.addon_id)
-            except Exception as error:
-                raise AgentWorkspacePromotionConflictError(
-                    "promotion_target_inventory_unavailable",
-                    "Selected target enabled state could not be proven.",
-                ) from error
-        if enabled is None:
+        if self._live_proof_reader is None:
             raise AgentWorkspacePromotionConflictError(
-                "promotion_target_enabled_unknown",
-                "Selected target enabled state is unknown.",
+                "promotion_target_ineligible",
+                "Selected verification target has no live proof provider.",
             )
+        try:
+            proof = self._live_proof_reader(
+                target_id,
+                deployment.addon_id,
+                expected_revision_id=instance.runtime_revision_id,
+                expected_container_id=deployment.trusted_container_id,
+            )
+        except Exception as error:
+            raise AgentWorkspacePromotionConflictError(
+                "promotion_target_ineligible",
+                "Selected verification target could not be proven live.",
+            ) from error
+        if (
+            not isinstance(proof, ManagedPromotionLiveProof)
+            or proof.instance_id != target_id
+            or proof.runtime_revision_id != instance.runtime_revision_id
+            or proof.container_id != deployment.trusted_container_id
+            or proof.addon_id != deployment.addon_id
+            or type(proof.enabled) is not bool
+        ):
+            raise AgentWorkspacePromotionConflictError(
+                "promotion_target_ineligible",
+                "Selected verification target live proof is inconsistent.",
+            )
+        enabled = proof.enabled
         canonical_source_digest = deployment.source_manifest_digest
         canonical_destination_digest = deployment.verified_destination_digest
         assert canonical_source_digest is not None
