@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import tarfile
 from dataclasses import dataclass
 from importlib.resources import files
@@ -48,6 +49,7 @@ from kodi_lab.fixtures.semantics import (
     MIXED_FIXTURE_SEMANTICS,
     FixtureEpisodeExpectation,
     FixtureMovieExpectation,
+    FixtureMoviePlaybackExpectation,
     FixtureSemanticSpecification,
     FixtureSeriesExpectation,
 )
@@ -62,6 +64,7 @@ SMALL_MOVIES_V1_FIXTURE_SLUG = "small-movies-v1"
 SMALL_MOVIES_V2_FIXTURE_SLUG = "small-movies-v2"
 SMALL_MOVIES_V3_FIXTURE_SLUG = "small-movies-v3"
 SMALL_MOVIES_V4_FIXTURE_SLUG = "small-movies-v4"
+SMALL_MOVIES_V5_FIXTURE_SLUG = "small-movies-v5"
 SMALL_TV_V1_FIXTURE_SLUG = "small-tv-v1"
 SMALL_TV_V2_FIXTURE_SLUG = "small-tv-v2"
 SMALL_TV_V3_FIXTURE_SLUG = "small-tv-v3"
@@ -72,6 +75,7 @@ SMALL_MOVIES_FIXTURE_SLUGS = frozenset(
         SMALL_MOVIES_V2_FIXTURE_SLUG,
         SMALL_MOVIES_V3_FIXTURE_SLUG,
         SMALL_MOVIES_V4_FIXTURE_SLUG,
+        SMALL_MOVIES_V5_FIXTURE_SLUG,
     }
 )
 SMALL_TV_FIXTURE_SLUGS = frozenset(
@@ -95,6 +99,7 @@ TRUSTED_FIXTURE_SLUGS = frozenset(
         SMALL_MOVIES_V2_FIXTURE_SLUG,
         SMALL_MOVIES_V3_FIXTURE_SLUG,
         SMALL_MOVIES_V4_FIXTURE_SLUG,
+        SMALL_MOVIES_V5_FIXTURE_SLUG,
         SMALL_TV_V1_FIXTURE_SLUG,
         SMALL_TV_V2_FIXTURE_SLUG,
         SMALL_TV_V3_FIXTURE_SLUG,
@@ -130,6 +135,9 @@ FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS = MappingProxyType(
             f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
         ),
         SMALL_MOVIES_V4_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_20_VIDEO_DATABASE_FILENAME}"
+        ),
+        SMALL_MOVIES_V5_FIXTURE_SLUG: (
             f"/home/kodi/.kodi/userdata/Database/{KODI_20_VIDEO_DATABASE_FILENAME}"
         ),
         SMALL_TV_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
@@ -180,6 +188,9 @@ _TV_SEED_MANIFEST_KEYS = _SEED_MANIFEST_KEYS - {"movie_path", "movie_content"}
 _SEMANTIC_EXPECTATION_KEYS = frozenset(
     {"movies", "tvshows", "episodes", "scan_plan", "drift_movie_unique_id"}
 )
+_POST_SCAN_MOVIE_STATE_KEYS = frozenset({"watched", "in_progress"})
+_WATCHED_MOVIE_KEYS = frozenset({"unique_id", "lastplayed"})
+_IN_PROGRESS_MOVIE_KEYS = frozenset({"unique_id", "position", "total"})
 _TV_SEMANTIC_EXPECTATION_KEYS = frozenset(
     {"movies", "tvshows", "episodes", "scan_plan", "drift_episode_unique_id"}
 )
@@ -349,6 +360,7 @@ def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> N
         SMALL_TV_V2_FIXTURE_SLUG: (8, 2),
         SMALL_MOVIES_V3_FIXTURE_SLUG: (9, 3),
         SMALL_MOVIES_V4_FIXTURE_SLUG: (14, 4),
+        SMALL_MOVIES_V5_FIXTURE_SLUG: (15, 5),
         SMALL_TV_V3_FIXTURE_SLUG: (10, 3),
         MEDIUM_MIXED_V1_FIXTURE_SLUG: (11, 1),
     }.get(slug)
@@ -478,6 +490,11 @@ def _audit_seed(
             KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
             audit_small_movies_v2_seed,
         ),
+        SMALL_MOVIES_V5_FIXTURE_SLUG: (
+            KODI_20_VIDEO_DATABASE_FILENAME,
+            KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_movies_v2_seed,
+        ),
         SMALL_TV_V3_FIXTURE_SLUG: (
             KODI_19_VIDEO_DATABASE_FILENAME,
             KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
@@ -537,7 +554,9 @@ def _parse_semantics(
 ) -> FixtureSemanticSpecification:
     raw = document.get("semantic_expectations")
     expected_keys = (
-        _SEMANTIC_EXPECTATION_KEYS
+        _SEMANTIC_EXPECTATION_KEYS | {"post_scan_movie_state"}
+        if slug == SMALL_MOVIES_V5_FIXTURE_SLUG
+        else _SEMANTIC_EXPECTATION_KEYS
         if slug in SMALL_MOVIES_FIXTURE_SLUGS
         else _TV_SEMANTIC_EXPECTATION_KEYS
         if slug in SMALL_TV_FIXTURE_SLUGS
@@ -554,7 +573,10 @@ def _parse_semantics(
     is_movies = slug in SMALL_MOVIES_FIXTURE_SLUGS
     is_tv = slug in SMALL_TV_FIXTURE_SLUGS
     is_medium_mixed = slug in MEDIUM_MIXED_FIXTURE_SLUGS
-    is_rich_movies = slug == SMALL_MOVIES_V4_FIXTURE_SLUG
+    is_rich_movies = slug in {
+        SMALL_MOVIES_V4_FIXTURE_SLUG,
+        SMALL_MOVIES_V5_FIXTURE_SLUG,
+    }
     expected_scan_plan = (
         ["movies"] if is_movies else ["tv"] if is_tv else ["movies", "tv"]
     )
@@ -698,6 +720,11 @@ def _parse_semantics(
         movies_contract if is_movies else tv_contract if is_tv else medium_contract
     ):
         raise PackagedFixtureError("fixture semantic expectations are invalid")
+    playback = (
+        _parse_rich_movie_playback(raw.get("post_scan_movie_state"), movie_specs)
+        if slug == SMALL_MOVIES_V5_FIXTURE_SLUG
+        else ()
+    )
     return FixtureSemanticSpecification(
         movies=movie_specs,
         series=show_specs,
@@ -710,6 +737,93 @@ def _parse_semantics(
         drift_episode_unique_id=(
             drift_episode_id if isinstance(drift_episode_id, str) else None
         ),
+        movie_playback=playback,
+    )
+
+
+def _parse_rich_movie_playback(
+    raw: object, movies: tuple[FixtureMovieExpectation, ...]
+) -> tuple[FixtureMoviePlaybackExpectation, ...]:
+    if not isinstance(raw, dict) or frozenset(raw) != _POST_SCAN_MOVIE_STATE_KEYS:
+        raise PackagedFixtureError("fixture post-scan state is invalid")
+    watched = raw.get("watched")
+    in_progress = raw.get("in_progress")
+    if not isinstance(watched, list) or not isinstance(in_progress, list):
+        raise PackagedFixtureError("fixture post-scan state is invalid")
+    try:
+        if any(
+            not isinstance(item, dict) or frozenset(item) != _WATCHED_MOVIE_KEYS
+            for item in watched
+        ) or any(
+            not isinstance(item, dict) or frozenset(item) != _IN_PROGRESS_MOVIE_KEYS
+            for item in in_progress
+        ):
+            raise ValueError
+        watched_by_id = {
+            _semantic_str(item, "unique_id"): _semantic_str(item, "lastplayed")
+            for item in watched
+        }
+        progress_by_id = {
+            _semantic_str(item, "unique_id"): (
+                _semantic_nonnegative_number(item, "position"),
+                _semantic_nonnegative_number(item, "total"),
+            )
+            for item in in_progress
+        }
+        if len(watched_by_id) != len(watched) or len(progress_by_id) != len(
+            in_progress
+        ):
+            raise ValueError
+        movie_ids = {movie.unique_id for movie in movies}
+        if (
+            len(watched) != 5
+            or len(in_progress) != 2
+            or not (set(watched_by_id) | set(progress_by_id)) <= movie_ids
+        ):
+            raise ValueError
+        if set(watched_by_id) & set(progress_by_id):
+            raise ValueError
+        states = tuple(
+            FixtureMoviePlaybackExpectation(
+                unique_id=movie.unique_id,
+                playcount=1 if movie.unique_id in watched_by_id else 0,
+                lastplayed=watched_by_id.get(movie.unique_id),
+                resume_position=progress_by_id.get(movie.unique_id, (0.0, 0.0))[0],
+                resume_total=progress_by_id.get(movie.unique_id, (0.0, 0.0))[1],
+            )
+            for movie in movies
+        )
+        if states != _expected_rich_movie_playback():
+            raise ValueError
+        return states
+    except (TypeError, ValueError) as error:
+        raise PackagedFixtureError("fixture post-scan state is invalid") from error
+
+
+def _semantic_nonnegative_number(item: dict[str, object], key: str) -> float:
+    value = item.get(key)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError("invalid post-scan value")
+    return float(value)
+
+
+def _expected_rich_movie_playback() -> tuple[FixtureMoviePlaybackExpectation, ...]:
+    watched = {1, 5, 7, 10, 12}
+    progress = {3: 1.0, 8: 1.0}
+    return tuple(
+        FixtureMoviePlaybackExpectation(
+            unique_id=f"small-movies-v4-movie-{index:02d}",
+            playcount=1 if index in watched else 0,
+            lastplayed="2020-01-01 00:00:00" if index in watched else None,
+            resume_position=progress.get(index, 0.0),
+            resume_total=2.0 if index in progress else 0.0,
+        )
+        for index in range(1, 13)
     )
 
 

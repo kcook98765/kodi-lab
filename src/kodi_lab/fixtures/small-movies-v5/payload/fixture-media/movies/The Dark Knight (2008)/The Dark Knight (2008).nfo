@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>The Dark Knight</title>
+  <originaltitle>The Dark Knight</originaltitle>
+  <sorttitle>The Dark Knight</sorttitle>
+  <year>2008</year>
+  <plot>Kodi Lab synthetic test clip 12; metadata apart from title and year is fixture-controlled.</plot>
+  <runtime>1</runtime>
+  <ratings>
+    <rating name="kodi-lab" max="10" default="true">
+      <value>8.5</value>
+      <votes>100</votes>
+    </rating>
+  </ratings>
+  <genre>Action</genre>
+  <genre>Thriller</genre>
+  <tag>Night</tag>
+  <tag>Action</tag>
+  <director>Theo Wren</director>
+  <studio>Orion Lab</studio>
+  <uniqueid type="kodi-lab" default="true">small-movies-v4-movie-12</uniqueid>
+  <actor>
+    <name>Omar Finch</name>
+    <role>Fixture role 1</role>
+    <order>0</order>
+  </actor>
+  <actor>
+    <name>Ivo Reed</name>
+    <role>Fixture role 2</role>
+    <order>1</order>
+  </actor>
+  <art>
+    <poster>poster.png</poster>
+    <fanart>fanart.png</fanart>
+  </art>
+</movie>

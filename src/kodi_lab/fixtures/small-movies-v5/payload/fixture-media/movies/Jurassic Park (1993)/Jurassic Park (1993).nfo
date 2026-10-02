@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>Jurassic Park</title>
+  <originaltitle>Jurassic Park</originaltitle>
+  <sorttitle>Jurassic Park</sorttitle>
+  <year>1993</year>
+  <plot>Kodi Lab synthetic test clip 08; metadata apart from title and year is fixture-controlled.</plot>
+  <runtime>1</runtime>
+  <ratings>
+    <rating name="kodi-lab" max="10" default="true">
+      <value>8.4</value>
+      <votes>100</votes>
+    </rating>
+  </ratings>
+  <genre>Adventure</genre>
+  <genre>Science Fiction</genre>
+  <tag>Journey</tag>
+  <tag>Family</tag>
+  <set>
+    <name>Kodi Lab Set A</name>
+  </set>
+  <director>Mira North</director>
+  <studio>Orion Lab</studio>
+  <uniqueid type="kodi-lab" default="true">small-movies-v4-movie-08</uniqueid>
+  <actor>
+    <name>Ada Vale</name>
+    <role>Fixture role 1</role>
+    <order>0</order>
+  </actor>
+  <actor>
+    <name>Lila Stone</name>
+    <role>Fixture role 2</role>
+    <order>1</order>
+  </actor>
+  <art>
+    <poster>poster.png</poster>
+    <fanart>fanart.png</fanart>
+  </art>
+</movie>

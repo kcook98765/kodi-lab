@@ -19,6 +19,7 @@ from kodi_lab.fixtures.semantics import (
     MIXED_FIXTURE_SEMANTICS,
     FixtureEpisodeExpectation,
     FixtureMovieExpectation,
+    FixtureMoviePlaybackExpectation,
     FixtureSemanticSpecification,
     FixtureSeriesExpectation,
 )
@@ -73,9 +74,10 @@ class FixtureLibraryState:
     expected_movie_count: int = 1
     expected_series_count: int = 1
     expected_episode_count: int = 1
+    post_scan_state_present: bool = True
 
     @property
-    def is_baseline(self) -> bool:
+    def is_scan_baseline(self) -> bool:
         return (
             self.movie_present == (self.expected_movie_count > 0)
             and self.series_present == (self.expected_series_count > 0)
@@ -84,6 +86,10 @@ class FixtureLibraryState:
             and self.series_count == self.expected_series_count
             and self.episode_count == self.expected_episode_count
         )
+
+    @property
+    def is_baseline(self) -> bool:
+        return self.is_scan_baseline and self.post_scan_state_present
 
 
 class SmallMixedFixtureKodiAdapter:
@@ -113,6 +119,8 @@ class SmallMixedFixtureKodiAdapter:
             raise ValueError(
                 "small-mixed fixture adapter supports only proven releases"
             )
+        if semantics.movie_playback and profile.kodi_release.canonical != "20.5":
+            raise ValueError("fixture post-scan movie state supports Nexus 20.5 only")
         self._host = observation.ipv4_address
         self._port = profile.jsonrpc_port
         self._path = profile.jsonrpc_path
@@ -123,6 +131,8 @@ class SmallMixedFixtureKodiAdapter:
         self._semantics = semantics
         self._event_observer = event_observer
         self._movie_scan_requested = False
+        self._scan_baseline_verified = False
+        self._post_scan_state_applied = False
         self._tv_scan_requested = False
         self._movie_scan_completed = False
         self._tv_scan_completed = False
@@ -164,6 +174,8 @@ class SmallMixedFixtureKodiAdapter:
                 movie_properties.extend(
                     ["genre", "cast", "director", "studio", "rating", "set", "tag"]
                 )
+            if self._semantics.movie_playback:
+                movie_properties.extend(["playcount", "lastplayed", "resume"])
             movies = self._items(
                 self._request(
                     "kodi-lab-fixture-movies",
@@ -210,6 +222,10 @@ class SmallMixedFixtureKodiAdapter:
                 expected_movie_count=len(self._semantics.movies),
                 expected_series_count=len(self._semantics.series),
                 expected_episode_count=len(self._semantics.episodes),
+                post_scan_state_present=(
+                    not self._semantics.movie_playback
+                    or self._playback_matches(movies, self._semantics.movie_playback)
+                ),
             )
         finally:
             self._emit(FixtureInitializationEvent.SEMANTIC_VERIFICATION_COMPLETED)
@@ -253,16 +269,153 @@ class SmallMixedFixtureKodiAdapter:
             ):
                 self._scan_tv_fixture_library()
                 continue
-            elif last.is_baseline:
+            elif last.is_scan_baseline:
                 if self._tv_scan_requested and not self._tv_scan_completed:
                     self._tv_scan_completed = True
                     self._emit(FixtureInitializationEvent.TV_SCAN_COMPLETED)
+                self._scan_baseline_verified = True
                 return last
             remaining = deadline - clock()
             if remaining > 0:
                 sleep(min(FIXTURE_POLL_INTERVAL_SECONDS, remaining))
         raise FixtureInitializationTimeoutError(
             "assigned fixture did not reach its semantic baseline"
+        )
+
+    def apply_prescribed_movie_playback(self) -> None:
+        """Apply only the exact packaged Nexus state after native scan verification."""
+
+        if (
+            self._semantics.movie_playback == ()
+            or self._semantics.scan_tv
+            or not self._scan_baseline_verified
+            or self._post_scan_state_applied
+        ):
+            raise ValueError("fixture post-scan state is not ready")
+        movies = self._items(
+            self._request(
+                "kodi-lab-fixture-state-identities",
+                "VideoLibrary.GetMovies",
+                {
+                    "properties": [
+                        "title",
+                        "year",
+                        "uniqueid",
+                        "file",
+                        "genre",
+                        "cast",
+                        "director",
+                        "studio",
+                        "rating",
+                        "set",
+                        "tag",
+                    ]
+                },
+            ),
+            "movies",
+        )
+        if not self._movies_match(movies, self._semantics.movies):
+            raise JsonRpcInvalidResponseError("fixture movie identities changed")
+        by_id: dict[str, int] = {}
+        for movie in movies:
+            unique = movie.get("uniqueid")
+            movieid = movie.get("movieid")
+            if (
+                not isinstance(unique, dict)
+                or not isinstance(movieid, int)
+                or isinstance(movieid, bool)
+                or movieid < 1
+            ):
+                raise JsonRpcInvalidResponseError("fixture movie identity is invalid")
+            fixture_id = unique.get("kodi-lab")
+            if not isinstance(fixture_id, str) or fixture_id in by_id:
+                raise JsonRpcInvalidResponseError("fixture movie identity is ambiguous")
+            by_id[fixture_id] = movieid
+        if set(by_id) != {state.unique_id for state in self._semantics.movie_playback}:
+            raise JsonRpcInvalidResponseError("fixture movie state identities differ")
+        for expected in self._semantics.movie_playback:
+            if expected.playcount == 0 and expected.resume_position == 0:
+                continue
+            movieid = by_id[expected.unique_id]
+            params: dict[str, object] = {
+                "movieid": movieid,
+                "playcount": expected.playcount,
+                "resume": {
+                    "position": expected.resume_position,
+                    "total": expected.resume_total,
+                },
+            }
+            if expected.lastplayed is not None:
+                params["lastplayed"] = expected.lastplayed
+            changed = self._request(
+                "kodi-lab-fixture-set-movie-state",
+                "VideoLibrary.SetMovieDetails",
+                params,
+            )
+            if changed.get("result") != "OK":
+                raise JsonRpcInvalidResponseError("fixture movie state update failed")
+            readback = self._request(
+                "kodi-lab-fixture-read-movie-state",
+                "VideoLibrary.GetMovieDetails",
+                {
+                    "movieid": movieid,
+                    "properties": ["uniqueid", "playcount", "lastplayed", "resume"],
+                },
+            )
+            result = readback.get("result")
+            details = result.get("moviedetails") if isinstance(result, dict) else None
+            if not isinstance(details, dict) or not self._movie_playback_matches(
+                details, expected
+            ):
+                raise JsonRpcInvalidResponseError(
+                    "fixture movie state readback differs"
+                )
+        self._post_scan_state_applied = True
+
+    @classmethod
+    def _playback_matches(
+        cls,
+        movies: list[dict[str, object]],
+        expected: tuple[FixtureMoviePlaybackExpectation, ...],
+    ) -> bool:
+        by_id: dict[str, dict[str, object]] = {}
+        for movie in movies:
+            unique = movie.get("uniqueid")
+            fixture_id = unique.get("kodi-lab") if isinstance(unique, dict) else None
+            if not isinstance(fixture_id, str) or fixture_id in by_id:
+                return False
+            by_id[fixture_id] = movie
+        return set(by_id) == {item.unique_id for item in expected} and all(
+            cls._movie_playback_matches(by_id[item.unique_id], item)
+            for item in expected
+        )
+
+    @classmethod
+    def _movie_playback_matches(
+        cls, movie: dict[str, object], expected: FixtureMoviePlaybackExpectation
+    ) -> bool:
+        if not cls._has_unique_id(movie, expected.unique_id):
+            return False
+        playcount = movie.get("playcount")
+        if not isinstance(playcount, int) or isinstance(playcount, bool):
+            return False
+        if playcount != expected.playcount:
+            return False
+        lastplayed = movie.get("lastplayed")
+        if (lastplayed or None) != expected.lastplayed:
+            return False
+        resume = movie.get("resume")
+        if not isinstance(resume, dict):
+            return False
+        position = resume.get("position")
+        total = resume.get("total")
+        return (
+            isinstance(position, int | float)
+            and not isinstance(position, bool)
+            and isinstance(total, int | float)
+            and not isinstance(total, bool)
+            and abs(position - expected.resume_position) < 0.001
+            and abs(total - expected.resume_total) < 0.001
         )
 
     def remove_fixture_movie_for_reset_test(self) -> FixtureLibraryState:
@@ -499,8 +652,10 @@ class SmallMixedFixtureKodiAdapter:
         method: Literal[
             "VideoLibrary.Scan",
             "VideoLibrary.GetMovies",
+            "VideoLibrary.GetMovieDetails",
             "VideoLibrary.GetTVShows",
             "VideoLibrary.GetEpisodes",
+            "VideoLibrary.SetMovieDetails",
             "VideoLibrary.RemoveMovie",
             "VideoLibrary.RemoveEpisode",
         ],

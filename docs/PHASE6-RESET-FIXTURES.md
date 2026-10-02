@@ -597,3 +597,58 @@ The manifest is 17,509 bytes and the deterministic archive is 706,560 bytes.
 No snapshot was created for this bounded gate, so snapshot size is unmeasured.
 Playback initiation was deferred because the existing fixture acceptance path
 has no fixed movie playback action.
+
+## Rich Small Movies post-scan playback state for Nexus 20.5
+
+`small-movies-v5` is a new immutable revision of the rich Small Movies fixture.
+Its UUID is `1f5e518e-a643-4dcb-aead-2d1c01b68bcc` and its accepted content
+digest is
+`sha256:ca5207ff2e3888c259c31718daacaa5bdd11bddbdfc3417e4a33ad5efac3aeb6`.
+It preserves all fifty v4 payload members byte-for-byte, including the audited
+configuration-only `MyVideos121.db` seed. Its semantic manifest additionally
+prescribes playback state. Kodi natively scans the twelve movies before a
+private, fixed Nexus `VideoLibrary.SetMovieDetails` phase resolves packaged
+fixture IDs to current instance movie IDs, updates seven movies, reads back each
+changed item, and verifies the complete twelve-movie state before stopping Kodi.
+No movie identity, mutation field, value, or JSON-RPC method comes from a Web
+or MCP caller. A failed update or readback fails the normal reset and retains
+its stopped-state/reconciliation behavior.
+
+| State | Fixture movie numbers | Playcount | Resume position/total |
+| --- | --- | ---: | --- |
+| Watched | 01, 05, 07, 10, 12 | 1 | 0 / 0 |
+| In progress | 03, 08 | 0 | 1.0 / 2.0 |
+| Unwatched without resume | 02, 04, 06, 09, 11 | 0 | 0 / 0 |
+
+Watched records prescribe `lastplayed=2020-01-01 00:00:00`; other records have
+no last-played timestamp. In-progress records remain unwatched by Kodi's
+playcount-based definition. Their explicit resume values are fixture setup
+state, not a claim that the one-second test clips naturally produced resume
+points. Library entities and metadata still come from native offline local-NFO
+ingestion; the seed contains no media or playback-history rows. External Kodi
+targets and historical fixtures are unaffected. Matrix and Omega behavior has
+not been established by this Nexus-only gate.
+
+The initial unaccepted v5 draft prescribed subsecond resume positions. A
+disposable Nexus 20.5 returned position zero while retaining the requested
+total, so that draft failed readback and was discarded before acceptance. The
+fixture uses an explicit one-second position; it does not rely on natural
+playback or infer state from clip duration.
+
+The accepted Nexus v5 development gate used one isolated disposable managed
+instance and two native reset cycles. Each finished stopped and reconstructed
+the same twelve scanned movies, five watched records (01, 05, 07, 10, 12),
+five unwatched records without resume (02, 04, 06, 09, 11), and two in-progress
+records (03, 08). Kodi returned `playcount=0`, no `lastplayed`, and resume
+`1.0 / 2.0` for both in-progress movies. Watched records returned the fixed
+timestamp and no resume point. Readback confirmed Science Fiction + watched
+`{05}`, Science Fiction + unwatched `{03, 08, 09}`, 1990s + watched `{07}`,
+Ada Vale + unwatched `{03, 08, 09}`, and rating >= 8 + unwatched `{03, 08, 09}`.
+
+The reset cycles took 9.355 and 9.476 seconds, compared with v4's 9.154 and
+9.446 seconds. Scan request to first exact metadata baseline took 1.037 and
+1.049 seconds. Post-scan application took 0.130 and 0.153 seconds. Final
+semantic readback took 0.020 and 0.019 seconds. Each reset performed seven
+`VideoLibrary.SetMovieDetails` mutations and seven individual
+`VideoLibrary.GetMovieDetails` readbacks, followed by a complete library
+semantic readback. The temporary container was deprovisioned after acceptance.

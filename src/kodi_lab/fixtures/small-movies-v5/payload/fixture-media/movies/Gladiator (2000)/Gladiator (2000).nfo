@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>Gladiator</title>
+  <originaltitle>Gladiator</originaltitle>
+  <sorttitle>Gladiator</sorttitle>
+  <year>2000</year>
+  <plot>Kodi Lab synthetic test clip 10; metadata apart from title and year is fixture-controlled.</plot>
+  <runtime>1</runtime>
+  <ratings>
+    <rating name="kodi-lab" max="10" default="true">
+      <value>8.8</value>
+      <votes>100</votes>
+    </rating>
+  </ratings>
+  <genre>Action</genre>
+  <genre>Drama</genre>
+  <tag>Archive</tag>
+  <tag>Action</tag>
+  <set>
+    <name>Kodi Lab Set B</name>
+  </set>
+  <director>Nora Flint</director>
+  <studio>Atlas Lab</studio>
+  <uniqueid type="kodi-lab" default="true">small-movies-v4-movie-10</uniqueid>
+  <actor>
+    <name>Ivo Reed</name>
+    <role>Fixture role 1</role>
+    <order>0</order>
+  </actor>
+  <actor>
+    <name>Pia Hart</name>
+    <role>Fixture role 2</role>
+    <order>1</order>
+  </actor>
+  <art>
+    <poster>poster.png</poster>
+    <fanart>fanart.png</fanart>
+  </art>
+</movie>

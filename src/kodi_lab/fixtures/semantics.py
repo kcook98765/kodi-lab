@@ -39,6 +39,15 @@ class FixtureEpisodeExpectation:
 
 
 @dataclass(frozen=True, slots=True)
+class FixtureMoviePlaybackExpectation:
+    unique_id: str
+    playcount: int
+    lastplayed: str | None
+    resume_position: float
+    resume_total: float
+
+
+@dataclass(frozen=True, slots=True)
 class FixtureSemanticSpecification:
     movies: tuple[FixtureMovieExpectation, ...]
     series: tuple[FixtureSeriesExpectation, ...]
@@ -47,6 +56,7 @@ class FixtureSemanticSpecification:
     scan_tv: bool
     drift_movie_unique_id: str | None
     drift_episode_unique_id: str | None
+    movie_playback: tuple[FixtureMoviePlaybackExpectation, ...] = ()
 
 
 MIXED_FIXTURE_SEMANTICS = FixtureSemanticSpecification(

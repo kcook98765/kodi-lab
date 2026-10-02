@@ -385,6 +385,8 @@ class FakeBroker:
                     "small-movies-v1",
                     "small-movies-v2",
                     "small-movies-v3",
+                    "small-movies-v4",
+                    "small-movies-v5",
                     "small-tv-v1",
                     "small-tv-v2",
                     "small-tv-v3",
@@ -438,8 +440,13 @@ class FakeFixtureAdapter:
         *,
         fail_scan: bool = False,
         state: FixtureLibraryState | None = None,
+        fail_post_scan: bool = False,
+        bad_final_state: bool = False,
     ) -> None:
         self.fail_scan = fail_scan
+        self.fail_post_scan = fail_post_scan
+        self.bad_final_state = bad_final_state
+        self.post_scan_applied = False
         self.state = state or FixtureLibraryState(True, True, True, 1, 1, 1)
 
     def scan_assigned_fixture_library(self) -> None:
@@ -448,6 +455,18 @@ class FakeFixtureAdapter:
 
     def wait_for_fixture_state(self) -> FixtureLibraryState:
         return self.state
+
+    def apply_prescribed_movie_playback(self) -> None:
+        if self.fail_post_scan:
+            raise RuntimeError("post-scan state failed")
+        self.post_scan_applied = True
+
+    def get_fixture_library_state(self) -> FixtureLibraryState:
+        if not self.post_scan_applied:
+            return self.state
+        return FixtureLibraryState(
+            True, False, False, 12, 0, 0, 12, 0, 0, not self.bad_final_state
+        )
 
 
 def service(
@@ -773,7 +792,94 @@ def test_small_tv_reset_uses_generic_flow_and_retains_exact_assignment(
         retained = ManagedInstanceRepository(session).get(instance_id)
         assert retained is not None
         assert retained.runtime_revision_id == revision_id
-        assert retained.fixture_definition_id == fixture_id
+    assert retained.fixture_definition_id == fixture_id
+
+
+def test_rich_movies_state_reset_applies_only_after_scan_and_verifies(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, _ = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-movies-v5",
+        kodi_version="20.5",
+    )
+    broker = FakeBroker(instance_id, revision_id, fixture_slug="small-movies-v5")
+    activity = RecordingResetActivityRegistry()
+    adapter = FakeFixtureAdapter(
+        state=FixtureLibraryState(True, False, False, 12, 0, 0, 12, 0, 0, False)
+    )
+    result = service(
+        session_factory, broker, fixture_adapter=adapter, activity=activity
+    ).reset(instance_id)
+    assert result.fixture_slug == "small-movies-v5"
+    assert result.fixture_state is not None and result.fixture_state.is_baseline
+    assert adapter.post_scan_applied
+    assert (
+        activity.phases.index(ResetActivityState.SCANNING_FIXTURE)
+        < activity.phases.index(ResetActivityState.APPLYING_POST_SCAN_STATE)
+        < activity.phases.index(ResetActivityState.VERIFYING_POST_SCAN_STATE)
+        < activity.phases.index(ResetActivityState.FINAL_STOPPING)
+    )
+
+
+def test_rich_movies_state_failure_does_not_report_verified_baseline(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, _ = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-movies-v5",
+        kodi_version="20.5",
+    )
+    broker = FakeBroker(instance_id, revision_id, fixture_slug="small-movies-v5")
+    activity = RecordingResetActivityRegistry()
+    adapter = FakeFixtureAdapter(
+        state=FixtureLibraryState(True, False, False, 12, 0, 0, 12, 0, 0, False),
+        fail_post_scan=True,
+    )
+    with pytest.raises(FixtureInitializationFailedError):
+        service(
+            session_factory, broker, fixture_adapter=adapter, activity=activity
+        ).reset(instance_id)
+    assert activity.snapshot(instance_id).state is ResetActivityState.FAILED
+    assert broker.state is ContainerRuntimeState.STOPPED
+
+
+def test_rich_movies_readback_mismatch_fails_reset(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, _ = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-movies-v5",
+        kodi_version="20.5",
+    )
+    broker = FakeBroker(instance_id, revision_id, fixture_slug="small-movies-v5")
+    adapter = FakeFixtureAdapter(
+        state=FixtureLibraryState(True, False, False, 12, 0, 0, 12, 0, 0, False),
+        bad_final_state=True,
+    )
+    with pytest.raises(FixtureInitializationFailedError):
+        service(session_factory, broker, fixture_adapter=adapter).reset(instance_id)
+    assert broker.state is ContainerRuntimeState.STOPPED
+
+
+def test_historical_rich_movies_does_not_apply_post_scan_state(
+    session_factory: sessionmaker[Session],
+) -> None:
+    instance_id, revision_id, _ = seed_reset_context(
+        session_factory,
+        assigned_fixture=True,
+        fixture_slug="small-movies-v4",
+        kodi_version="20.5",
+    )
+    broker = FakeBroker(instance_id, revision_id, fixture_slug="small-movies-v4")
+    adapter = FakeFixtureAdapter(
+        state=FixtureLibraryState(True, False, False, 12, 0, 0, 12, 0, 0)
+    )
+    service(session_factory, broker, fixture_adapter=adapter).reset(instance_id)
+    assert not adapter.post_scan_applied
 
 
 @pytest.mark.parametrize(

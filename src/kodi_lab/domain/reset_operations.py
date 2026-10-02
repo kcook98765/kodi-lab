@@ -25,6 +25,8 @@ class ResetOperationPhase(StrEnum):
     WAITING_READINESS = "waiting_readiness"
     SCANNING_FIXTURE = "scanning_fixture"
     VERIFYING_FIXTURE = "verifying_fixture"
+    APPLYING_POST_SCAN_STATE = "applying_post_scan_state"
+    VERIFYING_POST_SCAN_STATE = "verifying_post_scan_state"
     FINAL_STOPPING = "final_stopping"
     FINAL_VERIFYING = "final_verifying"
     SUCCEEDED = "succeeded"

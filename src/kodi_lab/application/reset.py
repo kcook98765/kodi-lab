@@ -186,6 +186,10 @@ class _FixtureAdapter(Protocol):
 
     def wait_for_fixture_state(self) -> FixtureLibraryState: ...
 
+    def apply_prescribed_movie_playback(self) -> None: ...
+
+    def get_fixture_library_state(self) -> FixtureLibraryState: ...
+
 
 class ResetActivityObserver(Protocol):
     def begin(self, instance_id: UUID) -> ResetActivitySnapshot: ...
@@ -536,8 +540,23 @@ class DisposableInstanceResetService:
                 ResetActivityState.VERIFYING_FIXTURE,
             )
             state = adapter.wait_for_fixture_state()
-            if not state.is_baseline:
+            if not state.is_scan_baseline:
                 raise RuntimeError("fixture adapter returned a non-baseline state")
+            if semantics.movie_playback:
+                self._activity.transition(
+                    instance_id,
+                    activity_generation,
+                    ResetActivityState.APPLYING_POST_SCAN_STATE,
+                )
+                adapter.apply_prescribed_movie_playback()
+                self._activity.transition(
+                    instance_id,
+                    activity_generation,
+                    ResetActivityState.VERIFYING_POST_SCAN_STATE,
+                )
+                state = adapter.get_fixture_library_state()
+                if not state.is_baseline:
+                    raise RuntimeError("fixture post-scan state verification failed")
         except Exception as error:
             self._raise_after_cleanup(
                 instance_id,

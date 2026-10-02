@@ -358,6 +358,7 @@ def test_public_adapter_surface_accepts_no_method_path_or_entity_identity() -> N
         "scan_assigned_fixture_library",
         "get_fixture_library_state",
         "wait_for_fixture_state",
+        "apply_prescribed_movie_playback",
         "remove_fixture_movie_for_reset_test",
         "remove_fixture_episode_for_reset_test",
         "apply_fixture_drift_plan_for_reset_test",
@@ -365,6 +366,7 @@ def test_public_adapter_surface_accepts_no_method_path_or_entity_identity() -> N
     for name in {
         "scan_assigned_fixture_library",
         "get_fixture_library_state",
+        "apply_prescribed_movie_playback",
         "remove_fixture_movie_for_reset_test",
         "remove_fixture_episode_for_reset_test",
         "apply_fixture_drift_plan_for_reset_test",

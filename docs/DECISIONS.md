@@ -5403,3 +5403,21 @@ approvals atomically with the governing revision transition.
   use embedded media. Large-scale storage and timing measurements may justify
   reconsideration. Real title/year naming may support a separately authorized
   scraper acceptance mode later; this decision does not enable that mode.
+
+## D-0400: Small Movies playback state is a post-scan fixture revision
+
+- The accepted `small-movies-v4` package and digest remain immutable. Nexus
+  `small-movies-v5` retains its exact embedded media, local metadata, and
+  configuration-only seed bytes, but has a new package identity and digest
+  because prescribed playback state changes fixture semantics.
+- Kodi still creates every movie entity through its native scan. The v5 reset
+  resolves exact packaged movie IDs from the scanned library, then uses only
+  fixed private Nexus movie-state operations to apply five watched and two
+  in-progress records. It reads state back and fails reset if the prescribed
+  state is absent. Playback state lives only in each Kodi instance database;
+  the configuration seed has no movie or history rows.
+- An in-progress movie has playcount zero and therefore remains in the Kodi
+  unwatched class. The tiny synthetic media is not played to create resume
+  points. This decision grants no Web/MCP movie-mutation or arbitrary JSON-RPC
+  authority, and does not apply to external targets. Matrix/Omega post-scan
+  state behavior remains unproven.

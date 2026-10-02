@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>Home Alone</title>
+  <originaltitle>Home Alone</originaltitle>
+  <sorttitle>Home Alone</sorttitle>
+  <year>1990</year>
+  <plot>Kodi Lab synthetic test clip 07; metadata apart from title and year is fixture-controlled.</plot>
+  <runtime>1</runtime>
+  <ratings>
+    <rating name="kodi-lab" max="10" default="true">
+      <value>5.8</value>
+      <votes>100</votes>
+    </rating>
+  </ratings>
+  <genre>Comedy</genre>
+  <genre>Family</genre>
+  <tag>Family</tag>
+  <tag>Classic</tag>
+  <director>Nora Flint</director>
+  <studio>Atlas Lab</studio>
+  <uniqueid type="kodi-lab" default="true">small-movies-v4-movie-07</uniqueid>
+  <actor>
+    <name>Lila Stone</name>
+    <role>Fixture role 1</role>
+    <order>0</order>
+  </actor>
+  <actor>
+    <name>Pia Hart</name>
+    <role>Fixture role 2</role>
+    <order>1</order>
+  </actor>
+  <art>
+    <poster>poster.png</poster>
+    <fanart>fanart.png</fanart>
+  </art>
+</movie>
