@@ -5385,3 +5385,21 @@ approvals atomically with the governing revision transition.
   existing execution provenance check, while all separate live Bridge and
   execution-authority gates still apply. Web imports cannot gain workspace
   execution provenance through this action.
+
+## D-0399: Rich Small Movies retain embedded, offline fixture media
+
+- `small-movies-v4` is a new immutable Small/Movies package for exact Kodi
+  20.5. It coexists with historical packages. Its twelve real movie titles and
+  release years provide representative folder and file identities; the clips,
+  artwork, plots, genres, people, studios, ratings, sets, tags, and fixture IDs
+  are Kodi Lab synthetic test material. Controlled fields do not claim to be
+  factual metadata about the real films.
+- The package embeds tiny playable synthetic MP4s, local NFOs, and synthetic
+  artwork under the existing profile path. It reuses the audited Nexus
+  configuration-only video seed and `metadata.local`; Kodi creates all movie
+  rows through its native scan. Normal reset is deterministic and offline,
+  without Internet scraping or preloaded library rows.
+- The shared immutable media corpus remains deferred while Small and Medium
+  use embedded media. Large-scale storage and timing measurements may justify
+  reconsideration. Real title/year naming may support a separately authorized
+  scraper acceptance mode later; this decision does not enable that mode.

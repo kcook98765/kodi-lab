@@ -61,6 +61,7 @@ SMALL_MIXED_V6_FIXTURE_SLUG = "small-mixed-v6"
 SMALL_MOVIES_V1_FIXTURE_SLUG = "small-movies-v1"
 SMALL_MOVIES_V2_FIXTURE_SLUG = "small-movies-v2"
 SMALL_MOVIES_V3_FIXTURE_SLUG = "small-movies-v3"
+SMALL_MOVIES_V4_FIXTURE_SLUG = "small-movies-v4"
 SMALL_TV_V1_FIXTURE_SLUG = "small-tv-v1"
 SMALL_TV_V2_FIXTURE_SLUG = "small-tv-v2"
 SMALL_TV_V3_FIXTURE_SLUG = "small-tv-v3"
@@ -70,6 +71,7 @@ SMALL_MOVIES_FIXTURE_SLUGS = frozenset(
         SMALL_MOVIES_V1_FIXTURE_SLUG,
         SMALL_MOVIES_V2_FIXTURE_SLUG,
         SMALL_MOVIES_V3_FIXTURE_SLUG,
+        SMALL_MOVIES_V4_FIXTURE_SLUG,
     }
 )
 SMALL_TV_FIXTURE_SLUGS = frozenset(
@@ -92,6 +94,7 @@ TRUSTED_FIXTURE_SLUGS = frozenset(
         SMALL_MOVIES_V1_FIXTURE_SLUG,
         SMALL_MOVIES_V2_FIXTURE_SLUG,
         SMALL_MOVIES_V3_FIXTURE_SLUG,
+        SMALL_MOVIES_V4_FIXTURE_SLUG,
         SMALL_TV_V1_FIXTURE_SLUG,
         SMALL_TV_V2_FIXTURE_SLUG,
         SMALL_TV_V3_FIXTURE_SLUG,
@@ -125,6 +128,9 @@ FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS = MappingProxyType(
         ),
         SMALL_MOVIES_V3_FIXTURE_SLUG: (
             f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
+        ),
+        SMALL_MOVIES_V4_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_20_VIDEO_DATABASE_FILENAME}"
         ),
         SMALL_TV_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
         SMALL_TV_V2_FIXTURE_SLUG: (
@@ -342,6 +348,7 @@ def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> N
         SMALL_MOVIES_V2_FIXTURE_SLUG: (7, 2),
         SMALL_TV_V2_FIXTURE_SLUG: (8, 2),
         SMALL_MOVIES_V3_FIXTURE_SLUG: (9, 3),
+        SMALL_MOVIES_V4_FIXTURE_SLUG: (14, 4),
         SMALL_TV_V3_FIXTURE_SLUG: (10, 3),
         MEDIUM_MIXED_V1_FIXTURE_SLUG: (11, 1),
     }.get(slug)
@@ -466,6 +473,11 @@ def _audit_seed(
             KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
             audit_small_movies_v3_seed,
         ),
+        SMALL_MOVIES_V4_FIXTURE_SLUG: (
+            KODI_20_VIDEO_DATABASE_FILENAME,
+            KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_movies_v2_seed,
+        ),
         SMALL_TV_V3_FIXTURE_SLUG: (
             KODI_19_VIDEO_DATABASE_FILENAME,
             KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
@@ -542,6 +554,7 @@ def _parse_semantics(
     is_movies = slug in SMALL_MOVIES_FIXTURE_SLUGS
     is_tv = slug in SMALL_TV_FIXTURE_SLUGS
     is_medium_mixed = slug in MEDIUM_MIXED_FIXTURE_SLUGS
+    is_rich_movies = slug == SMALL_MOVIES_V4_FIXTURE_SLUG
     expected_scan_plan = (
         ["movies"] if is_movies else ["tv"] if is_tv else ["movies", "tv"]
     )
@@ -558,11 +571,42 @@ def _parse_semantics(
         movie_specs = tuple(
             FixtureMovieExpectation(
                 title=_semantic_str(
-                    item, "title", {"title", "year", "unique_id", "file"}
+                    item,
+                    "title",
+                    (
+                        {
+                            "title",
+                            "year",
+                            "unique_id",
+                            "file",
+                            "genres",
+                            "actors",
+                            "director",
+                            "studio",
+                            "rating",
+                            "set_name",
+                            "tags",
+                        }
+                        if is_rich_movies
+                        else {"title", "year", "unique_id", "file"}
+                    ),
                 ),
                 year=_semantic_int(item, "year"),
                 unique_id=_semantic_str(item, "unique_id"),
                 file=_semantic_str(item, "file"),
+                genres=_semantic_string_tuple(item, "genres")
+                if is_rich_movies
+                else None,
+                actors=_semantic_string_tuple(item, "actors")
+                if is_rich_movies
+                else None,
+                director=_semantic_str(item, "director") if is_rich_movies else None,
+                studio=_semantic_str(item, "studio") if is_rich_movies else None,
+                rating=_semantic_rating(item) if is_rich_movies else None,
+                set_name=_semantic_optional_string(item, "set_name")
+                if is_rich_movies
+                else None,
+                tags=_semantic_string_tuple(item, "tags") if is_rich_movies else None,
             )
             for item in movies
         )
@@ -608,11 +652,20 @@ def _parse_semantics(
     movie_ids = {movie.unique_id for movie in movie_specs}
     episode_ids = {episode.unique_id for episode in episode_specs}
     movies_contract = (
-        len(movie_specs) == 3
+        len(movie_specs) == (12 if is_rich_movies else 3)
         and not show_specs
         and not episode_specs
         and drift_movie_id in movie_ids
         and len(movie_ids) == len(movie_specs)
+        and (
+            tuple(
+                (movie.title, movie.year, movie.unique_id, movie.file)
+                for movie in movie_specs
+            )
+            == _expected_rich_movie_identities()
+            if is_rich_movies
+            else True
+        )
     )
     tv_contract = (
         not movie_specs
@@ -675,6 +728,32 @@ def _expected_medium_movies() -> tuple[FixtureMovieExpectation, ...]:
     )
 
 
+def _expected_rich_movie_identities() -> tuple[tuple[str, int, str, str], ...]:
+    identities = (
+        ("Jaws", 1975),
+        ("Rocky", 1976),
+        ("Alien", 1979),
+        ("The Shining", 1980),
+        ("Back to the Future", 1985),
+        ("Die Hard", 1988),
+        ("Home Alone", 1990),
+        ("Jurassic Park", 1993),
+        ("The Matrix", 1999),
+        ("Gladiator", 2000),
+        ("Finding Nemo", 2003),
+        ("The Dark Knight", 2008),
+    )
+    return tuple(
+        (
+            title,
+            year,
+            f"small-movies-v4-movie-{index:02d}",
+            f"{FIXTURE_MOVIE_DIRECTORY}{title} ({year})/{title} ({year}).mp4",
+        )
+        for index, (title, year) in enumerate(identities, 1)
+    )
+
+
 def _expected_medium_series() -> tuple[FixtureSeriesExpectation, ...]:
     return tuple(
         FixtureSeriesExpectation(
@@ -727,6 +806,42 @@ def _semantic_int(item: object, key: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError("invalid semantic integer")
     return value
+
+
+def _semantic_string_tuple(item: object, key: str) -> tuple[str, ...]:
+    if not isinstance(item, dict):
+        raise ValueError("invalid semantic entity")
+    value = item.get(key)
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(member, str) or not member for member in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ValueError("invalid semantic string collection")
+    return tuple(value)
+
+
+def _semantic_optional_string(item: object, key: str) -> str | None:
+    if not isinstance(item, dict):
+        raise ValueError("invalid semantic entity")
+    value = item.get(key)
+    if value is not None and (not isinstance(value, str) or not value):
+        raise ValueError("invalid optional semantic string")
+    return value
+
+
+def _semantic_rating(item: object) -> float:
+    if not isinstance(item, dict):
+        raise ValueError("invalid semantic entity")
+    value = item.get("rating")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not 0 <= value <= 10
+    ):
+        raise ValueError("invalid semantic rating")
+    return float(value)
 
 
 def _compatible_release(document: MappingProxyType[str, Any]) -> str:

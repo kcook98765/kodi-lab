@@ -229,6 +229,25 @@ def test_small_movies_registration_and_exact_release_assignment(
         service.assign(managed_instance_id=nexus.id, fixture_definition_id=fixture.id)
 
 
+def test_rich_small_movies_registers_only_for_disposable_nexus(
+    session_factory: sessionmaker[Session],
+) -> None:
+    service = FixtureAdministrationService(session_factory)
+    fixture = service.register_packaged_fixture("small-movies-v4")
+    assert service.register_packaged_fixture("small-movies-v4") == fixture
+    assert fixture.fixture_version == 4
+    nexus, _definition, revision = seed_instance(session_factory, kodi_version="20.5")
+    assigned = service.assign(
+        managed_instance_id=nexus.id, fixture_definition_id=fixture.id
+    )
+    assert assigned.runtime_revision_id == revision.id
+    assert assigned.fixture_definition_id == fixture.id
+
+    omega, _definition, _revision = seed_instance(session_factory)
+    with pytest.raises(FixtureIncompatibleError):
+        service.assign(managed_instance_id=omega.id, fixture_definition_id=fixture.id)
+
+
 def test_small_tv_registration_and_exact_release_assignment(
     session_factory: sessionmaker[Session],
 ) -> None:

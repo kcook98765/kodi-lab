@@ -178,6 +178,72 @@ def test_fixed_scan_and_exact_semantic_fixture_success() -> None:
     }
 
 
+def test_rich_movies_reset_checks_metadata_without_changing_old_requests() -> None:
+    semantics = load_packaged_fixture("small-movies-v4").semantics
+
+    def response(method: str, _request: dict[str, object]) -> object:
+        if method == "VideoLibrary.GetMovies":
+            return {
+                "movies": [
+                    {
+                        "title": movie.title,
+                        "year": movie.year,
+                        "uniqueid": {"kodi-lab": movie.unique_id},
+                        "file": movie.file,
+                        "genre": list(movie.genres or ()),
+                        "cast": [{"name": name} for name in movie.actors or ()],
+                        "director": [movie.director],
+                        "studio": [movie.studio],
+                        "rating": movie.rating,
+                        "set": movie.set_name or "",
+                        "tag": list(movie.tags or ()),
+                    }
+                    for movie in semantics.movies
+                ]
+            }
+        if method == "VideoLibrary.GetTVShows":
+            return {"tvshows": []}
+        if method == "VideoLibrary.GetEpisodes":
+            return {"episodes": []}
+        raise AssertionError(method)
+
+    transport = FakeTransport(response)
+    adapter = SmallMixedFixtureKodiAdapter(
+        observation(), profile("20.5"), semantics, transport=transport
+    )
+    assert adapter.get_fixture_library_state().is_baseline
+    movie_request = transport.requests[0]
+    assert movie_request["params"] == {
+        "properties": [
+            "title",
+            "year",
+            "uniqueid",
+            "file",
+            "genre",
+            "cast",
+            "director",
+            "studio",
+            "rating",
+            "set",
+            "tag",
+        ]
+    }
+
+    def wrong_rating(method: str, request: dict[str, object]) -> object:
+        result = response(method, request)
+        if method == "VideoLibrary.GetMovies":
+            assert isinstance(result, dict)
+            movies = result["movies"]
+            assert isinstance(movies, list)
+            movies[0]["rating"] = 1.0
+        return result
+
+    bad = SmallMixedFixtureKodiAdapter(
+        observation(), profile("20.5"), semantics, transport=FakeTransport(wrong_rating)
+    )
+    assert not bad.get_fixture_library_state().is_baseline
+
+
 def test_same_fixed_semantic_adapter_supports_reviewed_releases() -> None:
     nexus = SmallMixedFixtureKodiAdapter(
         observation(), profile("20.5"), transport=FakeTransport()

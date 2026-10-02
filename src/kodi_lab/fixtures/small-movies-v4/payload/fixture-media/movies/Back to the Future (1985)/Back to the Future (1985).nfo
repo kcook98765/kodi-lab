@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>Back to the Future</title>
+  <originaltitle>Back to the Future</originaltitle>
+  <sorttitle>Back to the Future</sorttitle>
+  <year>1985</year>
+  <plot>Kodi Lab synthetic test clip 05; metadata apart from title and year is fixture-controlled.</plot>
+  <runtime>1</runtime>
+  <ratings>
+    <rating name="kodi-lab" max="10" default="true">
+      <value>9.0</value>
+      <votes>100</votes>
+    </rating>
+  </ratings>
+  <genre>Science Fiction</genre>
+  <genre>Comedy</genre>
+  <tag>Journey</tag>
+  <tag>Family</tag>
+  <set>
+    <name>Kodi Lab Set B</name>
+  </set>
+  <director>Mira North</director>
+  <studio>Bay Lab</studio>
+  <uniqueid type="kodi-lab" default="true">small-movies-v4-movie-05</uniqueid>
+  <actor>
+    <name>Ada Vale</name>
+    <role>Fixture role 1</role>
+    <order>0</order>
+  </actor>
+  <actor>
+    <name>Pia Hart</name>
+    <role>Fixture role 2</role>
+    <order>1</order>
+  </actor>
+  <art>
+    <poster>poster.png</poster>
+    <fanart>fanart.png</fanart>
+  </art>
+</movie>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>The Shining</title>
+  <originaltitle>The Shining</originaltitle>
+  <sorttitle>The Shining</sorttitle>
+  <year>1980</year>
+  <plot>Kodi Lab synthetic test clip 04; metadata apart from title and year is fixture-controlled.</plot>
+  <runtime>1</runtime>
+  <ratings>
+    <rating name="kodi-lab" max="10" default="true">
+      <value>6.5</value>
+      <votes>100</votes>
+    </rating>
+  </ratings>
+  <genre>Horror</genre>
+  <genre>Drama</genre>
+  <tag>Night</tag>
+  <tag>Classic</tag>
+  <director>Theo Wren</director>
+  <studio>Atlas Lab</studio>
+  <uniqueid type="kodi-lab" default="true">small-movies-v4-movie-04</uniqueid>
+  <actor>
+    <name>Lila Stone</name>
+    <role>Fixture role 1</role>
+    <order>0</order>
+  </actor>
+  <actor>
+    <name>Omar Finch</name>
+    <role>Fixture role 2</role>
+    <order>1</order>
+  </actor>
+  <art>
+    <poster>poster.png</poster>
+    <fanart>fanart.png</fanart>
+  </art>
+</movie>

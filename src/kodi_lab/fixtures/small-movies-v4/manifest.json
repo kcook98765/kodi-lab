@@ -1,0 +1,549 @@
+{
+  "compatible_kodi_releases": [
+    "20.5"
+  ],
+  "container_destination": "/home/kodi/.kodi",
+  "content_category": "movies",
+  "content_digest": "sha256:2a548663491fea8262696291a96473ce6a9dabb71eccaa43c63f729ead0495c2",
+  "description": "Twelve real movie title/year identities with synthetic Kodi Lab clips, artwork, and controlled offline NFO metadata for Nexus 20.5.",
+  "files": [
+    {
+      "path": "payload/fixture-media/movies/Alien (1979)/Alien (1979).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/Alien (1979)/Alien (1979).nfo",
+      "sha256": "de811d6365264f642919c89cef3ae5b42f65aef099e092c8ced0b88cbde678fd",
+      "size": 1026
+    },
+    {
+      "path": "payload/fixture-media/movies/Alien (1979)/fanart.png",
+      "sha256": "05b510d3a72b4a0afb91e5558118a52653f740da0b5a09dff81b707c19891db5",
+      "size": 5296
+    },
+    {
+      "path": "payload/fixture-media/movies/Alien (1979)/poster.png",
+      "sha256": "434b44560caf1faa925207f27ee8bf043c695af86291b1c27f5a229e5a1bedc3",
+      "size": 3778
+    },
+    {
+      "path": "payload/fixture-media/movies/Back to the Future (1985)/Back to the Future (1985).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/Back to the Future (1985)/Back to the Future (1985).nfo",
+      "sha256": "a6cafae096e0f841a1ccb3596c65aa2fb05ecf7be48adc6d732f98c7217eebe4",
+      "size": 1064
+    },
+    {
+      "path": "payload/fixture-media/movies/Back to the Future (1985)/fanart.png",
+      "sha256": "5ac004070ae92f4cc939cc3683978c8df5072d1a8c55e6d63a079e3e9d7fc357",
+      "size": 6714
+    },
+    {
+      "path": "payload/fixture-media/movies/Back to the Future (1985)/poster.png",
+      "sha256": "32ba4c47174992d9848c075d32c90b51a2e63c34fbf3662dd6548956ace916a0",
+      "size": 4604
+    },
+    {
+      "path": "payload/fixture-media/movies/Die Hard (1988)/Die Hard (1988).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/Die Hard (1988)/Die Hard (1988).nfo",
+      "sha256": "b938f82b33662937423f0e41476c55a676a4978693f703f6bba940b748145664",
+      "size": 979
+    },
+    {
+      "path": "payload/fixture-media/movies/Die Hard (1988)/fanart.png",
+      "sha256": "677efb21f04231a6734845bc47f6185e7d42ad79c43ec314aa5d3f1bb7164126",
+      "size": 5788
+    },
+    {
+      "path": "payload/fixture-media/movies/Die Hard (1988)/poster.png",
+      "sha256": "ccd6b0af310b7803b5709038f876ad006555b2fe43233f7e08fb8719e372926e",
+      "size": 4120
+    },
+    {
+      "path": "payload/fixture-media/movies/Finding Nemo (2003)/Finding Nemo (2003).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/Finding Nemo (2003)/Finding Nemo (2003).nfo",
+      "sha256": "2b2d934909f8328bb03d117968f70714becd7b4aa11e18b7dfd2909f1baf00f7",
+      "size": 993
+    },
+    {
+      "path": "payload/fixture-media/movies/Finding Nemo (2003)/fanart.png",
+      "sha256": "bfa624b6561ac3ef8d42b49d2ae80f17bed5bf969ba3a1c60739b5147026ecdf",
+      "size": 5997
+    },
+    {
+      "path": "payload/fixture-media/movies/Finding Nemo (2003)/poster.png",
+      "sha256": "933d7eaf51d42c9de327917d531177e731d96799cb3f20883fc42be3b3e835b5",
+      "size": 4151
+    },
+    {
+      "path": "payload/fixture-media/movies/Gladiator (2000)/Gladiator (2000).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/Gladiator (2000)/Gladiator (2000).nfo",
+      "sha256": "6902fc2b6c7507d8ceac20169fc7e59355bfbd899c66d103b9d5dda4ad2df227",
+      "size": 1029
+    },
+    {
+      "path": "payload/fixture-media/movies/Gladiator (2000)/fanart.png",
+      "sha256": "574495641b7e54daafd6cede99ad4e0cf10d4f16960045b22991ad74763f6f19",
+      "size": 5923
+    },
+    {
+      "path": "payload/fixture-media/movies/Gladiator (2000)/poster.png",
+      "sha256": "91d390186157f36dfd2a1e15204e9d7dd5a4ea1814d39cd076c1ceed15c98abc",
+      "size": 4192
+    },
+    {
+      "path": "payload/fixture-media/movies/Home Alone (1990)/Home Alone (1990).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/Home Alone (1990)/Home Alone (1990).nfo",
+      "sha256": "86eab361b286404d2169bd2b7f273b304143030ae41f7c7ed8d7d3250b35fd72",
+      "size": 986
+    },
+    {
+      "path": "payload/fixture-media/movies/Home Alone (1990)/fanart.png",
+      "sha256": "e3aa84a5ffce6c81a55151ed51241c21fc932390a487a540a94e918678ee7e80",
+      "size": 6027
+    },
+    {
+      "path": "payload/fixture-media/movies/Home Alone (1990)/poster.png",
+      "sha256": "ee8fd0a9bc679fa6c90dae24a7dae7bbf7d2c8c368bef4dfee8f6be06dc04391",
+      "size": 4193
+    },
+    {
+      "path": "payload/fixture-media/movies/Jaws (1975)/Jaws (1975).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/Jaws (1975)/Jaws (1975).nfo",
+      "sha256": "dc05dcd3834b5a90a74e144aa7637bb80d93a6fb4cdb4643a5465417cd596ca0",
+      "size": 1019
+    },
+    {
+      "path": "payload/fixture-media/movies/Jaws (1975)/fanart.png",
+      "sha256": "b7e7d0289844988a324c6c1a5b2cd97982f263c83e76d8cd8c5802df2acc651a",
+      "size": 6097
+    },
+    {
+      "path": "payload/fixture-media/movies/Jaws (1975)/poster.png",
+      "sha256": "d04d3d25323a9d6c23f60aca05ad5679a5aba14ab3b602488a856ed42e6dfc97",
+      "size": 4205
+    },
+    {
+      "path": "payload/fixture-media/movies/Jurassic Park (1993)/Jurassic Park (1993).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/Jurassic Park (1993)/Jurassic Park (1993).nfo",
+      "sha256": "1531d639b21ae1d346a504e03621bb0df7776d80aa497aea8aa494fede5d5c6f",
+      "size": 1056
+    },
+    {
+      "path": "payload/fixture-media/movies/Jurassic Park (1993)/fanart.png",
+      "sha256": "f36e4ac9547a01eb7bb22f2b9053ee7ebd362550eff9e61dce05b5ddce0a48ed",
+      "size": 7123
+    },
+    {
+      "path": "payload/fixture-media/movies/Jurassic Park (1993)/poster.png",
+      "sha256": "059980d129ca822991261a04aefdea121bfca103f0e615e0a18be879954d7404",
+      "size": 4772
+    },
+    {
+      "path": "payload/fixture-media/movies/Rocky (1976)/Rocky (1976).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/Rocky (1976)/Rocky (1976).nfo",
+      "sha256": "b29e1a6f97e0a8721ce745d21aec05568c5aaca590360827c2151b488ae561e0",
+      "size": 1017
+    },
+    {
+      "path": "payload/fixture-media/movies/Rocky (1976)/fanart.png",
+      "sha256": "ddeb79ba1266d8faac95cfea3945d0f2fbb858a347d7541c2979ce5bce4e5a98",
+      "size": 6373
+    },
+    {
+      "path": "payload/fixture-media/movies/Rocky (1976)/poster.png",
+      "sha256": "b49f23afea11abe7d94388b24521a9f1de7c5e53d5fea1dbb8e225b294df7641",
+      "size": 4376
+    },
+    {
+      "path": "payload/fixture-media/movies/The Dark Knight (2008)/The Dark Knight (2008).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/The Dark Knight (2008)/The Dark Knight (2008).nfo",
+      "sha256": "32a6114744c822844b37862aa1d6a0c8cb895e2c8e8528598c8f807974e0b3b0",
+      "size": 1000
+    },
+    {
+      "path": "payload/fixture-media/movies/The Dark Knight (2008)/fanart.png",
+      "sha256": "4e6d8a3e388b7397b377d5a12486aee03ee7c6bf74829fd7a4ff7ac9f706a5f4",
+      "size": 6511
+    },
+    {
+      "path": "payload/fixture-media/movies/The Dark Knight (2008)/poster.png",
+      "sha256": "905b70c316ca13d400dc92bc2c743e87db8f531c22e88b6cfff1b8d015f904f8",
+      "size": 4542
+    },
+    {
+      "path": "payload/fixture-media/movies/The Matrix (1999)/The Matrix (1999).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/The Matrix (1999)/The Matrix (1999).nfo",
+      "sha256": "bbb4f8c5a556da6a6e0ac09d3fb752785f17e165f2ddde52780f8b098416358e",
+      "size": 989
+    },
+    {
+      "path": "payload/fixture-media/movies/The Matrix (1999)/fanart.png",
+      "sha256": "bf5d16f36b23becb212fbf40bf4bfe00f4263bb8f4fb5e12358322b753521a78",
+      "size": 5573
+    },
+    {
+      "path": "payload/fixture-media/movies/The Matrix (1999)/poster.png",
+      "sha256": "0eb7688fdbb7a593c59b7208fc828b3453a4f5669198c6f40e6ee07d9f09cd3c",
+      "size": 3998
+    },
+    {
+      "path": "payload/fixture-media/movies/The Shining (1980)/The Shining (1980).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/The Shining (1980)/The Shining (1980).nfo",
+      "sha256": "4c029d655418055c38dcb15cb0e0f38f025f80904a26624ce9425532cdb0b3dc",
+      "size": 988
+    },
+    {
+      "path": "payload/fixture-media/movies/The Shining (1980)/fanart.png",
+      "sha256": "6ff531c06202192f3fbf0b6d6ed4ca51206fca78eefdf9bce127092a467638cc",
+      "size": 5796
+    },
+    {
+      "path": "payload/fixture-media/movies/The Shining (1980)/poster.png",
+      "sha256": "0a378e90a16a8a11bff1668871313512674920bca0dfd02746a29a2b91475144",
+      "size": 4107
+    },
+    {
+      "path": "payload/userdata/Database/MyVideos121.db",
+      "sha256": "5f6e45e6a4919cd65b116478efc954892196648671d4fa7213ada5257f1c0c30",
+      "size": 376832
+    },
+    {
+      "path": "payload/userdata/sources.xml",
+      "sha256": "be3a788051eebaafda01a8b1757e7ad7e96850c189d2f6cfe616cc886154170d",
+      "size": 605
+    }
+  ],
+  "fixture_version": 4,
+  "id": "b69b4aa6-9968-4d5f-8ac9-3d5b16556d94",
+  "schema_version": 14,
+  "semantic_expectations": {
+    "drift_movie_unique_id": "small-movies-v4-movie-01",
+    "episodes": [],
+    "movies": [
+      {
+        "actors": [
+          "Ada Vale",
+          "Ivo Reed"
+        ],
+        "director": "Nora Flint",
+        "file": "/home/kodi/.kodi/fixture-media/movies/Jaws (1975)/Jaws (1975).mp4",
+        "genres": [
+          "Adventure",
+          "Thriller"
+        ],
+        "rating": 8.1,
+        "set_name": "Kodi Lab Set A",
+        "studio": "Atlas Lab",
+        "tags": [
+          "Archive",
+          "Night"
+        ],
+        "title": "Jaws",
+        "unique_id": "small-movies-v4-movie-01",
+        "year": 1975
+      },
+      {
+        "actors": [
+          "Lila Stone",
+          "Ivo Reed"
+        ],
+        "director": "Mira North",
+        "file": "/home/kodi/.kodi/fixture-media/movies/Rocky (1976)/Rocky (1976).mp4",
+        "genres": [
+          "Drama",
+          "Sport"
+        ],
+        "rating": 7.4,
+        "set_name": "Kodi Lab Set B",
+        "studio": "Bay Lab",
+        "tags": [
+          "Journey",
+          "Classic"
+        ],
+        "title": "Rocky",
+        "unique_id": "small-movies-v4-movie-02",
+        "year": 1976
+      },
+      {
+        "actors": [
+          "Ada Vale",
+          "Omar Finch"
+        ],
+        "director": "Nora Flint",
+        "file": "/home/kodi/.kodi/fixture-media/movies/Alien (1979)/Alien (1979).mp4",
+        "genres": [
+          "Science Fiction",
+          "Horror"
+        ],
+        "rating": 8.7,
+        "set_name": "Kodi Lab Set A",
+        "studio": "Orion Lab",
+        "tags": [
+          "Night",
+          "Space"
+        ],
+        "title": "Alien",
+        "unique_id": "small-movies-v4-movie-03",
+        "year": 1979
+      },
+      {
+        "actors": [
+          "Lila Stone",
+          "Omar Finch"
+        ],
+        "director": "Theo Wren",
+        "file": "/home/kodi/.kodi/fixture-media/movies/The Shining (1980)/The Shining (1980).mp4",
+        "genres": [
+          "Horror",
+          "Drama"
+        ],
+        "rating": 6.5,
+        "set_name": null,
+        "studio": "Atlas Lab",
+        "tags": [
+          "Night",
+          "Classic"
+        ],
+        "title": "The Shining",
+        "unique_id": "small-movies-v4-movie-04",
+        "year": 1980
+      },
+      {
+        "actors": [
+          "Ada Vale",
+          "Pia Hart"
+        ],
+        "director": "Mira North",
+        "file": "/home/kodi/.kodi/fixture-media/movies/Back to the Future (1985)/Back to the Future (1985).mp4",
+        "genres": [
+          "Science Fiction",
+          "Comedy"
+        ],
+        "rating": 9.0,
+        "set_name": "Kodi Lab Set B",
+        "studio": "Bay Lab",
+        "tags": [
+          "Journey",
+          "Family"
+        ],
+        "title": "Back to the Future",
+        "unique_id": "small-movies-v4-movie-05",
+        "year": 1985
+      },
+      {
+        "actors": [
+          "Omar Finch",
+          "Pia Hart"
+        ],
+        "director": "Theo Wren",
+        "file": "/home/kodi/.kodi/fixture-media/movies/Die Hard (1988)/Die Hard (1988).mp4",
+        "genres": [
+          "Action",
+          "Thriller"
+        ],
+        "rating": 7.9,
+        "set_name": null,
+        "studio": "Orion Lab",
+        "tags": [
+          "Night",
+          "Action"
+        ],
+        "title": "Die Hard",
+        "unique_id": "small-movies-v4-movie-06",
+        "year": 1988
+      },
+      {
+        "actors": [
+          "Lila Stone",
+          "Pia Hart"
+        ],
+        "director": "Nora Flint",
+        "file": "/home/kodi/.kodi/fixture-media/movies/Home Alone (1990)/Home Alone (1990).mp4",
+        "genres": [
+          "Comedy",
+          "Family"
+        ],
+        "rating": 5.8,
+        "set_name": null,
+        "studio": "Atlas Lab",
+        "tags": [
+          "Family",
+          "Classic"
+        ],
+        "title": "Home Alone",
+        "unique_id": "small-movies-v4-movie-07",
+        "year": 1990
+      },
+      {
+        "actors": [
+          "Ada Vale",
+          "Lila Stone"
+        ],
+        "director": "Mira North",
+        "file": "/home/kodi/.kodi/fixture-media/movies/Jurassic Park (1993)/Jurassic Park (1993).mp4",
+        "genres": [
+          "Adventure",
+          "Science Fiction"
+        ],
+        "rating": 8.4,
+        "set_name": "Kodi Lab Set A",
+        "studio": "Orion Lab",
+        "tags": [
+          "Journey",
+          "Family"
+        ],
+        "title": "Jurassic Park",
+        "unique_id": "small-movies-v4-movie-08",
+        "year": 1993
+      },
+      {
+        "actors": [
+          "Ada Vale",
+          "Omar Finch"
+        ],
+        "director": "Theo Wren",
+        "file": "/home/kodi/.kodi/fixture-media/movies/The Matrix (1999)/The Matrix (1999).mp4",
+        "genres": [
+          "Action",
+          "Science Fiction"
+        ],
+        "rating": 9.2,
+        "set_name": null,
+        "studio": "Bay Lab",
+        "tags": [
+          "Night",
+          "Space"
+        ],
+        "title": "The Matrix",
+        "unique_id": "small-movies-v4-movie-09",
+        "year": 1999
+      },
+      {
+        "actors": [
+          "Ivo Reed",
+          "Pia Hart"
+        ],
+        "director": "Nora Flint",
+        "file": "/home/kodi/.kodi/fixture-media/movies/Gladiator (2000)/Gladiator (2000).mp4",
+        "genres": [
+          "Action",
+          "Drama"
+        ],
+        "rating": 8.8,
+        "set_name": "Kodi Lab Set B",
+        "studio": "Atlas Lab",
+        "tags": [
+          "Archive",
+          "Action"
+        ],
+        "title": "Gladiator",
+        "unique_id": "small-movies-v4-movie-10",
+        "year": 2000
+      },
+      {
+        "actors": [
+          "Lila Stone",
+          "Pia Hart"
+        ],
+        "director": "Mira North",
+        "file": "/home/kodi/.kodi/fixture-media/movies/Finding Nemo (2003)/Finding Nemo (2003).mp4",
+        "genres": [
+          "Adventure",
+          "Family"
+        ],
+        "rating": 6.9,
+        "set_name": null,
+        "studio": "Bay Lab",
+        "tags": [
+          "Family",
+          "Journey"
+        ],
+        "title": "Finding Nemo",
+        "unique_id": "small-movies-v4-movie-11",
+        "year": 2003
+      },
+      {
+        "actors": [
+          "Omar Finch",
+          "Ivo Reed"
+        ],
+        "director": "Theo Wren",
+        "file": "/home/kodi/.kodi/fixture-media/movies/The Dark Knight (2008)/The Dark Knight (2008).mp4",
+        "genres": [
+          "Action",
+          "Thriller"
+        ],
+        "rating": 8.5,
+        "set_name": null,
+        "studio": "Orion Lab",
+        "tags": [
+          "Night",
+          "Action"
+        ],
+        "title": "The Dark Knight",
+        "unique_id": "small-movies-v4-movie-12",
+        "year": 2008
+      }
+    ],
+    "scan_plan": [
+      "movies"
+    ],
+    "tvshows": []
+  },
+  "size_category": "small",
+  "slug": "small-movies-v4",
+  "video_database_seed": {
+    "container_relative_path": "userdata/Database/MyVideos121.db",
+    "database_filename": "MyVideos121.db",
+    "movie_content": "movies",
+    "movie_path": "/home/kodi/.kodi/fixture-media/movies/",
+    "schema_version": 121,
+    "scraper": "metadata.local",
+    "sha256": "5f6e45e6a4919cd65b116478efc954892196648671d4fa7213ada5257f1c0c30"
+  }
+}

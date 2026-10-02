@@ -110,7 +110,7 @@ def test_unknown_movies_fixture_is_not_a_trusted_package() -> None:
     packaged = load_packaged_fixture("small-movies-v1")
     assert packaged.semantics.drift_movie_unique_id == "small-movies-v1-movie-1"
     with pytest.raises(PackagedFixtureError):
-        load_packaged_fixture("small-movies-v4")
+        load_packaged_fixture("small-movies-v5")
 
 
 @pytest.mark.parametrize(

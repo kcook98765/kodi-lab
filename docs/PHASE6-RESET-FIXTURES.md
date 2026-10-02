@@ -554,3 +554,46 @@ distinct, every result was exact 25/5/50 and stopped, fixed drift was exact
 24/5/49, and ManagedInstance, RuntimeRevision, and fixture identities were
 unchanged. The 60-second fixture deadline, ten-minute reset lease, and current
 archive handling remain comfortable at this measured Medium scale.
+
+## Rich Small Movies for Nexus 20.5
+
+`small-movies-v4` is a separate immutable Small/Movies definition with twelve
+movie identities, three per decade from the 1970s through the 2000s. Its
+title/year pairs are real, recognizable film identities used for normal Kodi
+folder and file naming. All audiovisual bytes are the existing Kodi Lab
+synthetic one-second H.264/AAC test clip; all posters and fanart are small
+Kodi Lab-generated images. All other NFO metadata is fixture-controlled for
+repeatable genre, actor, year, rating, set, and tag intersections and is not a
+claim about the real films. The manifest binds exact fixture IDs and expected
+membership. A later scraper acceptance mode may use these names, but ordinary
+fixture reset uses only local NFO and `metadata.local` with no Internet fetch.
+
+The package retains the embedded `fixture-media/movies/` profile layout and
+the byte-identical, audited `MyVideos121.db` configuration-only seed from the
+earlier Nexus package. Kodi performs its native movie scan and creates the
+actual library rows. Routine reset verifies all twelve exact identities,
+paths, title/year values and controlled metadata; focused acceptance tests
+cover representative exact filter intersections. No watched or resume state is
+seeded. Historical fixture packages are unchanged. Shared media is deferred
+pending measurements at larger fixture scales.
+
+The Nexus development gate used an isolated state copy and a newly created
+disposable managed Nexus pinned to the existing reviewed 20.5 revision; the
+active Web/Broker deployment and its protected instances were not changed.
+Two native reset/scan/verification cycles returned exactly 12/0/0
+movie/show/episode entities and stopped containers. Reset times were 9.154
+and 9.446 seconds. Movie scan request to first exact semantic baseline took
+1.039 and 1.071 seconds; this is a scan-to-baseline proxy, not a separate
+Kodi scan-completion event. Two semantic polls per reset consumed 0.035 and
+0.040 seconds of bounded verification work. A read of Kodi's ingested rows
+matched the exact fixture IDs and representative genre, actor, rating, set,
+decade, intersection, and exclusion cases; all twelve local poster/fanart
+references were present. The temporary test container was deprovisioned.
+
+The package has 50 payload files and 661,163 payload bytes, including 283,726
+fixture-media bytes: 147,324 MP4, 12,146 NFO, and 124,256 artwork bytes. The
+audited configuration-only seed is 376,832 bytes; `sources.xml` is 605 bytes.
+The manifest is 17,509 bytes and the deterministic archive is 706,560 bytes.
+No snapshot was created for this bounded gate, so snapshot size is unmeasured.
+Playback initiation was deferred because the existing fixture acceptance path
+has no fixed movie playback action.

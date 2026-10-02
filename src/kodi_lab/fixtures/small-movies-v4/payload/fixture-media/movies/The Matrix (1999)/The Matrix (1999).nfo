@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>The Matrix</title>
+  <originaltitle>The Matrix</originaltitle>
+  <sorttitle>The Matrix</sorttitle>
+  <year>1999</year>
+  <plot>Kodi Lab synthetic test clip 09; metadata apart from title and year is fixture-controlled.</plot>
+  <runtime>1</runtime>
+  <ratings>
+    <rating name="kodi-lab" max="10" default="true">
+      <value>9.2</value>
+      <votes>100</votes>
+    </rating>
+  </ratings>
+  <genre>Action</genre>
+  <genre>Science Fiction</genre>
+  <tag>Night</tag>
+  <tag>Space</tag>
+  <director>Theo Wren</director>
+  <studio>Bay Lab</studio>
+  <uniqueid type="kodi-lab" default="true">small-movies-v4-movie-09</uniqueid>
+  <actor>
+    <name>Ada Vale</name>
+    <role>Fixture role 1</role>
+    <order>0</order>
+  </actor>
+  <actor>
+    <name>Omar Finch</name>
+    <role>Fixture role 2</role>
+    <order>1</order>
+  </actor>
+  <art>
+    <poster>poster.png</poster>
+    <fanart>fanart.png</fanart>
+  </art>
+</movie>

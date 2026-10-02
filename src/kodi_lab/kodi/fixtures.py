@@ -159,11 +159,16 @@ class SmallMixedFixtureKodiAdapter:
     def get_fixture_library_state(self) -> FixtureLibraryState:
         self._emit(FixtureInitializationEvent.SEMANTIC_VERIFICATION_STARTED)
         try:
+            movie_properties = ["title", "year", "uniqueid", "file"]
+            if any(movie.genres is not None for movie in self._semantics.movies):
+                movie_properties.extend(
+                    ["genre", "cast", "director", "studio", "rating", "set", "tag"]
+                )
             movies = self._items(
                 self._request(
                     "kodi-lab-fixture-movies",
                     "VideoLibrary.GetMovies",
-                    {"properties": ["title", "year", "uniqueid", "file"]},
+                    {"properties": movie_properties},
                 ),
                 "movies",
             )
@@ -555,11 +560,37 @@ class SmallMixedFixtureKodiAdapter:
     def _is_movie(
         cls, item: dict[str, object], expected: FixtureMovieExpectation
     ) -> bool:
-        return (
+        identity_matches = (
             item.get("title") == expected.title
             and item.get("year") == expected.year
             and item.get("file") == expected.file
             and cls._has_unique_id(item, expected.unique_id)
+        )
+        if not identity_matches or expected.genres is None:
+            return identity_matches
+        assert expected.director is not None and expected.studio is not None
+        cast = item.get("cast")
+        rating = item.get("rating")
+        return (
+            isinstance(cast, list)
+            and all(isinstance(actor, dict) for actor in cast)
+            and cls._has_string_members(item.get("genre"), expected.genres)
+            and {actor.get("name") for actor in cast} == set(expected.actors or ())
+            and cls._has_string_members(item.get("director"), (expected.director,))
+            and cls._has_string_members(item.get("studio"), (expected.studio,))
+            and isinstance(rating, int | float)
+            and not isinstance(rating, bool)
+            and abs(rating - (expected.rating or 0)) < 0.01
+            and (expected.set_name is None or item.get("set") == expected.set_name)
+            and cls._has_string_members(item.get("tag"), expected.tags or ())
+        )
+
+    @staticmethod
+    def _has_string_members(value: object, expected: tuple[str, ...]) -> bool:
+        return (
+            isinstance(value, list)
+            and all(isinstance(member, str) for member in value)
+            and set(value) == set(expected)
         )
 
     @classmethod

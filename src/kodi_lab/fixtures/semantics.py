@@ -11,6 +11,13 @@ class FixtureMovieExpectation:
     year: int
     unique_id: str
     file: str
+    genres: tuple[str, ...] | None = None
+    actors: tuple[str, ...] | None = None
+    director: str | None = None
+    studio: str | None = None
+    rating: float | None = None
+    set_name: str | None = None
+    tags: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

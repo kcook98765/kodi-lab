@@ -323,6 +323,7 @@ class ResetStatusService:
             "small-movies-v1": ("Proven Small/Movies fixture for exact Kodi 21.3."),
             "small-movies-v2": ("Small/Movies fixture for exact Kodi 20.5."),
             "small-movies-v3": ("Small/Movies fixture for exact Kodi 19.5."),
+            "small-movies-v4": ("Rich Small/Movies fixture for exact Kodi 20.5."),
             "small-tv-v1": ("Small/TV fixture for exact Kodi 21.3."),
             "small-tv-v2": ("Small/TV fixture for exact Kodi 20.5."),
             "small-tv-v3": ("Small/TV fixture for exact Kodi 19.5."),
