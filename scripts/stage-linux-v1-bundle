@@ -49,8 +49,12 @@ docker build --network "$build_network" --provenance=false --quiet --target brok
   --build-arg "KODI_LAB_MIGRATION_HEAD=$migration_head" \
   -t "kodi-lab-v1-broker:$version" -f "$repository/runtime/remote-web/Dockerfile" \
   "$repository"
-docker save --output "$output/kodi-lab-application-images.tar" \
+docker save --output "$output/.docker-save-application-images.tar" \
   "kodi-lab-v1-web:$version" "kodi-lab-v1-broker:$version"
+python3 "$repository/scripts/canonicalize_docker_archive.py" \
+  "$output/.docker-save-application-images.tar" \
+  "$output/kodi-lab-application-images.tar"
+rm "$output/.docker-save-application-images.tar"
 cp "$repository/compose.release.yaml" "$repository/compose.lab.yaml" \
   "$repository/compose.development.yaml" "$output/"
 cp "$repository/LICENSE" "$repository/THIRD_PARTY_NOTICES.md" "$output/"
