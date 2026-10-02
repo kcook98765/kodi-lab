@@ -429,22 +429,29 @@ class ProductionProfileMcpInspection:
         raw_result = response.get("result")
         if not isinstance(raw_result, dict):
             raise ProductionProfileMcpInspectionError("mcp_screenshot_result_invalid")
-        structured = raw_result.get("structuredContent")
-        if not isinstance(structured, dict):
-            raise ProductionProfileMcpInspectionError("mcp_screenshot_result_invalid")
-        self._invocations.append(
-            ProductionMcpInvocation(
-                request_id=protocol_request_id,
-                tool_name="screenshot_capture",
-                result=cast(dict[str, object], structured),
-            )
-        )
         if raw_result.get("isError") is True:
-            code = structured.get("error")
-            if not isinstance(code, str) or not code:
+            content = raw_result.get("content")
+            if (
+                not isinstance(content, list)
+                or len(content) != 1
+                or not isinstance(content[0], dict)
+                or content[0].get("type") != "text"
+            ):
                 raise ProductionProfileMcpInspectionError(
                     "mcp_screenshot_result_invalid"
                 )
+            code = content[0].get("text")
+            if not isinstance(code, str) or not code.isidentifier():
+                raise ProductionProfileMcpInspectionError(
+                    "mcp_screenshot_result_invalid"
+                )
+            self._invocations.append(
+                ProductionMcpInvocation(
+                    request_id=protocol_request_id,
+                    tool_name="screenshot_capture",
+                    result={"error": code},
+                )
+            )
             return ProductionScreenshotInvocation(
                 protocol_request_id=protocol_request_id,
                 semantic_request_id=request_id,
@@ -455,6 +462,16 @@ class ProductionProfileMcpInspection:
             )
         if raw_result.get("isError") is not False:
             raise ProductionProfileMcpInspectionError("mcp_screenshot_result_invalid")
+        structured = raw_result.get("structuredContent")
+        if not isinstance(structured, dict):
+            raise ProductionProfileMcpInspectionError("mcp_screenshot_result_invalid")
+        self._invocations.append(
+            ProductionMcpInvocation(
+                request_id=protocol_request_id,
+                tool_name="screenshot_capture",
+                result=cast(dict[str, object], structured),
+            )
+        )
         try:
             image_metadata = inspect_mcp_screenshot_image(raw_result)
         except ProductionProfileMcpInspectionError as error:

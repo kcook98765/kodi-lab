@@ -7,6 +7,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
+from mcp_types import TextContent
 from sqlalchemy import update
 
 from kodi_lab.application.mcp_administration import (
@@ -276,11 +277,14 @@ def test_capture_error_reasons_are_bounded(
 
     assert caught.value.code == "workspace_capture_rejected"
     assert caught.value.reason == reason
-    structured = _tool_error_result(caught.value.code, reason=caught.value.reason)
-    assert structured.structured_content == (
-        {"error": "workspace_capture_rejected"}
+    tool_error = _tool_error_result(caught.value.code, reason=caught.value.reason)
+    assert tool_error.is_error
+    assert tool_error.structured_content is None
+    assert isinstance(tool_error.content[0], TextContent)
+    assert tool_error.content[0].text == (
+        "workspace_capture_rejected"
         if reason is None
-        else {"error": "workspace_capture_rejected", "reason": reason}
+        else f"workspace_capture_rejected: {reason}"
     )
 
 
@@ -340,12 +344,14 @@ def test_scan_error_reasons_are_bounded(
 
     assert caught.value.code == "development_source_scan_unsafe"
     assert caught.value.reason == reason
-    assert _tool_error_result(
-        caught.value.code, reason=caught.value.reason
-    ).structured_content == (
-        {"error": "development_source_scan_unsafe"}
+    tool_error = _tool_error_result(caught.value.code, reason=caught.value.reason)
+    assert tool_error.is_error
+    assert tool_error.structured_content is None
+    assert isinstance(tool_error.content[0], TextContent)
+    assert tool_error.content[0].text == (
+        "development_source_scan_unsafe"
         if reason is None
-        else {"error": "development_source_scan_unsafe", "reason": reason}
+        else f"development_source_scan_unsafe: {reason}"
     )
 
 

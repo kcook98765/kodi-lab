@@ -447,9 +447,12 @@ def test_production_credential_failures_do_not_inherit_authority(
             },
         )
         assert denied.status_code == 200
-        assert denied.json()["result"]["structuredContent"] == {
-            "error": "target_not_found_or_not_authorized"
-        }
+        denied_result = denied.json()["result"]
+        assert denied_result["isError"] is True
+        assert denied_result["content"][0]["text"] == (
+            "target_not_found_or_not_authorized"
+        )
+        assert "structuredContent" not in denied_result
 
         revoked = web.post_authenticated(
             f"/api/mcp/clients/{authority.client_id}/credentials/"
@@ -581,9 +584,10 @@ def test_dispatched_tool_calls_emit_exactly_one_terminal_audit(
             request_id="terminal-tool-error",
             tool_name="target_list",
         )
-        assert failed.json()["result"]["structuredContent"] == {
-            "error": "target_unreachable"
-        }
+        failed_result = failed.json()["result"]
+        assert failed_result["isError"] is True
+        assert failed_result["content"][0]["text"] == "target_unreachable"
+        assert "structuredContent" not in failed_result
 
         def unexpected(*_args: object, **_kwargs: object) -> None:
             raise RuntimeError("injected adapter failure")

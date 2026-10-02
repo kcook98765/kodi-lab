@@ -1397,12 +1397,13 @@ _SAFE_TOOL_REASONS = {
 def _tool_error_result(
     result_code: str, *, reason: str | None = None
 ) -> CallToolResult:
-    structured: dict[str, str] = {"error": result_code}
+    # A tool error has no success-shaped structured result. Its text remains
+    # available to models without violating the tool's declared outputSchema.
+    message = result_code
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
-        structured["reason"] = reason
+        message = f"{result_code}: {reason}"
     return CallToolResult(
-        content=[TextContent(text=result_code)],
-        structured_content=structured,
+        content=[TextContent(text=message)],
         is_error=True,
     )
 

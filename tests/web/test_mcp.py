@@ -11,6 +11,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import httpx2
+import jsonschema  # type: ignore[import-untyped]
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -18,7 +19,7 @@ from httpx2 import Response
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPError
-from mcp_types import ImageContent
+from mcp_types import ImageContent, TextContent
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -30,6 +31,7 @@ from kodi_lab.application.mcp_administration import (
 )
 from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_workspace_development import (
+    McpWorkspaceDevelopmentError,
     WorkspaceDeploymentResult,
     WorkspaceExecutionResult,
 )
@@ -83,6 +85,20 @@ META = {
 def _administration(client: TestClient) -> McpAdministrationService:
     app = cast(FastAPI, client.app)
     return cast(McpAdministrationService, app.state.kodi_lab.mcp_administration)
+
+
+def _assert_tool_error(result: dict[str, Any], code: str) -> None:
+    assert result["isError"] is True
+    assert result["content"][0]["text"] == code
+    assert "structuredContent" not in result
+
+
+def _strict_tool_result(result: dict[str, Any], output_schema: dict[str, Any]) -> None:
+    """Apply the advertised schema as a client that validates every supplied value."""
+    if "structuredContent" in result:
+        jsonschema.validate(result["structuredContent"], output_schema)
+    else:
+        assert result["isError"] is True
 
 
 def _authority(client: TestClient) -> tuple[UUID, str]:
@@ -267,8 +283,7 @@ def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
                 "arguments": {"target_id": str(INSTANCE_ID)},
             },
         ).json()["result"]
-        assert unavailable["isError"] is True
-        assert unavailable["structuredContent"] == {"error": "target_not_running"}
+        _assert_tool_error(unavailable, "target_not_running")
 
 
 def test_managed_target_list_projects_supported_tools_without_grant_escalation(
@@ -320,8 +335,7 @@ def test_managed_target_list_projects_supported_tools_without_grant_escalation(
             },
         },
     ).json()["result"]
-    assert denied["isError"] is True
-    assert denied["structuredContent"] == {"error": "permission_denied"}
+    _assert_tool_error(denied, "permission_denied")
 
 
 def test_external_target_list_is_unprobed_even_when_previously_verified_offline(
@@ -370,8 +384,7 @@ def test_external_target_list_is_unprobed_even_when_previously_verified_offline(
             "arguments": {"target_id": str(EXTERNAL_TARGET_ID)},
         },
     ).json()["result"]
-    assert status["isError"] is True
-    assert status["structuredContent"] == {"error": "target_unreachable"}
+    _assert_tool_error(status, "target_unreachable")
     assert external_kodi.methods == ["JSONRPC.Ping", "Application.GetProperties"]
 
 
@@ -545,9 +558,11 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                     "target_status", {"target_id": str(INSTANCE_ID)}
                 )
                 assert modern_denied.is_error and legacy_denied.is_error
-                assert (
-                    modern_denied.structured_content == legacy_denied.structured_content
-                )
+                assert modern_denied.structured_content is None
+                assert legacy_denied.structured_content is None
+                assert isinstance(modern_denied.content[0], TextContent)
+                assert isinstance(legacy_denied.content[0], TextContent)
+                assert modern_denied.content[0].text == legacy_denied.content[0].text
                 administration.grant_target(mcp_client.id, INSTANCE_ID)
 
                 administration.assign_target_preset(
@@ -563,7 +578,9 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                         },
                     )
                     assert denied.is_error
-                    assert denied.structured_content == {"error": "permission_denied"}
+                    assert denied.structured_content is None
+                    assert isinstance(denied.content[0], TextContent)
+                    assert denied.content[0].text == "permission_denied"
                 administration.assign_target_preset(
                     INSTANCE_ID, FULL_LAB_CONTROL_PRESET_ID
                 )
@@ -702,11 +719,8 @@ def test_external_remote_rechecks_revocation_after_identity_before_dispatch(
         params={"name": "remote_action", "arguments": arguments},
     ).json()["result"]
     assert first["isError"] is replay["isError"] is True
-    assert (
-        first["structuredContent"]
-        == replay["structuredContent"]
-        == {"error": "target_not_found_or_not_authorized"}
-    )
+    _assert_tool_error(first, "target_not_found_or_not_authorized")
+    _assert_tool_error(replay, "target_not_found_or_not_authorized")
     assert external_kodi.mutations == 0
 
 
@@ -795,8 +809,7 @@ def test_observation_tools_are_bounded_native_and_retain_latest_on_failure(
             "arguments": {"target_id": str(INSTANCE_ID), "limit": 100},
         },
     ).json()["result"]
-    assert oversized_inventory["isError"] is True
-    assert oversized_inventory["structuredContent"] == {"error": "response_too_large"}
+    _assert_tool_error(oversized_inventory, "response_too_large")
 
     screenshot = _post(
         client,
@@ -838,8 +851,7 @@ def test_observation_tools_are_bounded_native_and_retain_latest_on_failure(
             "arguments": {"target_id": str(INSTANCE_ID)},
         },
     ).json()["result"]
-    assert failed["isError"] is True
-    assert failed["structuredContent"] == {"error": "screenshot_capture_unavailable"}
+    _assert_tool_error(failed, "screenshot_capture_unavailable")
     with database() as session:
         retained = session.get(ManagedScreenshotRow, str(INSTANCE_ID))
         assert retained is not None and retained.capture_id == retained_capture
@@ -885,8 +897,7 @@ def test_discovery_filters_visual_permission_without_bypassing_target_policy(
             "arguments": {"target_id": str(INSTANCE_ID)},
         },
     ).json()["result"]
-    assert denied["isError"] is True
-    assert denied["structuredContent"] == {"error": "permission_denied"}
+    _assert_tool_error(denied, "permission_denied")
 
     with database.begin() as session:
         session.add(
@@ -1041,8 +1052,7 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
             "arguments": arguments | {"action": "right"},
         },
     ).json()["result"]
-    assert conflict["isError"] is True
-    assert conflict["structuredContent"] == {"error": "request_id_conflict"}
+    _assert_tool_error(conflict, "request_id_conflict")
     assert broker.remote_calls == [BrowserRemoteAction.LEFT]
 
     administration.set_client_enabled(mcp_client.id, False)
@@ -1777,7 +1787,7 @@ def test_web_admin_source_grant_and_existing_workspace_binding(
         params={"name": "development_source_list", "arguments": {}},
         request_id=399,
     ).json()["result"]
-    assert limited["structuredContent"] == {"error": "rate_limited"}
+    _assert_tool_error(limited, "rate_limited")
     assert "print('safe')" not in caplog.text
     assert "main.py" not in caplog.text
     assert str(context.settings.development_root) not in caplog.text
@@ -1894,10 +1904,8 @@ def test_target_authority_recomputes_grants_and_preserves_uuid_privacy(
         )
         assert response.status_code == 200
         legacy_errors.append(response.json()["result"])
-    assert [item["structuredContent"] for item in legacy_errors] == [
-        {"error": "target_not_found_or_not_authorized"},
-        {"error": "target_not_found_or_not_authorized"},
-    ]
+    for item in legacy_errors:
+        _assert_tool_error(item, "target_not_found_or_not_authorized")
 
 
 def test_workspace_mutation_modern_legacy_replay_and_generation_parity(
@@ -2164,6 +2172,12 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         time.sleep(0.01)
 
     tools = _post(client, token, "tools/list").json()["result"]["tools"]
+    execute_schema = next(
+        item for item in tools if item["name"] == "workspace_execute"
+    )["outputSchema"]
+    deploy_schema = next(item for item in tools if item["name"] == "workspace_deploy")[
+        "outputSchema"
+    ]
     for name in ("promotion_request", "workspace_deploy", "workspace_execute"):
         schema = next(item for item in tools if item["name"] == name)["inputSchema"]
         expected = {
@@ -2267,9 +2281,8 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         "tools/call",
         params={"name": "workspace_deploy", "arguments": arguments},
     ).json()["result"]
-    assert isolated["structuredContent"] == {
-        "error": "workspace_not_found_or_not_authorized"
-    }
+    _assert_tool_error(isolated, "workspace_not_found_or_not_authorized")
+    _strict_tool_result(isolated, deploy_schema)
     assert deployment_calls == 1
 
     execute_arguments = {**arguments, "request_id": str(uuid4())}
@@ -2279,9 +2292,8 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         "tools/call",
         params={"name": "workspace_execute", "arguments": execute_arguments},
     ).json()["result"]
-    assert isolated_execute["structuredContent"] == {
-        "error": "workspace_not_found_or_not_authorized"
-    }
+    _assert_tool_error(isolated_execute, "workspace_not_found_or_not_authorized")
+    _strict_tool_result(isolated_execute, execute_schema)
     assert execution_calls == 0
 
     injected_release = _post(
@@ -2293,7 +2305,8 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
             "arguments": {**execute_arguments, "kodi_release": "20.5"},
         },
     ).json()["result"]
-    assert injected_release["isError"] is True
+    _assert_tool_error(injected_release, "invalid_params")
+    _strict_tool_result(injected_release, execute_schema)
     assert execution_calls == 0
 
     modern_execute = _post(
@@ -2309,6 +2322,8 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         params={"name": "workspace_execute", "arguments": execute_arguments},
     ).json()["result"]
     assert modern_execute["structuredContent"] == legacy_execute["structuredContent"]
+    assert modern_execute["isError"] is False
+    _strict_tool_result(modern_execute, execute_schema)
     assert execution_calls == 1
 
     reverse_arguments = {**arguments, "request_id": str(uuid4())}
@@ -2326,6 +2341,26 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
     ).json()["result"]
     assert legacy_first["structuredContent"] == modern_replay["structuredContent"]
     assert execution_calls == 2
+
+    for code in ("execution_failed", "rate_limited", "workspace_generation_conflict"):
+
+        def failed_execute(
+            *, _code: str = code, **_kwargs: Any
+        ) -> WorkspaceExecutionResult:
+            raise McpWorkspaceDevelopmentError(_code)
+
+        context.mcp_workspace_development.execute = failed_execute
+        failed = _post(
+            client,
+            token,
+            "tools/call",
+            params={
+                "name": "workspace_execute",
+                "arguments": {**arguments, "request_id": str(uuid4())},
+            },
+        ).json()["result"]
+        _strict_tool_result(failed, execute_schema)
+        _assert_tool_error(failed, code)
 
     promotion_calls = 0
     promotion_results: dict[UUID, PromotionRequestResult] = {}
@@ -2378,9 +2413,7 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         "tools/call",
         params={"name": "promotion_request", "arguments": promotion_arguments},
     ).json()["result"]
-    assert isolated_promotion["structuredContent"] == {
-        "error": "workspace_not_found_or_not_authorized"
-    }
+    _assert_tool_error(isolated_promotion, "workspace_not_found_or_not_authorized")
     assert promotion_calls == 1
 
     administration.remove_development_source_grant(mcp_client.id, source.id)
@@ -2390,9 +2423,7 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         "tools/call",
         params={"name": "promotion_request", "arguments": promotion_arguments},
     ).json()["result"]
-    assert revoked_source["structuredContent"] == {
-        "error": "workspace_not_found_or_not_authorized"
-    }
+    _assert_tool_error(revoked_source, "workspace_not_found_or_not_authorized")
     administration.grant_development_source(mcp_client.id, source.id)
     administration.remove_target_grant(mcp_client.id, INSTANCE_ID)
     revoked_target = _post(
@@ -2401,9 +2432,7 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         "tools/call",
         params={"name": "promotion_request", "arguments": promotion_arguments},
     ).json()["result"]
-    assert revoked_target["structuredContent"] == {
-        "error": "target_not_found_or_not_authorized"
-    }
+    _assert_tool_error(revoked_target, "target_not_found_or_not_authorized")
     administration.grant_target(mcp_client.id, INSTANCE_ID)
     administration.set_client_enabled(mcp_client.id, False)
     assert (

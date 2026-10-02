@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from mcp_types import TextContent
 
 from kodi_lab.mcp.transport import _tool_error_result
 
@@ -23,8 +24,9 @@ def test_allowlisted_reason_keeps_outer_error(outer: str, reason: str) -> None:
     result = _tool_error_result(outer, reason=reason)
 
     assert result.is_error
-    assert result.content[0].text == outer
-    assert result.structured_content == {"error": outer, "reason": reason}
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == f"{outer}: {reason}"
+    assert result.structured_content is None
 
 
 @pytest.mark.parametrize(
@@ -42,5 +44,6 @@ def test_unknown_or_unauthorized_reason_stays_generic(
     result = _tool_error_result(outer, reason=reason)
 
     assert result.is_error
+    assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == outer
-    assert result.structured_content == {"error": outer}
+    assert result.structured_content is None
