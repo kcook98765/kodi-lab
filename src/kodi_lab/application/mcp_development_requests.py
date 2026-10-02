@@ -104,6 +104,9 @@ def _deployment_success_evidence_is_consistent(
         linked = session.get(RepositoryWorkspaceDeploymentRow, operation.id)
         return bool(
             operation.target_class == "external_development"
+            and operation.initiator_kind == "mcp"
+            and operation.client_id is not None
+            and operation.repository_origin == "planned"
             and operation.bridge_id is not None
             and operation.bridge_request_id is None
             and operation.bridge_receipt_id is None
@@ -112,6 +115,7 @@ def _deployment_success_evidence_is_consistent(
             and operation.source_manifest_digest
             == operation.verified_destination_digest
             and linked is not None
+            and linked.origin == "planned"
             and linked.state == "succeeded"
             and linked.bridge_id == operation.bridge_id
             and linked.expected_manifest_digest == operation.verified_destination_digest
@@ -173,6 +177,9 @@ def _deployment_repository_failure_evidence_is_consistent(
     linked = session.get(RepositoryWorkspaceDeploymentRow, operation.id)
     return bool(
         operation.deployment_mode == "repository"
+        and operation.initiator_kind == "mcp"
+        and operation.client_id is not None
+        and operation.repository_origin == "planned"
         and operation.target_class == "external_development"
         and operation.state == "failed"
         and operation.phase == "finalize"
@@ -181,6 +188,7 @@ def _deployment_repository_failure_evidence_is_consistent(
         and operation.failure_code is not None
         and not operation.mutation_started
         and linked is not None
+        and linked.origin == "planned"
         and linked.state == "failed"
         and linked.failure_code == operation.failure_code
         and linked.expected_manifest_digest == operation.source_manifest_digest

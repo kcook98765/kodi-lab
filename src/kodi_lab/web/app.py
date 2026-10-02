@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -3431,7 +3432,27 @@ def create_app(
         publication_id: UUID,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> dict[str, Any]:
-        payload = await request.json()
+        # Preserve duplicate keys until validation; request.json() discards them.
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw.extend(chunk)
+            if len(raw) > 4096:
+                raise HTTPException(status_code=400, detail="Confirmation is too large")
+
+        def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            value: dict[str, Any] = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError("duplicate confirmation key")
+                value[key] = item
+            return value
+
+        try:
+            payload = json.loads(raw, object_pairs_hook=unique_object)
+        except (ValueError, UnicodeError) as error:
+            raise HTTPException(
+                status_code=400, detail="Exact confirmation JSON is required"
+            ) from error
         required = {
             "target_id",
             "publication_id",

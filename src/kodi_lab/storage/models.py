@@ -6096,9 +6096,18 @@ class McpWorkspaceDeploymentOperationRow(Base):
             name="mcp_workspace_deployment_mode_closed",
         ),
         CheckConstraint(
-            "(initiator_kind='mcp' AND client_id IS NOT NULL) OR "
+            "(initiator_kind='mcp' AND client_id IS NOT NULL AND "
+            "((deployment_mode='direct' AND repository_origin IS NULL) OR "
+            "(deployment_mode='repository' AND repository_origin IS NOT NULL "
+            "AND repository_origin='planned'))) OR "
             "(initiator_kind='web' AND client_id IS NULL "
-            "AND deployment_mode='repository')",
+            "AND deployment_mode='repository' "
+            "AND repository_origin IS NOT NULL "
+            "AND repository_origin='verified_existing' AND state='succeeded' "
+            "AND phase='finalize' AND result_classification IS NOT NULL "
+            "AND result_classification='repository_verified' "
+            "AND mutation_started=0 AND target_stopped=0 AND sync_started=0 "
+            "AND sync_completed=0 AND target_started=0)",
             name="mcp_workspace_deployment_initiator_closed",
         ),
         CheckConstraint(
@@ -6181,6 +6190,9 @@ class McpWorkspaceDeploymentOperationRow(Base):
         UniqueConstraint(
             "client_id", "request_id", name="uq_mcp_workspace_deployment_request"
         ),
+        UniqueConstraint(
+            "id", "repository_origin", name="uq_mcp_workspace_deployment_origin"
+        ),
         Index(
             "ix_mcp_workspace_deployment_workspace_requested",
             "workspace_id",
@@ -6227,6 +6239,7 @@ class McpWorkspaceDeploymentOperationRow(Base):
     deployment_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, default="direct", server_default="direct"
     )
+    repository_origin: Mapped[str | None] = mapped_column(String(24))
     bridge_id: Mapped[str | None] = mapped_column(String(36))
     bridge_request_id: Mapped[str | None] = mapped_column(String(36))
     bridge_receipt_id: Mapped[str | None] = mapped_column(String(36))
@@ -6352,11 +6365,28 @@ class RepositoryWorkspaceDeploymentRow(Base):
             name="repository_workspace_bounds",
         ),
         CheckConstraint(
-            "(origin='planned' AND verified_by IS NULL) OR "
-            "(origin='verified_existing' AND verified_by='local_admin' "
+            "(origin='planned' AND verified_by IS NULL "
+            "AND identity_sha256 IS NULL "
+            "AND publication_source_id IS NULL) OR "
+            "(origin='verified_existing' AND verified_by IS NOT NULL "
+            "AND verified_by='local_admin' "
             "AND state='succeeded' AND approved_at IS NULL "
-            "AND observed_at IS NOT NULL AND verified_at IS NOT NULL)",
+            "AND observed_at IS NOT NULL AND verified_at IS NOT NULL "
+            "AND failure_code IS NULL AND identity_sha256 IS NOT NULL "
+            "AND length(identity_sha256)=64 "
+            "AND identity_sha256 NOT GLOB '*[^0-9a-f]*' "
+            "AND publication_source_id IS NOT NULL "
+            "AND length(publication_source_id)=36)",
             name="repository_workspace_verification_origin_closed",
+        ),
+        ForeignKeyConstraint(
+            ["operation_id", "origin"],
+            [
+                "mcp_workspace_deployment_operations.id",
+                "mcp_workspace_deployment_operations.repository_origin",
+            ],
+            name="fk_repository_workspace_operation_origin",
+            ondelete="RESTRICT",
         ),
         Index(
             "uq_repository_existing_target_publication",
@@ -6411,6 +6441,8 @@ class RepositoryWorkspaceDeploymentRow(Base):
         String(24), nullable=False, default="planned", server_default="planned"
     )
     verified_by: Mapped[str | None] = mapped_column(String(64))
+    identity_sha256: Mapped[str | None] = mapped_column(String(64))
+    publication_source_id: Mapped[str | None] = mapped_column(String(36))
     state: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     approved_at: Mapped[str | None] = mapped_column(String(27))

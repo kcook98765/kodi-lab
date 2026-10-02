@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -10,6 +11,7 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from jinja2 import Environment, FileSystemLoader
 
 from kodi_lab.application.mcp_workspace_development import McpWorkspaceDevelopmentError
 from kodi_lab.repository.development import initialize as initialize_development
@@ -244,6 +246,23 @@ def test_existing_install_verification_requires_login_csrf_and_exact_confirmatio
         }
     ]
 
+    raw = json.dumps(payload)
+    for key, duplicate in (
+        ("target_id", str(uuid4())),
+        ("confirmed_existing", False),
+    ):
+        marker = f'"{key}": '
+        duplicated = raw.replace(
+            marker, f"{marker}{json.dumps(duplicate)}, {marker}", 1
+        )
+        response = client.post(
+            endpoint,
+            content=duplicated.encode(),
+            headers={**headers, "Content-Type": "application/json"},
+        )
+        assert response.status_code == 400
+    assert len(observed) == 1
+
     def rejected(**_values: object) -> None:
         raise McpWorkspaceDevelopmentError("adoption_installed_state_mismatch")
 
@@ -255,3 +274,30 @@ def test_existing_install_verification_requires_login_csrf_and_exact_confirmatio
     rejected_response = client.post(endpoint, json=payload, headers=headers)
     assert rejected_response.status_code == 409
     assert rejected_response.json()["detail"] == "adoption_installed_state_mismatch"
+
+
+def test_existing_install_history_uses_verification_wording() -> None:
+    templates = Environment(
+        loader=FileSystemLoader(
+            Path(__file__).parents[2] / "src" / "kodi_lab" / "web" / "templates"
+        ),
+        autoescape=True,
+    )
+    templates.globals["url_for"] = lambda *_args, **_kwargs: "/static/test"
+    rendered = templates.get_template("kodi-repository.html").render(
+        development_provenance={"bootstrap_zip_sha256": "x", "addons_xml_sha256": "y"},
+        storage_usage=(0, 0),
+        development_max_artifacts=1,
+        development_max_bytes=1,
+        repository_deployments=[
+            SimpleNamespace(
+                origin="verified_existing",
+                installed_before_version="1.0.1",
+                state="succeeded",
+                addon_id="plugin.video.synthetic",
+                addon_version="1.0.1",
+            )
+        ],
+    )
+    assert "Existing installation verified." in rendered
+    assert "Updating installed 1.0.1." not in rendered
