@@ -37,14 +37,16 @@ from kodi_lab.repository.development import (
     load_generation as load_development_generation,
 )
 from kodi_lab.repository.stable import (
-    BRIDGE_SHA256,
+    CURRENT_BRIDGE,
     HEX_PATTERN,
+    ReviewedBridge,
     _read_reviewed_bridge,
     _switch_pointer,
     canonical,
     generate,
     load_current,
     load_generation,
+    reviewed_bridge_from_bundle,
     sha256,
 )
 from kodi_lab.storage import packaged_migrations
@@ -132,14 +134,19 @@ def _update_state(database: Path, old_tree: str, new_tree: str, index: str) -> N
         )
 
 
-def _bundle(bundle: Path, expected_hash: str) -> dict[str, str]:
+def _bundle(
+    bundle: Path, expected_hash: str, *, require_current: bool = False
+) -> dict[str, str]:
     if not HEX_PATTERN.fullmatch(expected_hash) or bundle.is_symlink():
         raise ValueError("candidate bundle identity is invalid")
-    bridge, manifest, _ = _read_reviewed_bridge(bundle)
+    review = reviewed_bridge_from_bundle(bundle, expected_hash)
+    if require_current and review != CURRENT_BRIDGE:
+        raise ValueError("replacement candidate reviewed inputs differ")
+    bridge, manifest, _ = _read_reviewed_bridge(bundle, review)
     identity = _candidate_identity(bundle)
     if (
         identity["bundle_sha256"] != expected_hash
-        or sha256(bridge) != BRIDGE_SHA256
+        or sha256(bridge) != review.sha256
         or identity["source_commit"] != manifest["source_commit"]
         or identity["source_tree"] != manifest["source_tree"]
     ):
@@ -159,7 +166,21 @@ def _bundle(bundle: Path, expected_hash: str) -> dict[str, str]:
         r"[0-9]{4}_[a-z][a-z0-9_]*", revision
     ):
         raise ValueError("candidate migration identity is invalid")
-    return {**identity, "migration_revision": revision}
+    return {
+        **identity,
+        "migration_revision": revision,
+        "bridge_version": review.version,
+        "bridge_sha256": review.sha256,
+        "bridge_fingerprint": review.fingerprint,
+    }
+
+
+def _review(identity: dict[str, str]) -> ReviewedBridge:
+    return ReviewedBridge(
+        identity["bridge_version"],
+        identity["bridge_sha256"],
+        identity["bridge_fingerprint"],
+    )
 
 
 def _verify_migration_relationship(
@@ -212,8 +233,9 @@ def transition(
     """Transition a stopped installation; rerunning the exact intent recovers it."""
     if repository_root.is_symlink() or state_root.is_symlink():
         raise ValueError("repository or application state root is unsafe")
-    old = _bundle(previous_bundle, expected_old_bundle)
-    new = _bundle(replacement_bundle, expected_new_bundle)
+    old = _bundle(previous_bundle, expected_old_bundle, require_current=rollback)
+    new = _bundle(replacement_bundle, expected_new_bundle, require_current=not rollback)
+    old_review, new_review = _review(old), _review(new)
     if old == new:
         raise ValueError("candidate transition requires two distinct identities")
     dev_root = repository_root / "development-data"
@@ -289,7 +311,9 @@ def transition(
                     raise ValueError("last transition receipt differs")
                 if {field: receipt.get(field) for field in key} == key:
                     stable_now = load_current(
-                        repository_root, expected_base_url=base_url
+                        repository_root,
+                        expected_base_url=base_url,
+                        reviewed_bridge=new_review,
                     )[1]
                     development_now = load_development_current(
                         dev_root, expected_base_url=base_url
@@ -318,6 +342,7 @@ def transition(
                     repository_root,
                     expected_base_url=base_url,
                     expected_bundle_sha256=expected_old_bundle,
+                    reviewed_bridge=old_review,
                 )[1]
                 old_dev = load_development_current(
                     dev_root, expected_base_url=base_url
@@ -341,6 +366,8 @@ def transition(
                     base_url,
                     expected_previous_bundle_sha256=expected_old_bundle,
                     activate=False,
+                    reviewed_bridge=new_review,
+                    previous_bridge=old_review,
                 )
                 with _identity(owner.st_uid, owner.st_gid):
                     new_dev = _generation(
@@ -375,7 +402,7 @@ def transition(
                     "old_development_generation": old_dev["tree_sha256"],
                     "new_development_generation": new_dev["tree_sha256"],
                     "development_index_sha256": new_dev["addons_xml_sha256"],
-                    "bridge_zip_sha256": BRIDGE_SHA256,
+                    "bridge_zip_sha256": new_review.sha256,
                 }
                 _write(pending_path, intent)
             complete_path = complete_dir / f"{operation_id}.json"
@@ -388,12 +415,14 @@ def transition(
                 old_stable_tree,
                 expected_base_url=base_url,
                 expected_bundle_sha256=expected_old_bundle,
+                reviewed_bridge=old_review,
             )[1]
             next_stable = load_generation(
                 repository_root,
                 new_stable_tree,
                 expected_base_url=base_url,
                 expected_bundle_sha256=expected_new_bundle,
+                reviewed_bridge=new_review,
             )[1]
             previous_dev = load_development_generation(
                 dev_root, old_dev_tree, expected_base_url=base_url
@@ -411,7 +440,7 @@ def transition(
                 )
                 or previous_dev["packages"] != next_dev["packages"]
                 or next_dev["addons_xml_sha256"] != intent["development_index_sha256"]
-                or intent["bridge_zip_sha256"] != BRIDGE_SHA256
+                or intent["bridge_zip_sha256"] != new_review.sha256
             ):
                 raise ValueError("prepared transition generation differs")
             current_stable = (repository_root / "CURRENT").read_text().strip()
@@ -465,6 +494,7 @@ def transition(
                 repository_root,
                 expected_base_url=base_url,
                 expected_bundle_sha256=expected_new_bundle,
+                reviewed_bridge=new_review,
             )
             load_development_current(dev_root, expected_base_url=base_url)
             if complete_path.exists():

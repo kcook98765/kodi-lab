@@ -36,6 +36,7 @@ def candidate(tmp_path: Path) -> Path:
     stable = ROOT / "repository/STABLE.json"
     (bundle / "repository/STABLE.json").write_bytes(stable.read_bytes())
     provenance = {
+        "schema": "kodi-lab-bridge-artifact-v1",
         "addon_id": "service.kodi_lab_bridge",
         "version": "1.1.14",
         "sha256": BRIDGE_SHA256,
@@ -44,12 +45,21 @@ def candidate(tmp_path: Path) -> Path:
         ),
         "source_commit": "c" * 40,
         "source_tree": "a" * 40,
+        "filename": bridge.name,
+        "protocol": "1",
+        "bootstrap": "otp-1",
+        "builder": "kodi-lab-narrow-bridge-zip-v2",
+        "capabilities": ["screenshot", "workspace_deployment"],
     }
     (bundle / "bridge/BRIDGE.json").write_bytes(canonical(provenance))
     manifest = {
         "schema": "kodi-lab-linux-v1-bundle-v3",
         "source_commit": "c" * 40,
         "source_tree": "a" * 40,
+        "bridge": {
+            "zip": "bridge/service.kodi_lab_bridge-1.1.14.zip",
+            "provenance": "bridge/BRIDGE.json",
+        },
         "files": {
             "repository/STABLE.json": {
                 "sha256": "sha256:" + sha256(stable.read_bytes()),

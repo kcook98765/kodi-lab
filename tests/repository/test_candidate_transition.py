@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import importlib
+import io
 import json
 import os
 import shutil
 import sqlite3
 import stat
+import zipfile
 from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
@@ -29,7 +31,13 @@ from kodi_lab.remote_lifecycle import (
 from kodi_lab.repository.development import DevelopmentRepositoryService
 from kodi_lab.repository.development import initialize as initialize_development
 from kodi_lab.repository.development import load_current as load_development_current
-from kodi_lab.repository.stable import canonical, generate, load_current, sha256
+from kodi_lab.repository.stable import (
+    canonical,
+    generate,
+    load_current,
+    reviewed_bridge_from_bundle,
+    sha256,
+)
 from kodi_lab.repository.transition import _identity, transition
 from kodi_lab.storage import packaged_migrations
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
@@ -53,6 +61,7 @@ from tests.application.test_repository_workspace_deployment import (
 from tests.repository.test_development import BASE, fixture_zip, phase2_candidate
 
 CURRENT_HEAD = "0059_workspace_validation_digest"
+HISTORICAL_SHA256 = "665b15cb6597f6a8e40b3cbdfc29606f453f567d49b6877a1ca2ee704c90f5f3"
 
 
 @pytest.fixture(autouse=True)
@@ -101,6 +110,234 @@ def _revision_identity(bundle: Path, revision: str) -> None:
     manifest = json.loads((bundle / "BUNDLE.json").read_bytes())
     manifest["repository"] = {"migration_head": revision}
     (bundle / "BUNDLE.json").write_bytes(canonical(manifest))
+
+
+def _historical_bridge(bundle: Path) -> None:
+    """Give a disposable candidate the exact reviewed 1.1.13 Bridge inputs."""
+    fixtures = Path(__file__).parents[1] / "fixtures"
+    historical_zip = (fixtures / "reviewed-bridge-1.1.13.zip").read_bytes()
+    assert sha256(historical_zip) == HISTORICAL_SHA256
+    historical_provenance = (fixtures / "reviewed-bridge-1.1.13.json").read_bytes()
+    historical_stable = (fixtures / "reviewed-stable-1.1.13.json").read_bytes()
+    current_zip = bundle / "bridge/service.kodi_lab_bridge-1.1.14.zip"
+    current_zip.unlink()
+    old_zip = bundle / "bridge/service.kodi_lab_bridge-1.1.13.zip"
+    old_zip.write_bytes(historical_zip)
+    (bundle / "bridge/BRIDGE.json").write_bytes(historical_provenance)
+    (bundle / "repository/STABLE.json").write_bytes(historical_stable)
+    manifest = json.loads((bundle / "BUNDLE.json").read_bytes())
+    provenance = json.loads(historical_provenance)
+    manifest["source_commit"] = provenance["source_commit"]
+    manifest["source_tree"] = provenance["source_tree"]
+    manifest["bridge"]["zip"] = "bridge/service.kodi_lab_bridge-1.1.13.zip"
+    del manifest["files"]["bridge/service.kodi_lab_bridge-1.1.14.zip"]
+    for name, content in (
+        ("bridge/service.kodi_lab_bridge-1.1.13.zip", historical_zip),
+        ("bridge/BRIDGE.json", historical_provenance),
+        ("repository/STABLE.json", historical_stable),
+    ):
+        manifest["files"][name] = {
+            "sha256": "sha256:" + sha256(content),
+            "size": len(content),
+        }
+    (bundle / "BUNDLE.json").write_bytes(canonical(manifest))
+
+
+def _cross_version_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, Path, Path, Path, str, str, str]:
+    old = phase2_candidate(tmp_path)
+    _historical_bridge(old)
+    new = phase2_candidate(tmp_path / "replacement")
+    data = tmp_path / "repository-data"
+    old_hash = sha256((old / "BUNDLE.json").read_bytes())
+    old_review = reviewed_bridge_from_bundle(old, old_hash)
+    generate(old, data, BASE, reviewed_bridge=old_review)
+    initialize_development(data / "development-data", BASE, old)
+    state = tmp_path / "state"
+    url = f"sqlite:///{state / 'database/kodi-lab.db'}"
+    initialize(state, url)
+    engine = create_database_engine(url)
+    DevelopmentRepositoryService(create_session_factory(engine), data, BASE).reconcile()
+    engine.dispose()
+    new_hash = sha256((new / "BUNDLE.json").read_bytes())
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(data))
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BASE_URL", BASE)
+    monkeypatch.setenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", old_hash)
+    # A live pre-transition backup runs under the retained old image, whose
+    # ordinary repository reader is pinned to this historical Bridge.
+    with monkeypatch.context() as old_image:
+        old_image.setattr(
+            remote_lifecycle,
+            "load_stable_current",
+            lambda root, **kwargs: load_current(
+                root, reviewed_bridge=old_review, **kwargs
+            ),
+        )
+        with lifecycle_lock(state):
+            backup_id = backup(state, url)
+    return old, new, data, state, old_hash, new_hash, backup_id
+
+
+def test_reviewed_bridge_113_to_114_and_reverse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, new, data, state, old_hash, new_hash, backup_id = _cross_version_setup(
+        tmp_path, monkeypatch
+    )
+    before = load_current(
+        data, reviewed_bridge=reviewed_bridge_from_bundle(old, old_hash)
+    )[1]
+    forward = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+    assert forward["bridge_zip_sha256"] == sha256(
+        (new / "bridge/service.kodi_lab_bridge-1.1.14.zip").read_bytes()
+    )
+    packages = cast(
+        list[dict[str, str]],
+        load_current(data, expected_bundle_sha256=new_hash)[1]["packages"],
+    )
+    assert packages[1]["version"] == "1.1.14"
+    reverse = transition(
+        new, old, data, state, BASE, new_hash, old_hash, backup_id, rollback=True
+    )
+    assert reverse["bridge_zip_sha256"] == HISTORICAL_SHA256
+    assert (
+        load_current(
+            data,
+            expected_bundle_sha256=old_hash,
+            reviewed_bridge=reviewed_bridge_from_bundle(old, old_hash),
+        )[1]
+        == before
+    )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "old_stable",
+        "new_stable",
+        "old_provenance",
+        "new_provenance",
+        "old_manifest",
+        "new_manifest",
+        "old_zip",
+        "missing_old_provenance",
+    ],
+)
+def test_cross_version_candidate_tampering_fails_before_transition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tamper: str
+) -> None:
+    old, new, data, state, old_hash, new_hash, backup_id = _cross_version_setup(
+        tmp_path, monkeypatch
+    )
+    before_pointer = (data / "CURRENT").read_bytes()
+    side, component = tamper.removeprefix("missing_").split("_", 1)
+    bundle = old if side == "old" else new
+    version = "1.1.13" if side == "old" else "1.1.14"
+    name = {
+        "stable": "repository/STABLE.json",
+        "provenance": "bridge/BRIDGE.json",
+        "manifest": "BUNDLE.json",
+        "zip": f"bridge/service.kodi_lab_bridge-{version}.zip",
+    }[component]
+    path = bundle / name
+    if tamper == "missing_old_provenance":
+        path.unlink()
+    else:
+        path.write_bytes(path.read_bytes() + b"tampered")
+    with pytest.raises((ValueError, OSError)):
+        transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
+    assert (data / "CURRENT").read_bytes() == before_pointer
+    assert not (data / "TRANSITION.json").exists()
+
+
+def test_self_consistent_uninstalled_candidate_cannot_replace_active_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _old, new, data, state, _old_hash, new_hash, backup_id = _cross_version_setup(
+        tmp_path, monkeypatch
+    )
+    rogue = _replacement(new, tmp_path / "rogue")
+    rogue_hash = sha256((rogue / "BUNDLE.json").read_bytes())
+    assert reviewed_bridge_from_bundle(rogue, rogue_hash)
+    before_pointer = (data / "CURRENT").read_bytes()
+    with pytest.raises(ValueError):
+        transition(rogue, new, data, state, BASE, rogue_hash, new_hash, backup_id)
+    assert (data / "CURRENT").read_bytes() == before_pointer
+    assert not (data / "TRANSITION.json").exists()
+
+
+def test_self_consistent_unreviewed_bridge_cannot_replace_current_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, new, data, state, old_hash, _new_hash, backup_id = _cross_version_setup(
+        tmp_path, monkeypatch
+    )
+    original_zip = new / "bridge/service.kodi_lab_bridge-1.1.14.zip"
+    unreviewed_zip = new / "bridge/service.kodi_lab_bridge-1.1.15.zip"
+    output = io.BytesIO()
+    with (
+        zipfile.ZipFile(original_zip) as source,
+        zipfile.ZipFile(output, "w") as target,
+    ):
+        for member in source.infolist():
+            content = source.read(member)
+            if member.filename == "service.kodi_lab_bridge/addon.xml":
+                assert b'version="1.1.14"' in content
+                content = content.replace(b'version="1.1.14"', b'version="1.1.15"')
+            target.writestr(member, content)
+    original_zip.unlink()
+    unreviewed_zip.write_bytes(output.getvalue())
+    digest = sha256(output.getvalue())
+    fingerprint = "e" * 64
+    stable_path = new / "repository/STABLE.json"
+    stable = json.loads(stable_path.read_bytes())
+    stable.update(
+        bridge_version="1.1.15",
+        bridge_zip_sha256=digest,
+        bridge_semantic_fingerprint=fingerprint,
+    )
+    stable_path.write_bytes(canonical(stable))
+    provenance_path = new / "bridge/BRIDGE.json"
+    provenance = json.loads(provenance_path.read_bytes())
+    provenance.update(
+        version="1.1.15",
+        filename=unreviewed_zip.name,
+        sha256=digest,
+        semantic_fingerprint=fingerprint,
+    )
+    if "inventory" in provenance:
+        with zipfile.ZipFile(unreviewed_zip) as archive:
+            addon_xml = archive.read("service.kodi_lab_bridge/addon.xml")
+        for item in provenance["inventory"]:
+            if item["path"] == "addon.xml":
+                item.update(sha256=sha256(addon_xml), size=len(addon_xml))
+        provenance["inventory_sha256"] = sha256(canonical(provenance["inventory"]))
+    provenance_path.write_bytes(canonical(provenance))
+    manifest_path = new / "BUNDLE.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["bridge"]["zip"] = "bridge/service.kodi_lab_bridge-1.1.15.zip"
+    del manifest["files"]["bridge/service.kodi_lab_bridge-1.1.14.zip"]
+    for name in (
+        "bridge/service.kodi_lab_bridge-1.1.15.zip",
+        "bridge/BRIDGE.json",
+        "repository/STABLE.json",
+    ):
+        content = (new / name).read_bytes()
+        manifest["files"][name] = {
+            "sha256": "sha256:" + sha256(content),
+            "size": len(content),
+        }
+    manifest_path.write_bytes(canonical(manifest))
+    unreviewed_hash = sha256(manifest_path.read_bytes())
+    assert reviewed_bridge_from_bundle(new, unreviewed_hash).version == "1.1.15"
+    before_pointer = (data / "CURRENT").read_bytes()
+    with pytest.raises(
+        ValueError, match="replacement candidate reviewed inputs differ"
+    ):
+        transition(old, new, data, state, BASE, old_hash, unreviewed_hash, backup_id)
+    assert (data / "CURRENT").read_bytes() == before_pointer
+    assert not (data / "TRANSITION.json").exists()
 
 
 def _setup(

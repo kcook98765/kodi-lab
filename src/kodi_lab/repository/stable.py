@@ -23,6 +23,16 @@ BRIDGE_VERSION = "1.1.14"
 BRIDGE_SHA256 = "bf0b4f441c310f0621458792ccf4d05227576086186c65843fb66e5da6811832"
 BRIDGE_FINGERPRINT = "64bd532dcbb11fd655f347038b50fc9e6cbd1db74d262d9588b534c66312bb4b"
 GENERATOR_ID = "kodi-lab-stable-repository-v1"
+
+
+@dataclass(frozen=True)
+class ReviewedBridge:
+    version: str
+    sha256: str
+    fingerprint: str
+
+
+CURRENT_BRIDGE = ReviewedBridge(BRIDGE_VERSION, BRIDGE_SHA256, BRIDGE_FINGERPRINT)
 ZIP_DATE = (2026, 9, 29, 0, 0, 0)
 ID_PATTERN = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}\Z")
 VERSION_PATTERN = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:[a-zA-Z0-9_.-]*)\Z")
@@ -287,6 +297,7 @@ def _immutable(path: Path, content: bytes) -> None:
 
 def _read_reviewed_bridge(
     bundle: Path,
+    reviewed_bridge: ReviewedBridge = CURRENT_BRIDGE,
 ) -> tuple[bytes, dict[str, object], dict[str, object]]:
     manifest_bytes = (bundle / "BUNDLE.json").read_bytes()
     manifest = json.loads(manifest_bytes)
@@ -306,12 +317,17 @@ def _read_reviewed_bridge(
         or stable.get("repository_version") != REPOSITORY_VERSION
         or stable.get("generator") != GENERATOR_ID
         or stable.get("bridge_id") != BRIDGE_ID
-        or stable.get("bridge_version") != BRIDGE_VERSION
-        or stable.get("bridge_zip_sha256") != BRIDGE_SHA256
-        or stable.get("bridge_semantic_fingerprint") != BRIDGE_FINGERPRINT
+        or stable.get("bridge_version") != reviewed_bridge.version
+        or stable.get("bridge_zip_sha256") != reviewed_bridge.sha256
+        or stable.get("bridge_semantic_fingerprint") != reviewed_bridge.fingerprint
     ):
         raise ValueError("stable repository reviewed inputs differ")
-    bridge_name = "bridge/service.kodi_lab_bridge-1.1.14.zip"
+    bridge_name = f"bridge/{BRIDGE_ID}-{reviewed_bridge.version}.zip"
+    if manifest.get("bridge") != {
+        "zip": bridge_name,
+        "provenance": "bridge/BRIDGE.json",
+    }:
+        raise ValueError("candidate bridge inventory differs")
     bridge = (bundle / bridge_name).read_bytes()
     record = manifest["files"][bridge_name]
     provenance_bytes = (bundle / "bridge/BRIDGE.json").read_bytes()
@@ -324,16 +340,91 @@ def _read_reviewed_bridge(
             "sha256": "sha256:" + sha256(provenance_bytes),
             "size": len(provenance_bytes),
         }
-        or sha256(bridge) != BRIDGE_SHA256
-        or provenance.get("sha256") != BRIDGE_SHA256
-        or provenance.get("semantic_fingerprint") != BRIDGE_FINGERPRINT
+        or sha256(bridge) != reviewed_bridge.sha256
+        or provenance.get("sha256") != reviewed_bridge.sha256
+        or provenance.get("semantic_fingerprint") != reviewed_bridge.fingerprint
         or provenance.get("addon_id") != BRIDGE_ID
-        or provenance.get("version") != BRIDGE_VERSION
+        or provenance.get("version") != reviewed_bridge.version
+        or provenance.get("filename") != Path(bridge_name).name
+        or provenance.get("schema") != "kodi-lab-bridge-artifact-v1"
+        or provenance.get("protocol") != "1"
+        or provenance.get("bootstrap") != "otp-1"
+        or provenance.get("builder") != "kodi-lab-narrow-bridge-zip-v2"
+        or provenance.get("capabilities") != ["screenshot", "workspace_deployment"]
         or provenance.get("source_commit") != manifest.get("source_commit")
         or provenance.get("source_tree") != manifest.get("source_tree")
     ):
         raise ValueError("reviewed bridge provenance differs")
     return bridge, manifest, provenance
+
+
+def reviewed_bridge_from_bundle(
+    bundle: Path, expected_bundle_sha256: str
+) -> ReviewedBridge:
+    """Read reviewed inputs only from a candidate pinned by its BUNDLE digest."""
+    manifest_bytes = (bundle / "BUNDLE.json").read_bytes()
+    if (
+        not HEX_PATTERN.fullmatch(expected_bundle_sha256)
+        or sha256(manifest_bytes) != expected_bundle_sha256
+    ):
+        raise ValueError("candidate bundle identity differs")
+    manifest = json.loads(manifest_bytes)
+    if canonical(manifest) != manifest_bytes or not isinstance(manifest, dict):
+        raise ValueError("candidate bundle manifest is invalid")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or not files:
+        raise ValueError("candidate file inventory is invalid")
+    for name, record in files.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or PurePosixPath(name).is_absolute()
+            or any(part in {"", ".", ".."} for part in name.split("/"))
+            or not isinstance(record, dict)
+        ):
+            raise ValueError("candidate file inventory is invalid")
+        path = bundle / name
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or any(
+                parent.is_symlink()
+                for parent in path.parents
+                if parent == bundle or bundle in parent.parents
+            )
+        ):
+            raise ValueError("candidate file inventory is unsafe")
+        content = path.read_bytes()
+        if record != {"sha256": "sha256:" + sha256(content), "size": len(content)}:
+            raise ValueError("candidate file inventory differs")
+    if "application" in manifest:
+        expected_sums = "".join(
+            f"{sha256((bundle / name).read_bytes())}  {name}\n"
+            for name in sorted((*files, "BUNDLE.json"))
+        )
+        if (bundle / "SHA256SUMS").read_text() != expected_sums:
+            raise ValueError("candidate checksum inventory differs")
+    stable = json.loads((bundle / "repository/STABLE.json").read_bytes())
+    if not isinstance(stable, dict):
+        raise ValueError("candidate stable identity is invalid")
+    version = stable.get("bridge_version")
+    digest = stable.get("bridge_zip_sha256")
+    fingerprint = stable.get("bridge_semantic_fingerprint")
+    if (
+        not isinstance(version, str)
+        or not VERSION_PATTERN.fullmatch(version)
+        or not isinstance(digest, str)
+        or not HEX_PATTERN.fullmatch(digest)
+        or not isinstance(fingerprint, str)
+        or not HEX_PATTERN.fullmatch(fingerprint)
+    ):
+        raise ValueError("candidate stable identity is invalid")
+    review = ReviewedBridge(version, digest, fingerprint)
+    bridge, _, _ = _read_reviewed_bridge(bundle, review)
+    inspected = inspect_addon_zip(bridge, BRIDGE_ID, version)
+    if inspected.sha256 != digest:
+        raise ValueError("candidate bridge identity differs")
+    return review
 
 
 def generate(
@@ -343,6 +434,8 @@ def generate(
     *,
     expected_previous_bundle_sha256: str | None = None,
     activate: bool = True,
+    reviewed_bridge: ReviewedBridge = CURRENT_BRIDGE,
+    previous_bridge: ReviewedBridge = CURRENT_BRIDGE,
 ) -> dict[str, object]:
     """Publish a complete stable generation after validating exact candidate inputs."""
     parsed = urlsplit(base_url)
@@ -357,8 +450,8 @@ def generate(
         or not parsed.port
     ):
         raise ValueError("repository base URL is invalid")
-    bridge_bytes, bundle_manifest, _ = _read_reviewed_bridge(bundle)
-    bridge = inspect_addon_zip(bridge_bytes, BRIDGE_ID, BRIDGE_VERSION)
+    bridge_bytes, bundle_manifest, _ = _read_reviewed_bridge(bundle, reviewed_bridge)
+    bridge = inspect_addon_zip(bridge_bytes, BRIDGE_ID, reviewed_bridge.version)
     repository = inspect_addon_zip(
         bootstrap_zip(base_url), REPOSITORY_ID, REPOSITORY_VERSION
     )
@@ -408,7 +501,7 @@ def generate(
     data_root.mkdir(parents=True, exist_ok=True)
     pointer = data_root / "CURRENT"
     if pointer.exists():
-        _, prior = load_current(data_root)
+        _, prior = load_current(data_root, reviewed_bridge=previous_bridge)
         if prior.get("base_url") != base_url or prior.get("bundle_sha256") != (
             expected_previous_bundle_sha256 or provenance["bundle_sha256"]
         ):
@@ -497,6 +590,7 @@ def load_current(
     *,
     expected_base_url: str | None = None,
     expected_bundle_sha256: str | None = None,
+    reviewed_bridge: ReviewedBridge = CURRENT_BRIDGE,
 ) -> tuple[Path, dict[str, object]]:
     """Verify a complete selected generation before any file is served."""
     if (data_root / "CURRENT").is_symlink() or (data_root / "generations").is_symlink():
@@ -507,6 +601,7 @@ def load_current(
         pointer,
         expected_base_url=expected_base_url,
         expected_bundle_sha256=expected_bundle_sha256,
+        reviewed_bridge=reviewed_bridge,
     )
 
 
@@ -516,6 +611,7 @@ def load_generation(
     *,
     expected_base_url: str | None = None,
     expected_bundle_sha256: str | None = None,
+    reviewed_bridge: ReviewedBridge = CURRENT_BRIDGE,
 ) -> tuple[Path, dict[str, object]]:
     """Verify an immutable stable generation, including every package byte."""
     if not HEX_PATTERN.fullmatch(pointer):
@@ -551,7 +647,7 @@ def load_generation(
     for record, expected_id, expected_version in zip(
         records,
         (REPOSITORY_ID, BRIDGE_ID),
-        (REPOSITORY_VERSION, BRIDGE_VERSION),
+        (REPOSITORY_VERSION, reviewed_bridge.version),
         strict=True,
     ):
         if (
@@ -589,9 +685,9 @@ def load_generation(
         ):
             raise ValueError("repository package checksum differs")
         packages.append(package)
-    if packages[1].sha256 != BRIDGE_SHA256 or packages[0].bytes != bootstrap_zip(
-        provenance["base_url"]
-    ):
+    if packages[1].sha256 != reviewed_bridge.sha256 or packages[
+        0
+    ].bytes != bootstrap_zip(provenance["base_url"]):
         raise ValueError("repository reviewed package identity differs")
     index = ET.Element("addons")
     for package in packages:
