@@ -41,15 +41,27 @@
         <button type="submit">Confirm target repository</button>
       </form>
       <p id="development-target-confirm-status" role="status"></p>
+      <h3>Verify an existing approved installation</h3>
+      <p>Use this only after the add-on is already installed through Kodi Lab Development. Kodi Lab did not perform that installation. This action checks the approved ZIP, native Kodi inventory, and authenticated installed tree, then records the existing installation if they match exactly.</p>
+      {% if existing_candidates and repository_targets %}
+      <form id="development-verify-existing" data-csrf-token="{{ csrf_token }}">
+        <label>Target <select name="target_id" required>{% for target in repository_targets if target.ready %}<option value="{{ target.id }}">{{ target.name }} · {{ target.id }}</option>{% endfor %}</select></label>
+        <label>Approved publication <select name="publication_id" required>{% for item in existing_candidates %}<option value="{{ item.publication_id }}" data-addon-id="{{ item.addon_id }}" data-addon-version="{{ item.version }}" data-zip-sha256="{{ item.zip_sha256 }}" data-manifest-digest="{{ item.expected_manifest_digest }}">{{ item.addon_id }} {{ item.version }} · {{ item.publication_id }}</option>{% endfor %}</select></label>
+        <p id="development-verify-existing-identity"></p>
+        <label><input type="checkbox" name="confirmed_existing" required> I confirm this add-on is already installed on the selected target and want Kodi Lab to verify and record that existing installation.</label>
+        <button type="submit">Verify existing approved installation</button>
+      </form>
+      <p id="development-verify-existing-status" role="status"></p>
+      {% else %}<p>No current approved workspace publication and confirmed target are available.</p>{% endif %}
       <h3>Workspace repository deployments</h3>
       <p>Publication is a separate step from deployment. After approval, use Kodi Add-ons → Install from repository → Kodi Lab Development for a first install. For an update, use Kodi Add-ons → Check for updates, then update the intended add-on. Return here and select Recheck installation.</p>
       {% for item in repository_deployments %}
       <section class="repository-deployment" data-csrf-token="{{ csrf_token }}" data-operation-id="{{ item.operation_id }}" data-workspace-id="{{ item.workspace_id }}" data-target-id="{{ item.target_id }}" data-generation="{{ item.generation }}" data-addon-id="{{ item.addon_id }}" data-addon-version="{{ item.addon_version }}" data-zip-sha256="{{ item.zip_sha256 }}" data-manifest-digest="{{ item.expected_manifest_digest }}">
         <h4>{{ item.addon_id }} {{ item.addon_version }} · {{ item.state }}</h4>
-        <p>Workspace <code>{{ item.workspace_id }}</code> generation {{ item.generation }} → {{ item.target_name }} (<code>{{ item.target_id }}</code>, {{ item.target_classification }}, Kodi {{ item.target_kodi_version }}). Operation <code>{{ item.operation_id }}</code>; publication <code>{{ item.publication_id }}</code>.</p>
+        <p>Workspace <code>{{ item.workspace_id }}</code> generation {{ item.generation }} → {{ item.target_name }} (<code>{{ item.target_id }}</code>, {{ item.target_classification }}, Kodi {{ item.target_kodi_version }}). Operation <code>{{ item.operation_id }}</code>; publication <code>{{ item.publication_id }}</code>. Origin: {{ item.origin }}{% if item.verified_by %} by {{ item.verified_by }}{% endif %}.</p>
         <p>ZIP SHA-256 <code>{{ item.zip_sha256 }}</code>; expected installed tree <code>{{ item.expected_manifest_digest }}</code>; compatible generations {{ item.compatible_generations }}. {% if item.installed_before_version %}Updating installed {{ item.installed_before_version }}.{% else %}First install.{% endif %} Current feed version: {{ item.current_repository_version or 'none' }}.</p>
-        {% if item.state in ['awaiting_approval','publication_approved'] %}<button type="button" class="repository-approve">{% if item.state == 'awaiting_approval' %}Approve exact publication{% else %}Retry approved publication{% endif %}</button>{% endif %}
-        {% if item.state in ['awaiting_kodi_update','observed_identity'] %}<button type="button" class="repository-recheck">Recheck installation</button>{% endif %}
+        {% if item.origin == 'planned' and item.state in ['awaiting_approval','publication_approved'] %}<button type="button" class="repository-approve">{% if item.state == 'awaiting_approval' %}Approve exact publication{% else %}Retry approved publication{% endif %}</button>{% endif %}
+        {% if item.origin == 'planned' and item.state in ['awaiting_kodi_update','observed_identity'] %}<button type="button" class="repository-recheck">Recheck installation</button>{% endif %}
         {% if item.failure_code %}<p>Failure: {{ item.failure_code }}</p>{% endif %}
         <p class="repository-deployment-status" role="status"></p>
       </section>

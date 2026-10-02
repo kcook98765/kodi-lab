@@ -5366,3 +5366,22 @@ approvals atomically with the governing revision transition.
   against current pairing state, so an obsolete credential cannot recover a
   cached receipt after reset. No HTTP reset operation or server-side target
   reconstruction is introduced. Fresh pairing uses the existing `otp-1` flow.
+
+## D-0398: Existing approved development installs need truthful verification
+
+- Planned repository deployment retains its newer-version proposal, target-bound
+  Web approval, manual Kodi install/update, and operation-bound Recheck. Earlier
+  records remain `planned` and retain their MCP attribution and approval times.
+- A separate authenticated, CSRF-protected Web action may record
+  `verified_existing` only for an already-installed exact current approved
+  workspace publication on a confirmed external-development repository target.
+  It requires fresh native Kodi identity/inventory and authenticated Bridge
+  tree evidence matching the retained approved ZIP, its current feed binding,
+  workspace generation, and validation receipt. The record attributes the
+  verification to the Web operator and has no prior target approval time.
+- Verification performs no installation, deployment, execution, grant, or
+  publication. Exact repeats reuse the result; ambiguous or conflicting
+  operations fail closed. A verified workspace-origin result may satisfy the
+  existing execution provenance check, while all separate live Bridge and
+  execution-authority gates still apply. Web imports cannot gain workspace
+  execution provenance through this action.

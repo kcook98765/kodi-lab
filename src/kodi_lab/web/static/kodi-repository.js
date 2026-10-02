@@ -70,6 +70,46 @@
       message.textContent = `Confirmed ${result.target_id} for this exact repository origin.`;
     } catch (error) { message.textContent = error.message; }
   });
+  const existingForm = document.getElementById("development-verify-existing");
+  if (existingForm) {
+    const identity = document.getElementById("development-verify-existing-identity");
+    const message = document.getElementById("development-verify-existing-status");
+    const showIdentity = () => {
+      const option = existingForm.elements.publication_id.selectedOptions[0];
+      identity.textContent = option ? `Target ${existingForm.elements.target_id.value}; publication ${option.value}; ${option.dataset.addonId} ${option.dataset.addonVersion}; ZIP SHA-256 ${option.dataset.zipSha256}; expected installed tree ${option.dataset.manifestDigest}.` : "";
+      existingForm.elements.confirmed_existing.checked = false;
+    };
+    existingForm.elements.target_id.addEventListener("change", showIdentity);
+    existingForm.elements.publication_id.addEventListener("change", showIdentity);
+    showIdentity();
+    existingForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const targetId = existingForm.elements.target_id.value;
+      const option = existingForm.elements.publication_id.selectedOptions[0];
+      if (!targetId || !option || !existingForm.elements.confirmed_existing.checked) return;
+      const button = existingForm.querySelector("button[type=submit]");
+      button.disabled = true;
+      message.textContent = "Checking approved publication and live Kodi installation…";
+      try {
+        const response = await fetch(`/api/external-targets/${targetId}/development-repository/publications/${option.value}/verify-existing`, {
+          method: "POST", credentials: "same-origin",
+          headers: {"Content-Type": "application/json", "X-Kodi-Lab-CSRF": existingForm.dataset.csrfToken},
+          body: JSON.stringify({
+            target_id: targetId, publication_id: option.value,
+            addon_id: option.dataset.addonId, addon_version: option.dataset.addonVersion,
+            zip_sha256: option.dataset.zipSha256,
+            expected_manifest_digest: option.dataset.manifestDigest,
+            confirmed_existing: true,
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "Existing installation verification rejected.");
+        message.textContent = `Verified existing installation for target ${targetId}; operation ${result.deployment_id}. Refresh for durable history.`;
+        existingForm.elements.confirmed_existing.checked = false;
+      } catch (error) { message.textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+  }
   for (const section of document.querySelectorAll(".repository-deployment")) {
     const message = section.querySelector(".repository-deployment-status");
     const basePath = `/api/workspaces/${section.dataset.workspaceId}/repository-deployments/${section.dataset.operationId}`;

@@ -103,6 +103,7 @@ class RepositoryTargetFixture:
     enabled: bool = True
     offline: bool = False
     bridge_offline: bool = False
+    bridge_error: str | None = None
     executions: int = 0
 
     def addon_inventory(self, target_id: UUID) -> ManagedInstanceAddonInventory:
@@ -123,6 +124,8 @@ class RepositoryTargetFixture:
 
     def inspect_addon(self, target_id: UUID, addon_id: str) -> BridgeAddonTree:
         assert target_id == EXTERNAL_TARGET_ID
+        if self.bridge_error is not None:
+            raise ExternalBridgeServiceError(self.bridge_error)
         if self.bridge_offline:
             raise ExternalBridgeServiceError("bridge_unreachable")
         if self.offline:
@@ -160,9 +163,12 @@ def _setup(
     *,
     database_path: Path | None = None,
     kodi_version: str = "21.3",
+    configured_capabilities: list[str] | None = None,
 ) -> tuple[Any, DevelopmentRepositoryService, RepositoryTargetFixture]:
     env = _environment(tmp_path, database_path=database_path)
-    _configure_external_environment(env)
+    _configure_external_environment(
+        env, configured_capabilities=configured_capabilities
+    )
     bundle = phase2_candidate(tmp_path / "candidate")
     root = tmp_path / "repository"
     root.mkdir()
@@ -514,6 +520,19 @@ def test_first_install_approval_pending_observation_and_exact_tree(
     completed = restarted.recheck_repository_deployment(pending.deployment_id)
     assert completed.state == "succeeded"
     assert completed.result_classification == "repository_verified"
+    assert completed.origin == "planned"
+    with env.sessions() as session:
+        operation = session.get(
+            McpWorkspaceDeploymentOperationRow, str(pending.deployment_id)
+        )
+        linked = session.get(
+            RepositoryWorkspaceDeploymentRow, str(pending.deployment_id)
+        )
+        assert operation is not None and linked is not None
+        assert operation.initiator_kind == "mcp"
+        assert operation.client_id == str(env.client_id)
+        assert linked.origin == "planned" and linked.verified_by is None
+        assert linked.approved_at is not None
     with pytest.raises(
         McpWorkspaceDevelopmentError, match="deployment_already_completed"
     ):

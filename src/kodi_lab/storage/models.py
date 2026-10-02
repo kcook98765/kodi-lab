@@ -6067,7 +6067,8 @@ class McpWorkspaceDeploymentOperationRow(Base):
     __tablename__ = "mcp_workspace_deployment_operations"
     __table_args__ = (
         CheckConstraint(
-            "length(id)=36 AND length(client_id)=36 AND length(request_id)=36 "
+            "length(id)=36 AND (client_id IS NULL OR length(client_id)=36) "
+            "AND length(request_id)=36 "
             "AND length(workspace_id)=36 AND length(development_source_id)=36 "
             "AND length(target_id)=36 AND "
             "(runtime_revision_id IS NULL OR length(runtime_revision_id)=36) AND "
@@ -6093,6 +6094,12 @@ class McpWorkspaceDeploymentOperationRow(Base):
         CheckConstraint(
             "deployment_mode IN ('direct','repository')",
             name="mcp_workspace_deployment_mode_closed",
+        ),
+        CheckConstraint(
+            "(initiator_kind='mcp' AND client_id IS NOT NULL) OR "
+            "(initiator_kind='web' AND client_id IS NULL "
+            "AND deployment_mode='repository')",
+            name="mcp_workspace_deployment_initiator_closed",
         ),
         CheckConstraint(
             "generation >= 0", name="mcp_workspace_deployment_generation_nonnegative"
@@ -6205,7 +6212,10 @@ class McpWorkspaceDeploymentOperationRow(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    client_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    initiator_kind: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="mcp", server_default="mcp"
+    )
     request_id: Mapped[str] = mapped_column(String(36), nullable=False)
     workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
     development_source_id: Mapped[str] = mapped_column(String(36), nullable=False)
@@ -6341,6 +6351,20 @@ class RepositoryWorkspaceDeploymentRow(Base):
             "file_count BETWEEN 1 AND 25000 AND total_bytes BETWEEN 1 AND 1073741824",
             name="repository_workspace_bounds",
         ),
+        CheckConstraint(
+            "(origin='planned' AND verified_by IS NULL) OR "
+            "(origin='verified_existing' AND verified_by='local_admin' "
+            "AND state='succeeded' AND approved_at IS NULL "
+            "AND observed_at IS NOT NULL AND verified_at IS NOT NULL)",
+            name="repository_workspace_verification_origin_closed",
+        ),
+        Index(
+            "uq_repository_existing_target_publication",
+            "target_id",
+            "publication_id",
+            unique=True,
+            sqlite_where=text("origin='verified_existing'"),
+        ),
         Index("ix_repository_workspace_target_state", "target_id", "state"),
     )
 
@@ -6383,6 +6407,10 @@ class RepositoryWorkspaceDeploymentRow(Base):
     base_url: Mapped[str] = mapped_column(String(512), nullable=False)
     bootstrap_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     installed_before_version: Mapped[str | None] = mapped_column(String(64))
+    origin: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="planned", server_default="planned"
+    )
+    verified_by: Mapped[str | None] = mapped_column(String(64))
     state: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     approved_at: Mapped[str | None] = mapped_column(String(27))

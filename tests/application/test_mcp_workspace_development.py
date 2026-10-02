@@ -669,6 +669,8 @@ def _restarted_development(
 
 def _configure_external_environment(
     env: Environment,
+    *,
+    configured_capabilities: list[str] | None = None,
 ) -> tuple[FakeExternalDevelopmentBridge, FakeExternalTargetAdapters]:
     manifest = env.workspaces.capture_registered_source_manifest(SOURCE_ID)
     files = [entry for entry in manifest.entries if entry.entry_type == "file"]
@@ -694,7 +696,9 @@ def _configure_external_environment(
                 authentication_mode="none",
                 secret_reference=None,
                 configured_capabilities_json=json.dumps(
-                    ["fixed_execution", "target_inspect", "workspace_deployment"]
+                    configured_capabilities
+                    if configured_capabilities is not None
+                    else ["fixed_execution", "target_inspect", "workspace_deployment"]
                 ),
                 verified_capabilities_json=json.dumps(
                     ["fixed_execution", "target_inspect"]

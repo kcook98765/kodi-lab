@@ -97,12 +97,16 @@ from kodi_lab.kodi.readiness import JsonRpcUnavailableError, KodiReadinessCoordi
 from kodi_lab.repository.development import (
     DevelopmentPublicationConflict,
     DevelopmentRepositoryService,
+    publication_lock,
 )
 from kodi_lab.repository.development import (
     _version as repository_version,
 )
 from kodi_lab.repository.development import (
     bootstrap_zip as development_bootstrap_zip,
+)
+from kodi_lab.repository.development import (
+    load_current as load_development_current,
 )
 from kodi_lab.repository.policy import DEVELOPMENT_REPOSITORY_ID
 from kodi_lab.repository.stable import inspect_addon_zip, sha256
@@ -115,6 +119,8 @@ from kodi_lab.storage.models import (
     AgentWorkspacePromotionPlanRow,
     AgentWorkspaceRow,
     DevelopmentPublicationHoldRow,
+    DevelopmentPublicationRow,
+    DevelopmentRepositoryStateRow,
     ExternalBridgeDeploymentReceiptRow,
     ExternalBridgeEventRow,
     ExternalBridgePairingRow,
@@ -218,6 +224,7 @@ class WorkspaceDeploymentResult(BaseModel):
     publication_id: UUID | None = None
     repository_id: str | None = Field(default=None, max_length=64)
     installation_kind: str | None = Field(default=None, max_length=16)
+    origin: str | None = Field(default=None, max_length=24)
     zip_sha256: str | None = None
     expected_manifest_digest: str | None = None
     next_action: str | None = Field(default=None, max_length=160)
@@ -509,6 +516,451 @@ class McpWorkspaceDevelopmentService:
             session.flush()
             session.expunge(row)
         return row
+
+    def verify_existing_repository_installation(
+        self,
+        *,
+        target_id: UUID,
+        publication_id: UUID,
+        addon_id: str,
+        addon_version: str,
+        zip_sha256: str,
+        expected_manifest_digest: str,
+    ) -> WorkspaceDeploymentResult:
+        """Web-only proof of a previously installed, approved workspace artifact."""
+
+        repository = self._development_repository
+        targets = self._target_adapters
+        bridges = self._external_bridges
+        if repository is None or targets is None or bridges is None:
+            raise McpWorkspaceDevelopmentError("repository_unavailable")
+        with self._sessions() as session:
+            target = session.get(TargetRow, str(target_id))
+            external = session.get(ExternalKodiTargetRow, str(target_id))
+            pairing = session.get(ExternalBridgePairingRow, str(target_id))
+            readiness = session.get(
+                ExternalDevelopmentRepositoryReadinessRow, str(target_id)
+            )
+            publication = session.get(DevelopmentPublicationRow, str(publication_id))
+            workspace = (
+                None
+                if publication is None or publication.workspace_id is None
+                else session.get(AgentWorkspaceRow, publication.workspace_id)
+            )
+            snapshot = (
+                None
+                if publication is None or publication.validation_receipt is None
+                else session.get(
+                    RepositoryWorkspaceValidationSnapshotRow,
+                    publication.validation_receipt,
+                )
+            )
+            repository_state = session.get(DevelopmentRepositoryStateRow, 1)
+        if (
+            target is None
+            or target.target_type is not TargetType.EXTERNAL_DEVELOPMENT
+            or external is None
+            or external.administrative_state.value != "enabled"
+            or external.verification_state.value != "verified"
+            or external.verified_kodi_version is None
+            or pairing is None
+            or pairing.pairing_state.value != "paired"
+            or pairing.pinned_bridge_id is None
+            or pairing.pinned_kodi_version != external.verified_kodi_version
+            or pairing.bridge_secret_reference is None
+            or readiness is None
+            or readiness.base_url != repository.base_url
+            or readiness.native_kodi_version != external.verified_kodi_version
+            or readiness.bridge_id != pairing.pinned_bridge_id
+            or readiness.repository_version != "1.0.0"
+            or not readiness.manual_updates_confirmed
+            or readiness.bootstrap_sha256
+            != sha256(development_bootstrap_zip(repository.base_url))
+        ):
+            raise McpWorkspaceDevelopmentError("adoption_prerequisite_unconfirmed")
+        try:
+            configured = json.loads(external.configured_capabilities_json)
+        except (TypeError, ValueError) as error:
+            raise McpWorkspaceDevelopmentError(
+                "adoption_capability_unavailable"
+            ) from error
+        if (
+            not isinstance(configured, list)
+            or not all(isinstance(value, str) for value in configured)
+            or not {"target_inspect", "addon_inventory", "workspace_deployment"}
+            <= set(configured)
+        ):
+            raise McpWorkspaceDevelopmentError("adoption_capability_unavailable")
+        generation_name = {"19": "matrix", "20": "nexus", "21": "omega"}.get(
+            external.verified_kodi_version.split(".", 1)[0]
+        )
+        if (
+            publication is None
+            or publication.channel != "development"
+            or publication.scope_kind != "development_only"
+            or publication.addon_type != "plugin.video"
+            or publication.status != "current"
+            or publication.approval_identity is None
+            or publication.approved_at is None
+            or publication.source_kind != "workspace"
+            or publication.workspace_id is None
+            or publication.workspace_generation is None
+            or publication.validation_receipt is None
+            or publication.source_tree_sha256 is None
+            or generation_name is None
+            or generation_name not in publication.compatible_generations.split(",")
+            or workspace is None
+            or workspace.state is not AgentWorkspaceState.READY
+            or workspace.bytes_state is not AgentWorkspaceBytesState.PRESENT
+            or workspace.generation != publication.workspace_generation
+            or workspace.current_tree_digest != publication.source_tree_sha256
+            or snapshot is None
+            or snapshot.workspace_id != publication.workspace_id
+            or snapshot.generation != publication.workspace_generation
+            or snapshot.source_tree_digest != publication.source_tree_sha256
+            or snapshot.addon_id != publication.addon_id
+            or snapshot.addon_version != publication.version
+            or repository_state is None
+            or repository_state.base_url != repository.base_url
+        ):
+            raise McpWorkspaceDevelopmentError("adoption_publication_ineligible")
+        if (
+            addon_id != publication.addon_id
+            or addon_version != publication.version
+            or zip_sha256 != publication.zip_sha256
+        ):
+            raise McpWorkspaceDevelopmentError("adoption_confirmation_stale")
+        try:
+            _, provenance = load_development_current(
+                repository.root, expected_base_url=repository.base_url
+            )
+            if (
+                repository_state.current_generation != provenance["tree_sha256"]
+                or repository_state.current_index_sha256
+                != provenance["addons_xml_sha256"]
+                or repository_state.bootstrap_sha256
+                != provenance["bootstrap_zip_sha256"]
+            ):
+                raise ValueError("development repository state differs")
+            package_records = provenance["packages"]
+            if not isinstance(package_records, list) or not any(
+                isinstance(record, dict)
+                and record.get("publication_id") == str(publication_id)
+                and record.get("id") == publication.addon_id
+                and record.get("version") == publication.version
+                and record.get("sha256") == publication.zip_sha256
+                and record.get("tree_sha256") == publication.tree_sha256
+                and record.get("status") == "current"
+                for record in package_records
+            ):
+                raise ValueError("publication is absent from current feed")
+            package_path = (
+                repository.root
+                / "packages"
+                / publication.addon_id
+                / f"{publication.addon_id}-{publication.version}.zip"
+            )
+            package_bytes = package_path.read_bytes()
+            package = inspect_addon_zip(
+                package_bytes, publication.addon_id, publication.version
+            )
+            if (
+                package.sha256 != publication.zip_sha256
+                or package.tree_sha256 != publication.tree_sha256
+                or len(package_bytes) != publication.zip_bytes
+            ):
+                raise ValueError("approved artifact differs")
+            digest, file_count, total_bytes = bridge_manifest_for_zip(
+                package_bytes, publication.addon_id
+            )
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise McpWorkspaceDevelopmentError(
+                "adoption_artifact_unverified"
+            ) from error
+        if expected_manifest_digest != digest:
+            raise McpWorkspaceDevelopmentError("adoption_confirmation_stale")
+        try:
+            inventory = targets.addon_inventory(target_id)
+        except Exception as error:
+            raise McpWorkspaceDevelopmentError("adoption_target_unverified") from error
+        repository_item = next(
+            (
+                item
+                for item in inventory.items
+                if item.addon_id == DEVELOPMENT_REPOSITORY_ID
+            ),
+            None,
+        )
+        item = next(
+            (item for item in inventory.items if item.addon_id == publication.addon_id),
+            None,
+        )
+        if (
+            inventory.query_status is not AddonInventoryQueryStatus.AVAILABLE
+            or inventory.kodi_release != external.verified_kodi_version
+            or repository_item is None
+            or repository_item.version != "1.0.0"
+            or not repository_item.enabled
+            or item is None
+            or item.version != publication.version
+            or not item.enabled
+            or item.kodi_type != "xbmc.python.pluginsource"
+        ):
+            raise McpWorkspaceDevelopmentError("adoption_installed_state_mismatch")
+        try:
+            repository_tree = bridges.inspect_addon(
+                target_id, DEVELOPMENT_REPOSITORY_ID
+            )
+            observed = bridges.inspect_addon(target_id, publication.addon_id)
+        except Exception as error:
+            raise McpWorkspaceDevelopmentError("adoption_target_unverified") from error
+        if (
+            repository_tree.addon_id != DEVELOPMENT_REPOSITORY_ID
+            or repository_tree.addon_version != "1.0.0"
+            or not repository_tree.enabled
+            or repository_tree.manifest_digest != readiness.observed_manifest_digest
+            or observed.addon_id != publication.addon_id
+            or observed.addon_version != publication.version
+            or not observed.enabled
+            or observed.manifest_digest != digest
+            or observed.file_count != file_count
+            or observed.total_bytes != total_bytes
+        ):
+            raise McpWorkspaceDevelopmentError("adoption_installed_state_mismatch")
+        now = _to_text(self._clock())
+        operation_id = uuid4()
+        with publication_lock(repository.root), self._sessions() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            try:
+                _, current_provenance = load_development_current(
+                    repository.root, expected_base_url=repository.base_url
+                )
+                if (
+                    current_provenance != provenance
+                    or sha256(package_path.read_bytes()) != publication.zip_sha256
+                ):
+                    raise ValueError("approved feed or artifact changed")
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                raise McpWorkspaceDevelopmentError("adoption_state_changed") from error
+            current_target = session.get(TargetRow, str(target_id))
+            current_external = session.get(ExternalKodiTargetRow, str(target_id))
+            current_pairing = session.get(ExternalBridgePairingRow, str(target_id))
+            current_readiness = session.get(
+                ExternalDevelopmentRepositoryReadinessRow, str(target_id)
+            )
+            current_publication = session.get(
+                DevelopmentPublicationRow, str(publication_id)
+            )
+            current_workspace = session.get(AgentWorkspaceRow, publication.workspace_id)
+            current_snapshot = session.get(
+                RepositoryWorkspaceValidationSnapshotRow, publication.validation_receipt
+            )
+            current_repository_state = session.get(DevelopmentRepositoryStateRow, 1)
+            if (
+                current_target is None
+                or current_target.target_type is not TargetType.EXTERNAL_DEVELOPMENT
+                or current_target.name != target.name
+                or current_target.kodi_version != target.kodi_version
+                or current_external is None
+                or current_external.administrative_state.value != "enabled"
+                or current_external.verification_state.value != "verified"
+                or current_external.host != external.host
+                or current_external.port != external.port
+                or current_external.verified_kodi_version
+                != external.verified_kodi_version
+                or current_external.configured_capabilities_json
+                != external.configured_capabilities_json
+                or current_pairing is None
+                or current_pairing.pairing_state.value != "paired"
+                or current_pairing.pinned_bridge_id != pairing.pinned_bridge_id
+                or current_pairing.bridge_port != pairing.bridge_port
+                or current_pairing.pinned_addon_version != pairing.pinned_addon_version
+                or current_pairing.pinned_kodi_version != pairing.pinned_kodi_version
+                or current_pairing.pinned_build_fingerprint
+                != pairing.pinned_build_fingerprint
+                or current_pairing.bridge_secret_reference
+                != pairing.bridge_secret_reference
+                or current_readiness is None
+                or current_readiness.confirmed_at != readiness.confirmed_at
+                or current_readiness.base_url != readiness.base_url
+                or current_readiness.native_kodi_version
+                != readiness.native_kodi_version
+                or current_readiness.bridge_id != readiness.bridge_id
+                or current_readiness.manual_updates_confirmed is not True
+                or current_readiness.bootstrap_sha256 != readiness.bootstrap_sha256
+                or current_readiness.observed_manifest_digest
+                != readiness.observed_manifest_digest
+                or current_publication is None
+                or current_publication.status != "current"
+                or current_publication.channel != publication.channel
+                or current_publication.scope_kind != publication.scope_kind
+                or current_publication.addon_type != publication.addon_type
+                or current_publication.source_kind != "workspace"
+                or current_publication.compatible_generations
+                != publication.compatible_generations
+                or current_publication.approval_identity
+                != publication.approval_identity
+                or current_publication.approved_at != publication.approved_at
+                or current_publication.workspace_id != publication.workspace_id
+                or current_publication.workspace_generation
+                != publication.workspace_generation
+                or current_publication.validation_receipt
+                != publication.validation_receipt
+                or current_publication.source_tree_sha256
+                != publication.source_tree_sha256
+                or current_publication.zip_sha256 != publication.zip_sha256
+                or current_publication.tree_sha256 != publication.tree_sha256
+                or current_workspace is None
+                or current_workspace.state is not AgentWorkspaceState.READY
+                or current_workspace.bytes_state is not AgentWorkspaceBytesState.PRESENT
+                or current_workspace.generation != publication.workspace_generation
+                or current_workspace.current_tree_digest
+                != publication.source_tree_sha256
+                or current_snapshot is None
+                or current_snapshot.workspace_id != publication.workspace_id
+                or current_snapshot.source_tree_digest != publication.source_tree_sha256
+                or current_snapshot.generation != publication.workspace_generation
+                or current_snapshot.addon_id != publication.addon_id
+                or current_snapshot.addon_version != publication.version
+                or current_repository_state is None
+                or current_repository_state.base_url != repository.base_url
+                or current_repository_state.bootstrap_sha256
+                != repository_state.bootstrap_sha256
+                or current_repository_state.current_generation
+                != repository_state.current_generation
+                or current_repository_state.current_index_sha256
+                != repository_state.current_index_sha256
+            ):
+                raise McpWorkspaceDevelopmentError("adoption_state_changed")
+            existing = list(
+                session.scalars(
+                    select(McpWorkspaceDeploymentOperationRow).where(
+                        McpWorkspaceDeploymentOperationRow.target_id == str(target_id)
+                    )
+                )
+            )
+            repeat: McpWorkspaceDeploymentOperationRow | None = None
+            for operation in existing:
+                linked = session.get(RepositoryWorkspaceDeploymentRow, operation.id)
+                if operation.state in {
+                    "pending",
+                    "running",
+                    "ambiguous",
+                    "reconciliation_required",
+                }:
+                    raise McpWorkspaceDevelopmentError("adoption_conflict")
+                if (
+                    operation.addon_id == publication.addon_id
+                    and operation.state == "succeeded"
+                ):
+                    if (
+                        linked is not None
+                        and linked.origin == "verified_existing"
+                        and linked.state == "succeeded"
+                        and linked.verified_by == "local_admin"
+                        and linked.approved_at is None
+                        and linked.publication_id == str(publication_id)
+                        and operation.workspace_id == publication.workspace_id
+                        and operation.generation == publication.workspace_generation
+                        and operation.addon_version == publication.version
+                        and operation.result_classification == "repository_verified"
+                        and operation.source_manifest_digest == digest
+                        and operation.verified_destination_digest == digest
+                        and linked.addon_id == publication.addon_id
+                        and linked.addon_version == publication.version
+                        and linked.zip_sha256 == publication.zip_sha256
+                        and linked.package_tree_sha256 == publication.tree_sha256
+                        and linked.expected_manifest_digest == digest
+                        and linked.bridge_id == pairing.pinned_bridge_id
+                        and linked.file_count == file_count
+                        and linked.total_bytes == total_bytes
+                        and linked.validation_receipt == publication.validation_receipt
+                        and linked.target_kodi_version == external.verified_kodi_version
+                        and linked.base_url == repository.base_url
+                        and linked.bootstrap_sha256 == readiness.bootstrap_sha256
+                        and operation.initiator_kind == "web"
+                        and operation.client_id is None
+                    ):
+                        repeat = operation
+                    else:
+                        raise McpWorkspaceDevelopmentError("adoption_conflict")
+            if repeat is not None:
+                session.commit()
+                return self._deployment_result(
+                    self._deployment_required(UUID(repeat.id))
+                )
+            session.add(
+                McpWorkspaceDeploymentOperationRow(
+                    id=str(operation_id),
+                    client_id=None,
+                    initiator_kind="web",
+                    request_id=str(uuid4()),
+                    workspace_id=publication.workspace_id,
+                    development_source_id=workspace.development_source_id,
+                    target_id=str(target_id),
+                    runtime_revision_id=None,
+                    target_class="external_development",
+                    deployment_mode="repository",
+                    bridge_id=pairing.pinned_bridge_id,
+                    bridge_request_id=None,
+                    bridge_receipt_id=None,
+                    file_count=file_count,
+                    total_bytes=total_bytes,
+                    generation=publication.workspace_generation,
+                    addon_id=publication.addon_id,
+                    addon_version=publication.version,
+                    state="succeeded",
+                    phase="finalize",
+                    mutation_started=False,
+                    target_stopped=False,
+                    sync_started=False,
+                    sync_completed=False,
+                    target_started=False,
+                    inventory_classification="matched",
+                    addon_enabled=True,
+                    result_classification="repository_verified",
+                    source_manifest_digest=digest,
+                    verified_destination_digest=digest,
+                    failure_code=None,
+                    requested_at=now,
+                    started_at=now,
+                    completed_at=now,
+                )
+            )
+            session.add(
+                RepositoryWorkspaceDeploymentRow(
+                    operation_id=str(operation_id),
+                    publication_id=str(publication_id),
+                    workspace_id=publication.workspace_id,
+                    workspace_generation=publication.workspace_generation,
+                    target_id=str(target_id),
+                    target_kodi_version=external.verified_kodi_version,
+                    bridge_id=pairing.pinned_bridge_id,
+                    addon_id=publication.addon_id,
+                    addon_version=publication.version,
+                    zip_sha256=publication.zip_sha256,
+                    package_tree_sha256=publication.tree_sha256,
+                    expected_manifest_digest=digest,
+                    file_count=file_count,
+                    total_bytes=total_bytes,
+                    validation_receipt=publication.validation_receipt,
+                    repository_id=DEVELOPMENT_REPOSITORY_ID,
+                    base_url=repository.base_url,
+                    bootstrap_sha256=readiness.bootstrap_sha256,
+                    installed_before_version=publication.version,
+                    origin="verified_existing",
+                    verified_by="local_admin",
+                    state="succeeded",
+                    created_at=now,
+                    approved_at=None,
+                    published_at=publication.published_at,
+                    observed_at=now,
+                    verified_at=now,
+                    failure_code=None,
+                )
+            )
+            session.commit()
+        return self._deployment_result(self._deployment_required(operation_id))
 
     def approve_repository_deployment(
         self,
@@ -3267,10 +3719,13 @@ class McpWorkspaceDevelopmentService:
             installation_kind=(
                 None
                 if linked is None
+                else "existing"
+                if linked.origin == "verified_existing"
                 else "first_install"
                 if linked.installed_before_version is None
                 else "update"
             ),
+            origin=None if linked is None else linked.origin,
             zip_sha256=None if linked is None else linked.zip_sha256,
             expected_manifest_digest=(
                 None if linked is None else linked.expected_manifest_digest
@@ -3456,6 +3911,10 @@ class McpWorkspaceDevelopmentService:
             AgentWorkspacePromotionPlanRow.originating_mcp_deployment_id
             == McpWorkspaceDeploymentOperationRow.id
         )
+        repository_history_reference = exists().where(
+            RepositoryWorkspaceDeploymentRow.operation_id
+            == McpWorkspaceDeploymentOperationRow.id
+        )
         expired_deployment_query = (
             select(McpWorkspaceDeploymentOperationRow.id)
             .where(
@@ -3464,6 +3923,7 @@ class McpWorkspaceDevelopmentService:
                 ~current_workspace_deployment,
                 ~deployment_request_reference,
                 ~deployment_promotion_reference,
+                ~repository_history_reference,
             )
             .order_by(
                 McpWorkspaceDeploymentOperationRow.completed_at,

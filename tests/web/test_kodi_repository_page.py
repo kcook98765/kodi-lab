@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from kodi_lab.application.mcp_workspace_development import McpWorkspaceDevelopmentError
 from kodi_lab.repository.development import initialize as initialize_development
 from kodi_lab.repository.stable import generate, sha256
 from tests.repository.test_development import fixture_zip, phase2_candidate
@@ -184,3 +185,73 @@ def test_workspace_repository_approval_route_requires_exact_authenticated_values
             },
         )
     ]
+
+
+def test_existing_install_verification_requires_login_csrf_and_exact_confirmation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target_id = uuid4()
+    publication_id = uuid4()
+    endpoint = (
+        f"/api/external-targets/{target_id}/development-repository/"
+        f"publications/{publication_id}/verify-existing"
+    )
+    payload = {
+        "target_id": str(target_id),
+        "publication_id": str(publication_id),
+        "addon_id": "plugin.video.synthetic",
+        "addon_version": "1.0.1",
+        "zip_sha256": "a" * 64,
+        "expected_manifest_digest": "sha256:" + "b" * 64,
+        "confirmed_existing": True,
+    }
+    assert client.post(endpoint, json=payload).status_code == 401
+    token = login(client)
+    assert client.post(endpoint, json=payload).status_code == 403
+    headers = {"Origin": "http://127.0.0.1", "X-Kodi-Lab-CSRF": token}
+    for stale in (
+        {**payload, "target_id": str(uuid4())},
+        {**payload, "publication_id": str(uuid4())},
+        {**payload, "confirmed_existing": False},
+        {**payload, "extra": "unexpected"},
+    ):
+        assert client.post(endpoint, json=stale, headers=headers).status_code == 400
+    observed: list[object] = []
+
+    def verified(**values: object) -> SimpleNamespace:
+        observed.append(values)
+        return SimpleNamespace(
+            model_dump=lambda **_kwargs: {"origin": "verified_existing"}
+        )
+
+    monkeypatch.setattr(
+        cast(FastAPI, client.app).state.kodi_lab.mcp_workspace_development,
+        "verify_existing_repository_installation",
+        verified,
+    )
+    result = client.post(endpoint, json=payload, headers=headers)
+    assert result.status_code == 200 and result.json() == {
+        "origin": "verified_existing"
+    }
+    assert observed == [
+        {
+            "target_id": target_id,
+            "publication_id": publication_id,
+            "addon_id": payload["addon_id"],
+            "addon_version": payload["addon_version"],
+            "zip_sha256": payload["zip_sha256"],
+            "expected_manifest_digest": payload["expected_manifest_digest"],
+        }
+    ]
+
+    def rejected(**_values: object) -> None:
+        raise McpWorkspaceDevelopmentError("adoption_installed_state_mismatch")
+
+    monkeypatch.setattr(
+        cast(FastAPI, client.app).state.kodi_lab.mcp_workspace_development,
+        "verify_existing_repository_installation",
+        rejected,
+    )
+    rejected_response = client.post(endpoint, json=payload, headers=headers)
+    assert rejected_response.status_code == 409
+    assert rejected_response.json()["detail"] == "adoption_installed_state_mismatch"

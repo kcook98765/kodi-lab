@@ -461,6 +461,7 @@ from kodi_lab.repository.development import (
     load_current as load_development_current,
 )
 from kodi_lab.repository.stable import load_current
+from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
 from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
     McpWorkspaceDeploymentOperationRow,
@@ -3181,6 +3182,35 @@ def create_app(
                 pass
         repository_deployments: list[dict[str, Any]] = []
         repository_targets: list[dict[str, Any]] = []
+        existing_candidates: list[dict[str, str]] = []
+        if development_repository is not None and dev_provenance is not None:
+            for publication in publications:
+                if (
+                    publication.status != "current"
+                    or publication.source_kind != "workspace"
+                ):
+                    continue
+                artifact = (
+                    development_repository.root
+                    / "packages"
+                    / publication.addon_id
+                    / f"{publication.addon_id}-{publication.version}.zip"
+                )
+                try:
+                    digest, _, _ = bridge_manifest_for_zip(
+                        artifact.read_bytes(), publication.addon_id
+                    )
+                except (OSError, ValueError):
+                    continue
+                existing_candidates.append(
+                    {
+                        "publication_id": publication.id,
+                        "addon_id": publication.addon_id,
+                        "version": publication.version,
+                        "zip_sha256": publication.zip_sha256,
+                        "expected_manifest_digest": digest,
+                    }
+                )
         publication_by_id = {item.id: item for item in publications}
         current_by_addon = {
             item.addon_id: item.version
@@ -3212,6 +3242,8 @@ def create_app(
                         ),
                         "target_kodi_version": linked.target_kodi_version,
                         "state": linked.state,
+                        "origin": linked.origin,
+                        "verified_by": linked.verified_by,
                         "addon_id": linked.addon_id,
                         "addon_version": linked.addon_version,
                         "zip_sha256": linked.zip_sha256,
@@ -3258,6 +3290,7 @@ def create_app(
                 "publications": publications,
                 "repository_deployments": repository_deployments,
                 "repository_targets": repository_targets,
+                "existing_candidates": existing_candidates,
                 "storage_usage": storage_usage,
                 "development_max_artifacts": development_repository.max_artifacts
                 if development_repository
@@ -3387,6 +3420,55 @@ def create_app(
             "bootstrap_sha256": readiness.bootstrap_sha256,
             "confirmed_at": readiness.confirmed_at,
         }
+
+    @app.post(
+        "/api/external-targets/{target_id}/development-repository/"
+        "publications/{publication_id}/verify-existing"
+    )
+    async def verify_existing_repository_installation(
+        request: Request,
+        target_id: UUID,
+        publication_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, Any]:
+        payload = await request.json()
+        required = {
+            "target_id",
+            "publication_id",
+            "addon_id",
+            "addon_version",
+            "zip_sha256",
+            "expected_manifest_digest",
+            "confirmed_existing",
+        }
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != required
+            or payload["target_id"] != str(target_id)
+            or payload["publication_id"] != str(publication_id)
+            or payload["confirmed_existing"] is not True
+            or any(
+                not isinstance(payload[key], str)
+                for key in required - {"confirmed_existing"}
+            )
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Exact existing-installation confirmation is required",
+            )
+        try:
+            service = context.mcp_workspace_development
+            result = service.verify_existing_repository_installation(
+                target_id=target_id,
+                publication_id=publication_id,
+                addon_id=payload["addon_id"],
+                addon_version=payload["addon_version"],
+                zip_sha256=payload["zip_sha256"],
+                expected_manifest_digest=payload["expected_manifest_digest"],
+            )
+        except McpWorkspaceDevelopmentError as error:
+            raise HTTPException(status_code=409, detail=error.code) from error
+        return result.model_dump(mode="json")
 
     @app.post(
         "/api/workspaces/{workspace_id}/repository-deployments/{operation_id}/approve"
