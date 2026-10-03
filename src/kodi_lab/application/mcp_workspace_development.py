@@ -162,6 +162,8 @@ from kodi_lab.storage.repositories import (
     ManagedInstanceDevelopmentSourceRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedInstanceRepository,
+    ManagedRuntimeProjectionRepository,
+    ManagedRuntimeReconciliationBlockedError,
     RuntimeExecutionProfileRepository,
 )
 from kodi_lab.workspace import (
@@ -1824,7 +1826,7 @@ class McpWorkspaceDevelopmentService:
             target_id,
             deployment_mode,
         )
-        if not created:
+        if not created or row.state != "pending":
             return self._replay_deployment(
                 row,
                 client_id,
@@ -1833,9 +1835,6 @@ class McpWorkspaceDevelopmentService:
                 target_id,
                 deployment_mode,
             )
-        if not self._deployment_rate.allow(f"{client_id}:{target_id}"):
-            self._finish_deployment(row.id, "failed", "rate_limited")
-            raise McpWorkspaceDevelopmentError("rate_limited")
         token = secrets.token_urlsafe(32)
         digest = hashlib.sha256(token.encode()).hexdigest()
         try:
@@ -2286,6 +2285,35 @@ class McpWorkspaceDevelopmentService:
                         updated_at=_to_text(now),
                     )
                 )
+                if (
+                    target.target_class == "internal_lab"
+                    and ManagedRuntimeProjectionRepository(
+                        session
+                    ).has_blocking_runtime_reconciliation(target_id)
+                ):
+                    raise ManagedRuntimeReconciliationBlockedError(
+                        "Runtime reconciliation is unresolved for this "
+                        "managed instance."
+                    )
+                if (
+                    target.target_class == "internal_lab"
+                    and ManagedInstanceMutationLeaseRepository(session).current(
+                        target_id
+                    )
+                    is not None
+                ) or GlobalHeavyOperationLeaseRepository(session).current() is not None:
+                    raise McpWorkspaceDevelopmentError("deployment_conflict")
+                # A cooldown denial retains replay history without invalidating runtime.
+                if not self._deployment_rate.allow(f"{client_id}:{target_id}"):
+                    row.state = "failed"
+                    row.phase = "finalize"
+                    row.failure_code = "rate_limited"
+                    row.started_at = _to_text(now)
+                    row.completed_at = _to_text(now)
+                    session.flush()
+                    session.expunge(row)
+                    session.commit()
+                    return row, True
                 if target.target_class == "internal_lab":
                     ManagedInstanceMutationLeaseRepository(session).reserve(
                         target_id,

@@ -81,6 +81,7 @@ from kodi_lab.domain import (
     ExternalAdministrativeState,
     ExternalBridgePairingState,
     ExternalBridgeReachabilityState,
+    GlobalHeavyOperationKind,
     HealthStatus,
     InstanceRuntimeState,
     InstanceType,
@@ -138,6 +139,7 @@ from kodi_lab.storage.models import (
 )
 from kodi_lab.storage.repositories import (
     DevelopmentSourceRepository,
+    GlobalHeavyOperationLeaseRepository,
     ManagedInstanceMutationLeaseRepository,
     ManagedRuntimeCurrentProjection,
     ManagedRuntimeProjectionRepository,
@@ -2659,6 +2661,137 @@ def test_deployment_and_execution_rate_windows_use_bounded_fake_clock() -> None:
     now[0] += 240
     assert deployment.allow("client:target")
     assert deployment.key_count <= 2 and execution.key_count <= 2
+
+
+def test_deployment_cooldown_rejection_preserves_runtime_and_replay(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+    now = [1000.0]
+    rate = BoundedIntervalRateLimiter(300, clock=lambda: now[0])
+    env.development._deployment_rate = rate
+    assert rate.allow(f"{env.client_id}:{TARGET_ID}")
+    request_id = uuid4()
+
+    def deploy(selected_request_id: UUID, *, generation: int = 0) -> Any:
+        return env.development.deploy(
+            client_id=env.client_id,
+            request_id=selected_request_id,
+            workspace_id=env.workspace_id,
+            expected_generation=generation,
+            target_id=TARGET_ID,
+        )
+
+    with pytest.raises(McpWorkspaceDevelopmentError, match="rate_limited"):
+        deploy(request_id)
+    with env.sessions() as session:
+        instance = session.get(ManagedInstanceRow, str(TARGET_ID))
+        target = session.get(TargetRow, str(TARGET_ID))
+        rows = list(session.scalars(select(McpWorkspaceDeploymentOperationRow)))
+        requests = list(session.scalars(select(McpDevelopmentRequestRow)))
+        assert instance is not None and target is not None
+        assert instance.runtime_state_revision == 0
+        assert instance.runtime_state.value == "running"
+        assert (
+            target.availability.value,
+            target.health.value,
+            target.connection_state.value,
+        ) == ("available", "healthy", "connected")
+        assert (
+            ManagedInstanceMutationLeaseRepository(session).current(TARGET_ID) is None
+        )
+        assert GlobalHeavyOperationLeaseRepository(session).current() is None
+        assert len(rows) == len(requests) == 1
+        assert rows[0].request_id == str(request_id)
+        assert (rows[0].state, rows[0].failure_code, rows[0].mutation_started) == (
+            "failed",
+            "rate_limited",
+            False,
+        )
+    assert env.broker.state is ContainerRuntimeState.RUNNING
+    assert (env.broker.stop_count, env.broker.sync_count, env.broker.start_count) == (
+        0,
+        0,
+        0,
+    )
+
+    now[0] = 1300.0
+    with pytest.raises(McpWorkspaceDevelopmentError, match="rate_limited"):
+        deploy(request_id)
+    with pytest.raises(McpWorkspaceDevelopmentError, match="request_id_conflict"):
+        deploy(request_id, generation=1)
+
+    barrier = threading.Barrier(3)
+    boundary_requests = (uuid4(), uuid4())
+
+    def concurrent_deploy(selected_request_id: UUID) -> str:
+        barrier.wait()
+        try:
+            deploy(selected_request_id)
+        except McpWorkspaceDevelopmentError as error:
+            return error.code
+        return "succeeded"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(concurrent_deploy, item) for item in boundary_requests]
+        barrier.wait()
+        outcomes = [future.result() for future in futures]
+    assert outcomes.count("succeeded") == 1
+    assert next(outcome for outcome in outcomes if outcome != "succeeded") in {
+        "rate_limited",
+        "deployment_conflict",
+        "deployment_not_allowed",
+    }
+    assert (env.broker.stop_count, env.broker.sync_count, env.broker.start_count) == (
+        1,
+        1,
+        1,
+    )
+    with pytest.raises(McpWorkspaceDevelopmentError, match="rate_limited"):
+        deploy(uuid4())
+    with env.sessions() as session:
+        rows = list(session.scalars(select(McpWorkspaceDeploymentOperationRow)))
+        instance = session.get(ManagedInstanceRow, str(TARGET_ID))
+        assert instance is not None and instance.runtime_state_revision == 2
+        assert len(rows) in {3, 4}
+        assert sum(row.state == "succeeded" for row in rows) == 1
+        assert sum(row.failure_code == "rate_limited" for row in rows) >= 2
+        assert (
+            ManagedInstanceMutationLeaseRepository(session).current(TARGET_ID) is None
+        )
+        assert GlobalHeavyOperationLeaseRepository(session).current() is None
+
+
+def test_deployment_conflict_does_not_spend_cooldown(tmp_path: Path) -> None:
+    env = _environment(tmp_path)
+    existing_operation_id = uuid4()
+    with env.sessions.begin() as session:
+        GlobalHeavyOperationLeaseRepository(session).reserve(
+            kind=GlobalHeavyOperationKind.MCP_WORKSPACE_DEPLOYMENT,
+            operation_id=existing_operation_id,
+        )
+
+    with pytest.raises(McpWorkspaceDevelopmentError, match="deployment_conflict"):
+        env.development.deploy(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    with env.sessions() as session:
+        assert session.scalar(select(McpWorkspaceDeploymentOperationRow)) is None
+        assert session.scalar(select(McpDevelopmentRequestRow)) is None
+        instance = session.get(ManagedInstanceRow, str(TARGET_ID))
+        assert instance is not None and instance.runtime_state_revision == 0
+    assert env.broker.stop_count == 0
+
+    with env.sessions.begin() as session:
+        assert GlobalHeavyOperationLeaseRepository(session).release_for_operation(
+            existing_operation_id
+        )
+    _deploy_workspace(env)
+    assert env.broker.stop_count == 1
 
 
 def test_correlated_stop_sync_readiness_and_inventory_failures_are_bounded(
