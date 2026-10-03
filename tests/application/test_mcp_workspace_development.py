@@ -60,8 +60,10 @@ from kodi_lab.kodi.addons import (
     KodiAddonDetailsRecord,
     KodiAddonInventoryRecord,
     KodiAddonInventoryResult,
+    KodiAddonSmokeJsonRpcError,
     KodiAddonSmokeResult,
     KodiAddonSmokeTimeoutError,
+    KodiJsonRpcDiagnostic,
     KodiReportedAddonDependency,
 )
 from kodi_lab.kodi.bridge import BridgeAddonTree, BridgeDeploymentReceipt
@@ -1055,6 +1057,7 @@ def test_exact_generation_deploy_execute_and_replay_counts(tmp_path: Path) -> No
         execution = session.scalar(select(McpWorkspaceExecutionOperationRow))
         assert deployment is not None and deployment.state == "succeeded"
         assert execution is not None and execution.state == "succeeded"
+        assert (execution.kodi_error_code, execution.kodi_error_message) == (None, None)
         assert set(deployment.__dict__).isdisjoint(
             {"path", "content", "container_id", "raw_response", "log"}
         )
@@ -1081,6 +1084,90 @@ def _execute_workspace(
         expected_generation=0,
         target_id=TARGET_ID,
     )
+
+
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [(-32601, "Method not found."), (-32602, "Invalid params.")],
+)
+def test_failed_execution_persists_safe_kodi_diagnostic_and_replays(
+    tmp_path: Path, code: int, message: str
+) -> None:
+    env = _environment(tmp_path)
+    _deploy_workspace(env)
+
+    def failed(_addon_id: str) -> KodiAddonSmokeResult:
+        env.smoke.count += 1
+        raise KodiAddonSmokeJsonRpcError(
+            8, diagnostic=KodiJsonRpcDiagnostic(code, message)
+        )
+
+    env.smoke.invoke = failed  # type: ignore[assignment]
+    request_id = uuid4()
+    for _ in range(2):
+        with pytest.raises(McpWorkspaceDevelopmentError) as raised:
+            _execute_workspace(env, request_id=request_id)
+        assert raised.value.code == "execution_failed"
+        assert raised.value.diagnostic == KodiJsonRpcDiagnostic(code, message)
+
+    assert env.smoke.count == 1
+    with env.sessions() as session:
+        row = session.scalar(select(McpWorkspaceExecutionOperationRow))
+        assert row is not None
+        assert (row.state, row.failure_code, row.execution_classification) == (
+            "failed",
+            "execution_failed",
+            "jsonrpc_error",
+        )
+        assert (row.kodi_error_code, row.kodi_error_message) == (code, message)
+
+
+def test_historical_style_failed_execution_replays_without_kodi_diagnostic(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+    _deploy_workspace(env)
+
+    def failed(_addon_id: str) -> KodiAddonSmokeResult:
+        env.smoke.count += 1
+        raise KodiAddonSmokeJsonRpcError(8)
+
+    env.smoke.invoke = failed  # type: ignore[assignment]
+    request_id = uuid4()
+    for _ in range(2):
+        with pytest.raises(McpWorkspaceDevelopmentError) as raised:
+            _execute_workspace(env, request_id=request_id)
+        assert raised.value.code == "execution_failed"
+        assert raised.value.diagnostic is None
+    assert env.smoke.count == 1
+    with env.sessions() as session:
+        row = session.scalar(select(McpWorkspaceExecutionOperationRow))
+        assert row is not None
+        assert (row.kodi_error_code, row.kodi_error_message) == (None, None)
+
+
+def test_failed_execution_persists_only_sanitized_message(tmp_path: Path) -> None:
+    env = _environment(tmp_path)
+    _deploy_workspace(env)
+
+    def failed(_addon_id: str) -> KodiAddonSmokeResult:
+        raise KodiAddonSmokeJsonRpcError(
+            8,
+            diagnostic=KodiJsonRpcDiagnostic(
+                -32602, "Invalid\nparams: /home/kodi/.kodi token=secret-value"
+            ),
+        )
+
+    env.smoke.invoke = failed  # type: ignore[assignment]
+    with pytest.raises(McpWorkspaceDevelopmentError) as raised:
+        _execute_workspace(env)
+    assert raised.value.diagnostic is not None
+    assert raised.value.diagnostic.message == ("Invalid params: [redacted] [redacted]")
+    with env.sessions() as session:
+        row = session.scalar(select(McpWorkspaceExecutionOperationRow))
+        assert row is not None
+        assert row.kodi_error_message == raised.value.diagnostic.message
+        assert "secret-value" not in row.kodi_error_message
 
 
 def test_execute_uses_verified_kodi_release_for_compatible_python_api(
@@ -1414,6 +1501,10 @@ def test_execution_timeout_after_dispatch_is_ambiguous_and_not_retried(
             target_id=TARGET_ID,
         )
     assert env.smoke.count == 1
+    with env.sessions() as session:
+        row = session.scalar(select(McpWorkspaceExecutionOperationRow))
+        assert row is not None
+        assert (row.kodi_error_code, row.kodi_error_message) == (None, None)
 
 
 def test_retention_blocks_current_and_unresolved_deployment(tmp_path: Path) -> None:

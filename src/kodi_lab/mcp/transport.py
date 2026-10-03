@@ -60,6 +60,7 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRequiredResult,
     ProductionApprovalTerminalResult,
 )
+from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
@@ -960,6 +961,7 @@ def build_mcp_http_transport(
         audit_outcome = "internal_error"
         result_code = "internal_error"
         result_reason: str | None = None
+        result_diagnostic: KodiJsonRpcDiagnostic | None = None
         diagnostic_context = None
         try:
             arguments = params.arguments or {}
@@ -1188,6 +1190,8 @@ def build_mcp_http_transport(
         except McpAuthorizationError as error:
             result_code = error.code
             result_reason = error.reason
+            if params.name == "workspace_execute" and error.code == "execution_failed":
+                result_diagnostic = error.diagnostic
             audit_outcome = _audit_outcome_for_tool_error(result_code)
             emit_screenshot_stage("mcp_result", "failed", result_code)
         except BaseException:
@@ -1298,7 +1302,9 @@ def build_mcp_http_transport(
                     lambda: diagnostic_context.__exit__(None, None, None)
                 )
             return response
-        response = _tool_error_result(result_code, reason=result_reason)
+        response = _tool_error_result(
+            result_code, reason=result_reason, diagnostic=result_diagnostic
+        )
         _audit_safely(
             principal,
             params.name,
@@ -1395,13 +1401,21 @@ _SAFE_TOOL_REASONS = {
 
 
 def _tool_error_result(
-    result_code: str, *, reason: str | None = None
+    result_code: str,
+    *,
+    reason: str | None = None,
+    diagnostic: KodiJsonRpcDiagnostic | None = None,
 ) -> CallToolResult:
     # A tool error has no success-shaped structured result. Its text remains
     # available to models without violating the tool's declared outputSchema.
     message = result_code
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
+    if result_code == "execution_failed" and diagnostic is not None:
+        suffix = f"Kodi {diagnostic.code}"
+        if diagnostic.message is not None:
+            suffix += f": {diagnostic.message}"
+        message = f"execution_failed: jsonrpc_error ({suffix})"
     return CallToolResult(
         content=[TextContent(text=message)],
         is_error=True,

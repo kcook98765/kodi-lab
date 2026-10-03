@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import unicodedata
 from collections.abc import Callable
@@ -28,6 +29,54 @@ MAX_ADDON_NAME_LENGTH = 256
 MAX_ADDON_VERSION_LENGTH = 128
 MAX_ADDON_TYPE_LENGTH = 128
 SMOKE_INVOCATION_TIMEOUT_SECONDS = 10.0
+KODI_ERROR_MESSAGE_MAX_LENGTH = 192
+_KODI_ERROR_CREDENTIAL = re.compile(
+    r"(?i)\b(?:password|passwd|token|api[_-]?key|secret|authorization)"
+    r"\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+)
+_KODI_ERROR_AUTH_HEADER = re.compile(
+    r"(?i)\bauthorization\s*[:=]\s*(?:basic|bearer)\s+[^\s,;]+"
+)
+_KODI_ERROR_BEARER = re.compile(r"(?i)\bBearer\s+[^\s,;]+")
+_KODI_ERROR_URL = re.compile(r"(?i)\b(?:https?|smb|nfs)://[^\s]+")
+_KODI_ERROR_UNC = re.compile(r"\\\\[^\s]+")
+_KODI_ERROR_DRIVE = re.compile(r"(?i)\b[A-Z]:[\\/][^\s]+")
+_KODI_ERROR_UNIX_PATH = re.compile(r"(?<![\w/])/(?:[^\s,;]+)")
+
+
+def sanitize_kodi_error_message(message: str) -> str | None:
+    """Retain only bounded single-line text from a validated Kodi error string."""
+
+    if not isinstance(message, str):
+        raise TypeError("Kodi error message must be a string")
+    normalized = "".join(
+        " " if unicodedata.category(char) in {"Cc", "Cf"} else char for char in message
+    )
+    normalized = _KODI_ERROR_AUTH_HEADER.sub("[redacted]", normalized)
+    normalized = _KODI_ERROR_CREDENTIAL.sub("[redacted]", normalized)
+    normalized = _KODI_ERROR_BEARER.sub("[redacted]", normalized)
+    normalized = _KODI_ERROR_URL.sub("[redacted]", normalized)
+    normalized = _KODI_ERROR_UNC.sub("[redacted]", normalized)
+    normalized = _KODI_ERROR_DRIVE.sub("[redacted]", normalized)
+    normalized = _KODI_ERROR_UNIX_PATH.sub("[redacted]", normalized)
+    normalized = " ".join(normalized.split())
+    return normalized[:KODI_ERROR_MESSAGE_MAX_LENGTH] or None
+
+
+@dataclass(frozen=True, slots=True)
+class KodiJsonRpcDiagnostic:
+    """Only the safe fields of one correlated fixed-execution rejection."""
+
+    code: int
+    message: str | None
+
+    def __post_init__(self) -> None:
+        if type(self.code) is not int:
+            raise TypeError("Kodi JSON-RPC code must be an integer")
+        if self.message is not None:
+            object.__setattr__(
+                self, "message", sanitize_kodi_error_message(self.message)
+            )
 
 
 class KodiAddonInventoryUnsupportedResponseError(RuntimeError):
@@ -61,9 +110,12 @@ class KodiAddonEnablementAmbiguousError(RuntimeError):
 class KodiAddonSmokeJsonRpcError(RuntimeError):
     """Kodi returned one correlated error envelope for the fixed invocation."""
 
-    def __init__(self, duration_ms: int) -> None:
+    def __init__(
+        self, duration_ms: int, *, diagnostic: KodiJsonRpcDiagnostic | None = None
+    ) -> None:
         super().__init__("Kodi returned a correlated plugin execution error")
         self.duration_ms = duration_ms
+        self.diagnostic = diagnostic
 
 
 class KodiAddonSmokeTimeoutError(RuntimeError):
@@ -683,7 +735,14 @@ class KodiAddonSmokeAdapter:
             and set(document) == {"jsonrpc", "id", "error"}
             and self._valid_error(document.get("error"))
         ):
-            raise KodiAddonSmokeJsonRpcError(duration)
+            jsonrpc_error = cast(dict[str, object], document["error"])
+            raise KodiAddonSmokeJsonRpcError(
+                duration,
+                diagnostic=KodiJsonRpcDiagnostic(
+                    code=cast(int, jsonrpc_error["code"]),
+                    message=cast(str, jsonrpc_error["message"]),
+                ),
+            )
         if (
             not isinstance(document, dict)
             or document.get("jsonrpc") != "2.0"

@@ -352,9 +352,15 @@ ID/version inventory and fresh destination provenance. The server parses the
 workspace descriptor, permits only one copied Python video-plugin entry point,
 requires the suppress-bytecode runtime policy and invokes the existing fixed
 `Files.GetDirectory` smoke shape. All other add-on types return
-`execution_unsupported`. Output is only semantic execution classification and
-a bounded 0-or-1 item count; raw Kodi documents and directory metadata are
-discarded.
+`execution_unsupported`. Success output remains semantic execution
+classification and a bounded 0-or-1 item count; raw Kodi documents and
+directory metadata are discarded. For a correlated JSON-RPC failure, the
+existing execution operation may retain only Kodi's integer error code and a
+single-line sanitized message of at most 192 characters. The authorized MCP
+failure remains `isError=true` text without success-shaped `structuredContent`.
+Replay uses those persisted fields and does not inspect later Kodi state or
+logs. JSON-RPC `data`, raw responses, Kodi logs, tracebacks, filesystem and
+environment information, and addon exception details are not exposed.
 
 The execution claim commits before Kodi and the dispatch marker commits before
 the one invocation. Completed duplicates replay stored evidence across modern

@@ -15,10 +15,12 @@ from kodi_lab.domain import (
     RuntimeKind,
 )
 from kodi_lab.kodi.addons import (
+    KODI_ERROR_MESSAGE_MAX_LENGTH,
     KodiAddonSmokeAdapter,
     KodiAddonSmokeAmbiguousError,
     KodiAddonSmokeJsonRpcError,
     KodiAddonSmokeTimeoutError,
+    sanitize_kodi_error_message,
 )
 from kodi_lab.kodi.readiness import JsonRpcUnavailableError
 
@@ -197,7 +199,11 @@ def test_classifies_only_a_correlated_kodi_error() -> None:
         {
             "jsonrpc": "2.0",
             "id": "kodi-lab-addon-smoke",
-            "error": {"code": -32602, "message": "discarded"},
+            "error": {
+                "code": -32602,
+                "message": "Invalid params.",
+                "data": {"path": "/secret"},
+            },
         }
     ).encode()
     with pytest.raises(KodiAddonSmokeJsonRpcError) as raised:
@@ -208,6 +214,62 @@ def test_classifies_only_a_correlated_kodi_error() -> None:
             transport=FakeTransport(payload),
         ).invoke("plugin.video.example")
     assert raised.value.duration_ms == 125
+    assert raised.value.diagnostic is not None
+    assert raised.value.diagnostic.code == -32602
+    assert raised.value.diagnostic.message == "Invalid params."
+    assert "secret" not in repr(raised.value.diagnostic)
+
+
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [(-32601, "Method not found."), (-32602, "Invalid params.")],
+)
+def test_smoke_error_keeps_only_safe_code_and_message(code: int, message: str) -> None:
+    payload = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": "kodi-lab-addon-smoke",
+            "error": {"code": code, "message": message, "data": {"secret": "raw"}},
+        }
+    ).encode()
+    with pytest.raises(KodiAddonSmokeJsonRpcError) as raised:
+        KodiAddonSmokeAdapter(
+            observation(), profile(), transport=FakeTransport(payload)
+        ).invoke("plugin.video.example")
+    assert raised.value.diagnostic is not None
+    assert (raised.value.diagnostic.code, raised.value.diagnostic.message) == (
+        code,
+        message,
+    )
+    assert "raw" not in repr(raised.value)
+
+
+def test_smoke_error_message_is_single_line_bounded_and_redacted() -> None:
+    unsafe = (
+        "Invalid\nparams.\t/var/lib/kodi/private C:\\Users\\kyle\\secret "
+        "\\\\server\\share\\secret token=abc password:xyz "
+        'api_key="quoted secret" Bearer qwerty '
+        "Authorization: Basic encodedCredential "
+        "https://user:pass@example.invalid/private " + "x" * 400
+    )
+    safe = sanitize_kodi_error_message(unsafe)
+    assert safe is not None
+    assert len(safe) == KODI_ERROR_MESSAGE_MAX_LENGTH
+    assert "\n" not in safe and "\t" not in safe
+    for secret in (
+        "/var/lib",
+        "C:\\Users",
+        "server\\share",
+        "abc",
+        "xyz",
+        "qwerty",
+        "encodedCredential",
+        "quoted secret",
+        "user:pass",
+    ):
+        assert secret not in safe
+    assert safe.count("[redacted]") >= 5
+    assert sanitize_kodi_error_message("\r\n\t") is None
 
 
 def test_timeout_after_dispatch_is_distinct_and_bounded() -> None:

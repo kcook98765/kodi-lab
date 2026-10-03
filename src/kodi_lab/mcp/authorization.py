@@ -48,6 +48,7 @@ from kodi_lab.domain import (
     InstanceType,
     TargetType,
 )
+from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
 from kodi_lab.kodi.remote import REMOTE_RUNTIME_REVISION_IDS, BrowserRemoteAction
 from kodi_lab.mcp.registry import (
     McpToolDefinition,
@@ -85,10 +86,17 @@ _ResultT = TypeVar("_ResultT")
 
 
 class McpAuthorizationError(PermissionError):
-    def __init__(self, code: str, *, reason: str | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        reason: str | None = None,
+        diagnostic: KodiJsonRpcDiagnostic | None = None,
+    ) -> None:
         super().__init__(code)
         self.code = code
         self.reason = reason
+        self.diagnostic = diagnostic
 
 
 @dataclass(frozen=True, slots=True)

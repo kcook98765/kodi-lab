@@ -5421,3 +5421,14 @@ approvals atomically with the governing revision transition.
   points. This decision grants no Web/MCP movie-mutation or arbitrary JSON-RPC
   authority, and does not apply to external targets. Matrix/Omega post-scan
   state behavior remains unproven.
+
+## D-0401: Correlated Kodi execution errors stay on the existing operation
+
+- A fixed workspace execution may persist only Kodi's integer JSON-RPC error
+  code and a bounded sanitized message on its existing durable operation.
+  Historical rows remain valid with both fields null. Replay returns the same
+  persisted safe evidence without redispatching Kodi.
+- MCP authorization and the fixed execution request remain unchanged. Failure
+  text retains the broad code and has no success-shaped `structuredContent`.
+  No generic diagnostic lookup, raw response, JSON-RPC data, Kodi log,
+  traceback, or addon exception channel is added.

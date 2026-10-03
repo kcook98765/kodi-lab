@@ -6495,6 +6495,18 @@ class McpWorkspaceExecutionOperationRow(Base):
             name="mcp_workspace_execution_failure_bounded",
         ),
         CheckConstraint(
+            "kodi_error_message IS NULL OR "
+            "(kodi_error_code IS NOT NULL AND "
+            "length(kodi_error_message) BETWEEN 1 AND 192)",
+            name="mcp_workspace_execution_kodi_message_bounded",
+        ),
+        CheckConstraint(
+            "kodi_error_code IS NULL OR "
+            "(state='failed' AND execution_classification='jsonrpc_error' "
+            "AND failure_code='execution_failed')",
+            name="mcp_workspace_execution_kodi_error_failure_only",
+        ),
+        CheckConstraint(
             "length(requested_at)=27 AND "
             "(started_at IS NULL OR length(started_at)=27) AND "
             "(completed_at IS NULL OR length(completed_at)=27)",
@@ -6546,6 +6558,8 @@ class McpWorkspaceExecutionOperationRow(Base):
     item_count: Mapped[int | None] = mapped_column(Integer)
     result_classification: Mapped[str | None] = mapped_column(String(64))
     failure_code: Mapped[str | None] = mapped_column(String(128))
+    kodi_error_code: Mapped[int | None] = mapped_column(Integer)
+    kodi_error_message: Mapped[str | None] = mapped_column(String(192))
     requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
     started_at: Mapped[str | None] = mapped_column(String(27))
     completed_at: Mapped[str | None] = mapped_column(String(27))

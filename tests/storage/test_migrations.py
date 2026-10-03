@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0061_reset_phase_v5",)
+        ).fetchone() == ("0062_workspace_kodi_error",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -607,6 +607,9 @@ def test_0061_durable_reset_flow_records_both_post_scan_phases(
         monkeypatch, tmp_path, start_revision="0060_repository_existing_verify"
     )
     command.upgrade(config, "0061_reset_phase_v5")
+    # The current coordinator maps the current ORM model, including later
+    # nullable execution diagnostics; exercise it on the complete schema.
+    command.upgrade(config, "head")
     _seed_reset_phase_history(database_url)
     engine = create_database_engine(database_url)
     factory = create_session_factory(engine)
@@ -7712,4 +7715,132 @@ def test_0057_development_capability_amendments_empty_round_trip(
         )
         assert isinstance(trigger, str)
         assert "'external_production' AND EXISTS" not in trigger
+    engine.dispose()
+
+
+def test_0062_workspace_kodi_error_preserves_history_and_closed_shape(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0061_reset_phase_v5"
+    )
+    engine = create_database_engine(database_url)
+    table = "mcp_workspace_execution_operations"
+    before_indexes = {entry["name"] for entry in inspect(engine).get_indexes(table)}
+    timestamp = "2026-10-02T00:00:00.000000Z"
+    ids = (str(uuid4()), str(uuid4()))
+    with engine.begin() as connection:
+        for operation_id, state in zip(ids, ("succeeded", "failed"), strict=True):
+            connection.execute(
+                text(
+                    f"INSERT INTO {table} (id,client_id,request_id,workspace_id,"
+                    "development_source_id,target_id,deployment_id,generation,"
+                    "addon_id,addon_version,state,phase,invocation_dispatched,"
+                    "execution_classification,item_count,result_classification,"
+                    "failure_code,requested_at,started_at,completed_at) VALUES "
+                    "(:id,:client,:request,:workspace,:source,:target,:deployment,1,"
+                    "'plugin.video.example','1.0.0',:state,'finalize',1,:classification,"
+                    ":item_count,:result,:failure,:timestamp,:timestamp,:timestamp)"
+                ),
+                {
+                    "id": operation_id,
+                    "client": str(uuid4()),
+                    "request": str(uuid4()),
+                    "workspace": str(uuid4()),
+                    "source": str(uuid4()),
+                    "target": str(uuid4()),
+                    "deployment": str(uuid4()),
+                    "state": state,
+                    "classification": (
+                        "directory_result" if state == "succeeded" else "jsonrpc_error"
+                    ),
+                    "item_count": 1 if state == "succeeded" else None,
+                    "result": "smoke_passed"
+                    if state == "succeeded"
+                    else "smoke_failed",
+                    "failure": None if state == "succeeded" else "execution_failed",
+                    "timestamp": timestamp,
+                },
+            )
+    engine.dispose()
+
+    command.upgrade(config, "0062_workspace_kodi_error")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                f"SELECT id,state,kodi_error_code,kodi_error_message FROM {table} "
+                "ORDER BY state"
+            )
+        ).all() == [
+            (ids[1], "failed", None, None),
+            (ids[0], "succeeded", None, None),
+        ]
+        assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+    assert {
+        entry["name"] for entry in inspect(engine).get_indexes(table)
+    } == before_indexes
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"UPDATE {table} SET kodi_error_code=-32602, "
+                "kodi_error_message='Invalid params.' WHERE id=:id"
+            ),
+            {"id": ids[1]},
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(f"UPDATE {table} SET kodi_error_message=:message WHERE id=:id"),
+            {"id": ids[1], "message": "x" * 193},
+        )
+    with engine.begin() as connection:
+        connection.execute(
+            text(f"UPDATE {table} SET kodi_error_message=NULL WHERE id=:id"),
+            {"id": ids[1]},
+        )
+        assert (
+            connection.scalar(
+                text(f"SELECT kodi_error_code FROM {table} WHERE id=:id"),
+                {"id": ids[1]},
+            )
+            == -32602
+        )
+        connection.execute(
+            text(
+                f"UPDATE {table} SET kodi_error_message='Invalid params.' WHERE id=:id"
+            ),
+            {"id": ids[1]},
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(f"UPDATE {table} SET kodi_error_code=NULL WHERE id=:id"),
+            {"id": ids[1]},
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(f"UPDATE {table} SET kodi_error_code=-32601 WHERE id=:id"),
+            {"id": ids[0]},
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="cannot be downgraded"):
+        command.downgrade(config, "0061_reset_phase_v5")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"UPDATE {table} SET kodi_error_code=NULL,kodi_error_message=NULL "
+                "WHERE id=:id"
+            ),
+            {"id": ids[1]},
+        )
+    engine.dispose()
+    command.downgrade(config, "0061_reset_phase_v5")
+    engine = create_database_engine(database_url)
+    assert "kodi_error_code" not in {
+        column["name"] for column in inspect(engine).get_columns(table)
+    }
+    with engine.connect() as connection:
+        assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
+        assert connection.scalar(text(f"SELECT COUNT(*) FROM {table}")) == 2
     engine.dispose()

@@ -92,6 +92,7 @@ from kodi_lab.kodi.addons import (
     KodiAddonSmokeAmbiguousError,
     KodiAddonSmokeJsonRpcError,
     KodiAddonSmokeTimeoutError,
+    KodiJsonRpcDiagnostic,
 )
 from kodi_lab.kodi.readiness import JsonRpcUnavailableError, KodiReadinessCoordinator
 from kodi_lab.repository.development import (
@@ -330,9 +331,16 @@ def _matches_existing_adoption(
 
 
 class McpWorkspaceDevelopmentError(RuntimeError):
-    def __init__(self, code: str, *, reason: str | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        reason: str | None = None,
+        diagnostic: KodiJsonRpcDiagnostic | None = None,
+    ) -> None:
         self.code = code
         self.reason = reason
+        self.diagnostic = diagnostic
         super().__init__(code)
 
 
@@ -3245,9 +3253,10 @@ class McpWorkspaceDevelopmentService:
                 digest=digest,
                 execution_classification="jsonrpc_error",
                 result_classification="smoke_failed",
+                diagnostic=execution_failure.diagnostic,
             )
             raise McpWorkspaceDevelopmentError(
-                "execution_failed"
+                "execution_failed", diagnostic=execution_failure.diagnostic
             ) from execution_failure
         assert invocation is not None
         self._finish_execution(
@@ -3309,8 +3318,11 @@ class McpWorkspaceDevelopmentService:
                 digest=digest,
                 execution_classification="jsonrpc_error",
                 result_classification="smoke_failed",
+                diagnostic=error.diagnostic,
             )
-            raise McpWorkspaceDevelopmentError("execution_failed") from error
+            raise McpWorkspaceDevelopmentError(
+                "execution_failed", diagnostic=error.diagnostic
+            ) from error
         except (KodiAddonSmokeTimeoutError, KodiAddonSmokeAmbiguousError) as error:
             self._finish_execution(
                 operation.id,
@@ -3790,6 +3802,7 @@ class McpWorkspaceDevelopmentService:
         execution_classification: str | None = None,
         item_count: int | None = None,
         result_classification: str | None = None,
+        diagnostic: KodiJsonRpcDiagnostic | None = None,
     ) -> None:
         now = self._clock()
         with self._sessions.begin() as session:
@@ -3806,6 +3819,8 @@ class McpWorkspaceDevelopmentService:
                 row.execution_classification = execution_classification
             row.item_count = item_count
             row.result_classification = result_classification
+            row.kodi_error_code = None if diagnostic is None else diagnostic.code
+            row.kodi_error_message = None if diagnostic is None else diagnostic.message
             deployment = session.get(
                 McpWorkspaceDeploymentOperationRow, row.deployment_id
             )
@@ -3870,6 +3885,15 @@ class McpWorkspaceDevelopmentService:
                     row.result_classification
                     if row.failure_code == "execution_unsupported"
                     and row.result_classification in EXECUTION_DEPENDENCY_REASONS
+                    else None
+                ),
+                diagnostic=(
+                    KodiJsonRpcDiagnostic(
+                        code=row.kodi_error_code, message=row.kodi_error_message
+                    )
+                    if row.failure_code == "execution_failed"
+                    and row.execution_classification == "jsonrpc_error"
+                    and row.kodi_error_code is not None
                     else None
                 ),
             )

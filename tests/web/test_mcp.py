@@ -37,7 +37,11 @@ from kodi_lab.application.mcp_workspace_development import (
 )
 from kodi_lab.broker.errors import BrokerUnavailableError
 from kodi_lab.domain import ConnectionState, HealthStatus, TargetAvailability
-from kodi_lab.kodi.addons import KodiAddonInventoryRecord, KodiAddonInventoryResult
+from kodi_lab.kodi.addons import (
+    KodiAddonInventoryRecord,
+    KodiAddonInventoryResult,
+    KodiJsonRpcDiagnostic,
+)
 from kodi_lab.kodi.external import ExternalProbeError
 from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.kodi.remote import BrowserRemoteAction
@@ -2361,6 +2365,34 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         ).json()["result"]
         _strict_tool_result(failed, execute_schema)
         _assert_tool_error(failed, code)
+
+    def diagnostic_failure(**_kwargs: Any) -> WorkspaceExecutionResult:
+        raise McpWorkspaceDevelopmentError(
+            "execution_failed",
+            diagnostic=KodiJsonRpcDiagnostic(-32602, "Invalid params."),
+        )
+
+    context.mcp_workspace_development.execute = diagnostic_failure
+    diagnostic_arguments = {**arguments, "request_id": str(uuid4())}
+    denied_diagnostic = _post(
+        client,
+        other_token,
+        "tools/call",
+        params={"name": "workspace_execute", "arguments": diagnostic_arguments},
+    ).json()["result"]
+    _assert_tool_error(denied_diagnostic, "workspace_not_found_or_not_authorized")
+    diagnostic_result = _post(
+        client,
+        token,
+        "tools/call",
+        params={"name": "workspace_execute", "arguments": diagnostic_arguments},
+    ).json()["result"]
+    assert diagnostic_result["isError"] is True
+    assert "structuredContent" not in diagnostic_result
+    assert diagnostic_result["content"][0]["text"] == (
+        "execution_failed: jsonrpc_error (Kodi -32602: Invalid params.)"
+    )
+    _strict_tool_result(diagnostic_result, execute_schema)
 
     promotion_calls = 0
     promotion_results: dict[UUID, PromotionRequestResult] = {}

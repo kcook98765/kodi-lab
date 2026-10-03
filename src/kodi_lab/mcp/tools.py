@@ -887,6 +887,9 @@ class McpTargetToolService:
             raise McpAuthorizationError(
                 error.code,
                 reason=error.reason if error.code == "execution_unsupported" else None,
+                diagnostic=(
+                    error.diagnostic if error.code == "execution_failed" else None
+                ),
             ) from error
         self._require_development_bounded(result)
         return result
