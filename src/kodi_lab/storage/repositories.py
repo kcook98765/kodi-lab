@@ -1,7 +1,9 @@
 """Explicit repositories for targets and managed instances."""
 
 import json
+from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import ClassVar
 from uuid import UUID
 
@@ -57,6 +59,7 @@ from kodi_lab.domain import (
     AgentWorkspacePromotionPlan,
     AgentWorkspacePromotionPlanState,
     AgentWorkspaceState,
+    ConnectionState,
     DevelopmentSource,
     DevelopmentSourceAttachmentOperation,
     DevelopmentSourceDeployment,
@@ -76,6 +79,7 @@ from kodi_lab.domain import (
     DevelopmentSourceSmokeTestPostProvenance,
     FixtureDefinition,
     GlobalHeavyOperationKind,
+    HealthStatus,
     InstanceRuntimeState,
     ManagedInstance,
     ManagedInstanceAddonRepositorySource,
@@ -121,6 +125,8 @@ from kodi_lab.domain import (
     SnapshotState,
     SnapshotValidationResult,
     Target,
+    TargetAvailability,
+    TargetType,
 )
 from kodi_lab.storage.models import (
     AddonRepositoryAttachmentOperationRow,
@@ -160,6 +166,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    McpWorkspaceDeploymentOperationRow,
     PromotionVerificationLogEvidenceRow,
     PromotionVerificationOperationRow,
     RepositoryReplacementOperationRow,
@@ -181,6 +188,275 @@ from kodi_lab.storage.models import (
 
 class EntityNotFoundError(LookupError):
     """Raised when an update target no longer exists."""
+
+
+class ManagedRuntimeReconciliationBlockedError(RuntimeError):
+    """Unresolved runtime reconciliation excludes new managed mutation."""
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedRuntimeObservationToken:
+    instance_id: UUID
+    runtime_revision_id: UUID
+    runtime_state_revision: int
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedRuntimeCurrentProjection:
+    runtime_state: InstanceRuntimeState
+    availability: TargetAvailability
+    health: HealthStatus
+    connection_state: ConnectionState
+
+
+class ManagedRuntimeProjectionResult(StrEnum):
+    APPLIED = "applied"
+    STALE = "stale"
+    NOT_APPLICABLE = "not_applicable"
+
+
+_RUNTIME_INVALIDATING_MUTATIONS = frozenset(
+    {
+        ManagedInstanceMutationKind.LIFECYCLE,
+        ManagedInstanceMutationKind.RESET,
+        ManagedInstanceMutationKind.SNAPSHOT_CREATE,
+        ManagedInstanceMutationKind.SNAPSHOT_RESTORE,
+        ManagedInstanceMutationKind.INSTANCE_DELETE,
+        ManagedInstanceMutationKind.RUNTIME_REASSIGNMENT,
+        ManagedInstanceMutationKind.ADDON_ZIP_INSTALLATION,
+        ManagedInstanceMutationKind.ADDON_REPOSITORY_INSTALLATION,
+        ManagedInstanceMutationKind.REPOSITORY_REPLACEMENT,
+        ManagedInstanceMutationKind.PROMOTION_VERIFICATION,
+        ManagedInstanceMutationKind.MCP_WORKSPACE_DEPLOYMENT,
+    }
+)
+
+
+class ManagedRuntimeProjectionRepository:
+    """Order and atomically converge only the current managed runtime projection."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def observation_token(
+        self, instance_id: UUID
+    ) -> ManagedRuntimeObservationToken | None:
+        instance = self._session.get(ManagedInstanceRow, str(instance_id))
+        target = self._session.get(TargetRow, str(instance_id))
+        if (
+            instance is None
+            or target is None
+            or target.target_type is not TargetType.MANAGED
+        ):
+            return None
+        return ManagedRuntimeObservationToken(
+            instance_id=instance_id,
+            runtime_revision_id=UUID(instance.runtime_revision_id),
+            runtime_state_revision=instance.runtime_state_revision,
+        )
+
+    def advance(self, instance_id: UUID) -> int | None:
+        result = self._session.execute(
+            update(ManagedInstanceRow)
+            .where(ManagedInstanceRow.target_id == str(instance_id))
+            .values(
+                runtime_state_revision=ManagedInstanceRow.runtime_state_revision + 1
+            )
+        )
+        if int(getattr(result, "rowcount", 0)) != 1:
+            return None
+        return self._session.scalar(
+            select(ManagedInstanceRow.runtime_state_revision).where(
+                ManagedInstanceRow.target_id == str(instance_id)
+            )
+        )
+
+    def reserve_mutation(self, instance_id: UUID) -> int:
+        """Invalidate prior observations and make admission conservative."""
+
+        revision = self.advance(instance_id)
+        target = self._session.get(TargetRow, str(instance_id))
+        instance = self._session.get(ManagedInstanceRow, str(instance_id))
+        if (
+            revision is None
+            or target is None
+            or target.target_type is not TargetType.MANAGED
+            or instance is None
+        ):
+            raise EntityNotFoundError(f"managed instance {instance_id} does not exist")
+        instance.runtime_state = InstanceRuntimeState.STOPPED
+        target.availability = TargetAvailability.UNAVAILABLE
+        target.health = HealthStatus.WARNING
+        target.connection_state = ConnectionState.DISCONNECTED
+        self._session.flush()
+        return revision
+
+    def compare_and_set(
+        self,
+        token: ManagedRuntimeObservationToken,
+        projection: ManagedRuntimeCurrentProjection,
+    ) -> ManagedRuntimeProjectionResult:
+        current = self.observation_token(token.instance_id)
+        if current is None:
+            return ManagedRuntimeProjectionResult.NOT_APPLICABLE
+        if (
+            current != token
+            or self._session.get(
+                ManagedInstanceMutationLeaseRow, str(token.instance_id)
+            )
+            is not None
+        ):
+            return ManagedRuntimeProjectionResult.STALE
+        if self.has_blocking_runtime_reconciliation(token.instance_id):
+            projection = ManagedRuntimeCurrentProjection(
+                runtime_state=projection.runtime_state,
+                availability=TargetAvailability.UNAVAILABLE,
+                health=HealthStatus.WARNING,
+                connection_state=ConnectionState.DISCONNECTED,
+            )
+        result = self._session.execute(
+            update(ManagedInstanceRow)
+            .where(
+                ManagedInstanceRow.target_id == str(token.instance_id),
+                ManagedInstanceRow.runtime_revision_id
+                == str(token.runtime_revision_id),
+                ManagedInstanceRow.runtime_state_revision
+                == token.runtime_state_revision,
+            )
+            .values(runtime_state=projection.runtime_state)
+        )
+        if int(getattr(result, "rowcount", 0)) != 1:
+            return ManagedRuntimeProjectionResult.STALE
+        target = self._session.get(TargetRow, str(token.instance_id))
+        if target is None or target.target_type is not TargetType.MANAGED:
+            raise RuntimeError("Managed target identity changed during projection")
+        target.availability = projection.availability
+        target.health = projection.health
+        target.connection_state = projection.connection_state
+        self._session.flush()
+        return ManagedRuntimeProjectionResult.APPLIED
+
+    def has_blocking_runtime_reconciliation(self, instance_id: UUID) -> bool:
+        reason = "broker_runtime_dispatch_unconfirmed"
+        lifecycle = self._session.scalar(
+            select(ManagedInstanceLifecycleOperationRow.id)
+            .where(
+                ManagedInstanceLifecycleOperationRow.original_managed_instance_id
+                == str(instance_id),
+                ManagedInstanceLifecycleOperationRow.state
+                == ManagedInstanceLifecycleOperationState.RECONCILIATION_REQUIRED,
+                ManagedInstanceLifecycleOperationRow.failure_reason == reason,
+            )
+            .limit(1)
+        )
+        if lifecycle is not None:
+            return True
+        replacement = self._session.scalar(
+            select(RepositoryReplacementOperationRow.id)
+            .where(
+                RepositoryReplacementOperationRow.original_managed_instance_id
+                == str(instance_id),
+                RepositoryReplacementOperationRow.state
+                == RepositoryReplacementOperationState.RECONCILIATION_REQUIRED,
+            )
+            .limit(1)
+        )
+        if replacement is not None:
+            return True
+        for model, identity in (
+            (
+                AddonZipInstallationOperationRow,
+                AddonZipInstallationOperationRow.original_managed_instance_id,
+            ),
+            (
+                ResetOperationRow,
+                ResetOperationRow.managed_instance_id,
+            ),
+            (
+                SnapshotRestoreOperationRow,
+                SnapshotRestoreOperationRow.managed_instance_id,
+            ),
+            (
+                PromotionVerificationOperationRow,
+                PromotionVerificationOperationRow.original_target_instance_id,
+            ),
+        ):
+            if (
+                self._session.scalar(
+                    select(model.id)
+                    .where(
+                        identity == str(instance_id),
+                        model.state == "reconciliation_required",
+                    )
+                    .limit(1)
+                )
+                is not None
+            ):
+                return True
+        snapshot_create = self._session.scalar(
+            select(SnapshotCreateOperationRow.id)
+            .where(
+                SnapshotCreateOperationRow.managed_instance_id == str(instance_id),
+                SnapshotCreateOperationRow.state
+                == SnapshotCreateOperationState.RECONCILIATION_REQUIRED,
+                SnapshotCreateOperationRow.failure_reason == reason,
+            )
+            .limit(1)
+        )
+        if snapshot_create is not None:
+            return True
+        deployment = self._session.scalar(
+            select(McpWorkspaceDeploymentOperationRow.id)
+            .where(
+                McpWorkspaceDeploymentOperationRow.target_id == str(instance_id),
+                McpWorkspaceDeploymentOperationRow.target_class == "internal_lab",
+                McpWorkspaceDeploymentOperationRow.state == "reconciliation_required",
+            )
+            .limit(1)
+        )
+        if deployment is not None:
+            return True
+        deletion = self._session.scalar(
+            select(ManagedInstanceDeleteOperationRow.id)
+            .where(
+                ManagedInstanceDeleteOperationRow.original_managed_instance_id
+                == str(instance_id),
+                ManagedInstanceDeleteOperationRow.state
+                == ManagedInstanceDeleteOperationState.RECONCILIATION_REQUIRED,
+            )
+            .limit(1)
+        )
+        return deletion is not None
+
+    def finalize_owned(
+        self,
+        instance_id: UUID,
+        *,
+        operation_id: UUID,
+        token_digest: str,
+        owned_revision: int,
+        projection: ManagedRuntimeCurrentProjection,
+    ) -> ManagedRuntimeProjectionResult:
+        lease = self._session.get(ManagedInstanceMutationLeaseRow, str(instance_id))
+        current = self.observation_token(instance_id)
+        if current is None:
+            return ManagedRuntimeProjectionResult.NOT_APPLICABLE
+        if (
+            lease is None
+            or lease.operation_id != str(operation_id)
+            or lease.lease_token_digest != token_digest
+            or current.runtime_state_revision != owned_revision
+        ):
+            return ManagedRuntimeProjectionResult.STALE
+        instance = self._session.get(ManagedInstanceRow, str(instance_id))
+        target = self._session.get(TargetRow, str(instance_id))
+        assert instance is not None and target is not None
+        instance.runtime_state = projection.runtime_state
+        target.availability = projection.availability
+        target.health = projection.health
+        target.connection_state = projection.connection_state
+        self._session.flush()
+        return ManagedRuntimeProjectionResult.APPLIED
 
 
 def _addon_zip_dependencies_to_json(values: tuple[AddonZipDependency, ...]) -> str:
@@ -2994,6 +3270,8 @@ class RepositoryReplacementPlanRepository:
 
 
 class RepositoryReplacementOperationRepository:
+    BROKER_RUNTIME_DISPATCH_UNCONFIRMED = "broker_runtime_dispatch_unconfirmed"
+
     def __init__(self, session: Session) -> None:
         self._session = session
 
@@ -3145,6 +3423,18 @@ class RepositoryReplacementOperationRepository:
         now: datetime,
         reason: str | None,
     ) -> bool:
+        unconfirmed = reason == self.BROKER_RUNTIME_DISPATCH_UNCONFIRMED
+        values: dict[str, object] = {
+            "state": state,
+            "completed_at": _timestamp_to_text(now),
+            "failure_reason": reason,
+            "reconciliation_required": state
+            is RepositoryReplacementOperationState.RECONCILIATION_REQUIRED,
+            "lease_token_digest": None,
+            "lease_expires_at": None,
+        }
+        if not unconfirmed:
+            values["phase"] = RepositoryReplacementOperationPhase.FINALIZE
         result = self._session.execute(
             update(RepositoryReplacementOperationRow)
             .where(
@@ -3153,16 +3443,7 @@ class RepositoryReplacementOperationRepository:
                 == RepositoryReplacementOperationState.RUNNING,
                 RepositoryReplacementOperationRow.lease_token_digest == token_digest,
             )
-            .values(
-                state=state,
-                phase=RepositoryReplacementOperationPhase.FINALIZE,
-                completed_at=_timestamp_to_text(now),
-                failure_reason=reason,
-                reconciliation_required=state
-                is RepositoryReplacementOperationState.RECONCILIATION_REQUIRED,
-                lease_token_digest=None,
-                lease_expires_at=None,
-            )
+            .values(**values)
         )
         return bool(getattr(result, "rowcount", 0))
 
@@ -3174,6 +3455,35 @@ class RepositoryReplacementOperationRepository:
         now: datetime,
         application_started: bool,
     ) -> bool:
+        row = self._session.get(RepositoryReplacementOperationRow, str(operation_id))
+        unconfirmed = (
+            row is not None
+            and not application_started
+            and row.phase
+            in {
+                RepositoryReplacementOperationPhase.STOPPING,
+                RepositoryReplacementOperationPhase.REVALIDATE_STOPPED,
+            }
+        )
+        required = application_started or unconfirmed
+        values: dict[str, object] = {
+            "state": (
+                RepositoryReplacementOperationState.RECONCILIATION_REQUIRED
+                if required
+                else RepositoryReplacementOperationState.FAILED
+            ),
+            "completed_at": _timestamp_to_text(now),
+            "failure_reason": (
+                self.BROKER_RUNTIME_DISPATCH_UNCONFIRMED
+                if unconfirmed
+                else "repository_replacement_lease_expired"
+            ),
+            "reconciliation_required": required,
+            "lease_token_digest": None,
+            "lease_expires_at": None,
+        }
+        if not unconfirmed:
+            values["phase"] = RepositoryReplacementOperationPhase.FINALIZE
         result = self._session.execute(
             update(RepositoryReplacementOperationRow)
             .where(
@@ -3184,19 +3494,7 @@ class RepositoryReplacementOperationRepository:
                 RepositoryReplacementOperationRow.lease_expires_at
                 <= _timestamp_to_text(now),
             )
-            .values(
-                state=(
-                    RepositoryReplacementOperationState.RECONCILIATION_REQUIRED
-                    if application_started
-                    else RepositoryReplacementOperationState.FAILED
-                ),
-                phase=RepositoryReplacementOperationPhase.FINALIZE,
-                completed_at=_timestamp_to_text(now),
-                failure_reason="repository_replacement_lease_expired",
-                reconciliation_required=application_started,
-                lease_token_digest=None,
-                lease_expires_at=None,
-            )
+            .values(**values)
         )
         return bool(getattr(result, "rowcount", 0))
 
@@ -5188,7 +5486,12 @@ class SnapshotCreateOperationRepository:
         return int(getattr(result, "rowcount", 0)) == 1
 
     def mark_stale_reconciliation(
-        self, operation_id: UUID, *, token_digest: str, now: datetime
+        self,
+        operation_id: UUID,
+        *,
+        token_digest: str,
+        now: datetime,
+        dispatch_unconfirmed: bool = False,
     ) -> bool:
         result = self._session.execute(
             update(SnapshotCreateOperationRow)
@@ -5203,9 +5506,13 @@ class SnapshotCreateOperationRepository:
                 state=SnapshotCreateOperationState.RECONCILIATION_REQUIRED,
                 heartbeat_at=_timestamp_to_text(now),
                 completed_at=_timestamp_to_text(now),
-                failure_reason=func.coalesce(
-                    SnapshotCreateOperationRow.failure_reason,
-                    "Snapshot capture requires operator reconciliation.",
+                failure_reason=(
+                    "broker_runtime_dispatch_unconfirmed"
+                    if dispatch_unconfirmed
+                    else func.coalesce(
+                        SnapshotCreateOperationRow.failure_reason,
+                        "Snapshot capture requires operator reconciliation.",
+                    )
                 ),
                 reconciliation_required=True,
                 lease_token_digest=None,
@@ -6181,9 +6488,7 @@ class ManagedInstanceLifecycleOperationRepository:
             operation_id,
             state=ManagedInstanceLifecycleOperationState.RECONCILIATION_REQUIRED,
             resulting_state=resulting_state,
-            failure_reason=(
-                "Lifecycle worker lease expired; reconciliation is required."
-            ),
+            failure_reason="broker_runtime_dispatch_unconfirmed",
             reconciliation_required=True,
             now=now,
         )
@@ -6235,6 +6540,15 @@ class ManagedInstanceMutationLeaseRepository:
         )
         from kodi_lab.application.live_display import cancel_active_live_display
 
+        if (
+            kind in _RUNTIME_INVALIDATING_MUTATIONS
+            and ManagedRuntimeProjectionRepository(
+                self._session
+            ).has_blocking_runtime_reconciliation(instance_id)
+        ):
+            raise ManagedRuntimeReconciliationBlockedError(
+                "Runtime reconciliation is unresolved for this managed instance."
+            )
         cancel_active_live_display(instance_id)
         require_no_active_browser_remote(instance_id)
         self._session.add(
@@ -6245,10 +6559,15 @@ class ManagedInstanceMutationLeaseRepository:
             )
         )
         self._session.flush()
+        if kind in _RUNTIME_INVALIDATING_MUTATIONS:
+            ManagedRuntimeProjectionRepository(self._session).reserve_mutation(
+                instance_id
+            )
 
     def release_expired_short_mutation(
         self, instance_id: UUID, *, now: datetime
     ) -> bool:
+        current = self.current(instance_id)
         result = self._session.execute(
             delete(ManagedInstanceMutationLeaseRow).where(
                 ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
@@ -6264,7 +6583,14 @@ class ManagedInstanceMutationLeaseRepository:
                 <= _timestamp_to_text(now),
             )
         )
-        return int(getattr(result, "rowcount", 0)) == 1
+        released = int(getattr(result, "rowcount", 0)) == 1
+        if (
+            released
+            and current is not None
+            and current.operation_kind in _RUNTIME_INVALIDATING_MUTATIONS
+        ):
+            ManagedRuntimeProjectionRepository(self._session).advance(instance_id)
+        return released
 
     def claim(
         self,
@@ -6319,6 +6645,7 @@ class ManagedInstanceMutationLeaseRepository:
     def release(
         self, instance_id: UUID, *, operation_id: UUID, token_digest: str
     ) -> bool:
+        current = self.current(instance_id)
         result = self._session.execute(
             delete(ManagedInstanceMutationLeaseRow).where(
                 ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
@@ -6326,16 +6653,31 @@ class ManagedInstanceMutationLeaseRepository:
                 ManagedInstanceMutationLeaseRow.lease_token_digest == token_digest,
             )
         )
-        return int(getattr(result, "rowcount", 0)) == 1
+        released = int(getattr(result, "rowcount", 0)) == 1
+        if (
+            released
+            and current is not None
+            and current.operation_kind in _RUNTIME_INVALIDATING_MUTATIONS
+        ):
+            ManagedRuntimeProjectionRepository(self._session).advance(instance_id)
+        return released
 
     def release_for_operation(self, instance_id: UUID, operation_id: UUID) -> bool:
+        current = self.current(instance_id)
         result = self._session.execute(
             delete(ManagedInstanceMutationLeaseRow).where(
                 ManagedInstanceMutationLeaseRow.managed_instance_id == str(instance_id),
                 ManagedInstanceMutationLeaseRow.operation_id == str(operation_id),
             )
         )
-        return int(getattr(result, "rowcount", 0)) == 1
+        released = int(getattr(result, "rowcount", 0)) == 1
+        if (
+            released
+            and current is not None
+            and current.operation_kind in _RUNTIME_INVALIDATING_MUTATIONS
+        ):
+            ManagedRuntimeProjectionRepository(self._session).advance(instance_id)
+        return released
 
     def current(self, instance_id: UUID) -> ManagedInstanceMutationLeaseRow | None:
         return self._session.get(ManagedInstanceMutationLeaseRow, str(instance_id))
@@ -6362,7 +6704,10 @@ class ManagedInstanceMutationLeaseRepository:
                 <= _timestamp_to_text(now),
             )
         )
-        return int(getattr(result, "rowcount", 0)) == 1
+        released = int(getattr(result, "rowcount", 0)) == 1
+        if released and kind in _RUNTIME_INVALIDATING_MUTATIONS:
+            ManagedRuntimeProjectionRepository(self._session).advance(instance_id)
+        return released
 
 
 class GlobalHeavyOperationLeaseRepository:

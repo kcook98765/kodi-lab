@@ -27,7 +27,11 @@ from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     KodiProcessState,
 )
-from kodi_lab.broker.errors import RemoteBrokerError
+from kodi_lab.broker.errors import (
+    ClientProtocolError,
+    ClientTransportError,
+    RemoteBrokerError,
+)
 from kodi_lab.broker.operations import (
     ApplyRepositoryReplacementResult,
     InspectRepositoryReplacementResult,
@@ -689,28 +693,41 @@ class RepositoryReplacementCoordinator:
     ) -> None:
         now = self._clock()
         with self._session_factory.begin() as session:
+            current = RepositoryReplacementOperationRepository(session).get(
+                lease.operation_id
+            )
+            before_application = current is not None and not current.application_started
             if reconciliation_required and plan is not None and artifact is not None:
-                AddonZipInstallationEvidenceRepository(session).upsert(
-                    AddonZipInstallationEvidence(
-                        managed_instance_id=lease.instance_id,
-                        original_managed_instance_id=lease.instance_id,
-                        artifact_id=artifact.id,
-                        installation_operation_id=None,
-                        replacement_operation_id=lease.operation_id,
-                        runtime_revision_id=plan.runtime_revision_id,
-                        trusted_container_id=plan.expected_container_id,
-                        addon_id=artifact.addon_id,
-                        addon_version=artifact.addon_version,
-                        payload_manifest_digest=artifact.payload_manifest_digest,
-                        verified_at=now,
-                        confidence=AddonZipInstallationConfidence.UNKNOWN,
-                        result=AddonZipInstallationResult.REPOSITORY_REPLACEMENT_RECOGNIZED,
-                        artifact_origin=AddonZipOrigin.REPOSITORY_DOWNLOAD,
-                        repository_source_id=artifact.repository_source_id,
-                        repository_snapshot_id=artifact.repository_snapshot_id,
-                        repository_candidate_id=artifact.repository_candidate_id,
+                if not before_application:
+                    AddonZipInstallationEvidenceRepository(session).upsert(
+                        AddonZipInstallationEvidence(
+                            managed_instance_id=lease.instance_id,
+                            original_managed_instance_id=lease.instance_id,
+                            artifact_id=artifact.id,
+                            installation_operation_id=None,
+                            replacement_operation_id=lease.operation_id,
+                            runtime_revision_id=plan.runtime_revision_id,
+                            trusted_container_id=plan.expected_container_id,
+                            addon_id=artifact.addon_id,
+                            addon_version=artifact.addon_version,
+                            payload_manifest_digest=artifact.payload_manifest_digest,
+                            verified_at=now,
+                            confidence=AddonZipInstallationConfidence.UNKNOWN,
+                            result=AddonZipInstallationResult.REPOSITORY_REPLACEMENT_RECOGNIZED,
+                            artifact_origin=AddonZipOrigin.REPOSITORY_DOWNLOAD,
+                            repository_source_id=artifact.repository_source_id,
+                            repository_snapshot_id=artifact.repository_snapshot_id,
+                            repository_candidate_id=artifact.repository_candidate_id,
+                        )
                     )
-                )
+                else:
+                    AddonZipInstallationEvidenceRepository(
+                        session
+                    ).mark_artifact_confidence(
+                        lease.instance_id,
+                        artifact.id,
+                        AddonZipInstallationConfidence.UNKNOWN,
+                    )
                 DevelopmentSourceDeploymentRepository(session).mark_confidence(
                     lease.instance_id,
                     plan.development_source_id,
@@ -985,6 +1002,7 @@ class RepositoryReplacementService:
     def execute(self) -> None:
         stopped = False
         application_started = False
+        dispatch_unconfirmed = False
         plan: RepositoryReplacementPlan | None = None
         artifact: AddonZipArtifact | None = None
         profile: RuntimeExecutionProfile | None = None
@@ -1001,11 +1019,15 @@ class RepositoryReplacementService:
                 dependency_baseline_json=self._dependency_json(baseline),
                 phase=RepositoryReplacementOperationPhase.STOPPING,
             )
-            result = self._broker.stop_managed_container(
-                managed_instance_id=str(self._lease.instance_id),
-                expected_container_id=plan.expected_container_id,
-                expected_runtime_state=ContainerRuntimeState.RUNNING,
-            )
+            try:
+                result = self._broker.stop_managed_container(
+                    managed_instance_id=str(self._lease.instance_id),
+                    expected_container_id=plan.expected_container_id,
+                    expected_runtime_state=ContainerRuntimeState.RUNNING,
+                )
+            except (ClientTransportError, ClientProtocolError):
+                dispatch_unconfirmed = True
+                raise
             if (
                 result.container_id != plan.expected_container_id
                 or result.runtime_state is not ContainerRuntimeState.STOPPED
@@ -1020,12 +1042,16 @@ class RepositoryReplacementService:
             self._require_topology(plan, stopped_inspection.topology)
             self._coordinator.consume_application(self._lease)
             application_started = True
-            applied = self._broker.apply_repository_replacement(
-                managed_instance_id=str(self._lease.instance_id),
-                approval_id=str(plan.id),
-                replacement_operation_id=str(self._lease.operation_id),
-                expected_container_id=plan.expected_container_id,
-            )
+            try:
+                applied = self._broker.apply_repository_replacement(
+                    managed_instance_id=str(self._lease.instance_id),
+                    approval_id=str(plan.id),
+                    replacement_operation_id=str(self._lease.operation_id),
+                    expected_container_id=plan.expected_container_id,
+                )
+            except (ClientTransportError, ClientProtocolError):
+                dispatch_unconfirmed = True
+                raise
             if not applied.matched:
                 raise RepositoryReplacementError("Stopped replacement readback failed.")
             if self._after_application_hook is not None:
@@ -1035,11 +1061,15 @@ class RepositoryReplacementService:
                 stopped_readback_matched=True,
                 phase=RepositoryReplacementOperationPhase.RESTARTING,
             )
-            started = self._broker.start_managed_container(
-                managed_instance_id=str(self._lease.instance_id),
-                expected_container_id=plan.expected_container_id,
-                expected_runtime_state=ContainerRuntimeState.STOPPED,
-            )
+            try:
+                started = self._broker.start_managed_container(
+                    managed_instance_id=str(self._lease.instance_id),
+                    expected_container_id=plan.expected_container_id,
+                    expected_runtime_state=ContainerRuntimeState.STOPPED,
+                )
+            except (ClientTransportError, ClientProtocolError):
+                dispatch_unconfirmed = True
+                raise
             if (
                 started.container_id != plan.expected_container_id
                 or started.runtime_state is not ContainerRuntimeState.RUNNING
@@ -1109,20 +1139,31 @@ class RepositoryReplacementService:
                             plan.incoming_artifact_id
                         )
                     )
-            if application_started:
-                self._leave_stopped(plan)
-            elif stopped and plan is not None and profile is not None:
-                self._restore_running(plan, profile)
+            if not dispatch_unconfirmed and application_started:
+                dispatch_unconfirmed = self._leave_stopped(plan)
+            elif (
+                not dispatch_unconfirmed
+                and stopped
+                and plan is not None
+                and profile is not None
+            ):
+                dispatch_unconfirmed = self._restore_running(plan, profile)
             reason = (
-                error.code
-                if isinstance(error, (RepositoryReplacementError, RemoteBrokerError))
-                else "repository_replacement_failed"
+                RepositoryReplacementOperationRepository.BROKER_RUNTIME_DISPATCH_UNCONFIRMED
+                if dispatch_unconfirmed
+                else (
+                    error.code
+                    if isinstance(
+                        error, (RepositoryReplacementError, RemoteBrokerError)
+                    )
+                    else "repository_replacement_failed"
+                )
             )
             with suppress(Exception):
                 self._coordinator.finish_failure(
                     self._lease,
                     reason=reason,
-                    reconciliation_required=application_started,
+                    reconciliation_required=application_started or dispatch_unconfirmed,
                     plan=plan,
                     artifact=artifact,
                 )
@@ -1349,8 +1390,8 @@ class RepositoryReplacementService:
 
     def _restore_running(
         self, plan: RepositoryReplacementPlan, profile: RuntimeExecutionProfile
-    ) -> None:
-        with suppress(Exception):
+    ) -> bool:
+        try:
             result = self._broker.start_managed_container(
                 managed_instance_id=str(self._lease.instance_id),
                 expected_container_id=plan.expected_container_id,
@@ -1360,11 +1401,16 @@ class RepositoryReplacementService:
                 self._readiness_factory(self._broker, profile).wait_until_usable(
                     str(self._lease.instance_id)
                 )
+        except (ClientTransportError, ClientProtocolError):
+            return True
+        except Exception:
+            return False
+        return False
 
-    def _leave_stopped(self, plan: RepositoryReplacementPlan | None) -> None:
+    def _leave_stopped(self, plan: RepositoryReplacementPlan | None) -> bool:
         if plan is None:
-            return
-        with suppress(Exception):
+            return False
+        try:
             matches = [
                 item
                 for item in self._broker.managed_container_inventory().containers
@@ -1380,6 +1426,11 @@ class RepositoryReplacementService:
                     expected_container_id=plan.expected_container_id,
                     expected_runtime_state=ContainerRuntimeState.RUNNING,
                 )
+        except (ClientTransportError, ClientProtocolError):
+            return True
+        except Exception:
+            return False
+        return False
 
 
 type RepositoryReplacementServiceFactory = Callable[

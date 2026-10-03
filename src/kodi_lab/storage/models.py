@@ -2532,6 +2532,10 @@ class ManagedInstanceRow(Base):
             "notes IS NULL OR length(notes) <= 4096",
             name="managed_instance_notes_bounded",
         ),
+        CheckConstraint(
+            "runtime_state_revision >= 0",
+            name="managed_instance_runtime_state_revision_nonnegative",
+        ),
     )
     target_id: Mapped[str] = mapped_column(
         String(36),
@@ -2562,6 +2566,9 @@ class ManagedInstanceRow(Base):
             name="instance_runtime_state",
         ),
         nullable=False,
+    )
+    runtime_state_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
     )
     start_on_host_boot: Mapped[bool] = mapped_column(
         Boolean,
@@ -4106,8 +4113,11 @@ class RepositoryReplacementOperationRow(Base):
             "AND dependency_post_json IS NOT NULL AND reconciliation_required=0) OR "
             "(state='failed' AND application_started=0 AND "
             "reconciliation_required=0) OR "
-            "(state='reconciliation_required' AND application_started=1 AND "
-            "reconciliation_required=1) OR state IN ('queued','running')",
+            "(state='reconciliation_required' AND reconciliation_required=1 AND "
+            "(application_started=1 OR (application_started=0 AND "
+            "phase IN ('stopping','revalidate_stopped') AND "
+            "COALESCE(failure_reason,'')='broker_runtime_dispatch_unconfirmed'))) OR "
+            "state IN ('queued','running')",
             name="repository_replacement_operation_result_consistent",
         ),
         Index(

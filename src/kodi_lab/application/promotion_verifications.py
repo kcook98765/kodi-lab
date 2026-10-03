@@ -17,6 +17,7 @@ from kodi_lab.application.addon_inventory import (
     AddonInventoryQueryStatus,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.broker.errors import ClientProtocolError, ClientTransportError
 from kodi_lab.domain import (
     AgentWorkspacePromotionOperationState,
     DevelopmentSourceDeployment,
@@ -392,6 +393,7 @@ class PromotionVerificationService:
                 )
         cursor: str | None = None
         stopped = sync_started = sync_completed = start_dispatched = False
+        stop_dispatched = False
         observation_started = False
         try:
             if self._reconciliation_gate is not None:
@@ -408,12 +410,14 @@ class PromotionVerificationService:
             ).cursor
             self._failure_injector("before_stop")
             self._phase(operation_id, PromotionVerificationPhase.STOP)
+            stop_dispatched = True
             self._broker.stop_managed_container(
                 managed_instance_id=str(operation.target_instance_id),
                 expected_container_id=container_id,
                 expected_runtime_state=ContainerRuntimeState.RUNNING,
             )
             stopped = True
+            stop_dispatched = False
             self._update(operation_id, stop_completed=True)
             self._failure_injector("after_stop_before_sync")
             self._phase(operation_id, PromotionVerificationPhase.SYNC)
@@ -550,7 +554,17 @@ class PromotionVerificationService:
                 )
                 return
             if sync_started and not sync_completed:
-                if code in {
+                if isinstance(error, (ClientTransportError, ClientProtocolError)):
+                    self._finish(
+                        operation_id,
+                        digest,
+                        PromotionVerificationState.RECONCILIATION_REQUIRED,
+                        sync_result=(
+                            PromotionVerificationStageResult.RECONCILIATION_REQUIRED
+                        ),
+                        failure_code="broker_runtime_dispatch_unconfirmed",
+                    )
+                elif code in {
                     "development_source_reconciliation_required",
                     "development_source_apply_unverified",
                     "development_destination_verification_failed",
@@ -580,6 +594,16 @@ class PromotionVerificationService:
                             sync_result=PromotionVerificationStageResult.FAILED,
                             failure_code=code,
                         )
+                    except (ClientTransportError, ClientProtocolError):
+                        self._finish(
+                            operation_id,
+                            digest,
+                            PromotionVerificationState.RECONCILIATION_REQUIRED,
+                            sync_result=(
+                                PromotionVerificationStageResult.RECONCILIATION_REQUIRED
+                            ),
+                            failure_code="broker_runtime_dispatch_unconfirmed",
+                        )
                     except Exception:
                         self._finish(
                             operation_id,
@@ -596,7 +620,13 @@ class PromotionVerificationService:
                     digest,
                     PromotionVerificationState.RECONCILIATION_REQUIRED,
                     reload_result=PromotionVerificationStageResult.RECONCILIATION_REQUIRED,
-                    failure_code=code,
+                    failure_code=(
+                        "broker_runtime_dispatch_unconfirmed"
+                        if isinstance(
+                            error, (ClientTransportError, ClientProtocolError)
+                        )
+                        else code
+                    ),
                 )
             elif stopped:
                 try:
@@ -611,6 +641,16 @@ class PromotionVerificationService:
                         PromotionVerificationState.FAILED,
                         failure_code=code,
                     )
+                except (ClientTransportError, ClientProtocolError):
+                    self._finish(
+                        operation_id,
+                        digest,
+                        PromotionVerificationState.RECONCILIATION_REQUIRED,
+                        reload_result=(
+                            PromotionVerificationStageResult.RECONCILIATION_REQUIRED
+                        ),
+                        failure_code="broker_runtime_dispatch_unconfirmed",
+                    )
                 except Exception:
                     self._finish(
                         operation_id,
@@ -621,6 +661,15 @@ class PromotionVerificationService:
                         ),
                         failure_code=code,
                     )
+            elif stop_dispatched and isinstance(
+                error, (ClientTransportError, ClientProtocolError)
+            ):
+                self._finish(
+                    operation_id,
+                    digest,
+                    PromotionVerificationState.RECONCILIATION_REQUIRED,
+                    failure_code="broker_runtime_dispatch_unconfirmed",
+                )
             else:
                 self._finish(
                     operation_id,

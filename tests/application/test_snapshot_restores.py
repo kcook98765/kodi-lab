@@ -23,6 +23,7 @@ from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     KodiProcessState,
 )
+from kodi_lab.broker.errors import ClientTransportError
 from kodi_lab.broker.operations import (
     ApplyManagedInstanceSnapshotResult,
     DeprovisionManagedContainerResult,
@@ -485,6 +486,23 @@ def test_failure_before_deprovision_recovers_original_running_state(
     assert broker.calls == ["stop", "deprovision", "start"]
     assert broker.container_id == OLD_ID
     assert broker.state is ContainerRuntimeState.RUNNING
+
+
+def test_lost_stop_response_requires_reconciliation_without_recovery_start(
+    factory: sessionmaker[Session],
+) -> None:
+    broker = FakeBroker(ContainerRuntimeState.RUNNING)
+
+    def lose_stop_response(**_kwargs: object) -> StopManagedContainerResult:
+        broker.calls.append("stop")
+        raise ClientTransportError("Broker Stop response lost")
+
+    broker.stop_managed_container = lose_stop_response  # type: ignore[method-assign]
+    with pytest.raises(SnapshotRestoreError) as captured:
+        service(factory, broker).restore()
+    assert captured.value.reconciliation_required
+    assert captured.value.safe_reason == "broker_runtime_dispatch_unconfirmed"
+    assert broker.calls == ["stop"]
 
 
 def test_readiness_failure_retains_structurally_restored_fresh_container_stopped(

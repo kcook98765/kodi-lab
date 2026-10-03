@@ -28,6 +28,7 @@ from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     KodiProcessState,
 )
+from kodi_lab.broker.errors import ClientProtocolError, ClientTransportError
 from kodi_lab.broker.operations import (
     AddonZipDestinationResult,
     ApplyAddonZipInstallationResult,
@@ -549,6 +550,7 @@ class AddonZipInstallationService:
         application_started = False
         container_id: str | None = None
         profile: RuntimeExecutionProfile | None = None
+        stop_dispatched = False
         try:
             instance, artifact, profile = self._load_state()
             observation, container_id = self._require_running_runtime(
@@ -571,6 +573,7 @@ class AddonZipInstallationService:
                 dependency_baseline_json=self._dependency_json(dependency_baseline),
                 phase=AddonZipInstallationOperationPhase.STOPPING,
             )
+            stop_dispatched = True
             stopped_result = self._broker.stop_managed_container(
                 managed_instance_id=str(self._lease.instance_id),
                 expected_container_id=container_id,
@@ -584,6 +587,7 @@ class AddonZipInstallationService:
                     "The exact managed container did not reach stopped state."
                 )
             stopped = True
+            stop_dispatched = False
             stopped_destination = self._observe_destination(container_id)
             if stopped_destination.destination_state != "absent":
                 raise AddonZipInstallationConflictError(
@@ -694,12 +698,32 @@ class AddonZipInstallationService:
             )
         except Exception as error:
             if application_started:
-                self._leave_stopped_if_exact(container_id)
+                containment_unconfirmed = (
+                    False
+                    if isinstance(error, (ClientTransportError, ClientProtocolError))
+                    else self._leave_stopped_if_exact(container_id)
+                )
+                self._safe_finish_failure(
+                    error,
+                    reconciliation=True,
+                    dispatch_unconfirmed=containment_unconfirmed,
+                )
+            elif stop_dispatched and isinstance(
+                error, (ClientTransportError, ClientProtocolError)
+            ):
                 self._safe_finish_failure(error, reconciliation=True)
             else:
                 if stopped:
-                    self._restore_prior_running(container_id, profile)
-                self._safe_finish_failure(error, reconciliation=False)
+                    restored, recovery_unconfirmed = self._restore_prior_running(
+                        container_id, profile
+                    )
+                    self._safe_finish_failure(
+                        error,
+                        reconciliation=not restored,
+                        dispatch_unconfirmed=recovery_unconfirmed,
+                    )
+                else:
+                    self._safe_finish_failure(error, reconciliation=False)
             raise
 
     def _load_state(
@@ -912,24 +936,30 @@ class AddonZipInstallationService:
         self,
         container_id: str | None,
         profile: RuntimeExecutionProfile | None,
-    ) -> None:
+    ) -> tuple[bool, bool]:
         if container_id is None or profile is None:
-            return
-        with suppress(Exception):
+            return False, False
+        try:
             result = self._broker.start_managed_container(
                 managed_instance_id=str(self._lease.instance_id),
                 expected_container_id=container_id,
                 expected_runtime_state=ContainerRuntimeState.STOPPED,
             )
             if result.runtime_state is ContainerRuntimeState.RUNNING:
-                self._readiness_factory(self._broker, profile).wait_until_usable(
-                    str(self._lease.instance_id)
-                )
+                readiness = self._readiness_factory(
+                    self._broker, profile
+                ).wait_until_usable(str(self._lease.instance_id))
+                return readiness.usability_state is UsabilityState.USABLE, False
+        except (ClientTransportError, ClientProtocolError):
+            return False, True
+        except Exception:
+            return False, False
+        return False, False
 
-    def _leave_stopped_if_exact(self, container_id: str | None) -> None:
+    def _leave_stopped_if_exact(self, container_id: str | None) -> bool:
         if container_id is None:
-            return
-        with suppress(Exception):
+            return False
+        try:
             matches = [
                 item
                 for item in self._broker.managed_container_inventory().containers
@@ -945,10 +975,27 @@ class AddonZipInstallationService:
                     expected_container_id=container_id,
                     expected_runtime_state=ContainerRuntimeState.RUNNING,
                 )
+        except (ClientTransportError, ClientProtocolError):
+            return True
+        except Exception:
+            return False
+        return False
 
-    def _safe_finish_failure(self, error: Exception, *, reconciliation: bool) -> None:
+    def _safe_finish_failure(
+        self,
+        error: Exception,
+        *,
+        reconciliation: bool,
+        dispatch_unconfirmed: bool = False,
+    ) -> None:
         reason = (
-            error.code
+            "broker_runtime_dispatch_unconfirmed"
+            if dispatch_unconfirmed
+            or (
+                reconciliation
+                and isinstance(error, (ClientTransportError, ClientProtocolError))
+            )
+            else error.code
             if isinstance(error, AddonZipInstallationError)
             else "addon_zip_installation_failed"
         )

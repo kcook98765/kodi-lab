@@ -31,7 +31,13 @@ from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatusService,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
-from kodi_lab.broker.errors import ClientError, RemoteBrokerError
+from kodi_lab.broker.errors import (
+    BrokerUnavailableError,
+    ClientError,
+    ClientProtocolError,
+    ClientTransportError,
+    RemoteBrokerError,
+)
 from kodi_lab.broker.operations import (
     DeprovisionManagedContainerResult,
     ManagedContainerInventoryEntry,
@@ -57,6 +63,10 @@ from kodi_lab.storage.repositories import (
 
 class LifecycleConflictError(RuntimeError):
     """Trusted current state does not permit the requested semantic action."""
+
+
+class LifecycleDispatchUnconfirmedError(RuntimeError):
+    """The Broker may still be executing an accepted runtime mutation."""
 
 
 class _ReadinessCoordinator(Protocol):
@@ -138,7 +148,12 @@ class ManagedRuntimeLifecycleService:
         )
 
     def _provision(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:
-        self._broker.provision_managed_container(managed_instance_id=str(instance_id))
+        try:
+            self._broker.provision_managed_container(
+                managed_instance_id=str(instance_id)
+            )
+        except (ClientTransportError, ClientProtocolError) as error:
+            raise LifecycleDispatchUnconfirmedError from error
         self._readiness.clear(instance_id)
 
     def start(self, instance_id: UUID) -> ManagedRuntimeStatus:
@@ -147,11 +162,14 @@ class ManagedRuntimeLifecycleService:
 
     def _start(self, instance_id: UUID, profile: RuntimeExecutionProfile) -> None:
         container = self._require_container(instance_id)
-        self._broker.start_managed_container(
-            managed_instance_id=str(instance_id),
-            expected_container_id=container.container_id,
-            expected_runtime_state=container.runtime_state,
-        )
+        try:
+            self._broker.start_managed_container(
+                managed_instance_id=str(instance_id),
+                expected_container_id=container.container_id,
+                expected_runtime_state=container.runtime_state,
+            )
+        except (ClientTransportError, ClientProtocolError) as error:
+            raise LifecycleDispatchUnconfirmedError from error
 
         def run(cancel_event: Event) -> ReadinessResult:
             coordinator = self._coordinator_factory(self._broker, profile)
@@ -168,11 +186,14 @@ class ManagedRuntimeLifecycleService:
     def _stop(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:
         container = self._require_container(instance_id)
         self._readiness.cancel(instance_id)
-        self._broker.stop_managed_container(
-            managed_instance_id=str(instance_id),
-            expected_container_id=container.container_id,
-            expected_runtime_state=container.runtime_state,
-        )
+        try:
+            self._broker.stop_managed_container(
+                managed_instance_id=str(instance_id),
+                expected_container_id=container.container_id,
+                expected_runtime_state=container.runtime_state,
+            )
+        except (ClientTransportError, ClientProtocolError) as error:
+            raise LifecycleDispatchUnconfirmedError from error
 
     def deprovision(self, instance_id: UUID) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
@@ -190,12 +211,15 @@ class ManagedRuntimeLifecycleService:
         with self._session_factory.begin() as session:
             invalidate_development_source_deployments(session, instance_id)
             invalidate_addon_zip_installation_evidence(session, instance_id)
-        self._broker.deprovision_managed_container(
-            managed_instance_id=str(instance_id),
-            expected_container_id=container.container_id,
-            expected_runtime_revision_id=str(profile.runtime_revision_id),
-            expected_runtime_state=ContainerRuntimeState.STOPPED,
-        )
+        try:
+            self._broker.deprovision_managed_container(
+                managed_instance_id=str(instance_id),
+                expected_container_id=container.container_id,
+                expected_runtime_revision_id=str(profile.runtime_revision_id),
+                expected_runtime_state=ContainerRuntimeState.STOPPED,
+            )
+        except (ClientTransportError, ClientProtocolError) as error:
+            raise LifecycleDispatchUnconfirmedError from error
 
     def _load_instance(self, instance_id: UUID) -> tuple[str, RuntimeExecutionProfile]:
         with self._session_factory() as session:
@@ -232,7 +256,10 @@ class ManagedRuntimeLifecycleService:
             result = self._status.get(instance_id)
             resulting_state = self._observe(instance_id)
         except Exception as error:
-            resulting_state = self._observe(instance_id)
+            try:
+                resulting_state = self._observe(instance_id)
+            except Exception:
+                resulting_state = ManagedInstanceSemanticState.AMBIGUOUS
             self._terminalize_failure(handle, resulting_state, error)
             raise
         if self._is_expected_result(kind, resulting_state):
@@ -291,7 +318,10 @@ class ManagedRuntimeLifecycleService:
         resulting_state: ManagedInstanceSemanticState,
         error: Exception,
     ) -> None:
-        known = semantic_state_is_unambiguous(resulting_state)
+        unconfirmed = isinstance(error, LifecycleDispatchUnconfirmedError)
+        known = isinstance(error, BrokerUnavailableError) or (
+            semantic_state_is_unambiguous(resulting_state) and not unconfirmed
+        )
         self._operations.terminalize(
             handle,
             state=(
@@ -300,7 +330,11 @@ class ManagedRuntimeLifecycleService:
                 else ManagedInstanceLifecycleOperationState.RECONCILIATION_REQUIRED
             ),
             resulting_state=resulting_state,
-            failure_reason=self._safe_reason(error, reconciliation=not known),
+            failure_reason=(
+                "broker_runtime_dispatch_unconfirmed"
+                if unconfirmed
+                else self._safe_reason(error, reconciliation=not known)
+            ),
         )
 
     @staticmethod

@@ -21,6 +21,7 @@ from kodi_lab.application.snapshot_operations import (
     SnapshotCreateOperationCoordinator,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.broker.errors import ClientProtocolError, ClientTransportError
 from kodi_lab.broker.operations import (
     CaptureManagedInstanceSnapshotResult,
     ManagedContainerInventoryEntry,
@@ -250,24 +251,44 @@ class DisposableSnapshotCreationService:
                 recognized_databases_checked=(validated.recognized_databases_checked),
             )
         except SnapshotCreateError as original:
-            if prior_running and stopped_by_operation and not restored:
+            if (
+                not original.reconciliation_required
+                and prior_running
+                and stopped_by_operation
+                and not restored
+            ):
                 try:
                     self._restore_running(context.profile, container.container_id)
                 except Exception as recovery_error:
                     raise SnapshotCreateError(
-                        "Snapshot creation failed and prior running state "
+                        "broker_runtime_dispatch_unconfirmed"
+                        if isinstance(
+                            recovery_error,
+                            (ClientTransportError, ClientProtocolError),
+                        )
+                        else "Snapshot creation failed and prior running state "
                         "was not restored.",
                         reconciliation_required=True,
                         quarantine_artifact=original.quarantine_artifact,
                     ) from recovery_error
             raise
         except Exception as error:
+            if isinstance(error, (ClientTransportError, ClientProtocolError)):
+                raise SnapshotCreateError(
+                    "broker_runtime_dispatch_unconfirmed",
+                    reconciliation_required=True,
+                ) from error
             if prior_running and stopped_by_operation and not restored:
                 try:
                     self._restore_running(context.profile, container.container_id)
                 except Exception as recovery_error:
                     raise SnapshotCreateError(
-                        "Snapshot creation failed and prior running state "
+                        "broker_runtime_dispatch_unconfirmed"
+                        if isinstance(
+                            recovery_error,
+                            (ClientTransportError, ClientProtocolError),
+                        )
+                        else "Snapshot creation failed and prior running state "
                         "was not restored.",
                         reconciliation_required=True,
                     ) from recovery_error

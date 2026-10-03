@@ -14,6 +14,10 @@ from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
 )
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+)
 from kodi_lab.application.reset_operations import (
     ResetOperationConflictError,
     ResetOperationCoordinator,
@@ -222,6 +226,31 @@ def test_acquire_heartbeat_wrong_token_expiry_and_crash_visibility(
         assert snapshot is not None and snapshot.state == SnapshotState.QUARANTINED
         assert session.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is None
         assert session.get(GlobalHeavyOperationLeaseRow, 1) is None
+
+
+def test_expired_running_snapshot_after_stop_marker_remains_blocking(
+    factory: sessionmaker[Session],
+) -> None:
+    clock = Clock()
+    coordinator = SnapshotCreateOperationCoordinator(factory, clock=clock)
+    queued = coordinator.queue(INSTANCE_ID, label=None)
+    lease = coordinator.acquire(queued.operation.operation_id)
+    assert lease is not None
+    with factory.begin() as session:
+        assert SnapshotRepository(session).set_prior_runtime_state(
+            lease.snapshot_id, InstanceRuntimeState.RUNNING
+        )
+    coordinator.update_phase(lease, SnapshotCreateOperationPhase.STOPPING)
+    clock.value += SNAPSHOT_LEASE_DURATION + timedelta(seconds=1)
+    stale = coordinator.get(lease.operation_id)
+    assert stale is not None
+    assert stale.state is SnapshotCreateOperationState.RECONCILIATION_REQUIRED
+    assert stale.failure_reason == "broker_runtime_dispatch_unconfirmed"
+    gate = ManagedInstanceReconciliationService(factory)
+    for _ in range(2):
+        status = gate.status(INSTANCE_ID)
+        assert status.blocking
+        assert ReconciliationAction.START in status.blocked_actions
 
 
 def test_success_releases_both_leases_and_does_not_prune_snapshot(

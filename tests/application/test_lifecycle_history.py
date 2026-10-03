@@ -194,7 +194,7 @@ def test_begin_and_terminalize_bind_history_to_exact_mutation_lease(
         ),
     ],
 )
-def test_stale_dispatcher_terminalizes_without_resume_and_stable_state_does_not_block(
+def test_stale_dispatcher_retains_block_when_broker_continuity_is_unproven(
     factory: sessionmaker[Session],
     kind: ManagedInstanceLifecycleKind,
     prior: ManagedInstanceSemanticState,
@@ -223,15 +223,16 @@ def test_stale_dispatcher_terminalizes_without_resume_and_stable_state_does_not_
             operation.state
             is ManagedInstanceLifecycleOperationState.RECONCILIATION_REQUIRED
         )
-        assert operation.resulting_state is ManagedInstanceSemanticState.STOPPED
+        assert operation.resulting_state is ManagedInstanceSemanticState.AMBIGUOUS
+        assert operation.failure_reason == "broker_runtime_dispatch_unconfirmed"
         assert session.get(ManagedInstanceMutationLeaseRow, str(INSTANCE_ID)) is None
     status = ManagedInstanceReconciliationService(factory, broker=broker).status(
         INSTANCE_ID
     )
     assert status.required
-    assert not status.blocking
+    assert status.blocking
     assert status.observed_state == "stopped"
-    assert status.blocked_actions == []
+    assert status.blocked_actions
 
 
 def test_stale_lifecycle_with_transitional_observation_blocks_all_mutations(

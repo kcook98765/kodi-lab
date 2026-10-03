@@ -82,3 +82,8 @@ the upgrade did not cause it. It did not invalidate the external-development
 mini source-capture flow. Review and fix it separately before
 managed-workspace promotion acceptance. This checkpoint makes no Omega state
 change and no claim that promotion has passed.
+
+Source follow-up: migration `0063_managed_runtime_projection` and D-0402 add
+ordered managed current-state convergence. This historical checkpoint remains
+open for a separate development-candidate and live Nexus projection acceptance;
+the source change alone does not prove live repair or promotion eligibility.

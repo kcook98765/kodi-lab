@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -19,15 +19,22 @@ from kodi_lab.application.reconciliation import (
     StaleOperationReconciliationDispatcher,
 )
 from kodi_lab.domain import (
+    ConnectionState,
+    HealthStatus,
+    InstanceRuntimeState,
     ManagedInstanceLifecycleKind,
     ManagedInstanceLifecycleOperation,
     ManagedInstanceLifecycleOperationState,
     ManagedInstanceMutationKind,
     ManagedInstanceSemanticState,
+    TargetAvailability,
 )
 from kodi_lab.storage.repositories import (
     ManagedInstanceLifecycleOperationRepository,
     ManagedInstanceMutationLeaseRepository,
+    ManagedRuntimeCurrentProjection,
+    ManagedRuntimeProjectionRepository,
+    ManagedRuntimeProjectionResult,
 )
 
 
@@ -44,6 +51,7 @@ class RunningLifecycleOperation:
     operation_id: UUID
     instance_id: UUID
     token: str
+    runtime_state_revision: int = 0
 
     @property
     def token_digest(self) -> str:
@@ -110,6 +118,16 @@ class ManagedInstanceLifecycleOperationCoordinator:
                     kind=ManagedInstanceMutationKind.LIFECYCLE,
                     operation_id=handle.operation_id,
                 )
+                observation = ManagedRuntimeProjectionRepository(
+                    session
+                ).observation_token(instance_id)
+                if observation is None:
+                    raise LifecycleOperationConflictError(
+                        "Managed runtime projection is unavailable."
+                    )
+                handle = replace(
+                    handle, runtime_state_revision=observation.runtime_state_revision
+                )
                 if not leases.claim(
                     instance_id,
                     operation_id=handle.operation_id,
@@ -152,6 +170,23 @@ class ManagedInstanceLifecycleOperationCoordinator:
                 raise LifecycleOperationLeaseLostError(
                     "Lifecycle operation is no longer running."
                 )
+            projection = (
+                None
+                if failure_reason == "broker_runtime_dispatch_unconfirmed"
+                else self._projection(resulting_state)
+            )
+            if projection is not None:
+                applied = ManagedRuntimeProjectionRepository(session).finalize_owned(
+                    handle.instance_id,
+                    operation_id=handle.operation_id,
+                    token_digest=handle.token_digest,
+                    owned_revision=handle.runtime_state_revision,
+                    projection=projection,
+                )
+                if applied is not ManagedRuntimeProjectionResult.APPLIED:
+                    raise LifecycleOperationLeaseLostError(
+                        "Lifecycle projection authority is no longer owned."
+                    )
             if not ManagedInstanceMutationLeaseRepository(session).release(
                 handle.instance_id,
                 operation_id=handle.operation_id,
@@ -164,6 +199,37 @@ class ManagedInstanceLifecycleOperationCoordinator:
             operation = operations.get(handle.operation_id)
             assert operation is not None
             return operation
+
+    @staticmethod
+    def _projection(
+        state: ManagedInstanceSemanticState,
+    ) -> ManagedRuntimeCurrentProjection | None:
+        if state in {
+            ManagedInstanceSemanticState.AMBIGUOUS,
+            ManagedInstanceSemanticState.TRANSITIONAL,
+        }:
+            return None
+        usable = state is ManagedInstanceSemanticState.RUNNING_USABLE
+        running = state in {
+            ManagedInstanceSemanticState.RUNNING_USABLE,
+            ManagedInstanceSemanticState.RUNNING_NOT_READY,
+        }
+        return ManagedRuntimeCurrentProjection(
+            runtime_state=(
+                InstanceRuntimeState.RUNNING
+                if running
+                else InstanceRuntimeState.STOPPED
+            ),
+            availability=(
+                TargetAvailability.AVAILABLE
+                if usable
+                else TargetAvailability.UNAVAILABLE
+            ),
+            health=HealthStatus.HEALTHY if usable else HealthStatus.WARNING,
+            connection_state=(
+                ConnectionState.CONNECTED if usable else ConnectionState.DISCONNECTED
+            ),
+        )
 
     def record_prior_state(
         self,

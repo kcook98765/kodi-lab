@@ -10,6 +10,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+)
 from kodi_lab.application.snapshot_operations import (
     SnapshotCreateOperationCoordinator,
 )
@@ -22,6 +26,7 @@ from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     KodiProcessState,
 )
+from kodi_lab.broker.errors import ClientTransportError
 from kodi_lab.broker.operations import (
     CaptureManagedInstanceSnapshotResult,
     ManagedContainerInventoryEntry,
@@ -36,6 +41,7 @@ from kodi_lab.domain import (
     DevelopmentSourceDeploymentOperationState,
     DevelopmentSourceDeploymentRequestKind,
     DevelopmentSourceDeploymentResult,
+    ManagedInstanceMutationKind,
     SnapshotState,
     SnapshotValidationResult,
 )
@@ -55,7 +61,12 @@ from kodi_lab.storage.models import (
     RuntimeRevisionRow,
     TargetRow,
 )
-from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRepository
+from kodi_lab.storage.repositories import (
+    ManagedInstanceMutationLeaseRepository,
+    ManagedInstanceRepository,
+    ManagedRuntimeReconciliationBlockedError,
+    SnapshotRepository,
+)
 
 INSTANCE_ID = UUID("93000000-0000-4000-8000-000000000001")
 REVISION_ID = UUID("93000000-0000-4000-8000-000000000002")
@@ -408,6 +419,42 @@ def test_capture_failure_restores_prior_running_state(
     assert not captured.value.reconciliation_required
     assert broker.calls == ["stop", "capture", "start"]
     assert broker.state is ContainerRuntimeState.RUNNING
+
+
+def test_lost_stop_response_requires_reconciliation_without_restart(
+    factory: sessionmaker[Session],
+) -> None:
+    broker = FakeBroker(ContainerRuntimeState.RUNNING)
+
+    def lose_stop_response(**_kwargs: object) -> StopManagedContainerResult:
+        broker.calls.append("stop")
+        raise ClientTransportError("Broker Stop response lost")
+
+    broker.stop_managed_container = lose_stop_response  # type: ignore[method-assign]
+    capture, coordinator = service(factory, broker)
+    with pytest.raises(SnapshotCreateError) as captured:
+        capture.create()
+    assert captured.value.reconciliation_required
+    assert captured.value.safe_reason == "broker_runtime_dispatch_unconfirmed"
+    assert broker.calls == ["stop"]
+    coordinator.finish_failure(
+        capture._lease,
+        reason=captured.value.safe_reason,
+        reconciliation_required=True,
+    )
+    reconciliation = ManagedInstanceReconciliationService(factory)
+    status = reconciliation.status(INSTANCE_ID)
+    assert status.blocking
+    assert ReconciliationAction.START in status.blocked_actions
+    with (
+        factory.begin() as session,
+        pytest.raises(ManagedRuntimeReconciliationBlockedError),
+    ):
+        ManagedInstanceMutationLeaseRepository(session).reserve(
+            INSTANCE_ID,
+            kind=ManagedInstanceMutationKind.LIFECYCLE,
+            operation_id=UUID("93000000-0000-4000-8000-000000000099"),
+        )
 
 
 def test_restart_failure_after_validation_leaves_snapshot_available(

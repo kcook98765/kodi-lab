@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
@@ -26,6 +26,17 @@ from kodi_lab.application.development_source_deployments import (
     DevelopmentSourceDeploymentConflictError,
     DevelopmentSourceDeploymentOperationCoordinator,
 )
+from kodi_lab.application.readiness_tasks import (
+    ReadinessTaskRegistry,
+    ReadinessTaskSnapshot,
+    ReadinessTaskState,
+)
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationRequiredError,
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+    StaleOperationReconciliationDispatcher,
+)
 from kodi_lab.application.repository_replacements import (
     APPROVAL_TTL,
     RepositoryReplacementConflictError,
@@ -33,6 +44,7 @@ from kodi_lab.application.repository_replacements import (
     RepositoryReplacementService,
     RepositoryReplacementUnsupportedError,
 )
+from kodi_lab.application.runtime_status import ManagedRuntimeStatusService
 from kodi_lab.application.snapshot_delete_operations import (
     SnapshotDeleteOperationCoordinator,
 )
@@ -40,6 +52,11 @@ from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
     ContainerRuntimeState,
     KodiProcessState,
+)
+from kodi_lab.broker.errors import (
+    BrokerUnavailableError,
+    ClientTransportError,
+    RemoteBrokerError,
 )
 from kodi_lab.broker.operations import (
     AddonZipDestinationResult,
@@ -61,6 +78,7 @@ from kodi_lab.domain import (
     AddonZipOrigin,
     PythonBytecodePolicy,
     RepositoryReplacementIncumbentClass,
+    RepositoryReplacementOperationPhase,
     RepositoryReplacementOperationState,
     RepositoryReplacementPlanState,
 )
@@ -95,6 +113,7 @@ from kodi_lab.storage.repositories import (
     AddonZipInstallationOperationRepository,
     DevelopmentSourceDeploymentRepository,
     ManagedInstanceDevelopmentSourceRepository,
+    ManagedRuntimeProjectionRepository,
     RepositoryReplacementOperationRepository,
     RepositoryReplacementPlanRepository,
 )
@@ -599,6 +618,27 @@ def test_failure_after_stop_before_application_restores_running(
     )
     assert broker.state is ContainerRuntimeState.RUNNING
     assert "apply" not in broker.calls
+
+
+def test_zip_stop_lost_response_blocks_without_false_application_history(
+    factory: sessionmaker[Session],
+) -> None:
+    broker = FakeBroker()
+
+    def lose_stop_response(**_kwargs: object) -> StopManagedContainerResult:
+        broker.calls.append("stop")
+        raise ClientTransportError("Broker Stop response lost")
+
+    broker.stop_managed_container = lose_stop_response  # type: ignore[method-assign]
+    operation_id = execute(factory, broker, (), ())
+    recorded = operation(factory, operation_id)
+    assert recorded.state is AddonZipInstallationOperationState.RECONCILIATION_REQUIRED
+    assert recorded.failure_reason == "broker_runtime_dispatch_unconfirmed"
+    assert not recorded.application_started
+    assert "start" not in broker.calls and "apply" not in broker.calls
+    with factory() as session:
+        projections = ManagedRuntimeProjectionRepository(session)
+        assert projections.has_blocking_runtime_reconciliation(INSTANCE_ID)
 
 
 def test_interpreter_default_runtime_blocks_before_live_or_filesystem_work(
@@ -1132,6 +1172,275 @@ def test_post_application_replacement_failure_is_consumed_and_reconciliation_req
     assert operation.application_started
     assert persisted.state is RepositoryReplacementPlanState.CONSUMED
     assert broker.state is ContainerRuntimeState.STOPPED
+
+
+def test_unconfirmed_preapplication_stop_is_durable_and_mutation_blocking(
+    factory: sessionmaker[Session],
+) -> None:
+    class UnconfirmedStopBroker(FakeBroker):
+        def stop_managed_container(
+            self,
+            *,
+            managed_instance_id: str,
+            expected_container_id: str,
+            expected_runtime_state: ContainerRuntimeState,
+        ) -> StopManagedContainerResult:
+            self.calls.append("stop")
+            raise ClientTransportError("Broker response lost after Stop dispatch")
+
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    broker = UnconfirmedStopBroker()
+    coordinator = replacement_coordinator(factory, broker, InventorySequence([()]))
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    queued = coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    with pytest.raises(ClientTransportError):
+        RepositoryReplacementService(
+            factory,
+            broker,
+            coordinator,
+            lease,
+            inventory_factory=InventorySequence([()]).factory,
+            readiness_factory=lambda _broker, _profile: Ready(),
+        ).execute()
+    with factory() as session:
+        operation = RepositoryReplacementOperationRepository(session).get(
+            queued.operation_id
+        )
+    assert operation is not None
+    assert (
+        operation.state is RepositoryReplacementOperationState.RECONCILIATION_REQUIRED
+    )
+    assert operation.phase.value == "stopping"
+    assert not operation.application_started
+    assert operation.failure_reason == "broker_runtime_dispatch_unconfirmed"
+    assert broker.calls.count("stop") == 1
+    gate = ManagedInstanceReconciliationService(factory, broker=broker)
+    for _ in range(2):
+        assert gate.status(INSTANCE_ID).blocking
+    assert (
+        ManagedInstanceReconciliationService(factory, broker=broker)
+        .status(INSTANCE_ID)
+        .blocking
+    )
+    assert (
+        StaleOperationReconciliationDispatcher(factory)
+        .sweep_instance(INSTANCE_ID)
+        .released_reservations
+        == 0
+    )
+    for action in (
+        ReconciliationAction.START,
+        ReconciliationAction.STOP,
+        ReconciliationAction.RESET,
+        ReconciliationAction.MCP_WORKSPACE_DEPLOYMENT,
+    ):
+        with pytest.raises(ManagedInstanceReconciliationRequiredError):
+            gate.require_allowed(INSTANCE_ID, action)
+    readiness = ReadinessTaskRegistry()
+    try:
+        assert (
+            ManagedRuntimeStatusService(factory, broker, readiness)
+            .get(INSTANCE_ID)
+            .managed_instance_id
+            == INSTANCE_ID
+        )
+    finally:
+        readiness.close()
+
+    class UsableReadiness:
+        def snapshot(self, _instance_id: UUID) -> ReadinessTaskSnapshot:
+            return ReadinessTaskSnapshot(
+                generation=1,
+                state=ReadinessTaskState.USABLE,
+                result=Ready().wait_until_usable(str(INSTANCE_ID)),
+            )
+
+    ManagedRuntimeStatusService(
+        factory,
+        broker,
+        UsableReadiness(),  # type: ignore[arg-type]
+    ).get(INSTANCE_ID)
+    with factory() as session:
+        target = session.get(TargetRow, str(INSTANCE_ID))
+        assert target is not None
+        assert target.availability.value == "unavailable"
+    assert gate.status(INSTANCE_ID).blocking
+
+
+def test_unconfirmed_replacement_restart_skips_containment_stop(
+    factory: sessionmaker[Session],
+) -> None:
+    class UnconfirmedStartBroker(FakeBroker):
+        def start_managed_container(
+            self,
+            *,
+            managed_instance_id: str,
+            expected_container_id: str,
+            expected_runtime_state: ContainerRuntimeState,
+        ) -> StartManagedContainerResult:
+            self.calls.append("start")
+            raise ClientTransportError("Broker Start response lost")
+
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    broker = UnconfirmedStartBroker()
+    coordinator = replacement_coordinator(
+        factory, broker, InventorySequence([(), (), ()])
+    )
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    queued = coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    with pytest.raises(ClientTransportError):
+        RepositoryReplacementService(
+            factory,
+            broker,
+            coordinator,
+            lease,
+            inventory_factory=InventorySequence([()]).factory,
+            readiness_factory=lambda _broker, _profile: Ready(),
+        ).execute()
+    with factory() as session:
+        operation = RepositoryReplacementOperationRepository(session).get(
+            queued.operation_id
+        )
+    assert operation is not None
+    assert operation.application_started
+    assert (
+        operation.state is RepositoryReplacementOperationState.RECONCILIATION_REQUIRED
+    )
+    assert operation.failure_reason == "broker_runtime_dispatch_unconfirmed"
+    assert broker.calls.count("stop") == 1
+
+
+@pytest.mark.parametrize("after_stop_marker", [False, True])
+def test_expired_replacement_stopping_blocks_but_predispatch_expiry_recovers(
+    factory: sessionmaker[Session],
+    after_stop_marker: bool,
+) -> None:
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    broker = FakeBroker()
+    coordinator = replacement_coordinator(factory, broker, InventorySequence([()]))
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    queued = coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    if after_stop_marker:
+        coordinator.update(lease, phase=RepositoryReplacementOperationPhase.STOPPING)
+    sweep = StaleOperationReconciliationDispatcher(
+        factory, clock=lambda: NOW + timedelta(minutes=16)
+    ).sweep_instance(INSTANCE_ID)
+    assert sweep.released_reservations == 2
+    with factory() as session:
+        operation = RepositoryReplacementOperationRepository(session).get(
+            queued.operation_id
+        )
+    assert operation is not None
+    assert operation.state is (
+        RepositoryReplacementOperationState.RECONCILIATION_REQUIRED
+        if after_stop_marker
+        else RepositoryReplacementOperationState.FAILED
+    )
+    assert not operation.application_started
+    assert operation.failure_reason == (
+        "broker_runtime_dispatch_unconfirmed"
+        if after_stop_marker
+        else "repository_replacement_lease_expired"
+    )
+    assert (
+        ManagedInstanceReconciliationService(factory, broker=broker)
+        .status(INSTANCE_ID)
+        .blocking
+        is after_stop_marker
+    )
+
+
+def test_definitive_broker_stop_failure_remains_class_a(
+    factory: sessionmaker[Session],
+) -> None:
+    class DefinitiveFailureBroker(FakeBroker):
+        def stop_managed_container(
+            self,
+            *,
+            managed_instance_id: str,
+            expected_container_id: str,
+            expected_runtime_state: ContainerRuntimeState,
+        ) -> StopManagedContainerResult:
+            self.calls.append("stop")
+            raise RemoteBrokerError(
+                "runtime_state_precondition_failed",
+                "Stop rejected",
+                request_id="test-request",
+            )
+
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    broker = DefinitiveFailureBroker()
+    coordinator = replacement_coordinator(factory, broker, InventorySequence([()]))
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    queued = coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    with pytest.raises(RemoteBrokerError):
+        RepositoryReplacementService(
+            factory,
+            broker,
+            coordinator,
+            lease,
+            inventory_factory=InventorySequence([()]).factory,
+            readiness_factory=lambda _broker, _profile: Ready(),
+        ).execute()
+    with factory() as session:
+        operation = RepositoryReplacementOperationRepository(session).get(
+            queued.operation_id
+        )
+    assert operation is not None
+    assert operation.state is RepositoryReplacementOperationState.FAILED
+    assert not operation.application_started
+    assert (
+        not ManagedInstanceReconciliationService(factory, broker=broker)
+        .status(INSTANCE_ID)
+        .blocking
+    )
+
+
+def test_known_pre_dispatch_broker_unavailable_remains_class_a(
+    factory: sessionmaker[Session],
+) -> None:
+    class UnavailableBroker(FakeBroker):
+        def stop_managed_container(
+            self,
+            *,
+            managed_instance_id: str,
+            expected_container_id: str,
+            expected_runtime_state: ContainerRuntimeState,
+        ) -> StopManagedContainerResult:
+            self.calls.append("stop")
+            raise BrokerUnavailableError("Broker socket was unavailable")
+
+    configure_repository_artifact(factory, attach=True, development_collision=True)
+    broker = UnavailableBroker()
+    coordinator = replacement_coordinator(factory, broker, InventorySequence([()]))
+    plan = coordinator.prepare(INSTANCE_ID, ARTIFACT_ID)
+    queued = coordinator.approve_and_queue(INSTANCE_ID, plan.plan_id)
+    lease = coordinator.acquire(queued.operation_id)
+    assert lease is not None
+    with pytest.raises(BrokerUnavailableError):
+        RepositoryReplacementService(
+            factory,
+            broker,
+            coordinator,
+            lease,
+            inventory_factory=InventorySequence([()]).factory,
+            readiness_factory=lambda _broker, _profile: Ready(),
+        ).execute()
+    with factory() as session:
+        operation = RepositoryReplacementOperationRepository(session).get(
+            queued.operation_id
+        )
+    assert operation is not None
+    assert operation.state is RepositoryReplacementOperationState.FAILED
+    assert not operation.application_started and not operation.reconciliation_required
 
 
 def install_repository_successfully(factory: sessionmaker[Session]) -> UUID:

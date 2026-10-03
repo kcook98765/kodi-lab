@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0062_workspace_kodi_error",)
+        ).fetchone() == ("0063_managed_runtime_projection",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -7767,12 +7767,15 @@ def test_0062_workspace_kodi_error_preserves_history_and_closed_shape(
     command.upgrade(config, "0062_workspace_kodi_error")
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
-        assert connection.execute(
-            text(
-                f"SELECT id,state,kodi_error_code,kodi_error_message FROM {table} "
-                "ORDER BY state"
-            )
-        ).all() == [
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                text(
+                    f"SELECT id,state,kodi_error_code,kodi_error_message FROM {table} "
+                    "ORDER BY state"
+                )
+            ).all()
+        ] == [
             (ids[1], "failed", None, None),
             (ids[0], "succeeded", None, None),
         ]
@@ -7843,4 +7846,245 @@ def test_0062_workspace_kodi_error_preserves_history_and_closed_shape(
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
         assert connection.scalar(text(f"SELECT COUNT(*) FROM {table}")) == 2
+    engine.dispose()
+
+
+def test_0063_managed_projection_and_exact_preapplication_ambiguity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0062_workspace_kodi_error"
+    )
+    engine = create_database_engine(database_url)
+    ids = {
+        name: str(uuid4())
+        for name in (
+            "definition",
+            "revision",
+            "target",
+            "source",
+            "repository",
+            "snapshot",
+            "candidate",
+            "artifact",
+            "plan",
+            "operation",
+        )
+    }
+    ids.update(at="2026-10-02T00:00:00.000000Z", digest="sha256:" + "a" * 64)
+    with engine.begin() as connection:
+        for statement in (
+            "INSERT INTO runtime_definitions (id,slug,kodi_version,support_tier) "
+            "VALUES (:definition,'kodi-21-3-projection','21.3','current')",
+            "INSERT INTO runtime_revisions (id,runtime_definition_id,revision_number,"
+            "source_kind,source_reference,content_digest,manifest_reference,"
+            "manifest_digest,built_at,approval_state,"
+            "requires_trusted_build_confirmation) VALUES "
+            "(:revision,:definition,1,'test','test',:digest,'test',:digest,"
+            ":at,'not_approved',0)",
+            "INSERT INTO targets (id,name,target_type,kodi_version,availability,"
+            "health,connection_state) VALUES "
+            "(:target,'projection migration','managed','21.3','unavailable',"
+            "'warning','disconnected')",
+            "INSERT INTO managed_instances (target_id,instance_type,"
+            "runtime_revision_id,runtime_state,start_on_host_boot) VALUES "
+            "(:target,'disposable',:revision,'stopped',0)",
+            "INSERT INTO development_sources (id,logical_name,source_kind,"
+            "relative_locator,addon_id,observed_name,observed_version,"
+            "extension_types_json,registered_at,validated_at) VALUES "
+            "(:source,'migration source','local_directory','addons/source',"
+            "'plugin.video.example','Example','1.0.0','[]',:at,:at)",
+            "INSERT INTO addon_repository_sources (id,logical_name,"
+            "canonical_index_url,origin,created_at) VALUES "
+            "(:repository,'migration repository','https://example.test/addons.xml',"
+            "'external_https_repository',:at)",
+            "INSERT INTO addon_repository_metadata_snapshots (id,"
+            "repository_source_id,fetched_at,transfer_digest,"
+            "canonical_metadata_digest,transfer_size,expanded_size,entry_count) "
+            "VALUES (:snapshot,:repository,:at,:digest,:digest,1,1,1)",
+            "INSERT INTO addon_repository_candidates (id,snapshot_id,"
+            "repository_source_id,addon_id,name,version,classification,"
+            "dependencies_json,support) VALUES (:candidate,:snapshot,:repository,"
+            "'plugin.video.example','Example','1.0.0','python_video_plugin','[]',"
+            "'supported')",
+            "INSERT INTO addon_zip_artifacts (id,logical_label,sha256_digest,"
+            "compressed_size,total_uncompressed_bytes,member_count,addon_id,"
+            "addon_name,addon_version,extension_classification,dependencies_json,"
+            "payload_manifest_digest,imported_at,origin,validation_state,"
+            "repository_source_id,repository_snapshot_id,repository_candidate_id,"
+            "repository_fetched_at) VALUES (:artifact,'migration artifact',:digest,"
+            "1,1,1,'plugin.video.example','Example','1.0.0',"
+            "'python_video_plugin','[]',:digest,:at,'repository_download',"
+            "'accepted',:repository,:snapshot,:candidate,:at)",
+            "INSERT INTO repository_replacement_plans (id,"
+            "original_managed_instance_id,managed_instance_id,repository_source_id,"
+            "repository_attachment_at,repository_snapshot_id,"
+            "repository_candidate_id,incoming_artifact_id,addon_id,incumbent_class,"
+            "development_source_id,development_source_attachment_at,"
+            "runtime_revision_id,expected_container_id,incoming_version,"
+            "incoming_payload_manifest_digest,created_at,expires_at,state) VALUES "
+            "(:plan,:target,:target,:repository,:at,:snapshot,:candidate,:artifact,"
+            "'plugin.video.example','attached_unmaterialized',:source,:at,"
+            ":revision,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',"
+            "'1.0.0',:digest,:at,:at,'consumed')",
+            "INSERT INTO repository_replacement_operations (id,plan_id,"
+            "original_managed_instance_id,managed_instance_id,incoming_artifact_id,"
+            "development_source_id,addon_id,incoming_version,incumbent_class,"
+            "runtime_revision_id,expected_container_id,requested_at,state,phase,"
+            "application_started,completed_at,failure_reason,"
+            "reconciliation_required) VALUES (:operation,:plan,:target,:target,"
+            ":artifact,:source,'plugin.video.example','1.0.0',"
+            "'attached_unmaterialized',:revision,"
+            "'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',"
+            ":at,'failed','finalize',0,:at,'preflight_failed',0)",
+        ):
+            connection.execute(text(statement), ids)
+    engine.dispose()
+
+    command.upgrade(config, "0063_managed_runtime_projection")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT runtime_state_revision FROM managed_instances "
+                    "WHERE target_id=:target"
+                ),
+                ids,
+            )
+            == 0
+        )
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+        assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT state FROM repository_replacement_operations "
+                    "WHERE id=:operation"
+                ),
+                ids,
+            )
+            == "failed"
+        )
+    second_target = str(uuid4())
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO targets (id,name,target_type,kodi_version,availability,"
+                "health,connection_state) VALUES (:id,'new managed','managed',"
+                "'21.3','unavailable','warning','disconnected')"
+            ),
+            {"id": second_target},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances (target_id,instance_type,"
+                "runtime_revision_id,runtime_state,start_on_host_boot) VALUES "
+                "(:id,'disposable',:revision,'stopped',0)"
+            ),
+            {"id": second_target, "revision": ids["revision"]},
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT runtime_state_revision FROM managed_instances "
+                    "WHERE target_id=:id"
+                ),
+                {"id": second_target},
+            )
+            == 0
+        )
+        connection.execute(
+            text(
+                "UPDATE repository_replacement_operations SET "
+                "state='reconciliation_required',application_started=1,"
+                "reconciliation_required=1,failure_reason='ordinary_reconciliation' "
+                "WHERE id=:operation"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "UPDATE repository_replacement_operations SET state='failed',"
+                "application_started=0,reconciliation_required=0,"
+                "failure_reason='preflight_failed' WHERE id=:operation"
+            ),
+            ids,
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE managed_instances SET runtime_state_revision=-1 "
+                "WHERE target_id=:target"
+            ),
+            ids,
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE managed_instances SET runtime_state_revision=NULL "
+                "WHERE target_id=:target"
+            ),
+            ids,
+        )
+    for reason in (
+        "preflight_failed",
+        "broker_runtime_dispatch_unconfirmed_extra",
+        "",
+        None,
+    ):
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE repository_replacement_operations SET "
+                    "state='reconciliation_required',phase='stopping',"
+                    "reconciliation_required=1,failure_reason=:reason "
+                    "WHERE id=:operation"
+                ),
+                {**ids, "reason": reason},
+            )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE repository_replacement_operations SET "
+                "state='reconciliation_required',phase='stopping',"
+                "reconciliation_required=1,"
+                "failure_reason='broker_runtime_dispatch_unconfirmed' "
+                "WHERE id=:operation"
+            ),
+            ids,
+        )
+    for inconsistent in (
+        "phase='finalize'",
+        "reconciliation_required=0",
+        "state='succeeded'",
+    ):
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE repository_replacement_operations SET "
+                    + inconsistent
+                    + " WHERE id=:operation"
+                ),
+                ids,
+            )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="cannot be downgraded"):
+        command.downgrade(config, "0062_workspace_kodi_error")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE repository_replacement_operations SET state='failed',"
+                "phase='finalize',reconciliation_required=0,"
+                "failure_reason='preflight_failed' WHERE id=:operation"
+            ),
+            ids,
+        )
+    engine.dispose()
+    command.downgrade(config, "0062_workspace_kodi_error")
+    engine = create_database_engine(database_url)
+    assert "runtime_state_revision" not in {
+        column["name"] for column in inspect(engine).get_columns("managed_instances")
+    }
     engine.dispose()

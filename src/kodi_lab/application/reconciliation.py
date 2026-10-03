@@ -64,6 +64,7 @@ from kodi_lab.domain import (
     ManagedInstanceSemanticState,
     PromotionVerificationOperation,
     RepositoryReplacementOperation,
+    RepositoryReplacementOperationPhase,
     RepositoryReplacementOperationState,
     RepositoryReplacementTerminalOutcome,
     ResetOperation,
@@ -429,17 +430,12 @@ class StaleOperationReconciliationDispatcher:
                 raise CoordinationCorruptionError(
                     "Expired lifecycle ownership is inconsistent."
                 )
-            observed = (
-                observe_lifecycle_semantic_state(
-                    self._broker, self._readiness, instance_id
-                )
-                if self._broker is not None
-                else ManagedInstanceSemanticState.AMBIGUOUS
-            )
             if not ManagedInstanceLifecycleOperationRepository(
                 session
             ).mark_stale_reconciliation(
-                operation_id, resulting_state=observed, now=now
+                operation_id,
+                resulting_state=ManagedInstanceSemanticState.AMBIGUOUS,
+                now=now,
             ):
                 raise CoordinationCorruptionError(
                     "Expired lifecycle operation ownership changed."
@@ -494,13 +490,25 @@ class StaleOperationReconciliationDispatcher:
                 digest,
                 now,
             )
+            assert isinstance(operation, SnapshotCreateOperation)
+            snapshot = SnapshotRepository(session).get(operation.snapshot_id)
+            dispatch_unconfirmed = snapshot is None or (
+                snapshot.prior_runtime_state is InstanceRuntimeState.RUNNING
+                and operation.phase
+                not in {
+                    SnapshotCreateOperationPhase.ACQUIRING_LEASES,
+                    SnapshotCreateOperationPhase.RESOLVING_INSTANCE,
+                }
+            )
             if not SnapshotCreateOperationRepository(session).mark_stale_reconciliation(
-                operation_id, token_digest=digest, now=now
+                operation_id,
+                token_digest=digest,
+                now=now,
+                dispatch_unconfirmed=dispatch_unconfirmed,
             ):
                 raise CoordinationCorruptionError(
                     "Expired snapshot-create ownership changed."
                 )
-            assert isinstance(operation, SnapshotCreateOperation)
             SnapshotRepository(session).mark_invalid(
                 operation.snapshot_id, quarantined=True, validated_at=now
             )
@@ -597,6 +605,14 @@ class StaleOperationReconciliationDispatcher:
                 digest,
                 now,
             )
+            dispatch_unconfirmed = (
+                not operation.application_started
+                and operation.phase
+                in {
+                    RepositoryReplacementOperationPhase.STOPPING,
+                    RepositoryReplacementOperationPhase.REVALIDATE_STOPPED,
+                }
+            )
             if not RepositoryReplacementOperationRepository(
                 session
             ).mark_stale_reconciliation(
@@ -610,13 +626,17 @@ class StaleOperationReconciliationDispatcher:
                 )
             assert isinstance(operation, RepositoryReplacementOperation)
             plans = RepositoryReplacementPlanRepository(session)
-            if operation.application_started:
+            if operation.application_started or dispatch_unconfirmed:
                 plans.finish(
                     operation.plan_id,
                     outcome=(
                         RepositoryReplacementTerminalOutcome.RECONCILIATION_REQUIRED
                     ),
-                    reason="repository_replacement_lease_expired",
+                    reason=(
+                        RepositoryReplacementOperationRepository.BROKER_RUNTIME_DISPATCH_UNCONFIRMED
+                        if dispatch_unconfirmed
+                        else "repository_replacement_lease_expired"
+                    ),
                 )
                 DevelopmentSourceDeploymentRepository(session).mark_confidence(
                     instance_id,
@@ -1516,7 +1536,10 @@ class ManagedInstanceReconciliationService:
                 else ManagedInstanceSemanticState.AMBIGUOUS
             )
             observed = semantic.value
-            blocking = not semantic_state_is_unambiguous(semantic)
+            blocking = (
+                operation.failure_reason == "broker_runtime_dispatch_unconfirmed"
+                or not semantic_state_is_unambiguous(semantic)
+            )
         elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_DEPLOYMENT:
             observed = "deployment_destination_requires_read_only_inspection"
         elif kind is ReconciliationOperationKind.DEVELOPMENT_SOURCE_ENABLEMENT:
@@ -1679,7 +1702,6 @@ class ManagedInstanceReconciliationService:
                 in {
                     ReconciliationOperationKind.DEVELOPMENT_SOURCE_SMOKE_TEST,
                     ReconciliationOperationKind.ADDON_ZIP_SMOKE_TEST,
-                    ReconciliationOperationKind.MCP_WORKSPACE_DEPLOYMENT,
                     ReconciliationOperationKind.MCP_WORKSPACE_EXECUTION,
                 }
                 else INSTANCE_MUTATIONS
@@ -1797,6 +1819,8 @@ class ManagedInstanceReconciliationService:
         operation: SnapshotCreateOperation,
         snapshot: Snapshot | None,
     ) -> tuple[bool, str]:
+        if operation.failure_reason == "broker_runtime_dispatch_unconfirmed":
+            return True, "broker_runtime_dispatch_unconfirmed"
         if snapshot is None:
             return True, "snapshot_publication_and_source_state_uncertain"
         if operation.phase in {

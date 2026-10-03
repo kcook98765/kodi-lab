@@ -51,6 +51,7 @@ from kodi_lab.broker.development_sources import (
     SqliteDevelopmentSourceDeploymentResolver,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.broker.errors import ClientTransportError
 from kodi_lab.broker.kodi_logs import classify_kodi_log_window
 from kodi_lab.domain import DevelopmentSource, DevelopmentSourceKind
 from kodi_lab.kodi.readiness import UsabilityState
@@ -89,6 +90,7 @@ from kodi_lab.storage.models import (
 from kodi_lab.storage.repositories import (
     AgentWorkspacePromotionHandoffRepository,
     DevelopmentSourceRepository,
+    ManagedRuntimeProjectionRepository,
 )
 
 SOURCE_ID = UUID("82000000-0000-4000-8000-000000000001")
@@ -1386,6 +1388,67 @@ def test_pre_sync_failure_stays_reserved_unconsumed_and_non_reusable(
             )
             == 1
         )
+
+
+def test_promotion_verification_lost_stop_response_blocks_mutation(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    _edit(harness)
+    plan = harness.promotions.prepare(TARGET_ID, harness.workspace_id)
+    source_result = harness.promotions.approve_and_execute(
+        TARGET_ID, harness.workspace_id, plan.plan_id
+    )
+
+    class Inventory:
+        def get(self, _instance_id: UUID) -> Any:
+            raise AssertionError("inventory must not run")
+
+    class Broker:
+        def managed_container_inventory(self) -> Any:
+            return SimpleNamespace(
+                containers=[
+                    SimpleNamespace(
+                        managed_instance_id=str(TARGET_ID),
+                        container_id=CONTAINER_ID,
+                        runtime_state=ContainerRuntimeState.RUNNING,
+                    )
+                ]
+            )
+
+        def capture_promotion_kodi_log_cursor(self, **_kwargs: object) -> Any:
+            return SimpleNamespace(cursor="opaque")
+
+        def read_promotion_kodi_log_window(self, **_kwargs: object) -> Any:
+            raise AssertionError("log readback must not run")
+
+        def stop_managed_container(self, **_kwargs: object) -> None:
+            raise ClientTransportError("Broker Stop response lost")
+
+        def copy_sync_promoted_development_source(self, **_kwargs: object) -> Any:
+            raise AssertionError("sync must not run")
+
+        def start_managed_container(self, **_kwargs: object) -> None:
+            raise AssertionError("start must not run")
+
+    service = PromotionVerificationService(
+        harness.factory,
+        Broker(),
+        Inventory(),
+        clock=harness.clock,
+        sleep=lambda _seconds: None,
+    )
+    verification = service.queue_and_run(source_result.operation_id)
+    assert verification.state.value == "reconciliation_required"
+    with harness.factory() as session:
+        operation = session.get(
+            PromotionVerificationOperationRow, str(verification.verification_id)
+        )
+        assert operation is not None
+        assert operation.failure_code == "broker_runtime_dispatch_unconfirmed"
+        assert not operation.stop_completed and not operation.sync_started
+        projections = ManagedRuntimeProjectionRepository(session)
+        assert projections.has_blocking_runtime_reconciliation(TARGET_ID)
 
 
 def test_exact_rollback_keeps_workspace_ready_and_consumes_approval(

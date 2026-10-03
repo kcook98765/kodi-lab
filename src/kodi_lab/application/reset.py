@@ -26,6 +26,7 @@ from kodi_lab.application.reset_activity import (
     ResetActivityState,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.broker.errors import ClientProtocolError, ClientTransportError
 from kodi_lab.broker.operations import (
     ApplyAssignedFixtureResult,
     DeprovisionManagedContainerResult,
@@ -339,6 +340,11 @@ class DisposableInstanceResetService:
                     )
                     container = self._require_stopped_container(instance_id)
                 except Exception as error:
+                    if isinstance(error, (ClientTransportError, ClientProtocolError)):
+                        raise ResetReconciliationRequiredError(
+                            ResetPhase.STOP,
+                            "broker_runtime_dispatch_unconfirmed",
+                        ) from error
                     raise ResetStopFailedError(
                         ResetPhase.STOP,
                         "existing container could not be safely stopped",
@@ -364,6 +370,11 @@ class DisposableInstanceResetService:
                     expected_runtime_state=ContainerRuntimeState.STOPPED,
                 )
             except Exception as error:
+                if isinstance(error, (ClientTransportError, ClientProtocolError)):
+                    raise ResetReconciliationRequiredError(
+                        ResetPhase.DEPROVISION,
+                        "broker_runtime_dispatch_unconfirmed",
+                    ) from error
                 raise ResetDeprovisionFailedError(
                     ResetPhase.DEPROVISION,
                     "existing container could not be safely deprovisioned",
@@ -386,6 +397,11 @@ class DisposableInstanceResetService:
                 managed_instance_id=str(instance_id)
             )
         except Exception as error:
+            if isinstance(error, (ClientTransportError, ClientProtocolError)):
+                raise ResetReconciliationRequiredError(
+                    ResetPhase.PROVISION,
+                    "broker_runtime_dispatch_unconfirmed",
+                ) from error
             raise ResetProvisionFailedError(
                 ResetPhase.PROVISION,
                 "the exact pinned runtime could not be provisioned",
@@ -495,6 +511,11 @@ class DisposableInstanceResetService:
                 expected_runtime_state=ContainerRuntimeState.STOPPED,
             )
         except Exception as error:
+            if isinstance(error, (ClientTransportError, ClientProtocolError)):
+                raise ResetReconciliationRequiredError(
+                    ResetPhase.FIXTURE_START,
+                    "broker_runtime_dispatch_unconfirmed",
+                ) from error
             self._raise_after_cleanup(
                 instance_id,
                 activity_generation,
@@ -581,7 +602,10 @@ class DisposableInstanceResetService:
         except Exception as error:
             raise ResetReconciliationRequiredError(
                 ResetPhase.FINAL_STOP,
-                "fixture baseline was created but a stopped state was not established",
+                "broker_runtime_dispatch_unconfirmed"
+                if isinstance(error, (ClientTransportError, ClientProtocolError))
+                else "fixture baseline was created but a stopped state "
+                "was not established",
             ) from error
         return state
 
@@ -611,7 +635,12 @@ class DisposableInstanceResetService:
             self._require_stopped_container(instance_id)
         except Exception as cleanup_error:
             raise ResetReconciliationRequiredError(
-                phase, "fixture failure cleanup could not establish stopped state"
+                phase,
+                "broker_runtime_dispatch_unconfirmed"
+                if isinstance(
+                    cleanup_error, (ClientTransportError, ClientProtocolError)
+                )
+                else "fixture failure cleanup could not establish stopped state",
             ) from cleanup_error
         raise FixtureInitializationFailedError(phase, message) from cause
 

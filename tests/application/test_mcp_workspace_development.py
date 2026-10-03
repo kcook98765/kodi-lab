@@ -36,12 +36,20 @@ from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentService,
     WorkspaceExecutionResult,
 )
+from kodi_lab.application.reconciliation import (
+    ManagedInstanceReconciliationService,
+    ReconciliationAction,
+)
 from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
     ContainerRuntimeState,
     KodiProcessState,
 )
-from kodi_lab.broker.errors import RemoteBrokerError
+from kodi_lab.broker.errors import (
+    BrokerUnavailableError,
+    ClientTransportError,
+    RemoteBrokerError,
+)
 from kodi_lab.broker.operations import (
     CopySyncAttachedDevelopmentSourceResult,
     ManagedContainerInventoryEntry,
@@ -1656,6 +1664,78 @@ def test_correlated_stop_sync_readiness_and_inventory_failures_are_bounded(
             target_id=TARGET_ID,
         )
     assert disabled_env.broker.state is ContainerRuntimeState.STOPPED
+
+
+def test_workspace_deployment_lost_sync_or_start_response_stays_blocked(
+    tmp_path: Path,
+) -> None:
+    sync_env = _environment(tmp_path / "lost-sync")
+    sync_env.broker.fail_sync = ClientTransportError("Broker sync response lost")
+    with pytest.raises(McpWorkspaceDevelopmentError, match="deployment_ambiguous"):
+        sync_env.development.deploy(
+            client_id=sync_env.client_id,
+            request_id=uuid4(),
+            workspace_id=sync_env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    assert sync_env.broker.start_count == 0
+    with sync_env.sessions() as session:
+        row = session.scalar(select(McpWorkspaceDeploymentOperationRow))
+        assert row is not None and row.state == "reconciliation_required"
+
+    blocked = ManagedInstanceReconciliationService(sync_env.sessions).status(TARGET_ID)
+    assert blocked.blocking
+    assert ReconciliationAction.STOP in blocked.blocked_actions
+
+    start_env = _environment(tmp_path / "lost-start")
+
+    def lose_start_response(**_kwargs: Any) -> object:
+        start_env.broker.start_count += 1
+        raise ClientTransportError("Broker Start response lost")
+
+    start_env.broker.start_managed_container = lose_start_response  # type: ignore[method-assign]
+    with pytest.raises(McpWorkspaceDevelopmentError, match="deployment_ambiguous"):
+        start_env.development.deploy(
+            client_id=start_env.client_id,
+            request_id=uuid4(),
+            workspace_id=start_env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    assert start_env.broker.stop_count == 1
+    assert start_env.broker.start_count == 1
+    with start_env.sessions() as session:
+        row = session.scalar(select(McpWorkspaceDeploymentOperationRow))
+        assert row is not None and row.state == "reconciliation_required"
+
+
+def test_workspace_deployment_known_pre_dispatch_failure_is_recoverable(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+
+    def unavailable_stop(**_kwargs: Any) -> object:
+        env.broker.stop_count += 1
+        raise BrokerUnavailableError("Broker socket unavailable")
+
+    env.broker.stop_managed_container = unavailable_stop  # type: ignore[method-assign]
+    with pytest.raises(
+        McpWorkspaceDevelopmentError, match="broker_unavailable_before_dispatch"
+    ):
+        env.development.deploy(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    assert env.broker.sync_count == 0 and env.broker.start_count == 0
+    with env.sessions() as session:
+        row = session.scalar(select(McpWorkspaceDeploymentOperationRow))
+        assert row is not None and row.state == "failed"
+    status = ManagedInstanceReconciliationService(env.sessions).status(TARGET_ID)
+    assert not status.blocking
 
 
 def test_process_restart_after_stop_terminalizes_without_redispatch(

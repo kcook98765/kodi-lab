@@ -26,6 +26,7 @@ from kodi_lab.application.snapshot_restore_operations import (
     SnapshotRestoreOperationCoordinator,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
+from kodi_lab.broker.errors import ClientProtocolError, ClientTransportError
 from kodi_lab.broker.operations import (
     ApplyManagedInstanceSnapshotResult,
     DeprovisionManagedContainerResult,
@@ -334,6 +335,11 @@ class DisposableSnapshotRestoreService:
                 ) from error
             raise
         except Exception as error:
+            if isinstance(error, (ClientTransportError, ClientProtocolError)):
+                raise SnapshotRestoreError(
+                    "broker_runtime_dispatch_unconfirmed",
+                    reconciliation_required=True,
+                ) from error
             if not old_removed and stopped_by_operation:
                 wrapped = SnapshotRestoreError(
                     "Snapshot restore could not be completed."
@@ -481,7 +487,11 @@ class DisposableSnapshotRestoreService:
                 raise RuntimeError("not usable")
         except Exception as recovery_error:
             raise SnapshotRestoreError(
-                f"{original.safe_reason} Prior running state was not recovered.",
+                "broker_runtime_dispatch_unconfirmed"
+                if isinstance(
+                    recovery_error, (ClientTransportError, ClientProtocolError)
+                )
+                else f"{original.safe_reason} Prior running state was not recovered.",
                 reconciliation_required=True,
             ) from recovery_error
 
@@ -496,6 +506,11 @@ class DisposableSnapshotRestoreService:
                     expected_container_id=container_id,
                     expected_runtime_state=ContainerRuntimeState.RUNNING,
                 )
+        except (ClientTransportError, ClientProtocolError) as error:
+            raise SnapshotRestoreError(
+                "broker_runtime_dispatch_unconfirmed",
+                reconciliation_required=True,
+            ) from error
         except Exception:
             return
 

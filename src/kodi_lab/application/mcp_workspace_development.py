@@ -57,7 +57,12 @@ from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     KodiProcessState,
 )
-from kodi_lab.broker.errors import ClientError
+from kodi_lab.broker.errors import (
+    BrokerUnavailableError,
+    ClientError,
+    ClientProtocolError,
+    ClientTransportError,
+)
 from kodi_lab.broker.operations import (
     CopySyncAttachedDevelopmentSourceResult,
     ManagedContainerInventoryResult,
@@ -2569,6 +2574,16 @@ class McpWorkspaceDevelopmentService:
                 expected_container_id=container_id,
                 expected_runtime_state=ContainerRuntimeState.RUNNING,
             )
+        except BrokerUnavailableError as error:
+            self._finish_deployment(
+                operation.id,
+                "failed",
+                "broker_unavailable_before_dispatch",
+                digest=digest,
+            )
+            raise McpWorkspaceDevelopmentError(
+                "broker_unavailable_before_dispatch"
+            ) from error
         except Exception as error:
             self._finish_deployment(
                 operation.id,
@@ -2590,7 +2605,9 @@ class McpWorkspaceDevelopmentService:
             )
         except ClientError as error:
             code = getattr(error, "code", "deployment_ambiguous")
-            uncertain = code in {
+            uncertain = isinstance(
+                error, (ClientTransportError, ClientProtocolError)
+            ) or code in {
                 "development_source_reconciliation_required",
                 "development_source_apply_unverified",
                 "development_destination_verification_failed",
@@ -2635,7 +2652,8 @@ class McpWorkspaceDevelopmentService:
             if getattr(readiness.usability_state, "value", "") != "usable":
                 raise RuntimeError("target readiness failed")
         except Exception as error:
-            self._contain_stopped(operation, container_id)
+            if not isinstance(error, (ClientTransportError, ClientProtocolError)):
+                self._contain_stopped(operation, container_id)
             self._finish_deployment(
                 operation.id,
                 "reconciliation_required",

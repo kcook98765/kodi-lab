@@ -103,6 +103,24 @@ transaction, resolves stable UUID identities, selects an exact or newest-approve
 revision, applies approval and Trusted Custom Build policy, validates Kodi-version
 compatibility, and commits only the completed managed-instance change.
 
+Managed runtime status observes Broker, Kodi process and bounded readiness
+outside SQLite transactions. It captures the per-instance
+`runtime_state_revision` and exact RuntimeRevision pin first, then uses a short
+repository-owned compare-and-set transaction to converge both the managed
+instance's running/stopped field and its managed target's availability, health
+and connection fields. Mutation reservation and finalization advance the same
+ordering revision, so an observation spanning a mutation cannot persist.
+Reservation makes the current projection conservative until verified final
+state or a fresh trusted status observation replaces it. The revision is not a
+container identity, lifecycle event, or runtime artifact pin. External targets
+retain their separate status model.
+
+Broker runtime dispatch whose completion cannot be proven remains a durable
+reconciliation blocker after lease expiry. Repository replacement's exact
+pre-application ambiguity reason preserves the true `application_started=0`
+history at Stop. Read-only status may report current live evidence, but stable
+snapshots cannot remove the blocker. Administrative recovery is deferred.
+
 The service exposes typed application errors instead of SQLAlchemy failures.
 Outer CLI, web, and MCP adapters may translate those errors later without
 duplicating selection policy. The service has no Docker, Kodi, transport, or

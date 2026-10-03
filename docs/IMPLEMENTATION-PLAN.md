@@ -1914,3 +1914,13 @@ through MCP. The [physical acceptance checkpoint](PHYSICAL-SOURCE-CAPTURE-ACCEPT
 records the exact identities and deferred managed-target status defect. That
 defect is separate from source-capture acceptance and requires review before
 managed-workspace promotion acceptance.
+
+## Managed runtime current-state repair source gate
+
+Migration `0063_managed_runtime_projection` adds only the managed-instance
+ordering revision and the exact repository-replacement CHECK exception for an
+unconfirmed Broker runtime dispatch before add-on application. Repository-owned
+reservation, finalization and status CAS keep lifecycle history separate from
+current managed-instance/target projection. This source gate does not build or
+activate a candidate and does not contact live Kodi. Development-candidate and
+disposable Nexus live projection acceptance remain the next separate gate.

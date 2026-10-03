@@ -5432,3 +5432,34 @@ approvals atomically with the governing revision transition.
   text retains the broad code and has no success-shaped `structuredContent`.
   No generic diagnostic lookup, raw response, JSON-RPC data, Kodi log,
   traceback, or addon exception channel is added.
+
+## D-0402: Managed current-state projection uses one runtime ordering revision
+
+- `managed_instances.runtime_state_revision` orders mutable runtime projection
+  writes. It starts at zero and is distinct from the immutable RuntimeRevision
+  artifact pin. Lifecycle operation rows remain historical records and are not
+  rewritten by status convergence.
+- Every supported mutation that can invalidate a managed runtime observation
+  advances the revision with its existing per-instance reservation, before
+  external mutation. Exact finalization or abandonment advances it again.
+  Trusted status captures the pin and revision before Broker/Kodi/readiness I/O,
+  then atomically compares and sets the managed-instance and associated managed
+  target current fields only if both identities still match and no mutation
+  lease exists. Web restart alone advances nothing. External targets, fixture
+  assignment, stopped-only source copy/sync and workspace execution are outside
+  this ordering token.
+- A dispatched Broker runtime mutation whose response/quiescence cannot be
+  confirmed remains reconciliation-required and blocks conflicting mutation.
+  Stable snapshots and lease expiry alone cannot clear this Class-B state;
+  read-only status remains available. In particular, repository replacement may
+  retain `application_started=0` at Stop because add-on application has not
+  begun. Only the exact `broker_runtime_dispatch_unconfirmed` reason permits
+  pre-application reconciliation, without falsifying that historical marker.
+  Interrupted lifecycle work without durable dispatch proof is treated more
+  conservatively than D-0113's earlier stable-snapshot warning policy. An
+  interrupted running-source snapshot capture after its Stop marker is likewise
+  blocking even if later runtime snapshots appear stable. Definitive Broker
+  failures and known pre-dispatch replacement failures retain ordinary recovery.
+- Explicit administrative recovery of Class B is future work. This decision
+  adds no Broker ledger, fencing, process epoch, or exactly-once Docker claim.
+  Unsupported direct Docker mutation remains outside V1 ordering guarantees.
