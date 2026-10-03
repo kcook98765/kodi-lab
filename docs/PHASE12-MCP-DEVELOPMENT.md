@@ -482,3 +482,28 @@ or production-mutation authority.
 Phase 13 owns architecture review for external development targets. No LAN
 development or production Kodi target was contacted for this closeout, and
 production-policy safeguards remain explicitly later scope.
+
+## Local-agent ProgressiveFilter experiment (2026-10-03 UTC)
+
+OpenCode 1.18.34 with Spark `qwen3.8-27b` developed the persistent
+`plugin.video.progressivefilter` project against a disposable Nexus 20.5 and
+the deterministic `small-movies-v5` fixture. The retained accepted add-on is
+commit `88529f3a75836627b38e19caced964ee3f3daa6d`, workspace generation 11,
+tree digest `sha256:21c30a089d73935e1220f8e0df891273c1c36bfb769df7bc07e04f468b09648d`.
+
+Fixture-backed Kodi navigation verified movie retrieval, View All, Science
+Fiction, 1990s, Ada Vale, Watched and Unwatched (including the two resumable
+movies with playcount zero), Science Fiction + Watched, 1990s + Unwatched,
+filter clearing, Back/state behavior, final movie-item semantics, and the
+handoff to synthetic media playback. The rating menu offers exact values but
+no threshold range; zero-result choices are hidden, so an explicit empty
+intersection cannot be selected. Final acceptance found no remaining Kodi Lab
+or fixture defect in these paths. Kodi Lab's persistent-source, capture,
+validation, deployment, failure-observation and fixture-backed real-Kodi test
+workflow was exercised end to end.
+
+The original local agent produced useful source and iterations but did not
+autonomously complete the later failure-to-repair loop. Those diagnosis and
+source-correction gates were supervised Codex work. This experiment therefore
+supports the Kodi Lab workflow, not a claim of end-to-end autonomous repair by
+the local model.
