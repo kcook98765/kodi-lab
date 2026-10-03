@@ -59,6 +59,11 @@ backfills. Keep lossy-downgrade refusal assertions at the new revision and verif
 that the version row and relevant data remain intact after refusal. Add another
 full-history test only when the invariant genuinely spans multiple revisions.
 
+Closed persisted enum/check vocabularies need a migration when application
+values are added. Test the durable coordinator against the migrated schema as
+well as testing process-local observers or fresh ORM-created tables; the latter
+do not prove that an existing deployment accepts the new values.
+
 ## Other test-only acceleration
 
 Web route tests inject reduced-cost Argon2id parameters by monkeypatching only

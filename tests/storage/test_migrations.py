@@ -1,6 +1,8 @@
 import os
+import re
 import shutil
 import sqlite3
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -18,7 +20,22 @@ from kodi_lab.application.external_targets import ExternalTargetAdministrationSe
 from kodi_lab.application.production_capability_amendments import (
     ProductionCapabilityAmendmentService,
 )
-from kodi_lab.domain import ExternalAuthenticationMode, ExternalProtocolKind, TargetType
+from kodi_lab.application.reset_activity import (
+    ResetActivityRegistry,
+    ResetActivityState,
+)
+from kodi_lab.application.reset_operations import (
+    DurableResetActivityObserver,
+    ResetExecutor,
+    ResetOperationCoordinator,
+)
+from kodi_lab.domain import (
+    ExternalAuthenticationMode,
+    ExternalProtocolKind,
+    ResetOperationPhase,
+    ResetOperationState,
+    TargetType,
+)
 from kodi_lab.kodi.external import (
     ExternalEndpointPolicy,
     ExternalKodiProbeResult,
@@ -152,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0059_workspace_validation_digest",)
+        ).fetchone() == ("0061_reset_phase_v5",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -328,6 +345,321 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     engine.dispose()
 
 
+_RESET_PHASE_INSTANCE = UUID("61000000-0000-4000-8000-000000000003")
+_RESET_PHASE_HISTORY = "61000000-0000-4000-8000-000000000004"
+
+
+def _seed_reset_phase_history(database_url: str) -> None:
+    """Populate the migrated predecessor with a real parent and reset history."""
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO runtime_definitions (id,slug,kodi_version,support_tier) "
+                "VALUES ('61000000-0000-4000-8000-000000000001',"
+                "'reset-phase-test','20.5','current')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO runtime_revisions "
+                "(id,runtime_definition_id,revision_number,source_kind,"
+                "source_reference,content_digest,manifest_reference,"
+                "manifest_digest,built_at,approval_state,"
+                "requires_trusted_build_confirmation) VALUES "
+                "('61000000-0000-4000-8000-000000000002',"
+                "'61000000-0000-4000-8000-000000000001',1,'test','test',"
+                ":digest,'test',:digest,'2026-10-02T00:00:00.000000Z',"
+                "'not_approved',0)"
+            ),
+            {"digest": "sha256:" + "a" * 64},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO targets "
+                "(id,name,target_type,kodi_version,availability,health,"
+                "connection_state) VALUES (:instance,'reset-phase-test','managed',"
+                "'20.5','unavailable','warning','disconnected')"
+            ),
+            {"instance": str(_RESET_PHASE_INSTANCE)},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO managed_instances "
+                "(target_id,instance_type,runtime_revision_id,runtime_state,"
+                "start_on_host_boot) VALUES (:instance,'disposable',"
+                "'61000000-0000-4000-8000-000000000002','stopped',0)"
+            ),
+            {"instance": str(_RESET_PHASE_INSTANCE)},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO reset_operations "
+                "(id,managed_instance_id,requested_at,started_at,heartbeat_at,"
+                "completed_at,state,phase,failure_reason,reconciliation_required) "
+                "VALUES (:history,:instance,:requested,:started,:started,"
+                ":completed,'failed','final_stopping',:reason,0)"
+            ),
+            {
+                "history": _RESET_PHASE_HISTORY,
+                "instance": str(_RESET_PHASE_INSTANCE),
+                "requested": "2026-10-02T23:56:26.836031Z",
+                "started": "2026-10-02T23:56:26.865671Z",
+                "completed": "2026-10-02T23:56:36.485608Z",
+                "reason": "fixture scan or semantic verification failed",
+            },
+        )
+    engine.dispose()
+
+
+def test_0061_migrates_populated_reset_phase_history_and_keeps_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0060_repository_existing_verify"
+    )
+    _seed_reset_phase_history(database_url)
+    engine = create_database_engine(database_url)
+    before = inspect(engine)
+    old_checks = {
+        check["name"]: check["sqltext"]
+        for check in before.get_check_constraints("reset_operations")
+        if check["name"] != "reset_operation_phase"
+    }
+    old_indexes = {
+        index["name"]: (
+            index["column_names"],
+            index["unique"],
+            str(index["dialect_options"].get("sqlite_where", "")),
+        )
+        for index in before.get_indexes("reset_operations")
+    }
+    old_foreign_keys = before.get_foreign_keys("reset_operations")
+    with engine.connect() as connection:
+        old_schema = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='reset_operations'"
+            )
+        )
+    assert isinstance(old_schema, str)
+    assert "applying_post_scan_state" not in old_schema
+    old_phase_type = next(
+        column["type"]
+        for column in before.get_columns("reset_operations")
+        if column["name"] == "phase"
+    )
+    assert isinstance(old_phase_type, String)
+    assert old_phase_type.length == 23
+    engine.dispose()
+
+    command.upgrade(config, "0061_reset_phase_v5")
+    engine = create_database_engine(database_url)
+    after = inspect(engine)
+    assert {
+        check["name"]: check["sqltext"]
+        for check in after.get_check_constraints("reset_operations")
+        if check["name"] != "reset_operation_phase"
+    } == old_checks
+    assert {
+        index["name"]: (
+            index["column_names"],
+            index["unique"],
+            str(index["dialect_options"].get("sqlite_where", "")),
+        )
+        for index in after.get_indexes("reset_operations")
+    } == old_indexes
+    assert after.get_foreign_keys("reset_operations") == old_foreign_keys
+    new_phase_type = next(
+        column["type"]
+        for column in after.get_columns("reset_operations")
+        if column["name"] == "phase"
+    )
+    assert isinstance(new_phase_type, String)
+    assert new_phase_type.length == 25
+    phase_check = next(
+        check["sqltext"]
+        for check in after.get_check_constraints("reset_operations")
+        if check["name"] == "reset_operation_phase"
+    )
+    assert set(re.findall(r"'([^']+)'", phase_check)) == {
+        phase.value for phase in ResetOperationPhase
+    }
+    with engine.begin() as connection:
+        assert connection.execute(
+            text(
+                "SELECT state,phase,failure_reason FROM reset_operations "
+                "WHERE id=:history"
+            ),
+            {"history": _RESET_PHASE_HISTORY},
+        ).one() == (
+            "failed",
+            "final_stopping",
+            "fixture scan or semantic verification failed",
+        )
+        for phase in ResetOperationPhase:
+            connection.execute(
+                text("UPDATE reset_operations SET phase=:phase WHERE id=:history"),
+                {"phase": phase.value, "history": _RESET_PHASE_HISTORY},
+            )
+        connection.execute(
+            text(
+                "UPDATE reset_operations SET phase='applying_post_scan_state' "
+                "WHERE id=:history"
+            ),
+            {"history": _RESET_PHASE_HISTORY},
+        )
+        connection.execute(
+            text(
+                "UPDATE reset_operations SET phase='verifying_post_scan_state' "
+                "WHERE id=:history"
+            ),
+            {"history": _RESET_PHASE_HISTORY},
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE reset_operations SET phase='not_a_reset_phase' "
+                "WHERE id=:history"
+            ),
+            {"history": _RESET_PHASE_HISTORY},
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE reset_operations SET state='not_a_reset_state' "
+                "WHERE id=:history"
+            ),
+            {"history": _RESET_PHASE_HISTORY},
+        )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO reset_operations "
+                "(id,managed_instance_id,requested_at,state,phase) "
+                "VALUES ('61000000-0000-4000-8000-000000000005',:instance,"
+                "'2026-10-03T00:00:00.000000Z','queued','queued')"
+            ),
+            {"instance": str(_RESET_PHASE_INSTANCE)},
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO reset_operations "
+                "(id,managed_instance_id,requested_at,state,phase) "
+                "VALUES ('61000000-0000-4000-8000-000000000006',:instance,"
+                "'2026-10-03T00:00:01.000000Z','queued','queued')"
+            ),
+            {"instance": str(_RESET_PHASE_INSTANCE)},
+        )
+    with engine.connect() as connection:
+        assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+        assert (
+            connection.scalar(
+                text("SELECT phase FROM reset_operations WHERE id=:history"),
+                {"history": _RESET_PHASE_HISTORY},
+            )
+            == "verifying_post_scan_state"
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="post-scan reset history"):
+        command.downgrade(config, "0060_repository_existing_verify")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0061_reset_phase_v5"
+        )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE reset_operations SET phase='final_stopping' WHERE id=:history"
+            ),
+            {"history": _RESET_PHASE_HISTORY},
+        )
+    engine.dispose()
+    command.downgrade(config, "0060_repository_existing_verify")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
+        downgraded_phase_type = next(
+            column["type"]
+            for column in inspect(engine).get_columns("reset_operations")
+            if column["name"] == "phase"
+        )
+        assert isinstance(downgraded_phase_type, String)
+        assert downgraded_phase_type.length == 23
+        assert (
+            connection.scalar(
+                text("SELECT phase FROM reset_operations WHERE id=:history"),
+                {"history": _RESET_PHASE_HISTORY},
+            )
+            == "final_stopping"
+        )
+    engine.dispose()
+
+
+def test_0061_durable_reset_flow_records_both_post_scan_phases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0060_repository_existing_verify"
+    )
+    command.upgrade(config, "0061_reset_phase_v5")
+    _seed_reset_phase_history(database_url)
+    engine = create_database_engine(database_url)
+    factory = create_session_factory(engine)
+    coordinator = ResetOperationCoordinator(factory)
+    operation = coordinator.queue(_RESET_PHASE_INSTANCE).operation
+    seen: list[ResetOperationPhase] = []
+
+    class PostScanResetService:
+        def __init__(self, observer: DurableResetActivityObserver) -> None:
+            self.observer = observer
+
+        def reset(self, instance_id: UUID) -> object:
+            activity = self.observer.begin(instance_id)
+            for state in (
+                ResetActivityState.SCANNING_FIXTURE,
+                ResetActivityState.VERIFYING_FIXTURE,
+                ResetActivityState.APPLYING_POST_SCAN_STATE,
+                ResetActivityState.VERIFYING_POST_SCAN_STATE,
+                ResetActivityState.FINAL_STOPPING,
+                ResetActivityState.FINAL_VERIFYING,
+            ):
+                self.observer.transition(instance_id, activity.generation, state)
+                current = coordinator.latest_for_instance(instance_id)
+                assert current is not None
+                seen.append(current.phase)
+            self.observer.succeed(instance_id, activity.generation)
+            return object()
+
+    executor = ResetExecutor(
+        coordinator,
+        ResetActivityRegistry(),
+        PostScanResetService,
+        max_workers=1,
+    )
+    executor.submit(operation.operation_id)
+    for _ in range(100):
+        latest = coordinator.latest_for_instance(_RESET_PHASE_INSTANCE)
+        if latest is not None and latest.state is ResetOperationState.SUCCEEDED:
+            break
+        time.sleep(0.01)
+    executor.close()
+    assert latest is not None and latest.state is ResetOperationState.SUCCEEDED
+    assert seen == [
+        ResetOperationPhase.SCANNING_FIXTURE,
+        ResetOperationPhase.VERIFYING_FIXTURE,
+        ResetOperationPhase.APPLYING_POST_SCAN_STATE,
+        ResetOperationPhase.VERIFYING_POST_SCAN_STATE,
+        ResetOperationPhase.FINAL_STOPPING,
+        ResetOperationPhase.FINAL_VERIFYING,
+    ]
+    engine.dispose()
+
+
 def test_0058_workspace_source_capture_preserves_0057_ready_workspace(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -414,7 +746,7 @@ def test_0058_workspace_source_capture_preserves_0057_ready_workspace(
     with pytest.raises(RuntimeError, match="capture evidence"):
         command.downgrade(config, "0057_development_capability_amendments")
 
-    command.upgrade(config, "0059_workspace_validation_digest")
+    command.upgrade(config, "head")
     command.check(config)
 
 
