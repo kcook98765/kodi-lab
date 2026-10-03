@@ -288,7 +288,10 @@ class FakeBroker:
         if self.fail_on == name:
             raise RuntimeError("injected")
 
-    def managed_container_inventory(self) -> ManagedContainerInventoryResult:
+    def managed_container_inventory(
+        self, *, managed_instance_id: str | None = None
+    ) -> ManagedContainerInventoryResult:
+        assert managed_instance_id in {None, str(INSTANCE_ID)}
         self._fail("inventory")
         return ManagedContainerInventoryResult(
             containers=[

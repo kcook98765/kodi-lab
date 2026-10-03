@@ -388,7 +388,9 @@ class _MutationDirection(StrEnum):
 class ManagedContainerInventoryProvider(Protocol):
     """Only Docker capability exposed to the broker operation layer."""
 
-    def list_managed_containers(self) -> tuple[ManagedContainerRecord, ...]:
+    def list_managed_containers(
+        self, *, managed_instance_id: str | None = None
+    ) -> tuple[ManagedContainerRecord, ...]:
         """Return a bounded deterministic semantic inventory."""
 
 
@@ -703,13 +705,25 @@ class DockerManagedContainerAdapter:
     ) -> None:
         self._client_factory = client_factory
 
-    def list_managed_containers(self) -> tuple[ManagedContainerRecord, ...]:
-        """List only exactly labelled Kodi Lab managed containers."""
+    def list_managed_containers(
+        self, *, managed_instance_id: str | None = None
+    ) -> tuple[ManagedContainerRecord, ...]:
+        """List exactly labelled containers, optionally for one instance."""
 
         client: _DockerClient | None = None
         try:
             client = self._client_factory()
-            summaries = client.containers(all=True, filters=_FIXED_LIST_FILTERS)
+            filters = (
+                _FIXED_LIST_FILTERS
+                if managed_instance_id is None
+                else {
+                    "label": [
+                        f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                        f"{INSTANCE_ID_LABEL_KEY}={managed_instance_id}",
+                    ]
+                }
+            )
+            summaries = client.containers(all=True, filters=filters)
             if not isinstance(summaries, list):
                 raise DockerInventoryReadError(
                     "Docker returned malformed container inventory"

@@ -53,6 +53,8 @@ from kodi_lab.mcp.transport import (
     build_mcp_http_transport,
 )
 from kodi_lab.storage.models import (
+    ManagedInstanceLifecycleOperationRow,
+    ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
     ManagedScreenshotRow,
     McpCredentialRow,
@@ -68,8 +70,10 @@ from .conftest import (
     INSTANCE_ID,
     ORIGIN,
     REVISION_ID,
+    UNRELATED_INSTANCE_ID,
     FakeBroker,
     FakeExternalKodi,
+    guard_targeted_status_isolation,
     login,
     seed_external_target,
 )
@@ -208,6 +212,64 @@ def _make_target_ready(client: TestClient) -> None:
             return
         time.sleep(0.01)
     raise AssertionError("managed target did not become ready")
+
+
+def test_mcp_target_status_isolates_persistent_neighbor(
+    client: TestClient,
+    broker: FakeBroker,
+    database: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed = guard_targeted_status_isolation(database, broker, client, monkeypatch)
+    _client_id, token = _authority(client)
+    response = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "target_status",
+            "arguments": {"target_id": str(INSTANCE_ID)},
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["isError"] is False
+    target = result["structuredContent"]["target"]
+    assert target["target_id"] == str(INSTANCE_ID)
+    assert target["usability_state"] == "usable"
+    assert observed and set(observed) == {str(INSTANCE_ID)}
+    with database() as session:
+        own = session.get(ManagedInstanceRow, str(INSTANCE_ID))
+        own_target = session.get(TargetRow, str(INSTANCE_ID))
+        other = session.get(ManagedInstanceRow, str(UNRELATED_INSTANCE_ID))
+        other_target = session.get(TargetRow, str(UNRELATED_INSTANCE_ID))
+        assert own is not None and own_target is not None
+        assert other is not None and other_target is not None
+        assert own.runtime_state_revision == other.runtime_state_revision == 0
+        assert own.runtime_state.value == "running"
+        assert (
+            own_target.availability.value,
+            own_target.health.value,
+            own_target.connection_state.value,
+        ) == ("available", "healthy", "connected")
+        assert other.runtime_state.value == "stopped"
+        assert (
+            other_target.availability.value,
+            other_target.health.value,
+            other_target.connection_state.value,
+        ) == ("unavailable", "error", "disconnected")
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceLifecycleOperationRow)
+            )
+            == 0
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceMutationLeaseRow)
+            )
+            == 0
+        )
 
 
 def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(

@@ -128,6 +128,32 @@ def test_adapter_uses_only_fixed_exact_ownership_filter() -> None:
     assert client.closed
 
 
+def test_adapter_scopes_inventory_filter_before_inspection() -> None:
+    client = FakeDockerClient(
+        {
+            container_id(1): inspect_data(1, labels=managed_labels(1)),
+            container_id(2): inspect_data(2, labels=managed_labels(2)),
+        },
+        summaries=[{"Id": container_id(1)}],
+    )
+    records = DockerManagedContainerAdapter(lambda: client).list_managed_containers(
+        managed_instance_id=instance_id(1)
+    )
+    assert [item.managed_instance_id for item in records] == [instance_id(1)]
+    assert client.list_calls == [
+        (
+            True,
+            {
+                "label": [
+                    f"{MANAGED_LABEL_KEY}={MANAGED_LABEL_VALUE}",
+                    f"{INSTANCE_ID_LABEL_KEY}={instance_id(1)}",
+                ]
+            },
+        )
+    ]
+    assert client.inspect_calls == [container_id(1)]
+
+
 def test_exactly_labelled_container_is_minimized_to_semantic_record() -> None:
     raw = inspect_data(1, labels=managed_labels(1), health="healthy")
     records = inventory(FakeDockerClient({container_id(1): raw}))

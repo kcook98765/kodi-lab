@@ -5448,6 +5448,10 @@ approvals atomically with the governing revision transition.
   lease exists. Web restart alone advances nothing. External targets, fixture
   assignment, stopped-only source copy/sync and workspace execution are outside
   this ordering token.
+- Targeted managed status reads and converges only the requested managed
+  instance and its associated target. Its Broker inventory selection is scoped
+  to that instance before Docker inspection. Explicit collection status may
+  read and converge the full managed collection.
 - A dispatched Broker runtime mutation whose response/quiescence cannot be
   confirmed remains reconciliation-required and blocks conflicting mutation.
   Stable snapshots and lease expiry alone cannot clear this Class-B state;

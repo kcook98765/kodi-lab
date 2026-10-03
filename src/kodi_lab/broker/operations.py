@@ -289,6 +289,19 @@ class ManagedContainerInventoryResult(StrictModel):
     )
 
 
+class ManagedContainerInventoryParams(StrictModel):
+    """Optional exact managed identity for a scoped inventory read."""
+
+    managed_instance_id: str | None = None
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _canonical_instance_id(cls, value: str | None) -> str | None:
+        if value is not None and not is_canonical_uuid(value):
+            raise ValueError("managed_instance_id must be a canonical UUID string")
+        return value
+
+
 class ObserveManagedKodiRuntimeParams(StrictModel):
     """Identity-only preconditions for fixed managed Kodi observation."""
 
@@ -1580,10 +1593,16 @@ def build_foundation_registry(
     )
 
     def managed_container_inventory(
-        _params: EmptyParams,
+        params: ManagedContainerInventoryParams,
     ) -> ManagedContainerInventoryResult:
         try:
-            records = provider.list_managed_containers()
+            records = (
+                provider.list_managed_containers()
+                if params.managed_instance_id is None
+                else provider.list_managed_containers(
+                    managed_instance_id=params.managed_instance_id
+                )
+            )
         except DockerDaemonUnavailableError as error:
             raise OperationError(
                 "docker_daemon_unavailable",
@@ -1625,7 +1644,7 @@ def build_foundation_registry(
 
     registry.register(
         name="managed_container_inventory",
-        params_model=EmptyParams,
+        params_model=ManagedContainerInventoryParams,
         result_model=ManagedContainerInventoryResult,
         handler=managed_container_inventory,
         audit_builder=inventory_audit,

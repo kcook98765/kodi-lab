@@ -28,6 +28,7 @@ from kodi_lab.domain import (
     ConnectionState,
     HealthStatus,
     InstanceRuntimeState,
+    ManagedInstance,
     RuntimeExecutionProfile,
     TargetAvailability,
 )
@@ -84,7 +85,9 @@ class ManagedRuntimeStatus(BaseModel):
 
 
 class _StatusBroker(Protocol):
-    def managed_container_inventory(self) -> ManagedContainerInventoryResult: ...
+    def managed_container_inventory(
+        self, *, managed_instance_id: str | None = None
+    ) -> ManagedContainerInventoryResult: ...
 
     def observe_managed_kodi_runtime(
         self, *, managed_instance_id: str, expected_container_id: str
@@ -95,6 +98,9 @@ class _ReadinessCoordinator(Protocol):
     def wait_until_usable(
         self, managed_instance_id: str, *, cancelled: Callable[[], bool] | None = None
     ) -> ReadinessResult: ...
+
+
+type _StatusContext = tuple[UUID, str, str, UUID, int, ManagedRuntimeObservationToken]
 
 
 class ManagedRuntimeStatusService:
@@ -124,78 +130,85 @@ class ManagedRuntimeStatusService:
         try:
             inventory = self._broker.managed_container_inventory()
         except ClientError as error:
-            statuses = [
-                self._dependency_failure(context, error) for context in contexts
+            return [
+                self._observe_one(context, inventory_error=error)
+                for context in contexts
             ]
-            self._converge(contexts, statuses)
-            return statuses
         inventory_by_id = {
             UUID(item.managed_instance_id): item for item in inventory.containers
         }
-        statuses = [
-            self._aggregate(context, inventory_by_id.get(context[0]))
+        return [
+            self._observe_one(context, container=inventory_by_id.get(context[0]))
             for context in contexts
         ]
-        if self._reconciliation is None:
-            self._converge(contexts, statuses)
-            return statuses
-        reconciled = [self._apply_reconciliation(status) for status in statuses]
-        self._converge(
-            contexts,
-            [status for status, _blocked in reconciled],
-            blocked=[blocked for _status, blocked in reconciled],
-        )
-        return [status for status, _blocked in reconciled]
 
     def get(self, instance_id: UUID) -> ManagedRuntimeStatus:
-        for status in self.list_statuses():
-            if status.managed_instance_id == instance_id:
-                return status
-        raise ManagedInstanceNotFoundError(instance_id)
+        context = self._load_context(instance_id)
+        try:
+            inventory = self._broker.managed_container_inventory(
+                managed_instance_id=str(instance_id)
+            )
+        except ClientError as error:
+            return self._observe_one(context, inventory_error=error)
+        container = next(
+            (
+                item
+                for item in inventory.containers
+                if item.managed_instance_id == str(instance_id)
+            ),
+            None,
+        )
+        return self._observe_one(context, container=container)
+
+    def _observe_one(
+        self,
+        context: _StatusContext,
+        *,
+        container: ManagedContainerInventoryEntry | None = None,
+        inventory_error: ClientError | None = None,
+    ) -> ManagedRuntimeStatus:
+        status = (
+            self._dependency_failure(context, inventory_error)
+            if inventory_error is not None
+            else self._aggregate(context, container)
+        )
+        blocked = False
+        if inventory_error is None and self._reconciliation is not None:
+            status, blocked = self._apply_reconciliation(status)
+        self._converge(context, status, blocked=blocked)
+        return status
 
     def _converge(
-        self,
-        contexts: list[
-            tuple[UUID, str, str, UUID, int, ManagedRuntimeObservationToken]
-        ],
-        statuses: list[ManagedRuntimeStatus],
-        *,
-        blocked: list[bool] | None = None,
+        self, context: _StatusContext, status: ManagedRuntimeStatus, *, blocked: bool
     ) -> None:
-        blockers = blocked if blocked is not None else [False] * len(statuses)
-        for context, status, is_blocked in zip(
-            contexts, statuses, blockers, strict=True
-        ):
-            usable = (
-                not is_blocked
-                and status.provision_state is ProvisionState.PROVISIONED
-                and status.container_state is ContainerRuntimeState.RUNNING
-                and status.process_state is KodiProcessState.RUNNING
-                and status.jsonrpc_state is SemanticJsonRpcState.RESPONSIVE
-                and status.usability_state is SemanticUsabilityState.USABLE
+        usable = (
+            not blocked
+            and status.provision_state is ProvisionState.PROVISIONED
+            and status.container_state is ContainerRuntimeState.RUNNING
+            and status.process_state is KodiProcessState.RUNNING
+            and status.jsonrpc_state is SemanticJsonRpcState.RESPONSIVE
+            and status.usability_state is SemanticUsabilityState.USABLE
+        )
+        projection = ManagedRuntimeCurrentProjection(
+            runtime_state=(
+                InstanceRuntimeState.RUNNING
+                if status.container_state is ContainerRuntimeState.RUNNING
+                else InstanceRuntimeState.STOPPED
+            ),
+            availability=(
+                TargetAvailability.AVAILABLE
+                if usable
+                else TargetAvailability.UNAVAILABLE
+            ),
+            health=HealthStatus.HEALTHY if usable else HealthStatus.WARNING,
+            connection_state=(
+                ConnectionState.CONNECTED if usable else ConnectionState.DISCONNECTED
+            ),
+        )
+        with self._session_factory.begin() as session:
+            ManagedRuntimeProjectionRepository(session).compare_and_set(
+                context[5], projection
             )
-            projection = ManagedRuntimeCurrentProjection(
-                runtime_state=(
-                    InstanceRuntimeState.RUNNING
-                    if status.container_state is ContainerRuntimeState.RUNNING
-                    else InstanceRuntimeState.STOPPED
-                ),
-                availability=(
-                    TargetAvailability.AVAILABLE
-                    if usable
-                    else TargetAvailability.UNAVAILABLE
-                ),
-                health=HealthStatus.HEALTHY if usable else HealthStatus.WARNING,
-                connection_state=(
-                    ConnectionState.CONNECTED
-                    if usable
-                    else ConnectionState.DISCONNECTED
-                ),
-            )
-            with self._session_factory.begin() as session:
-                ManagedRuntimeProjectionRepository(session).compare_and_set(
-                    context[5], projection
-                )
 
     def _apply_reconciliation(
         self, status: ManagedRuntimeStatus
@@ -217,41 +230,53 @@ class ManagedRuntimeStatusService:
             reconciliation.blocking,
         )
 
-    def _load_contexts(
-        self,
-    ) -> list[tuple[UUID, str, str, UUID, int, ManagedRuntimeObservationToken]]:
+    def _load_context(self, instance_id: UUID) -> _StatusContext:
         with self._session_factory() as session:
-            targets = TargetRepository(session)
-            revisions = RuntimeRevisionRepository(session)
-            definitions = RuntimeDefinitionRepository(session)
-            contexts: list[
-                tuple[UUID, str, str, UUID, int, ManagedRuntimeObservationToken]
-            ] = []
-            projections = ManagedRuntimeProjectionRepository(session)
+            instance = ManagedInstanceRepository(session).get(instance_id)
+            if instance is None:
+                raise ManagedInstanceNotFoundError(instance_id)
+            context = self._context_for_instance(session, instance)
+            if context is None:
+                raise ManagedInstanceNotFoundError(instance_id)
+            return context
+
+    def _load_contexts(self) -> list[_StatusContext]:
+        with self._session_factory() as session:
+            contexts: list[_StatusContext] = []
             for instance in ManagedInstanceRepository(session).list():
-                target = targets.get(instance.target_id)
-                revision = revisions.get(instance.runtime_revision_id)
-                token = projections.observation_token(instance.target_id)
-                if target is None or revision is None or token is None:
-                    continue
-                definition = definitions.get(revision.runtime_definition_id)
-                if definition is None:
-                    continue
-                contexts.append(
-                    (
-                        instance.target_id,
-                        target.name,
-                        definition.kodi_version,
-                        revision.id,
-                        revision.revision_number,
-                        token,
-                    )
-                )
+                context = self._context_for_instance(session, instance)
+                if context is not None:
+                    contexts.append(context)
             return contexts
+
+    @staticmethod
+    def _context_for_instance(
+        session: Session, instance: ManagedInstance
+    ) -> _StatusContext | None:
+        target = TargetRepository(session).get(instance.target_id)
+        revision = RuntimeRevisionRepository(session).get(instance.runtime_revision_id)
+        token = ManagedRuntimeProjectionRepository(session).observation_token(
+            instance.target_id
+        )
+        if target is None or revision is None or token is None:
+            return None
+        definition = RuntimeDefinitionRepository(session).get(
+            revision.runtime_definition_id
+        )
+        if definition is None:
+            return None
+        return (
+            instance.target_id,
+            target.name,
+            definition.kodi_version,
+            revision.id,
+            revision.revision_number,
+            token,
+        )
 
     def _aggregate(
         self,
-        context: tuple[UUID, str, str, UUID, int, ManagedRuntimeObservationToken],
+        context: _StatusContext,
         container: ManagedContainerInventoryEntry | None,
     ) -> ManagedRuntimeStatus:
         instance_id = context[0]
@@ -380,7 +405,7 @@ class ManagedRuntimeStatusService:
 
     def _dependency_failure(
         self,
-        context: tuple[UUID, str, str, UUID, int, ManagedRuntimeObservationToken],
+        context: _StatusContext,
         error: ClientError,
     ) -> ManagedRuntimeStatus:
         return self._status(
@@ -398,7 +423,7 @@ class ManagedRuntimeStatusService:
 
     @staticmethod
     def _status(
-        context: tuple[UUID, str, str, UUID, int, ManagedRuntimeObservationToken],
+        context: _StatusContext,
         provision: ProvisionState,
         container: ContainerRuntimeState,
         process: KodiProcessState,

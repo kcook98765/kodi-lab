@@ -71,12 +71,21 @@ class FakeInventoryProvider:
         self.records = records
         self.error = error
         self.calls = 0
+        self.requested_ids: list[str | None] = []
 
-    def list_managed_containers(self) -> tuple[ManagedContainerRecord, ...]:
+    def list_managed_containers(
+        self, *, managed_instance_id: str | None = None
+    ) -> tuple[ManagedContainerRecord, ...]:
         self.calls += 1
+        self.requested_ids.append(managed_instance_id)
         if self.error is not None:
             raise self.error
-        return self.records
+        return tuple(
+            item
+            for item in self.records
+            if managed_instance_id is None
+            or item.managed_instance_id == managed_instance_id
+        )
 
     def stop_managed_container(
         self,
@@ -141,6 +150,19 @@ def test_authorized_client_receives_typed_minimal_inventory(
     }
 
 
+def test_authorized_client_scopes_inventory_to_one_managed_instance(
+    socket_config: SocketPathConfig, run_broker: Any
+) -> None:
+    provider = FakeInventoryProvider((record(1), record(2)))
+    registry = build_foundation_registry(provider)
+    with run_broker(socket_config, registry=registry):
+        result = BrokerClient(socket_config.socket_path).managed_container_inventory(
+            managed_instance_id=instance_id(1)
+        )
+    assert [item.managed_instance_id for item in result.containers] == [instance_id(1)]
+    assert provider.requested_ids == [instance_id(1)]
+
+
 def test_unauthorized_peer_is_denied_before_docker_adapter(
     socket_config: SocketPathConfig, run_broker: Any
 ) -> None:
@@ -165,6 +187,22 @@ def test_invalid_params_are_rejected_before_docker_adapter(
             raw_inventory_request(
                 {"container": "legacy-lookalike", "uid": os.getuid()}
             ),
+        )
+    assert provider.calls == 0
+    error = response["error"]
+    assert isinstance(error, dict)
+    assert error["code"] == "invalid_params"
+
+
+def test_noncanonical_scoped_inventory_identity_is_rejected_before_docker(
+    socket_config: SocketPathConfig, run_broker: Any
+) -> None:
+    provider = FakeInventoryProvider((record(),))
+    registry = build_foundation_registry(provider)
+    with run_broker(socket_config, registry=registry):
+        response = raw_round_trip(
+            socket_config.socket_path,
+            raw_inventory_request({"managed_instance_id": "not-a-uuid"}),
         )
     assert provider.calls == 0
     error = response["error"]

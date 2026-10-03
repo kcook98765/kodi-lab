@@ -7,9 +7,10 @@ from threading import Event
 from typing import cast
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.reset_operations import DurableResetActivityObserver
@@ -40,6 +41,7 @@ from kodi_lab.storage.models import (
     ResetOperationRow,
     SnapshotDeleteOperationRow,
     SnapshotRow,
+    TargetRow,
     WebSessionRow,
 )
 from kodi_lab.storage.repositories import (
@@ -54,8 +56,10 @@ from .conftest import (
     ORIGIN,
     PASSWORD,
     REVISION_ID,
+    UNRELATED_INSTANCE_ID,
     FakeBroker,
     coordinator_factory,
+    guard_targeted_status_isolation,
     inventory_entry,
     login,
 )
@@ -578,6 +582,53 @@ def test_status_models_unprovisioned_stopped_running_and_broker_failure(
     assert unavailable["failure_code"] == "broker_unavailable"
     assert unavailable["failure_detail"] == "The runtime service is unavailable."
     assert "secret internal path" not in str(unavailable)
+
+
+def test_targeted_web_status_isolates_persistent_neighbor(
+    client: TestClient,
+    broker: FakeBroker,
+    database: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    login(client)
+    observed = guard_targeted_status_isolation(database, broker, client, monkeypatch)
+    response = client.get(f"/api/instances/{INSTANCE_ID}")
+    assert response.status_code == 200
+    assert response.json()["managed_instance_id"] == str(INSTANCE_ID)
+    assert response.json()["usability_state"] == "usable"
+    assert observed == [str(INSTANCE_ID)]
+    with database() as session:
+        own = session.get(ManagedInstanceRow, str(INSTANCE_ID))
+        own_target = session.get(TargetRow, str(INSTANCE_ID))
+        other = session.get(ManagedInstanceRow, str(UNRELATED_INSTANCE_ID))
+        other_target = session.get(TargetRow, str(UNRELATED_INSTANCE_ID))
+        assert own is not None and own_target is not None
+        assert other is not None and other_target is not None
+        assert own.runtime_state_revision == other.runtime_state_revision == 0
+        assert own.runtime_state.value == "running"
+        assert (
+            own_target.availability.value,
+            own_target.health.value,
+            own_target.connection_state.value,
+        ) == ("available", "healthy", "connected")
+        assert other.runtime_state.value == "stopped"
+        assert (
+            other_target.availability.value,
+            other_target.health.value,
+            other_target.connection_state.value,
+        ) == ("unavailable", "error", "disconnected")
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceLifecycleOperationRow)
+            )
+            == 0
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceMutationLeaseRow)
+            )
+            == 0
+        )
 
 
 def test_running_instance_recovers_readiness_in_fresh_web_process(

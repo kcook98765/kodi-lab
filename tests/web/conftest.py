@@ -6,19 +6,24 @@ import struct
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 import httpx
 import pytest
 from argon2 import PasswordHasher as Argon2PasswordHasher
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.browser_remote import BrowserRemoteRateLimiter
-from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.readiness_tasks import (
+    ReadinessTaskRegistry,
+    ReadinessTaskSnapshot,
+    ReadinessTaskState,
+)
 from kodi_lab.auth import passwords as password_module
 from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.broker.docker_inventory import (
@@ -61,9 +66,16 @@ from kodi_lab.storage.models import (
     RuntimeRevisionRow,
     TargetRow,
 )
+from kodi_lab.storage.repositories import (
+    ManagedRuntimeCurrentProjection,
+    ManagedRuntimeObservationToken,
+    ManagedRuntimeProjectionRepository,
+    ManagedRuntimeProjectionResult,
+)
 from kodi_lab.web.app import create_app
 
 INSTANCE_ID = UUID("00000000-0000-4000-8000-000000000101")
+UNRELATED_INSTANCE_ID = UUID("00000000-0000-4000-8000-000000000102")
 EXTERNAL_TARGET_ID = UUID("13000000-0000-4000-8000-000000000101")
 DEFINITION_ID = UUID("3a000000-0000-4000-8000-000000000001")
 REVISION_ID = UUID("3a000000-0000-4000-8000-000000000006")
@@ -91,11 +103,18 @@ class FakeBroker:
     remote_calls: list[BrowserRemoteAction] = field(default_factory=list)
     remote_error: BaseException | None = None
 
-    def managed_container_inventory(self) -> ManagedContainerInventoryResult:
+    def managed_container_inventory(
+        self, *, managed_instance_id: str | None = None
+    ) -> ManagedContainerInventoryResult:
         if self.inventory_error is not None:
             raise self.inventory_error
         return ManagedContainerInventoryResult(
-            containers=[] if self.container is None else [self.container]
+            containers=(
+                []
+                if self.container is None
+                or managed_instance_id not in {None, self.container.managed_instance_id}
+                else [self.container]
+            )
         )
 
     def observe_managed_kodi_runtime(
@@ -509,6 +528,101 @@ def seed_instance(factory: sessionmaker[Session]) -> None:
                 http_timeout_seconds=3.0,
             )
         )
+
+
+def guard_targeted_status_isolation(
+    factory: sessionmaker[Session],
+    broker: FakeBroker,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[str]:
+    """Fail if targeted status reaches the persistent neighboring instance."""
+    with factory.begin() as session:
+        session.add(
+            TargetRow(
+                id=str(UNRELATED_INSTANCE_ID),
+                name="protected persistent neighbor",
+                target_type="managed",
+                kodi_version="21.3",
+                availability="unavailable",
+                health="error",
+                connection_state="disconnected",
+            )
+        )
+        session.flush()
+        session.add(
+            ManagedInstanceRow(
+                target_id=str(UNRELATED_INSTANCE_ID),
+                instance_type="persistent",
+                runtime_revision_id=str(REVISION_ID),
+                runtime_state="stopped",
+                start_on_host_boot=False,
+            )
+        )
+    broker.container = inventory_entry(ContainerRuntimeState.RUNNING)
+    observed: list[str] = []
+    original_inventory = broker.managed_container_inventory
+    original_observe = broker.observe_managed_kodi_runtime
+
+    def inventory(
+        *, managed_instance_id: str | None = None
+    ) -> ManagedContainerInventoryResult:
+        assert managed_instance_id == str(INSTANCE_ID)
+        return original_inventory(managed_instance_id=managed_instance_id)
+
+    def observe(
+        *, managed_instance_id: str, expected_container_id: str
+    ) -> ObserveManagedKodiRuntimeResult:
+        assert managed_instance_id == str(INSTANCE_ID)
+        observed.append(managed_instance_id)
+        return original_observe(
+            managed_instance_id=managed_instance_id,
+            expected_container_id=expected_container_id,
+        )
+
+    monkeypatch.setattr(broker, "managed_container_inventory", inventory)
+    monkeypatch.setattr(broker, "observe_managed_kodi_runtime", observe)
+    context = cast(FastAPI, client.app).state.kodi_lab
+
+    def snapshot(instance_id: UUID) -> ReadinessTaskSnapshot:
+        assert instance_id == INSTANCE_ID
+        return ReadinessTaskSnapshot(
+            1,
+            ReadinessTaskState.USABLE,
+            ReadinessResult(
+                container_state=ContainerRuntimeState.RUNNING,
+                process_state=KodiProcessState.RUNNING,
+                jsonrpc_state=JsonRpcState.RESPONSIVE,
+                usability_state=UsabilityState.USABLE,
+                failure_reason=None,
+                last_observed_failure=None,
+                identity=None,
+                elapsed_seconds=0,
+                attempts=1,
+            ),
+        )
+
+    monkeypatch.setattr(context.readiness, "snapshot", snapshot)
+    original_token = ManagedRuntimeProjectionRepository.observation_token
+    original_compare = ManagedRuntimeProjectionRepository.compare_and_set
+
+    def token(
+        repository: ManagedRuntimeProjectionRepository, instance_id: UUID
+    ) -> ManagedRuntimeObservationToken | None:
+        assert instance_id == INSTANCE_ID
+        return original_token(repository, instance_id)
+
+    def compare(
+        repository: ManagedRuntimeProjectionRepository,
+        observation: ManagedRuntimeObservationToken,
+        projection: ManagedRuntimeCurrentProjection,
+    ) -> ManagedRuntimeProjectionResult:
+        assert observation.instance_id == INSTANCE_ID
+        return original_compare(repository, observation, projection)
+
+    monkeypatch.setattr(ManagedRuntimeProjectionRepository, "observation_token", token)
+    monkeypatch.setattr(ManagedRuntimeProjectionRepository, "compare_and_set", compare)
+    return observed
 
 
 def seed_external_target(factory: sessionmaker[Session]) -> None:

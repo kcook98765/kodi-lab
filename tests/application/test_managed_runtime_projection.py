@@ -47,6 +47,7 @@ from kodi_lab.storage.models import (
 from kodi_lab.storage.repositories import (
     ManagedInstanceMutationLeaseRepository,
     ManagedRuntimeCurrentProjection,
+    ManagedRuntimeObservationToken,
     ManagedRuntimeProjectionRepository,
     ManagedRuntimeProjectionResult,
 )
@@ -55,6 +56,7 @@ INSTANCE = UUID("97000000-0000-4000-8000-000000000001")
 REVISION = UUID("97000000-0000-4000-8000-000000000002")
 DEFINITION = UUID("97000000-0000-4000-8000-000000000003")
 EXTERNAL = UUID("97000000-0000-4000-8000-000000000004")
+OTHER = UUID("97000000-0000-4000-8000-000000000005")
 
 
 @pytest.fixture
@@ -139,7 +141,10 @@ class RunningBroker:
         self.resume = Event()
         self.resume.set()
 
-    def managed_container_inventory(self) -> ManagedContainerInventoryResult:
+    def managed_container_inventory(
+        self, *, managed_instance_id: str | None = None
+    ) -> ManagedContainerInventoryResult:
+        assert managed_instance_id in {None, str(INSTANCE)}
         self.entered.set()
         assert self.resume.wait(5)
         return ManagedContainerInventoryResult(
@@ -180,6 +185,164 @@ def _current(factory: sessionmaker[Session]) -> tuple[int, str, str, str, str]:
             target.health.value,
             target.connection_state.value,
         )
+
+
+def _seed_other(factory: sessionmaker[Session]) -> None:
+    with factory.begin() as session:
+        session.add(
+            TargetRow(
+                id=str(OTHER),
+                name="protected persistent instance",
+                target_type="managed",
+                kodi_version="21.3",
+                availability="unavailable",
+                health="error",
+                connection_state="disconnected",
+            )
+        )
+        session.flush()
+        session.add(
+            ManagedInstanceRow(
+                target_id=str(OTHER),
+                instance_type="persistent",
+                runtime_revision_id=str(REVISION),
+                runtime_state="stopped",
+                start_on_host_boot=False,
+            )
+        )
+
+
+def _other_current(factory: sessionmaker[Session]) -> tuple[int, str, str, str, str]:
+    with factory() as session:
+        instance = session.get(ManagedInstanceRow, str(OTHER))
+        target = session.get(TargetRow, str(OTHER))
+        assert instance is not None and target is not None
+        return (
+            instance.runtime_state_revision,
+            instance.runtime_state.value,
+            target.availability.value,
+            target.health.value,
+            target.connection_state.value,
+        )
+
+
+class TwoInstanceBroker(RunningBroker):
+    def __init__(self) -> None:
+        super().__init__()
+        self.observed: list[str] = []
+
+    def managed_container_inventory(
+        self, *, managed_instance_id: str | None = None
+    ) -> ManagedContainerInventoryResult:
+        own = super().managed_container_inventory(
+            managed_instance_id=managed_instance_id
+        )
+        if managed_instance_id is not None:
+            return own
+        return own.model_copy(
+            update={
+                "containers": [
+                    *own.containers,
+                    ManagedContainerInventoryEntry(
+                        managed_instance_id=str(OTHER),
+                        container_id="e" * 64,
+                        image_id="sha256:" + "f" * 64,
+                        runtime_state=ContainerRuntimeState.RUNNING,
+                        health_state=ContainerHealthState.HEALTHY,
+                    ),
+                ]
+            }
+        )
+
+    def observe_managed_kodi_runtime(
+        self, *, managed_instance_id: str, expected_container_id: str
+    ) -> ObserveManagedKodiRuntimeResult:
+        self.observed.append(managed_instance_id)
+        return super().observe_managed_kodi_runtime(
+            managed_instance_id=managed_instance_id,
+            expected_container_id=expected_container_id,
+        )
+
+
+class TrackingReady(Ready):
+    def __init__(self) -> None:
+        self.snapshots: list[UUID] = []
+
+    def snapshot(self, instance: UUID) -> ReadinessTaskSnapshot:
+        self.snapshots.append(instance)
+        return super().snapshot(instance)
+
+
+def test_get_isolates_requested_instance_from_persistent_neighbor(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_other(factory)
+    broker = TwoInstanceBroker()
+    ready = TrackingReady()
+    tokens = ManagedRuntimeProjectionRepository.observation_token
+    compare = ManagedRuntimeProjectionRepository.compare_and_set
+    token_ids: list[UUID] = []
+    compare_ids: list[UUID] = []
+
+    def tracked_token(
+        repository: ManagedRuntimeProjectionRepository, instance_id: UUID
+    ) -> ManagedRuntimeObservationToken | None:
+        token_ids.append(instance_id)
+        assert instance_id == INSTANCE
+        return tokens(repository, instance_id)
+
+    def tracked_compare(
+        repository: ManagedRuntimeProjectionRepository,
+        token: ManagedRuntimeObservationToken,
+        projection: ManagedRuntimeCurrentProjection,
+    ) -> ManagedRuntimeProjectionResult:
+        compare_ids.append(token.instance_id)
+        assert compare_ids == [INSTANCE]
+        return compare(repository, token, projection)
+
+    monkeypatch.setattr(
+        ManagedRuntimeProjectionRepository, "observation_token", tracked_token
+    )
+    monkeypatch.setattr(
+        ManagedRuntimeProjectionRepository, "compare_and_set", tracked_compare
+    )
+    before = _other_current(factory)
+    status = ManagedRuntimeStatusService(factory, broker, ready).get(INSTANCE)  # type: ignore[arg-type]
+    assert status.managed_instance_id == INSTANCE
+    assert status.usability_state.value == "usable"
+    assert broker.observed == [str(INSTANCE)]
+    assert ready.snapshots == [INSTANCE]
+    assert token_ids and set(token_ids) == {INSTANCE}
+    assert compare_ids == [INSTANCE]
+    assert _current(factory) == (0, "running", "available", "healthy", "connected")
+    assert _other_current(factory) == before
+    with factory() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceLifecycleOperationRow)
+            )
+            == 0
+        )
+
+
+def test_explicit_list_statuses_observes_collection(
+    factory: sessionmaker[Session],
+) -> None:
+    _seed_other(factory)
+    broker = TwoInstanceBroker()
+    ready = TrackingReady()
+    statuses = ManagedRuntimeStatusService(factory, broker, ready).list_statuses()  # type: ignore[arg-type]
+    assert [item.managed_instance_id for item in statuses] == [INSTANCE, OTHER]
+    assert broker.observed == [str(INSTANCE), str(OTHER)]
+    assert ready.snapshots == [INSTANCE, OTHER]
+    assert _current(factory) == (0, "running", "available", "healthy", "connected")
+    assert _other_current(factory) == (
+        0,
+        "running",
+        "available",
+        "healthy",
+        "connected",
+    )
 
 
 @pytest.mark.parametrize(
@@ -285,9 +448,13 @@ def test_concurrent_status_observations_without_mutation_converge(
             super().__init__()
             self.barrier = Barrier(2)
 
-        def managed_container_inventory(self) -> ManagedContainerInventoryResult:
+        def managed_container_inventory(
+            self, *, managed_instance_id: str | None = None
+        ) -> ManagedContainerInventoryResult:
             self.barrier.wait(timeout=5)
-            return super().managed_container_inventory()
+            return super().managed_container_inventory(
+                managed_instance_id=managed_instance_id
+            )
 
     broker = PairedBroker()
     service = ManagedRuntimeStatusService(factory, broker, Ready())  # type: ignore[arg-type]

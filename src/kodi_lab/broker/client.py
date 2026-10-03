@@ -84,6 +84,7 @@ from kodi_lab.broker.operations import (
     EmptyParams,
     InspectRepositoryReplacementParams,
     InspectRepositoryReplacementResult,
+    ManagedContainerInventoryParams,
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeParams,
     ObserveManagedKodiRuntimeResult,
@@ -211,14 +212,33 @@ class BrokerClient:
             ReviewedInstallationImageResult,
         )
 
-    def managed_container_inventory(self) -> ManagedContainerInventoryResult:
-        """Return only bounded, exactly labelled Kodi Lab container records."""
+    def managed_container_inventory(
+        self, *, managed_instance_id: str | None = None
+    ) -> ManagedContainerInventoryResult:
+        """Return bounded owned inventory, optionally scoped to one instance."""
 
-        return self._call(
+        try:
+            params = ManagedContainerInventoryParams(
+                managed_instance_id=managed_instance_id
+            )
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "managed inventory request failed local validation"
+            ) from error
+        result = self._call(
             "managed_container_inventory",
-            EmptyParams(),
+            params,
             ManagedContainerInventoryResult,
         )
+        if managed_instance_id is not None and (
+            len(result.containers) > 1
+            or any(
+                item.managed_instance_id != managed_instance_id
+                for item in result.containers
+            )
+        ):
+            raise ClientProtocolError("managed inventory identity differs")
+        return result
 
     def capture_promotion_kodi_log_cursor(
         self,
