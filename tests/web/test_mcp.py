@@ -38,6 +38,10 @@ from kodi_lab.application.mcp_workspace_development import (
 )
 from kodi_lab.broker.errors import BrokerUnavailableError
 from kodi_lab.domain import ConnectionState, HealthStatus, TargetAvailability
+from kodi_lab.domain.smoke_diagnostics import (
+    AddonExceptionDiagnostic,
+    SmokeDiagnosticStatus,
+)
 from kodi_lab.kodi.addons import (
     KodiAddonInventoryRecord,
     KodiAddonInventoryResult,
@@ -2488,6 +2492,38 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         "execution_failed: jsonrpc_error (Kodi -32602: Invalid params.)"
     )
     _strict_tool_result(diagnostic_result, execute_schema)
+
+    def matched_failure(**kwargs: Any) -> WorkspaceExecutionResult:
+        assert kwargs["execution_kind"] is WorkspaceExecutionKind.SMOKE
+        raise McpWorkspaceDevelopmentError(
+            "execution_failed",
+            diagnostic=KodiJsonRpcDiagnostic(-32602, "Invalid params."),
+            addon_exception=AddonExceptionDiagnostic(
+                status=SmokeDiagnosticStatus.MATCHED,
+                exception_class="AttributeError",
+                addon_file="default.py",
+                line_number=23,
+            ),
+        )
+
+    context.mcp_workspace_development.execute = matched_failure
+    matched_result = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "workspace_execute",
+            "arguments": {**arguments, "request_id": str(uuid4())},
+        },
+    ).json()["result"]
+    assert matched_result["isError"] is True
+    assert "structuredContent" not in matched_result
+    assert matched_result["content"][0]["text"] == (
+        "execution_failed: jsonrpc_error (Kodi -32602: Invalid params.)\n"
+        "Kodi logged a matching addon exception during this smoke:\n"
+        "AttributeError at default.py:23"
+    )
+    _strict_tool_result(matched_result, execute_schema)
 
     promotion_calls = 0
     promotion_results: dict[UUID, PromotionRequestResult] = {}

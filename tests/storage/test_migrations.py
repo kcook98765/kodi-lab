@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0063_managed_runtime_projection",)
+        ).fetchone() == ("0064_workspace_smoke_exception",)
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -342,6 +342,123 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "runtime_definition_id",
         "revision_number",
     ]
+    engine.dispose()
+
+
+def test_0064_smoke_exception_upgrade_constraints_and_safe_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0063_managed_runtime_projection"
+    )
+    table = "mcp_workspace_execution_operations"
+    operation_id = str(uuid4())
+    now = "2026-10-03T00:00:00.000000Z"
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"INSERT INTO {table} (id,client_id,request_id,workspace_id,"
+                "development_source_id,target_id,deployment_id,generation,"
+                "addon_id,addon_version,state,phase,invocation_dispatched,"
+                "execution_classification,item_count,result_classification,"
+                "failure_code,kodi_error_code,kodi_error_message,requested_at,"
+                "started_at,completed_at) VALUES "
+                "(:id,:client,:request,:workspace,:source,:target,:deployment,1,"
+                "'plugin.video.example','1.0.0','failed','finalize',1,"
+                "'jsonrpc_error',NULL,'smoke_failed','execution_failed',"
+                "-32602,'Invalid params.',:now,:now,:now)"
+            ),
+            {
+                "id": operation_id,
+                "client": str(uuid4()),
+                "request": str(uuid4()),
+                "workspace": str(uuid4()),
+                "source": str(uuid4()),
+                "target": str(uuid4()),
+                "deployment": str(uuid4()),
+                "now": now,
+            },
+        )
+    engine.dispose()
+    command.upgrade(config, "0064_workspace_smoke_exception")
+    engine = create_database_engine(database_url)
+    columns = {column["name"] for column in inspect(engine).get_columns(table)}
+    assert {
+        "addon_exception_status",
+        "addon_exception_class",
+        "addon_exception_file",
+        "addon_exception_line",
+        "addon_exception_detail",
+    } <= columns
+    with engine.begin() as connection:
+        assert connection.execute(
+            text(
+                f"SELECT addon_exception_status,addon_exception_class FROM {table} "
+                "WHERE id=:id"
+            ),
+            {"id": operation_id},
+        ).one() == (None, None)
+        connection.execute(
+            text(
+                f"UPDATE {table} SET addon_exception_status='matched',"
+                "addon_exception_class='AttributeError',"
+                "addon_exception_file='default.py',addon_exception_line=23 "
+                "WHERE id=:id"
+            ),
+            {"id": operation_id},
+        )
+    for invalid in (
+        "addon_exception_status='other'",
+        "addon_exception_line=0",
+        "addon_exception_line=1000001",
+        "addon_exception_class='Bad.Class'",
+        "addon_exception_class='" + "x" * 65 + "'",
+        "addon_exception_file='/tmp/default.py'",
+        "addon_exception_file='https:secret.py'",
+        "addon_exception_file='../default.py'",
+        "addon_exception_file='lib//default.py'",
+        "addon_exception_file='./default.py'",
+        "addon_exception_file='default.txt'",
+        "addon_exception_file='" + "x" * 257 + "'",
+        "addon_exception_detail='" + "x" * 129 + "'",
+        "addon_exception_file='default.py' || char(0)",
+        "addon_exception_status='no_match'",
+        "addon_exception_class=NULL",
+        "kodi_error_code=NULL",
+        "failure_code=NULL",
+        "result_classification=NULL",
+    ):
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(f"UPDATE {table} SET {invalid} WHERE id=:id"),
+                {"id": operation_id},
+            )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="cannot be downgraded"):
+        command.downgrade(config, "0063_managed_runtime_projection")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0064_workspace_smoke_exception"
+        )
+        connection.execute(
+            text(
+                f"UPDATE {table} SET addon_exception_status=NULL,"
+                "addon_exception_class=NULL,addon_exception_file=NULL,"
+                "addon_exception_line=NULL,addon_exception_detail=NULL WHERE id=:id"
+            ),
+            {"id": operation_id},
+        )
+    engine.dispose()
+    command.downgrade(config, "0063_managed_runtime_projection")
+    engine = create_database_engine(database_url)
+    assert "addon_exception_status" not in {
+        column["name"] for column in inspect(engine).get_columns(table)
+    }
+    with engine.connect() as connection:
+        assert connection.scalar(text("PRAGMA integrity_check")) == "ok"
+        assert connection.scalar(text(f"SELECT count(*) FROM {table}")) == 1
     engine.dispose()
 
 

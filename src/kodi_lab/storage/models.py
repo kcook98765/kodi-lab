@@ -6517,6 +6517,58 @@ class McpWorkspaceExecutionOperationRow(Base):
             name="mcp_workspace_execution_kodi_error_failure_only",
         ),
         CheckConstraint(
+            "addon_exception_status IS NULL OR "
+            "(addon_exception_status IN "
+            "('no_match','matched','rejected','unavailable') "
+            "AND state='failed' AND COALESCE(failure_code,'')='execution_failed' "
+            "AND execution_classification='jsonrpc_error' "
+            "AND COALESCE(result_classification,'')='smoke_failed' "
+            "AND kodi_error_code IS NOT NULL)",
+            name="mcp_workspace_execution_addon_exception_status_closed",
+        ),
+        CheckConstraint(
+            "(addon_exception_status='matched' AND "
+            "addon_exception_class IS NOT NULL AND addon_exception_file IS NOT NULL "
+            "AND addon_exception_line IS NOT NULL) OR "
+            "(COALESCE(addon_exception_status,'')<>'matched' AND "
+            "addon_exception_class IS NULL AND addon_exception_file IS NULL "
+            "AND addon_exception_line IS NULL AND addon_exception_detail IS NULL)",
+            name="mcp_workspace_execution_addon_exception_shape",
+        ),
+        CheckConstraint(
+            "addon_exception_class IS NULL OR "
+            "(length(CAST(addon_exception_class AS BLOB)) BETWEEN 1 AND 64 "
+            "AND instr(addon_exception_class,char(0))=0 "
+            "AND addon_exception_class NOT GLOB '*[^A-Za-z0-9_]*' "
+            "AND substr(addon_exception_class,1,1) GLOB '[A-Za-z_]')",
+            name="mcp_workspace_execution_addon_exception_class_bounded",
+        ),
+        CheckConstraint(
+            "addon_exception_file IS NULL OR "
+            "(length(CAST(addon_exception_file AS BLOB)) BETWEEN 1 AND 256 "
+            "AND instr(addon_exception_file,char(0))=0 "
+            "AND addon_exception_file NOT GLOB '*[^A-Za-z0-9_./-]*' "
+            "AND substr(addon_exception_file,1,1)<>'/' "
+            "AND instr(addon_exception_file,'..')=0 "
+            "AND instr(addon_exception_file,'//')=0 "
+            "AND addon_exception_file NOT LIKE './%' "
+            "AND addon_exception_file NOT LIKE '%/./%' "
+            "AND substr(addon_exception_file,-3)='.py')",
+            name="mcp_workspace_execution_addon_exception_file_bounded",
+        ),
+        CheckConstraint(
+            "addon_exception_line IS NULL OR "
+            "addon_exception_line BETWEEN 1 AND 1000000",
+            name="mcp_workspace_execution_addon_exception_line_bounded",
+        ),
+        CheckConstraint(
+            "addon_exception_detail IS NULL OR "
+            "(addon_exception_status='matched' AND "
+            "length(CAST(addon_exception_detail AS BLOB)) BETWEEN 1 AND 128 "
+            "AND instr(addon_exception_detail,char(0))=0)",
+            name="mcp_workspace_execution_addon_exception_detail_bounded",
+        ),
+        CheckConstraint(
             "length(requested_at)=27 AND "
             "(started_at IS NULL OR length(started_at)=27) AND "
             "(completed_at IS NULL OR length(completed_at)=27)",
@@ -6570,6 +6622,11 @@ class McpWorkspaceExecutionOperationRow(Base):
     failure_code: Mapped[str | None] = mapped_column(String(128))
     kodi_error_code: Mapped[int | None] = mapped_column(Integer)
     kodi_error_message: Mapped[str | None] = mapped_column(String(192))
+    addon_exception_status: Mapped[str | None] = mapped_column(String(16))
+    addon_exception_class: Mapped[str | None] = mapped_column(String(64))
+    addon_exception_file: Mapped[str | None] = mapped_column(String(256))
+    addon_exception_line: Mapped[int | None] = mapped_column(Integer)
+    addon_exception_detail: Mapped[str | None] = mapped_column(String(128))
     requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
     started_at: Mapped[str | None] = mapped_column(String(27))
     completed_at: Mapped[str | None] = mapped_column(String(27))

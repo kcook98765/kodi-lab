@@ -51,19 +51,29 @@ from kodi_lab.broker.errors import (
     ClientTransportError,
     RemoteBrokerError,
 )
+from kodi_lab.broker.kodi_logs import KodiLogWindowError
 from kodi_lab.broker.operations import (
+    CaptureSmokeLogResult,
     CopySyncAttachedDevelopmentSourceResult,
     ManagedContainerInventoryEntry,
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeResult,
+    ReadSmokeLogResult,
     VerifyAttachedDevelopmentSourceDestinationResult,
 )
+from kodi_lab.broker.smoke_diagnostics import SqliteSmokeLogAuthorityResolver
 from kodi_lab.domain import (
     DevelopmentSource,
     DevelopmentSourceKind,
     ExternalAdministrativeState,
     ExternalBridgePairingState,
     ExternalBridgeReachabilityState,
+    InstanceType,
+    TargetType,
+)
+from kodi_lab.domain.smoke_diagnostics import (
+    AddonExceptionDiagnostic,
+    SmokeDiagnosticStatus,
 )
 from kodi_lab.kodi.addons import (
     KodiAddonDetailsRecord,
@@ -151,6 +161,39 @@ class FakeBroker:
     start_count: int = 0
     verify_count: int = 0
     fail_sync: BaseException | None = None
+    capture_count: int = 0
+    read_count: int = 0
+    capture_failure: bool = False
+    read_failure: bool = False
+    smoke_diagnostic: AddonExceptionDiagnostic | None = None
+    capture_hook: Callable[[str], str | None] | None = None
+
+    def capture_smoke_log_cursor(self, *, execution_id: str) -> CaptureSmokeLogResult:
+        self.capture_count += 1
+        selected = (
+            None if self.capture_hook is None else self.capture_hook(execution_id)
+        )
+        if self.capture_failure:
+            raise RuntimeError("log unavailable")
+        return CaptureSmokeLogResult(
+            execution_id=execution_id,
+            container_id=selected or CONTAINER_ID,
+            cursor="cursor",
+        )
+
+    def read_smoke_log_window(
+        self, *, execution_id: str, cursor: str
+    ) -> ReadSmokeLogResult:
+        assert cursor == "cursor"
+        self.read_count += 1
+        if self.read_failure:
+            raise RuntimeError("parser unavailable")
+        return ReadSmokeLogResult(
+            execution_id=execution_id,
+            container_id=CONTAINER_ID,
+            diagnostic=self.smoke_diagnostic
+            or AddonExceptionDiagnostic(status=SmokeDiagnosticStatus.NO_MATCH),
+        )
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         return ManagedContainerInventoryResult(
@@ -845,6 +888,7 @@ def test_external_deploy_execute_replay_and_drift_invalidation(tmp_path: Path) -
     )
     assert execute_replay == executed
     assert targets.execution_count == 1
+    assert (env.broker.capture_count, env.broker.read_count) == (0, 0)
     promotions = AgentWorkspacePromotionService(
         env.sessions,
         data_root=tmp_path / "data",
@@ -1144,6 +1188,234 @@ def test_failed_execution_persists_safe_kodi_diagnostic_and_replays(
         assert (row.kodi_error_code, row.kodi_error_message) == (code, message)
 
 
+@pytest.mark.parametrize(
+    "diagnostic,unavailable",
+    (
+        (
+            AddonExceptionDiagnostic(
+                status=SmokeDiagnosticStatus.MATCHED,
+                exception_class="AttributeError",
+                addon_file="default.py",
+                line_number=23,
+            ),
+            False,
+        ),
+        (AddonExceptionDiagnostic(status=SmokeDiagnosticStatus.NO_MATCH), False),
+        (AddonExceptionDiagnostic(status=SmokeDiagnosticStatus.REJECTED), False),
+        (None, True),
+    ),
+)
+def test_smoke_exception_is_atomic_and_replay_does_not_reobserve(
+    tmp_path: Path,
+    diagnostic: AddonExceptionDiagnostic | None,
+    unavailable: bool,
+) -> None:
+    env = _environment(tmp_path)
+    _deploy_workspace(env)
+    env.broker.smoke_diagnostic = diagnostic
+    env.broker.read_failure = unavailable
+
+    def failed(_addon_id: str) -> KodiAddonSmokeResult:
+        env.smoke.count += 1
+        raise KodiAddonSmokeJsonRpcError(
+            8, diagnostic=KodiJsonRpcDiagnostic(-32602, "Invalid params.")
+        )
+
+    env.smoke.invoke = failed  # type: ignore[assignment]
+    request_id = uuid4()
+    observed = (
+        AddonExceptionDiagnostic(status=SmokeDiagnosticStatus.UNAVAILABLE)
+        if unavailable
+        else (
+            diagnostic
+            or AddonExceptionDiagnostic(status=SmokeDiagnosticStatus.NO_MATCH)
+        )
+    )
+    for _ in range(2):
+        with pytest.raises(McpWorkspaceDevelopmentError) as raised:
+            _execute_workspace(env, request_id=request_id)
+        assert raised.value.code == "execution_failed"
+        assert raised.value.diagnostic == KodiJsonRpcDiagnostic(
+            -32602, "Invalid params."
+        )
+        assert raised.value.addon_exception == observed
+    assert (env.smoke.count, env.broker.capture_count, env.broker.read_count) == (
+        1,
+        1,
+        1,
+    )
+    with env.sessions() as session:
+        rows = list(session.scalars(select(McpWorkspaceExecutionOperationRow)))
+        assert len(rows) == 1
+        row = rows[0]
+        assert (row.state, row.failure_code, row.kodi_error_code) == (
+            "failed",
+            "execution_failed",
+            -32602,
+        )
+        assert (
+            row.addon_exception_status,
+            row.addon_exception_class,
+            row.addon_exception_file,
+            row.addon_exception_line,
+            row.addon_exception_detail,
+        ) == (
+            observed.status.value,
+            observed.exception_class,
+            observed.addon_file,
+            observed.line_number,
+            None,
+        )
+
+
+def test_success_and_fixed_negative_never_read_smoke_logs(tmp_path: Path) -> None:
+    env = _environment(tmp_path)
+    _deploy_workspace(env)
+    _execute_workspace(env)
+    assert (env.broker.capture_count, env.broker.read_count) == (1, 0)
+    with env.sessions() as session:
+        row = session.scalar(select(McpWorkspaceExecutionOperationRow))
+        assert row is not None and row.addon_exception_status is None
+
+
+def test_no_log_observation_before_dispatch_or_after_rate_limit(tmp_path: Path) -> None:
+    env = _environment(tmp_path)
+    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_not_deployed"):
+        _execute_workspace(env)
+    assert (env.broker.capture_count, env.broker.read_count) == (0, 0)
+    _deploy_workspace(env)
+    _execute_workspace(env)
+    with pytest.raises(McpWorkspaceDevelopmentError, match="rate_limited"):
+        _execute_workspace(env)
+    assert (env.broker.capture_count, env.broker.read_count) == (1, 0)
+
+
+def test_target_failure_before_dispatch_has_no_log_observation(tmp_path: Path) -> None:
+    env = _environment(tmp_path)
+    _deploy_workspace(env)
+    env.broker.state = ContainerRuntimeState.STOPPED
+    with pytest.raises(McpWorkspaceDevelopmentError, match="target_not_ready"):
+        _execute_workspace(env)
+    assert (env.broker.capture_count, env.broker.read_count) == (0, 0)
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    (
+        "valid",
+        "non_disposable",
+        "external",
+        "deployment_failed",
+        "generation",
+        "addon_identity",
+        "runtime_label",
+        "container_changed",
+    ),
+)
+def test_broker_smoke_authority_rechecks_persisted_lineage_and_container(
+    tmp_path: Path, scenario: str
+) -> None:
+    env = _environment(tmp_path)
+    _deploy_workspace(env)
+    selected_container = "d" * 64 if scenario == "container_changed" else CONTAINER_ID
+    label_revision = (
+        "e" * 36 if scenario == "runtime_label" else str(RUNTIME_REVISION_ID)
+    )
+
+    class Docker:
+        def containers(self, **_kwargs: object) -> list[dict[str, str]]:
+            return [{"Id": selected_container}]
+
+        def inspect_container(self, _container_id: str) -> dict[str, object]:
+            return {
+                "Id": selected_container,
+                "State": {"Running": True},
+                "Config": {
+                    "Labels": {
+                        "io.kodi-lab.managed": "true",
+                        "io.kodi-lab.instance-id": str(TARGET_ID),
+                        "io.kodi-lab.runtime-revision-id": label_revision,
+                    }
+                },
+            }
+
+        def close(self) -> None:
+            pass
+
+    resolver = SqliteSmokeLogAuthorityResolver(env.sessions, Docker)
+    outcomes: list[str] = []
+
+    def check(execution_id: str) -> str | None:
+        restore: tuple[type, str, object] | None = None
+        if scenario in {
+            "non_disposable",
+            "external",
+            "deployment_failed",
+            "generation",
+            "addon_identity",
+        }:
+            changes = {
+                "non_disposable": (
+                    ManagedInstanceRow,
+                    "instance_type",
+                    InstanceType.PERSISTENT,
+                ),
+                "external": (TargetRow, "target_type", TargetType.EXTERNAL_DEVELOPMENT),
+                "deployment_failed": (
+                    McpWorkspaceDeploymentOperationRow,
+                    "state",
+                    "failed",
+                ),
+                "generation": (McpWorkspaceDeploymentOperationRow, "generation", 1),
+                "addon_identity": (
+                    McpWorkspaceDeploymentOperationRow,
+                    "addon_id",
+                    "plugin.video.other",
+                ),
+            }
+            model, name, value = changes[scenario]
+            key = str(TARGET_ID) if model in {ManagedInstanceRow, TargetRow} else None
+            with env.sessions.begin() as session:
+                row = (
+                    session.get(model, key)
+                    if key is not None
+                    else session.scalar(select(McpWorkspaceDeploymentOperationRow))
+                )
+                assert row is not None
+                restore = (model, name, getattr(row, name))
+                setattr(row, name, value)
+        try:
+            authority = resolver.resolve(execution_id)
+            outcomes.append(authority.container_id)
+            return authority.container_id
+        except KodiLogWindowError:
+            outcomes.append("rejected")
+            return None
+        finally:
+            if restore is not None:
+                restore_model, restore_name, restore_value = restore
+                key = (
+                    str(TARGET_ID)
+                    if restore_model in {ManagedInstanceRow, TargetRow}
+                    else None
+                )
+                with env.sessions.begin() as session:
+                    row = (
+                        session.get(restore_model, key)
+                        if key is not None
+                        else session.scalar(select(McpWorkspaceDeploymentOperationRow))
+                    )
+                    assert row is not None
+                    setattr(row, restore_name, restore_value)
+
+    env.broker.capture_hook = check
+    _execute_workspace(env)
+    assert outcomes == [
+        selected_container if scenario in {"valid", "container_changed"} else "rejected"
+    ]
+    assert env.broker.read_count == 0
+
+
 def test_fixed_negative_diagnostic_uses_real_adapter_and_replays_without_dispatch(
     tmp_path: Path,
 ) -> None:
@@ -1259,6 +1531,8 @@ def test_fixed_negative_diagnostic_uses_real_adapter_and_replays_without_dispatc
             )
             == original_lifecycle_count
         )
+        assert row.addon_exception_status is None
+    assert (env.broker.capture_count, env.broker.read_count) == (0, 0)
 
 
 def test_historical_style_failed_execution_replays_without_kodi_diagnostic(

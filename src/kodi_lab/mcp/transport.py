@@ -60,6 +60,7 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRequiredResult,
     ProductionApprovalTerminalResult,
 )
+from kodi_lab.domain.smoke_diagnostics import AddonExceptionDiagnostic
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
@@ -964,6 +965,7 @@ def build_mcp_http_transport(
         result_code = "internal_error"
         result_reason: str | None = None
         result_diagnostic: KodiJsonRpcDiagnostic | None = None
+        result_addon_exception: AddonExceptionDiagnostic | None = None
         diagnostic_context = None
         try:
             arguments = params.arguments or {}
@@ -1192,6 +1194,7 @@ def build_mcp_http_transport(
             result_reason = error.reason
             if params.name == "workspace_execute" and error.code == "execution_failed":
                 result_diagnostic = error.diagnostic
+                result_addon_exception = error.addon_exception
             audit_outcome = _audit_outcome_for_tool_error(result_code)
             emit_screenshot_stage("mcp_result", "failed", result_code)
         except BaseException:
@@ -1303,7 +1306,10 @@ def build_mcp_http_transport(
                 )
             return response
         response = _tool_error_result(
-            result_code, reason=result_reason, diagnostic=result_diagnostic
+            result_code,
+            reason=result_reason,
+            diagnostic=result_diagnostic,
+            addon_exception=result_addon_exception,
         )
         _audit_safely(
             principal,
@@ -1405,6 +1411,7 @@ def _tool_error_result(
     *,
     reason: str | None = None,
     diagnostic: KodiJsonRpcDiagnostic | None = None,
+    addon_exception: AddonExceptionDiagnostic | None = None,
 ) -> CallToolResult:
     # A tool error has no success-shaped structured result. Its text remains
     # available to models without violating the tool's declared outputSchema.
@@ -1416,6 +1423,10 @@ def _tool_error_result(
         if diagnostic.message is not None:
             suffix += f": {diagnostic.message}"
         message = f"execution_failed: jsonrpc_error ({suffix})"
+        if addon_exception is not None:
+            observation = addon_exception.observation_text()
+            if observation is not None:
+                message += f"\n{observation}"
     return CallToolResult(
         content=[TextContent(text=message)],
         is_error=True,

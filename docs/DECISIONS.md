@@ -5483,3 +5483,39 @@ approvals atomically with the governing revision transition.
   use the D-0401 fields. The existing request fingerprint binds the intent,
   while replay returns the original operation and never redispatches. No new
   schema, operation table, Web control, or generic JSON-RPC authority is added.
+
+## D-0404: Observe one bounded addon exception on failed disposable smoke
+
+- A synchronous fixed plugin smoke can return a Kodi JSON-RPC error while Kodi
+  also logs a Python addon exception. The existing Kodi error remains the
+  execution result. A matching exception is an observation within that call
+  window, not proof that it caused the RPC failure.
+- Only `workspace_execute` smoke on an exact successfully deployed generation
+  of a disposable managed target can collect this observation. The broker
+  resolves the running operation, workspace, deployment, addon identity, runtime
+  revision, and current labeled container from trusted state. Its two closed
+  operations capture a signed cursor immediately before invocation and read one
+  fixed Kodi log window after a correlated Kodi error. The request names only
+  the execution operation and opaque cursor. No path, container, addon, method,
+  URL, log filename, time range, or filter is caller selectable. Web and MCP
+  never receive Docker authority or raw log bytes.
+- A complete Python traceback must contain a frame under the exact installed
+  addon tree and be followed by exactly one matching plugin-root GetDirectory
+  failure in the post-cursor window. Ambiguous, malformed, rotated beyond the
+  fixed reader's safe continuation, oversized, stale, or unavailable evidence
+  yields no summary. The parser constructs only an identifier-shaped exception
+  class, addon-relative Python file, and bounded positive line number. V1 omits
+  all exception detail text, source lines, traceback, and absolute paths.
+- Migration 0064 adds nullable bounded status, class, file, line, and detail
+  columns to the existing execution operation. Historical NULL means not
+  collected, including ineligible executions. `no_match` means a readable
+  bounded window contained no matching exception. `rejected` means readable
+  evidence was malformed, oversized, ambiguous, or could not safely continue
+  the cursor. `unavailable` means capture or observation failed. These three
+  statuses carry no exception details; `matched` means exactly one complete
+  correlated summary was persisted. Failure finalization writes
+  these fields with the existing 0062 Kodi error in one transaction. Exact
+  replay reads the stored fields without Kodi dispatch or log observation.
+  MCP appends only a matched observational sentence to the existing failure
+  text. Successful smoke, the fixed negative diagnostic, external targets,
+  production, Bridge, and delayed post-success failures remain outside scope.

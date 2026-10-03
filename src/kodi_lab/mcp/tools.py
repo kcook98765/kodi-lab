@@ -898,6 +898,9 @@ class McpTargetToolService:
                 diagnostic=(
                     error.diagnostic if error.code == "execution_failed" else None
                 ),
+                addon_exception=(
+                    error.addon_exception if error.code == "execution_failed" else None
+                ),
             ) from error
         self._require_development_bounded(result)
         return result

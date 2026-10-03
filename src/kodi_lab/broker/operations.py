@@ -126,6 +126,10 @@ from kodi_lab.broker.screenshots import (
     ScreenshotCaptureUnsupportedError,
     SqliteScreenshotCaptureResolver,
 )
+from kodi_lab.broker.smoke_diagnostics import (
+    SqliteSmokeLogAuthorityResolver,
+    parse_smoke_exception_window,
+)
 from kodi_lab.broker.snapshots import (
     LocalSnapshotArtifactDeletionProvider,
     SnapshotArtifactDeletionProvider,
@@ -135,6 +139,10 @@ from kodi_lab.broker.snapshots import (
     SqliteSnapshotCaptureResolver,
     SqliteSnapshotDeleteResolver,
     SqliteSnapshotRestoreResolver,
+)
+from kodi_lab.domain.smoke_diagnostics import (
+    AddonExceptionDiagnostic,
+    SmokeDiagnosticStatus,
 )
 from kodi_lab.snapshot.storage import SnapshotArtifactDeletionError
 
@@ -227,6 +235,33 @@ class ReadPromotionKodiLogWindowResult(StrictModel):
     scanned_bytes: int = Field(ge=0, le=1024 * 1024)
 
 
+class SmokeLogParams(StrictModel):
+    execution_id: str = Field(min_length=36, max_length=36)
+
+    @field_validator("execution_id")
+    @classmethod
+    def _canonical_uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("execution identity must be canonical")
+        return value
+
+
+class CaptureSmokeLogResult(StrictModel):
+    execution_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cursor: str = Field(min_length=1, max_length=4096)
+
+
+class ReadSmokeLogParams(SmokeLogParams):
+    cursor: str = Field(min_length=1, max_length=4096)
+
+
+class ReadSmokeLogResult(StrictModel):
+    execution_id: str = Field(min_length=36, max_length=36)
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    diagnostic: AddonExceptionDiagnostic
+
+
 class PingResult(StrictModel):
     """Safe broker liveness result."""
 
@@ -244,7 +279,7 @@ class BrokerInfoResult(StrictModel):
 class CapabilitiesResult(StrictModel):
     """The exact registered operation set."""
 
-    operations: list[str] = Field(max_length=32)
+    operations: list[str] = Field(max_length=34)
     protocol_version: Literal[1]
 
 
@@ -1314,6 +1349,7 @@ def build_foundation_registry(
     addon_zip_installation_provider: AddonZipInstallationProvider | None = None,
     kodi_log_resolver: KodiLogAuthorityResolver | None = None,
     kodi_log_provider: KodiLogWindowProvider | None = None,
+    smoke_log_resolver: SqliteSmokeLogAuthorityResolver | None = None,
     reviewed_installation_worker: DockerReviewedInstallationWorker | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
@@ -1383,6 +1419,7 @@ def build_foundation_registry(
     )
     log_resolver = kodi_log_resolver or SqliteKodiLogAuthorityResolver.production()
     log_provider = kodi_log_provider or KodiLogWindowProvider()
+    smoke_resolver = smoke_log_resolver or SqliteSmokeLogAuthorityResolver.production()
     registry.register(
         name="ping",
         params_model=EmptyParams,
@@ -1590,6 +1627,49 @@ def build_foundation_registry(
             "broker_log_unrelated_warning_count": result.unrelated_warning_count,
             "broker_log_scanned_bytes": result.scanned_bytes,
         },
+    )
+
+    def capture_smoke_log_cursor(params: SmokeLogParams) -> CaptureSmokeLogResult:
+        try:
+            authority = smoke_resolver.resolve(params.execution_id)
+            cursor = log_provider.capture(authority)
+        except KodiLogWindowError as error:
+            raise OperationError(error.code, error.safe_message) from error
+        return CaptureSmokeLogResult(
+            execution_id=params.execution_id,
+            container_id=authority.container_id,
+            cursor=cursor,
+        )
+
+    registry.register(
+        name="capture_smoke_log_cursor",
+        params_model=SmokeLogParams,
+        result_model=CaptureSmokeLogResult,
+        handler=capture_smoke_log_cursor,
+    )
+
+    def read_smoke_log_window(params: ReadSmokeLogParams) -> ReadSmokeLogResult:
+        try:
+            authority = smoke_resolver.resolve(params.execution_id)
+            data = log_provider.read_bytes(authority, params.cursor, max_age=20.0)
+            diagnostic = (
+                AddonExceptionDiagnostic(status=SmokeDiagnosticStatus.REJECTED)
+                if data is None
+                else parse_smoke_exception_window(data, authority.addon_id)
+            )
+        except KodiLogWindowError as error:
+            raise OperationError(error.code, error.safe_message) from error
+        return ReadSmokeLogResult(
+            execution_id=params.execution_id,
+            container_id=authority.container_id,
+            diagnostic=diagnostic,
+        )
+
+    registry.register(
+        name="read_smoke_log_window",
+        params_model=ReadSmokeLogParams,
+        result_model=ReadSmokeLogResult,
+        handler=read_smoke_log_window,
     )
 
     def managed_container_inventory(

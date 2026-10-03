@@ -73,6 +73,7 @@ from kodi_lab.broker.operations import (
     CaptureManagedKodiScreenshotParams,
     CaptureManagedKodiScreenshotResult,
     CapturePromotionKodiLogCursorResult,
+    CaptureSmokeLogResult,
     CopySyncAttachedDevelopmentSourceParams,
     CopySyncAttachedDevelopmentSourceResult,
     CopySyncMcpWorkspaceParams,
@@ -94,12 +95,15 @@ from kodi_lab.broker.operations import (
     ProvisionManagedContainerResult,
     ReadPromotionKodiLogWindowParams,
     ReadPromotionKodiLogWindowResult,
+    ReadSmokeLogParams,
+    ReadSmokeLogResult,
     ReviewedInstallationActiveResult,
     ReviewedInstallationIdParams,
     ReviewedInstallationImageResult,
     ReviewedInstallationLaunchParams,
     ReviewedInstallationLaunchResult,
     ReviewedInstallationWorkerResult,
+    SmokeLogParams,
     StartManagedContainerParams,
     StartManagedContainerResult,
     StopManagedContainerParams,
@@ -300,6 +304,42 @@ class BrokerClient:
             or result.managed_instance_id != managed_instance_id
         ):
             raise ClientProtocolError("promotion log window identity differs")
+        return result
+
+    def capture_smoke_log_cursor(self, *, execution_id: str) -> CaptureSmokeLogResult:
+        try:
+            params = SmokeLogParams(execution_id=execution_id)
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "smoke cursor request failed local validation"
+            ) from error
+        result = self._call(
+            "capture_smoke_log_cursor",
+            params,
+            CaptureSmokeLogResult,
+            response_timeout=30.0,
+        )
+        if result.execution_id != execution_id:
+            raise ClientProtocolError("smoke cursor identity differs")
+        return result
+
+    def read_smoke_log_window(
+        self, *, execution_id: str, cursor: str
+    ) -> ReadSmokeLogResult:
+        try:
+            params = ReadSmokeLogParams(execution_id=execution_id, cursor=cursor)
+        except ValidationError as error:
+            raise ClientProtocolError(
+                "smoke window request failed local validation"
+            ) from error
+        result = self._call(
+            "read_smoke_log_window",
+            params,
+            ReadSmokeLogResult,
+            response_timeout=30.0,
+        )
+        if result.execution_id != execution_id:
+            raise ClientProtocolError("smoke window identity differs")
         return result
 
     def observe_managed_kodi_runtime(

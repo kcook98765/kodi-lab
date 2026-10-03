@@ -65,9 +65,11 @@ from kodi_lab.broker.errors import (
     ClientTransportError,
 )
 from kodi_lab.broker.operations import (
+    CaptureSmokeLogResult,
     CopySyncAttachedDevelopmentSourceResult,
     ManagedContainerInventoryResult,
     ObserveManagedKodiRuntimeResult,
+    ReadSmokeLogResult,
     VerifyAttachedDevelopmentSourceDestinationResult,
 )
 from kodi_lab.development import (
@@ -85,6 +87,10 @@ from kodi_lab.domain import (
     PythonBytecodePolicy,
     RuntimeExecutionProfile,
     TargetType,
+)
+from kodi_lab.domain.smoke_diagnostics import (
+    AddonExceptionDiagnostic,
+    SmokeDiagnosticStatus,
 )
 from kodi_lab.kodi.addons import (
     KodiAddonDetailsUnsupportedResponseError,
@@ -354,10 +360,12 @@ class McpWorkspaceDevelopmentError(RuntimeError):
         *,
         reason: str | None = None,
         diagnostic: KodiJsonRpcDiagnostic | None = None,
+        addon_exception: AddonExceptionDiagnostic | None = None,
     ) -> None:
         self.code = code
         self.reason = reason
         self.diagnostic = diagnostic
+        self.addon_exception = addon_exception
         super().__init__(code)
 
 
@@ -485,6 +493,14 @@ class _Broker(Protocol):
     def verify_mcp_workspace_destination(
         self, **kwargs: Any
     ) -> VerifyAttachedDevelopmentSourceDestinationResult: ...
+
+    def capture_smoke_log_cursor(
+        self, *, execution_id: str
+    ) -> CaptureSmokeLogResult: ...
+
+    def read_smoke_log_window(
+        self, *, execution_id: str, cursor: str
+    ) -> ReadSmokeLogResult: ...
 
 
 class _TargetAdapters(Protocol):
@@ -3261,6 +3277,18 @@ class McpWorkspaceDevelopmentService:
             raise McpWorkspaceDevelopmentError("execution_unsupported")
         self._update_execution(operation_id, phase="invoke", invocation_dispatched=True)
         self._failure("execution_dispatch_marker")
+        smoke_cursor: str | None = None
+        addon_exception: AddonExceptionDiagnostic | None = None
+        if execution_kind is WorkspaceExecutionKind.SMOKE:
+            try:
+                captured = self._broker.capture_smoke_log_cursor(
+                    execution_id=operation.id
+                )
+                if captured.container_id == container_id:
+                    smoke_cursor = captured.cursor
+            except Exception:
+                # Observation has no authority over the fixed Kodi call.
+                pass
         invocation = None
         execution_failure: KodiAddonSmokeJsonRpcError | None = None
         try:
@@ -3274,6 +3302,22 @@ class McpWorkspaceDevelopmentService:
                 )
         except KodiAddonSmokeJsonRpcError as error:
             execution_failure = error
+            if (
+                execution_kind is WorkspaceExecutionKind.SMOKE
+                and error.diagnostic is not None
+            ):
+                addon_exception = AddonExceptionDiagnostic(
+                    status=SmokeDiagnosticStatus.UNAVAILABLE
+                )
+                if smoke_cursor is not None:
+                    try:
+                        observed = self._broker.read_smoke_log_window(
+                            execution_id=operation.id, cursor=smoke_cursor
+                        )
+                        if observed.container_id == container_id:
+                            addon_exception = observed.diagnostic
+                    except Exception:
+                        pass
         except (KodiAddonSmokeTimeoutError, KodiAddonSmokeAmbiguousError) as error:
             self._finish_execution(
                 operation.id,
@@ -3312,9 +3356,12 @@ class McpWorkspaceDevelopmentService:
                     else "kodi_rpc_diagnostic_failed"
                 ),
                 diagnostic=execution_failure.diagnostic,
+                addon_exception=addon_exception,
             )
             raise McpWorkspaceDevelopmentError(
-                "execution_failed", diagnostic=execution_failure.diagnostic
+                "execution_failed",
+                diagnostic=execution_failure.diagnostic,
+                addon_exception=addon_exception,
             ) from execution_failure
         assert invocation is not None
         self._finish_execution(
@@ -3861,6 +3908,7 @@ class McpWorkspaceDevelopmentService:
         item_count: int | None = None,
         result_classification: str | None = None,
         diagnostic: KodiJsonRpcDiagnostic | None = None,
+        addon_exception: AddonExceptionDiagnostic | None = None,
     ) -> None:
         now = self._clock()
         with self._sessions.begin() as session:
@@ -3879,6 +3927,21 @@ class McpWorkspaceDevelopmentService:
             row.result_classification = result_classification
             row.kodi_error_code = None if diagnostic is None else diagnostic.code
             row.kodi_error_message = None if diagnostic is None else diagnostic.message
+            row.addon_exception_status = (
+                None if addon_exception is None else addon_exception.status.value
+            )
+            row.addon_exception_class = (
+                None if addon_exception is None else addon_exception.exception_class
+            )
+            row.addon_exception_file = (
+                None if addon_exception is None else addon_exception.addon_file
+            )
+            row.addon_exception_line = (
+                None if addon_exception is None else addon_exception.line_number
+            )
+            row.addon_exception_detail = (
+                None if addon_exception is None else addon_exception.detail
+            )
             deployment = session.get(
                 McpWorkspaceDeploymentOperationRow, row.deployment_id
             )
@@ -3971,6 +4034,17 @@ class McpWorkspaceDevelopmentService:
                     and row.execution_classification == "jsonrpc_error"
                     and row.kodi_error_code is not None
                     else None
+                ),
+                addon_exception=(
+                    None
+                    if row.addon_exception_status is None
+                    else AddonExceptionDiagnostic(
+                        status=SmokeDiagnosticStatus(row.addon_exception_status),
+                        exception_class=row.addon_exception_class,
+                        addon_file=row.addon_exception_file,
+                        line_number=row.addon_exception_line,
+                        detail=row.addon_exception_detail,
+                    )
                 ),
             )
         raise McpWorkspaceDevelopmentError("execution_ambiguous")

@@ -48,6 +48,7 @@ from kodi_lab.domain import (
     InstanceType,
     TargetType,
 )
+from kodi_lab.domain.smoke_diagnostics import AddonExceptionDiagnostic
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
 from kodi_lab.kodi.remote import REMOTE_RUNTIME_REVISION_IDS, BrowserRemoteAction
 from kodi_lab.mcp.registry import (
@@ -92,11 +93,13 @@ class McpAuthorizationError(PermissionError):
         *,
         reason: str | None = None,
         diagnostic: KodiJsonRpcDiagnostic | None = None,
+        addon_exception: AddonExceptionDiagnostic | None = None,
     ) -> None:
         super().__init__(code)
         self.code = code
         self.reason = reason
         self.diagnostic = diagnostic
+        self.addon_exception = addon_exception
 
 
 @dataclass(frozen=True, slots=True)

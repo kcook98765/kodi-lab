@@ -241,7 +241,7 @@ def test_development_repository_backup_recover_clean_round_trip(
     monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(recovered_repository))
     assert recover_clean(
         recovered_root, _url(recovered_root), identifier, identifier
-    ) == ("0063_managed_runtime_projection")
+    ) == ("0064_workspace_smoke_exception")
     recovered_engine = create_database_engine(_url(recovered_root))
     recovered_service = DevelopmentRepositoryService(
         create_session_factory(recovered_engine), recovered_repository, REPOSITORY_BASE
@@ -349,7 +349,7 @@ def test_historical_transition_and_matching_rollback(
     previous, current, identifier = upgrade(root, _url(root))
     assert identifier is not None
     assert previous == before
-    assert current == "0063_managed_runtime_projection"
+    assert current == "0064_workspace_smoke_exception"
     assert upgrade(root, _url(root)) == (current, current, None)
     assert (
         _revision(root / "backups" / identifier / "database" / "kodi-lab.db") == before

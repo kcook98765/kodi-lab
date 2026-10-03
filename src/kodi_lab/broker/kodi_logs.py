@@ -1,4 +1,4 @@
-"""Fixed-path, bounded Kodi log windows for promotion verification only."""
+"""Fixed-path, bounded Kodi log windows for broker-owned observations."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import json
 import re
 import secrets
 import tarfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -260,6 +261,9 @@ class KodiLogWindowProvider:
             "verification": authority.verification_id,
             "instance": authority.instance_id,
             "container": authority.container_id,
+            "runtime": authority.runtime_revision_id,
+            "addon": authority.addon_id,
+            "captured_at": time.monotonic(),
             "files": self._fingerprint(self._files(authority)),
         }
         encoded = base64.urlsafe_b64encode(
@@ -268,7 +272,9 @@ class KodiLogWindowProvider:
         signature = hmac.new(_CURSOR_KEY, encoded, hashlib.sha256).hexdigest().encode()
         return (encoded + b"." + signature).decode()
 
-    def read(self, authority: KodiLogAuthority, cursor: str) -> KodiLogWindow:
+    def _read_window_bytes(
+        self, authority: KodiLogAuthority, cursor: str, *, max_age: float | None = None
+    ) -> tuple[bytes | None, int]:
         try:
             encoded, raw_signature = cursor.encode().split(b".", 1)
             if not hmac.compare_digest(
@@ -284,6 +290,14 @@ class KodiLogWindowProvider:
                 or payload.get("verification") != authority.verification_id
                 or payload.get("instance") != authority.instance_id
                 or payload.get("container") != authority.container_id
+                or payload.get("runtime") != authority.runtime_revision_id
+                or payload.get("addon") != authority.addon_id
+                or (
+                    max_age is not None
+                    and not 0
+                    <= time.monotonic() - float(payload["captured_at"])
+                    <= max_age
+                )
             ):
                 raise ValueError
             prior = payload["files"]
@@ -312,13 +326,27 @@ class KodiLogWindowProvider:
             ):
                 new_data = old[size:] + current["kodi.log"]
         if new_data is None or len(new_data) > MAX_NEW_LOG_BYTES:
+            return None, min(
+                0 if new_data is None else len(new_data), MAX_NEW_LOG_BYTES
+            )
+        return new_data, len(new_data)
+
+    def read_bytes(
+        self, authority: KodiLogAuthority, cursor: str, *, max_age: float | None = None
+    ) -> bytes | None:
+        data, _scanned = self._read_window_bytes(authority, cursor, max_age=max_age)
+        return data
+
+    def read(self, authority: KodiLogAuthority, cursor: str) -> KodiLogWindow:
+        new_data, scanned_bytes = self._read_window_bytes(authority, cursor)
+        if new_data is None:
             return KodiLogWindow(
                 False,
                 "incomplete",
                 0,
                 0,
                 (),
-                min(0 if new_data is None else len(new_data), MAX_NEW_LOG_BYTES),
+                scanned_bytes,
             )
         return classify_kodi_log_window(new_data, authority.addon_id)
 
