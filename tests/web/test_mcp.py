@@ -33,6 +33,7 @@ from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentError,
     WorkspaceDeploymentResult,
+    WorkspaceExecutionKind,
     WorkspaceExecutionResult,
 )
 from kodi_lab.broker.errors import BrokerUnavailableError
@@ -2254,8 +2255,13 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         }
         if name == "workspace_deploy":
             expected.add("deployment_mode")
+        if name == "workspace_execute":
+            expected.add("execution_kind")
         assert set(schema["properties"]) == expected
-        assert set(schema["required"]) == expected - {"deployment_mode"}
+        assert set(schema["required"]) == expected - {
+            "deployment_mode",
+            "execution_kind",
+        }
         assert schema["additionalProperties"] is False
     assert "promotion_approve" not in {item["name"] for item in tools}
 
@@ -2289,6 +2295,7 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
 
     def execute(**kwargs: Any) -> WorkspaceExecutionResult:
         nonlocal execution_calls
+        assert kwargs["execution_kind"] is WorkspaceExecutionKind.SMOKE
         request_id = cast(UUID, kwargs["request_id"])
         if request_id not in executions:
             execution_calls += 1
@@ -2375,6 +2382,24 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
     _strict_tool_result(injected_release, execute_schema)
     assert execution_calls == 0
 
+    for injected in (
+        {"method": "Files.GetDirectory"},
+        {"params": {"directory": "plugin://other/"}},
+        {"execution_kind": "unknown"},
+    ):
+        rejected = _post(
+            client,
+            token,
+            "tools/call",
+            params={
+                "name": "workspace_execute",
+                "arguments": {**execute_arguments, **injected},
+            },
+        ).json()["result"]
+        _assert_tool_error(rejected, "invalid_params")
+        assert "structuredContent" not in rejected
+    assert execution_calls == 0
+
     modern_execute = _post(
         client,
         token,
@@ -2428,14 +2453,22 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         _strict_tool_result(failed, execute_schema)
         _assert_tool_error(failed, code)
 
-    def diagnostic_failure(**_kwargs: Any) -> WorkspaceExecutionResult:
+    def diagnostic_failure(**kwargs: Any) -> WorkspaceExecutionResult:
+        assert (
+            kwargs["execution_kind"]
+            is WorkspaceExecutionKind.KODI_RPC_NEGATIVE_DIAGNOSTIC
+        )
         raise McpWorkspaceDevelopmentError(
             "execution_failed",
             diagnostic=KodiJsonRpcDiagnostic(-32602, "Invalid params."),
         )
 
     context.mcp_workspace_development.execute = diagnostic_failure
-    diagnostic_arguments = {**arguments, "request_id": str(uuid4())}
+    diagnostic_arguments = {
+        **arguments,
+        "request_id": str(uuid4()),
+        "execution_kind": "kodi_rpc_negative_diagnostic",
+    }
     denied_diagnostic = _post(
         client,
         other_token,

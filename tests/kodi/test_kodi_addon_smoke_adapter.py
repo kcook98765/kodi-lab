@@ -74,12 +74,14 @@ class FakeTransport:
         self.value = value
         self.after_post = after_post
         self.requests: list[dict[str, Any]] = []
+        self.bodies: list[bytes] = []
         self.timeouts: list[float] = []
 
     def post(
         self, *, host: str, port: int, path: str, body: bytes, timeout: float
     ) -> bytes:
         assert (host, port, path) == ("10.250.0.9", 8080, "/jsonrpc")
+        self.bodies.append(body)
         self.requests.append(json.loads(body))
         self.timeouts.append(timeout)
         if self.after_post is not None:
@@ -136,6 +138,67 @@ def test_invokes_only_fixed_bounded_directory_request(
             },
         }
     ]
+    assert transport.bodies == [
+        b'{"jsonrpc":"2.0","id":"kodi-lab-addon-smoke","method":"Files.GetDirectory",'
+        b'"params":{"directory":"plugin://plugin.video.example/","media":"video",'
+        b'"properties":[],"limits":{"start":0,"end":1}}}'
+    ]
+
+
+def test_negative_diagnostic_dispatches_only_fixed_method_and_correlates_error() -> (
+    None
+):
+    transport = FakeTransport(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "kodi-lab-rpc-negative-diagnostic",
+                "error": {
+                    "code": -32601,
+                    "message": "Method not found.",
+                    "data": {"secret": "unretained"},
+                },
+            }
+        ).encode()
+    )
+    adapter = KodiAddonSmokeAdapter(observation(), profile(), transport=transport)
+    with pytest.raises(KodiAddonSmokeJsonRpcError) as raised:
+        adapter.invoke_negative_diagnostic()
+    assert raised.value.diagnostic is not None
+    assert (raised.value.diagnostic.code, raised.value.diagnostic.message) == (
+        -32601,
+        "Method not found.",
+    )
+    assert transport.requests == [
+        {
+            "jsonrpc": "2.0",
+            "id": "kodi-lab-rpc-negative-diagnostic",
+            "method": "KodiLab.NonexistentDiagnosticMethod",
+        }
+    ]
+    assert transport.timeouts == [10.0]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        response(request_id="kodi-lab-rpc-negative-diagnostic", result="OK"),
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "wrong",
+                "error": {"code": -32601, "message": "Method not found."},
+            }
+        ).encode(),
+    ],
+)
+def test_negative_diagnostic_rejects_uncorrelated_or_success_response(
+    payload: bytes,
+) -> None:
+    with pytest.raises(KodiAddonSmokeAmbiguousError):
+        KodiAddonSmokeAdapter(
+            observation(), profile(), transport=FakeTransport(payload)
+        ).invoke_negative_diagnostic()
 
 
 @pytest.mark.parametrize(

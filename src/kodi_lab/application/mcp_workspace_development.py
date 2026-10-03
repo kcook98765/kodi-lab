@@ -12,6 +12,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID, uuid4
@@ -161,6 +162,11 @@ OPERATION_LEASE = timedelta(minutes=15)
 DEVELOPMENT_OPERATION_PRUNE_LIMIT = 256
 
 
+class WorkspaceExecutionKind(StrEnum):
+    SMOKE = "smoke"
+    KODI_RPC_NEGATIVE_DIAGNOSTIC = "kodi_rpc_negative_diagnostic"
+
+
 def _to_text(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("timestamp must be timezone aware")
@@ -181,10 +187,16 @@ def _fingerprint(
     generation: int,
     target_id: UUID,
     deployment_mode: str = "direct",
+    execution_kind: WorkspaceExecutionKind = WorkspaceExecutionKind.SMOKE,
 ) -> str:
     value = f"{kind}\x00{workspace_id}\x00{generation}\x00{target_id}"
     if kind == DEPLOY_OPERATION_KIND and deployment_mode != "direct":
         value += f"\x00{deployment_mode}"
+    if (
+        kind == EXECUTE_OPERATION_KIND
+        and execution_kind is not WorkspaceExecutionKind.SMOKE
+    ):
+        value += f"\x00{execution_kind.value}"
     return hashlib.sha256(value.encode("ascii")).hexdigest()
 
 
@@ -1840,13 +1852,21 @@ class McpWorkspaceDevelopmentService:
         workspace_id: UUID,
         expected_generation: int,
         target_id: UUID,
+        execution_kind: WorkspaceExecutionKind = WorkspaceExecutionKind.SMOKE,
     ) -> WorkspaceExecutionResult:
+        if not isinstance(execution_kind, WorkspaceExecutionKind):
+            raise McpWorkspaceDevelopmentError("execution_unsupported")
         row, created = self._claim_execution(
-            client_id, request_id, workspace_id, expected_generation, target_id
+            client_id,
+            request_id,
+            workspace_id,
+            expected_generation,
+            target_id,
+            execution_kind,
         )
         if not created:
             return self._replay_execution(
-                row, workspace_id, expected_generation, target_id
+                row, workspace_id, expected_generation, target_id, execution_kind
             )
         if not self._execution_rate.allow(str(client_id)):
             self._finish_execution(row.id, "failed", "rate_limited")
@@ -1858,7 +1878,7 @@ class McpWorkspaceDevelopmentService:
             with workspace_coordination_lock(
                 self._data_root, workspace_id, exclusive=True, blocking=False
             ):
-                return self._run_execution(UUID(row.id), digest)
+                return self._run_execution(UUID(row.id), digest, execution_kind)
         except McpWorkspaceDevelopmentError as error:
             current = self._execution(UUID(row.id))
             if current is not None and current.state in {"pending", "running"}:
@@ -2255,9 +2275,14 @@ class McpWorkspaceDevelopmentService:
         workspace_id: UUID,
         generation: int,
         target_id: UUID,
+        execution_kind: WorkspaceExecutionKind = WorkspaceExecutionKind.SMOKE,
     ) -> tuple[McpWorkspaceExecutionOperationRow, bool]:
         fingerprint = _fingerprint(
-            EXECUTE_OPERATION_KIND, workspace_id, generation, target_id
+            EXECUTE_OPERATION_KIND,
+            workspace_id,
+            generation,
+            target_id,
+            execution_kind=execution_kind,
         )
         operation_id = uuid4()
         now = self._clock()
@@ -2302,6 +2327,12 @@ class McpWorkspaceDevelopmentService:
                 deployment = deployments[0]
                 if target is None:
                     raise McpWorkspaceDevelopmentError("execution_not_deployed")
+                if (
+                    execution_kind
+                    is WorkspaceExecutionKind.KODI_RPC_NEGATIVE_DIAGNOSTIC
+                    and deployment.target_class != "internal_lab"
+                ):
+                    raise McpWorkspaceDevelopmentError("execution_unsupported")
                 row = McpWorkspaceExecutionOperationRow(
                     id=str(operation_id),
                     client_id=str(client_id),
@@ -3145,7 +3176,7 @@ class McpWorkspaceDevelopmentService:
             )
 
     def _run_execution(
-        self, operation_id: UUID, digest: str
+        self, operation_id: UUID, digest: str, execution_kind: WorkspaceExecutionKind
     ) -> WorkspaceExecutionResult:
         operation = self._execution_required(operation_id)
         deployment = self._execution_deployment(operation)
@@ -3233,9 +3264,14 @@ class McpWorkspaceDevelopmentService:
         invocation = None
         execution_failure: KodiAddonSmokeJsonRpcError | None = None
         try:
-            invocation = self._smoke_factory(observation, profile).invoke(
-                operation.addon_id
-            )
+            adapter = self._smoke_factory(observation, profile)
+            if execution_kind is WorkspaceExecutionKind.SMOKE:
+                invocation = adapter.invoke(operation.addon_id)
+            else:
+                adapter.invoke_negative_diagnostic()
+                raise KodiAddonSmokeAmbiguousError(
+                    "Kodi diagnostic returned without a correlated error"
+                )
         except KodiAddonSmokeJsonRpcError as error:
             execution_failure = error
         except (KodiAddonSmokeTimeoutError, KodiAddonSmokeAmbiguousError) as error:
@@ -3270,7 +3306,11 @@ class McpWorkspaceDevelopmentService:
                 "execution_failed",
                 digest=digest,
                 execution_classification="jsonrpc_error",
-                result_classification="smoke_failed",
+                result_classification=(
+                    "smoke_failed"
+                    if execution_kind is WorkspaceExecutionKind.SMOKE
+                    else "kodi_rpc_diagnostic_failed"
+                ),
                 diagnostic=execution_failure.diagnostic,
             )
             raise McpWorkspaceDevelopmentError(
@@ -3887,9 +3927,27 @@ class McpWorkspaceDevelopmentService:
         workspace_id: UUID,
         generation: int,
         target_id: UUID,
+        execution_kind: WorkspaceExecutionKind,
     ) -> WorkspaceExecutionResult:
+        with self._sessions() as session:
+            request = self._request(
+                session,
+                UUID(row.client_id),
+                UUID(row.request_id),
+                EXECUTE_OPERATION_KIND,
+            )
+            fingerprint = _fingerprint(
+                EXECUTE_OPERATION_KIND,
+                workspace_id,
+                generation,
+                target_id,
+                execution_kind=execution_kind,
+            )
         if (
-            row.workspace_id != str(workspace_id)
+            request is None
+            or request.parameter_fingerprint != fingerprint
+            or row.client_id != request.client_id
+            or row.workspace_id != str(workspace_id)
             or row.generation != generation
             or row.target_id != str(target_id)
         ):

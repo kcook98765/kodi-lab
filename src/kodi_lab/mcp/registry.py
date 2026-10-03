@@ -378,7 +378,7 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             required_capabilities=frozenset({"workspace_execution"}),
             required_states=frozenset({"running", "ready", "reconciled"}),
             rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
-            adapter="agent_workspace.execute_fixed_smoke",
+            adapter="agent_workspace.execute_fixed_workflow",
             production_eligible=False,
             target_scope_required=False,
             scope=ToolScope.WORKSPACE_TARGET,

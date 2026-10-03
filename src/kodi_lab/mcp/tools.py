@@ -47,6 +47,7 @@ from kodi_lab.application.mcp_workspace_development import (
     McpWorkspaceDevelopmentError,
     McpWorkspaceDevelopmentService,
     WorkspaceDeploymentResult,
+    WorkspaceExecutionKind,
     WorkspaceExecutionResult,
 )
 from kodi_lab.application.mcp_workspace_mutations import (
@@ -482,6 +483,12 @@ class WorkspaceTargetOperationInput(BaseModel):
     target_id: UUID
 
 
+class WorkspaceExecuteInput(WorkspaceTargetOperationInput):
+    """Select only one of the server-owned execution intents."""
+
+    execution_kind: WorkspaceExecutionKind = WorkspaceExecutionKind.SMOKE
+
+
 class WorkspaceDeployInput(WorkspaceTargetOperationInput):
     """Existing deployment tool with an explicit transport selection."""
 
@@ -865,7 +872,7 @@ class McpTargetToolService:
         return result
 
     def workspace_execute(
-        self, principal: McpPrincipal, operation: WorkspaceTargetOperationInput
+        self, principal: McpPrincipal, operation: WorkspaceExecuteInput
     ) -> WorkspaceExecutionResult:
         self._authorization.authorize_workspace_target(
             principal,
@@ -882,6 +889,7 @@ class McpTargetToolService:
                 workspace_id=operation.workspace_id,
                 expected_generation=operation.expected_generation,
                 target_id=operation.target_id,
+                execution_kind=operation.execution_kind,
             )
         except McpWorkspaceDevelopmentError as error:
             raise McpAuthorizationError(

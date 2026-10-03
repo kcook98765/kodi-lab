@@ -5467,3 +5467,19 @@ approvals atomically with the governing revision transition.
 - Explicit administrative recovery of Class B is future work. This decision
   adds no Broker ledger, fencing, process epoch, or exactly-once Docker claim.
   Unsupported direct Docker mutation remains outside V1 ordering guarantees.
+
+## D-0403: Workspace execution admits one fixed negative Kodi RPC diagnostic
+
+- `workspace_execute` defaults to its unchanged bounded plugin smoke. Its only
+  additional intent is a fixed negative Kodi RPC diagnostic for a disposable
+  managed target with the same owned workspace, exact successful deployment,
+  readiness, provenance, rate limit, and `development.execute` admission. The
+  external-development execution bridge remains smoke-only; production remains
+  ineligible. The caller selects only the closed intent, never method, params,
+  path, add-on, or target outside the existing grant.
+- Kodi Lab sends exactly `KodiLab.NonexistentDiagnosticMethod` with no params.
+  A correlated Kodi JSON-RPC error truthfully fails the existing execution
+  operation as `jsonrpc_error`; its numeric code and sanitized bounded message
+  use the D-0401 fields. The existing request fingerprint binds the intent,
+  while replay returns the original operation and never redispatches. No new
+  schema, operation table, Web control, or generic JSON-RPC authority is added.

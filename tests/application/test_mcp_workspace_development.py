@@ -34,6 +34,7 @@ from kodi_lab.application.mcp_workspace_development import (
     BoundedIntervalRateLimiter,
     McpWorkspaceDevelopmentError,
     McpWorkspaceDevelopmentService,
+    WorkspaceExecutionKind,
     WorkspaceExecutionResult,
 )
 from kodi_lab.application.reconciliation import (
@@ -68,6 +69,7 @@ from kodi_lab.kodi.addons import (
     KodiAddonDetailsRecord,
     KodiAddonInventoryRecord,
     KodiAddonInventoryResult,
+    KodiAddonSmokeAdapter,
     KodiAddonSmokeJsonRpcError,
     KodiAddonSmokeResult,
     KodiAddonSmokeTimeoutError,
@@ -87,6 +89,7 @@ from kodi_lab.storage.models import (
     ExternalDevelopmentSourceBaselineRow,
     ExternalKodiTargetRow,
     ManagedInstanceDevelopmentSourceRow,
+    ManagedInstanceLifecycleOperationRow,
     ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
     McpDevelopmentRequestRow,
@@ -814,6 +817,17 @@ def test_external_deploy_execute_replay_and_drift_invalidation(tmp_path: Path) -
     )
     assert replay == first
     assert bridge.replacement_count == 1
+    with pytest.raises(McpWorkspaceDevelopmentError) as unsupported:
+        env.development.execute(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            workspace_id=env.workspace_id,
+            expected_generation=1,
+            target_id=EXTERNAL_TARGET_ID,
+            execution_kind=WorkspaceExecutionKind.KODI_RPC_NEGATIVE_DIAGNOSTIC,
+        )
+    assert unsupported.value.code == "execution_unsupported"
+    assert targets.execution_count == 0
     execute_request = uuid4()
     executed = env.development.execute(
         client_id=env.client_id,
@@ -1128,6 +1142,123 @@ def test_failed_execution_persists_safe_kodi_diagnostic_and_replays(
             "jsonrpc_error",
         )
         assert (row.kodi_error_code, row.kodi_error_message) == (code, message)
+
+
+def test_fixed_negative_diagnostic_uses_real_adapter_and_replays_without_dispatch(
+    tmp_path: Path,
+) -> None:
+    env = _environment(tmp_path)
+    payload = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": "kodi-lab-rpc-negative-diagnostic",
+            "error": {
+                "code": -32601,
+                "message": "Method\nnot found token=secret-value",
+                "data": {"secret": "unretained"},
+            },
+        }
+    ).encode()
+
+    class DiagnosticTransport:
+        def __init__(self) -> None:
+            self.requests: list[bytes] = []
+
+        def post(
+            self, *, host: str, port: int, path: str, body: bytes, timeout: float
+        ) -> bytes:
+            assert (host, port, path, timeout) == ("10.250.0.4", 8080, "/jsonrpc", 10.0)
+            self.requests.append(body)
+            return payload
+
+    transport = DiagnosticTransport()
+    env.development._smoke_factory = lambda observation, profile: KodiAddonSmokeAdapter(
+        observation, profile, transport=transport
+    )
+    request_id = uuid4()
+    with pytest.raises(McpWorkspaceDevelopmentError) as missing_deployment:
+        env.development.execute(
+            client_id=env.client_id,
+            request_id=request_id,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+            execution_kind=WorkspaceExecutionKind.KODI_RPC_NEGATIVE_DIAGNOSTIC,
+        )
+    assert missing_deployment.value.code == "execution_not_deployed"
+    assert transport.requests == []
+    _deploy_workspace(env)
+    with env.sessions() as session:
+        instance = session.get(ManagedInstanceRow, str(TARGET_ID))
+        target = session.get(TargetRow, str(TARGET_ID))
+        assert instance is not None and target is not None
+        original_revision = instance.runtime_state_revision
+        original_projection = (
+            target.availability,
+            target.health,
+            target.connection_state,
+        )
+        original_lifecycle_count = session.scalar(
+            select(func.count()).select_from(ManagedInstanceLifecycleOperationRow)
+        )
+    for _ in range(2):
+        with pytest.raises(McpWorkspaceDevelopmentError) as raised:
+            env.development.execute(
+                client_id=env.client_id,
+                request_id=request_id,
+                workspace_id=env.workspace_id,
+                expected_generation=0,
+                target_id=TARGET_ID,
+                execution_kind=WorkspaceExecutionKind.KODI_RPC_NEGATIVE_DIAGNOSTIC,
+            )
+        assert raised.value.code == "execution_failed"
+        assert raised.value.diagnostic == KodiJsonRpcDiagnostic(
+            -32601, "Method not found [redacted]"
+        )
+    assert [json.loads(body) for body in transport.requests] == [
+        {
+            "jsonrpc": "2.0",
+            "id": "kodi-lab-rpc-negative-diagnostic",
+            "method": "KodiLab.NonexistentDiagnosticMethod",
+        }
+    ]
+    with pytest.raises(McpWorkspaceDevelopmentError) as mismatched:
+        env.development.execute(
+            client_id=env.client_id,
+            request_id=request_id,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    assert mismatched.value.code == "request_id_conflict"
+    assert len(transport.requests) == 1
+    with env.sessions() as session:
+        operations = list(session.scalars(select(McpWorkspaceExecutionOperationRow)))
+        assert len(operations) == 1
+        row = operations[0]
+        assert (row.request_id, row.state, row.execution_classification) == (
+            str(request_id),
+            "failed",
+            "jsonrpc_error",
+        )
+        assert row.result_classification == "kodi_rpc_diagnostic_failed"
+        assert row.kodi_error_code == -32601
+        assert row.kodi_error_message == "Method not found [redacted]"
+        instance = session.get(ManagedInstanceRow, str(TARGET_ID))
+        target = session.get(TargetRow, str(TARGET_ID))
+        assert instance is not None and target is not None
+        assert instance.runtime_state_revision == original_revision
+        assert (
+            target.availability,
+            target.health,
+            target.connection_state,
+        ) == original_projection
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceLifecycleOperationRow)
+            )
+            == original_lifecycle_count
+        )
 
 
 def test_historical_style_failed_execution_replays_without_kodi_diagnostic(

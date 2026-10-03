@@ -78,6 +78,7 @@ from kodi_lab.mcp.tools import (
     WorkspaceDeployInput,
     WorkspaceEditInput,
     WorkspaceEditResult,
+    WorkspaceExecuteInput,
     WorkspaceReadResult,
     WorkspaceSourceScanToolResult,
     WorkspaceStatusResult,
@@ -892,13 +893,14 @@ def build_mcp_http_transport(
         ),
         "workspace_execute": Tool(
             name="workspace_execute",
-            title="Execute the fixed workspace smoke workflow",
+            title="Execute a fixed workspace workflow",
             description=(
-                "Invoke only the server-owned bounded Python video-plugin smoke "
-                "shape for an exact completed deployment. Plugin code may use the "
-                "target's existing network access."
+                "For an exact completed deployment, run the default bounded "
+                "Python video-plugin smoke or the managed-target fixed negative "
+                "Kodi RPC diagnostic. Both requests are server-owned. Plugin "
+                "code may use the target's existing network access."
             ),
-            input_schema=WorkspaceTargetOperationInput.model_json_schema(),
+            input_schema=WorkspaceExecuteInput.model_json_schema(),
             output_schema=WorkspaceExecutionResult.model_json_schema(),
             annotations=execution_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
@@ -1160,9 +1162,7 @@ def build_mcp_http_transport(
                 )
                 source_id = result.source_id
             elif params.name == "workspace_execute":
-                parsed_execution = WorkspaceTargetOperationInput.model_validate(
-                    arguments
-                )
+                parsed_execution = WorkspaceExecuteInput.model_validate(arguments)
                 workspace_id = parsed_execution.workspace_id
                 target_id = parsed_execution.target_id
                 result = await asyncio.to_thread(

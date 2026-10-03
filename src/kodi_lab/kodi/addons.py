@@ -670,7 +670,7 @@ class KodiAddonEnablementAdapter:
 
 
 class KodiAddonSmokeAdapter:
-    """Construct exactly one bounded Files.GetDirectory video-plugin request."""
+    """Dispatch one of two source-defined workspace execution requests."""
 
     def __init__(
         self,
@@ -702,6 +702,56 @@ class KodiAddonSmokeAdapter:
                 "limits": {"start": 0, "end": 1},
             },
         }
+        document, duration = self._post_invocation(request)
+        self._raise_correlated_error(document, request_id, duration)
+        if (
+            not isinstance(document, dict)
+            or document.get("jsonrpc") != "2.0"
+            or document.get("id") != request_id
+            or set(document) != {"jsonrpc", "id", "result"}
+            or not isinstance(document.get("result"), dict)
+        ):
+            raise KodiAddonSmokeAmbiguousError(
+                "Kodi plugin invocation envelope is unsupported"
+            )
+        item_count = self._validate_directory_result(
+            cast(dict[str, object], document["result"])
+        )
+        return KodiAddonSmokeResult(item_count=item_count, duration_ms=duration)
+
+    def invoke_negative_diagnostic(self) -> None:
+        """Require a correlated Kodi rejection of a nonexistent fixed method."""
+
+        request_id = "kodi-lab-rpc-negative-diagnostic"
+        request: dict[str, object] = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "KodiLab.NonexistentDiagnosticMethod",
+        }
+        document, duration = self._post_invocation(request)
+        self._raise_correlated_error(document, request_id, duration)
+        raise KodiAddonSmokeAmbiguousError("Kodi diagnostic response is unsupported")
+
+    def _raise_correlated_error(
+        self, document: object, request_id: str, duration: int
+    ) -> None:
+        if (
+            isinstance(document, dict)
+            and document.get("jsonrpc") == "2.0"
+            and document.get("id") == request_id
+            and set(document) == {"jsonrpc", "id", "error"}
+            and self._valid_error(document.get("error"))
+        ):
+            jsonrpc_error = cast(dict[str, object], document["error"])
+            raise KodiAddonSmokeJsonRpcError(
+                duration,
+                diagnostic=KodiJsonRpcDiagnostic(
+                    code=cast(int, jsonrpc_error["code"]),
+                    message=cast(str, jsonrpc_error["message"]),
+                ),
+            )
+
+    def _post_invocation(self, request: dict[str, object]) -> tuple[object, int]:
         started = self._clock()
         try:
             payload = self._transport.post(
@@ -727,36 +777,7 @@ class KodiAddonSmokeAdapter:
             raise KodiAddonSmokeAmbiguousError(
                 "Kodi plugin invocation response is unsupported"
             ) from error
-        duration = self._duration_ms(started)
-        if (
-            isinstance(document, dict)
-            and document.get("jsonrpc") == "2.0"
-            and document.get("id") == request_id
-            and set(document) == {"jsonrpc", "id", "error"}
-            and self._valid_error(document.get("error"))
-        ):
-            jsonrpc_error = cast(dict[str, object], document["error"])
-            raise KodiAddonSmokeJsonRpcError(
-                duration,
-                diagnostic=KodiJsonRpcDiagnostic(
-                    code=cast(int, jsonrpc_error["code"]),
-                    message=cast(str, jsonrpc_error["message"]),
-                ),
-            )
-        if (
-            not isinstance(document, dict)
-            or document.get("jsonrpc") != "2.0"
-            or document.get("id") != request_id
-            or set(document) != {"jsonrpc", "id", "result"}
-            or not isinstance(document.get("result"), dict)
-        ):
-            raise KodiAddonSmokeAmbiguousError(
-                "Kodi plugin invocation envelope is unsupported"
-            )
-        item_count = self._validate_directory_result(
-            cast(dict[str, object], document["result"])
-        )
-        return KodiAddonSmokeResult(item_count=item_count, duration_ms=duration)
+        return document, self._duration_ms(started)
 
     def _duration_ms(self, started: float) -> int:
         return max(0, min(90_000, round((self._clock() - started) * 1000)))
