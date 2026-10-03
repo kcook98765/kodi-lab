@@ -215,6 +215,11 @@ from kodi_lab.application.external_targets import (
     ExternalTargetRead,
     ProductionMutationControlRead,
 )
+from kodi_lab.application.historical_workspace_execution_containment import (
+    HistoricalContainmentError,
+    HistoricalContainmentResult,
+    HistoricalWorkspaceExecutionContainmentService,
+)
 from kodi_lab.application.instance_delete_operations import (
     ManagedInstanceDeleteConflictError,
     ManagedInstanceDeleteNotFoundError,
@@ -1056,6 +1061,14 @@ class ExternalDeploymentReconciliationRequest(BaseModel):
     confirmed: Literal[True]
 
 
+class HistoricalContainmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    expected_runtime_state_revision: int = Field(ge=0)
+    confirmed: Literal[True]
+
+
 @dataclass(frozen=True, slots=True)
 class WebApplicationContext:
     settings: Settings
@@ -1121,6 +1134,9 @@ class WebApplicationContext:
     agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
     mcp_workspace_retention: McpWorkspaceRetentionService
     mcp_workspace_development: McpWorkspaceDevelopmentService
+    historical_workspace_execution_containment: (
+        HistoricalWorkspaceExecutionContainmentService
+    )
     mcp_promotion_requests: McpPromotionRequestService
     agent_workspace_promotions: AgentWorkspacePromotionService
     promotion_verifications: PromotionVerificationService
@@ -1832,6 +1848,9 @@ def create_app(
         agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
         mcp_workspace_retention=mcp_workspace_retention,
         mcp_workspace_development=mcp_workspace_development,
+        historical_workspace_execution_containment=(
+            HistoricalWorkspaceExecutionContainmentService(session_factory, broker)
+        ),
         mcp_promotion_requests=mcp_promotion_requests,
         agent_workspace_promotions=agent_workspace_promotions,
         promotion_verifications=promotion_verifications,
@@ -1989,6 +2008,16 @@ def create_app(
         if not context.auth.csrf_matches(authenticated, supplied):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
         return authenticated
+
+    @app.exception_handler(HistoricalContainmentError)
+    async def historical_containment_error(
+        _request: Request, error: HistoricalContainmentError
+    ) -> JSONResponse:
+        return _json_error(
+            409,
+            error.code,
+            "Historical workspace execution containment was not established.",
+        )
 
     @app.exception_handler(ManagedInstanceNotFoundError)
     async def instance_not_found(
@@ -6142,6 +6171,24 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedRuntimeStatus:
         return context.lifecycle.stop(instance_id)
+
+    @app.post(
+        "/api/instances/{instance_id}/workspace-executions/"
+        "{execution_operation_id}/historical-containment",
+        response_model=HistoricalContainmentResult,
+    )
+    def resolve_historical_workspace_execution_containment(
+        instance_id: UUID,
+        execution_operation_id: UUID,
+        body: HistoricalContainmentRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> HistoricalContainmentResult:
+        return context.historical_workspace_execution_containment.resolve(
+            request_id=body.request_id,
+            execution_operation_id=execution_operation_id,
+            managed_instance_id=instance_id,
+            expected_runtime_state_revision=body.expected_runtime_state_revision,
+        )
 
     @app.post(
         "/api/instances/{instance_id}/deprovision",

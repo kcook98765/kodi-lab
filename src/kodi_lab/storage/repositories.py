@@ -160,6 +160,7 @@ from kodi_lab.storage.models import (
     DevelopmentSourceSmokeTestOperationRow,
     FixtureDefinitionRow,
     GlobalHeavyOperationLeaseRow,
+    HistoricalWorkspaceExecutionContainmentResolutionRow,
     ManagedInstanceAddonRepositorySourceRow,
     ManagedInstanceDeleteOperationRow,
     ManagedInstanceDevelopmentSourceRow,
@@ -6519,7 +6520,12 @@ class ManagedInstanceLifecycleOperationRepository:
             return 0
         result = self._session.execute(
             delete(ManagedInstanceLifecycleOperationRow).where(
-                ManagedInstanceLifecycleOperationRow.id.in_(old_ids)
+                ManagedInstanceLifecycleOperationRow.id.in_(old_ids),
+                ~ManagedInstanceLifecycleOperationRow.id.in_(
+                    select(
+                        HistoricalWorkspaceExecutionContainmentResolutionRow.stop_operation_id
+                    )
+                ),
             )
         )
         return int(getattr(result, "rowcount", 0))

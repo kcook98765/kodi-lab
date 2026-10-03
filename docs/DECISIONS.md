@@ -5557,3 +5557,32 @@ approvals atomically with the governing revision transition.
   action can use this same primitive. V1 exposes only the narrow MCP tool;
   Web action and historical-row repair are outside this decision. No generic
   reconciliation, Docker, remote action, or Bridge authority is added.
+
+## D-0406: Record later containment of historical workspace execution ambiguity
+
+- Pre-0065 workspace executions can have a dispatched timeout ambiguity but no
+  trusted original container identity. They remain ineligible for D-0405
+  recovery. A separate immutable administrative containment resolution records
+  a later fact; it never changes the execution or its replay.
+- Eligibility requires exactly one blocking historical workspace execution on
+  the same managed disposable instance, a successful matching deployment, a
+  later successful lifecycle STOP as the latest lifecycle operation, no active
+  mutation lease, durable stopped state and an expected runtime revision.
+  Current broker inventory must identify exactly one stopped owned container
+  whose image ID matches the instance's pinned runtime artifact.
+  A stopped Docker container has no running process in its runtime. The
+  resolution holds SQLite's writer reservation through that observation, so
+  supported lifecycle and other leased mutations cannot race its proof.
+- The record binds one execution, the managed instance, the local administrator,
+  request ID, retained STOP operation, observed runtime revision, and completed
+  stopped proof. Duplicate execution or request IDs are forbidden. Its STOP
+  history is retained during normal lifecycle pruning. The record is immutable
+  and a populated migration cannot be downgraded.
+- Reconciliation omits only the exact historical execution with a completed
+  valid containment record. Other blockers still block. START remains a
+  separate ordinary lifecycle action after containment. No lifecycle effect or
+  historical container identity is inferred by this action.
+- Only the authenticated local administrator Web API can request this action,
+  with same-origin, CSRF, exact request ID, expected revision, and explicit
+  confirmation. No MCP tool or grant exposes it. The Web presentation may be
+  added separately; the API communicates the original ambiguous state.

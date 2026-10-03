@@ -6708,6 +6708,53 @@ class WorkspaceExecutionRecoveryOperationRow(Base):
     completed_at: Mapped[str | None] = mapped_column(String(27))
 
 
+class HistoricalWorkspaceExecutionContainmentResolutionRow(Base):
+    """Immutable later proof of stopped disposable runtime, not an execution result."""
+
+    __tablename__ = "historical_workspace_execution_containment_resolutions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(id)=36 AND length(request_id)=36 AND "
+            "length(execution_operation_id)=36 AND length(managed_instance_id)=36 "
+            "AND length(stop_operation_id)=36 AND observed_runtime_state_revision>=0",
+            name="historical_containment_identity_shape",
+        ),
+        CheckConstraint(
+            "administrator_key='local-admin' AND state='completed' AND "
+            "proof='broker_stopped' AND length(requested_at)=27 AND "
+            "length(completed_at)=27",
+            name="historical_containment_completed_proof",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    execution_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("mcp_workspace_execution_operations.id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    administrator_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    stop_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instance_lifecycle_operations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    observed_runtime_state_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    proof: Mapped[str] = mapped_column(String(32), nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    completed_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class McpTargetPresetAssignmentRow(Base):
     """Current target-side policy assignment on the common target identity."""
 
@@ -7465,6 +7512,33 @@ for _trigger_sql in _CAPABILITY_AMENDMENT_CREATE_TRIGGERS:
     )
 
 for _trigger_sql in DEVELOPMENT_CAPABILITY_TRIGGERS:
+    event.listen(
+        Base.metadata,
+        "after_create",
+        DDL(_trigger_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
+    )
+
+for _trigger_sql in (
+    "CREATE TRIGGER trg_historical_containment_eligible BEFORE INSERT ON "
+    "historical_workspace_execution_containment_resolutions WHEN NOT EXISTS "
+    "(SELECT 1 FROM mcp_workspace_execution_operations e WHERE "
+    "e.id=NEW.execution_operation_id AND e.target_id=NEW.managed_instance_id "
+    "AND e.state='ambiguous' AND e.invocation_dispatched=1 AND "
+    "e.execution_classification='timeout' AND "
+    "e.failure_code='execution_ambiguous' AND e.execution_kind IS NULL AND "
+    "e.original_container_id IS NULL AND "
+    "e.original_runtime_state_revision IS NULL) OR EXISTS "
+    "(SELECT 1 FROM workspace_execution_recovery_operations r WHERE "
+    "r.execution_operation_id=NEW.execution_operation_id AND "
+    "r.state='completed' AND r.outcome='recovered') BEGIN "
+    "SELECT RAISE(ABORT,'historical_containment_ineligible'); END",
+    "CREATE TRIGGER trg_historical_containment_immutable BEFORE UPDATE ON "
+    "historical_workspace_execution_containment_resolutions BEGIN "
+    "SELECT RAISE(ABORT,'historical_containment_immutable'); END",
+    "CREATE TRIGGER trg_historical_containment_no_delete BEFORE DELETE ON "
+    "historical_workspace_execution_containment_resolutions BEGIN "
+    "SELECT RAISE(ABORT,'historical_containment_immutable'); END",
+):
     event.listen(
         Base.metadata,
         "after_create",

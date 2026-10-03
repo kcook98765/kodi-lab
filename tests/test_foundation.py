@@ -264,6 +264,7 @@ def test_migration_metadata_contains_core_storage_tables() -> None:
         "mcp_workspace_deployment_operations",
         "mcp_workspace_execution_operations",
         "workspace_execution_recovery_operations",
+        "historical_workspace_execution_containment_resolutions",
         "mcp_presets",
         "mcp_production_screenshot_receipts",
         "mcp_production_navigation_audits",

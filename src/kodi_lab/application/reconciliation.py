@@ -82,6 +82,7 @@ from kodi_lab.domain import (
 from kodi_lab.snapshot.storage import snapshot_artifact_presence
 from kodi_lab.storage.models import (
     GlobalHeavyOperationLeaseRow,
+    HistoricalWorkspaceExecutionContainmentResolutionRow,
     ManagedInstanceMutationLeaseRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
@@ -1531,6 +1532,26 @@ class ManagedInstanceReconciliationService:
                     and execution_item.execution_classification == "timeout"
                     and execution_item.failure_code == "execution_ambiguous"
                     and execution_item.original_container_id is not None
+                ):
+                    continue
+                containment = session.scalar(
+                    select(HistoricalWorkspaceExecutionContainmentResolutionRow).where(
+                        HistoricalWorkspaceExecutionContainmentResolutionRow.execution_operation_id
+                        == execution_item.id
+                    )
+                )
+                if (
+                    containment is not None
+                    and containment.managed_instance_id == str(instance_id)
+                    and containment.state == "completed"
+                    and containment.proof == "broker_stopped"
+                    and execution_item.state == "ambiguous"
+                    and execution_item.invocation_dispatched
+                    and execution_item.execution_classification == "timeout"
+                    and execution_item.failure_code == "execution_ambiguous"
+                    and execution_item.execution_kind is None
+                    and execution_item.original_container_id is None
+                    and execution_item.original_runtime_state_revision is None
                 ):
                     continue
                 records.append(

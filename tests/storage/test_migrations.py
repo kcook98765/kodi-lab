@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0065_workspace_execution_recovery",)
+        ).fetchone() == ("0066_historical_workspace_execution_containment",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -326,6 +326,48 @@ def test_empty_workspace_execution_recovery_downgrade(
     engine.dispose()
 
 
+def test_historical_containment_migration_and_empty_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch,
+        tmp_path,
+        start_revision="0065_workspace_execution_recovery",
+    )
+    command.upgrade(config, "0066_historical_workspace_execution_containment")
+    engine = create_database_engine(database_url)
+    table = "historical_workspace_execution_containment_resolutions"
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0066_historical_workspace_execution_containment"
+        )
+        assert table in inspect(connection).get_table_names()
+        foreign_keys = {
+            key["referred_table"] for key in inspect(connection).get_foreign_keys(table)
+        }
+        assert {
+            "mcp_workspace_execution_operations",
+            "managed_instances",
+            "managed_instance_lifecycle_operations",
+        } <= foreign_keys
+        triggers = {
+            row[0]
+            for row in connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type='trigger'")
+            )
+        }
+        assert {
+            "trg_historical_containment_eligible",
+            "trg_historical_containment_immutable",
+            "trg_historical_containment_no_delete",
+        } <= triggers
+    engine.dispose()
+    command.downgrade(config, "0065_workspace_execution_recovery")
+    engine = create_database_engine(database_url)
+    assert table not in inspect(engine).get_table_names()
+    engine.dispose()
+
+
 def test_failed_migration_command_cannot_poison_later_clone(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -441,6 +483,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_workspace_deployment_operations",
         "mcp_workspace_execution_operations",
         "workspace_execution_recovery_operations",
+        "historical_workspace_execution_containment_resolutions",
         "mcp_workspace_validations",
         "managed_instance_delete_operations",
         "managed_instance_addon_repository_sources",
