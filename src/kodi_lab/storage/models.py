@@ -6468,6 +6468,22 @@ class McpWorkspaceExecutionOperationRow(Base):
     __tablename__ = "mcp_workspace_execution_operations"
     __table_args__ = (
         CheckConstraint(
+            "execution_kind IS NULL OR execution_kind IN "
+            "('smoke','kodi_rpc_negative_diagnostic')",
+            name="mcp_workspace_execution_kind_closed",
+        ),
+        CheckConstraint(
+            "(original_container_id IS NULL AND "
+            "original_runtime_state_revision IS NULL) OR "
+            "(original_container_id IS NOT NULL AND "
+            "original_runtime_state_revision IS NOT NULL AND "
+            "COALESCE(execution_kind,'')='smoke' AND invocation_dispatched=1 AND "
+            "length(original_container_id)=64 AND "
+            "original_container_id NOT GLOB '*[^0-9a-f]*' AND "
+            "original_runtime_state_revision>=0)",
+            name="mcp_workspace_execution_recovery_identity_shape",
+        ),
+        CheckConstraint(
             "length(id)=36 AND length(client_id)=36 AND length(request_id)=36 "
             "AND length(workspace_id)=36 AND length(development_source_id)=36 "
             "AND length(target_id)=36 AND length(deployment_id)=36",
@@ -6613,6 +6629,9 @@ class McpWorkspaceExecutionOperationRow(Base):
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
     addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
     addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    execution_kind: Mapped[str | None] = mapped_column(String(32))
+    original_container_id: Mapped[str | None] = mapped_column(String(64))
+    original_runtime_state_revision: Mapped[int | None] = mapped_column(Integer)
     state: Mapped[str] = mapped_column(String(32), nullable=False)
     phase: Mapped[str] = mapped_column(String(16), nullable=False)
     invocation_dispatched: Mapped[bool] = mapped_column(Boolean, nullable=False)
@@ -6629,6 +6648,63 @@ class McpWorkspaceExecutionOperationRow(Base):
     addon_exception_detail: Mapped[str | None] = mapped_column(String(128))
     requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
     started_at: Mapped[str | None] = mapped_column(String(27))
+    completed_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class WorkspaceExecutionRecoveryOperationRow(Base):
+    """One separately auditable containment attempt for an ambiguous smoke."""
+
+    __tablename__ = "workspace_execution_recovery_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "client_id", "request_id", name="uq_workspace_execution_recovery_request"
+        ),
+        UniqueConstraint(
+            "execution_operation_id", name="uq_workspace_execution_recovery_execution"
+        ),
+        CheckConstraint(
+            "length(id)=36 AND length(client_id)=36 AND length(request_id)=36 "
+            "AND length(execution_operation_id)=36 AND owned_runtime_state_revision>=0",
+            name="workspace_execution_recovery_identity_shape",
+        ),
+        CheckConstraint(
+            "state IN ('running','completed') AND "
+            "phase IN ('reserved','stopping','contained','starting',"
+            "'verifying','finalized') "
+            "AND ((state='running' AND outcome IS NULL AND completed_at IS NULL) OR "
+            "(state='completed' AND phase='finalized' AND completed_at IS NOT NULL "
+            "AND outcome IN ('recovered','contained_but_not_ready',"
+            "'still_requires_admin')))",
+            name="workspace_execution_recovery_state_closed",
+        ),
+        CheckConstraint(
+            "outcome<>'recovered' OR "
+            "(containment_confirmed=1 AND readiness_confirmed=1 "
+            "AND provenance_confirmed=1)",
+            name="workspace_execution_recovery_proof_required",
+        ),
+        CheckConstraint(
+            "outcome<>'contained_but_not_ready' OR containment_confirmed=1",
+            name="workspace_execution_recovery_containment_required",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    execution_operation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("mcp_workspace_execution_operations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    phase: Mapped[str] = mapped_column(String(24), nullable=False)
+    outcome: Mapped[str | None] = mapped_column(String(32))
+    owned_runtime_state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    containment_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    readiness_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    provenance_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
     completed_at: Mapped[str | None] = mapped_column(String(27))
 
 

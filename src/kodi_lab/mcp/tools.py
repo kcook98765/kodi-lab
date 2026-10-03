@@ -82,6 +82,10 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotService,
     ScreenshotServiceError,
 )
+from kodi_lab.application.workspace_execution_recovery import (
+    WorkspaceExecutionRecoveryError,
+    WorkspaceExecutionRecoveryResult,
+)
 from kodi_lab.application.workspace_source_captures import (
     WorkspaceSourceCaptureError,
     WorkspaceSourceCaptureService,
@@ -487,6 +491,15 @@ class WorkspaceExecuteInput(WorkspaceTargetOperationInput):
     """Select only one of the server-owned execution intents."""
 
     execution_kind: WorkspaceExecutionKind = WorkspaceExecutionKind.SMOKE
+
+
+class WorkspaceExecutionRecoverInput(BaseModel):
+    """Select an existing ambiguous operation; all runtime details are derived."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    execution_operation_id: UUID
 
 
 class WorkspaceDeployInput(WorkspaceTargetOperationInput):
@@ -902,6 +915,28 @@ class McpTargetToolService:
                     error.addon_exception if error.code == "execution_failed" else None
                 ),
             ) from error
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_execution_recover(
+        self, principal: McpPrincipal, operation: WorkspaceExecutionRecoverInput
+    ) -> WorkspaceExecutionRecoveryResult:
+        if self._workspace_development is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            workspace_id, target_id = self._workspace_development.recovery_context(
+                principal.client_id, operation.execution_operation_id
+            )
+            self._authorization.authorize_workspace_target(
+                principal, "workspace_execution_recover", workspace_id, target_id
+            )
+            result = self._workspace_development.recover_execution(
+                client_id=principal.client_id,
+                request_id=operation.request_id,
+                execution_operation_id=operation.execution_operation_id,
+            )
+        except WorkspaceExecutionRecoveryError as error:
+            raise McpAuthorizationError(error.code) from error
         self._require_development_bounded(result)
         return result
 

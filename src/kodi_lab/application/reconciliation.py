@@ -85,6 +85,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceMutationLeaseRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
+    WorkspaceExecutionRecoveryOperationRow,
 )
 from kodi_lab.storage.repositories import (
     AddonRepositoryFetchOperationRepository,
@@ -862,6 +863,31 @@ class StaleOperationReconciliationDispatcher:
                 else "not_attempted"
             )
             workspace_execution.completed_at = _timestamp_text(now)
+        elif kind is ManagedInstanceMutationKind.WORKSPACE_EXECUTION_RECOVERY:
+            recovery = session.get(
+                WorkspaceExecutionRecoveryOperationRow, str(operation_id)
+            )
+            original = (
+                None
+                if recovery is None
+                else session.get(
+                    McpWorkspaceExecutionOperationRow,
+                    recovery.execution_operation_id,
+                )
+            )
+            if (
+                recovery is None
+                or original is None
+                or original.target_id != str(instance_id)
+                or recovery.state != "running"
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired workspace-recovery ownership is inconsistent."
+                )
+            recovery.state = "completed"
+            recovery.phase = "finalized"
+            recovery.outcome = "still_requires_admin"
+            recovery.completed_at = _timestamp_text(now)
         elif kind is ManagedInstanceMutationKind.DEVELOPMENT_SOURCE_SMOKE_TEST:
             operation = DevelopmentSourceSmokeTestOperationRepository(session).get(
                 operation_id
@@ -1476,17 +1502,43 @@ class ManagedInstanceReconciliationService:
                     )
                 )
             )
-            records.extend(
-                (ReconciliationOperationKind.MCP_WORKSPACE_EXECUTION, item)
-                for item in session.scalars(
-                    select(McpWorkspaceExecutionOperationRow).where(
-                        McpWorkspaceExecutionOperationRow.target_id == str(instance_id),
-                        McpWorkspaceExecutionOperationRow.state.in_(
-                            ("ambiguous", "reconciliation_required")
-                        ),
+            recovery_outcomes: dict[str, str] = {}
+            for execution_item in session.scalars(
+                select(McpWorkspaceExecutionOperationRow).where(
+                    McpWorkspaceExecutionOperationRow.target_id == str(instance_id),
+                    McpWorkspaceExecutionOperationRow.state.in_(
+                        ("ambiguous", "reconciliation_required")
+                    ),
+                )
+            ):
+                recovery = session.scalar(
+                    select(WorkspaceExecutionRecoveryOperationRow).where(
+                        WorkspaceExecutionRecoveryOperationRow.execution_operation_id
+                        == execution_item.id
                     )
                 )
-            )
+                if recovery is not None:
+                    recovery_outcomes[execution_item.id] = recovery.outcome or "running"
+                if (
+                    recovery is not None
+                    and recovery.state == "completed"
+                    and recovery.outcome == "recovered"
+                    and recovery.containment_confirmed
+                    and recovery.readiness_confirmed
+                    and recovery.provenance_confirmed
+                    and execution_item.state == "ambiguous"
+                    and execution_item.execution_kind == "smoke"
+                    and execution_item.execution_classification == "timeout"
+                    and execution_item.failure_code == "execution_ambiguous"
+                    and execution_item.original_container_id is not None
+                ):
+                    continue
+                records.append(
+                    (
+                        ReconciliationOperationKind.MCP_WORKSPACE_EXECUTION,
+                        execution_item,
+                    )
+                )
             snapshots = SnapshotRepository(session)
             if (
                 len(records) == 1
@@ -1570,7 +1622,15 @@ class ManagedInstanceReconciliationService:
         elif kind is ReconciliationOperationKind.MCP_WORKSPACE_DEPLOYMENT:
             observed = "workspace_deployment_requires_read_only_inspection"
         elif kind is ReconciliationOperationKind.MCP_WORKSPACE_EXECUTION:
-            observed = "workspace_execution_result_is_ambiguous"
+            assert isinstance(operation, McpWorkspaceExecutionOperationRow)
+            outcome = recovery_outcomes.get(operation.id)
+            observed = (
+                "workspace_execution_contained_but_not_ready"
+                if outcome == "contained_but_not_ready"
+                else "workspace_execution_recovery_still_requires_admin"
+                if outcome == "still_requires_admin"
+                else "workspace_execution_result_is_ambiguous"
+            )
         reason = {
             ReconciliationOperationKind.LIFECYCLE: (
                 "Lifecycle state requires operator reconciliation."

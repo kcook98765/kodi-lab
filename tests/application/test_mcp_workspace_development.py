@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -37,9 +39,18 @@ from kodi_lab.application.mcp_workspace_development import (
     WorkspaceExecutionKind,
     WorkspaceExecutionResult,
 )
+from kodi_lab.application.readiness_tasks import (
+    ReadinessTaskRegistry,
+    ReadinessTaskState,
+)
 from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationService,
     ReconciliationAction,
+    StaleOperationReconciliationDispatcher,
+)
+from kodi_lab.application.workspace_execution_recovery import (
+    WorkspaceExecutionRecoveryError,
+    WorkspaceExecutionRecoveryOutcome,
 )
 from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
@@ -63,12 +74,18 @@ from kodi_lab.broker.operations import (
 )
 from kodi_lab.broker.smoke_diagnostics import SqliteSmokeLogAuthorityResolver
 from kodi_lab.domain import (
+    AgentWorkspaceState,
+    ConnectionState,
     DevelopmentSource,
     DevelopmentSourceKind,
     ExternalAdministrativeState,
     ExternalBridgePairingState,
     ExternalBridgeReachabilityState,
+    HealthStatus,
+    InstanceRuntimeState,
     InstanceType,
+    ManagedInstanceMutationKind,
+    TargetAvailability,
     TargetType,
 )
 from kodi_lab.domain.smoke_diagnostics import (
@@ -87,11 +104,17 @@ from kodi_lab.kodi.addons import (
     KodiReportedAddonDependency,
 )
 from kodi_lab.kodi.bridge import BridgeAddonTree, BridgeDeploymentReceipt
-from kodi_lab.kodi.readiness import KodiApplicationIdentity, UsabilityState
+from kodi_lab.kodi.readiness import (
+    JsonRpcState,
+    KodiApplicationIdentity,
+    ReadinessResult,
+    UsabilityState,
+)
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.models import (
     AgentWorkspacePromotionPlanRow,
+    AgentWorkspaceRow,
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
     ExternalBridgeDeploymentReceiptRow,
@@ -102,6 +125,8 @@ from kodi_lab.storage.models import (
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
+    McpClientDevelopmentSourceGrantRow,
+    McpClientTargetGrantRow,
     McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
@@ -109,8 +134,15 @@ from kodi_lab.storage.models import (
     RuntimeExecutionProfileRow,
     RuntimeRevisionRow,
     TargetRow,
+    WorkspaceExecutionRecoveryOperationRow,
 )
-from kodi_lab.storage.repositories import DevelopmentSourceRepository
+from kodi_lab.storage.repositories import (
+    DevelopmentSourceRepository,
+    ManagedInstanceMutationLeaseRepository,
+    ManagedRuntimeCurrentProjection,
+    ManagedRuntimeProjectionRepository,
+    ManagedRuntimeProjectionResult,
+)
 
 SOURCE_ID = UUID("72000000-0000-4000-8000-000000000001")
 TARGET_ID = UUID("72000000-0000-4000-8000-000000000002")
@@ -159,6 +191,8 @@ class FakeBroker:
     stop_count: int = 0
     sync_count: int = 0
     start_count: int = 0
+    last_stop_kwargs: dict[str, Any] | None = None
+    last_start_kwargs: dict[str, Any] | None = None
     verify_count: int = 0
     fail_sync: BaseException | None = None
     capture_count: int = 0
@@ -229,13 +263,19 @@ class FakeBroker:
 
     def stop_managed_container(self, **_kwargs: Any) -> object:
         self.stop_count += 1
+        self.last_stop_kwargs = _kwargs
         self.state = ContainerRuntimeState.STOPPED
-        return object()
+        return SimpleNamespace(
+            container_id=CONTAINER_ID, runtime_state=ContainerRuntimeState.STOPPED
+        )
 
     def start_managed_container(self, **_kwargs: Any) -> object:
         self.start_count += 1
+        self.last_start_kwargs = _kwargs
         self.state = ContainerRuntimeState.RUNNING
-        return object()
+        return SimpleNamespace(
+            container_id=CONTAINER_ID, runtime_state=ContainerRuntimeState.RUNNING
+        )
 
     def copy_sync_mcp_workspace(
         self, **kwargs: Any
@@ -1918,6 +1958,675 @@ def test_execution_timeout_after_dispatch_is_ambiguous_and_not_retried(
         row = session.scalar(select(McpWorkspaceExecutionOperationRow))
         assert row is not None
         assert (row.kodi_error_code, row.kodi_error_message) == (None, None)
+
+
+def _ambiguous_recovery_environment(tmp_path: Path) -> tuple[Environment, UUID, UUID]:
+    env = _environment(tmp_path)
+    _deploy_workspace(env)
+    with env.sessions.begin() as session:
+        session.add(
+            McpClientTargetGrantRow(
+                client_id=str(env.client_id),
+                target_id=str(TARGET_ID),
+                grant_id=str(uuid4()),
+                created_at=NOW_TEXT,
+            )
+        )
+        session.add(
+            McpClientDevelopmentSourceGrantRow(
+                client_id=str(env.client_id),
+                development_source_id=str(SOURCE_ID),
+                created_at=NOW_TEXT,
+            )
+        )
+
+    def timeout(_addon_id: str) -> KodiAddonSmokeResult:
+        env.smoke.count += 1
+        raise KodiAddonSmokeTimeoutError(10)
+
+    env.smoke.invoke = timeout  # type: ignore[assignment]
+    execution_request = uuid4()
+    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_ambiguous"):
+        env.development.execute(
+            client_id=env.client_id,
+            request_id=execution_request,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    with env.sessions() as session:
+        execution = session.scalar(select(McpWorkspaceExecutionOperationRow))
+        assert execution is not None
+        assert execution.execution_kind == "smoke"
+        assert execution.original_container_id == CONTAINER_ID
+        assert execution.original_runtime_state_revision is not None
+        return env, execution_request, UUID(execution.id)
+
+
+def test_ambiguous_workspace_smoke_recovery_is_separate_and_one_shot(
+    tmp_path: Path,
+) -> None:
+    env, execution_request, execution_id = _ambiguous_recovery_environment(tmp_path)
+    reconciliation = ManagedInstanceReconciliationService(env.sessions)
+    assert reconciliation.status(TARGET_ID).blocking
+    with env.sessions() as session:
+        stale_token = ManagedRuntimeProjectionRepository(session).observation_token(
+            TARGET_ID
+        )
+    assert stale_token is not None
+    stops = env.broker.stop_count
+    starts = env.broker.start_count
+    request_id = uuid4()
+    recovered = env.development.recover_execution(
+        client_id=env.client_id,
+        request_id=request_id,
+        execution_operation_id=execution_id,
+    )
+    assert recovered.outcome is WorkspaceExecutionRecoveryOutcome.RECOVERED
+    assert set(recovered.model_dump()) == {
+        "schema_version",
+        "request_id",
+        "execution_operation_id",
+        "recovery_operation_id",
+        "outcome",
+    }
+    assert env.broker.stop_count == stops + 1
+    assert env.broker.start_count == starts + 1
+    assert env.broker.last_stop_kwargs == {
+        "managed_instance_id": str(TARGET_ID),
+        "expected_container_id": CONTAINER_ID,
+        "expected_runtime_state": ContainerRuntimeState.RUNNING,
+    }
+    assert env.broker.last_start_kwargs == {
+        "managed_instance_id": str(TARGET_ID),
+        "expected_container_id": CONTAINER_ID,
+        "expected_runtime_state": ContainerRuntimeState.STOPPED,
+    }
+    assert not reconciliation.status(TARGET_ID).blocking
+    with env.sessions.begin() as session:
+        stale_result = ManagedRuntimeProjectionRepository(session).compare_and_set(
+            stale_token,
+            ManagedRuntimeCurrentProjection(
+                runtime_state=InstanceRuntimeState.STOPPED,
+                availability=TargetAvailability.UNAVAILABLE,
+                health=HealthStatus.WARNING,
+                connection_state=ConnectionState.DISCONNECTED,
+            ),
+        )
+        assert stale_result is ManagedRuntimeProjectionResult.STALE
+    with env.sessions() as session:
+        execution = session.get(McpWorkspaceExecutionOperationRow, str(execution_id))
+        recovery = session.get(
+            WorkspaceExecutionRecoveryOperationRow, str(recovered.recovery_operation_id)
+        )
+        instance = session.get(ManagedInstanceRow, str(TARGET_ID))
+        assert execution is not None and recovery is not None and instance is not None
+        assert execution.state == "ambiguous"
+        assert execution.failure_code == "execution_ambiguous"
+        assert recovery.execution_operation_id == execution.id
+        assert recovery.containment_confirmed
+        assert recovery.readiness_confirmed
+        assert recovery.provenance_confirmed
+        assert (
+            instance.runtime_state_revision == recovery.owned_runtime_state_revision + 1
+        )
+    assert (
+        _restarted_development(env, tmp_path).recover_execution(
+            client_id=env.client_id,
+            request_id=request_id,
+            execution_operation_id=execution_id,
+        )
+        == recovered
+    )
+    with pytest.raises(WorkspaceExecutionRecoveryError, match="request_id_conflict"):
+        env.development.recover_execution(
+            client_id=env.client_id,
+            request_id=request_id,
+            execution_operation_id=uuid4(),
+        )
+    with pytest.raises(WorkspaceExecutionRecoveryError, match="recovery_not_allowed"):
+        env.development.recover_execution(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            execution_operation_id=execution_id,
+        )
+    with pytest.raises(McpWorkspaceDevelopmentError, match="execution_ambiguous"):
+        env.development.execute(
+            client_id=env.client_id,
+            request_id=execution_request,
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    assert env.smoke.count == 1
+    assert env.broker.stop_count == stops + 1
+    assert env.broker.start_count == starts + 1
+
+
+def test_recovery_registers_restored_readiness_for_runtime_status(
+    tmp_path: Path,
+) -> None:
+    env, _request, execution_id = _ambiguous_recovery_environment(tmp_path)
+    registry = ReadinessTaskRegistry(max_workers=1)
+    try:
+        env.development._recovery._readiness_registry = registry
+        env.development._recovery._readiness_factory = lambda _broker, _profile: (
+            SimpleNamespace(
+                wait_until_usable=lambda _target, *, cancelled: ReadinessResult(
+                    container_state=ContainerRuntimeState.RUNNING,
+                    process_state=KodiProcessState.RUNNING,
+                    jsonrpc_state=JsonRpcState.RESPONSIVE,
+                    usability_state=UsabilityState.USABLE,
+                    failure_reason=None,
+                    last_observed_failure=None,
+                    identity=None,
+                    elapsed_seconds=0,
+                    attempts=1,
+                )
+            )
+        )
+        recovered = env.development.recover_execution(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            execution_operation_id=execution_id,
+        )
+        assert recovered.outcome is WorkspaceExecutionRecoveryOutcome.RECOVERED
+        assert registry.snapshot(TARGET_ID).state is ReadinessTaskState.USABLE
+    finally:
+        registry.close()
+
+
+def test_historical_ambiguous_smoke_without_runtime_identity_remains_blocking(
+    tmp_path: Path,
+) -> None:
+    env, _request, execution_id = _ambiguous_recovery_environment(tmp_path)
+    with env.sessions.begin() as session:
+        execution = session.get(McpWorkspaceExecutionOperationRow, str(execution_id))
+        assert execution is not None
+        execution.original_container_id = None
+        execution.original_runtime_state_revision = None
+    stops = env.broker.stop_count
+    with pytest.raises(WorkspaceExecutionRecoveryError, match="recovery_not_allowed"):
+        env.development.recover_execution(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            execution_operation_id=execution_id,
+        )
+    assert env.broker.stop_count == stops
+    assert ManagedInstanceReconciliationService(env.sessions).status(TARGET_ID).blocking
+
+
+def test_unusable_container_identity_still_persists_smoke_dispatch_marker(
+    tmp_path: Path,
+) -> None:
+    env, _request, execution_id = _ambiguous_recovery_environment(tmp_path)
+    token_digest = "b" * 64
+    with env.sessions.begin() as session:
+        operation = session.get(McpWorkspaceExecutionOperationRow, str(execution_id))
+        assert operation is not None
+        deployment = session.get(
+            McpWorkspaceDeploymentOperationRow, operation.deployment_id
+        )
+        assert deployment is not None
+        operation.state = "running"
+        operation.completed_at = None
+        operation.invocation_dispatched = False
+        operation.original_container_id = None
+        operation.original_runtime_state_revision = None
+        leases = ManagedInstanceMutationLeaseRepository(session)
+        leases.reserve(
+            TARGET_ID,
+            kind=ManagedInstanceMutationKind.MCP_WORKSPACE_EXECUTION,
+            operation_id=execution_id,
+        )
+        assert leases.claim(
+            TARGET_ID,
+            operation_id=execution_id,
+            token_digest=token_digest,
+            now=NOW,
+            expires_at=NOW + timedelta(minutes=1),
+        )
+    env.development._mark_smoke_dispatch(
+        execution_id, token_digest, "x" * 64, deployment
+    )
+    with env.sessions() as session:
+        operation = session.get(McpWorkspaceExecutionOperationRow, str(execution_id))
+        assert operation is not None
+        assert operation.invocation_dispatched
+        assert operation.original_container_id is None
+        assert operation.original_runtime_state_revision is None
+
+
+def test_exact_recovery_does_not_clear_another_execution_blocker(
+    tmp_path: Path,
+) -> None:
+    env, _request, execution_id = _ambiguous_recovery_environment(tmp_path)
+    recovered = env.development.recover_execution(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        execution_operation_id=execution_id,
+    )
+    assert recovered.outcome is WorkspaceExecutionRecoveryOutcome.RECOVERED
+    other_id = uuid4()
+    with env.sessions.begin() as session:
+        original = session.get(McpWorkspaceExecutionOperationRow, str(execution_id))
+        assert original is not None
+        session.add(
+            McpWorkspaceExecutionOperationRow(
+                id=str(other_id),
+                client_id=original.client_id,
+                request_id=str(uuid4()),
+                workspace_id=original.workspace_id,
+                development_source_id=original.development_source_id,
+                target_id=original.target_id,
+                deployment_id=original.deployment_id,
+                generation=original.generation,
+                addon_id=original.addon_id,
+                addon_version=original.addon_version,
+                state="ambiguous",
+                phase="finalize",
+                invocation_dispatched=True,
+                execution_classification="timeout",
+                failure_code="execution_ambiguous",
+                requested_at=NOW_TEXT,
+                started_at=NOW_TEXT,
+                completed_at=NOW_TEXT,
+            )
+        )
+    status = ManagedInstanceReconciliationService(env.sessions).status(TARGET_ID)
+    assert status.blocking
+    assert status.operation_uuid == other_id
+
+
+def test_concurrent_recovery_requests_cannot_both_run(tmp_path: Path) -> None:
+    env, _request, execution_id = _ambiguous_recovery_environment(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    original_stop = env.broker.stop_managed_container
+
+    def held_stop(**kwargs: Any) -> object:
+        entered.set()
+        assert release.wait(10)
+        return original_stop(**kwargs)
+
+    env.broker.stop_managed_container = held_stop  # type: ignore[method-assign]
+    stops = env.broker.stop_count
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            env.development.recover_execution,
+            client_id=env.client_id,
+            request_id=uuid4(),
+            execution_operation_id=execution_id,
+        )
+        assert entered.wait(10)
+        second = pool.submit(
+            env.development.recover_execution,
+            client_id=env.client_id,
+            request_id=uuid4(),
+            execution_operation_id=execution_id,
+        )
+        with pytest.raises(
+            WorkspaceExecutionRecoveryError, match="recovery_not_allowed"
+        ):
+            second.result(timeout=10)
+        release.set()
+        assert (
+            first.result(timeout=20).outcome
+            is WorkspaceExecutionRecoveryOutcome.RECOVERED
+        )
+    assert env.broker.stop_count == stops + 1
+
+
+def test_interrupted_recovery_stays_blocking_after_stale_sweep(tmp_path: Path) -> None:
+    env, _request, execution_id = _ambiguous_recovery_environment(tmp_path)
+    recovery_id = uuid4()
+    digest = "a" * 64
+    with env.sessions.begin() as session:
+        leases = ManagedInstanceMutationLeaseRepository(session)
+        leases.reserve(
+            TARGET_ID,
+            kind=ManagedInstanceMutationKind.WORKSPACE_EXECUTION_RECOVERY,
+            operation_id=recovery_id,
+        )
+        assert leases.claim(
+            TARGET_ID,
+            operation_id=recovery_id,
+            token_digest=digest,
+            now=NOW,
+            expires_at=NOW + timedelta(seconds=1),
+        )
+        token = ManagedRuntimeProjectionRepository(session).observation_token(TARGET_ID)
+        assert token is not None
+        session.add(
+            WorkspaceExecutionRecoveryOperationRow(
+                id=str(recovery_id),
+                client_id=str(env.client_id),
+                request_id=str(uuid4()),
+                execution_operation_id=str(execution_id),
+                state="running",
+                phase="contained",
+                outcome=None,
+                owned_runtime_state_revision=token.runtime_state_revision,
+                containment_confirmed=True,
+                readiness_confirmed=False,
+                provenance_confirmed=False,
+                requested_at=NOW_TEXT,
+                completed_at=None,
+            )
+        )
+    swept = StaleOperationReconciliationDispatcher(
+        env.sessions, clock=lambda: NOW + timedelta(seconds=2)
+    ).sweep_instance(TARGET_ID)
+    assert swept.terminalized_operations == [recovery_id]
+    with env.sessions() as session:
+        row = session.get(WorkspaceExecutionRecoveryOperationRow, str(recovery_id))
+        assert row is not None
+        assert row.state == "completed"
+        assert row.outcome == "still_requires_admin"
+    assert ManagedInstanceReconciliationService(env.sessions).status(TARGET_ID).blocking
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "succeeded",
+        "failed",
+        "non_timeout",
+        "not_dispatched",
+        "fixed_negative",
+        "external",
+        "protected",
+        "persistent",
+        "wrong_client",
+        "wrong_workspace",
+        "workspace_abandoned",
+        "source_detached",
+        "missing_target_grant",
+        "missing_source_grant",
+        "missing_deployment",
+        "generation_mismatch",
+        "identity_mismatch",
+        "multiple_blockers",
+        "conflicting_lifecycle",
+        "active_lease",
+    ],
+)
+def test_recovery_eligibility_rejects_without_containment(
+    tmp_path: Path, variant: str
+) -> None:
+    env, _request, execution_id = _ambiguous_recovery_environment(tmp_path)
+    caller = env.client_id
+    with env.sessions.begin() as session:
+        execution = session.get(McpWorkspaceExecutionOperationRow, str(execution_id))
+        target = session.get(TargetRow, str(TARGET_ID))
+        instance = session.get(ManagedInstanceRow, str(TARGET_ID))
+        assert execution is not None and target is not None and instance is not None
+        if variant == "succeeded":
+            execution.state = "succeeded"
+            execution.execution_classification = "directory_result"
+            execution.result_classification = "smoke_passed"
+            execution.failure_code = None
+        elif variant == "failed":
+            execution.state = "failed"
+            execution.execution_classification = "jsonrpc_error"
+            execution.result_classification = "smoke_failed"
+            execution.failure_code = "execution_failed"
+            execution.kodi_error_code = -32602
+        elif variant == "non_timeout":
+            execution.execution_classification = "ambiguous"
+        elif variant == "not_dispatched":
+            execution.invocation_dispatched = False
+            execution.original_container_id = None
+            execution.original_runtime_state_revision = None
+        elif variant == "fixed_negative":
+            execution.execution_kind = "kodi_rpc_negative_diagnostic"
+            execution.original_container_id = None
+            execution.original_runtime_state_revision = None
+        elif variant == "external":
+            target.target_type = TargetType.EXTERNAL_DEVELOPMENT
+        elif variant == "protected":
+            target.target_type = TargetType.EXTERNAL_PRODUCTION
+        elif variant == "persistent":
+            instance.instance_type = InstanceType.PERSISTENT
+        elif variant == "wrong_client":
+            caller = uuid4()
+        elif variant == "wrong_workspace":
+            execution.workspace_id = str(uuid4())
+        elif variant == "workspace_abandoned":
+            workspace = session.get(AgentWorkspaceRow, str(env.workspace_id))
+            assert workspace is not None
+            workspace.state = AgentWorkspaceState.ABANDONED
+            workspace.abandoned_at = NOW_TEXT
+        elif variant == "source_detached":
+            source_attachment = session.get(
+                ManagedInstanceDevelopmentSourceRow,
+                {
+                    "managed_instance_id": str(TARGET_ID),
+                    "development_source_id": str(SOURCE_ID),
+                },
+            )
+            assert source_attachment is not None
+            session.delete(source_attachment)
+        elif variant == "missing_target_grant":
+            grant = session.get(
+                McpClientTargetGrantRow,
+                {"client_id": str(caller), "target_id": str(TARGET_ID)},
+            )
+            assert grant is not None
+            session.delete(grant)
+        elif variant == "missing_source_grant":
+            source_grant = session.get(
+                McpClientDevelopmentSourceGrantRow,
+                {"client_id": str(caller), "development_source_id": str(SOURCE_ID)},
+            )
+            assert source_grant is not None
+            session.delete(source_grant)
+        elif variant == "missing_deployment":
+            execution.deployment_id = str(uuid4())
+        elif variant == "generation_mismatch":
+            execution.generation = 1
+        elif variant == "identity_mismatch":
+            execution.original_container_id = "f" * 64
+        elif variant == "multiple_blockers":
+            session.add(
+                McpWorkspaceExecutionOperationRow(
+                    id=str(uuid4()),
+                    client_id=str(caller),
+                    request_id=str(uuid4()),
+                    workspace_id=str(env.workspace_id),
+                    development_source_id=str(SOURCE_ID),
+                    target_id=str(TARGET_ID),
+                    deployment_id=execution.deployment_id,
+                    generation=0,
+                    addon_id=execution.addon_id,
+                    addon_version=execution.addon_version,
+                    state="ambiguous",
+                    phase="finalize",
+                    invocation_dispatched=True,
+                    execution_classification="timeout",
+                    failure_code="execution_ambiguous",
+                    requested_at=NOW_TEXT,
+                    started_at=NOW_TEXT,
+                    completed_at=NOW_TEXT,
+                )
+            )
+        elif variant == "conflicting_lifecycle":
+            session.add(
+                ManagedInstanceLifecycleOperationRow(
+                    id=str(uuid4()),
+                    original_managed_instance_id=str(TARGET_ID),
+                    managed_instance_id=str(TARGET_ID),
+                    instance_name="Slice 4 disposable",
+                    kind="stop",
+                    requested_at=NOW_TEXT,
+                    started_at=NOW_TEXT,
+                    completed_at=NOW_TEXT,
+                    prior_state="running_usable",
+                    resulting_state="ambiguous",
+                    state="reconciliation_required",
+                    failure_reason="stop_ambiguous",
+                    reconciliation_required=True,
+                )
+            )
+        elif variant == "active_lease":
+            from kodi_lab.storage.models import ManagedInstanceMutationLeaseRow
+
+            session.add(
+                ManagedInstanceMutationLeaseRow(
+                    managed_instance_id=str(TARGET_ID),
+                    operation_kind="lifecycle",
+                    operation_id=str(uuid4()),
+                )
+            )
+    stops = env.broker.stop_count
+    with pytest.raises(WorkspaceExecutionRecoveryError, match="recovery_not_allowed"):
+        env.development.recover_execution(
+            client_id=caller,
+            request_id=uuid4(),
+            execution_operation_id=execution_id,
+        )
+    assert env.broker.stop_count == stops
+    with env.sessions() as session:
+        assert (
+            session.scalar(
+                select(func.count(WorkspaceExecutionRecoveryOperationRow.id))
+            )
+            == 0
+        )
+
+
+@pytest.mark.parametrize(
+    ("failure", "outcome", "contained"),
+    [
+        ("stop_failure", WorkspaceExecutionRecoveryOutcome.STILL_REQUIRES_ADMIN, False),
+        (
+            "broker_unavailable",
+            WorkspaceExecutionRecoveryOutcome.STILL_REQUIRES_ADMIN,
+            False,
+        ),
+        (
+            "stop_unconfirmed",
+            WorkspaceExecutionRecoveryOutcome.STILL_REQUIRES_ADMIN,
+            False,
+        ),
+        (
+            "runtime_disappeared",
+            WorkspaceExecutionRecoveryOutcome.STILL_REQUIRES_ADMIN,
+            False,
+        ),
+        (
+            "identity_changed",
+            WorkspaceExecutionRecoveryOutcome.STILL_REQUIRES_ADMIN,
+            False,
+        ),
+        (
+            "start_failure",
+            WorkspaceExecutionRecoveryOutcome.CONTAINED_BUT_NOT_READY,
+            True,
+        ),
+        (
+            "readiness_failure",
+            WorkspaceExecutionRecoveryOutcome.CONTAINED_BUT_NOT_READY,
+            True,
+        ),
+        (
+            "provenance_mismatch",
+            WorkspaceExecutionRecoveryOutcome.CONTAINED_BUT_NOT_READY,
+            True,
+        ),
+        (
+            "addon_disabled",
+            WorkspaceExecutionRecoveryOutcome.CONTAINED_BUT_NOT_READY,
+            True,
+        ),
+        (
+            "addon_missing",
+            WorkspaceExecutionRecoveryOutcome.CONTAINED_BUT_NOT_READY,
+            True,
+        ),
+    ],
+)
+def test_recovery_failures_remain_explicitly_blocking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    outcome: WorkspaceExecutionRecoveryOutcome,
+    contained: bool,
+) -> None:
+    env, _request, execution_id = _ambiguous_recovery_environment(tmp_path)
+    if failure in {"stop_failure", "stop_unconfirmed", "broker_unavailable"}:
+
+        def fail_stop(**_kwargs: Any) -> object:
+            if failure == "stop_unconfirmed":
+                env.broker.state = ContainerRuntimeState.STOPPED
+            if failure == "broker_unavailable":
+                raise BrokerUnavailableError("socket unavailable")
+            raise RuntimeError("stop result unavailable")
+
+        monkeypatch.setattr(env.broker, "stop_managed_container", fail_stop)
+    elif failure in {"runtime_disappeared", "identity_changed"}:
+        original_inventory = env.broker.managed_container_inventory
+
+        def changed_inventory() -> ManagedContainerInventoryResult:
+            if env.broker.state is ContainerRuntimeState.STOPPED:
+                if failure == "runtime_disappeared":
+                    return ManagedContainerInventoryResult(containers=[])
+                original = original_inventory().containers[0]
+                return ManagedContainerInventoryResult(
+                    containers=[original.model_copy(update={"container_id": "f" * 64})]
+                )
+            return original_inventory()
+
+        monkeypatch.setattr(
+            env.broker, "managed_container_inventory", changed_inventory
+        )
+    elif failure == "start_failure":
+
+        def fail_start(**_kwargs: Any) -> object:
+            raise RuntimeError("start unavailable")
+
+        monkeypatch.setattr(env.broker, "start_managed_container", fail_start)
+    elif failure == "readiness_failure":
+        env.development._recovery._readiness_factory = lambda _broker, _profile: (
+            SimpleNamespace(
+                wait_until_usable=lambda _target: SimpleNamespace(
+                    usability_state=UsabilityState.NOT_USABLE
+                )
+            )
+        )
+    elif failure == "provenance_mismatch":
+
+        def fail_verify(**_kwargs: Any) -> object:
+            raise RuntimeError("destination digest mismatch")
+
+        monkeypatch.setattr(env.broker, "verify_mcp_workspace_destination", fail_verify)
+    elif failure in {"addon_disabled", "addon_missing"}:
+        inventory = FakeInventory().get(TARGET_ID)
+        items = (
+            []
+            if failure == "addon_missing"
+            else [inventory.items[0].model_copy(update={"enabled": False})]
+        )
+        changed = inventory.model_copy(update={"items": items})
+        monkeypatch.setattr(
+            env.development._recovery._inventory, "get", lambda _id: changed
+        )
+    result = env.development.recover_execution(
+        client_id=env.client_id,
+        request_id=uuid4(),
+        execution_operation_id=execution_id,
+    )
+    assert result.outcome is outcome
+    with env.sessions() as session:
+        row = session.get(
+            WorkspaceExecutionRecoveryOperationRow, str(result.recovery_operation_id)
+        )
+        assert row is not None
+        assert row.containment_confirmed is contained
+    status = ManagedInstanceReconciliationService(env.sessions).status(TARGET_ID)
+    assert status.blocking
+    if contained:
+        assert status.observed_state == "workspace_execution_contained_but_not_ready"
 
 
 def test_retention_blocks_current_and_unresolved_deployment(tmp_path: Path) -> None:

@@ -169,7 +169,161 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0064_workspace_smoke_exception",)
+        ).fetchone() == ("0065_workspace_execution_recovery",)
+
+
+def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0064_workspace_smoke_exception"
+    )
+    execution_id = str(uuid4())
+    values = {
+        key: str(uuid4())
+        for key in ("client", "request", "workspace", "source", "target", "deployment")
+    }
+    values["id"] = execution_id
+    values["now"] = "2026-10-03T00:00:00.000000Z"
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO mcp_workspace_execution_operations "
+                "(id,client_id,request_id,workspace_id,development_source_id,"
+                "target_id,deployment_id,generation,addon_id,addon_version,state,"
+                "phase,invocation_dispatched,execution_classification,"
+                "failure_code,requested_at,started_at,completed_at) VALUES "
+                "(:id,:client,:request,:workspace,:source,:target,:deployment,1,"
+                "'plugin.video.example','1.0.0','ambiguous','finalize',1,'timeout',"
+                "'execution_ambiguous',:now,:now,:now)"
+            ),
+            values,
+        )
+    engine.dispose()
+    command.upgrade(config, "0065_workspace_execution_recovery")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        historical = connection.execute(
+            text(
+                "SELECT execution_kind,original_container_id,"
+                "original_runtime_state_revision FROM "
+                "mcp_workspace_execution_operations WHERE id=:id"
+            ),
+            {"id": execution_id},
+        ).one()
+        assert historical == (None, None, None)
+        columns = {
+            column["name"]
+            for column in inspect(engine).get_columns(
+                "workspace_execution_recovery_operations"
+            )
+        }
+        assert {"execution_operation_id", "outcome", "containment_confirmed"} <= columns
+        lease_schema = connection.scalar(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='managed_instance_mutation_leases'"
+            )
+        )
+        assert lease_schema is not None
+        assert "workspace_execution_recovery" in lease_schema
+    for assignment in (
+        "execution_kind='other'",
+        "original_container_id='" + "a" * 64 + "'",
+        "execution_kind='smoke',original_container_id='" + "g" * 64 + "',"
+        "original_runtime_state_revision=0",
+    ):
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE mcp_workspace_execution_operations SET "
+                    f"{assignment} WHERE id=:id"
+                ),
+                {"id": execution_id},
+            )
+    recovery_id = str(uuid4())
+    recovery_values = {
+        "id": recovery_id,
+        "client": values["client"],
+        "request": str(uuid4()),
+        "execution": execution_id,
+        "now": values["now"],
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO workspace_execution_recovery_operations "
+                "(id,client_id,request_id,execution_operation_id,state,phase,outcome,"
+                "owned_runtime_state_revision,containment_confirmed,"
+                "readiness_confirmed,provenance_confirmed,requested_at,completed_at) "
+                "VALUES (:id,:client,:request,:execution,'completed','finalized',"
+                "'still_requires_admin',0,0,0,0,:now,:now)"
+            ),
+            recovery_values,
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO workspace_execution_recovery_operations "
+                "(id,client_id,request_id,execution_operation_id,state,phase,outcome,"
+                "owned_runtime_state_revision,containment_confirmed,"
+                "readiness_confirmed,provenance_confirmed,requested_at,completed_at) "
+                "VALUES (:id,:client,:request,:execution,'completed','finalized',"
+                "'still_requires_admin',0,0,0,0,:now,:now)"
+            ),
+            {**recovery_values, "id": str(uuid4()), "request": str(uuid4())},
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE workspace_execution_recovery_operations "
+                "SET outcome='recovered' WHERE id=:id"
+            ),
+            {"id": recovery_id},
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO workspace_execution_recovery_operations "
+                "(id,client_id,request_id,execution_operation_id,state,phase,outcome,"
+                "owned_runtime_state_revision,containment_confirmed,"
+                "readiness_confirmed,provenance_confirmed,requested_at,completed_at) "
+                "VALUES (:id,:client,:request,:execution,'completed','finalized',"
+                "'still_requires_admin',0,0,0,0,:now,:now)"
+            ),
+            {
+                **recovery_values,
+                "id": str(uuid4()),
+                "request": str(uuid4()),
+                "execution": str(uuid4()),
+            },
+        )
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="cannot be downgraded"):
+        command.downgrade(config, "0064_workspace_smoke_exception")
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "0065_workspace_execution_recovery"
+        )
+    engine.dispose()
+
+
+def test_empty_workspace_execution_recovery_downgrade(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config, database_url = migration_setup(
+        monkeypatch, tmp_path, start_revision="0064_workspace_smoke_exception"
+    )
+    command.upgrade(config, "0065_workspace_execution_recovery")
+    command.downgrade(config, "0064_workspace_smoke_exception")
+    engine = create_database_engine(database_url)
+    assert (
+        "workspace_execution_recovery_operations"
+        not in inspect(engine).get_table_names()
+    )
+    engine.dispose()
 
 
 def test_failed_migration_command_cannot_poison_later_clone(
@@ -286,6 +440,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_target_preset_assignments",
         "mcp_workspace_deployment_operations",
         "mcp_workspace_execution_operations",
+        "workspace_execution_recovery_operations",
         "mcp_workspace_validations",
         "managed_instance_delete_operations",
         "managed_instance_addon_repository_sources",

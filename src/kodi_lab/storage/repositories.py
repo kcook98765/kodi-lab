@@ -228,6 +228,7 @@ _RUNTIME_INVALIDATING_MUTATIONS = frozenset(
         ManagedInstanceMutationKind.REPOSITORY_REPLACEMENT,
         ManagedInstanceMutationKind.PROMOTION_VERIFICATION,
         ManagedInstanceMutationKind.MCP_WORKSPACE_DEPLOYMENT,
+        ManagedInstanceMutationKind.WORKSPACE_EXECUTION_RECOVERY,
     }
 )
 

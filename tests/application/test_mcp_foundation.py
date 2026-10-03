@@ -370,9 +370,9 @@ def test_builtin_presets_activate_exact_non_clonable_production_remote_maximum(
     )
 
 
-def test_exactly_five_of_seventeen_tools_are_production_eligible() -> None:
+def test_exactly_five_of_eighteen_tools_are_production_eligible() -> None:
     registry = build_mcp_tool_registry()
-    assert len(registry.names()) == 17
+    assert len(registry.names()) == 18
     eligible = {
         "addon_list",
         "screenshot_capture",
@@ -811,6 +811,7 @@ def test_production_registry_marks_remote_action_as_internal_mutating_control() 
         "workspace_deploy",
         "workspace_edit",
         "workspace_execute",
+        "workspace_execution_recover",
         "workspace_read",
         "workspace_source_scan",
         "workspace_status",

@@ -386,6 +386,22 @@ def build_mcp_tool_registry() -> McpToolRegistry:
     )
     registry.register(
         McpToolDefinition(
+            name="workspace_execution_recover",
+            schema_revision=1,
+            permissions=frozenset({"target.control", "development.execute"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"workspace_execution"}),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
+            adapter="agent_workspace.recover_ambiguous_smoke",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE_TARGET,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
             name="workspace_validate",
             schema_revision=1,
             permissions=frozenset({"workspace.inspect"}),

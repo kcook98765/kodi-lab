@@ -60,6 +60,9 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRequiredResult,
     ProductionApprovalTerminalResult,
 )
+from kodi_lab.application.workspace_execution_recovery import (
+    WorkspaceExecutionRecoveryResult,
+)
 from kodi_lab.domain.smoke_diagnostics import AddonExceptionDiagnostic
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
 from kodi_lab.kodi.remote import BrowserRemoteAction
@@ -80,6 +83,7 @@ from kodi_lab.mcp.tools import (
     WorkspaceEditInput,
     WorkspaceEditResult,
     WorkspaceExecuteInput,
+    WorkspaceExecutionRecoverInput,
     WorkspaceReadResult,
     WorkspaceSourceScanToolResult,
     WorkspaceStatusResult,
@@ -130,6 +134,7 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "workspace_source_scan",
         "workspace_capture",
         "workspace_execute",
+        "workspace_execution_recover",
         "workspace_read",
         "workspace_status",
         "workspace_tree",
@@ -906,6 +911,18 @@ def build_mcp_http_transport(
             annotations=execution_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "workspace_execution_recover": Tool(
+            name="workspace_execution_recover",
+            title="Recover one ambiguous workspace smoke",
+            description=(
+                "Contain the exact timed-out smoke on its managed disposable "
+                "runtime, then verify readiness and original deployment provenance."
+            ),
+            input_schema=WorkspaceExecutionRecoverInput.model_json_schema(),
+            output_schema=WorkspaceExecutionRecoveryResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_tree": Tool(
             name="workspace_tree",
             title="List one workspace directory",
@@ -988,6 +1005,7 @@ def build_mcp_http_transport(
                 | WorkspaceValidateResult
                 | WorkspaceDeploymentResult
                 | WorkspaceExecutionResult
+                | WorkspaceExecutionRecoveryResult
                 | PromotionRequestResult
             )
             if params.name in {
@@ -1171,6 +1189,14 @@ def build_mcp_http_transport(
                     tools.workspace_execute, principal, parsed_execution
                 )
                 source_id = result.source_id
+            elif params.name == "workspace_execution_recover":
+                parsed_recovery = WorkspaceExecutionRecoverInput.model_validate(
+                    arguments
+                )
+                request_id = parsed_recovery.request_id
+                result = await asyncio.to_thread(
+                    tools.workspace_execution_recover, principal, parsed_recovery
+                )
             elif params.name == "promotion_request":
                 parsed_promotion = WorkspaceTargetOperationInput.model_validate(
                     arguments

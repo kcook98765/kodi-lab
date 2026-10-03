@@ -5519,3 +5519,41 @@ approvals atomically with the governing revision transition.
   MCP appends only a matched observational sentence to the existing failure
   text. Successful smoke, the fixed negative diagnostic, external targets,
   production, Bridge, and delayed post-success failures remain outside scope.
+
+## D-0405: Recover only an exact timed-out disposable workspace smoke
+
+- A timed-out dispatched workspace smoke remains an immutable ambiguous
+  execution. Recovery has its own one-shot durable operation and never rewrites,
+  redispatches, deletes, or reclassifies the original execution. Original
+  request replay still reports its original ambiguity.
+- Migration 0065 records the smoke intent, exact managed container ID, and
+  managed runtime state revision atomically with the pre-dispatch marker. The
+  execution already binds client, workspace, target, successful deployment,
+  generation, and addon; the deployment retains the immutable runtime revision
+  and destination digest. Historical NULL identity is recovery-ineligible.
+- V1 admits only one timeout-classified ambiguous smoke on a managed disposable
+  target, with the bound workspace still ready, its source still attached,
+  the original client/workspace binding, source and target grants,
+  and both existing `target.control` and `development.execute` permissions.
+  External, persistent/protected, fixed diagnostic, non-timeout, undispatched,
+  multiple-blocker, and identity-mismatch cases remain blocked. No caller may
+  supply Docker identity or a recovery action.
+- The separate operation owns a runtime-invalidating mutation lease and state
+  revision through containment and verification. Broker stop targets the exact
+  original container and must return and reread a stopped postcondition. This
+  quiescence proof ends the original script even when Kodi had remained
+  responsive. The supported exact-container start path restores that same
+  managed instance. Kodi readiness, exact deployment destination verification,
+  addon version and enablement, and final container/process identity are all
+  required for `recovered`.
+- `recovered` is the sole outcome that removes that execution's reconciliation
+  blocker. `contained_but_not_ready` explicitly retains a blocker after proven
+  containment; `still_requires_admin` retains it when containment is unproven.
+  Any other reconciliation record remains independent. Exact recovery request
+  replay returns the same operation without another lifecycle call. An expired
+  recovery lease terminalizes as `still_requires_admin`; no exactly-once Docker
+  effect is claimed after an unconfirmed Broker response.
+- The application service is transport-neutral so a future Web administrator
+  action can use this same primitive. V1 exposes only the narrow MCP tool;
+  Web action and historical-row repair are outside this decision. No generic
+  reconciliation, Docker, remote action, or Bridge authority is added.

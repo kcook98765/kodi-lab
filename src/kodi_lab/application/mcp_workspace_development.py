@@ -53,6 +53,11 @@ from kodi_lab.application.mcp_development_requests import (
 from kodi_lab.application.mcp_development_requests import (
     WORKSPACE_EXECUTE_OPERATION_KIND as EXECUTE_OPERATION_KIND,
 )
+from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
+from kodi_lab.application.workspace_execution_recovery import (
+    WorkspaceExecutionRecoveryResult,
+    WorkspaceExecutionRecoveryService,
+)
 from kodi_lab.broker.docker_inventory import (
     ContainerHealthState,
     ContainerRuntimeState,
@@ -140,6 +145,7 @@ from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
     ExternalDevelopmentSourceBaselineRow,
     ExternalKodiTargetRow,
+    ManagedInstanceRow,
     McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
@@ -569,6 +575,7 @@ class McpWorkspaceDevelopmentService:
         data_root: Path,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         readiness_factory: Callable[[Any, Any], Any] = KodiReadinessCoordinator,
+        readiness_registry: ReadinessTaskRegistry | None = None,
         deployment_rate: BoundedIntervalRateLimiter | None = None,
         execution_rate: BoundedIntervalRateLimiter | None = None,
         failure_injector: Callable[[str], None] = lambda _phase: None,
@@ -604,6 +611,28 @@ class McpWorkspaceDevelopmentService:
         self._external_bridges = external_bridges
         self._target_adapters = target_adapters
         self._development_repository: DevelopmentRepositoryService | None = None
+        self._recovery = WorkspaceExecutionRecoveryService(
+            session_factory,
+            broker,
+            inventory,
+            readiness_factory=readiness_factory,
+            readiness_registry=readiness_registry,
+            clock=clock,
+        )
+
+    def recovery_context(
+        self, client_id: UUID, execution_operation_id: UUID
+    ) -> tuple[UUID, UUID]:
+        return self._recovery.context(client_id, execution_operation_id)
+
+    def recover_execution(
+        self, *, client_id: UUID, request_id: UUID, execution_operation_id: UUID
+    ) -> WorkspaceExecutionRecoveryResult:
+        return self._recovery.recover(
+            client_id=client_id,
+            request_id=request_id,
+            execution_operation_id=execution_operation_id,
+        )
 
     def configure_repository(self, repository: DevelopmentRepositoryService) -> None:
         self._development_repository = repository
@@ -2360,6 +2389,7 @@ class McpWorkspaceDevelopmentService:
                     generation=generation,
                     addon_id=deployment.addon_id,
                     addon_version=deployment.addon_version,
+                    execution_kind=execution_kind.value,
                     state="pending",
                     phase="claimed",
                     invocation_dispatched=False,
@@ -3275,7 +3305,12 @@ class McpWorkspaceDevelopmentService:
                 operation.id, "failed", "execution_unsupported", digest=digest
             )
             raise McpWorkspaceDevelopmentError("execution_unsupported")
-        self._update_execution(operation_id, phase="invoke", invocation_dispatched=True)
+        if execution_kind is WorkspaceExecutionKind.SMOKE:
+            self._mark_smoke_dispatch(operation_id, digest, container_id, deployment)
+        else:
+            self._update_execution(
+                operation_id, phase="invoke", invocation_dispatched=True
+            )
         self._failure("execution_dispatch_marker")
         smoke_cursor: str | None = None
         addon_exception: AddonExceptionDiagnostic | None = None
@@ -3852,6 +3887,54 @@ class McpWorkspaceDevelopmentService:
             )
             if int(getattr(result, "rowcount", 0) or 0) != 1:
                 raise McpWorkspaceDevelopmentError("execution_ambiguous")
+
+    def _mark_smoke_dispatch(
+        self,
+        operation_id: UUID,
+        digest: str,
+        container_id: str,
+        deployment: McpWorkspaceDeploymentOperationRow,
+    ) -> None:
+        """Persist trusted runtime identity with the irreversible dispatch marker."""
+
+        with self._sessions.begin() as session:
+            operation = session.get(
+                McpWorkspaceExecutionOperationRow, str(operation_id)
+            )
+            instance = (
+                None
+                if operation is None
+                else session.get(ManagedInstanceRow, operation.target_id)
+            )
+            lease = (
+                None
+                if operation is None
+                else ManagedInstanceMutationLeaseRepository(session).current(
+                    UUID(operation.target_id)
+                )
+            )
+            if (
+                operation is None
+                or operation.state != "running"
+                or operation.execution_kind != WorkspaceExecutionKind.SMOKE.value
+                or lease is None
+                or lease.operation_id != str(operation_id)
+                or lease.lease_token_digest != digest
+            ):
+                raise McpWorkspaceDevelopmentError("execution_ambiguous")
+            operation.phase = "invoke"
+            operation.invocation_dispatched = True
+            if (
+                instance is not None
+                and deployment.target_class == "internal_lab"
+                and instance.runtime_revision_id == deployment.runtime_revision_id
+                and len(container_id) == 64
+                and all(character in "0123456789abcdef" for character in container_id)
+            ):
+                operation.original_container_id = container_id
+                operation.original_runtime_state_revision = (
+                    instance.runtime_state_revision
+                )
 
     def _finish_deployment(
         self,

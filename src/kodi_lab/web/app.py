@@ -1295,6 +1295,7 @@ def create_app(
         addon_inventory,
         agent_workspaces,
         data_root=settings.data_root,
+        readiness_registry=task_registry,
     )
     mcp_workspace_retention = McpWorkspaceRetentionService(
         session_factory,
