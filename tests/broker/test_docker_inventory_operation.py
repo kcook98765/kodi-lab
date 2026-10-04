@@ -57,6 +57,7 @@ def record(number: int = 1) -> ManagedContainerRecord:
         managed_instance_id=instance_id(number),
         container_id=f"{number:064x}",
         image_id="sha256:" + ("b" * 64),
+        runtime_revision_id=instance_id(number + 100),
         runtime_state=ContainerRuntimeState.RUNNING,
         health_state=ContainerHealthState.HEALTHY,
     )
@@ -93,6 +94,7 @@ class FakeInventoryProvider:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StopManagedContainerRecord:
         raise AssertionError("inventory-only test reached stop mutation")
 
@@ -102,6 +104,7 @@ class FakeInventoryProvider:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StartManagedContainerRecord:
         raise AssertionError("inventory-only test reached start mutation")
 
@@ -139,12 +142,14 @@ def test_authorized_client_receives_typed_minimal_inventory(
     assert isinstance(result, ManagedContainerInventoryResult)
     assert result.containers[0].managed_instance_id == instance_id(1)
     assert result.containers[0].runtime_state is ContainerRuntimeState.RUNNING
+    assert result.containers[0].runtime_revision_id == instance_id(101)
     assert provider.calls == 1
     document = result.model_dump(mode="json")
     assert set(document["containers"][0]) == {
         "managed_instance_id",
         "container_id",
         "image_id",
+        "runtime_revision_id",
         "runtime_state",
         "health_state",
     }

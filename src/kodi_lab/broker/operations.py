@@ -298,8 +298,16 @@ class ManagedContainerInventoryEntry(StrictModel):
     image_id: str = Field(
         min_length=71, max_length=71, pattern=r"^sha256:[0-9a-f]{64}$"
     )
+    runtime_revision_id: str | None = None
     runtime_state: ContainerRuntimeState
     health_state: ContainerHealthState
+
+    @field_validator("runtime_revision_id")
+    @classmethod
+    def _canonical_runtime_revision_id(cls, value: str | None) -> str | None:
+        if value is not None and not is_canonical_uuid(value):
+            raise ValueError("runtime revision identity must be canonical")
+        return value
 
     @field_validator("runtime_state", mode="before")
     @classmethod
@@ -1710,6 +1718,7 @@ def build_foundation_registry(
                     managed_instance_id=record.managed_instance_id,
                     container_id=record.container_id,
                     image_id=record.image_id,
+                    runtime_revision_id=record.runtime_revision_id,
                     runtime_state=record.runtime_state,
                     health_state=record.health_state,
                 )
@@ -2023,11 +2032,27 @@ def build_foundation_registry(
             "broker_managed_instance_id": params.managed_instance_id
         }
         try:
+            pinned_revision_id = pin_resolver.resolve_runtime_revision_id(
+                params.managed_instance_id
+            )
             outcome = provider.start_managed_container(
                 managed_instance_id=params.managed_instance_id,
                 expected_container_id=params.expected_container_id,
                 expected_runtime_state=params.expected_runtime_state,
+                expected_runtime_revision_id=pinned_revision_id,
             )
+        except ProvisioningStateError as error:
+            raise OperationError(
+                "managed_instance_state_unavailable",
+                "Canonical managed-instance state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeRevisionPreconditionError as error:
+            raise OperationError(
+                "runtime_revision_precondition_failed",
+                "The managed runtime revision differs from trusted state.",
+                audit_fields=audit_fields,
+            ) from error
         except DockerDaemonUnavailableError as error:
             raise OperationError(
                 "docker_daemon_unavailable",
@@ -2124,11 +2149,27 @@ def build_foundation_registry(
             "broker_managed_instance_id": params.managed_instance_id
         }
         try:
+            pinned_revision_id = pin_resolver.resolve_runtime_revision_id(
+                params.managed_instance_id
+            )
             outcome = provider.stop_managed_container(
                 managed_instance_id=params.managed_instance_id,
                 expected_container_id=params.expected_container_id,
                 expected_runtime_state=params.expected_runtime_state,
+                expected_runtime_revision_id=pinned_revision_id,
             )
+        except ProvisioningStateError as error:
+            raise OperationError(
+                "managed_instance_state_unavailable",
+                "Canonical managed-instance state is unavailable.",
+                audit_fields=audit_fields,
+            ) from error
+        except RuntimeRevisionPreconditionError as error:
+            raise OperationError(
+                "runtime_revision_precondition_failed",
+                "The managed runtime revision differs from trusted state.",
+                audit_fields=audit_fields,
+            ) from error
         except DockerDaemonUnavailableError as error:
             raise OperationError(
                 "docker_daemon_unavailable",

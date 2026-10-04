@@ -11,7 +11,11 @@
       <h1>Snapshots</h1>
       <h2>{{ instance.name }}</h2>
       <p><a href="/instances/{{ instance.managed_instance_id }}">Instance detail</a> · <a href="/instances/{{ instance.managed_instance_id }}/history">Full activity history</a></p>
+      {% if instance.failure_code == 'runtime_revision_mismatch' %}
+      <p class="notice" role="alert">{{ instance.failure_detail }}</p>
+      {% else %}
       <p><a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots/new">Create snapshot</a></p>
+      {% endif %}
       <p class="secondary">Snapshots are sensitive local state. Contents and archive paths are never exposed here.</p>
       {% for snapshot in snapshots %}
       {% set reconciliation = reconciliation_statuses.get(snapshot.snapshot_id) %}

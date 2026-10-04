@@ -136,6 +136,7 @@ class InventoryBroker:
     def __init__(self, states: list[ContainerRuntimeState] | None = None) -> None:
         self.states = [] if states is None else states
         self.failure = False
+        self.runtime_revision_id = str(REVISION_ID)
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         if self.failure:
@@ -146,6 +147,7 @@ class InventoryBroker:
                     managed_instance_id=str(INSTANCE_ID),
                     container_id=str(index + 1) * 64,
                     image_id="sha256:" + ("b" * 64),
+                    runtime_revision_id=self.runtime_revision_id,
                     runtime_state=state,
                     health_state=ContainerHealthState.NOT_CONFIGURED,
                 )
@@ -191,6 +193,19 @@ def test_disposable_safe_states_are_supported_with_compatible_fixture(
     assert status.pinned_runtime_revision_number == 2
     assert status.pinned_kodi_release == "21.3"
     assert "does not upgrade Kodi" in status.exact_pin_statement
+
+
+def test_stopped_wrong_revision_is_not_reset_eligible(
+    factory: sessionmaker[Session],
+) -> None:
+    broker = InventoryBroker([ContainerRuntimeState.STOPPED])
+    broker.runtime_revision_id = str(uuid4())
+    status = ResetStatusService(factory, broker, ResetActivityRegistry()).get(
+        INSTANCE_ID
+    )
+    assert status.eligibility is ResetEligibility.UNSUPPORTED
+    assert status.eligibility_reason is ResetEligibilityReason.RUNTIME_REVISION_MISMATCH
+    assert status.container_state is ContainerRuntimeState.STOPPED
 
 
 def test_historical_v1_assignment_is_presented_without_substitution(

@@ -6033,7 +6033,11 @@ def create_app(
         body: SnapshotCreateRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> SnapshotCreateAccepted:
-        context.status.get(instance_id)
+        runtime = context.status.get(instance_id)
+        if runtime.failure_code == "runtime_revision_mismatch":
+            raise SnapshotCreateConflictError(
+                "Managed runtime differs from the selected pin."
+            )
         queued = context.snapshot_operations.queue(instance_id, label=body.label)
         context.snapshot_executor.submit(queued.operation.operation_id)
         return SnapshotCreateAccepted(

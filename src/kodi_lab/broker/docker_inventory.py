@@ -197,6 +197,7 @@ class ManagedContainerRecord:
     image_id: str
     runtime_state: ContainerRuntimeState
     health_state: ContainerHealthState
+    runtime_revision_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,6 +404,7 @@ class ManagedContainerOperationsProvider(ManagedContainerInventoryProvider, Prot
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StartManagedContainerRecord:
         """Start one exactly owned container under optimistic preconditions."""
 
@@ -412,6 +414,7 @@ class ManagedContainerOperationsProvider(ManagedContainerInventoryProvider, Prot
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StopManagedContainerRecord:
         """Stop one exactly owned container under optimistic preconditions."""
 
@@ -2213,6 +2216,7 @@ class DockerManagedContainerAdapter:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StartManagedContainerRecord:
         """Start one label-selected container under shared reconciliation rules."""
 
@@ -2220,6 +2224,7 @@ class DockerManagedContainerAdapter:
             managed_instance_id=managed_instance_id,
             expected_container_id=expected_container_id,
             expected_runtime_state=expected_runtime_state,
+            expected_runtime_revision_id=expected_runtime_revision_id,
             direction=_MutationDirection.START,
         )
         return StartManagedContainerRecord(
@@ -2235,6 +2240,7 @@ class DockerManagedContainerAdapter:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StopManagedContainerRecord:
         """Stop one label-selected container under shared reconciliation rules."""
 
@@ -2242,6 +2248,7 @@ class DockerManagedContainerAdapter:
             managed_instance_id=managed_instance_id,
             expected_container_id=expected_container_id,
             expected_runtime_state=expected_runtime_state,
+            expected_runtime_revision_id=expected_runtime_revision_id,
             direction=_MutationDirection.STOP,
         )
         return StopManagedContainerRecord(
@@ -2928,6 +2935,7 @@ class DockerManagedContainerAdapter:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
         direction: _MutationDirection,
     ) -> _ReconciliationRecord:
         """Reconcile one exact owned container to one fixed two-state outcome."""
@@ -2939,6 +2947,10 @@ class DockerManagedContainerAdapter:
         if _CONTAINER_ID_PATTERN.fullmatch(expected_container_id) is None:
             raise ContainerIdentityPreconditionError(
                 "Expected container identity is not canonical"
+            )
+        if not is_canonical_uuid(expected_runtime_revision_id):
+            raise RuntimeRevisionPreconditionError(
+                "Expected runtime revision identity is not canonical"
             )
 
         client: _DockerClient | None = None
@@ -2976,6 +2988,7 @@ class DockerManagedContainerAdapter:
                 selected_container_id=selected_container_id,
                 managed_instance_id=managed_instance_id,
                 expected_container_id=expected_container_id,
+                expected_runtime_revision_id=expected_runtime_revision_id,
             )
 
             desired_state = (
@@ -3028,6 +3041,7 @@ class DockerManagedContainerAdapter:
                     selected_container_id=selected_container_id,
                     managed_instance_id=managed_instance_id,
                     expected_container_id=expected_container_id,
+                    expected_runtime_revision_id=expected_runtime_revision_id,
                 )
             except (
                 DockerException,
@@ -3035,6 +3049,7 @@ class DockerManagedContainerAdapter:
                 DockerInventoryReadError,
                 InvalidManagedContainerMetadataError,
                 ContainerIdentityPreconditionError,
+                RuntimeRevisionPreconditionError,
             ) as error:
                 if direction is _MutationDirection.START:
                     raise PostStartVerificationError(
@@ -3070,6 +3085,7 @@ class DockerManagedContainerAdapter:
             PostStartVerificationError,
             PostStopVerificationError,
             RuntimeStatePreconditionError,
+            RuntimeRevisionPreconditionError,
         ):
             raise
         except APIError as error:
@@ -3174,6 +3190,12 @@ class DockerManagedContainerAdapter:
                 "Managed container has invalid instance identity metadata"
             )
         assert isinstance(instance_id, str)
+        runtime_revision_id = labels.get(RUNTIME_REVISION_LABEL_KEY)
+        if not is_canonical_uuid(runtime_revision_id):
+            raise InvalidManagedContainerMetadataError(
+                "Managed container has invalid runtime revision metadata"
+            )
+        assert isinstance(runtime_revision_id, str)
 
         state = _require_mapping(inspected.get("State"))
         return ManagedContainerRecord(
@@ -3182,6 +3204,7 @@ class DockerManagedContainerAdapter:
             image_id=_require_image_id(inspected.get("Image")),
             runtime_state=normalize_runtime_state(state.get("Status")),
             health_state=normalize_health_state(state),
+            runtime_revision_id=runtime_revision_id,
         )
 
     @staticmethod
@@ -3191,6 +3214,7 @@ class DockerManagedContainerAdapter:
         selected_container_id: str,
         managed_instance_id: str,
         expected_container_id: str,
+        expected_runtime_revision_id: str,
     ) -> ContainerRuntimeState:
         """Revalidate ownership and immutable identity from fresh inspect data."""
 
@@ -3223,6 +3247,10 @@ class DockerManagedContainerAdapter:
         if container_id != expected_container_id:
             raise ContainerIdentityPreconditionError(
                 "Managed container identity differs from the precondition"
+            )
+        if labels.get(RUNTIME_REVISION_LABEL_KEY) != expected_runtime_revision_id:
+            raise RuntimeRevisionPreconditionError(
+                "Managed container runtime revision differs from the precondition"
             )
 
         state = _require_mapping(inspected.get("State"))

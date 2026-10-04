@@ -27,8 +27,10 @@ from kodi_lab.broker.errors import (
     InvalidManagedContainerMetadataError,
     ManagedContainerNotFoundError,
     PostStopVerificationError,
+    RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionError,
 )
+from kodi_lab.broker.provisioning import RUNTIME_REVISION_LABEL_KEY
 
 
 def instance_id(number: int) -> str:
@@ -39,12 +41,17 @@ def container_id(number: int) -> str:
     return f"{number:064x}"
 
 
+def revision_id() -> str:
+    return str(UUID(int=101))
+
+
 def inspect_data(
     container_number: int,
     *,
     instance_number: int = 1,
     managed_value: str = MANAGED_LABEL_VALUE,
     instance_value: object | None = None,
+    revision_value: str | None = None,
     state: str = "running",
     labels_present: bool = True,
 ) -> dict[str, object]:
@@ -58,6 +65,7 @@ def inspect_data(
                 else instance_value
             ),
             "PRIVATE-LABEL": "PRIVATE-VALUE",
+            RUNTIME_REVISION_LABEL_KEY: revision_value or revision_id(),
         }
     return {
         "Id": container_id(container_number),
@@ -131,6 +139,7 @@ def stop(
         managed_instance_id=requested_instance_id or instance_id(1),
         expected_container_id=expected_container_id or container_id(1),
         expected_runtime_state=expected_state,
+        expected_runtime_revision_id=revision_id(),
     )
 
 
@@ -204,6 +213,16 @@ def test_running_container_rejects_expected_stopped_state() -> None:
     client = FakeStopDockerClient(inspections=(inspect_data(1, state="running"),))
     with pytest.raises(RuntimeStatePreconditionError):
         stop(client, expected_state=ContainerRuntimeState.STOPPED)
+    assert client.stop_calls == []
+
+
+@pytest.mark.parametrize("state", ["running", "exited"])
+def test_wrong_revision_refuses_stop_or_idempotent_result(state: str) -> None:
+    client = FakeStopDockerClient(
+        inspections=(inspect_data(1, state=state, revision_value=instance_id(102)),)
+    )
+    with pytest.raises(RuntimeRevisionPreconditionError):
+        stop(client)
     assert client.stop_calls == []
 
 
@@ -318,6 +337,7 @@ def test_daemon_unavailable_before_selection_is_distinct() -> None:
             managed_instance_id=instance_id(1),
             expected_container_id=container_id(1),
             expected_runtime_state=ContainerRuntimeState.RUNNING,
+            expected_runtime_revision_id=revision_id(),
         )
     assert "PRIVATE" not in str(raised.value)
 

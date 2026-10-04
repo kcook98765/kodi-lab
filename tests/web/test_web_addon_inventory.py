@@ -41,6 +41,7 @@ def inventory_entry(state: ContainerRuntimeState) -> ManagedContainerInventoryEn
         managed_instance_id=str(INSTANCE_ID),
         container_id=CONTAINER_ID,
         image_id="sha256:" + "b" * 64,
+        runtime_revision_id=str(REVISION_ID),
         runtime_state=state,
         health_state=ContainerHealthState.HEALTHY,
     )

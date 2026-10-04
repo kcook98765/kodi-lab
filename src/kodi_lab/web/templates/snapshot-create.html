@@ -13,11 +13,14 @@
       <h2>{{ instance.name }}</h2>
       <p>Kodi may be stopped briefly. Its previous running or stopped state will be restored before the operation succeeds.</p>
       <p class="notice">The snapshot can contain sensitive Kodi and add-on state. It is stored locally under Kodi Lab control and is not automatically deleted.</p>
+      {% if instance.failure_code == 'runtime_revision_mismatch' %}
+      <p class="notice" role="alert">{{ instance.failure_detail }}</p>
+      {% endif %}
       <label for="snapshot-label">Optional label</label>
       <input id="snapshot-label" type="text" maxlength="120" autocomplete="off">
       <p id="snapshot-error" class="error" role="alert" hidden></p>
       <div class="actions">
-        <button id="confirm-snapshot" type="button" data-instance-id="{{ instance.managed_instance_id }}">Create snapshot</button>
+        <button id="confirm-snapshot" type="button" data-instance-id="{{ instance.managed_instance_id }}" {% if instance.failure_code == 'runtime_revision_mismatch' %}disabled{% endif %}>Create snapshot</button>
         <a href="/instances/{{ instance.managed_instance_id }}/snapshots">Cancel</a>
       </div>
     </main>

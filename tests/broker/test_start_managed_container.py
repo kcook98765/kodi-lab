@@ -27,8 +27,10 @@ from kodi_lab.broker.errors import (
     InvalidManagedContainerMetadataError,
     ManagedContainerNotFoundError,
     PostStartVerificationError,
+    RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionError,
 )
+from kodi_lab.broker.provisioning import RUNTIME_REVISION_LABEL_KEY
 
 
 def instance_id(number: int = 1) -> str:
@@ -39,12 +41,17 @@ def container_id(number: int = 1) -> str:
     return f"{number:064x}"
 
 
+def revision_id(number: int = 1) -> str:
+    return str(UUID(int=number + 100))
+
+
 def inspect_data(
     container_number: int = 1,
     *,
     instance_number: int = 1,
     managed_value: str = MANAGED_LABEL_VALUE,
     instance_value: object | None = None,
+    revision_value: str | None = None,
     state: str = "exited",
     labels_present: bool = True,
 ) -> dict[str, object]:
@@ -58,6 +65,7 @@ def inspect_data(
                 else instance_value
             ),
             "PRIVATE-LABEL": "PRIVATE-VALUE",
+            RUNTIME_REVISION_LABEL_KEY: revision_value or revision_id(),
         }
     return {
         "Id": container_id(container_number),
@@ -128,6 +136,7 @@ def start(
         managed_instance_id=requested_instance_id or instance_id(),
         expected_container_id=expected_container_id or container_id(),
         expected_runtime_state=expected_state,
+        expected_runtime_revision_id=revision_id(),
     )
 
 
@@ -175,6 +184,29 @@ def test_stopped_container_rejects_stale_expected_running_state() -> None:
     client = FakeStartDockerClient(inspections=(inspect_data(state="exited"),))
     with pytest.raises(RuntimeStatePreconditionError):
         start(client, expected_state=ContainerRuntimeState.RUNNING)
+    assert client.start_calls == []
+
+
+def test_wrong_revision_refuses_start_before_docker_mutation() -> None:
+    client = FakeStartDockerClient(
+        inspections=(inspect_data(revision_value=revision_id(2)),)
+    )
+    with pytest.raises(RuntimeRevisionPreconditionError):
+        start(client)
+    assert client.start_calls == []
+
+
+def test_revision_change_after_status_still_refuses_start() -> None:
+    client = FakeStartDockerClient(
+        inspections=(
+            inspect_data(),
+            inspect_data(revision_value=revision_id(2)),
+        )
+    )
+    observed = DockerManagedContainerAdapter(lambda: client).list_managed_containers()
+    assert observed[0].runtime_revision_id == revision_id()
+    with pytest.raises(RuntimeRevisionPreconditionError):
+        start(client)
     assert client.start_calls == []
 
 
@@ -271,6 +303,7 @@ def test_daemon_read_and_start_failures_are_sanitized() -> None:
             managed_instance_id=instance_id(),
             expected_container_id=container_id(),
             expected_runtime_state=ContainerRuntimeState.STOPPED,
+            expected_runtime_revision_id=revision_id(),
         )
     assert "PRIVATE" not in str(raised.value)
 
@@ -326,11 +359,13 @@ def test_shared_reconciliation_supports_only_stopped_running_round_trip() -> Non
         managed_instance_id=instance_id(),
         expected_container_id=container_id(),
         expected_runtime_state=ContainerRuntimeState.STOPPED,
+        expected_runtime_revision_id=revision_id(),
     )
     stopped = adapter.stop_managed_container(
         managed_instance_id=instance_id(),
         expected_container_id=container_id(),
         expected_runtime_state=ContainerRuntimeState.RUNNING,
+        expected_runtime_revision_id=revision_id(),
     )
     assert started.start_performed is True
     assert stopped.stop_performed is True

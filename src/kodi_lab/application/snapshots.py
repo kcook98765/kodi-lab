@@ -21,7 +21,11 @@ from kodi_lab.application.snapshot_operations import (
     SnapshotCreateOperationCoordinator,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
-from kodi_lab.broker.errors import ClientProtocolError, ClientTransportError
+from kodi_lab.broker.errors import (
+    ClientProtocolError,
+    ClientTransportError,
+    RemoteBrokerError,
+)
 from kodi_lab.broker.operations import (
     CaptureManagedInstanceSnapshotResult,
     ManagedContainerInventoryEntry,
@@ -190,11 +194,19 @@ class DisposableSnapshotCreationService:
             self._coordinator.update_phase(
                 self._lease, SnapshotCreateOperationPhase.CAPTURING
             )
-            broker_result = self._broker.capture_managed_instance_snapshot(
-                snapshot_id=str(self._lease.snapshot_id),
-                managed_instance_id=str(self._lease.managed_instance_id),
-                expected_container_id=container.container_id,
-            )
+            try:
+                broker_result = self._broker.capture_managed_instance_snapshot(
+                    snapshot_id=str(self._lease.snapshot_id),
+                    managed_instance_id=str(self._lease.managed_instance_id),
+                    expected_container_id=container.container_id,
+                )
+            except RemoteBrokerError as error:
+                if error.code == "runtime_revision_precondition_failed":
+                    raise SnapshotCreateError(
+                        "runtime_revision_precondition_failed: "
+                        "The managed runtime revision differs from trusted state."
+                    ) from error
+                raise
             self._coordinator.update_phase(
                 self._lease, SnapshotCreateOperationPhase.VALIDATING_ARCHIVE
             )

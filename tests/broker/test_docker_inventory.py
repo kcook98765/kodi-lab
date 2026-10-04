@@ -24,6 +24,7 @@ from kodi_lab.broker.errors import (
     InvalidManagedContainerMetadataError,
     InventoryLimitExceededError,
 )
+from kodi_lab.broker.provisioning import RUNTIME_REVISION_LABEL_KEY
 
 IMAGE_ID = "sha256:" + ("b" * 64)
 LEGACY_LABEL_KEY = "com.docker.compose.project"
@@ -67,6 +68,7 @@ def managed_labels(number: int) -> dict[str, str]:
     return {
         MANAGED_LABEL_KEY: MANAGED_LABEL_VALUE,
         INSTANCE_ID_LABEL_KEY: instance_id(number),
+        RUNTIME_REVISION_LABEL_KEY: str(UUID(int=number + 100)),
     }
 
 
@@ -162,6 +164,7 @@ def test_exactly_labelled_container_is_minimized_to_semantic_record() -> None:
     assert record.managed_instance_id == instance_id(1)
     assert record.container_id == container_id(1)
     assert record.image_id == IMAGE_ID
+    assert record.runtime_revision_id == str(UUID(int=101))
     assert record.runtime_state is ContainerRuntimeState.RUNNING
     assert record.health_state is ContainerHealthState.HEALTHY
     serialized = repr(record)
@@ -207,6 +210,20 @@ def test_exactly_managed_container_requires_canonical_instance_uuid(
     config = raw["Config"]
     assert isinstance(config, dict)
     config["Labels"] = labels
+    with pytest.raises(InvalidManagedContainerMetadataError):
+        inventory(FakeDockerClient({container_id(1): raw}))
+
+
+@pytest.mark.parametrize("bad_revision", [None, "not-a-uuid", "A" * 36])
+def test_managed_container_requires_canonical_runtime_revision(
+    bad_revision: object,
+) -> None:
+    raw = inspect_data(1, labels=managed_labels(1))
+    config = raw["Config"]
+    assert isinstance(config, dict)
+    labels = config["Labels"]
+    assert isinstance(labels, dict)
+    labels[RUNTIME_REVISION_LABEL_KEY] = bad_revision
     with pytest.raises(InvalidManagedContainerMetadataError):
         inventory(FakeDockerClient({container_id(1): raw}))
 

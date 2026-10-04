@@ -29,10 +29,15 @@ from kodi_lab.broker.errors import (
     PostStartVerificationClientError,
     PostStartVerificationError,
     RemoteBrokerError,
+    RuntimeRevisionPreconditionClientError,
+    RuntimeRevisionPreconditionError,
 )
 from kodi_lab.broker.operations import (
+    OperationRegistry,
     StartManagedContainerResult,
-    build_foundation_registry,
+)
+from kodi_lab.broker.operations import (
+    build_foundation_registry as _build_foundation_registry,
 )
 from kodi_lab.broker.protocol import decode_json_object
 from kodi_lab.broker.server import AUDIT_LOGGER_NAME
@@ -70,7 +75,9 @@ class FakeContainerProvider:
         self.stop_calls = 0
         self.inventory_calls = 0
 
-    def list_managed_containers(self) -> tuple[ManagedContainerRecord, ...]:
+    def list_managed_containers(
+        self, *, managed_instance_id: str | None = None
+    ) -> tuple[ManagedContainerRecord, ...]:
         self.inventory_calls += 1
         return ()
 
@@ -80,7 +87,9 @@ class FakeContainerProvider:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StartManagedContainerRecord:
+        assert expected_runtime_revision_id == instance_id(101)
         self.start_calls.append(
             (managed_instance_id, expected_container_id, expected_runtime_state)
         )
@@ -94,9 +103,21 @@ class FakeContainerProvider:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StopManagedContainerRecord:
         self.stop_calls += 1
         raise AssertionError("start operation reached stop mutation")
+
+
+class FakeRevisionResolver:
+    def resolve_runtime_revision_id(self, _managed_instance_id: str) -> str:
+        return instance_id(101)
+
+
+def build_foundation_registry(provider: FakeContainerProvider) -> OperationRegistry:
+    return _build_foundation_registry(
+        provider, revision_resolver=FakeRevisionResolver()
+    )
 
 
 def valid_params() -> dict[str, object]:
@@ -231,6 +252,11 @@ def test_client_rejects_invalid_start_before_connect(tmp_path: Path) -> None:
             PostStartVerificationError("PRIVATE"),
             PostStartVerificationClientError,
             "post_start_verification_failed",
+        ),
+        (
+            RuntimeRevisionPreconditionError("PRIVATE"),
+            RuntimeRevisionPreconditionClientError,
+            "runtime_revision_precondition_failed",
         ),
     ],
 )

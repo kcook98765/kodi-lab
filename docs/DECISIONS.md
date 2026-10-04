@@ -5626,3 +5626,21 @@ approvals atomically with the governing revision transition.
   generation CAS, exact preimage matching, atomic publication and rollback,
   and the absence of an edit replay ID are unchanged. No migration or new
   authority is required.
+
+## D-0409: Apply managed runtime pins to stopped-container observation and actions
+
+- Practical functional use found a stopped Nexus container whose runtime revision
+  label differed from its persisted immutable pin. Inventory now carries the
+  validated label. Stopped status uses the existing `runtime_revision_mismatch`
+  failure, with no normal lifecycle actions; reset and snapshot admission also
+  reject a known mismatch. A missing revision observation fails closed.
+- Start and Stop resolve the current persisted pin at the broker and compare it
+  with fresh container metadata before either Docker mutation or an idempotent
+  result. Existing ownership, container-ID, state, and postcondition checks
+  remain. Status is advisory: a later revision change still fails at dispatch.
+- Snapshot creation retains the approved
+  `runtime_revision_precondition_failed` reason when the broker reports that
+  exact known failure; other broker failures keep their existing bounded
+  presentation. Runtime projection CAS and lifecycle history are unchanged.
+  This decision adds no automatic recovery or special handling for the Nexus
+  evidence container.

@@ -153,6 +153,7 @@ class RunningBroker:
                     managed_instance_id=str(INSTANCE),
                     container_id="c" * 64,
                     image_id="sha256:" + "d" * 64,
+                    runtime_revision_id=str(REVISION),
                     runtime_state=ContainerRuntimeState.RUNNING,
                     health_state=ContainerHealthState.HEALTHY,
                 )
@@ -171,6 +172,34 @@ class RunningBroker:
             ipv4_address="10.250.0.2",
             jsonrpc_port=8080,
         )
+
+
+class StoppedBroker(RunningBroker):
+    def __init__(self, runtime_revision_id: str) -> None:
+        super().__init__()
+        self.runtime_revision_id = runtime_revision_id
+
+    def managed_container_inventory(
+        self, *, managed_instance_id: str | None = None
+    ) -> ManagedContainerInventoryResult:
+        inventory = super().managed_container_inventory(
+            managed_instance_id=managed_instance_id
+        )
+        return ManagedContainerInventoryResult(
+            containers=[
+                inventory.containers[0].model_copy(
+                    update={
+                        "runtime_state": ContainerRuntimeState.STOPPED,
+                        "runtime_revision_id": self.runtime_revision_id,
+                    }
+                )
+            ]
+        )
+
+    def observe_managed_kodi_runtime(
+        self, *, managed_instance_id: str, expected_container_id: str
+    ) -> ObserveManagedKodiRuntimeResult:
+        raise AssertionError("stopped status must not observe a running Kodi runtime")
 
 
 def _current(factory: sessionmaker[Session]) -> tuple[int, str, str, str, str]:
@@ -247,6 +276,7 @@ class TwoInstanceBroker(RunningBroker):
                         managed_instance_id=str(OTHER),
                         container_id="e" * 64,
                         image_id="sha256:" + "f" * 64,
+                        runtime_revision_id=str(REVISION),
                         runtime_state=ContainerRuntimeState.RUNNING,
                         health_state=ContainerHealthState.HEALTHY,
                     ),
@@ -603,3 +633,45 @@ def test_runtime_pin_mismatch_cannot_project_usable(
     ).get(INSTANCE)
     assert status.failure_code == "runtime_revision_mismatch"
     assert _current(factory) == (0, "running", "unavailable", "warning", "disconnected")
+
+
+def test_stopped_matching_pin_keeps_normal_actions(
+    factory: sessionmaker[Session],
+) -> None:
+    status = ManagedRuntimeStatusService(
+        factory,
+        StoppedBroker(str(REVISION)),
+        Idle(),  # type: ignore[arg-type]
+    ).get(INSTANCE)
+    assert status.container_state is ContainerRuntimeState.STOPPED
+    assert status.failure_code is None
+    assert status.allowed_actions == ["start", "deprovision"]
+
+
+def test_stopped_mismatched_pin_uses_existing_failure_without_actions(
+    factory: sessionmaker[Session],
+) -> None:
+    status = ManagedRuntimeStatusService(
+        factory,
+        StoppedBroker(str(uuid4())),
+        Idle(),  # type: ignore[arg-type]
+    ).get(INSTANCE)
+    assert status.container_state is ContainerRuntimeState.STOPPED
+    assert status.failure_code == "runtime_revision_mismatch"
+    assert status.allowed_actions == []
+    assert status.usability_state.value == "failed"
+    assert _current(factory) == (0, "stopped", "unavailable", "warning", "disconnected")
+
+
+def test_targeted_stopped_mismatch_does_not_project_neighbor(
+    factory: sessionmaker[Session],
+) -> None:
+    _seed_other(factory)
+    before = _other_current(factory)
+    status = ManagedRuntimeStatusService(
+        factory,
+        StoppedBroker(str(uuid4())),
+        Idle(),  # type: ignore[arg-type]
+    ).get(INSTANCE)
+    assert status.failure_code == "runtime_revision_mismatch"
+    assert _other_current(factory) == before

@@ -1038,6 +1038,27 @@ def test_snapshot_create_returns_202_and_exposes_only_safe_status(
     assert not forbidden.intersection(item)
 
 
+def test_snapshot_create_rejects_known_stopped_revision_mismatch(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    broker.container = inventory_entry(ContainerRuntimeState.STOPPED).model_copy(
+        update={"runtime_revision_id": str(uuid4())}
+    )
+    csrf = login(client)
+    response = client.post(
+        f"/api/instances/{INSTANCE_ID}/snapshots",
+        json={"label": "must not queue"},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "snapshot_create_conflict"
+    assert client.get(f"/api/instances/{INSTANCE_ID}/snapshots").json() == []
+    page = client.get(f"/instances/{INSTANCE_ID}/snapshots/new")
+    assert page.status_code == 200
+    assert 'id="confirm-snapshot"' in page.text
+    assert "disabled" in page.text
+
+
 def test_snapshot_html_escapes_labels_and_no_content_routes_exist(
     client: TestClient,
 ) -> None:

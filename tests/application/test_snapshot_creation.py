@@ -26,7 +26,7 @@ from kodi_lab.broker.docker_inventory import (
     ContainerRuntimeState,
     KodiProcessState,
 )
-from kodi_lab.broker.errors import ClientTransportError
+from kodi_lab.broker.errors import ClientTransportError, RemoteBrokerError
 from kodi_lab.broker.operations import (
     CaptureManagedInstanceSnapshotResult,
     ManagedContainerInventoryEntry,
@@ -419,6 +419,38 @@ def test_capture_failure_restores_prior_running_state(
     assert not captured.value.reconciliation_required
     assert broker.calls == ["stop", "capture", "start"]
     assert broker.state is ContainerRuntimeState.RUNNING
+
+
+def test_capture_revision_precondition_keeps_approved_reason(
+    factory: sessionmaker[Session],
+) -> None:
+    broker = FakeBroker(ContainerRuntimeState.STOPPED)
+
+    def reject_capture(**_kwargs: object) -> CaptureManagedInstanceSnapshotResult:
+        raise RemoteBrokerError(
+            "runtime_revision_precondition_failed",
+            "PRIVATE BROKER DETAIL",
+            request_id=None,
+        )
+
+    broker.capture_managed_instance_snapshot = reject_capture  # type: ignore[method-assign]
+    capture, coordinator = service(factory, broker)
+    with pytest.raises(SnapshotCreateError) as raised:
+        capture.create()
+    assert raised.value.safe_reason == (
+        "runtime_revision_precondition_failed: "
+        "The managed runtime revision differs from trusted state."
+    )
+    assert "PRIVATE" not in raised.value.safe_reason
+    coordinator.mark_snapshot_invalid(capture._lease.snapshot_id, quarantined=False)
+    coordinator.finish_failure(
+        capture._lease,
+        reason=raised.value.safe_reason,
+        reconciliation_required=raised.value.reconciliation_required,
+    )
+    persisted = coordinator.get(capture._lease.operation_id)
+    assert persisted is not None
+    assert persisted.failure_reason == raised.value.safe_reason
 
 
 def test_lost_stop_response_requires_reconciliation_without_restart(

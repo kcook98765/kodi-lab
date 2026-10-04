@@ -293,6 +293,19 @@ class ManagedRuntimeStatusService:
                 ["provision"],
             )
         if container.runtime_state is ContainerRuntimeState.STOPPED:
+            if container.runtime_revision_id != str(context[3]):
+                return self._status(
+                    context,
+                    ProvisionState.PROVISIONED,
+                    container.runtime_state,
+                    KodiProcessState.NOT_RUNNING,
+                    SemanticJsonRpcState.NOT_CHECKED,
+                    SemanticUsabilityState.FAILED,
+                    task.state,
+                    [],
+                    failure_code="runtime_revision_mismatch",
+                    failure_detail="Managed runtime differs from the selected pin.",
+                )
             return self._status(
                 context,
                 ProvisionState.PROVISIONED,

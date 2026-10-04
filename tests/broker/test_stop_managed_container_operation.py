@@ -41,12 +41,17 @@ from kodi_lab.broker.errors import (
     PostStopVerificationClientError,
     PostStopVerificationError,
     RemoteBrokerError,
+    RuntimeRevisionPreconditionClientError,
+    RuntimeRevisionPreconditionError,
     RuntimeStatePreconditionClientError,
     RuntimeStatePreconditionError,
 )
 from kodi_lab.broker.operations import (
+    OperationRegistry,
     StopManagedContainerResult,
-    build_foundation_registry,
+)
+from kodi_lab.broker.operations import (
+    build_foundation_registry as _build_foundation_registry,
 )
 from kodi_lab.broker.protocol import decode_json_object
 from kodi_lab.broker.server import AUDIT_LOGGER_NAME
@@ -83,7 +88,9 @@ class FakeContainerProvider:
         self.stop_calls: list[tuple[str, str, ContainerRuntimeState]] = []
         self.inventory_calls = 0
 
-    def list_managed_containers(self) -> tuple[ManagedContainerRecord, ...]:
+    def list_managed_containers(
+        self, *, managed_instance_id: str | None = None
+    ) -> tuple[ManagedContainerRecord, ...]:
         self.inventory_calls += 1
         return ()
 
@@ -93,7 +100,9 @@ class FakeContainerProvider:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StopManagedContainerRecord:
+        assert expected_runtime_revision_id == instance_id(101)
         self.stop_calls.append(
             (managed_instance_id, expected_container_id, expected_runtime_state)
         )
@@ -107,8 +116,20 @@ class FakeContainerProvider:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_runtime_revision_id: str,
     ) -> StartManagedContainerRecord:
         raise AssertionError("stop operation reached start mutation")
+
+
+class FakeRevisionResolver:
+    def resolve_runtime_revision_id(self, _managed_instance_id: str) -> str:
+        return instance_id(101)
+
+
+def build_foundation_registry(provider: FakeContainerProvider) -> OperationRegistry:
+    return _build_foundation_registry(
+        provider, revision_resolver=FakeRevisionResolver()
+    )
 
 
 def raw_stop_request(params: object) -> bytes:
@@ -320,6 +341,11 @@ def test_capabilities_contains_exact_bounded_operation_set() -> None:
             RuntimeStatePreconditionError("PRIVATE"),
             RuntimeStatePreconditionClientError,
             "runtime_state_precondition_failed",
+        ),
+        (
+            RuntimeRevisionPreconditionError("PRIVATE"),
+            RuntimeRevisionPreconditionClientError,
+            "runtime_revision_precondition_failed",
         ),
         (
             ContainerStateNotStoppableError("PRIVATE"),

@@ -59,6 +59,7 @@ class ResetEligibilityReason(StrEnum):
     RECONCILIATION_REQUIRED = "reconciliation_required"
     RESET_IN_PROGRESS = "reset_in_progress"
     CATALOG_UNAVAILABLE = "catalog_unavailable"
+    RUNTIME_REVISION_MISMATCH = "runtime_revision_mismatch"
 
 
 class FixtureAssignmentState(StrEnum):
@@ -409,6 +410,14 @@ class ResetStatusService:
                 unsupported,
                 ResetEligibilityReason.AMBIGUOUS_CONTAINER_OWNERSHIP,
                 "Managed container ownership is ambiguous.",
+            )
+        if containers and containers[0].runtime_revision_id != str(
+            context.instance.runtime_revision_id
+        ):
+            return (
+                unsupported,
+                ResetEligibilityReason.RUNTIME_REVISION_MISMATCH,
+                "Managed runtime differs from the selected pin.",
             )
         if containers and containers[0].runtime_state not in {
             ContainerRuntimeState.STOPPED,
