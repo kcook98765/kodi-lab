@@ -425,6 +425,21 @@ def test_same_name_unowned_and_duplicate_owned_fail_without_mutation() -> None:
     assert duplicate.create_calls == []
 
 
+def test_reconstruction_destination_preflight_is_read_only_and_exact() -> None:
+    available = FakeProvisioningDockerClient()
+    DockerManagedContainerAdapter(
+        lambda: available
+    ).validate_reconstruction_destination(spec())
+    assert available.create_calls == available.remove_calls == []
+
+    missing = FakeProvisioningDockerClient(image=NotFound("PRIVATE"))
+    with pytest.raises(RuntimeImageUnavailableError):
+        DockerManagedContainerAdapter(
+            lambda: missing
+        ).validate_reconstruction_destination(spec())
+    assert missing.create_calls == missing.remove_calls == []
+
+
 def test_image_and_network_prerequisites_fail_closed() -> None:
     with pytest.raises(RuntimeImageUnavailableError):
         provision(FakeProvisioningDockerClient(image=NotFound("PRIVATE")))
@@ -583,6 +598,7 @@ def test_adapter_public_surface_has_no_generic_docker_mutation() -> None:
         "observe_addon_zip_destination",
         "observe_managed_kodi_runtime",
         "provision_managed_container",
+        "validate_reconstruction_destination",
         "start_managed_container",
         "stop_managed_container",
         "verify_attached_development_source_destination",

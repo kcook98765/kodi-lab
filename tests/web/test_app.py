@@ -21,6 +21,7 @@ from kodi_lab.broker.errors import (
     BrokerUnavailableError,
     RuntimeRevisionPreconditionClientError,
 )
+from kodi_lab.broker.operations import ReconstructionDestinationResult
 from kodi_lab.config import Settings
 from kodi_lab.domain import (
     InstanceRuntimeState,
@@ -56,6 +57,7 @@ from kodi_lab.web.app import create_app
 
 from .conftest import (
     CONTAINER_ID,
+    IMAGE_ID,
     INSTANCE_ID,
     ORIGIN,
     PASSWORD,
@@ -75,6 +77,19 @@ def test_protected_routes_require_authentication(client: TestClient) -> None:
     assert response.headers["location"] == "/login"
     assert client.get("/api/instances").status_code == 401
     assert client.get(f"/api/instances/{INSTANCE_ID}/reset-status").status_code == 401
+    assert (
+        client.get(
+            f"/api/instances/{INSTANCE_ID}/reconstruction-eligibility"
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"/api/instances/{INSTANCE_ID}/reconstruct",
+            json={"confirmed": True, "observation_token": "a" * 64},
+        ).status_code
+        == 401
+    )
     assert client.get(f"/api/instances/{INSTANCE_ID}/snapshots").status_code == 401
     assert client.get(f"/api/instances/{INSTANCE_ID}/reconciliation").status_code == 401
     assert client.get(f"/api/snapshots/{uuid4()}/reconciliation").status_code == 401
@@ -469,6 +484,89 @@ def test_reset_confirmation_and_authenticated_csrf_protected_queue(
     assert body["operation"]["managed_instance_id"] == str(INSTANCE_ID)
     assert "container" not in accepted.text
     assert "revision" not in accepted.text
+
+
+def test_reconstruction_is_admin_confirmed_fenced_and_readable(
+    client: TestClient,
+    broker: FakeBroker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old_revision = uuid4()
+    broker.container = inventory_entry(ContainerRuntimeState.STOPPED).model_copy(
+        update={"runtime_revision_id": str(old_revision)}
+    )
+    monkeypatch.setattr(
+        broker,
+        "reconstruction_destination",
+        lambda *, managed_instance_id: ReconstructionDestinationResult(
+            managed_instance_id=managed_instance_id,
+            desired_runtime_revision_id=str(REVISION_ID),
+            desired_image_id=IMAGE_ID,
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        client.app.state.kodi_lab.reconstruction_executor,
+        "submit",
+        lambda _operation_id: None,
+    )
+    csrf = login(client)
+    path = f"/api/instances/{INSTANCE_ID}/reconstruct"
+    eligibility = client.get(
+        f"/api/instances/{INSTANCE_ID}/reconstruction-eligibility"
+    ).json()
+    assert eligibility["eligible"]
+    token = eligibility["observation_token"]
+    page = client.get(f"/instances/{INSTANCE_ID}/reconstruct")
+    assert page.status_code == 200
+    for warning in (
+        "discards the current container writable layer",
+        "does not automatically create a safety snapshot",
+        "persisted approved runtime pin",
+        "Preserve files externally",
+    ):
+        assert warning in page.text
+    assert CONTAINER_ID not in page.text
+    request = {"confirmed": True, "observation_token": token}
+    assert client.post(path, json=request, headers=ORIGIN).status_code == 403
+    assert (
+        client.post(
+            path,
+            json=request,
+            headers={"Origin": "http://attacker.invalid", "X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            path,
+            json=request | {"container_id": CONTAINER_ID},
+            headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+        ).status_code
+        == 422
+    )
+    broker.container = broker.container.model_copy(update={"container_id": "f" * 64})
+    assert (
+        client.post(
+            path, json=request, headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+        ).status_code
+        == 409
+    )
+    assert broker.calls == []
+    broker.container = broker.container.model_copy(
+        update={"container_id": CONTAINER_ID}
+    )
+    accepted = client.post(
+        path, json=request, headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    )
+    assert accepted.status_code == 202
+    status_url = accepted.json()["status_url"]
+    assert client.get(status_url).json()["state"] == "queued"
+    dashboard = client.get("/")
+    assert dashboard.status_code == 200
+    assert 'data-reconstruction-state="queued"' in dashboard.text
+    assert "Runtime reconstruction" in dashboard.text
+    assert broker.calls == []
 
 
 class BlockingResetService:

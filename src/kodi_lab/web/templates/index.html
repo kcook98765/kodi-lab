@@ -24,6 +24,8 @@
         {% for instance in instances %}
         {% set reset = reset_statuses.get(instance.managed_instance_id) %}
         {% set reconciliation = reconciliation_statuses.get(instance.managed_instance_id) %}
+        {% set reconstruction = reconstruction_statuses.get(instance.managed_instance_id) %}
+        {% set reconstruction_active = reconstruction and reconstruction.state in ['queued', 'running'] %}
         {% set reset_active = reset and reset.operation and reset.operation.state in ['queued', 'running'] %}
         <article class="instance" data-instance-id="{{ instance.managed_instance_id }}">
           <h2 data-field="name"><a href="/instances/{{ instance.managed_instance_id }}">{{ instance.name }}</a></h2>
@@ -42,6 +44,16 @@
             <p>{{ reconciliation.operation_kind }} at {{ reconciliation.last_phase or 'unknown phase' }}; observed state: {{ reconciliation.observed_state or 'unknown' }}.</p>
             <p>{{ reconciliation.safe_reason }} Automatic destructive work will not resume.</p>
             {% if reconciliation.blocking %}<p>Blocked actions: {{ reconciliation.blocked_actions|join(', ') }}.</p>{% endif %}
+          </section>
+          {% endif %}
+          {% if reconstruction %}
+          <section aria-label="Runtime reconstruction status" data-reconstruction-operation-id="{{ reconstruction.operation_id }}" data-reconstruction-state="{{ reconstruction.state }}" data-reconstruction-phase="{{ reconstruction.phase }}">
+            <h3>Runtime reconstruction</h3>
+            <p>{{ reconstruction.state }} · {{ reconstruction.phase }}</p>
+            {% if reconstruction.old_writable_state_discarded %}<p>The old writable state was discarded.</p>{% endif %}
+            {% if reconstruction.failure_reason %}<p class="error">{{ reconstruction.failure_reason }}</p>{% endif %}
+            {% if reconstruction.reconciliation_state %}<p>Observed state: {{ reconstruction.reconciliation_state }}</p>{% endif %}
+            {% if reconstruction.state == 'reconciliation_required' %}<p><a href="/instances/{{ instance.managed_instance_id }}/reconstruct">Review reconstruction state</a></p>{% endif %}
           </section>
           {% endif %}
           {% if reset %}
@@ -67,15 +79,18 @@
           {% endif %}
           <div class="actions">
             {% for action in ['provision', 'start', 'stop', 'deprovision'] %}
-            <button type="button" data-action="{{ action }}" {% if action not in instance.allowed_actions %}hidden{% endif %} {% if reset_active %}disabled{% endif %}>{{ action|capitalize }}</button>
+            <button type="button" data-action="{{ action }}" {% if action not in instance.allowed_actions %}hidden{% endif %} {% if reset_active or reconstruction_active %}disabled{% endif %}>{{ action|capitalize }}</button>
             {% endfor %}
-            {% if reset and reset.eligibility == 'supported' and not (reconciliation and reconciliation.blocking) %}
+            {% if reset and reset.eligibility == 'supported' and not (reconciliation and reconciliation.blocking) and not reconstruction_active %}
             <a class="button-link" data-reset-action href="/instances/{{ instance.managed_instance_id }}/reset">Reset</a>
             {% elif reset and reset.eligibility == 'supported' %}
             <span class="button-link" aria-disabled="true">Reset blocked</span>
             {% endif %}
+            {% if instance.failure_code == 'runtime_revision_mismatch' and not (reconciliation and reconciliation.blocking) %}
+            <a class="button-link destructive" href="/instances/{{ instance.managed_instance_id }}/reconstruct">Reconstruct managed runtime</a>
+            {% endif %}
             <a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots">Snapshots</a>
-            {% if not (reconciliation and reconciliation.blocking) %}
+            {% if not (reconciliation and reconciliation.blocking) and not reconstruction_active %}
             <a class="button-link destructive" data-delete-action="link" href="/instances/{{ instance.managed_instance_id }}/delete" {% if instance.failure_code == 'runtime_revision_mismatch' %}hidden{% endif %}>Delete instance</a>
             <span class="button-link destructive" data-delete-action="blocked" aria-disabled="true" {% if instance.failure_code != 'runtime_revision_mismatch' %}hidden{% endif %}>Delete blocked</span>
             {% else %}<span class="button-link destructive" aria-disabled="true">Delete blocked</span>{% endif %}

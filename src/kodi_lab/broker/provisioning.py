@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -18,10 +19,17 @@ from kodi_lab.broker.errors import (
 from kodi_lab.config import Settings
 from kodi_lab.domain import (
     InstanceType,
+    ManagedInstanceMutationKind,
     PythonBytecodePolicy,
+    RevisionApprovalState,
     RuntimeExecutionProfile,
 )
 from kodi_lab.storage.engine import create_database_engine
+from kodi_lab.storage.models import (
+    ManagedInstanceMutationLeaseRow,
+    ManagedInstanceRow,
+    ManagedRuntimeReconstructionRow,
+)
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeContainerArtifactRepository,
@@ -335,3 +343,86 @@ class SqliteRuntimeOwnershipResolver:
             raise ProvisioningStateError(
                 "Canonical runtime ownership state could not be read"
             ) from error
+
+
+class SqliteReconstructionAuthorizationResolver:
+    """Independently bind exceptional removal to a live exact operation lease."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+        self._provisioning = SqliteProvisioningResolver(session_factory)
+
+    @classmethod
+    def production(cls) -> SqliteReconstructionAuthorizationResolver:
+        engine = create_database_engine(Settings().database_url)
+        return cls(sessionmaker(engine, expire_on_commit=False))
+
+    def desired_spec(
+        self, managed_instance_id: str
+    ) -> ManagedContainerProvisioningSpec:
+        spec = self._provisioning.resolve(managed_instance_id)
+        with self._session_factory() as session:
+            revision = RuntimeRevisionRepository(session).get(
+                UUID(spec.runtime_revision_id)
+            )
+            if (
+                revision is None
+                or revision.approval_state is not RevisionApprovalState.APPROVED
+                or (
+                    revision.requires_trusted_build_confirmation
+                    and revision.trusted_build_confirmed_at is None
+                )
+            ):
+                raise ProvisioningStateError("Pinned runtime revision is not approved")
+        return spec
+
+    def authorize_removal(
+        self,
+        *,
+        managed_instance_id: str,
+        operation_id: str,
+        lease_token_digest: str,
+        owned_runtime_state_revision: int,
+        old_container_id: str,
+        old_image_id: str,
+        old_runtime_revision_id: str,
+        desired_runtime_revision_id: str,
+    ) -> ManagedContainerProvisioningSpec:
+        spec = self.desired_spec(managed_instance_id)
+        with self._session_factory() as session:
+            instance = session.get(ManagedInstanceRow, managed_instance_id)
+            operation = session.get(ManagedRuntimeReconstructionRow, operation_id)
+            lease = session.get(ManagedInstanceMutationLeaseRow, managed_instance_id)
+            if (
+                instance is None
+                or instance.instance_type is not InstanceType.DISPOSABLE
+                or instance.runtime_revision_id != desired_runtime_revision_id
+                or instance.runtime_state_revision != owned_runtime_state_revision
+                or spec.runtime_revision_id != desired_runtime_revision_id
+                or old_runtime_revision_id == desired_runtime_revision_id
+                or operation is None
+                or operation.managed_instance_id != managed_instance_id
+                or operation.state != "running"
+                or operation.phase != "removing_old"
+                or operation.old_container_id != old_container_id
+                or operation.old_image_id != old_image_id
+                or operation.old_runtime_revision_id != old_runtime_revision_id
+                or operation.desired_runtime_revision_id != desired_runtime_revision_id
+                or operation.desired_image_id != spec.image_id
+                or operation.owned_runtime_state_revision
+                != owned_runtime_state_revision
+                or operation.lease_token_digest != lease_token_digest
+                or lease is None
+                or lease.operation_kind
+                is not ManagedInstanceMutationKind.RECONSTRUCTION
+                or lease.operation_id != operation_id
+                or lease.lease_token_digest != lease_token_digest
+                or lease.lease_expires_at is None
+                or operation.lease_expires_at != lease.lease_expires_at
+                or datetime.fromisoformat(lease.lease_expires_at.replace("Z", "+00:00"))
+                <= datetime.now(UTC)
+            ):
+                raise ProvisioningStateError(
+                    "Reconstruction ownership or identity changed"
+                )
+        return spec

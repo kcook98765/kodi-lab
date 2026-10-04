@@ -167,6 +167,7 @@ from kodi_lab.storage.models import (
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
+    ManagedRuntimeReconstructionRow,
     McpWorkspaceDeploymentOperationRow,
     PromotionVerificationLogEvidenceRow,
     PromotionVerificationOperationRow,
@@ -220,6 +221,7 @@ _RUNTIME_INVALIDATING_MUTATIONS = frozenset(
     {
         ManagedInstanceMutationKind.LIFECYCLE,
         ManagedInstanceMutationKind.RESET,
+        ManagedInstanceMutationKind.RECONSTRUCTION,
         ManagedInstanceMutationKind.SNAPSHOT_CREATE,
         ManagedInstanceMutationKind.SNAPSHOT_RESTORE,
         ManagedInstanceMutationKind.INSTANCE_DELETE,
@@ -373,6 +375,10 @@ class ManagedRuntimeProjectionRepository:
             (
                 ResetOperationRow,
                 ResetOperationRow.managed_instance_id,
+            ),
+            (
+                ManagedRuntimeReconstructionRow,
+                ManagedRuntimeReconstructionRow.managed_instance_id,
             ),
             (
                 SnapshotRestoreOperationRow,

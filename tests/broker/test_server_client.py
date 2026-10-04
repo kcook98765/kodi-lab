@@ -97,6 +97,8 @@ def test_real_temporary_unix_server_client_round_trip(
                 "provision_managed_container",
                 "read_promotion_kodi_log_window",
                 "read_smoke_log_window",
+                "reconstruction_destination",
+                "remove_mismatched_managed_container",
                 "reviewed_runtime_image_present",
                 "start_managed_container",
                 "stop_managed_container",

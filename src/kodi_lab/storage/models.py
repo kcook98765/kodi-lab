@@ -4785,6 +4785,82 @@ class SnapshotCreateOperationRow(Base):
     lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
+class ManagedRuntimeReconstructionRow(Base):
+    """Exact, destructive mismatch recovery with durable phase evidence."""
+
+    __tablename__ = "managed_runtime_reconstruction_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('queued','running','succeeded','failed','resolved',"
+            "'reconciliation_required')",
+            name="runtime_reconstruction_state_closed",
+        ),
+        CheckConstraint(
+            "phase IN ('confirmed','preflight','removing_old','old_absence_proven',"
+            "'provisioning','fresh_stopped_verified','applying_fixture','succeeded')",
+            name="runtime_reconstruction_phase_closed",
+        ),
+        CheckConstraint(
+            "length(old_container_id)=64 AND old_container_id NOT GLOB '*[^0-9a-f]*' "
+            "AND (fresh_container_id IS NULL OR (length(fresh_container_id)=64 "
+            "AND fresh_container_id NOT GLOB '*[^0-9a-f]*'))",
+            name="runtime_reconstruction_container_shape",
+        ),
+        CheckConstraint(
+            "length(old_image_id)=71 AND old_image_id LIKE 'sha256:%' "
+            "AND substr(old_image_id,8) NOT GLOB '*[^0-9a-f]*' "
+            "AND length(desired_image_id)=71 "
+            "AND desired_image_id LIKE 'sha256:%' "
+            "AND substr(desired_image_id,8) NOT GLOB '*[^0-9a-f]*'",
+            name="runtime_reconstruction_image_shape",
+        ),
+        CheckConstraint(
+            "old_runtime_revision_id<>desired_runtime_revision_id "
+            "AND confirmed_runtime_state_revision>=0 "
+            "AND owned_runtime_state_revision>=0",
+            name="runtime_reconstruction_mismatch_required",
+        ),
+        CheckConstraint(
+            "failure_reason IS NULL OR length(failure_reason) BETWEEN 1 AND 256",
+            name="runtime_reconstruction_failure_bounded",
+        ),
+        Index(
+            "uq_runtime_reconstruction_active_instance",
+            "managed_instance_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued', 'running')"),
+        ),
+        Index(
+            "ix_runtime_reconstruction_instance_requested",
+            "managed_instance_id",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    managed_instance_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    old_container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    old_image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+    old_runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    desired_runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    desired_image_id: Mapped[str] = mapped_column(String(71), nullable=False)
+    confirmed_runtime_state_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )
+    owned_runtime_state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    fresh_container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    old_discarded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    phase: Mapped[str] = mapped_column(String(32), nullable=False)
+    requested_at: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    heartbeat_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    lease_token_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
 class SnapshotRestoreOperationRow(Base):
     """Durable destructive snapshot-restore execution and recovery state."""
 

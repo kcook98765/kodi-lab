@@ -771,6 +771,33 @@ class DockerManagedContainerAdapter:
                 with suppress(DockerException, OSError):
                     client.close()
 
+    def validate_reconstruction_destination(
+        self, spec: ManagedContainerProvisioningSpec
+    ) -> None:
+        """Prove the selected exact image and network before old state is removed."""
+
+        client: _ProvisioningDockerClient | None = None
+        try:
+            client = cast(_ProvisioningDockerClient, self._client_factory())
+            self._validate_managed_network(client)
+            image = self._inspect_required_image(client, spec.image_id)
+            image_config = _require_mapping(image.get("Config"))
+            _expected_provisioned_environment(
+                image_config.get("Env"), spec.python_bytecode_policy
+            )
+            if image_config.get("Volumes") not in (None, {}):
+                raise ProvisioningConflictError(
+                    "Runtime image declares volumes outside disposable policy"
+                )
+        except (DockerException, OSError) as error:
+            raise DockerDaemonUnavailableError(
+                "Docker daemon is unavailable"
+            ) from error
+        finally:
+            if client is not None:
+                with suppress(DockerException, OSError):
+                    client.close()
+
     def observe_addon_zip_destination(
         self, *, spec: AddonZipInstallationSpec, expected_container_id: str
     ) -> AddonZipDestinationRecord:
@@ -2265,6 +2292,7 @@ class DockerManagedContainerAdapter:
         expected_container_id: str,
         expected_runtime_revision_id: str,
         expected_runtime_state: ContainerRuntimeState,
+        expected_image_id: str | None = None,
     ) -> DeprovisionedManagedContainerRecord:
         """Remove one exact, owned, stopped container and prove its absence."""
 
@@ -2319,6 +2347,7 @@ class DockerManagedContainerAdapter:
                 managed_instance_id=managed_instance_id,
                 expected_container_id=expected_container_id,
                 expected_runtime_revision_id=expected_runtime_revision_id,
+                expected_image_id=expected_image_id,
             )
 
             try:
@@ -3109,6 +3138,7 @@ class DockerManagedContainerAdapter:
         managed_instance_id: str,
         expected_container_id: str,
         expected_runtime_revision_id: str,
+        expected_image_id: str | None = None,
     ) -> None:
         """Prove destructive identity and stopped state from fresh inspect data."""
 
@@ -3155,6 +3185,13 @@ class DockerManagedContainerAdapter:
         if inspected_revision_id != expected_runtime_revision_id:
             raise RuntimeRevisionPreconditionError(
                 "Managed container runtime revision differs from the precondition"
+            )
+        if (
+            expected_image_id is not None
+            and inspected.get("Image") != expected_image_id
+        ):
+            raise ContainerIdentityPreconditionError(
+                "Managed container image differs from the precondition"
             )
 
         state = _require_mapping(inspected.get("State"))

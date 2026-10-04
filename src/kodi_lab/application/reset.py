@@ -301,6 +301,72 @@ class DisposableInstanceResetService:
     def activity_registry(self) -> ResetActivityObserver:
         return self._activity
 
+    def initialize_assigned_fixture_on_fresh_container(
+        self, instance_id: UUID, container_id: str
+    ) -> FixtureLibraryState:
+        """Reuse reset's trusted fixture path after an exact-pin reconstruction."""
+
+        instance, profile, fixture = self._load_context(instance_id)
+        if fixture is None:
+            raise ResetStateConflictError(
+                ResetPhase.PREFLIGHT, "the managed instance has no assigned fixture"
+            )
+        package = load_packaged_fixture(fixture.slug)
+        if package.definition != fixture:
+            raise ResetStateConflictError(
+                ResetPhase.PREFLIGHT,
+                "assigned fixture differs from its trusted package",
+            )
+        container = self._require_stopped_container(instance_id)
+        if (
+            container.container_id != container_id
+            or container.runtime_revision_id != str(instance.runtime_revision_id)
+        ):
+            raise ResetStateConflictError(
+                ResetPhase.PREFLIGHT, "fresh managed container identity changed"
+            )
+        activity = self._activity.begin(instance_id)
+        self._activity.transition(
+            instance_id, activity.generation, ResetActivityState.APPLYING_FIXTURE
+        )
+        try:
+            applied = self._broker.apply_assigned_fixture(
+                managed_instance_id=str(instance_id), expected_container_id=container_id
+            )
+            if (
+                applied.runtime_revision_id != str(instance.runtime_revision_id)
+                or applied.fixture_slug != fixture.slug
+                or applied.fixture_version != fixture.fixture_version
+                or applied.content_digest != fixture.content_digest
+            ):
+                raise ResetReconciliationRequiredError(
+                    ResetPhase.FIXTURE_APPLY, "fixture result identity changed"
+                )
+            result = self._initialize_fixture(
+                instance_id,
+                container_id,
+                profile,
+                package.semantics,
+                activity.generation,
+            )
+            self._activity.succeed(instance_id, activity.generation)
+            return result
+        except Exception as error:
+            self._activity.fail(
+                instance_id,
+                activity.generation,
+                failure_phase=ResetPhase.FIXTURE_APPLY.value,
+                failure_reason=(
+                    error.safe_reason
+                    if isinstance(error, ResetError)
+                    else "Fixture initialization could not be completed."
+                ),
+                reconciliation_required=isinstance(
+                    error, ResetReconciliationRequiredError
+                ),
+            )
+            raise
+
     def _reset_locked(
         self, instance_id: UUID, activity_generation: int
     ) -> DisposableResetResult:

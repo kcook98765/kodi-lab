@@ -97,6 +97,10 @@ from kodi_lab.broker.operations import (
     ReadPromotionKodiLogWindowResult,
     ReadSmokeLogParams,
     ReadSmokeLogResult,
+    ReconstructionDestinationParams,
+    ReconstructionDestinationResult,
+    RemoveMismatchedManagedContainerParams,
+    RemoveMismatchedManagedContainerResult,
     ReviewedInstallationActiveResult,
     ReviewedInstallationIdParams,
     ReviewedInstallationImageResult,
@@ -532,6 +536,56 @@ class BrokerClient:
             raise ClientProtocolError(
                 "broker deprovision result identity does not match the request"
             )
+        return result
+
+    def reconstruction_destination(
+        self, *, managed_instance_id: str
+    ) -> ReconstructionDestinationResult:
+        result = self._call(
+            "reconstruction_destination",
+            ReconstructionDestinationParams(managed_instance_id=managed_instance_id),
+            ReconstructionDestinationResult,
+            response_timeout=PROVISION_RESPONSE_TIMEOUT_SECONDS,
+        )
+        if result.managed_instance_id != managed_instance_id:
+            raise ClientProtocolError("reconstruction destination identity changed")
+        return result
+
+    def remove_mismatched_managed_container(
+        self,
+        *,
+        managed_instance_id: str,
+        operation_id: str,
+        lease_token_digest: str,
+        owned_runtime_state_revision: int,
+        old_container_id: str,
+        old_image_id: str,
+        old_runtime_revision_id: str,
+        desired_runtime_revision_id: str,
+    ) -> RemoveMismatchedManagedContainerResult:
+        params = RemoveMismatchedManagedContainerParams(
+            managed_instance_id=managed_instance_id,
+            operation_id=operation_id,
+            lease_token_digest=lease_token_digest,
+            owned_runtime_state_revision=owned_runtime_state_revision,
+            old_container_id=old_container_id,
+            old_image_id=old_image_id,
+            old_runtime_revision_id=old_runtime_revision_id,
+            desired_runtime_revision_id=desired_runtime_revision_id,
+            expected_runtime_state=ContainerRuntimeState.STOPPED,
+        )
+        result = self._call(
+            "remove_mismatched_managed_container",
+            params,
+            RemoveMismatchedManagedContainerResult,
+            response_timeout=DEPROVISION_RESPONSE_TIMEOUT_SECONDS,
+        )
+        if (
+            result.managed_instance_id != managed_instance_id
+            or result.removed_container_id != old_container_id
+            or result.old_runtime_revision_id != old_runtime_revision_id
+        ):
+            raise ClientProtocolError("reconstruction removal result identity changed")
         return result
 
     def apply_assigned_fixture(

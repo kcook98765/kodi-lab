@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <title>Reconstruct managed runtime · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main class="confirmation-panel">
+      <h1>Reconstruct managed runtime</h1>
+      <h2>{{ instance.name }}</h2>
+      <p class="error" role="status">{{ instance.failure_detail or eligibility.reason }}</p>
+      <p>{{ eligibility.reason }}</p>
+      <p class="notice">This permanently discards the current container writable layer. Kodi Lab does not automatically create a safety snapshot.</p>
+      <p>Preserve files externally first if needed. The existing persisted approved runtime pin, managed instance identity, fixture assignment, and snapshot history are retained.</p>
+      <p>Reconstruction uses the exact pinned runtime and finishes stopped. If a fixture is assigned, Kodi Lab will apply it after creating the fresh container.</p>
+      {% if latest and latest.state == 'reconciliation_required' %}
+      <section class="reconciliation-warning" role="status">
+        <h3>Interrupted reconstruction</h3>
+        <p>Last phase: {{ latest.phase }}. Observed state: {{ latest.reconciliation_state }}.</p>
+        <p>{{ latest.failure_reason }} No destructive work will resume automatically.</p>
+        {% if latest.reconciliation_state in ['exact_old_container', 'unprovisioned', 'expected_fresh_stopped'] %}
+        <button id="resolve-reconstruction" type="button" data-instance-id="{{ instance.managed_instance_id }}" data-operation-id="{{ latest.operation_id }}" data-expected-state="{{ latest.reconciliation_state }}">Confirm inspected state and release reconciliation</button>
+        {% endif %}
+      </section>
+      {% endif %}
+      <p id="reconstruction-error" class="error" role="alert" hidden></p>
+      <div class="actions">
+        <button id="confirm-reconstruction" type="button" data-instance-id="{{ instance.managed_instance_id }}" data-observation-token="{{ eligibility.observation_token or '' }}" {% if not eligibility.eligible %}disabled{% endif %}>Discard old container and reconstruct</button>
+        <a href="/">Cancel</a>
+      </div>
+    </main>
+    <script src="{{ url_for('static', path='/reconstruction-confirmation.js') }}" defer></script>
+  </body>
+</html>

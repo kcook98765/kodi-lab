@@ -109,6 +109,7 @@ from kodi_lab.broker.provisioning import (
     RuntimeObservationResolver,
     SqliteManagedInstanceRevisionResolver,
     SqliteProvisioningResolver,
+    SqliteReconstructionAuthorizationResolver,
     SqliteRuntimeObservationResolver,
 )
 from kodi_lab.broker.reviewed_installations import (
@@ -279,7 +280,7 @@ class BrokerInfoResult(StrictModel):
 class CapabilitiesResult(StrictModel):
     """The exact registered operation set."""
 
-    operations: list[str] = Field(max_length=34)
+    operations: list[str] = Field(max_length=36)
     protocol_version: Literal[1]
 
 
@@ -643,6 +644,54 @@ class DeprovisionManagedContainerResult(StrictModel):
         if not is_canonical_uuid(value):
             raise ValueError("identity must be a canonical UUID string")
         return value
+
+
+class ReconstructionDestinationParams(StrictModel):
+    managed_instance_id: str
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _canonical(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("managed_instance_id must be canonical")
+        return value
+
+
+class ReconstructionDestinationResult(StrictModel):
+    managed_instance_id: str
+    desired_runtime_revision_id: str
+    desired_image_id: str
+
+
+class RemoveMismatchedManagedContainerParams(StrictModel):
+    managed_instance_id: str
+    operation_id: str
+    lease_token_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    owned_runtime_state_revision: int = Field(ge=0)
+    old_container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    old_image_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    old_runtime_revision_id: str
+    desired_runtime_revision_id: str
+    expected_runtime_state: Literal[ContainerRuntimeState.STOPPED]
+
+    @field_validator(
+        "managed_instance_id",
+        "operation_id",
+        "old_runtime_revision_id",
+        "desired_runtime_revision_id",
+    )
+    @classmethod
+    def _canonical(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be canonical")
+        return value
+
+
+class RemoveMismatchedManagedContainerResult(StrictModel):
+    managed_instance_id: str
+    removed_container_id: str
+    old_runtime_revision_id: str
+    removed: Literal[True]
 
 
 class ApplyAssignedFixtureParams(StrictModel):
@@ -1359,6 +1408,8 @@ def build_foundation_registry(
     kodi_log_provider: KodiLogWindowProvider | None = None,
     smoke_log_resolver: SqliteSmokeLogAuthorityResolver | None = None,
     reviewed_installation_worker: DockerReviewedInstallationWorker | None = None,
+    reconstruction_resolver: SqliteReconstructionAuthorizationResolver | None = None,
+    reconstruction_provider: DockerManagedContainerAdapter | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -1374,6 +1425,13 @@ def build_foundation_registry(
     )
     pin_resolver = (
         revision_resolver or SqliteManagedInstanceRevisionResolver.production()
+    )
+    recovery_resolver = (
+        reconstruction_resolver
+        or SqliteReconstructionAuthorizationResolver.production()
+    )
+    recovery_provider = reconstruction_provider or cast(
+        DockerManagedContainerAdapter, provider
     )
     observation_resolver = (
         runtime_observation_resolver or SqliteRuntimeObservationResolver.production()
@@ -2380,6 +2438,134 @@ def build_foundation_registry(
         result_model=DeprovisionManagedContainerResult,
         handler=deprovision_managed_container,
         audit_builder=deprovision_audit,
+    )
+
+    def _reconstruction_error(error: Exception) -> OperationError:
+        if isinstance(
+            error,
+            (RuntimeImageUnavailableError, RuntimeContainerArtifactUnavailableError),
+        ):
+            return OperationError(
+                "runtime_image_unavailable",
+                "The exact pinned runtime image is unavailable.",
+            )
+        if isinstance(
+            error, (ProvisioningStateError, RuntimeRevisionPreconditionError)
+        ):
+            return OperationError(
+                "reconstruction_precondition_failed",
+                "Reconstruction authorization or pinned runtime changed.",
+            )
+        if isinstance(
+            error, (ManagedNetworkUnavailableError, ManagedNetworkConflictError)
+        ):
+            return OperationError(
+                "managed_network_unavailable",
+                "The required managed network is unavailable or invalid.",
+            )
+        if isinstance(
+            error,
+            (
+                ContainerIdentityPreconditionError,
+                InvalidManagedContainerMetadataError,
+                ManagedContainerNotFoundError,
+                AmbiguousManagedContainerError,
+                ContainerMustBeStoppedError,
+            ),
+        ):
+            return OperationError(
+                "reconstruction_container_changed",
+                "The exact stopped managed container changed after confirmation.",
+            )
+        if isinstance(
+            error,
+            (
+                DockerRemoveError,
+                PostDeprovisionVerificationError,
+                DockerInventoryReadError,
+                DockerDaemonUnavailableError,
+                ProvisioningConflictError,
+            ),
+        ):
+            return OperationError(
+                "reconstruction_docker_unavailable",
+                "Docker could not prove reconstruction prerequisites or removal.",
+            )
+        return OperationError(
+            "reconstruction_failed", "Reconstruction could not be completed."
+        )
+
+    def reconstruction_destination(
+        params: ReconstructionDestinationParams,
+    ) -> ReconstructionDestinationResult:
+        try:
+            spec = recovery_resolver.desired_spec(params.managed_instance_id)
+            recovery_provider.validate_reconstruction_destination(spec)
+        except Exception as error:
+            raise _reconstruction_error(error) from error
+        return ReconstructionDestinationResult(
+            managed_instance_id=params.managed_instance_id,
+            desired_runtime_revision_id=spec.runtime_revision_id,
+            desired_image_id=spec.image_id,
+        )
+
+    registry.register(
+        name="reconstruction_destination",
+        params_model=ReconstructionDestinationParams,
+        result_model=ReconstructionDestinationResult,
+        handler=reconstruction_destination,
+    )
+
+    def remove_mismatched_managed_container(
+        params: RemoveMismatchedManagedContainerParams,
+    ) -> RemoveMismatchedManagedContainerResult:
+        try:
+            spec = recovery_resolver.authorize_removal(
+                managed_instance_id=params.managed_instance_id,
+                operation_id=params.operation_id,
+                lease_token_digest=params.lease_token_digest,
+                owned_runtime_state_revision=params.owned_runtime_state_revision,
+                old_container_id=params.old_container_id,
+                old_image_id=params.old_image_id,
+                old_runtime_revision_id=params.old_runtime_revision_id,
+                desired_runtime_revision_id=params.desired_runtime_revision_id,
+            )
+            recovery_provider.validate_reconstruction_destination(spec)
+            outcome = recovery_provider.deprovision_managed_container(
+                managed_instance_id=params.managed_instance_id,
+                expected_container_id=params.old_container_id,
+                expected_runtime_revision_id=params.old_runtime_revision_id,
+                expected_runtime_state=params.expected_runtime_state,
+                expected_image_id=params.old_image_id,
+            )
+        except Exception as error:
+            raise _reconstruction_error(error) from error
+        if (
+            outcome.managed_instance_id != params.managed_instance_id
+            or outcome.removed_container_id != params.old_container_id
+            or outcome.runtime_revision_id != params.old_runtime_revision_id
+            or not outcome.removed
+        ):
+            raise OperationError(
+                "reconstruction_result_mismatch",
+                "Container removal result did not match the authorized identity.",
+            )
+        return RemoveMismatchedManagedContainerResult(
+            managed_instance_id=outcome.managed_instance_id,
+            removed_container_id=outcome.removed_container_id,
+            old_runtime_revision_id=outcome.runtime_revision_id,
+            removed=True,
+        )
+
+    registry.register(
+        name="remove_mismatched_managed_container",
+        params_model=RemoveMismatchedManagedContainerParams,
+        result_model=RemoveMismatchedManagedContainerResult,
+        handler=remove_mismatched_managed_container,
+        audit_builder=lambda result: {
+            "broker_managed_instance_id": result.managed_instance_id,
+            "broker_old_container_removed": result.removed,
+        },
     )
 
     def apply_assigned_fixture(

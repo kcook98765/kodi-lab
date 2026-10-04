@@ -176,6 +176,22 @@ def test_exact_owned_stopped_container_is_removed_nonforced_without_volumes() ->
     assert client.closed
 
 
+def test_reconstruction_image_fence_rejects_changed_image_without_removal() -> None:
+    observed = inspect_data()
+    observed["Image"] = "sha256:" + "a" * 64
+    client = FakeDeprovisionDockerClient(inspections=(observed,))
+    adapter = DockerManagedContainerAdapter(lambda: client)
+    with pytest.raises(ContainerIdentityPreconditionError):
+        adapter.deprovision_managed_container(
+            managed_instance_id=instance_id(),
+            expected_container_id=container_id(),
+            expected_runtime_revision_id=revision_id(),
+            expected_runtime_state=ContainerRuntimeState.STOPPED,
+            expected_image_id="sha256:" + "b" * 64,
+        )
+    assert client.remove_calls == []
+
+
 def test_no_owned_container_is_not_destructive_idempotent_success() -> None:
     client = FakeDeprovisionDockerClient(selections=([],), inspections=())
     with pytest.raises(ManagedContainerNotFoundError):
@@ -372,6 +388,7 @@ def test_adapter_has_only_the_bounded_semantic_public_methods() -> None:
         "observe_managed_kodi_runtime",
         "provision_managed_container",
         "start_managed_container",
+        "validate_reconstruction_destination",
         "stop_managed_container",
         "verify_attached_development_source_destination",
     }

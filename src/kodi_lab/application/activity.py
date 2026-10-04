@@ -5,6 +5,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
@@ -28,6 +29,7 @@ from kodi_lab.domain import (
     RepositoryReplacementOperationState,
     RepositoryReplacementPlanState,
 )
+from kodi_lab.storage.models import ManagedRuntimeReconstructionRow
 from kodi_lab.storage.repositories import (
     AddonRepositoryAttachmentOperationRepository,
     AddonZipArtifactRepository,
@@ -63,6 +65,7 @@ class ManagedInstanceActivityKind(StrEnum):
     DEVELOPMENT_SOURCE_SMOKE_TEST = "development_source_smoke_test"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
+    RECONSTRUCTION = "reconstruction"
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
     SNAPSHOT_DELETE = "snapshot_delete"
@@ -103,6 +106,7 @@ _SOURCE_TIE_BREAK = {
     ManagedInstanceActivityKind.DEVELOPMENT_SOURCE_ATTACHMENT: 7,
     ManagedInstanceActivityKind.LIFECYCLE: 6,
     ManagedInstanceActivityKind.RESET: 5,
+    ManagedInstanceActivityKind.RECONSTRUCTION: 5,
     ManagedInstanceActivityKind.SNAPSHOT_CREATE: 4,
     ManagedInstanceActivityKind.SNAPSHOT_RESTORE: 3,
     ManagedInstanceActivityKind.SNAPSHOT_DELETE: 2,
@@ -531,6 +535,38 @@ class ManagedInstanceActivityService:
                     state=reset.state.value,
                     summary=f"Reset {_outcome(reset.state.value)}",
                     reconciliation_required=reset.reconciliation_required,
+                )
+            )
+        for reconstruction in session.scalars(
+            select(ManagedRuntimeReconstructionRow).where(
+                ManagedRuntimeReconstructionRow.managed_instance_id == str(instance_id)
+            )
+        ):
+
+            def parse(value: str | None) -> datetime | None:
+                return (
+                    None
+                    if value is None
+                    else datetime.fromisoformat(value.replace("Z", "+00:00"))
+                )
+
+            requested = parse(reconstruction.requested_at)
+            assert requested is not None
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.RECONSTRUCTION,
+                    operation_uuid=UUID(reconstruction.id),
+                    original_managed_instance_id=instance_id,
+                    requested_at=requested,
+                    started_at=parse(reconstruction.started_at),
+                    completed_at=parse(reconstruction.completed_at),
+                    state=reconstruction.state,
+                    summary=(
+                        f"Runtime reconstruction {_outcome(reconstruction.state)}"
+                    ),
+                    reconciliation_required=(
+                        reconstruction.state == "reconciliation_required"
+                    ),
                 )
             )
         for create in SnapshotCreateOperationRepository(session).list_for_instance(

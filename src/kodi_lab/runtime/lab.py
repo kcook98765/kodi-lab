@@ -22,6 +22,7 @@ from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.runtime_catalog import RuntimeCatalogAdministrationService
 from kodi_lab.application.runtime_lifecycle import ManagedRuntimeLifecycleService
 from kodi_lab.application.runtime_status import (
+    ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
     ProvisionState,
 )
@@ -71,6 +72,21 @@ _ACKNOWLEDGED_PREVIEW_RUNTIME = "kodi-22.0-beta2"
 
 class LabWorkflowError(ValueError):
     """A canonical lab prerequisite or definition differs."""
+
+
+def _format_runtime_status(status: ManagedRuntimeStatus, readiness_state: str) -> str:
+    summary = (
+        f"{status.provision_state.value} {status.container_state.value} "
+        f"revision={status.runtime_revision_number} "
+        f"readiness={readiness_state}"
+    )
+    if status.failure_code is not None:
+        summary += (
+            f" failure={status.failure_code}"
+            f" detail={status.failure_detail or 'Runtime unavailable.'}"
+            " ordinary_actions=unavailable"
+        )
+    return summary
 
 
 def canonical_id(selector: str) -> UUID:
@@ -458,11 +474,7 @@ def _run_control(settings: Settings, command: str, selectors: Sequence[str]) -> 
                         f"readiness failed: {observed.failure_reason or 'unknown'}"
                     )
                 readiness_state = "usable"
-            return (
-                f"{status.provision_state.value} {status.container_state.value} "
-                f"revision={status.runtime_revision_number} "
-                f"readiness={readiness_state}"
-            )
+            return _format_runtime_status(status, readiness_state)
 
         return run_selected(chosen, perform)
     finally:

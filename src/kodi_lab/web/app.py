@@ -352,6 +352,14 @@ from kodi_lab.application.runtime_matrix import (
     RuntimeMatrixService,
     TargetRuntimeSelection,
 )
+from kodi_lab.application.runtime_reconstruction import (
+    ManagedRuntimeReconstructionCoordinator,
+    ManagedRuntimeReconstructionExecutor,
+    ReconstructionAccepted,
+    ReconstructionConflictError,
+    ReconstructionEligibility,
+    ReconstructionStatus,
+)
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -663,6 +671,22 @@ class ResetConfirmationRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     confirmed: Literal[True]
+
+
+class ReconstructionConfirmationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    observation_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ReconstructionResolutionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    expected_state: Literal[
+        "exact_old_container", "unprovisioned", "expected_fresh_stopped"
+    ]
 
 
 class DevelopmentSourceDeploymentAccepted(BaseModel):
@@ -1082,6 +1106,8 @@ class WebApplicationContext:
     reset_status: ResetStatusService
     reset_operations: ResetOperationCoordinator
     reset_executor: ResetExecutor
+    reconstruction: ManagedRuntimeReconstructionCoordinator
+    reconstruction_executor: ManagedRuntimeReconstructionExecutor
     snapshot_status: SnapshotStatusService
     snapshot_operations: SnapshotCreateOperationCoordinator
     snapshot_executor: SnapshotCreateExecutor
@@ -1448,6 +1474,10 @@ def create_app(
         )
     )
     reset_executor = ResetExecutor(reset_operations, reset_registry, service_factory)
+    reconstruction = ManagedRuntimeReconstructionCoordinator(session_factory, broker)
+    reconstruction_executor = ManagedRuntimeReconstructionExecutor(
+        reconstruction, session_factory, broker
+    )
     snapshot_operations = SnapshotCreateOperationCoordinator(
         session_factory,
         stale_dispatcher=stale_dispatcher,
@@ -1796,6 +1826,8 @@ def create_app(
         reset_status=reset_status_service,
         reset_operations=reset_operations,
         reset_executor=reset_executor,
+        reconstruction=reconstruction,
+        reconstruction_executor=reconstruction_executor,
         snapshot_status=snapshot_status,
         snapshot_operations=snapshot_operations,
         snapshot_executor=snapshot_executor,
@@ -1912,6 +1944,7 @@ def create_app(
         context.mcp_workspace_development.sweep_startup()
         context.stale_dispatcher.sweep_startup()
         context.reset_executor.start()
+        context.reconstruction_executor.start()
         context.snapshot_executor.start()
         context.snapshot_restore_executor.start()
         context.snapshot_delete_executor.start()
@@ -1932,6 +1965,7 @@ def create_app(
                 yield
             finally:
                 context.reset_executor.close()
+                context.reconstruction_executor.close()
                 context.snapshot_executor.close()
                 context.snapshot_restore_executor.close()
                 context.snapshot_delete_executor.close()
@@ -2395,6 +2429,12 @@ def create_app(
     ) -> JSONResponse:
         return _json_error(409, "reset_operation_conflict", str(error)[:256])
 
+    @app.exception_handler(ReconstructionConflictError)
+    async def reconstruction_conflict(
+        _request: Request, error: ReconstructionConflictError
+    ) -> JSONResponse:
+        return _json_error(409, "reconstruction_conflict", str(error)[:256])
+
     @app.exception_handler(ManagedInstanceMutationConflictError)
     async def mutation_conflict(
         _request: Request, error: ManagedInstanceMutationConflictError
@@ -2773,6 +2813,16 @@ def create_app(
             )
             for item in instances
         }
+        reconstruction_statuses = {
+            item.managed_instance_id: context.reconstruction.to_status(row)
+            for item in instances
+            if (
+                row := context.reconstruction.latest_for_instance(
+                    item.managed_instance_id
+                )
+            )
+            is not None
+        }
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -2780,6 +2830,7 @@ def create_app(
                 "instances": instances,
                 "reset_statuses": reset_statuses,
                 "reconciliation_statuses": reconciliation_statuses,
+                "reconstruction_statuses": reconstruction_statuses,
                 "csrf_token": authenticated.csrf_token,
                 "poll_interval_ms": 2000,
             },
@@ -3661,6 +3712,30 @@ def create_app(
             {
                 "instance": instance,
                 "reset": reset_status,
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
+    @app.get("/instances/{instance_id}/reconstruct", response_class=HTMLResponse)
+    async def reconstruction_confirmation_page(
+        request: Request, instance_id: UUID
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        latest = context.reconstruction.latest_for_instance(instance_id)
+        return templates.TemplateResponse(
+            request,
+            "reconstruction-confirmation.html",
+            {
+                "instance": context.status.get(instance_id),
+                "eligibility": context.reconstruction.eligibility(instance_id),
+                "latest": (
+                    context.reconstruction.to_status(latest)
+                    if latest is not None
+                    else None
+                ),
                 "csrf_token": authenticated.csrf_token,
             },
         )
@@ -5905,6 +5980,47 @@ def create_app(
         return context.reset_status.get(instance_id)
 
     @app.get(
+        "/api/instances/{instance_id}/reconstruction-eligibility",
+        response_model=ReconstructionEligibility,
+    )
+    def reconstruction_eligibility(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReconstructionEligibility:
+        return context.reconstruction.eligibility(instance_id)
+
+    @app.get(
+        "/api/instances/{instance_id}/reconstruction-operations/{operation_id}",
+        response_model=ReconstructionStatus,
+    )
+    def reconstruction_operation(
+        instance_id: UUID,
+        operation_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ReconstructionStatus:
+        row = context.reconstruction.get(operation_id)
+        if row is None or row.managed_instance_id != str(instance_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        return context.reconstruction.to_status(row)
+
+    @app.post(
+        "/api/instances/{instance_id}/reconstruction-operations/{operation_id}/resolve",
+        response_model=ReconstructionStatus,
+    )
+    def resolve_reconstruction(
+        instance_id: UUID,
+        operation_id: UUID,
+        body: ReconstructionResolutionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReconstructionStatus:
+        row = context.reconstruction.get(operation_id)
+        if row is None or row.managed_instance_id != str(instance_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        return context.reconstruction.resolve_interrupted(
+            operation_id, body.expected_state
+        )
+
+    @app.get(
         "/api/instances/{instance_id}/reconciliation",
         response_model=ManagedInstanceReconciliationStatus,
     )
@@ -6153,6 +6269,23 @@ def create_app(
         if queued.created:
             context.reset_executor.submit(queued.operation.operation_id)
         return queued
+
+    @app.post(
+        "/api/instances/{instance_id}/reconstruct",
+        response_model=ReconstructionAccepted,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def queue_reconstruction(
+        instance_id: UUID,
+        body: ReconstructionConfirmationRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReconstructionAccepted:
+        context.reconciliation.require_allowed(
+            instance_id, ReconciliationAction.RECONSTRUCTION
+        )
+        accepted = context.reconstruction.queue(instance_id, body.observation_token)
+        context.reconstruction_executor.submit(accepted.operation.operation_id)
+        return accepted
 
     @app.post(
         "/api/instances/{instance_id}/provision",

@@ -5648,3 +5648,47 @@ approvals atomically with the governing revision transition.
   not consult the same mismatch status. The dashboard and confirmation page now
   block a known mismatch, and direct Delete admission checks it before queuing.
   Broker Stop/Deprovision revision checks remain the dispatch-time protection.
+
+## D-0410: Explicit administrator reconstruction of a stopped revision mismatch
+
+- Practical functional use found that D-0409 correctly contained a stopped
+  wrong-revision managed container but left no supported way to reconstruct the
+  same disposable instance. Add an administrator-only **Reconstruct managed
+  runtime** operation. It is eligible only for one provably owned, stopped
+  container with a valid observed revision different from the persisted pin.
+  Matching, running, missing-label, ambiguous, and unowned containers are not
+  eligible. Ordinary lifecycle and broker revision checks remain unchanged.
+- The confirmation warns that the current writable layer is discarded, no
+  safety Snapshot is created automatically, and external preservation is the
+  administrator's responsibility. Snapshot success is not a prerequisite.
+  A comparison token binds the exact observed container, image, old revision,
+  desired pin/image, and runtime-state CAS value; it grants no authority
+  without the authenticated administrator session, CSRF check, and fresh
+  server inspection.
+- Before removal the application and broker recheck the immutable desired pin,
+  its approval and local image/network availability. A new closed broker
+  operation independently verifies the active typed reconstruction and lease,
+  owned CAS, exact old ID/image/revision, persisted desired pin, Kodi Lab labels,
+  deterministic name, and stopped state. Only that exact container can be
+  removed non-forcibly without volume removal, followed by exact-ID and
+  fixed-label absence proof. There is no generic force or ignore-revision mode.
+- The operation records confirmed identity, phases, old-state disposal, fresh
+  container identity, bounded failures, and interrupted reconciliation. After
+  proven removal, ordinary provisioning recreates a fresh stopped container
+  from the same pin and instance identity. Container-bound deployment evidence
+  is invalidated. Fixture assignment, attachments, and Snapshot history remain;
+  an existing assigned fixture is applied through the existing reset baseline
+  path. Fixture failure retains a provably stopped, correctly pinned container
+  and is reported separately from runtime reconstruction.
+- A definitive failure before removal leaves the old container. Proven removal
+  followed by definitive provision failure leaves the instance coherently
+  unprovisioned with its pin unchanged, allowing ordinary provision or reset.
+  Uncertain broker or process outcomes require read-only reconciliation, with
+  exact old, absent, expected fresh stopped, and ambiguous states distinguished.
+  Nothing retries destructive work automatically. An administrator may resolve
+  a proven state; any subsequent destructive retry requires a fresh
+  confirmation and lease. Ambiguous ownership still requires intervention.
+- Web/API is the only reconstruction authority in V1. The installed `lab`
+  command remains status-only for this condition and now prints the existing
+  `runtime_revision_mismatch` failure rather than an ordinary stopped summary.
+  No agent-facing MCP capability is added.

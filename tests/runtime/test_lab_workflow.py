@@ -6,10 +6,13 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.application.runtime_status import ManagedRuntimeStatus, ProvisionState
+from kodi_lab.broker.docker_inventory import ContainerRuntimeState
 from kodi_lab.domain import InstanceType
 from kodi_lab.runtime.distribution import bootstrap_catalog, load_curated_runtimes
 from kodi_lab.runtime.lab import (
     LabWorkflowError,
+    _format_runtime_status,
     _require_canonical,
     assign_packaged_fixture,
     bootstrap_instances,
@@ -48,6 +51,28 @@ def test_selectors_are_closed_stable_and_support_subsets() -> None:
     assert len({canonical_id(item) for item in select_runtimes(())}) == 4
     with pytest.raises(LabWorkflowError, match="unknown lab runtime selector"):
         select_runtimes(("23",))
+
+
+def test_cli_status_surfaces_existing_mismatch_without_changing_normal_output() -> None:
+    normal = ManagedRuntimeStatus.model_construct(
+        provision_state=ProvisionState.PROVISIONED,
+        container_state=ContainerRuntimeState.STOPPED,
+        runtime_revision_number=1,
+        failure_code=None,
+    )
+    assert _format_runtime_status(normal, "idle") == (
+        "provisioned stopped revision=1 readiness=idle"
+    )
+    mismatch = normal.model_copy(
+        update={
+            "failure_code": "runtime_revision_mismatch",
+            "failure_detail": "Managed runtime differs from the selected pin.",
+        }
+    )
+    summary = _format_runtime_status(mismatch, "idle")
+    assert "failure=runtime_revision_mismatch" in summary
+    assert "ordinary_actions=unavailable" in summary
+    assert "Managed runtime differs from the selected pin." in summary
 
 
 def test_reviewed_generation_selector_has_independent_target_identity() -> None:

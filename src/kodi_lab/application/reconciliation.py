@@ -84,6 +84,7 @@ from kodi_lab.storage.models import (
     GlobalHeavyOperationLeaseRow,
     HistoricalWorkspaceExecutionContainmentResolutionRow,
     ManagedInstanceMutationLeaseRow,
+    ManagedRuntimeReconstructionRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
     WorkspaceExecutionRecoveryOperationRow,
@@ -159,6 +160,7 @@ class ReconciliationOperationKind(StrEnum):
     MCP_WORKSPACE_EXECUTION = "mcp_workspace_execution"
     LIFECYCLE = "lifecycle"
     RESET = "reset"
+    RECONSTRUCTION = "reconstruction"
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
     SNAPSHOT_DELETE = "snapshot_delete"
@@ -175,6 +177,7 @@ class ReconciliationAction(StrEnum):
     ADDON_ZIP_INSTALLATION = "addon_zip_installation"
     ADDON_ZIP_SMOKE_TEST = "addon_zip_smoke_test"
     RESET = "reset"
+    RECONSTRUCTION = "reconstruction"
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
     SNAPSHOT_DELETE = "snapshot_delete"
@@ -197,6 +200,7 @@ class ReconciliationAction(StrEnum):
 
 INSTANCE_MUTATIONS = [
     ReconciliationAction.RESET,
+    ReconciliationAction.RECONSTRUCTION,
     ReconciliationAction.SNAPSHOT_CREATE,
     ReconciliationAction.SNAPSHOT_RESTORE,
     ReconciliationAction.INSTANCE_DELETE,
@@ -475,7 +479,33 @@ class StaleOperationReconciliationDispatcher:
                 )
             return None, 1
         released = 1
-        if kind is ManagedInstanceMutationKind.RESET:
+        if kind is ManagedInstanceMutationKind.RECONSTRUCTION:
+            reconstruction = session.get(
+                ManagedRuntimeReconstructionRow, str(operation_id)
+            )
+            if (
+                reconstruction is None
+                or reconstruction.managed_instance_id != str(instance_id)
+                or reconstruction.state != "running"
+                or reconstruction.lease_token_digest != digest
+                or reconstruction.lease_expires_at is None
+            ):
+                raise CoordinationCorruptionError(
+                    "Expired reconstruction ownership is inconsistent."
+                )
+            expiry = _timestamp(reconstruction.lease_expires_at)
+            if expiry is None or expiry > now:
+                raise CoordinationCorruptionError(
+                    "Reconstruction ownership has not expired."
+                )
+            reconstruction.state = "reconciliation_required"
+            reconstruction.completed_at = now.isoformat(
+                timespec="microseconds"
+            ).replace("+00:00", "Z")
+            reconstruction.failure_reason = "Reconstruction dispatch was interrupted."
+            reconstruction.lease_token_digest = None
+            reconstruction.lease_expires_at = None
+        elif kind is ManagedInstanceMutationKind.RESET:
             operation = ResetOperationRepository(session).get(operation_id)
             self._validate_operation(operation, instance_id, digest, now)
             if not ResetOperationRepository(session).mark_stale_reconciliation(
@@ -1445,6 +1475,17 @@ class ManagedInstanceReconciliationService:
                 ).reconciliation_for_instance(instance_id)
             )
             records.extend(
+                (ReconciliationOperationKind.RECONSTRUCTION, item)
+                for item in session.scalars(
+                    select(ManagedRuntimeReconstructionRow).where(
+                        ManagedRuntimeReconstructionRow.managed_instance_id
+                        == str(instance_id),
+                        ManagedRuntimeReconstructionRow.state
+                        == "reconciliation_required",
+                    )
+                )
+            )
+            records.extend(
                 (ReconciliationOperationKind.SNAPSHOT_CREATE, item)
                 for item in SnapshotCreateOperationRepository(
                     session
@@ -1599,6 +1640,9 @@ class ManagedInstanceReconciliationService:
             observed = self._observe_instance_delete(instance_id)
         elif kind is ReconciliationOperationKind.RESET:
             observed = self._observe_reset(instance_id)
+        elif kind is ReconciliationOperationKind.RECONSTRUCTION:
+            assert isinstance(operation, ManagedRuntimeReconstructionRow)
+            observed = self._observe_reconstruction(instance_id, operation)
         elif kind is ReconciliationOperationKind.LIFECYCLE:
             assert isinstance(operation, ManagedInstanceLifecycleOperation)
             semantic = (
@@ -1659,6 +1703,9 @@ class ManagedInstanceReconciliationService:
             ReconciliationOperationKind.RESET: (
                 "Reset state requires operator reconciliation."
             ),
+            ReconciliationOperationKind.RECONSTRUCTION: (
+                "Runtime reconstruction requires administrator reconciliation."
+            ),
             ReconciliationOperationKind.SNAPSHOT_CREATE: (
                 "Snapshot creation requires operator reconciliation."
             ),
@@ -1709,6 +1756,7 @@ class ManagedInstanceReconciliationService:
             operation,
             (
                 ResetOperation,
+                ManagedRuntimeReconstructionRow,
                 SnapshotCreateOperation,
                 SnapshotRestoreOperation,
                 ManagedInstanceDeleteOperation,
@@ -1733,6 +1781,7 @@ class ManagedInstanceReconciliationService:
                 (
                     McpWorkspaceDeploymentOperationRow,
                     McpWorkspaceExecutionOperationRow,
+                    ManagedRuntimeReconstructionRow,
                 ),
             )
             else operation.state.value
@@ -1744,6 +1793,7 @@ class ManagedInstanceReconciliationService:
                 (
                     McpWorkspaceDeploymentOperationRow,
                     McpWorkspaceExecutionOperationRow,
+                    ManagedRuntimeReconstructionRow,
                 ),
             )
             else (
@@ -1975,6 +2025,41 @@ class ManagedInstanceReconciliationService:
             if matches[0].runtime_state is ContainerRuntimeState.RUNNING
             else "runtime_stopped"
         )
+
+    def _observe_reconstruction(
+        self, instance_id: UUID, operation: ManagedRuntimeReconstructionRow
+    ) -> str:
+        if self._broker is None:
+            return "reconstruction_observation_unavailable"
+        try:
+            matches = [
+                item
+                for item in self._broker.managed_container_inventory().containers
+                if item.managed_instance_id == str(instance_id)
+            ]
+        except ClientError:
+            return "reconstruction_observation_unavailable"
+        if not matches:
+            return "unprovisioned"
+        if len(matches) != 1:
+            return "ambiguous_ownership"
+        current = matches[0]
+        if (
+            current.container_id == operation.old_container_id
+            and current.image_id == operation.old_image_id
+            and current.runtime_revision_id == operation.old_runtime_revision_id
+            and current.runtime_state is ContainerRuntimeState.STOPPED
+        ):
+            return "exact_old_container"
+        if (
+            operation.fresh_container_id is not None
+            and current.container_id == operation.fresh_container_id
+            and current.image_id == operation.desired_image_id
+            and current.runtime_revision_id == operation.desired_runtime_revision_id
+            and current.runtime_state is ContainerRuntimeState.STOPPED
+        ):
+            return "expected_fresh_stopped"
+        return "ambiguous_ownership"
 
     def _observe_instance_delete(self, instance_id: UUID) -> str:
         with self._session_factory() as session:

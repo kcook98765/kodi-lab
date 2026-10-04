@@ -116,6 +116,7 @@ class SnapshotDeleteReconciliationState(StrEnum):
 
 class ManagedInstanceMutationKind(StrEnum):
     RESET = "reset"
+    RECONSTRUCTION = "reconstruction"
     SNAPSHOT_CREATE = "snapshot_create"
     SNAPSHOT_RESTORE = "snapshot_restore"
     LIFECYCLE = "lifecycle"
