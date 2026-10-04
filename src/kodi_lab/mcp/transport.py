@@ -299,7 +299,12 @@ class _WorkspaceStatusInput(BaseModel):
 class _WorkspaceSourceScanInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    workspace_id: UUID
+    workspace_id: UUID = Field(
+        description=(
+            "Bound workspace ID from workspace_status; this is not a target ID "
+            "or source ID."
+        )
+    )
 
 
 class _WorkspaceTreeInput(BaseModel):
@@ -872,8 +877,13 @@ def build_mcp_http_transport(
             name="workspace_capture",
             title="Capture registered source into a bound workspace",
             description=(
-                "Explicitly capture the entire current granted source into its "
-                "bound clean workspace with an expected generation."
+                "Capture the current registered source into its bound, ready, "
+                "clean workspace. expected_generation is the workspace generation "
+                "currently observed in workspace_status or workspace_source_scan, "
+                "not the generation to create. A changed capture advances it by "
+                "one; unchanged source leaves it unchanged. After "
+                "workspace_generation_conflict, refresh workspace_status and use "
+                "its current generation if capture is still intended."
             ),
             input_schema=WorkspaceCaptureToolInput.model_json_schema(),
             output_schema=WorkspaceCaptureToolResult.model_json_schema(),
@@ -915,8 +925,12 @@ def build_mcp_http_transport(
             name="workspace_execution_recover",
             title="Recover one ambiguous workspace smoke",
             description=(
-                "Contain the exact timed-out smoke on its managed disposable "
-                "runtime, then verify readiness and original deployment provenance."
+                "Recover only an eligible, previously dispatched, timeout-ambiguous "
+                "workspace smoke on its managed disposable runtime. Supply that "
+                "execution's operation ID. A definitive execution_failed result "
+                "is not eligible. Recovery is a separate operation and does not "
+                "rerun the smoke. Contain the original smoke, then verify readiness "
+                "and deployment provenance."
             ),
             input_schema=WorkspaceExecutionRecoverInput.model_json_schema(),
             output_schema=WorkspaceExecutionRecoveryResult.model_json_schema(),
@@ -983,6 +997,7 @@ def build_mcp_http_transport(
         result_reason: str | None = None
         result_diagnostic: KodiJsonRpcDiagnostic | None = None
         result_addon_exception: AddonExceptionDiagnostic | None = None
+        result_capture_conflict_observed_generation: int | None = None
         diagnostic_context = None
         try:
             arguments = params.arguments or {}
@@ -1218,6 +1233,14 @@ def build_mcp_http_transport(
         except McpAuthorizationError as error:
             result_code = error.code
             result_reason = error.reason
+            if (
+                params.name == "workspace_capture"
+                and error.code == "workspace_capture_rejected"
+                and error.reason == "workspace_generation_conflict"
+            ):
+                result_capture_conflict_observed_generation = (
+                    error.capture_conflict_observed_generation
+                )
             if params.name == "workspace_execute" and error.code == "execution_failed":
                 result_diagnostic = error.diagnostic
                 result_addon_exception = error.addon_exception
@@ -1336,6 +1359,11 @@ def build_mcp_http_transport(
             reason=result_reason,
             diagnostic=result_diagnostic,
             addon_exception=result_addon_exception,
+            capture_conflict_workspace_id=workspace_id,
+            capture_conflict_supplied_generation=generation,
+            capture_conflict_observed_generation=(
+                result_capture_conflict_observed_generation
+            ),
         )
         _audit_safely(
             principal,
@@ -1438,12 +1466,31 @@ def _tool_error_result(
     reason: str | None = None,
     diagnostic: KodiJsonRpcDiagnostic | None = None,
     addon_exception: AddonExceptionDiagnostic | None = None,
+    capture_conflict_workspace_id: UUID | None = None,
+    capture_conflict_supplied_generation: int | None = None,
+    capture_conflict_observed_generation: int | None = None,
 ) -> CallToolResult:
     # A tool error has no success-shaped structured result. Its text remains
     # available to models without violating the tool's declared outputSchema.
     message = result_code
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
+    if (
+        result_code == "workspace_capture_rejected"
+        and reason == "workspace_generation_conflict"
+        and capture_conflict_workspace_id is not None
+        and capture_conflict_supplied_generation is not None
+        and capture_conflict_observed_generation is not None
+    ):
+        message += (
+            f"\nworkspace_id: {capture_conflict_workspace_id}"
+            f"\nsupplied_expected_generation: {capture_conflict_supplied_generation}"
+            f"\nobserved_current_generation: {capture_conflict_observed_generation}"
+            "\ncapture_occurred: false"
+            "\nnext_action: Refresh workspace_status; if capture is still intended "
+            "and the workspace is ready, use its current generation as "
+            "expected_generation."
+        )
     if result_code == "execution_failed" and diagnostic is not None:
         suffix = f"Kodi {diagnostic.code}"
         if diagnostic.message is not None:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 from uuid import UUID, uuid4
 
 import pytest
@@ -245,6 +247,72 @@ def test_second_capture_retains_first_capture_baseline(tmp_path: Path) -> None:
         ).read_bytes()
     )
     assert workspace.get(WORKSPACE_ID).generation == 2
+
+
+def test_stale_capture_reports_observed_generation_without_admission(
+    tmp_path: Path,
+) -> None:
+    workspace, capture, source, sessions = _fixture(tmp_path)
+    _v2(source)
+    before = _record(sessions)
+    with pytest.raises(WorkspaceSourceCaptureError) as stale:
+        capture.capture(WORKSPACE_ID, expected_generation=1)
+    assert stale.value.code == "workspace_generation_conflict"
+    assert stale.value.observed_current_generation == 0
+    assert _record(sessions) == before
+    with sessions() as session:
+        assert session.scalars(select(AgentWorkspaceCaptureOperationRow)).all() == []
+
+    first = capture.capture(WORKSPACE_ID, expected_generation=0)
+    (source / "default.py").write_text("print('v3')\n", encoding="utf-8")
+    before_second = _record(sessions)
+    with pytest.raises(WorkspaceSourceCaptureError) as stale_again:
+        capture.capture(WORKSPACE_ID, expected_generation=2)
+    assert stale_again.value.code == "workspace_generation_conflict"
+    assert stale_again.value.observed_current_generation == 1
+    assert _record(sessions) == before_second
+    with sessions() as session:
+        receipts = session.scalars(select(AgentWorkspaceCaptureOperationRow)).all()
+        assert [receipt.id for receipt in receipts] == [str(first.operation_id)]
+
+    second = capture.capture(WORKSPACE_ID, expected_generation=1)
+    assert second.changed and second.generation == 2
+    assert workspace.get(WORKSPACE_ID).generation == 2
+
+
+def test_concurrent_same_generation_captures_admit_once(tmp_path: Path) -> None:
+    workspace, capture, source, sessions = _fixture(tmp_path)
+    _v2(source)
+    entered = Event()
+    release = Event()
+
+    def hold_after_admission(phase: str) -> None:
+        if phase == "pending":
+            entered.set()
+            assert release.wait(10)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            capture.capture,
+            WORKSPACE_ID,
+            expected_generation=0,
+            checkpoint=hold_after_admission,
+        )
+        assert entered.wait(10)
+        second = pool.submit(capture.capture, WORKSPACE_ID, expected_generation=0)
+        with pytest.raises(AgentWorkspaceStorageError) as busy:
+            second.result(timeout=10)
+        assert busy.value.code == "agent_workspace_busy"
+        release.set()
+        assert first.result(timeout=10).generation == 1
+
+    with pytest.raises(WorkspaceSourceCaptureError) as stale:
+        capture.capture(WORKSPACE_ID, expected_generation=0)
+    assert stale.value.observed_current_generation == 1
+    assert workspace.get(WORKSPACE_ID).generation == 1
+    with sessions() as session:
+        receipts = session.scalars(select(AgentWorkspaceCaptureOperationRow)).all()
+        assert len(receipts) == 1 and receipts[0].state == "succeeded"
 
 
 def test_source_change_during_stage_fails_without_switch(tmp_path: Path) -> None:

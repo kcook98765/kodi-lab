@@ -5586,3 +5586,23 @@ approvals atomically with the governing revision transition.
   with same-origin, CSRF, exact request ID, expected revision, and explicit
   confirmation. No MCP tool or grant exposes it. The Web presentation may be
   added separately; the API communicates the original ambiguous state.
+
+## D-0407: Explain MCP workspace capture concurrency at the tool boundary
+
+- Real coding-agent runs exposed ambiguity about `workspace_capture`'s
+  `expected_generation`: it is the currently observed workspace generation,
+  not the generation requested for creation. The existing optimistic
+  concurrency and no-op capture behavior were correct, but the advertised
+  descriptions and generation-conflict error were unnecessarily sparse.
+- Keep the explicit pre-capture generation check and the later conditional
+  database update. A changed capture advances one generation; an unchanged
+  source leaves it unchanged. A pre-admission generation conflict reports the
+  authorized workspace ID, supplied generation, observed generation, and that
+  no capture occurred. The observation may already be stale, so guidance
+  requires a fresh `workspace_status` before any deliberate retry.
+- Keep the existing first MCP error line and `isError=true`; append bounded
+  text without changing the closed success schema. Clients comparing the entire
+  error text byte-for-byte will see additional lines. There is no automatic
+  retry or rebase, permission expansion, new tool, or migration. Related tool
+  descriptions distinguish workspace IDs and timeout-ambiguous execution
+  recovery without changing their behavior.

@@ -94,12 +94,14 @@ class McpAuthorizationError(PermissionError):
         reason: str | None = None,
         diagnostic: KodiJsonRpcDiagnostic | None = None,
         addon_exception: AddonExceptionDiagnostic | None = None,
+        capture_conflict_observed_generation: int | None = None,
     ) -> None:
         super().__init__(code)
         self.code = code
         self.reason = reason
         self.diagnostic = diagnostic
         self.addon_exception = addon_exception
+        self.capture_conflict_observed_generation = capture_conflict_observed_generation
 
 
 @dataclass(frozen=True, slots=True)

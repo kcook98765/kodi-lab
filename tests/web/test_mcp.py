@@ -58,6 +58,7 @@ from kodi_lab.mcp.transport import (
     build_mcp_http_transport,
 )
 from kodi_lab.storage.models import (
+    AgentWorkspaceCaptureOperationRow,
     ManagedInstanceLifecycleOperationRow,
     ManagedInstanceMutationLeaseRow,
     ManagedInstanceRow,
@@ -2195,6 +2196,246 @@ def test_workspace_deploy_catalog_explains_target_modes(client: TestClient) -> N
         "otherwise it selects direct, subject to target eligibility checks"
         in mode_description
     )
+
+
+def test_workspace_capture_catalog_and_conflict_wire_result(
+    client: TestClient, database: sessionmaker[Session]
+) -> None:
+    context = cast(FastAPI, client.app).state.kodi_lab
+    source_root = context.settings.development_root / "plugin.video.mcp.capture-clarity"
+    source_root.mkdir()
+    (source_root / "addon.xml").write_text(
+        '<addon id="plugin.video.mcp.capture-clarity" name="Capture Clarity" '
+        'version="1.0.0"><extension point="xbmc.python.pluginsource" '
+        'library="main.py"><provides>video</provides></extension></addon>\n',
+        encoding="utf-8",
+    )
+    source_file = source_root / "main.py"
+    source_file.write_text("print('initial')\n", encoding="utf-8")
+    source = context.development_source_administration.register_source(
+        logical_name="Capture clarity source",
+        relative_locator="plugin.video.mcp.capture-clarity",
+    )
+    queued = context.agent_workspaces.queue_creation(source.id)
+    lease = context.agent_workspaces.acquire(queued.operation_id)
+    assert lease is not None
+    context.agent_workspaces.run(lease)
+    workspace_id = queued.workspace_id
+
+    administration = _administration(client)
+    preset = administration.create_custom_preset(
+        display_name="Capture clarity tools",
+        template_preset_id=FULL_LAB_CONTROL_PRESET_ID,
+        permissions=frozenset(
+            {
+                "workspace.inspect",
+                "development_source.inspect",
+                "workspace.capture",
+                "workspace.deploy",
+                "development.execute",
+                "development.request_promotion",
+                "target.control",
+            }
+        ),
+    )
+    principal = administration.create_client(
+        display_name="Capture clarity client", preset_id=preset.id
+    )
+    administration.grant_development_source(principal.id, source.id)
+    administration.bind_workspace(principal.id, workspace_id)
+    token = administration.issue_credential(principal.id).token
+
+    listed = _post(client, token, "tools/list").json()["result"]["tools"]
+    catalog = {item["name"]: item for item in listed}
+    capture_tool = catalog["workspace_capture"]
+    description = capture_tool["description"]
+    assert (
+        "currently observed in workspace_status or workspace_source_scan" in description
+    )
+    assert "not the generation to create" in description
+    assert "changed capture advances it by one" in description
+    assert "unchanged source leaves it unchanged" in description
+    assert "refresh workspace_status" in description
+    capture_schema = capture_tool["inputSchema"]
+    assert set(capture_schema["required"]) == {
+        "workspace_id",
+        "expected_generation",
+    }
+    expected_description = capture_schema["properties"]["expected_generation"][
+        "description"
+    ]
+    assert "optimistic-concurrency precondition" in expected_description
+    assert "expected_generation=1" in expected_description
+    assert "generation 2" in expected_description
+    assert "Do not supply the desired next generation" in expected_description
+    scan_description = catalog["workspace_source_scan"]["inputSchema"]["properties"][
+        "workspace_id"
+    ]["description"]
+    assert "workspace_status" in scan_description
+    assert "not a target ID or source ID" in scan_description
+    recovery_description = catalog["workspace_execution_recover"]["description"]
+    for phrase in (
+        "previously dispatched",
+        "timeout-ambiguous",
+        "execution's operation ID",
+        "execution_failed result is not eligible",
+        "separate operation",
+        "does not rerun the smoke",
+    ):
+        assert phrase in recovery_description
+    for tool_name in ("workspace_validate", "workspace_deploy", "workspace_execute"):
+        field = catalog[tool_name]["inputSchema"]["properties"]["expected_generation"]
+        assert "existing" in field["description"]
+        assert "does not create a generation" in field["description"].lower()
+    assert (
+        "description"
+        not in catalog["promotion_request"]["inputSchema"]["properties"][
+            "expected_generation"
+        ]
+    )
+
+    edit_clock = [100.0]
+    cast(Any, context.mcp_transport.development_edit_limiter)._clock = lambda: (
+        edit_clock[0]
+    )
+    request_number = 100
+
+    def capture(expected_generation: int) -> dict[str, Any]:
+        nonlocal request_number
+        edit_clock[0] += 1.0
+        request_number += 1
+        response = _post(
+            client,
+            token,
+            "tools/call",
+            params={
+                "name": "workspace_capture",
+                "arguments": {
+                    "workspace_id": str(workspace_id),
+                    "expected_generation": expected_generation,
+                },
+            },
+            request_id=request_number,
+        )
+        assert response.status_code == 200
+        return cast(dict[str, Any], response.json()["result"])
+
+    with database() as session:
+        initial_leases = session.scalar(
+            select(func.count()).select_from(ManagedInstanceMutationLeaseRow)
+        )
+        initial_requests = session.scalar(
+            select(func.count()).select_from(McpDevelopmentRequestRow)
+        )
+    source_file.write_text("print('changed once')\n", encoding="utf-8")
+    before = context.agent_workspaces.get(workspace_id)
+    assert before is not None and before.generation == 0
+    first_conflict = capture(1)
+    assert first_conflict["isError"] is True
+    assert "structuredContent" not in first_conflict
+    assert first_conflict["content"][0]["text"] == (
+        "workspace_capture_rejected: workspace_generation_conflict\n"
+        f"workspace_id: {workspace_id}\n"
+        "supplied_expected_generation: 1\n"
+        "observed_current_generation: 0\n"
+        "capture_occurred: false\n"
+        "next_action: Refresh workspace_status; if capture is still intended "
+        "and the workspace is ready, use its current generation as "
+        "expected_generation."
+    )
+    assert context.agent_workspaces.get(workspace_id) == before
+    with database() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AgentWorkspaceCaptureOperationRow)
+            )
+            == 0
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceMutationLeaseRow)
+            )
+            == initial_leases
+        )
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == initial_requests
+        )
+
+    first = capture(0)["structuredContent"]
+    assert first["changed"] is True and first["generation"] == 1
+    no_op = capture(1)["structuredContent"]
+    assert no_op["changed"] is False
+    assert no_op["generation"] == 1 and no_op["operation_id"] is None
+    source_file.write_text("print('changed twice')\n", encoding="utf-8")
+    before_second = context.agent_workspaces.get(workspace_id)
+    second_conflict = capture(2)
+    assert second_conflict["content"][0]["text"].splitlines() == [
+        "workspace_capture_rejected: workspace_generation_conflict",
+        f"workspace_id: {workspace_id}",
+        "supplied_expected_generation: 2",
+        "observed_current_generation: 1",
+        "capture_occurred: false",
+        "next_action: Refresh workspace_status; if capture is still intended "
+        "and the workspace is ready, use its current generation as "
+        "expected_generation.",
+    ]
+    assert context.agent_workspaces.get(workspace_id) == before_second
+    with database() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AgentWorkspaceCaptureOperationRow)
+            )
+            == 1
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceMutationLeaseRow)
+            )
+            == initial_leases
+        )
+        assert (
+            session.scalar(select(func.count()).select_from(McpDevelopmentRequestRow))
+            == initial_requests
+        )
+
+    status = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "workspace_status",
+            "arguments": {"workspace_id": str(workspace_id)},
+        },
+    ).json()["result"]["structuredContent"]["workspaces"][0]
+    assert status["generation"] == 1
+    second = capture(status["generation"])["structuredContent"]
+    assert second["changed"] is True and second["generation"] == 2
+    with database() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(AgentWorkspaceCaptureOperationRow)
+            )
+            == 2
+        )
+
+    unbound = administration.create_client(
+        display_name="Unbound capture client", preset_id=preset.id
+    )
+    unbound_token = administration.issue_credential(unbound.id).token
+    denied = _post(
+        client,
+        unbound_token,
+        "tools/call",
+        params={
+            "name": "workspace_capture",
+            "arguments": {
+                "workspace_id": str(workspace_id),
+                "expected_generation": 99,
+            },
+        },
+    ).json()["result"]
+    _assert_tool_error(denied, "workspace_not_found_or_not_authorized")
 
 
 def test_workspace_deploy_execute_modern_legacy_schema_and_replay(

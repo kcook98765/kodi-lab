@@ -296,7 +296,15 @@ class WorkspaceCaptureToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: UUID
-    expected_generation: int = Field(ge=0)
+    expected_generation: int = Field(
+        ge=0,
+        description=(
+            "Current workspace generation observed by the caller, used as an "
+            "optimistic-concurrency precondition. Use expected_generation=1 to "
+            "capture changed source into generation 2. Do not supply the desired "
+            "next generation."
+        ),
+    )
 
 
 class WorkspaceCaptureToolResult(BaseModel):
@@ -473,7 +481,13 @@ class WorkspaceValidateInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: UUID
-    expected_generation: int = Field(ge=0)
+    expected_generation: int = Field(
+        ge=0,
+        description=(
+            "Current, existing workspace generation to validate. "
+            "Validation does not create a generation."
+        ),
+    )
 
 
 class WorkspaceTargetOperationInput(BaseModel):
@@ -490,6 +504,13 @@ class WorkspaceTargetOperationInput(BaseModel):
 class WorkspaceExecuteInput(WorkspaceTargetOperationInput):
     """Select only one of the server-owned execution intents."""
 
+    expected_generation: int = Field(
+        ge=0,
+        description=(
+            "Current, existing workspace generation of the exact completed "
+            "deployment to execute. Execution does not create a generation."
+        ),
+    )
     execution_kind: WorkspaceExecutionKind = WorkspaceExecutionKind.SMOKE
 
 
@@ -505,6 +526,13 @@ class WorkspaceExecutionRecoverInput(BaseModel):
 class WorkspaceDeployInput(WorkspaceTargetOperationInput):
     """Existing deployment tool with an explicit transport selection."""
 
+    expected_generation: int = Field(
+        ge=0,
+        description=(
+            "Current, existing workspace generation with matching successful "
+            "validation to deploy. Deployment does not create a generation."
+        ),
+    )
     deployment_mode: Literal["auto", "direct", "repository"] = Field(
         default="auto",
         description=(
@@ -767,8 +795,16 @@ class McpTargetToolService:
             AgentWorkspaceStorageError,
             DevelopmentSourceValidationError,
         ) as error:
+            reason = _source_capture_reason(error)
             raise McpAuthorizationError(
-                "workspace_capture_rejected", reason=_source_capture_reason(error)
+                "workspace_capture_rejected",
+                reason=reason,
+                capture_conflict_observed_generation=(
+                    error.observed_current_generation
+                    if isinstance(error, WorkspaceSourceCaptureError)
+                    and reason == "workspace_generation_conflict"
+                    else None
+                ),
             ) from error
         except Exception as error:
             raise McpAuthorizationError("workspace_capture_rejected") from error

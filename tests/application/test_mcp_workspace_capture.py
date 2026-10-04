@@ -149,12 +149,24 @@ def test_opt_in_scan_and_capture_keep_existing_clients_unprivileged(
             WorkspaceCaptureToolInput(workspace_id=workspace_id, expected_generation=0),
         )
     assert stale.value.reason == "workspace_generation_conflict"
+    assert stale.value.capture_conflict_observed_generation == 1
     with pytest.raises(
         McpAuthorizationError, match="workspace_not_found_or_not_authorized"
     ):
         tools.workspace_source_scan(
             principal, UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
         )
+    with pytest.raises(
+        McpAuthorizationError, match="workspace_not_found_or_not_authorized"
+    ) as unauthorized_capture:
+        tools.workspace_capture(
+            principal,
+            WorkspaceCaptureToolInput(
+                workspace_id=UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                expected_generation=123,
+            ),
+        )
+    assert unauthorized_capture.value.capture_conflict_observed_generation is None
     assert (
         OTHER_SOURCE_ID
         not in administration.get_client(client.id).development_source_grants

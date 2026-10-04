@@ -53,8 +53,11 @@ from kodi_lab.workspace.storage import (
 
 
 class WorkspaceSourceCaptureError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(
+        self, code: str, *, observed_current_generation: int | None = None
+    ) -> None:
         self.code = code
+        self.observed_current_generation = observed_current_generation
         super().__init__(code)
 
 
@@ -109,7 +112,10 @@ class WorkspaceSourceCaptureService:
             and workspace.state is AgentWorkspaceState.READY
             and workspace.generation != generation
         ):
-            raise WorkspaceSourceCaptureError("workspace_generation_conflict")
+            raise WorkspaceSourceCaptureError(
+                "workspace_generation_conflict",
+                observed_current_generation=workspace.generation,
+            )
         if (
             workspace is None
             or workspace.state is not AgentWorkspaceState.READY
@@ -294,7 +300,18 @@ class WorkspaceSourceCaptureService:
                     .values(state=AgentWorkspaceState.CAPTURING)
                 )
                 if getattr(changed, "rowcount", 0) != 1:
-                    raise WorkspaceSourceCaptureError("workspace_generation_conflict")
+                    current = session.get(AgentWorkspaceRow, str(workspace_id))
+                    observed_generation = (
+                        current.generation
+                        if current is not None
+                        and current.state is AgentWorkspaceState.READY
+                        and current.generation != expected_generation
+                        else None
+                    )
+                    raise WorkspaceSourceCaptureError(
+                        "workspace_generation_conflict",
+                        observed_current_generation=observed_generation,
+                    )
                 session.add(
                     AgentWorkspaceCaptureOperationRow(
                         id=str(operation_id),
