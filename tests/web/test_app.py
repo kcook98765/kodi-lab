@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,7 +17,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.reset_operations import DurableResetActivityObserver
 from kodi_lab.auth.service import WebAuthenticationService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
-from kodi_lab.broker.errors import BrokerUnavailableError
+from kodi_lab.broker.errors import (
+    BrokerUnavailableError,
+    RuntimeRevisionPreconditionClientError,
+)
 from kodi_lab.config import Settings
 from kodi_lab.domain import (
     InstanceRuntimeState,
@@ -1337,6 +1341,156 @@ def test_instance_delete_confirmation_has_explicit_unselected_policy(
     assert "potentially sensitive note" not in response.text
     assert 'name="snapshot-policy" value="preserve" checked' not in response.text
     assert 'name="snapshot-policy" value="delete" checked' not in response.text
+
+
+def test_matching_stopped_instance_keeps_delete_available(
+    client: TestClient, broker: FakeBroker
+) -> None:
+    broker.container = inventory_entry(ContainerRuntimeState.STOPPED)
+    csrf = login(client)
+    dashboard = client.get("/").text
+    card = dashboard.split(f'data-instance-id="{INSTANCE_ID}"', 1)[1].split(
+        "</article>", 1
+    )[0]
+    assert re.search(r'data-delete-action="link"[^>]*href=', card)
+    assert not re.search(r'data-delete-action="link"[^>]*hidden', card)
+    page = client.get(f"/instances/{INSTANCE_ID}/delete")
+    assert page.status_code == 200
+    assert 'name="snapshot-policy" value="preserve"' in page.text
+    accepted = client.post(
+        f"/api/instances/{INSTANCE_ID}/delete",
+        json={"confirmed": True, "preserve_snapshots": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert accepted.status_code == 202
+    assert (
+        _wait_for_instance_delete(client, accepted.json()["operation_id"])["state"]
+        == "succeeded"
+    )
+    assert any(action == "deprovision" for action, _ in broker.calls)
+
+
+def test_known_stopped_revision_mismatch_blocks_delete_before_queue(
+    client: TestClient,
+    broker: FakeBroker,
+    database: sessionmaker[Session],
+) -> None:
+    broker.container = inventory_entry(ContainerRuntimeState.STOPPED).model_copy(
+        update={"runtime_revision_id": str(uuid4())}
+    )
+    csrf = login(client)
+    dashboard = client.get("/").text
+    card = dashboard.split(f'data-instance-id="{INSTANCE_ID}"', 1)[1].split(
+        "</article>", 1
+    )[0]
+    assert re.search(r'data-delete-action="link"[^>]*hidden', card)
+    assert re.search(r'data-delete-action="blocked"[^>]*aria-disabled="true"', card)
+    assert "Managed runtime differs from the selected pin." in card
+
+    page = client.get(f"/instances/{INSTANCE_ID}/delete")
+    assert page.status_code == 200
+    assert "Managed runtime differs from the selected pin." in page.text
+    assert 'name="snapshot-policy"' not in page.text
+    assert re.search(r'id="confirm-instance-delete"[^>]*disabled', page.text)
+
+    with database.begin() as session:
+        session.add(
+            TargetRow(
+                id=str(UNRELATED_INSTANCE_ID),
+                name="unrelated managed instance",
+                target_type="managed",
+                kodi_version="21.3",
+                availability="unavailable",
+                health="error",
+                connection_state="disconnected",
+            )
+        )
+        session.flush()
+        session.add(
+            ManagedInstanceRow(
+                target_id=str(UNRELATED_INSTANCE_ID),
+                instance_type="disposable",
+                runtime_revision_id=str(REVISION_ID),
+                runtime_state="stopped",
+                start_on_host_boot=False,
+            )
+        )
+    rejected = client.post(
+        f"/api/instances/{INSTANCE_ID}/delete",
+        json={"confirmed": True, "preserve_snapshots": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "instance_delete_conflict"
+    assert "Managed runtime differs from the selected pin." in rejected.text
+    with database() as session:
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceDeleteOperationRow)
+            )
+            == 0
+        )
+        assert (
+            session.scalar(
+                select(func.count()).select_from(ManagedInstanceMutationLeaseRow)
+            )
+            == 0
+        )
+        neighbor = session.get(ManagedInstanceRow, str(UNRELATED_INSTANCE_ID))
+        assert neighbor is not None
+        assert neighbor.runtime_state.value == "stopped"
+        assert neighbor.runtime_state_revision == 0
+    assert broker.calls == []
+
+
+def test_delete_status_to_dispatch_revision_race_stays_fail_closed(
+    client: TestClient,
+    broker: FakeBroker,
+    database: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broker.container = inventory_entry(ContainerRuntimeState.STOPPED)
+    csrf = login(client)
+    assert 'data-delete-action="link"' in client.get("/").text
+    original_inventory = broker.managed_container_inventory
+    inventory_calls = 0
+
+    def change_after_status(*, managed_instance_id: str | None = None) -> object:
+        nonlocal inventory_calls
+        result = original_inventory(managed_instance_id=managed_instance_id)
+        inventory_calls += 1
+        if inventory_calls == 1:
+            broker.container = inventory_entry(
+                ContainerRuntimeState.STOPPED
+            ).model_copy(update={"runtime_revision_id": str(uuid4())})
+        return result
+
+    def reject_deprovision(**kwargs: object) -> None:
+        assert broker.container is not None
+        assert (
+            broker.container.runtime_revision_id
+            != kwargs["expected_runtime_revision_id"]
+        )
+        raise RuntimeRevisionPreconditionClientError(
+            "runtime_revision_precondition_failed",
+            "The managed runtime revision differs from trusted state.",
+            request_id=None,
+        )
+
+    monkeypatch.setattr(broker, "managed_container_inventory", change_after_status)
+    monkeypatch.setattr(broker, "deprovision_managed_container", reject_deprovision)
+    accepted = client.post(
+        f"/api/instances/{INSTANCE_ID}/delete",
+        json={"confirmed": True, "preserve_snapshots": True},
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+    )
+    assert accepted.status_code == 202
+    operation = _wait_for_instance_delete(client, accepted.json()["operation_id"])
+    assert operation["state"] == "reconciliation_required"
+    assert inventory_calls >= 2
+    assert broker.calls == []
+    with database() as session:
+        assert session.get(ManagedInstanceRow, str(INSTANCE_ID)) is not None
 
 
 def test_instance_delete_post_is_strict_and_origin_and_csrf_protected(

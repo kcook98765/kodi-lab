@@ -105,7 +105,9 @@ class FakeContainerProvider:
         self.deprovision_calls: list[tuple[object, ...]] = []
         self.inventory_calls = 0
 
-    def list_managed_containers(self) -> tuple[ManagedContainerRecord, ...]:
+    def list_managed_containers(
+        self, *, managed_instance_id: str | None = None
+    ) -> tuple[ManagedContainerRecord, ...]:
         self.inventory_calls += 1
         return ()
 

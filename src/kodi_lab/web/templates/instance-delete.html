@@ -14,6 +14,9 @@
       <p><strong>{{ instance.name }}</strong> ({{ instance.managed_instance_id }})</p>
       <p>Kodi {{ instance.kodi_version }} · revision {{ instance.runtime_revision_number }}</p>
       <p>Provisioning: {{ instance.provision_state }} · container: {{ instance.container_state }}</p>
+      {% if instance.failure_code == 'runtime_revision_mismatch' %}
+      <p class="notice" role="alert">{{ instance.failure_detail }}</p>
+      {% endif %}
       <dl>
         <dt>Snapshots</dt><dd>{{ snapshot_count }}</dd>
         <dt>Known snapshot bytes</dt><dd>{{ aggregate_snapshot_bytes }}</dd>
@@ -22,6 +25,7 @@
         <dt>Quarantined</dt><dd>{{ snapshot_counts.quarantined }}</dd>
         <dt>Notes present</dt><dd>{{ 'Yes' if notes_present else 'No' }}</dd>
       </dl>
+      {% if instance.failure_code != 'runtime_revision_mismatch' %}
       <fieldset>
         <legend>Choose what happens to every authoritative Snapshot</legend>
         <label><input type="radio" name="snapshot-policy" value="preserve"> Preserve snapshots</label>
@@ -29,6 +33,7 @@
         <label><input type="radio" name="snapshot-policy" value="delete"> Permanently delete snapshots</label>
         <p>Artifacts are permanently removed. No automatic recovery is available.</p>
       </fieldset>
+      {% endif %}
       <p class="error" id="instance-delete-error" role="alert" hidden></p>
       <button id="confirm-instance-delete" data-instance-id="{{ instance.managed_instance_id }}" disabled>Delete managed instance</button>
       <a href="/">Cancel</a>

@@ -5644,3 +5644,7 @@ approvals atomically with the governing revision transition.
   presentation. Runtime projection CAS and lifecycle history are unchanged.
   This decision adds no automatic recovery or special handling for the Nexus
   evidence container.
+- Live practical verification exposed a separate Delete entry point that did
+  not consult the same mismatch status. The dashboard and confirmation page now
+  block a known mismatch, and direct Delete admission checks it before queuing.
+  Broker Stop/Deprovision revision checks remain the dispatch-time protection.

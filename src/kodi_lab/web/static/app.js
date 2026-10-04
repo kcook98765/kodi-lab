@@ -27,6 +27,13 @@ function updateCard(status) {
     button.hidden = !status.allowed_actions.includes(button.dataset.action);
     button.disabled = false;
   }
+  const deleteLink = card.querySelector('[data-delete-action="link"]');
+  const deleteBlocked = card.querySelector('[data-delete-action="blocked"]');
+  if (deleteLink && deleteBlocked) {
+    const mismatch = status.failure_code === "runtime_revision_mismatch";
+    deleteLink.hidden = mismatch;
+    deleteBlocked.hidden = !mismatch;
+  }
 }
 
 function updateResetStatus(card, status) {

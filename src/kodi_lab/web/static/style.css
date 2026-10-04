@@ -5,6 +5,7 @@ header { display: flex; align-items: center; justify-content: space-between; }
 form { display: grid; gap: .75rem; }
 input, select, button { font: inherit; padding: .55rem .75rem; }
 .button-link { display: inline-block; padding: .55rem .75rem; border: 1px solid currentColor; border-radius: .2rem; text-decoration: none; }
+.button-link[hidden] { display: none; }
 .confirmation-panel { max-width: 42rem; margin: 8vh auto; }
 input[type="checkbox"] { padding: 0; }
 .instance { border: 1px solid #8887; border-radius: .5rem; padding: 1rem; }

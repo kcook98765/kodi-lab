@@ -6119,6 +6119,11 @@ def create_app(
         body: ManagedInstanceDeleteRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedInstanceDeleteStatus:
+        runtime = context.status.get(instance_id)
+        if runtime.failure_code == "runtime_revision_mismatch":
+            raise ManagedInstanceDeleteConflictError(
+                "Managed runtime differs from the selected pin."
+            )
         operation = context.instance_delete_operations.queue(
             instance_id, preserve_snapshots=body.preserve_snapshots
         )

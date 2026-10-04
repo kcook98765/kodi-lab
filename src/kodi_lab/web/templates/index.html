@@ -76,7 +76,8 @@
             {% endif %}
             <a class="button-link" href="/instances/{{ instance.managed_instance_id }}/snapshots">Snapshots</a>
             {% if not (reconciliation and reconciliation.blocking) %}
-            <a class="button-link destructive" href="/instances/{{ instance.managed_instance_id }}/delete">Delete instance</a>
+            <a class="button-link destructive" data-delete-action="link" href="/instances/{{ instance.managed_instance_id }}/delete" {% if instance.failure_code == 'runtime_revision_mismatch' %}hidden{% endif %}>Delete instance</a>
+            <span class="button-link destructive" data-delete-action="blocked" aria-disabled="true" {% if instance.failure_code != 'runtime_revision_mismatch' %}hidden{% endif %}>Delete blocked</span>
             {% else %}<span class="button-link destructive" aria-disabled="true">Delete blocked</span>{% endif %}
           </div>
         </article>
