@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -197,6 +197,9 @@ class FakeBroker:
     last_start_kwargs: dict[str, Any] | None = None
     verify_count: int = 0
     fail_sync: BaseException | None = None
+    sync_result_classification: Literal["synchronized", "unchanged"] = "synchronized"
+    sync_source_digest: str = "sha256:" + "1" * 64
+    sync_destination_digest: str = "sha256:" + "2" * 64
     capture_count: int = 0
     read_count: int = 0
     capture_failure: bool = False
@@ -291,16 +294,18 @@ class FakeBroker:
             deployment_operation_id=kwargs["deployment_operation_id"],
             runtime_revision_id=str(RUNTIME_REVISION_ID),
             container_id=CONTAINER_ID,
-            result_classification="synchronized",
-            source_manifest_digest="sha256:" + "1" * 64,
-            verified_destination_digest="sha256:" + "2" * 64,
+            result_classification=self.sync_result_classification,
+            source_manifest_digest=self.sync_source_digest,
+            verified_destination_digest=self.sync_destination_digest,
             observed_source_name="Slice 4",
             observed_source_version="1.0.0",
             new_count=0,
-            changed_count=1,
+            changed_count=0 if self.sync_result_classification == "unchanged" else 1,
             unchanged_count=1,
             destination_only_count=0,
-            transferred_bytes=8,
+            transferred_bytes=0
+            if self.sync_result_classification == "unchanged"
+            else 8,
         )
 
     def verify_mcp_workspace_destination(
@@ -2911,6 +2916,70 @@ def test_correlated_stop_sync_readiness_and_inventory_failures_are_bounded(
             target_id=TARGET_ID,
         )
     assert disabled_env.broker.state is ContainerRuntimeState.STOPPED
+
+
+@pytest.mark.parametrize("same_materialization", [True, False])
+def test_disabled_addon_after_unchanged_sync_retains_only_exact_copy_confidence(
+    tmp_path: Path, same_materialization: bool
+) -> None:
+    env = _environment(tmp_path)
+    env.broker.sync_result_classification = "unchanged"
+    env.broker.sync_source_digest = "sha256:" + "3" * 64
+    env.broker.sync_destination_digest = (
+        "sha256:" + ("4" if same_materialization else "9") * 64
+    )
+    env.development._inventory = cast(
+        Any,
+        SimpleNamespace(
+            get=lambda _target: ManagedInstanceAddonInventory(
+                instance_id=TARGET_ID,
+                observed_at=NOW,
+                kodi_release="21.3",
+                query_status=AddonInventoryQueryStatus.AVAILABLE,
+                complete=True,
+                items=[
+                    KodiAddonInventoryItem(
+                        addon_id="plugin.video.slice4",
+                        name="Slice 4",
+                        version="1.0.0",
+                        enabled=False,
+                        kodi_type="xbmc.python.pluginsource",
+                        provenance=KodiAddonProvenance(
+                            classification=KodiAddonProvenanceClassification.UNKNOWN,
+                            evidence_status=KodiAddonProvenanceEvidenceStatus.UNKNOWN,
+                        ),
+                    )
+                ],
+            )
+        ),
+    )
+    with pytest.raises(
+        McpWorkspaceDevelopmentError, match="deployment_verification_failed"
+    ):
+        env.development.deploy(
+            client_id=env.client_id,
+            request_id=uuid4(),
+            workspace_id=env.workspace_id,
+            expected_generation=0,
+            target_id=TARGET_ID,
+        )
+    with env.sessions() as session:
+        baseline = session.get(
+            DevelopmentSourceDeploymentRow,
+            {
+                "managed_instance_id": str(TARGET_ID),
+                "development_source_id": str(SOURCE_ID),
+            },
+        )
+        operation = session.scalar(select(McpWorkspaceDeploymentOperationRow))
+        assert baseline is not None and operation is not None
+        assert baseline.confidence == (
+            "verified_at_last_operation" if same_materialization else "stale"
+        )
+        assert operation.result_classification == "unchanged"
+        assert operation.addon_enabled is False
+        assert operation.failure_code == "deployment_verification_failed"
+    assert env.broker.state is ContainerRuntimeState.STOPPED
 
 
 def test_workspace_deployment_lost_sync_or_start_response_stays_blocked(

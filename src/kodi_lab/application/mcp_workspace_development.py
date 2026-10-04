@@ -2790,6 +2790,13 @@ class McpWorkspaceDevelopmentService:
                 inventory_classification="failed"
                 if inventory.query_status is AddonInventoryQueryStatus.AVAILABLE
                 else "unknown",
+                addon_enabled=(
+                    item.enabled
+                    if item is not None
+                    and inventory.query_status is AddonInventoryQueryStatus.AVAILABLE
+                    and item.version == operation.addon_version
+                    else None
+                ),
             )
             self._finish_deployment(
                 operation.id,
@@ -3884,11 +3891,26 @@ class McpWorkspaceDevelopmentService:
             row.source_manifest_digest = result.source_manifest_digest
             row.verified_destination_digest = result.verified_destination_digest
             row.result_classification = result.result_classification
-            DevelopmentSourceDeploymentRepository(session).mark_confidence(
-                UUID(row.target_id),
-                UUID(row.development_source_id),
-                DevelopmentSourceDeploymentConfidence.STALE,
+            deployments = DevelopmentSourceDeploymentRepository(session)
+            baseline = deployments.get(
+                UUID(row.target_id), UUID(row.development_source_id)
             )
+            if not (
+                result.result_classification == "unchanged"
+                and baseline is not None
+                and baseline.confidence
+                is DevelopmentSourceDeploymentConfidence.VERIFIED_AT_LAST_OPERATION
+                and baseline.runtime_revision_id == UUID(row.runtime_revision_id)
+                and baseline.trusted_container_id == result.container_id
+                and baseline.source_manifest_digest == result.source_manifest_digest
+                and baseline.verified_destination_digest
+                == result.verified_destination_digest
+            ):
+                deployments.mark_confidence(
+                    UUID(row.target_id),
+                    UUID(row.development_source_id),
+                    DevelopmentSourceDeploymentConfidence.STALE,
+                )
 
     def _update_deployment(self, operation_id: UUID, **values: object) -> None:
         with self._sessions.begin() as session:

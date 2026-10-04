@@ -1699,7 +1699,6 @@ class DockerManagedContainerAdapter:
                 evidence = spec.prior_evidence
                 if (
                     evidence is None
-                    or evidence.confidence.value != "verified_at_last_operation"
                     or evidence.runtime_revision_id != spec.runtime_revision_id
                     or evidence.trusted_container_id != selected_id
                     or evidence.verified_destination_digest != before.digest
@@ -1707,6 +1706,18 @@ class DockerManagedContainerAdapter:
                     raise DockerDevelopmentSourceDeploymentError(
                         "development_source_replacement_conflict",
                         "Existing destination provenance could not be freshly proven.",
+                    )
+                # A stale assertion may be reaffirmed only when the complete
+                # stopped destination still matches its retained successful
+                # copy and the source has not changed. This path never writes.
+                if evidence.confidence.value != "verified_at_last_operation" and (
+                    evidence.confidence.value != "stale"
+                    or evidence.source_manifest_digest != first.digest
+                    or classify_delta(first, before).applied_paths
+                ):
+                    raise DockerDevelopmentSourceDeploymentError(
+                        "development_source_replacement_conflict",
+                        "Stale destination cannot be safely reaffirmed.",
                     )
 
             delta = classify_delta(first, before)

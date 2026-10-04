@@ -2052,8 +2052,11 @@ The fixed choreography is claim, recheck, mutation marker, stop, sync marker,
 copy/readback, start, readiness, enabled inventory ID/version check and terminal
 evidence. Unknown state after mutation is durable reconciliation-required and
 best-effort stopped; it is not automatically replayed. Sync uncertainty marks
-canonical source-copy confidence unknown, while a verified workspace overlay
-makes that source confidence stale.
+canonical source-copy confidence unknown. A workspace sync that changes bytes
+makes that source confidence stale; an exact unchanged readback leaves it intact.
+Stale copy confidence can be reaffirmed by stopped-target Copy/Sync only when
+the broker freshly proves the complete retained destination and unchanged
+source, with no destination write.
 
 Execution composes only from successful deployment evidence. Fresh ready
 runtime, enabled exact ID/version inventory and exact destination provenance are

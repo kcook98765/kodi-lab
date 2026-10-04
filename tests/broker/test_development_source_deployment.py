@@ -364,6 +364,68 @@ def test_unchanged_sync_transfers_zero_files_and_bytes(tmp_path: Path) -> None:
     assert len(client.put_members) == puts
 
 
+def test_stale_exact_prior_materialization_is_reaffirmed_without_write(
+    tmp_path: Path,
+) -> None:
+    client = FakeDeploymentDockerClient()
+    first = _apply(client, _spec(tmp_path))
+    puts = len(client.put_members)
+    stale = replace(
+        _prior(first), confidence=DevelopmentSourceDeploymentConfidence.STALE
+    )
+    result = _apply(
+        client, _spec(tmp_path, prior=stale, operation_id=str(UUID(int=10)))
+    )
+    assert result.result_classification == "unchanged"
+    assert result.source_manifest_digest == first.source_manifest_digest
+    assert result.verified_destination_digest == first.verified_destination_digest
+    assert len(client.put_members) == puts
+
+
+@pytest.mark.parametrize("drift", ["changed_byte", "extra_file", "changed_source"])
+def test_stale_reaffirmation_rejects_drift_without_write(
+    tmp_path: Path, drift: str
+) -> None:
+    client = FakeDeploymentDockerClient()
+    first = _apply(client, _spec(tmp_path))
+    puts = len(client.put_members)
+    if drift == "changed_byte":
+        client.entries["unchanged.py"] = (b"manual edit", 0o644, 42, 43)
+    elif drift == "extra_file":
+        client.entries["extra.py"] = (b"unknown", 0o644, 42, 43)
+    else:
+        (_source(tmp_path) / "addon" / "unchanged.py").write_text("source edit")
+    stale = replace(
+        _prior(first), confidence=DevelopmentSourceDeploymentConfidence.STALE
+    )
+    with pytest.raises(DockerDevelopmentSourceDeploymentError) as captured:
+        _apply(client, _spec(tmp_path, prior=stale, operation_id=str(UUID(int=11))))
+    assert captured.value.code == "development_source_replacement_conflict"
+    assert len(client.put_members) == puts
+
+
+@pytest.mark.parametrize("difference", ["unknown", "container", "revision"])
+def test_stale_reaffirmation_requires_exact_prior_authority(
+    tmp_path: Path, difference: str
+) -> None:
+    client = FakeDeploymentDockerClient()
+    first = _apply(client, _spec(tmp_path))
+    stale = replace(
+        _prior(first), confidence=DevelopmentSourceDeploymentConfidence.STALE
+    )
+    if difference == "unknown":
+        stale = replace(stale, confidence=DevelopmentSourceDeploymentConfidence.UNKNOWN)
+    elif difference == "container":
+        stale = replace(stale, trusted_container_id="9" * 64)
+    else:
+        stale = replace(stale, runtime_revision_id=str(UUID(int=99)))
+    puts = len(client.put_members)
+    with pytest.raises(DockerDevelopmentSourceDeploymentError) as captured:
+        _apply(client, _spec(tmp_path, prior=stale, operation_id=str(UUID(int=12))))
+    assert captured.value.code == "development_source_replacement_conflict"
+    assert len(client.put_members) == puts
+
+
 def test_packaged_pyc_source_is_copied_without_exclusion(tmp_path: Path) -> None:
     client = FakeDeploymentDockerClient()
     first = _apply(client, _spec(tmp_path))

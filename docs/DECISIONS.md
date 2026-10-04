@@ -5692,3 +5692,27 @@ approvals atomically with the governing revision transition.
   command remains status-only for this condition and now prints the existing
   `runtime_revision_mismatch` failure rather than an ordinary stopped summary.
   No agent-facing MCP capability is added.
+
+## D-0411: Reaffirm an exact stale development-source materialization without overwrite
+
+- Practical Matrix development exposed a recovery dead end: an unchanged
+  workspace deployment found the installed add-on disabled, then marked the
+  source copy stale; Enable required verified copy confidence, while Copy/Sync
+  refused the existing destination solely because confidence was stale.
+- An unchanged workspace sync preserves verified source-copy confidence only
+  when its trusted result matches the same runtime, container, source digest,
+  and complete destination digest. Changed or uncertain syncs retain their
+  existing stale or unknown transitions.
+- A stopped-target Copy/Sync may reaffirm **stale** successful same-instance,
+  source, add-on, runtime, and container evidence only when the broker freshly
+  captures the complete destination, finds its digest equal to the retained
+  successful digest, captures the source twice, finds its digest unchanged from
+  that evidence, and proves there is no delta to apply. It performs no Docker
+  write. The ordinary successful Copy/Sync record then restores verified
+  confidence. Missing/unknown evidence, changed source, destination drift,
+  extra files, and identity drift remain replacement conflicts.
+- This does not infer provenance from file existence or stale confidence alone,
+  add a force option, or permit overwrite of an untrusted destination. The
+  broker remains the filesystem authority. A disabled inventory result is
+  retained in failed workspace deployment evidence so the enablement reason
+  is distinguishable from a missing or wrong-version add-on.
