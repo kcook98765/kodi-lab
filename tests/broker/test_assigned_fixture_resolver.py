@@ -55,9 +55,13 @@ def seed(
     *,
     instance_type: InstanceType = InstanceType.DISPOSABLE,
     assigned: bool = True,
+    kodi_version: str = "21.3",
+    fixture_slug: str = "small-mixed-v1",
 ) -> tuple[UUID, UUID]:
     instance_id = uuid4()
-    definition = RuntimeDefinition(uuid4(), "resolver-kodi-21-3", "21.3")
+    definition = RuntimeDefinition(
+        uuid4(), f"resolver-kodi-{kodi_version.replace('.', '-')}", kodi_version
+    )
     revision = RuntimeRevision(
         id=uuid4(),
         runtime_definition_id=definition.id,
@@ -71,14 +75,14 @@ def seed(
         approval_state=RevisionApprovalState.APPROVED,
         approved_at=NOW,
     )
-    fixture = load_packaged_fixture("small-mixed-v1").definition
+    fixture = load_packaged_fixture(fixture_slug).definition
     with factory.begin() as session:
         TargetRepository(session).create(
             Target(
                 id=instance_id,
                 name="Fixture resolver target",
                 target_type=TargetType.MANAGED,
-                kodi_version="21.3",
+                kodi_version=kodi_version,
                 availability=TargetAvailability.UNAVAILABLE,
                 health=HealthStatus.WARNING,
                 connection_state=ConnectionState.DISCONNECTED,
@@ -112,6 +116,30 @@ def test_resolver_returns_only_trusted_persisted_assignment(
     assert resolved.content_digest == packaged.definition.content_digest
     assert resolved.destination == "/home/kodi/.kodi"
     assert resolved.archive == packaged.build_archive()
+
+
+@pytest.mark.parametrize(
+    "release,slug",
+    (
+        ("19.4", "cross-movies-matrix-v1"),
+        ("20.5", "cross-movies-nexus-v1"),
+        ("21.3", "cross-movies-omega-v1"),
+    ),
+)
+def test_resolver_loads_each_exact_release_cross_movies_package(
+    session_factory: sessionmaker[Session], release: str, slug: str
+) -> None:
+    instance_id, revision_id = seed(
+        session_factory, kodi_version=release, fixture_slug=slug
+    )
+    packaged = load_packaged_fixture(slug)
+    resolved = SqliteAssignedFixtureResolver(session_factory).resolve(str(instance_id))
+
+    assert resolved.runtime_revision_id == str(revision_id)
+    assert resolved.fixture_id == str(packaged.definition.id)
+    assert resolved.fixture_slug == slug
+    assert resolved.archive == packaged.build_archive()
+    assert resolved.content_digest == packaged.definition.content_digest
 
 
 def test_resolver_rejects_missing_assignment_and_persistent_instance(

@@ -1,0 +1,279 @@
+{
+  "compatible_kodi_releases": [
+    "21.3"
+  ],
+  "container_destination": "/home/kodi/.kodi",
+  "content_category": "movies",
+  "content_digest": "sha256:0cc2f1a6587cb88a3093ee3fbcd7a943a24120b93ba75e58aef3544f0e05a374",
+  "description": "Cross-Version Movies family: nine synthetic movies for Kodi 21.3; three movies in each of the 2000s, 2010s, and 2020s.",
+  "files": [
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-001/Kodi Lab Cross-Version Movie 001 (2001).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-001/Kodi Lab Cross-Version Movie 001 (2001).nfo",
+      "sha256": "7062f49f84752617b95b761890430dff820a8737adcff3a0014841c35aefdcb0",
+      "size": 610
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-001/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-001/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-002/Kodi Lab Cross-Version Movie 002 (2005).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-002/Kodi Lab Cross-Version Movie 002 (2005).nfo",
+      "sha256": "134f6b3a912a36c2d80c648fc17ffc56b2cc76f86ea49c04364b8b695c1630d2",
+      "size": 610
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-002/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-002/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-003/Kodi Lab Cross-Version Movie 003 (2009).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-003/Kodi Lab Cross-Version Movie 003 (2009).nfo",
+      "sha256": "da56a00b396257747c07607e08b593aa5200162e88640cab2cd66dd8ace220ab",
+      "size": 610
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-003/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-003/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-004/Kodi Lab Cross-Version Movie 004 (2011).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-004/Kodi Lab Cross-Version Movie 004 (2011).nfo",
+      "sha256": "78409518b2a14fad2fde32ea06e65ca6f0ee3c3671d545ec41eb1861a8d65c7b",
+      "size": 610
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-004/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-004/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-005/Kodi Lab Cross-Version Movie 005 (2015).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-005/Kodi Lab Cross-Version Movie 005 (2015).nfo",
+      "sha256": "194ff4497013396fd96e35cf1f99e13f72f41deecb444fc587004c7f68410385",
+      "size": 610
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-005/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-005/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-006/Kodi Lab Cross-Version Movie 006 (2019).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-006/Kodi Lab Cross-Version Movie 006 (2019).nfo",
+      "sha256": "f933aa17070bf85b6655e21dcb91a87c5c43b4c0001cd39f05a642fa14e349af",
+      "size": 610
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-006/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-006/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-007/Kodi Lab Cross-Version Movie 007 (2021).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-007/Kodi Lab Cross-Version Movie 007 (2021).nfo",
+      "sha256": "c800a6c15112577d802a9ef0fffddabc2fecc7d36cae4e443e672b1645b490c0",
+      "size": 610
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-007/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-007/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-008/Kodi Lab Cross-Version Movie 008 (2024).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-008/Kodi Lab Cross-Version Movie 008 (2024).nfo",
+      "sha256": "8b17375d4ebeba550f746dcf8224312007ff467428ffea6933ef8afe23a11bcf",
+      "size": 610
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-008/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-008/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-009/Kodi Lab Cross-Version Movie 009 (2026).mp4",
+      "sha256": "f1576df60c2e0038d343a4a5072a450fdd57558f18681c2491967ce97e28958f",
+      "size": 12277
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-009/Kodi Lab Cross-Version Movie 009 (2026).nfo",
+      "sha256": "92331bc7fc5d434a13a35e9575093476407526d634dc8a43c4c85b99358b558f",
+      "size": 610
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-009/fanart.png",
+      "sha256": "15038a30be6d038894324971fa2096402f8a9dc0b36bd8eab6f966ce46c4b5ac",
+      "size": 630
+    },
+    {
+      "path": "payload/fixture-media/movies/kodi-lab-cross-movie-009/poster.png",
+      "sha256": "b2070feea4e71812e6ea084e7a71252bd4c911242a7fbef888c1649cf0c2ca53",
+      "size": 435
+    },
+    {
+      "path": "payload/userdata/Database/MyVideos131.db",
+      "sha256": "c0da622a88bc2169a877f336bae07a1949d198565f7853529033a5de7b40f600",
+      "size": 401408
+    },
+    {
+      "path": "payload/userdata/sources.xml",
+      "sha256": "c4e52a9201c7c76d51fdd20f88c44a871a067ace4dcb402b6217495e52883134",
+      "size": 605
+    }
+  ],
+  "fixture_version": 1,
+  "id": "81765a3d-1fd8-4b16-8f2e-850858052093",
+  "schema_version": 18,
+  "semantic_expectations": {
+    "drift_movie_unique_id": "cross-movies-v1-movie-001",
+    "episodes": [],
+    "movies": [
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-cross-movie-001/Kodi Lab Cross-Version Movie 001 (2001).mp4",
+        "title": "Kodi Lab Cross-Version Movie 001",
+        "unique_id": "cross-movies-v1-movie-001",
+        "year": 2001
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-cross-movie-002/Kodi Lab Cross-Version Movie 002 (2005).mp4",
+        "title": "Kodi Lab Cross-Version Movie 002",
+        "unique_id": "cross-movies-v1-movie-002",
+        "year": 2005
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-cross-movie-003/Kodi Lab Cross-Version Movie 003 (2009).mp4",
+        "title": "Kodi Lab Cross-Version Movie 003",
+        "unique_id": "cross-movies-v1-movie-003",
+        "year": 2009
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-cross-movie-004/Kodi Lab Cross-Version Movie 004 (2011).mp4",
+        "title": "Kodi Lab Cross-Version Movie 004",
+        "unique_id": "cross-movies-v1-movie-004",
+        "year": 2011
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-cross-movie-005/Kodi Lab Cross-Version Movie 005 (2015).mp4",
+        "title": "Kodi Lab Cross-Version Movie 005",
+        "unique_id": "cross-movies-v1-movie-005",
+        "year": 2015
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-cross-movie-006/Kodi Lab Cross-Version Movie 006 (2019).mp4",
+        "title": "Kodi Lab Cross-Version Movie 006",
+        "unique_id": "cross-movies-v1-movie-006",
+        "year": 2019
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-cross-movie-007/Kodi Lab Cross-Version Movie 007 (2021).mp4",
+        "title": "Kodi Lab Cross-Version Movie 007",
+        "unique_id": "cross-movies-v1-movie-007",
+        "year": 2021
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-cross-movie-008/Kodi Lab Cross-Version Movie 008 (2024).mp4",
+        "title": "Kodi Lab Cross-Version Movie 008",
+        "unique_id": "cross-movies-v1-movie-008",
+        "year": 2024
+      },
+      {
+        "file": "/home/kodi/.kodi/fixture-media/movies/kodi-lab-cross-movie-009/Kodi Lab Cross-Version Movie 009 (2026).mp4",
+        "title": "Kodi Lab Cross-Version Movie 009",
+        "unique_id": "cross-movies-v1-movie-009",
+        "year": 2026
+      }
+    ],
+    "scan_plan": [
+      "movies"
+    ],
+    "tvshows": []
+  },
+  "size_category": "small",
+  "slug": "cross-movies-omega-v1",
+  "video_database_seed": {
+    "container_relative_path": "userdata/Database/MyVideos131.db",
+    "database_filename": "MyVideos131.db",
+    "movie_content": "movies",
+    "movie_path": "/home/kodi/.kodi/fixture-media/movies/",
+    "schema_version": 131,
+    "scraper": "metadata.local",
+    "sha256": "c0da622a88bc2169a877f336bae07a1949d198565f7853529033a5de7b40f600"
+  }
+}

@@ -365,6 +365,42 @@ def test_family_variants_enforce_exact_stable_release_compatibility(
                     )
 
 
+def test_cross_movies_family_registers_and_rejects_other_releases(
+    session_factory: sessionmaker[Session],
+) -> None:
+    service = FixtureAdministrationService(session_factory)
+    slugs = (
+        "cross-movies-matrix-v1",
+        "cross-movies-nexus-v1",
+        "cross-movies-omega-v1",
+    )
+    fixtures = tuple(service.register_packaged_fixture(slug) for slug in slugs)
+    assert len({fixture.id for fixture in fixtures}) == 3
+    with session_factory() as session:
+        catalog = FixtureDefinitionRepository(session)
+        assert tuple(catalog.get_by_slug(slug) for slug in slugs) == fixtures
+
+    instances = tuple(
+        seed_instance(session_factory, kodi_version=release)
+        for release in ("19.4", "20.5", "21.3")
+    )
+    for index, (target, _definition, revision) in enumerate(instances):
+        for fixture_index, fixture in enumerate(fixtures):
+            if fixture_index == index:
+                assigned = service.assign(
+                    managed_instance_id=target.id,
+                    fixture_definition_id=fixture.id,
+                )
+                assert assigned.fixture_definition_id == fixture.id
+                assert assigned.runtime_revision_id == revision.id
+            else:
+                with pytest.raises(FixtureIncompatibleError):
+                    service.assign(
+                        managed_instance_id=target.id,
+                        fixture_definition_id=fixture.id,
+                    )
+
+
 def test_medium_fixture_assignment_is_exactly_kodi_21_3_compatible(
     session_factory: sessionmaker[Session],
 ) -> None:

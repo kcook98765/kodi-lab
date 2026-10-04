@@ -69,14 +69,27 @@ SMALL_TV_V1_FIXTURE_SLUG = "small-tv-v1"
 SMALL_TV_V2_FIXTURE_SLUG = "small-tv-v2"
 SMALL_TV_V3_FIXTURE_SLUG = "small-tv-v3"
 MEDIUM_MIXED_V1_FIXTURE_SLUG = "medium-mixed-v1"
-SMALL_MOVIES_FIXTURE_SLUGS = frozenset(
+CROSS_MOVIES_MATRIX_V1_FIXTURE_SLUG = "cross-movies-matrix-v1"
+CROSS_MOVIES_NEXUS_V1_FIXTURE_SLUG = "cross-movies-nexus-v1"
+CROSS_MOVIES_OMEGA_V1_FIXTURE_SLUG = "cross-movies-omega-v1"
+CROSS_MOVIES_FIXTURE_SLUGS = frozenset(
     {
-        SMALL_MOVIES_V1_FIXTURE_SLUG,
-        SMALL_MOVIES_V2_FIXTURE_SLUG,
-        SMALL_MOVIES_V3_FIXTURE_SLUG,
-        SMALL_MOVIES_V4_FIXTURE_SLUG,
-        SMALL_MOVIES_V5_FIXTURE_SLUG,
+        CROSS_MOVIES_MATRIX_V1_FIXTURE_SLUG,
+        CROSS_MOVIES_NEXUS_V1_FIXTURE_SLUG,
+        CROSS_MOVIES_OMEGA_V1_FIXTURE_SLUG,
     }
+)
+SMALL_MOVIES_FIXTURE_SLUGS = (
+    frozenset(
+        {
+            SMALL_MOVIES_V1_FIXTURE_SLUG,
+            SMALL_MOVIES_V2_FIXTURE_SLUG,
+            SMALL_MOVIES_V3_FIXTURE_SLUG,
+            SMALL_MOVIES_V4_FIXTURE_SLUG,
+            SMALL_MOVIES_V5_FIXTURE_SLUG,
+        }
+    )
+    | CROSS_MOVIES_FIXTURE_SLUGS
 )
 SMALL_TV_FIXTURE_SLUGS = frozenset(
     {SMALL_TV_V1_FIXTURE_SLUG, SMALL_TV_V2_FIXTURE_SLUG, SMALL_TV_V3_FIXTURE_SLUG}
@@ -104,6 +117,7 @@ TRUSTED_FIXTURE_SLUGS = frozenset(
         SMALL_TV_V2_FIXTURE_SLUG,
         SMALL_TV_V3_FIXTURE_SLUG,
         MEDIUM_MIXED_V1_FIXTURE_SLUG,
+        *CROSS_MOVIES_FIXTURE_SLUGS,
     }
 )
 FIXTURE_CONTAINER_DESTINATION = "/home/kodi/.kodi"
@@ -148,6 +162,13 @@ FIXTURE_VIDEO_DATABASE_CONTAINER_PATHS = MappingProxyType(
             f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
         ),
         MEDIUM_MIXED_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
+        CROSS_MOVIES_MATRIX_V1_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_19_VIDEO_DATABASE_FILENAME}"
+        ),
+        CROSS_MOVIES_NEXUS_V1_FIXTURE_SLUG: (
+            f"/home/kodi/.kodi/userdata/Database/{KODI_20_VIDEO_DATABASE_FILENAME}"
+        ),
+        CROSS_MOVIES_OMEGA_V1_FIXTURE_SLUG: FIXTURE_VIDEO_DATABASE_CONTAINER_PATH,
     }
 )
 KODI_UID = 1000
@@ -363,6 +384,9 @@ def _require_exact_manifest_constants(document: MappingProxyType[str, Any]) -> N
         SMALL_MOVIES_V5_FIXTURE_SLUG: (15, 5),
         SMALL_TV_V3_FIXTURE_SLUG: (10, 3),
         MEDIUM_MIXED_V1_FIXTURE_SLUG: (11, 1),
+        CROSS_MOVIES_MATRIX_V1_FIXTURE_SLUG: (16, 1),
+        CROSS_MOVIES_NEXUS_V1_FIXTURE_SLUG: (17, 1),
+        CROSS_MOVIES_OMEGA_V1_FIXTURE_SLUG: (18, 1),
     }.get(slug)
     if expected is None:
         raise PackagedFixtureError("fixture manifest identity is invalid")
@@ -505,6 +529,21 @@ def _audit_seed(
             KODI_VIDEO_DATABASE_SCHEMA_VERSION,
             audit_medium_mixed_v1_seed,
         ),
+        CROSS_MOVIES_MATRIX_V1_FIXTURE_SLUG: (
+            KODI_19_VIDEO_DATABASE_FILENAME,
+            KODI_19_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_movies_v3_seed,
+        ),
+        CROSS_MOVIES_NEXUS_V1_FIXTURE_SLUG: (
+            KODI_20_VIDEO_DATABASE_FILENAME,
+            KODI_20_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_movies_v2_seed,
+        ),
+        CROSS_MOVIES_OMEGA_V1_FIXTURE_SLUG: (
+            KODI_VIDEO_DATABASE_FILENAME,
+            KODI_VIDEO_DATABASE_SCHEMA_VERSION,
+            audit_small_movies_v1_seed,
+        ),
     }.get(slug)
     if seed_contract is None:
         raise PackagedFixtureError("fixture database seed metadata is invalid")
@@ -577,6 +616,7 @@ def _parse_semantics(
         SMALL_MOVIES_V4_FIXTURE_SLUG,
         SMALL_MOVIES_V5_FIXTURE_SLUG,
     }
+    is_cross_movies = slug in CROSS_MOVIES_FIXTURE_SLUGS
     expected_scan_plan = (
         ["movies"] if is_movies else ["tv"] if is_tv else ["movies", "tv"]
     )
@@ -674,7 +714,7 @@ def _parse_semantics(
     movie_ids = {movie.unique_id for movie in movie_specs}
     episode_ids = {episode.unique_id for episode in episode_specs}
     movies_contract = (
-        len(movie_specs) == (12 if is_rich_movies else 3)
+        len(movie_specs) == (12 if is_rich_movies else 9 if is_cross_movies else 3)
         and not show_specs
         and not episode_specs
         and drift_movie_id in movie_ids
@@ -686,6 +726,12 @@ def _parse_semantics(
             )
             == _expected_rich_movie_identities()
             if is_rich_movies
+            else tuple(
+                (movie.title, movie.year, movie.unique_id, movie.file)
+                for movie in movie_specs
+            )
+            == _expected_cross_movie_identities()
+            if is_cross_movies
             else True
         )
     )
@@ -865,6 +911,22 @@ def _expected_rich_movie_identities() -> tuple[tuple[str, int, str, str], ...]:
             f"{FIXTURE_MOVIE_DIRECTORY}{title} ({year})/{title} ({year}).mp4",
         )
         for index, (title, year) in enumerate(identities, 1)
+    )
+
+
+def _expected_cross_movie_identities() -> tuple[tuple[str, int, str, str], ...]:
+    years = (2001, 2005, 2009, 2011, 2015, 2019, 2021, 2024, 2026)
+    return tuple(
+        (
+            f"Kodi Lab Cross-Version Movie {index:03d}",
+            year,
+            f"cross-movies-v1-movie-{index:03d}",
+            (
+                f"{FIXTURE_MOVIE_DIRECTORY}kodi-lab-cross-movie-{index:03d}/"
+                f"Kodi Lab Cross-Version Movie {index:03d} ({year}).mp4"
+            ),
+        )
+        for index, year in enumerate(years, 1)
     )
 
 

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>Kodi Lab Cross-Version Movie 003</title>
+  <originaltitle>Kodi Lab Cross-Version Movie 003</originaltitle>
+  <sorttitle>Kodi Lab Cross-Version Movie 003</sorttitle>
+  <year>2009</year>
+  <premiered>2009-01-01</premiered>
+  <plot>Fictional movie 003 for deterministic cross-version Kodi testing.</plot>
+  <runtime>1</runtime>
+  <genre>Synthetic</genre>
+  <studio>Kodi Lab</studio>
+  <uniqueid type="kodi-lab" default="true">cross-movies-v1-movie-003</uniqueid>
+  <art><poster>poster.png</poster><fanart>fanart.png</fanart></art>
+</movie>

@@ -332,6 +332,9 @@ class ResetStatusService:
             "small-tv-v2": ("Small/TV fixture for exact Kodi 20.5."),
             "small-tv-v3": ("Small/TV fixture for exact Kodi 19.5."),
             "medium-mixed-v1": ("Medium/Mixed fixture for exact Kodi 21.3."),
+            "cross-movies-matrix-v1": ("Cross-Version Movies for exact Kodi 19.4."),
+            "cross-movies-nexus-v1": ("Cross-Version Movies for exact Kodi 20.5."),
+            "cross-movies-omega-v1": ("Cross-Version Movies for exact Kodi 21.3."),
         }.get(fixture.slug)
         return FixtureResetStatus(
             assignment=FixtureAssignmentState.ASSIGNED,
@@ -350,6 +353,8 @@ class ResetStatusService:
                 if fixture.slug.startswith("small-movies-")
                 else "Small TV"
                 if fixture.slug.startswith("small-tv-")
+                else "Cross-Version Movies"
+                if fixture.slug.startswith("cross-movies-")
                 else fixture.slug
             ),
             fixture_version=fixture.fixture_version,

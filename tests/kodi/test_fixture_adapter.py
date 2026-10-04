@@ -178,6 +178,61 @@ def test_fixed_scan_and_exact_semantic_fixture_success() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "release,slug",
+    (
+        ("19.4", "cross-movies-matrix-v1"),
+        ("20.5", "cross-movies-nexus-v1"),
+        ("21.3", "cross-movies-omega-v1"),
+    ),
+)
+def test_cross_movies_verify_nine_movie_scan_for_each_release(
+    release: str, slug: str
+) -> None:
+    semantics = load_packaged_fixture(slug).semantics
+
+    def response(method: str, _request: dict[str, object]) -> object:
+        if method == "VideoLibrary.Scan":
+            return "OK"
+        if method == "VideoLibrary.GetMovies":
+            return {
+                "movies": [
+                    {
+                        "title": movie.title,
+                        "year": movie.year,
+                        "uniqueid": {"kodi-lab": movie.unique_id},
+                        "file": movie.file,
+                    }
+                    for movie in semantics.movies
+                ]
+            }
+        if method == "VideoLibrary.GetTVShows":
+            return {"tvshows": []}
+        if method == "VideoLibrary.GetEpisodes":
+            return {"episodes": []}
+        raise AssertionError(method)
+
+    transport = FakeTransport(response)
+    adapter = SmallMixedFixtureKodiAdapter(
+        observation(), profile(release), semantics, transport=transport
+    )
+    adapter.scan_assigned_fixture_library()
+    state = adapter.wait_for_fixture_state()
+
+    assert state.is_baseline
+    assert (state.movie_count, state.series_count, state.episode_count) == (9, 0, 0)
+    scans = [
+        request
+        for request in transport.requests
+        if request["method"] == "VideoLibrary.Scan"
+    ]
+    assert len(scans) == 1
+    assert scans[0]["params"] == {
+        "directory": "/home/kodi/.kodi/fixture-media/movies/",
+        "showdialogs": False,
+    }
+
+
 def test_rich_movies_reset_checks_metadata_without_changing_old_requests() -> None:
     semantics = load_packaged_fixture("small-movies-v4").semantics
 
