@@ -852,8 +852,14 @@ def build_mcp_http_transport(
             name="workspace_edit",
             title="Edit workspace UTF-8 text",
             description=(
-                "Generation-bound create, replace, or exact full-preimage patch "
-                "inside one owned ready workspace."
+                "Edit one file in an owned ready workspace. All modes require "
+                "workspace_id, relative_path, and expected_generation (the currently "
+                "observed generation before the edit). create requires content as "
+                "the complete initial content of a new file; replace requires "
+                "content as the complete resulting content of an existing file; "
+                "exact_patch requires expected_text equal to the complete "
+                "current file exactly and replacement_text as the complete "
+                "resulting file. Omit text fields from other modes."
             ),
             input_schema=WorkspaceEditInput.model_json_schema(),
             output_schema=WorkspaceEditResult.model_json_schema(),
@@ -1356,6 +1362,7 @@ def build_mcp_http_transport(
             return response
         response = _tool_error_result(
             result_code,
+            tool_name=params.name,
             reason=result_reason,
             diagnostic=result_diagnostic,
             addon_exception=result_addon_exception,
@@ -1463,6 +1470,7 @@ _SAFE_TOOL_REASONS = {
 def _tool_error_result(
     result_code: str,
     *,
+    tool_name: str | None = None,
     reason: str | None = None,
     diagnostic: KodiJsonRpcDiagnostic | None = None,
     addon_exception: AddonExceptionDiagnostic | None = None,
@@ -1475,6 +1483,18 @@ def _tool_error_result(
     message = result_code
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
+    if tool_name == "workspace_edit":
+        if result_code == "workspace_generation_conflict":
+            message += (
+                "\nnext_action: Inspect current workspace state with "
+                "workspace_status and retry using its currently observed "
+                "generation as expected_generation."
+            )
+        elif result_code == "workspace_patch_preimage_mismatch":
+            message += (
+                "\nnext_action: Read the current complete file with workspace_read "
+                "and set expected_text to that exact content before retrying."
+            )
     if (
         result_code == "workspace_capture_rejected"
         and reason == "workspace_generation_conflict"

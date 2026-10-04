@@ -5606,3 +5606,23 @@ approvals atomically with the governing revision transition.
   retry or rebase, permission expansion, new tool, or migration. Related tool
   descriptions distinguish workspace IDs and timeout-ambiguous execution
   recovery without changing their behavior.
+
+## D-0408: Make the MCP workspace edit contract explicit
+
+- The existing `workspace_edit` mutation guard was safe, but its advertised
+  schema did not explain the mode payloads. Keep the flat wire shape and closed
+  validation. Expose conditional schema requirements and field descriptions:
+  create and replace take `content` as the complete initial or resulting file;
+  exact patch takes the complete exact current file as `expected_text` and the
+  complete resulting file as `replacement_text`. `expected_generation` is the
+  currently observed workspace generation before mutation.
+- A stale generation retains `workspace_generation_conflict`. An exact patch
+  preimage mismatch now returns `workspace_patch_preimage_mismatch` instead of
+  the misleading generation code. Both edit errors keep the MCP `isError=true`
+  envelope and add bounded recovery guidance without file content or paths.
+  Clients branching on the old code for preimage mismatch must recognize the
+  new code; successful request fields and results stay compatible.
+- Ownership, source binding, path confinement, UTF-8 and size limits,
+  generation CAS, exact preimage matching, atomic publication and rollback,
+  and the absence of an edit replay ID are unchanged. No migration or new
+  authority is required.

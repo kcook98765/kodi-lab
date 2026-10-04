@@ -155,10 +155,12 @@ bounded independently of promotion fanout.
 ## Generation-bound editing
 
 `workspace_edit` is one flat strict-discriminator tool with `create`, `replace`,
-or `exact_patch`. Every form requires workspace UUID, exact
-`expected_generation`, and one Phase 9 relative file path. Create and replace
-accept only `content`; exact patch accepts only `expected_text` and
-`replacement_text`. Aggregate user text is at most 48 KiB, and the conservatively
+or `exact_patch`. Every form requires workspace UUID, the currently observed
+workspace generation as `expected_generation`, and one Phase 9 relative file
+path. Create and replace accept only `content` as the complete initial or
+resulting file content; exact patch accepts only `expected_text` as the complete
+exact current file content and `replacement_text` as the complete resulting file
+content. Aggregate user text is at most 48 KiB, and the conservatively
 encoded argument object is capped below the 64 KiB MCP request ceiling.
 
 Create requires an absent file beneath an existing safe directory and creates
@@ -177,6 +179,10 @@ Source grant, exact owner binding, source consistency, client enablement, and
 edit request ID. The Phase 9 cross-process workspace lock and database CAS mean
 two edits at one generation cannot both publish. One succeeds with generation
 plus one; the other conflicts without interleaved bytes.
+An exact preimage mismatch at the current generation instead returns
+`workspace_patch_preimage_mismatch`. Edit errors give bounded guidance to
+refresh `workspace_status` for a generation conflict or read the complete file
+with `workspace_read` for a preimage mismatch; neither returns file content.
 
 ## Closed structural validation
 
@@ -267,7 +273,8 @@ checks and all no-follow path behavior.
 Nonexistent, ungranted, other-client-bound, revoked-source, and source-mismatched
 workspaces share `workspace_not_found_or_not_authorized`. Other stable errors
 include `workspace_not_ready`, `workspace_bytes_cleaned`, `path_not_allowed`,
-`workspace_generation_conflict`, `workspace_integrity_changed`,
+`workspace_generation_conflict`, `workspace_patch_preimage_mismatch`,
+`workspace_integrity_changed`,
 `workspace_quota_exceeded`, `request_id_conflict`,
 `workspace_creation_ambiguous`, `unsupported_file_type`, `file_too_large`, and
 `response_too_large`. Validation additionally uses `unsupported_deletion`,

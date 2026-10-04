@@ -1076,6 +1076,70 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "replace",
         "exact_patch",
     ]
+    edit_description = workspace_edit["description"]
+    assert "currently observed generation before the edit" in edit_description
+    assert "complete initial content of a new file" in edit_description
+    assert "complete resulting content of an existing file" in edit_description
+    assert "expected_text equal to the complete current file exactly" in (
+        edit_description
+    )
+    assert "replacement_text as the complete resulting file" in edit_description
+    edit_schema = workspace_edit["inputSchema"]
+    assert edit_schema["additionalProperties"] is False
+    assert set(edit_schema["required"]) == {
+        "workspace_id",
+        "expected_generation",
+        "operation",
+        "relative_path",
+    }
+    assert "aggregate UTF-8 text at most 48 KiB" in edit_schema["description"]
+    assert len(edit_schema["allOf"]) == 2
+    edit_properties = edit_schema["properties"]
+    assert edit_properties["expected_generation"]["minimum"] == 0
+    assert edit_properties["relative_path"]["minLength"] == 1
+    assert edit_properties["relative_path"]["maxLength"] == 512
+    assert (
+        "Currently observed workspace generation before this mutation"
+        in (edit_properties["expected_generation"]["description"])
+    )
+    assert "complete initial or resulting" in edit_properties["content"]["description"]
+    assert (
+        "complete exact current file content"
+        in edit_properties["expected_text"]["description"]
+    )
+    assert (
+        "complete desired resulting file content"
+        in edit_properties["replacement_text"]["description"]
+    )
+    edit_base = {
+        "workspace_id": str(uuid4()),
+        "expected_generation": 0,
+        "relative_path": "main.py",
+    }
+    for payload in (
+        {"operation": "create", "content": "initial\n"},
+        {"operation": "replace", "content": "result\n"},
+        {
+            "operation": "exact_patch",
+            "expected_text": "initial\n",
+            "replacement_text": "result\n",
+        },
+    ):
+        jsonschema.validate({**edit_base, **payload}, edit_schema)
+    for invalid_payload in (
+        {"operation": "create"},
+        {"operation": "replace", "content": None},
+        {"operation": "create", "content": "x", "expected_text": "x"},
+        {"operation": "exact_patch", "expected_text": "x"},
+        {
+            "operation": "exact_patch",
+            "expected_text": "x",
+            "replacement_text": "y",
+            "content": "z",
+        },
+    ):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({**edit_base, **invalid_payload}, edit_schema)
     assert set(workspace_validate["inputSchema"]["properties"]) == {
         "workspace_id",
         "expected_generation",
@@ -2138,6 +2202,111 @@ def test_workspace_mutation_modern_legacy_replay_and_generation_parity(
     assert modern_validation["structuredContent"]["changed_file_count"] == 1
     assert "private-edit-name.py" not in caplog.text
     assert "secret-mcp-edit-payload" not in caplog.text
+
+
+def test_workspace_edit_mcp_errors_distinguish_generation_and_preimage(
+    client: TestClient,
+) -> None:
+    app = cast(FastAPI, client.app)
+    context = app.state.kodi_lab
+    source_root = context.settings.development_root / "plugin.video.mcp.edit.errors"
+    source_root.mkdir(parents=True)
+    (source_root / "addon.xml").write_text(
+        '<addon id="plugin.video.mcp.edit.errors" name="Edit errors" version="1.0.0">'
+        '<extension point="xbmc.python.pluginsource" library="main.py" />'
+        "</addon>\n",
+        encoding="utf-8",
+    )
+    (source_root / "main.py").write_text("old\n", encoding="utf-8")
+    source = context.development_source_administration.register_source(
+        logical_name="MCP edit error source",
+        relative_locator="plugin.video.mcp.edit.errors",
+    )
+    administration = _administration(client)
+    mcp_client = administration.create_client(
+        display_name="Workspace edit errors",
+        preset_id=FULL_LAB_CONTROL_PRESET_ID,
+    )
+    administration.grant_development_source(mcp_client.id, source.id)
+    token = administration.issue_credential(mcp_client.id).token
+    created = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "workspace_create",
+            "arguments": {"request_id": str(uuid4()), "source_id": str(source.id)},
+        },
+    ).json()["result"]["structuredContent"]
+    workspace_id = created["workspace_id"]
+    operation_id = UUID(created["creation_operation_id"])
+    deadline = time.monotonic() + 5
+    while context.agent_workspaces.creation_status(operation_id).state != "succeeded":
+        if time.monotonic() >= deadline:
+            raise AssertionError("workspace creation did not complete")
+        time.sleep(0.01)
+    replaced = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "workspace_edit",
+            "arguments": {
+                "workspace_id": workspace_id,
+                "expected_generation": 0,
+                "operation": "replace",
+                "relative_path": "main.py",
+                "content": "current\n",
+            },
+        },
+    ).json()["result"]
+    assert replaced["isError"] is False
+    assert replaced["structuredContent"]["new_generation"] == 1
+
+    base = {
+        "workspace_id": workspace_id,
+        "operation": "exact_patch",
+        "relative_path": "main.py",
+        "replacement_text": "changed\n",
+    }
+    cases = (
+        (
+            {**base, "expected_generation": 0, "expected_text": "old\n"},
+            "workspace_generation_conflict",
+            "workspace_status",
+        ),
+        (
+            {**base, "expected_generation": 1, "expected_text": "current"},
+            "workspace_patch_preimage_mismatch",
+            "workspace_read",
+        ),
+    )
+    for arguments, code, recovery_tool in cases:
+        result = _post(
+            client,
+            token,
+            "tools/call",
+            params={"name": "workspace_edit", "arguments": arguments},
+        ).json()["result"]
+        assert result["isError"] is True
+        assert "structuredContent" not in result
+        assert result["content"][0]["text"].startswith(f"{code}\nnext_action: ")
+        assert recovery_tool in result["content"][0]["text"]
+        assert "old\n" not in result["content"][0]["text"]
+        assert "changed\n" not in result["content"][0]["text"]
+        assert "main.py" not in result["content"][0]["text"]
+
+    read = _post(
+        client,
+        token,
+        "tools/call",
+        params={
+            "name": "workspace_read",
+            "arguments": {"workspace_id": workspace_id, "relative_path": "main.py"},
+        },
+    ).json()["result"]["structuredContent"]
+    assert read["text"] == "current\n"
+    assert read["observed_generation"] == 1
 
 
 def test_workspace_edit_rate_class_is_two_per_second_with_burst_four(

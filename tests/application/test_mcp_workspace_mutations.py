@@ -444,6 +444,14 @@ def test_edit_create_replace_patch_cas_and_cross_client_isolation(
     assert (create.prior_generation, create.new_generation) == (0, 1)
     assert create.file_byte_size == 4
     assert create.result_classification == "succeeded"
+    assert (
+        tools.workspace_read(
+            principal_a,
+            workspace_id=created.workspace_id,
+            relative_path="resources/new.py",
+        ).text
+        == "one\n"
+    )
     replace = tools.workspace_edit(
         principal_a,
         WorkspaceEditInput(
@@ -453,6 +461,15 @@ def test_edit_create_replace_patch_cas_and_cross_client_isolation(
             relative_path="resources/new.py",
             content="two\n",
         ),
+    )
+    assert (replace.prior_generation, replace.new_generation) == (1, 2)
+    assert (
+        tools.workspace_read(
+            principal_a,
+            workspace_id=created.workspace_id,
+            relative_path="resources/new.py",
+        ).text
+        == "two\n"
     )
     patch = tools.workspace_edit(
         principal_a,
@@ -466,6 +483,7 @@ def test_edit_create_replace_patch_cas_and_cross_client_isolation(
         ),
     )
     assert (replace.new_generation, patch.new_generation) == (2, 3)
+    assert patch.prior_generation == 2
     assert (
         tools.workspace_read(
             principal_a,
@@ -586,6 +604,38 @@ def test_edit_schema_bounds_and_no_parent_creation(tmp_path: Path) -> None:
             content="new\n",
             replacement_text="forbidden",
         )
+    base = {
+        "workspace_id": created.workspace_id,
+        "expected_generation": 0,
+        "relative_path": "main.py",
+    }
+    for payload in (
+        {"operation": "create", "content": None},
+        {"operation": "create", "content": "x", "expected_text": "old\n"},
+        {"operation": "replace", "replacement_text": "x"},
+        {"operation": "exact_patch", "expected_text": "old\n"},
+        {
+            "operation": "exact_patch",
+            "content": "x",
+            "expected_text": "old\n",
+            "replacement_text": "new\n",
+        },
+        {"operation": "replace", "content": "x", "request_id": str(uuid4())},
+    ):
+        with pytest.raises(ValidationError):
+            WorkspaceEditInput.model_validate({**base, **payload})
+    assert (
+        tools.workspace_status(principal, workspace_id=created.workspace_id)
+        .workspaces[0]
+        .generation
+        == 0
+    )
+    assert (
+        tools.workspace_read(
+            principal, workspace_id=created.workspace_id, relative_path="main.py"
+        ).text
+        == "old\n"
+    )
     with pytest.raises(McpAuthorizationError, match="path_not_allowed"):
         tools.workspace_edit(
             principal,
@@ -597,6 +647,121 @@ def test_edit_schema_bounds_and_no_parent_creation(tmp_path: Path) -> None:
                 content="no mkdir\n",
             ),
         )
+
+
+def test_edit_stale_generation_and_complete_preimage_mismatch_are_distinct(
+    tmp_path: Path,
+) -> None:
+    sessions, workspaces, administration, tools, _submitted = _environment(tmp_path)
+    client_id, principal = _principal(administration, sessions, "Exact preimage")
+    administration.grant_development_source(client_id, SOURCE_ID)
+    created = tools.workspace_create(principal, request_id=uuid4(), source_id=SOURCE_ID)
+    _finish(workspaces, created.creation_operation_id)
+    path = (
+        tmp_path
+        / "data"
+        / "agent-workspaces"
+        / str(created.workspace_id)
+        / "tree"
+        / "main.py"
+    )
+    assert path.read_bytes() == b"old\n"
+    replaced = tools.workspace_edit(
+        principal,
+        WorkspaceEditInput(
+            workspace_id=created.workspace_id,
+            expected_generation=0,
+            operation="replace",
+            relative_path="main.py",
+            content="current\n",
+        ),
+    )
+    assert replaced.new_generation == 1
+    assert path.read_bytes() == b"current\n"
+
+    with pytest.raises(McpAuthorizationError) as stale:
+        tools.workspace_edit(
+            principal,
+            WorkspaceEditInput(
+                workspace_id=created.workspace_id,
+                expected_generation=0,
+                operation="exact_patch",
+                relative_path="main.py",
+                expected_text="old\n",
+                replacement_text="new\n",
+            ),
+        )
+    assert stale.value.code == "workspace_generation_conflict"
+    assert path.read_bytes() == b"current\n"
+    assert (
+        tools.workspace_status(principal, workspace_id=created.workspace_id)
+        .workspaces[0]
+        .generation
+        == 1
+    )
+
+    with pytest.raises(McpAuthorizationError) as mismatch:
+        tools.workspace_edit(
+            principal,
+            WorkspaceEditInput(
+                workspace_id=created.workspace_id,
+                expected_generation=1,
+                operation="exact_patch",
+                relative_path="main.py",
+                expected_text="current",
+                replacement_text="new\n",
+            ),
+        )
+    assert mismatch.value.code == "workspace_patch_preimage_mismatch"
+    assert mismatch.value.code != stale.value.code
+    assert path.read_bytes() == b"current\n"
+    assert (
+        tools.workspace_status(principal, workspace_id=created.workspace_id)
+        .workspaces[0]
+        .generation
+        == 1
+    )
+
+    patched = tools.workspace_edit(
+        principal,
+        WorkspaceEditInput(
+            workspace_id=created.workspace_id,
+            expected_generation=1,
+            operation="exact_patch",
+            relative_path="main.py",
+            expected_text="current\n",
+            replacement_text="new\ncomplete\n",
+        ),
+    )
+    assert (patched.prior_generation, patched.new_generation) == (1, 2)
+    assert path.read_bytes() == b"new\ncomplete\n"
+    assert (
+        tools.workspace_status(principal, workspace_id=created.workspace_id)
+        .workspaces[0]
+        .generation
+        == 2
+    )
+
+    with pytest.raises(McpAuthorizationError) as duplicate:
+        tools.workspace_edit(
+            principal,
+            WorkspaceEditInput(
+                workspace_id=created.workspace_id,
+                expected_generation=1,
+                operation="exact_patch",
+                relative_path="main.py",
+                expected_text="current\n",
+                replacement_text="new\ncomplete\n",
+            ),
+        )
+    assert duplicate.value.code == "workspace_generation_conflict"
+    assert path.read_bytes() == b"new\ncomplete\n"
+    assert (
+        tools.workspace_status(principal, workspace_id=created.workspace_id)
+        .workspaces[0]
+        .generation
+        == 2
+    )
 
 
 def test_edit_rejects_injected_special_object_and_marks_integrity(

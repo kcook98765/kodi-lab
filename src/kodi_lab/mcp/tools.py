@@ -406,17 +406,74 @@ class WorkspaceReadResult(BaseModel):
 
 
 class WorkspaceEditInput(BaseModel):
-    """One flat strict discriminator for the three Phase 9 text mutations."""
+    """Generation-bound complete-file edits; aggregate UTF-8 text at most 48 KiB."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {"properties": {"operation": {"enum": ["create", "replace"]}}},
+                    "then": {
+                        "required": ["content"],
+                        "properties": {"content": {"type": "string"}},
+                        "not": {
+                            "anyOf": [
+                                {"required": ["expected_text"]},
+                                {"required": ["replacement_text"]},
+                            ]
+                        },
+                    },
+                },
+                {
+                    "if": {"properties": {"operation": {"const": "exact_patch"}}},
+                    "then": {
+                        "required": ["expected_text", "replacement_text"],
+                        "properties": {
+                            "expected_text": {"type": "string"},
+                            "replacement_text": {"type": "string"},
+                        },
+                        "not": {"required": ["content"]},
+                    },
+                },
+            ]
+        },
+    )
 
-    workspace_id: UUID
-    expected_generation: int = Field(ge=0)
-    operation: Literal["create", "replace", "exact_patch"]
-    relative_path: str = Field(min_length=1, max_length=512)
-    content: str | None = None
-    expected_text: str | None = None
-    replacement_text: str | None = None
+    workspace_id: UUID = Field(description="UUID of the owned ready workspace.")
+    expected_generation: int = Field(
+        ge=0,
+        description="Currently observed workspace generation before this mutation.",
+    )
+    operation: Literal["create", "replace", "exact_patch"] = Field(
+        description="Edit mode; each mode permits only its specified text fields."
+    )
+    relative_path: str = Field(
+        min_length=1,
+        max_length=512,
+        description="Confined relative file path in the workspace; parent must exist.",
+    )
+    content: str | None = Field(
+        default=None,
+        description=(
+            "Required for create or replace only: complete initial or resulting "
+            "UTF-8 file content. Omit for exact_patch."
+        ),
+    )
+    expected_text: str | None = Field(
+        default=None,
+        description=(
+            "Required for exact_patch only: complete exact current file content, "
+            "including line endings. Omit otherwise."
+        ),
+    )
+    replacement_text: str | None = Field(
+        default=None,
+        description=(
+            "Required for exact_patch only: complete desired resulting file "
+            "content. Omit otherwise."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_operation_payload(self) -> WorkspaceEditInput:
@@ -1803,7 +1860,7 @@ class McpTargetToolService:
         }:
             return "path_not_allowed"
         if code == "agent_workspace_patch_preimage_mismatch":
-            return "workspace_generation_conflict"
+            return "workspace_patch_preimage_mismatch"
         if code in {
             "agent_workspace_entry_unsafe",
             "agent_workspace_file_unsafe",
