@@ -369,6 +369,14 @@ Replay uses those persisted fields and does not inspect later Kodi state or
 logs. JSON-RPC `data`, raw responses, Kodi logs, tracebacks, filesystem and
 environment information, and addon exception details are not exposed.
 
+`smoke_passed` confirms only that the bounded launch/smoke invocation succeeded.
+It is not functional acceptance or proof of task completion: UI navigation,
+filtering/results, and other feature behavior remain unverified. Test those
+behaviors separately when the task depends on them. This clarification is
+advertised in the `workspace_execute` tool description and the existing
+`result_classification` output-schema description across MCP transports; receipt
+fields and values remain unchanged.
+
 The execution claim commits before Kodi and the dispatch marker commits before
 the one invocation. Completed duplicates replay stored evidence across modern
 HTTP, modern stdio and legacy HTTP. Timeout, ambiguous transport, crash after

@@ -52,6 +52,7 @@ from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
 from kodi_lab.application.mcp_workspace_development import (
     EXECUTION_DEPENDENCY_REASONS,
+    WORKSPACE_SMOKE_SUCCESS_DESCRIPTION,
     WorkspaceDeploymentResult,
     WorkspaceExecutionResult,
 )
@@ -915,12 +916,13 @@ def build_mcp_http_transport(
         ),
         "workspace_execute": Tool(
             name="workspace_execute",
-            title="Execute a fixed workspace workflow",
+            title="Run a bounded workspace smoke or diagnostic",
             description=(
                 "For an exact completed deployment, run the default bounded "
                 "Python video-plugin smoke or the managed-target fixed negative "
                 "Kodi RPC diagnostic. Both requests are server-owned. Plugin "
-                "code may use the target's existing network access."
+                "code may use the target's existing network access. "
+                + WORKSPACE_SMOKE_SUCCESS_DESCRIPTION
             ),
             input_schema=WorkspaceExecuteInput.model_json_schema(),
             output_schema=WorkspaceExecutionResult.model_json_schema(),

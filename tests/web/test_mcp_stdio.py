@@ -25,7 +25,7 @@ from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPError
-from mcp_types import ImageContent
+from mcp_types import ImageContent, TextContent
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -440,6 +440,7 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
                     "workspace_deploy",
                     "workspace_edit",
                     "workspace_execute",
+                    "workspace_execution_recover",
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
@@ -596,6 +597,7 @@ def test_development_inspection_is_identical_over_modern_http_and_stdio(
                     "workspace_deploy",
                     "workspace_edit",
                     "workspace_execute",
+                    "workspace_execution_recover",
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
@@ -931,6 +933,26 @@ def test_workspace_deploy_execute_replay_is_shared_across_stdio_and_http(
                 _direct_client(endpoint, issued.token) as direct,
                 Client(parameters, mode="auto", cache=None) as stdio,
             ):
+                direct_execute = next(
+                    tool
+                    for tool in (await direct.list_tools()).tools
+                    if tool.name == "workspace_execute"
+                )
+                stdio_execute = next(
+                    tool
+                    for tool in (await stdio.list_tools()).tools
+                    if tool.name == "workspace_execute"
+                )
+                assert direct_execute == stdio_execute
+                assert (
+                    stdio_execute.title == "Run a bounded workspace smoke or diagnostic"
+                )
+                assert stdio_execute.output_schema is not None
+                success_description = stdio_execute.output_schema["properties"][
+                    "result_classification"
+                ]["description"]
+                assert success_description in (stdio_execute.description or "")
+                assert "It is not functional acceptance" in success_description
                 arguments = {
                     "request_id": str(uuid4()),
                     "workspace_id": str(queued.workspace_id),
@@ -952,6 +974,13 @@ def test_workspace_deploy_execute_replay_is_shared_across_stdio_and_http(
                 assert (
                     executed.structured_content == execution_replay.structured_content
                 )
+                for receipt in (executed, execution_replay):
+                    assert len(receipt.content) == 1
+                    assert isinstance(receipt.content[0], TextContent)
+                    assert (
+                        json.loads(receipt.content[0].text)
+                        == receipt.structured_content
+                    )
                 promotion_arguments = {**arguments, "request_id": str(uuid4())}
                 promoted = await stdio.call_tool(
                     "promotion_request", promotion_arguments

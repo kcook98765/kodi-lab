@@ -2655,9 +2655,32 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
         time.sleep(0.01)
 
     tools = _post(client, token, "tools/list").json()["result"]["tools"]
-    execute_schema = next(
-        item for item in tools if item["name"] == "workspace_execute"
-    )["outputSchema"]
+    execute_tool = next(item for item in tools if item["name"] == "workspace_execute")
+    legacy_execute_tool = next(
+        item
+        for item in _legacy_post(client, token, "tools/list").json()["result"]["tools"]
+        if item["name"] == "workspace_execute"
+    )
+    assert legacy_execute_tool == execute_tool
+    assert execute_tool["title"] == "Run a bounded workspace smoke or diagnostic"
+    execute_schema = execute_tool["outputSchema"]
+    success_description = execute_schema["properties"]["result_classification"][
+        "description"
+    ]
+    for statement in (
+        (
+            "smoke_passed confirms only that the bounded launch/smoke invocation "
+            "succeeded."
+        ),
+        "It is not functional acceptance or proof of task completion:",
+        (
+            "UI navigation, filtering/results, and other feature behavior remain "
+            "unverified."
+        ),
+        "Test those behaviors separately when the task depends on them.",
+    ):
+        assert statement in execute_tool["description"]
+        assert statement in success_description
     deploy_schema = next(item for item in tools if item["name"] == "workspace_deploy")[
         "outputSchema"
     ]
@@ -2830,6 +2853,11 @@ def test_workspace_deploy_execute_modern_legacy_schema_and_replay(
     ).json()["result"]
     assert modern_execute["structuredContent"] == legacy_execute["structuredContent"]
     assert modern_execute["isError"] is False
+    for receipt in (modern_execute, legacy_execute):
+        assert len(receipt["content"]) == 1
+        assert json.loads(receipt["content"][0]["text"]) == receipt["structuredContent"]
+        assert receipt["structuredContent"]["result_classification"] == "smoke_passed"
+        assert receipt["structuredContent"]["schema_version"] == 1
     _strict_tool_result(modern_execute, execute_schema)
     assert execution_calls == 1
 

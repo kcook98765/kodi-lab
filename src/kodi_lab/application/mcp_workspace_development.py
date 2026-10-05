@@ -424,6 +424,14 @@ class WorkspaceDeploymentResult(BaseModel):
     reconciliation_required: bool = False
 
 
+WORKSPACE_SMOKE_SUCCESS_DESCRIPTION = (
+    "smoke_passed confirms only that the bounded launch/smoke invocation succeeded. "
+    "It is not functional acceptance or proof of task completion: UI navigation, "
+    "filtering/results, and other feature behavior remain unverified. "
+    "Test those behaviors separately when the task depends on them."
+)
+
+
 class WorkspaceExecutionResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -439,7 +447,9 @@ class WorkspaceExecutionResult(BaseModel):
     addon_version: str = Field(max_length=128)
     state: str = Field(max_length=32)
     execution_classification: str = Field(max_length=32)
-    result_classification: str = Field(max_length=64)
+    result_classification: str = Field(
+        max_length=64, description=WORKSPACE_SMOKE_SUCCESS_DESCRIPTION
+    )
     item_count: int | None = Field(default=None, ge=0, le=1)
     started_at: datetime
     completed_at: datetime
