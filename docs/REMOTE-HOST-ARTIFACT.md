@@ -18,12 +18,13 @@ local handoff. Keep the wheel outside the data root. From any working directory:
 ```sh
 export KODI_LAB_VENV="$HOME/.local/share/kodi-lab-venv"
 python3.12 -m venv "$KODI_LAB_VENV"
-"$KODI_LAB_VENV/bin/python" -m pip install /path/to/kodi_lab-0.0.0-py3-none-any.whl
+"$KODI_LAB_VENV/bin/python" -m pip install /path/to/kodi_lab-1.0.0rc1-py3-none-any.whl
 "$KODI_LAB_VENV/bin/python" -m pip check
 "$KODI_LAB_VENV/bin/kodi-lab-admin" version
 ```
 
-The package version `0.0.0` is the project's unreleased-development sentinel.
+The current package version is `1.0.0rc1`, a local unpublished prerelease.
+Earlier artifact checkpoints used `0.0.0` as an unreleased-development sentinel.
 The `package-sha256` in `version` identifies installed runtime bytes. Record it
 along with the wheel SHA-256 before and after any replacement. No source checkout,
 repository `alembic.ini`, systemd, or nginx is required.
@@ -81,7 +82,8 @@ data root.
 
 For an upgrade, back up the private data root, install the next reviewed wheel
 into the same venv, run `kodi-lab-admin migrate`, and compare the new wheel hash
-and installed `package-sha256`. While the metadata version is `0.0.0`, use
+and installed `package-sha256`. When deliberately replacing reviewed wheel bytes
+that retain the same metadata version, use
 `"$KODI_LAB_VENV/bin/python" -m pip install --force-reinstall --no-deps /path/to/new.whl` to replace
 same-version package bytes deliberately. Verify login and retained target state
 after restart. Removing only the venv removes code while retaining state.

@@ -22,8 +22,8 @@ The wheel is built inside the pinned-base Docker multi-stage build and installed
 with locked dependencies. The bundle contains no source checkout at install
 time. The recorded Git tree, Dockerfile and lockfile digests, application export
 hash, and immutable image IDs identify the candidate; a reproducible-build
-claim is not made. The local candidate's commit contains exactly the recorded
-Git tree. Staging verifies that copied recipe bytes match the
+claim is not made. The local candidate's clean committed `HEAD` contains exactly
+the recorded `HEAD^{tree}`. Staging verifies that copied recipe bytes match the
 installed wheel's reviewed recipe digests.
 
 Current reviewed managed-runtime recipes use revision 2. Their startup verifies

@@ -10,3 +10,10 @@
 !runtime/
 !runtime/remote-web/
 !runtime/remote-web/launch.sh
+
+# Apply after the source allowlist: local Python caches must never be copied.
+**/__pycache__
+**/*.py[cod]
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache

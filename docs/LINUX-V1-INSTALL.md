@@ -408,10 +408,12 @@ install/update, or Web Recheck of the exact installed tree.
 
 ## Candidate staging
 
-From a reviewed checkout with every candidate change staged in Git's index,
-run `scripts/stage-linux-v1-bundle EMPTY_OUTPUT_DIRECTORY`. The script refuses
-unstaged or untracked source changes and records the exact staged Git tree in
-the bundle and image labels. It does not publish or upload anything.
+From a reviewed checkout with every candidate change committed and a clean
+worktree and index, run `scripts/stage-linux-v1-bundle EMPTY_OUTPUT_DIRECTORY`.
+The scripts reject staged, unstaged, and nonignored untracked changes and record
+the exact committed `HEAD` and `HEAD^{tree}` in the bundle and image labels.
+Staging changes in the index alone is insufficient. The tooling does not publish
+or upload anything.
 
 ## Stable repository restart and recovery
 

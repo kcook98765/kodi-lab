@@ -15,3 +15,37 @@ htmlcov/
 !src/kodi_lab/fixtures/small-mixed-v2/payload/userdata/Database/MyVideos131.db
 !src/kodi_lab/fixtures/medium-mixed-v1/payload/userdata/Database/MyVideos131.db
 .env
+.env.*
+# Intentional configuration templates remain source-controlled.
+!.env.example
+!.env.*.example
+
+# Developer-local tools and editor state.
+.opencode/
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+*~
+*.swp
+*.swo
+*.bak
+*.orig
+*.rej
+
+# Runtime logs and checkout-local operational/output directories. Keep these
+# anchored so structured source resources and synthetic fixtures stay visible.
+*.log
+*.log.[0-9]*
+/logs/
+/state/
+/data/
+/runtime-state/
+/backups/
+/downloads/
+/screenshots/
+/evidence/
+/test-results/
+/agent-test*/
+/practical-regression*/
+/kodi-lab-practical-regression*/

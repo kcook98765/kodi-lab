@@ -8,7 +8,12 @@ The stable Linux amd64 V1 release set is Matrix 19.4, Nexus 20.5, and Omega
 remains private compatibility evidence, not the installable V1 set. Windows,
 macOS, and ARM64/Apple Silicon host support are post-V1. The local `1.0.0rc1`
 candidate is a prerelease and has not been published.
-See the [Linux amd64 installation guide](docs/LINUX-V1-INSTALL.md).
+For a source checkout, use the [development setup](CONTRIBUTING.md) and the
+[remote-Web Compose startup](docs/REMOTE-MODE-CONTAINER.md#build-and-initialize)
+to connect to existing Kodi targets. For managed V1, start from a clean committed
+checkout and [stage a local bundle](docs/LINUX-V1-INSTALL.md#candidate-staging),
+then follow the [Linux amd64 installation guide](docs/LINUX-V1-INSTALL.md) to
+acquire Matrix 19.4, Nexus 20.5, or Omega 21.3 through reviewed recipes.
 
 Web administration controls credentials, target registration, grants, and
 infrastructure. The restricted broker exposes only bounded operations on owned
@@ -91,11 +96,13 @@ tool still requires an explicit `target_id`; stdio creates no selected target or
 session. See [`docs/PHASE11-MCP.md`](docs/PHASE11-MCP.md) for security and
 client configuration details.
 
-The authoritative V1 MCP catalog is exactly `addon_list`,
-`development_source_list`, `promotion_request`, `remote_action`, `screenshot_capture`, `target_list`,
-`target_status`, `workspace_create`, `workspace_deploy`, `workspace_edit`,
-`workspace_execute`, `workspace_read`, `workspace_status`, `workspace_tree`, and
-`workspace_validate`.
+The current V1 MCP registry contains eighteen tools: `addon_list`,
+`development_source_list`, `promotion_request`, `remote_action`,
+`screenshot_capture`, `target_list`, `target_status`, `workspace_capture`,
+`workspace_create`, `workspace_deploy`, `workspace_edit`, `workspace_execute`,
+`workspace_execution_recover`, `workspace_read`, `workspace_source_scan`,
+`workspace_status`, `workspace_tree`, and `workspace_validate`. Discovery exposes
+only the subset allowed by the client's current permissions.
 Screenshots are returned as native MCP `image/png` content through either
 transport; stdio does not write a temporary image or bypass the HTTP authority.
 
@@ -122,6 +129,13 @@ approve/apply and receives no diffs, paths or logs. MCP has no abandon,
 cleanup, general execution, shell, Git, repository publication, Docker, or
 caller-selected storage path.
 
+Registered-source scan and capture use the separate opt-in permissions
+`development_source.inspect` and `workspace.capture`. The narrow
+`workspace_execution_recover` tool requires both `target.control` and
+`development.execute` and applies only to an exact timed-out ambiguous smoke on
+an internal disposable target. It contains the original execution without
+rewriting or redispatching it; see D-0405 in [DECISIONS.md](docs/DECISIONS.md).
+
 Exact legacy `2025-11-25` clients may use authenticated Streamable HTTP at
 `/mcp`. Compatibility is stateless and bounded: there is no session/default
 target, `Mcp-Session-Id`, GET stream, alternate credential, legacy stdio, or
@@ -142,9 +156,10 @@ with Alembic head `0038_mcp_remote_control` and 1,928 collected tests.
 accepted implementation checkpoint `dc6f7857b222aff31467222e8d9eff8b96df6328`,
 Alembic head `0043_mcp_promotion_request`, and 2,020 collected tests. Web
 administrators grant exact DevelopmentSources and bind eligible existing
-AgentWorkspaces; MCP creation binds one durable owner atomically. The exact
-15-tool catalog supports bounded inspect/create/edit/validate, internal
-disposable deployment, fixed execution, and promotion-plan request. D-0277
+AgentWorkspaces; MCP creation binds one durable owner atomically. At that
+checkpoint, the exact 15-tool catalog supported bounded inspection, creation,
+editing, validation, internal disposable deployment, fixed execution, and
+promotion-plan request. D-0277
 through D-0279 make shared replay retention lifecycle-aware, evidence-coherent,
 and authoritative to the bounded promotion journal. Web alone reviews and
 approves canonical source apply and mandatory verification. MCP still has no
@@ -161,8 +176,8 @@ authority. Password and bridge secrets require an operator-provided
 key. The key is never generated into the repository or stored in SQLite.
 Structured native endpoints default to allowlisted port `8080`; the separate
 bridge allowlist defaults to `8765`. Loopback is available only through the
-explicit test setting. The MCP catalog remains the same fifteen tools:
-eligible paired external targets use the existing `screenshot_capture`, while
+explicit test setting. That checkpoint retained the fifteen-tool catalog.
+Eligible paired external targets use the existing `screenshot_capture`, while
 exact bridge-backed `workspace_deploy`, native fixed `workspace_execute` and
 promotion evidence use their existing schemas. See
 [`docs/PHASE13-EXTERNAL-TARGETS.md`](docs/PHASE13-EXTERNAL-TARGETS.md).
@@ -171,7 +186,7 @@ For a development bridge, install
 `bridge/service.kodi_lab_bridge` as an ordinary Kodi service add-on. Keep it
 disabled until the external target is registered, native-verified, explicitly
 confirmed/enabled and configured with the required capability maximum. Enable
-bridge 1.1.13, obtain its four-character code, and enter that code with the
+bridge 1.1.14, obtain its four-character code, and enter that code with the
 allowlisted bridge port in Kodi Lab's Web onboarding flow. Kodi Lab uses the
 shared `otp-1` protocol and confirms the authenticated bridge identity.
 Re-pairing rotates the secret
@@ -186,8 +201,8 @@ use normally validated HTTPS when confidentiality is required.
 ## Production targets
 
 Phase 14 keeps production separate from external development. Exactly five of
-the fifteen MCP tools are production-eligible: `target_list`, `target_status`,
-`addon_list`, `screenshot_capture` and `remote_action`. Production has no
+the eighteen current MCP tools are production-eligible: `target_list`,
+`target_status`, `addon_list`, `screenshot_capture` and `remote_action`. Production has no
 workspace/deployment tool. Native inspection, bridge-backed visual inspection
 and remote control each require exact Web-assigned presets, grants and current
 generation/revision-bound scopes.
@@ -202,15 +217,16 @@ dispatch twice, and ambiguity stops rather than retries.
 The production bridge supplies identity and bounded screenshots, not arbitrary
 control. Operators manually install an exact reviewed release ZIP after
 checking its published SHA-256; Web then registers the reviewed build, pairs
-bridge 1.1.13 with its four-character `otp-1` code and explicitly confirms
+bridge 1.1.14 with its four-character `otp-1` code and explicitly confirms
 provenance. Kodi Lab does not
 install/update production software or own Kodi/host lifecycle. Automatic bridge
 updates, hosted-repository bootstrap, generic production add-on installation,
 raw JSON-RPC, shell/SSH/filesystem access and workspace deployment to production
 are outside V1 authority.
 
-The source-free local deployment candidate includes the exact reviewed
-`service.kodi_lab_bridge-1.1.13.zip` and `BRIDGE.json` provenance under `bridge/`.
+A source-free local deployment candidate built from this checkout includes the
+exact reviewed
+`service.kodi_lab_bridge-1.1.14.zip` and `BRIDGE.json` provenance under `bridge/`.
 The bundle verifier checks the ZIP hash, closed inventory, descriptor, license,
 and Git source identity. Historical 1.1.7/1.1.8 packages remain separate review
 evidence; they are not the current `otp-1` package. See the [bridge trust model](docs/BRIDGE.md),

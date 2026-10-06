@@ -1,5 +1,10 @@
 # Phase 12 MCP development workflows
 
+This document retains the Phase 12 implementation and formal-review checkpoints
+below, including their historical tool counts. The current eighteen-tool V1
+contract is defined in [V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract);
+later source scan/capture and exact ambiguous-smoke recovery extend that surface.
+
 Phase 12 is **IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**. Slice 1 established Web-approved DevelopmentSource
 grants, exact MCP workspace ownership, and bounded inspection. Slice 2 added
 replay-safe creation and generation-bound UTF-8 editing. Slice 3 added closed
@@ -528,3 +533,11 @@ autonomously complete the later failure-to-repair loop. Those diagnosis and
 source-correction gates were supervised Codex work. This experiment therefore
 supports the Kodi Lab workflow, not a claim of end-to-end autonomous repair by
 the local model.
+
+## Practical Regression Pilot R2 closeout (2026-10-06)
+
+**ABANDONED BEFORE SCORED LAUNCH — preservation/runtime evidence architecture
+became disproportionate to the remaining Kodi Lab V1 validation objective.**
+R2 was never a scored sample and is not an unfinished Kodi Lab V1 gate. Existing
+external evidence remains preserved outside this repository; no further
+preservation-contract expansion is required for the private repository baseline.

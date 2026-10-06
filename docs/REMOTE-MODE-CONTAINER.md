@@ -26,7 +26,8 @@ The build stage uses the repository as input to build a wheel and export
 hash-checked runtime requirements from `uv.lock`. The final image installs
 the wheel and requirements; it has no source checkout. The separate wheel-build
 stage can later be replaced by a reviewed prebuilt wheel input. No image is
-published by this procedure. The package version remains `0.0.0`.
+published by this procedure. The current package version is `1.0.0rc1`, a local
+unpublished prerelease; the earlier container checkpoint used `0.0.0`.
 
 The named Compose volume `remote_state` is mounted at
 `/var/lib/kodi-lab` and is the single private state root. It is owned by the

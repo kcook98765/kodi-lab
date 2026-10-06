@@ -3,6 +3,11 @@
 `V1-SPEC.md` is authoritative. This document is a concise implementation map,
 not a replacement specification.
 
+Phase sections below retain their checkpoint tool counts and artifact identities.
+The current eighteen-tool MCP contract and five-tool production subset are in
+[V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract).
+The current Bridge packaging contract is in [BRIDGE.md](BRIDGE.md).
+
 For the current V1 release, managed instances are disposable and the stable
 reviewed Linux amd64 recipes are Matrix 19.4, Nexus 20.5, and Omega 21.3.
 The four-runtime/private-archive sections below record earlier compatibility
@@ -2798,7 +2803,7 @@ managed instance without provisioning or starting Kodi. See D-0380.
 The local `1.0.0rc1` candidate packages installed Web and broker application
 images, source-free Compose, three exact reviewed runtime recipes, a
 verification helper, checksum inventory, and operator documentation. It
-distributes no Kodi binaries. `BUNDLE.json` binds the staged Git tree and
+distributes no Kodi binaries. `BUNDLE.json` binds the committed `HEAD` tree and
 distributed files. The installer selects exact loaded application image IDs
 in `.env`; reviewed wheel recipes and validated acquisition evidence govern
 runtime eligibility. Exact-candidate acceptance and publication remain
