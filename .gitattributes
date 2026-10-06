@@ -1,0 +1,19 @@
+# Linux shell scripts must survive core.autocrlf=true checkouts.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Runtime launchers may have no extension (including their installed names).
+/runtime/**/launch* text eol=lf
+/runtime/**/entrypoint* text eol=lf
+/runtime/**/healthcheck* text eol=lf
+
+# Unix development/release commands and directly executable Python helpers.
+/scripts/check* text eol=lf
+/scripts/clean-test-scratch text eol=lf
+/scripts/linux-v1-bundle text eol=lf
+/scripts/stage-linux-v1-bundle text eol=lf
+/scripts/*.py text eol=lf
+
+# Container assembly inputs are text and checked against reviewed byte hashes.
+# This includes the Python display guard and XML profile, as well as shell code.
+/src/kodi_lab/runtime/assembly_assets/** text eol=lf
