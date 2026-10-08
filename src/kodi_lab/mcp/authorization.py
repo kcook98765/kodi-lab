@@ -37,6 +37,10 @@ from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatusService,
     SemanticUsabilityState,
 )
+from kodi_lab.application.screenshot_preferences import (
+    ScreenshotPreferenceError,
+    require_screenshot_preference,
+)
 from kodi_lab.application.screenshots import ManagedScreenshotService
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState, KodiProcessState
 from kodi_lab.domain import (
@@ -417,6 +421,8 @@ class McpAuthorizationService:
                     target=target,
                     assignment=assignment,
                 )
+                if definition.name == "screenshot_capture":
+                    self._screenshot_preference_revision(target_id)
                 return definition
             if client.preset_id in {
                 str(PRODUCTION_INSPECTION_PRESET_ID),
@@ -449,6 +455,8 @@ class McpAuthorizationService:
             if "reconciled" in missing:
                 raise McpAuthorizationError("target_reconciliation_required")
             raise McpAuthorizationError("permission_denied")
+        if definition.name == "screenshot_capture":
+            self._screenshot_preference_revision(target_id)
         return definition
 
     def granted_development_sources(
@@ -967,6 +975,11 @@ class McpAuthorizationService:
         """Apply the complete target intersection before adapter execution."""
 
         self.authorize_target(principal, tool_name, target_id)
+        preference_revision = (
+            self._screenshot_preference_revision(target_id)
+            if tool_name == "screenshot_capture"
+            else None
+        )
         production = self._is_production_target(target_id)
         if production:
             try:
@@ -987,16 +1000,34 @@ class McpAuthorizationService:
             if production:
                 self.authorize_target(principal, tool_name, target_id)
             raise
-        if production:
+        if production or preference_revision is not None:
             # A result is not publishable unless the entire durable authority
             # intersection still holds after the fresh native read.
             try:
                 self.authorize_target(principal, tool_name, target_id)
+                if preference_revision is not None:
+                    self._screenshot_preference_revision(
+                        target_id, expected_revision=preference_revision
+                    )
             except Exception:
                 if post_authorization_failure is not None:
                     post_authorization_failure()
                 raise
         return result
+
+    def _screenshot_preference_revision(
+        self, target_id: UUID, *, expected_revision: int | None = None
+    ) -> int | None:
+        with self._session_factory() as session:
+            target = session.get(TargetRow, str(target_id))
+            if target is None or target.target_type is TargetType.MANAGED:
+                return None
+            try:
+                return require_screenshot_preference(
+                    session, target_id, expected_revision=expected_revision
+                )
+            except ScreenshotPreferenceError as error:
+                raise McpAuthorizationError(error.code) from error
 
     def _is_production_target(self, target_id: UUID) -> bool:
         with self._session_factory() as session:

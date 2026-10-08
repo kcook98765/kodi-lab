@@ -23,6 +23,10 @@ from kodi_lab.application.production_inspection import (
     ProductionInspectionError,
     evaluate_production_inspection_state,
 )
+from kodi_lab.application.screenshot_preferences import (
+    ScreenshotPreferenceError,
+    require_screenshot_preference,
+)
 from kodi_lab.development.deployment import DevelopmentTreeManifest
 from kodi_lab.domain import (
     ExternalAdministrativeState,
@@ -172,6 +176,7 @@ class ExternalScreenshotCapture:
     byte_size: int
     digest: str
     png: bytes
+    preference_revision: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -1652,6 +1657,7 @@ class ExternalBridgeService:
     def capture_screenshot(
         self, target_id: UUID, *, request_id: UUID | None = None
     ) -> ExternalScreenshotCapture:
+        preference_revision = self._capture_preference_revision(target_id)
         with self._sessions() as session:
             target = session.get(TargetRow, str(target_id))
         production = bool(
@@ -1665,6 +1671,16 @@ class ExternalBridgeService:
             replay = self._production_cached_replay(target_id, request_id)
             if replay is not None:
                 self._active_snapshot(target_id, required_capability="screenshot")
+                try:
+                    self._capture_preference_revision(
+                        target_id, expected_revision=replay.preference_revision
+                    )
+                    self._capture_preference_revision(
+                        target_id, expected_revision=preference_revision
+                    )
+                except ExternalBridgeServiceError:
+                    self.discard_production_pixels(target_id, request_id)
+                    raise
                 return replay
         gate = self._production_screenshot_gate if production else self._screenshot_gate
         with gate.enter(target_id):
@@ -1674,6 +1690,13 @@ class ExternalBridgeService:
             if production and snapshot.bridge_trust_revision is not None:
                 bind_screenshot_bridge_revision(snapshot.bridge_trust_revision)
             existing = self._bridge_receipt(target_id, request_id)
+            if (
+                existing is not None
+                and existing.capture_preference_revision != preference_revision
+            ):
+                # A pending operation may have dispatched before process loss.
+                # Never adopt its historical pixels under a newer preference.
+                raise ExternalBridgeServiceError("screenshot_replay_unavailable")
             if existing is not None and existing.state == "completed":
                 raise ExternalBridgeServiceError("screenshot_replay_unavailable")
             if existing is not None and existing.state != "pending":
@@ -1723,7 +1746,9 @@ class ExternalBridgeService:
             nonce = b64url(os.urandom(32)) if existing is None else existing.nonce
             if existing is None:
                 try:
-                    self._claim_receipt(target_id, request_id, nonce, requested_at)
+                    self._claim_receipt(
+                        target_id, request_id, nonce, requested_at, preference_revision
+                    )
                     emit_screenshot_stage(
                         "receipt_persistence",
                         "entered",
@@ -1736,6 +1761,14 @@ class ExternalBridgeService:
                         target_id, request_id, error.code, ambiguous=False
                     )
                     raise
+            # Recheck immediately before dispatch as well as before publication.
+            try:
+                self._capture_preference_revision(
+                    target_id, expected_revision=preference_revision
+                )
+            except ExternalBridgeServiceError as error:
+                self._fail_receipt(target_id, request_id, error.code, ambiguous=False)
+                raise
             try:
                 result = self._client.capture_screenshot(
                     snapshot.endpoint,
@@ -1749,6 +1782,17 @@ class ExternalBridgeService:
                 )
             except ExternalBridgeError as first:
                 if first.code == "bridge_unreachable" and not production:
+                    try:
+                        self._capture_preference_revision(
+                            target_id, expected_revision=preference_revision
+                        )
+                    except ExternalBridgeServiceError as error:
+                        # The first dispatch outcome is uncertain; disabling
+                        # capture does not resolve it or permit another dispatch.
+                        self._fail_receipt(
+                            target_id, request_id, error.code, ambiguous=True
+                        )
+                        raise
                     try:
                         result = self._client.capture_screenshot(
                             snapshot.endpoint,
@@ -1818,6 +1862,7 @@ class ExternalBridgeService:
                 byte_size=len(result.png),
                 digest=result.digest,
                 png=result.png,
+                preference_revision=preference_revision,
             )
             if production:
                 with self._production_pixel_cache_lock:
@@ -1833,7 +1878,25 @@ class ExternalBridgeService:
                     "screenshot_success_reachable",
                     lambda: self._screenshot_reachability_metadata(target_id),
                 )
+            try:
+                self._capture_preference_revision(
+                    target_id, expected_revision=preference_revision
+                )
+            except ExternalBridgeServiceError:
+                self.discard_production_pixels(target_id, request_id)
+                raise
             return capture
+
+    def _capture_preference_revision(
+        self, target_id: UUID, *, expected_revision: int | None = None
+    ) -> int:
+        try:
+            with self._sessions() as session:
+                return require_screenshot_preference(
+                    session, target_id, expected_revision=expected_revision
+                )
+        except ScreenshotPreferenceError as error:
+            raise ExternalBridgeServiceError(error.code) from error
 
     def _bridge_receipt(
         self, target_id: UUID, request_id: UUID
@@ -2113,7 +2176,12 @@ class ExternalBridgeService:
         )
 
     def _claim_receipt(
-        self, target_id: UUID, request_id: UUID, nonce: str, now: datetime
+        self,
+        target_id: UUID,
+        request_id: UUID,
+        nonce: str,
+        now: datetime,
+        preference_revision: int,
     ) -> None:
         expiry = now + BRIDGE_RECEIPT_TTL
         with self._sessions.begin() as session:
@@ -2149,6 +2217,7 @@ class ExternalBridgeService:
                     state="pending",
                     created_at=self._text(now),
                     expires_at=self._text(expiry),
+                    capture_preference_revision=preference_revision,
                 )
             )
 

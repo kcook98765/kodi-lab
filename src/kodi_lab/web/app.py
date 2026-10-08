@@ -368,6 +368,12 @@ from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
 )
+from kodi_lab.application.screenshot_preferences import (
+    ScreenshotPreferenceError,
+    ScreenshotPreferenceRead,
+    ScreenshotPreferenceService,
+    ScreenshotPreferenceUpdate,
+)
 from kodi_lab.application.screenshots import (
     ManagedScreenshotCaptureResult,
     ManagedScreenshotService,
@@ -1181,6 +1187,7 @@ class WebApplicationContext:
     production_capability_amendments: ProductionCapabilityAmendmentService
     development_capability_amendments: DevelopmentCapabilityAmendmentService
     external_bridges: ExternalBridgeService
+    screenshot_preferences: ScreenshotPreferenceService
     managed_observation_bridges: ManagedObservationBridgeService
     managed_bridge_trust: ManagedBridgeTrustService
     production_native_control_acknowledgements: (
@@ -1420,6 +1427,7 @@ def create_app(
     production_capability_amendments = ProductionCapabilityAmendmentService(
         session_factory, bridge_secrets=external_bridge_secret_store
     )
+    screenshot_preferences = ScreenshotPreferenceService(session_factory)
     development_capability_amendments = DevelopmentCapabilityAmendmentService(
         session_factory,
         endpoint_policy=external_endpoint_policy,
@@ -1919,6 +1927,7 @@ def create_app(
         production_targets=production_targets,
         production_capability_amendments=production_capability_amendments,
         development_capability_amendments=development_capability_amendments,
+        screenshot_preferences=screenshot_preferences,
         external_bridges=external_bridges,
         managed_observation_bridges=managed_observation_bridges,
         managed_bridge_trust=managed_bridge_trust,
@@ -2715,6 +2724,16 @@ def create_app(
             "provisional_expired": _ONBOARDING_ERROR_MESSAGES["pairing_commit_failed"],
         }.get(error.code, "External bridge request rejected.")
         return _json_error(status_code, error.code, message)
+
+    @app.exception_handler(ScreenshotPreferenceError)
+    async def screenshot_preference_failure(
+        _request: Request, error: ScreenshotPreferenceError
+    ) -> JSONResponse:
+        return _json_error(
+            404 if error.code == "target_not_found" else 409,
+            error.code,
+            "Screenshot preference request rejected.",
+        )
 
     @app.exception_handler(ProductionCapabilityAmendmentError)
     async def production_capability_amendment_failure(
@@ -4294,6 +4313,32 @@ def create_app(
     ) -> McpTargetPolicyRead:
         return context.mcp_administration.assign_target_preset(
             target_id, payload.preset_id
+        )
+
+    @app.get(
+        "/api/targets/{target_id}/screenshot-preference",
+        response_model=ScreenshotPreferenceRead,
+    )
+    def read_screenshot_preference(
+        target_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> ScreenshotPreferenceRead:
+        return context.screenshot_preferences.read(target_id)
+
+    @app.put(
+        "/api/targets/{target_id}/screenshot-preference",
+        response_model=ScreenshotPreferenceRead,
+    )
+    def update_screenshot_preference(
+        target_id: UUID,
+        payload: ScreenshotPreferenceUpdate,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ScreenshotPreferenceRead:
+        return context.screenshot_preferences.update(
+            target_id,
+            enabled=payload.enabled,
+            expected_revision=payload.expected_revision,
+            administrator_reference="web_admin",
         )
 
     @app.get("/api/external-targets", response_model=list[ExternalTargetRead])

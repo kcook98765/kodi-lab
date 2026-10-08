@@ -5789,3 +5789,29 @@ D-0413 resolves the provisional managed pairing-source assumption below.
 - The resident collector, protected GUI dispatch, per-target gate, connection
   closing policy and schema semantics remain unchanged. External pairing and
   credential ownership remain unchanged; managed establishment uses no user OTP.
+
+## D-0414: External screenshots have an independent capture preference
+
+- Screenshots are read-only inspection. An administrator can disable external
+  capture through a persistent preference without changing technical capability,
+  Bridge credentials, identity/trust generations, MCP scopes, transport
+  acknowledgements or production control policy and approvals.
+- The preference has its own monotonic revision and last administrator/time.
+  Updates use compare-and-swap. New external records initialize enabled when their
+  configured maximum includes screenshot; migration copies that maximum without
+  changing existing trust or grants. Missing preferences fail closed.
+- Capture admission, cached replay and result publication require enabled policy.
+  Results bind the admitted preference revision, including the final MCP
+  publication check. Off/on cannot publish an old capture or revive cached pixels.
+  Durable operation receipts remain, preventing a completed request from being
+  redispatched when volatile pixels are discarded. Bridge receipts also bind the
+  preference revision durably: a pending request surviving process loss cannot
+  adopt an old capture after off/on. Legacy receipts bind the initial revision.
+- Ordinary client permissions, target authorization, technical capability and
+  authenticated transport remain required. Production reviewed builds, OTP,
+  identity drift and revocation retain their existing behavior. Managed screenshots
+  and lifecycle trust are outside this preference.
+- Historical production screenshot capability removal remains a separate,
+  destructive compatibility operation. Re-enabling the preference creates no
+  credentials, grants or scopes and cannot restore retired authority. Changed
+  preferences refuse downgrade to a schema that cannot enforce them.

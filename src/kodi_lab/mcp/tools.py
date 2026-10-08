@@ -1983,6 +1983,8 @@ class McpTargetToolService:
     @staticmethod
     def _screenshot_error(code: str) -> str:
         return {
+            "screenshots_disabled": "screenshots_disabled",
+            "screenshot_preference_changed": "screenshot_preference_changed",
             "screenshot_unsupported": "capability_unavailable",
             "bridge_not_paired": "capability_unavailable",
             "bridge_reverification_required": "bridge_reverification_required",

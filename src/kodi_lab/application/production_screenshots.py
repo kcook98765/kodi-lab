@@ -19,6 +19,10 @@ from kodi_lab.application.external_bridges import (
     ExternalBridgeServiceError,
     ExternalScreenshotCapture,
 )
+from kodi_lab.application.screenshot_preferences import (
+    ScreenshotPreferenceError,
+    require_screenshot_preference,
+)
 from kodi_lab.screenshot_diagnostics import emit_screenshot_stage
 from kodi_lab.storage.models import McpProductionScreenshotReceiptRow
 
@@ -60,6 +64,7 @@ class ProductionScreenshotService:
         identity_generation: int,
         bridge_trust_revision: int,
     ) -> ExternalScreenshotCapture:
+        preference_revision = self._capture_preference_revision(target_id)
         parameter_digest = self.parameter_digest(target_id)
         existing = self._receipt(client_id, request_id)
         if existing is not None:
@@ -87,7 +92,7 @@ class ProductionScreenshotService:
             except Exception:
                 self._bridges.discard_production_pixels(target_id, bridge_request_id)
                 raise
-            return self._client_result(result, request_id)
+            return self._publish_result(result, request_id, preference_revision)
 
         now = self._clock()
         bridge_request_id = self._claim(
@@ -140,7 +145,33 @@ class ProductionScreenshotService:
             receipt_kind="mcp",
             receipt_state="completed",
         )
+        return self._publish_result(result, request_id, preference_revision)
+
+    def _publish_result(
+        self, result: ExternalScreenshotCapture, request_id: UUID, revision: int
+    ) -> ExternalScreenshotCapture:
+        try:
+            self._capture_preference_revision(
+                result.target_id, expected_revision=revision
+            )
+            self._capture_preference_revision(
+                result.target_id, expected_revision=result.preference_revision
+            )
+        except ProductionScreenshotError:
+            self._bridges.discard_production_pixels(result.target_id, result.capture_id)
+            raise
         return self._client_result(result, request_id)
+
+    def _capture_preference_revision(
+        self, target_id: UUID, *, expected_revision: int | None = None
+    ) -> int:
+        try:
+            with self._sessions() as session:
+                return require_screenshot_preference(
+                    session, target_id, expected_revision=expected_revision
+                )
+        except ScreenshotPreferenceError as error:
+            raise ProductionScreenshotError(error.code) from error
 
     def discard_pixels(
         self, client_id: UUID, target_id: UUID, request_id: UUID
@@ -318,6 +349,7 @@ class ProductionScreenshotService:
             byte_size=result.byte_size,
             digest=result.digest,
             png=result.png,
+            preference_revision=result.preference_revision,
         )
 
     @staticmethod

@@ -135,6 +135,7 @@ from kodi_lab.storage.development_capability_sql import (
     PRODUCTION_SCREENSHOT_TARGET_GUARD,
 )
 from kodi_lab.storage.metadata import Base
+from kodi_lab.storage.screenshot_preference_sql import SCREENSHOT_PREFERENCE_TRIGGERS
 
 
 class DevelopmentRepositoryStateRow(Base):
@@ -1338,6 +1339,33 @@ class TargetRow(Base):
     )
 
 
+class ExternalScreenshotPreferenceRow(Base):
+    """Independent capture opt-out with its own monotonic revision and actor."""
+
+    __tablename__ = "external_screenshot_preferences"
+    __table_args__ = (
+        CheckConstraint("enabled IN (0,1)", name="screenshot_preference_boolean"),
+        CheckConstraint(
+            "revision>=1 AND typeof(revision)='integer'",
+            name="screenshot_preference_revision_positive",
+        ),
+        CheckConstraint(
+            "length(updated_by) BETWEEN 1 AND 64 AND length(updated_at)=27",
+            name="screenshot_preference_audit_bounded",
+        ),
+    )
+
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_kodi_targets.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class ExternalKodiTargetRow(Base):
     """One-to-one external-development subtype with separate state dimensions."""
 
@@ -2253,6 +2281,16 @@ class ExternalBridgeRequestReceiptRow(Base):
     created_at: Mapped[str] = mapped_column(String(27), nullable=False)
     completed_at: Mapped[str | None] = mapped_column(String(27))
     expires_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    capture_preference_revision: Mapped[int] = mapped_column(
+        Integer,
+        CheckConstraint(
+            "capture_preference_revision>=1 AND "
+            "typeof(capture_preference_revision)='integer'",
+            name="bridge_capture_preference_revision_positive",
+        ),
+        nullable=False,
+        server_default=text("1"),
+    )
 
 
 class McpProductionScreenshotReceiptRow(Base):
@@ -7647,7 +7685,10 @@ for _trigger_sql in _CAPABILITY_AMENDMENT_CREATE_TRIGGERS:
         DDL(_trigger_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
     )
 
-for _trigger_sql in DEVELOPMENT_CAPABILITY_TRIGGERS:
+for _trigger_sql in (
+    *DEVELOPMENT_CAPABILITY_TRIGGERS,
+    *SCREENSHOT_PREFERENCE_TRIGGERS,
+):
     event.listen(
         Base.metadata,
         "after_create",

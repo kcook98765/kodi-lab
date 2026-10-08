@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0069_managed_bridge_trust",)
+        ).fetchone() == ("0070_external_screenshot_preference",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -448,6 +448,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "external_bridge_deployment_receipts",
         "external_bridge_pairings",
         "external_bridge_request_receipts",
+        "external_screenshot_preferences",
         "reviewed_bridge_builds",
         "external_development_source_baselines",
         "external_production_policies",
@@ -7731,8 +7732,12 @@ def test_0053_empty_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 def test_0053_refuses_downgrade_after_meaningful_amendment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    config, database_url = migration_setup(monkeypatch, tmp_path, start_revision=None)
-    command.upgrade(config, "head")
+    config, database_url = migration_setup(
+        monkeypatch,
+        tmp_path,
+        start_revision="0052_production_policy_revision_binding",
+    )
+    command.upgrade(config, "0053_production_screenshot_capability_amendment")
     engine = create_database_engine(database_url)
     factory = create_session_factory(engine)
 
