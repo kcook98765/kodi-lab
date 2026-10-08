@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 from collections.abc import AsyncIterator
@@ -2923,6 +2924,7 @@ def create_app(
             "index.html",
             {
                 "instances": instances,
+                "add_kodi_enabled": True,
                 "reset_statuses": reset_statuses,
                 "reconciliation_statuses": reconciliation_statuses,
                 "reconstruction_statuses": reconstruction_statuses,
@@ -3016,6 +3018,22 @@ def create_app(
                 "test_loopback_enabled": (
                     settings.external_target_test_loopback_enabled
                 ),
+            },
+        )
+
+    @app.get("/add-kodi", response_class=HTMLResponse)
+    async def add_kodi_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "add-kodi.html",
+            {
+                "csrf_token": authenticated.csrf_token,
+                "recovery_namespace": hashlib.sha256(
+                    authenticated.csrf_token.encode()
+                ).hexdigest(),
             },
         )
 

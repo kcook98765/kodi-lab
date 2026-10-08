@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Add Kodi · Kodi Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    <script src="{{ url_for('static', path='/add-kodi.js') }}" defer></script>
+  </head>
+  <body class="household-page">
+    <header class="household-header">
+      <a href="/">Kodi Lab</a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Sign out</button>
+      </form>
+    </header>
+    <main class="household-panel" data-add-kodi data-csrf-token="{{ csrf_token }}" data-recovery-namespace="{{ recovery_namespace }}">
+      <h1>Add Kodi</h1>
+      <ol class="household-steps">
+        <li>Install the <a href="/kodi-repository">Kodi Lab repository</a> on Kodi.</li>
+        <li>Install <strong>Kodi Lab Bridge</strong>.</li>
+        <li>Open Bridge to obtain the pairing code.</li>
+      </ol>
+      <noscript><p class="notice">Enable JavaScript to connect Kodi and recover an incomplete connection.</p></noscript>
+      <form method="post" action="/add-kodi" data-connect-form aria-describedby="transport-notice">
+        <fieldset class="household-js-gate" data-js-gate disabled>
+        <legend class="visually-hidden">Kodi connection</legend>
+        <label for="kodi-name">Friendly Kodi name</label>
+        <input id="kodi-name" name="name" maxlength="120" required autocomplete="off" placeholder="Living Room Kodi">
+        <label for="kodi-address">Kodi address</label>
+        <input id="kodi-address" name="address" maxlength="64" required autocomplete="off" spellcheck="false" placeholder="192.168.2.20" aria-describedby="address-help">
+        <p id="address-help" class="field-help">Use Kodi’s private IP address, shown in Kodi’s system information.</p>
+        <label for="kodi-code">Bridge pairing code</label>
+        <input id="kodi-code" name="code" class="pair-code" minlength="4" maxlength="4" pattern="[23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjklmnpqrstuvwxyz]{4}" required autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="code-help">
+        <p id="code-help" class="field-help">Four characters from Bridge. Letters are not case-sensitive.</p>
+        <label class="check-label" for="native-required"><input id="native-required" type="checkbox" data-native-toggle> Kodi requires a username and password</label>
+        <fieldset data-native-fields hidden disabled>
+          <legend>Kodi sign-in</legend>
+          <p class="field-help">Use the sign-in configured for Kodi’s HTTP web interface.</p>
+          <label for="kodi-username">Kodi username</label>
+          <input id="kodi-username" name="username" maxlength="256" autocomplete="off">
+          <label for="kodi-password">Kodi password</label>
+          <input id="kodi-password" name="password" type="password" maxlength="1024" autocomplete="off">
+        </fieldset>
+        <details class="household-details">
+          <summary>Advanced connection details</summary>
+          <label for="kodi-port">Kodi HTTP port</label>
+          <input id="kodi-port" name="kodi_port" type="number" min="1" max="65535" value="8080" required>
+          <label for="bridge-port">Bridge port</label>
+          <input id="bridge-port" name="bridge_port" type="number" min="1" max="65535" value="8765" required>
+          <p class="field-help">Only ports allowed by Kodi Lab can be used.</p>
+        </details>
+        <p id="transport-notice" class="notice">This connection uses unencrypted HTTP on your private network. Pairing codes, credentials, library information and screenshots can be observed in transit. Continue only on a network you trust. After checking Kodi, we’ll ask you to review and accept the exact connection details.</p>
+        <p data-retry-note class="notice" hidden>Re-enter the original name, address, ports and Kodi sign-in. This retries the saved connection; use the current code from Bridge.</p>
+        <button class="primary-action" type="submit" data-connect-button>Connect</button>
+        </fieldset>
+      </form>
+      <p data-progress role="status" hidden></p>
+      <section class="household-result" data-result tabindex="-1" aria-labelledby="result-title" hidden>
+        <h2 id="result-title" data-result-title></h2>
+        <p data-result-message></p>
+        <p data-version hidden></p>
+        <p data-agent-note hidden>Connecting Kodi does not grant access to an MCP agent. Agent access is managed separately.</p>
+        <form method="post" action="/add-kodi" data-consent-form hidden>
+          <p data-disclosure-message></p>
+          <dl class="household-endpoints">
+            <dt>Kodi connection</dt><dd data-kodi-endpoint></dd>
+            <dt>Bridge connection</dt><dd data-bridge-endpoint></dd>
+          </dl>
+          <label class="check-label" for="accept-http"><input id="accept-http" type="checkbox" required data-consent> I understand and accept these HTTP risks for this connection.</label>
+          <label for="resume-code">Current Bridge pairing code</label>
+          <input id="resume-code" class="pair-code" minlength="4" maxlength="4" pattern="[23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjklmnpqrstuvwxyz]{4}" required autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="resume-code-help" data-resume-code>
+          <p id="resume-code-help" class="field-help">Check that this code is still shown in Bridge. It is sent only when you choose Continue.</p>
+          <button class="primary-action" type="submit">Accept and continue</button>
+        </form>
+        <div class="actions">
+          <button type="button" data-resume-button hidden>Resume connection</button>
+          <button type="button" data-retry-button hidden>Retry with original details</button>
+          <button type="button" data-another-button hidden>Add another Kodi</button>
+        </div>
+        <details class="household-details" data-diagnostics>
+          <summary>Advanced / recovery details</summary>
+          <dl>
+            <dt>Operation</dt><dd data-operation></dd>
+            <dt>Response</dt><dd data-response-code></dd>
+            <dt>Details</dt><dd data-response-message></dd>
+          </dl>
+          <p>Progress is saved on Kodi Lab. This tab remembers only the operation identifier for your current sign-in. Pairing codes and passwords are never saved in browser storage. If tab storage is unavailable, copy this identifier before leaving.</p>
+          <p><a href="/production-targets">Open advanced Kodi administration</a></p>
+          <form method="post" action="/add-kodi" data-abandon-form>
+            <label class="check-label" for="abandon-confirm"><input id="abandon-confirm" type="checkbox" required> Abandon this saved connection. I understand I may need to reset Bridge pairing locally in Kodi before trying again.</label>
+            <button type="submit">Abandon connection</button>
+          </form>
+        </details>
+      </section>
+      <p data-error class="error" role="alert" tabindex="-1" hidden></p>
+      <details class="household-details">
+        <summary>Advanced: recover a saved connection</summary>
+        <form method="post" action="/add-kodi" data-manual-recovery>
+          <fieldset class="household-js-gate" data-js-gate disabled>
+            <legend class="visually-hidden">Saved connection recovery</legend>
+            <label for="recovery-operation">Saved operation identifier</label>
+            <input id="recovery-operation" maxlength="36" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" required autocomplete="off" spellcheck="false" data-recovery-id>
+            <p class="field-help">Paste the identifier from a previous connection. Recovery uses saved progress and sends no pairing code.</p>
+            <button type="submit">Resume saved connection</button>
+          </fieldset>
+        </form>
+      </details>
+      <p><a href="/">Back to Kodi Lab</a></p>
+    </main>
+  </body>
+</html>

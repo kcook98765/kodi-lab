@@ -18,7 +18,7 @@
       </form>
     </header>
     <main>
-      <nav aria-label="Administration"><a href="/kodi-repository">Kodi Repository</a> · <a href="/pair-kodi">Pair Kodi</a> · <a href="/runtimes">Reviewed runtimes</a> · <a href="/mcp-clients">MCP clients</a> · <a href="/external-targets">External development targets</a> · <a href="/production-targets">Production targets</a> · <a href="/development-sources">Development Sources</a> · <a href="/agent-workspaces">Agent Workspaces</a> · <a href="/addon-repositories">Add-on repositories</a> · <a href="/snapshots/preserved">Preserved snapshots</a> · <a href="/history/instances">Deleted instance history</a></nav>
+      <nav aria-label="Administration"><a href="/kodi-repository">Kodi Repository</a> · {% if add_kodi_enabled %}<a href="/add-kodi">Add Kodi</a> · {% endif %}<a href="/pair-kodi">Pair Kodi</a> · <a href="/runtimes">Reviewed runtimes</a> · <a href="/mcp-clients">MCP clients</a> · <a href="/external-targets">External development targets</a> · <a href="/production-targets">Production targets</a> · <a href="/development-sources">Development Sources</a> · <a href="/agent-workspaces">Agent Workspaces</a> · <a href="/addon-repositories">Add-on repositories</a> · <a href="/snapshots/preserved">Preserved snapshots</a> · <a href="/history/instances">Deleted instance history</a></nav>
       <p id="global-error" class="error" role="alert" hidden></p>
       <section id="instances" aria-live="polite">
         {% for instance in instances %}
