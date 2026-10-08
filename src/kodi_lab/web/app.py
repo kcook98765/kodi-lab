@@ -220,6 +220,12 @@ from kodi_lab.application.historical_workspace_execution_containment import (
     HistoricalContainmentResult,
     HistoricalWorkspaceExecutionContainmentService,
 )
+from kodi_lab.application.household_onboarding import (
+    HouseholdKodiOnboardingService,
+    HouseholdOnboardingResult,
+    HouseholdResumeRequest,
+    HouseholdStartRequest,
+)
 from kodi_lab.application.instance_delete_operations import (
     ManagedInstanceDeleteConflictError,
     ManagedInstanceDeleteNotFoundError,
@@ -1185,6 +1191,7 @@ class WebApplicationContext:
     live_display: ManagedLiveDisplayService
     external_targets: ExternalTargetAdministrationService
     external_onboarding: ExternalKodiOnboardingService
+    household_onboarding: HouseholdKodiOnboardingService
     production_targets: ExternalTargetAdministrationService
     production_capability_amendments: ProductionCapabilityAmendmentService
     development_capability_amendments: DevelopmentCapabilityAmendmentService
@@ -1428,6 +1435,14 @@ def create_app(
     )
     production_capability_amendments = ProductionCapabilityAmendmentService(
         session_factory, bridge_secrets=external_bridge_secret_store
+    )
+    household_onboarding = HouseholdKodiOnboardingService(
+        session_factory,
+        targets=production_targets,
+        bridges=external_bridges,
+        validation=external_onboarding,
+        administration=mcp_administration,
+        lock_root=settings.data_root / "locks" / "household-onboarding",
     )
     screenshot_preferences = ScreenshotPreferenceService(session_factory)
     development_capability_amendments = DevelopmentCapabilityAmendmentService(
@@ -1926,6 +1941,7 @@ def create_app(
         live_display=live_display,
         external_targets=external_targets,
         external_onboarding=external_onboarding,
+        household_onboarding=household_onboarding,
         production_targets=production_targets,
         production_capability_amendments=production_capability_amendments,
         development_capability_amendments=development_capability_amendments,
@@ -2252,6 +2268,7 @@ def create_app(
         path = request.url.path
         closed_schema_mutation = request.method == "POST" and (
             path in {"/api/development-sources", "/api/agent-workspaces"}
+            or path.startswith("/api/household-onboarding")
             or path == "/api/addon-repositories"
             or "/addon-repositories/" in path
             or "/repository-artifacts/" in path
@@ -4391,6 +4408,35 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[ExternalTargetRead]:
         return context.external_targets.list_targets()
+
+    @app.post("/api/household-onboarding", response_model=HouseholdOnboardingResult)
+    def start_household_onboarding(
+        payload: HouseholdStartRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> HouseholdOnboardingResult:
+        return context.household_onboarding.start(payload)
+
+    @app.post(
+        "/api/household-onboarding/{operation_id}/resume",
+        response_model=HouseholdOnboardingResult,
+    )
+    def resume_household_onboarding(
+        operation_id: UUID,
+        payload: HouseholdResumeRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> HouseholdOnboardingResult:
+        return context.household_onboarding.resume(operation_id, payload)
+
+    @app.post(
+        "/api/household-onboarding/{operation_id}/abandon",
+        response_model=HouseholdOnboardingResult,
+    )
+    def abandon_household_onboarding(
+        operation_id: UUID,
+        _payload: EmptyActionRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> HouseholdOnboardingResult:
+        return context.household_onboarding.abandon(operation_id)
 
     @app.post(
         "/api/external-targets/onboard-otp",

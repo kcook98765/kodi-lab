@@ -74,7 +74,13 @@ from kodi_lab.storage.models import (
     ReviewedBridgeBuildRow,
     TargetRow,
 )
-from kodi_lab.storage.secrets import ExternalBridgeSecretStore, SecretStoreError
+from kodi_lab.storage.secrets import (
+    ExternalBridgeSecretStore,
+    SecretStoreError,
+    external_secret_publication,
+    queue_external_secret_retirement,
+    retire_pending_external_secrets,
+)
 
 MAX_DEPLOYMENT_DURATION_SECONDS = 2 * 60 * 60
 MAX_DEPLOYMENT_TRANSFER_BYTES_PER_SECOND = 16 * 1024 * 1024
@@ -87,9 +93,15 @@ PRODUCTION_TRANSPORT_POLICY_REVISION = 1
 
 
 class ExternalBridgeServiceError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, otp_retry_safe: bool = False) -> None:
         self.code = code
+        self.otp_retry_safe = otp_retry_safe
         super().__init__(code)
+
+
+@dataclass(slots=True)
+class _OtpDispatchState:
+    dispatched: bool = False
 
 
 class ExternalBridgeStatus(BaseModel):
@@ -155,6 +167,17 @@ class ProductionHttpAcknowledgementRead(BaseModel):
     transport_policy_revision: int
     acknowledged_by: str
     acknowledged_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ProductionHttpAcknowledgementBinding:
+    host: str
+    native_port: int
+    bridge_port: int
+    identity_generation: int
+    policy_revision: int
+    confirmed_observation_digest: str | None
+    bridge_trust_revision: int
 
 
 class PairingTokenResult(BaseModel):
@@ -463,28 +486,45 @@ class ExternalBridgeService:
         *,
         bridge_port: int,
         administrator_reference: str = "local_administrator",
+        expected: ProductionHttpAcknowledgementBinding | None = None,
     ) -> ProductionHttpAcknowledgementRead:
         administrator = self._administrator(administrator_reference)
-        with self._sessions() as session:
-            external = self._require_native_verified(session, target_id)
-            target = session.get(TargetRow, str(target_id))
-            policy = session.get(ExternalProductionPolicyRow, str(target_id))
-            pairing = session.get(ExternalBridgePairingRow, str(target_id))
-            if (
-                target is None
-                or target.target_type is not TargetType.EXTERNAL_PRODUCTION
-                or policy is None
-                or external.protocol_kind.value != "jsonrpc_http"
-            ):
-                raise ExternalBridgeServiceError("transport_acknowledgement_required")
-            self._validate_bridge_endpoint(external, bridge_port)
-            revision = self._prospective_production_revision(pairing)
-            endpoint_digest = self._endpoint_digest(external, bridge_port)
-            identity_generation = policy.identity_generation
         acknowledgement_id = uuid4()
         now = self._clock()
         try:
             with self._sessions.begin() as session:
+                # Bind consent and its audit record to one current SQLite state.
+                # Do not hold this writer reservation across any remote I/O.
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                external = self._require_native_verified(session, target_id)
+                target = session.get(TargetRow, str(target_id))
+                policy = session.get(ExternalProductionPolicyRow, str(target_id))
+                pairing = session.get(ExternalBridgePairingRow, str(target_id))
+                if (
+                    target is None
+                    or target.target_type is not TargetType.EXTERNAL_PRODUCTION
+                    or policy is None
+                    or external.protocol_kind.value != "jsonrpc_http"
+                ):
+                    raise ExternalBridgeServiceError(
+                        "transport_acknowledgement_required"
+                    )
+                self._validate_bridge_endpoint(external, bridge_port)
+                revision = self._prospective_production_revision(pairing)
+                endpoint_digest = self._endpoint_digest(external, bridge_port)
+                identity_generation = policy.identity_generation
+                if expected is not None and expected != (
+                    ProductionHttpAcknowledgementBinding(
+                        host=external.host,
+                        native_port=external.port,
+                        bridge_port=bridge_port,
+                        identity_generation=identity_generation,
+                        policy_revision=policy.policy_revision,
+                        confirmed_observation_digest=policy.confirmed_observation_digest,
+                        bridge_trust_revision=revision,
+                    )
+                ):
+                    raise ExternalBridgeServiceError("transport_binding_changed")
                 session.add(
                     ProductionBridgeHttpAcknowledgementRow(
                         id=str(acknowledgement_id),
@@ -541,7 +581,6 @@ class ExternalBridgeService:
         token = os.urandom(32)
         now = self._clock()
         expires = now + PAIRING_TOKEN_TTL
-        old_references: list[UUID] = []
         with self._sessions() as session:
             external = self._require_native_verified(session, target_id)
             self._validate_bridge_endpoint(external, bridge_port)
@@ -563,11 +602,21 @@ class ExternalBridgeService:
                     revision,
                 )
         try:
-            reference = self._secrets.write(target_id, "pairing_token", token)
-        except SecretStoreError as error:
-            raise ExternalBridgeServiceError("bridge_authentication_failed") from error
-        try:
-            with self._sessions.begin() as session:
+            with external_secret_publication(
+                self._sessions,
+                store_kind="bridge",
+                target_id=target_id,
+                write=lambda reference: self._secrets.write(
+                    target_id,
+                    "pairing_token",
+                    token,
+                    reference=reference,
+                ),
+                retire=self._secrets.retire,
+                validate=lambda session: self._require_native_verified(
+                    session, target_id
+                ),
+            ) as (session, reference):
                 external = self._require_native_verified(session, target_id)
                 self._validate_bridge_endpoint(external, bridge_port)
                 target = session.get(TargetRow, str(target_id))
@@ -609,7 +658,12 @@ class ExternalBridgeService:
                     row.bridge_secret_reference,
                 ):
                     if value is not None:
-                        old_references.append(UUID(value))
+                        queue_external_secret_retirement(
+                            session,
+                            store_kind="bridge",
+                            target_id=target_id,
+                            reference=UUID(value),
+                        )
                 self._clear_identity(row)
                 if (
                     target is not None
@@ -631,11 +685,9 @@ class ExternalBridgeService:
                 row.token_generated_at = self._text(now)
                 row.revoked_at = None
                 self._event(session, target_id, "pairing_token_generated", now)
-        except Exception:
-            self._secrets.retire(reference)
-            raise
-        for old in old_references:
-            self._secrets.retire(old)
+        except SecretStoreError as error:
+            raise ExternalBridgeServiceError("bridge_authentication_failed") from error
+        self._retire_pending_bridge_secrets(target_id)
         return PairingTokenResult(
             target_id=target_id, token=b64url(token), expires_at=expires
         )
@@ -697,16 +749,21 @@ class ExternalBridgeService:
                 self._pairing_failed(target_id, code)
                 raise ExternalBridgeServiceError(code) from error
             try:
-                secret_reference = self._secrets.write(
-                    target_id, "request_authentication", pairing.secret
-                )
-            except SecretStoreError as error:
-                self._pairing_failed(target_id, "bridge_authentication_failed")
-                raise ExternalBridgeServiceError(
-                    "bridge_authentication_failed"
-                ) from error
-            try:
-                with self._sessions.begin() as session:
+                with external_secret_publication(
+                    self._sessions,
+                    store_kind="bridge",
+                    target_id=target_id,
+                    write=lambda reference: self._secrets.write(
+                        target_id,
+                        "request_authentication",
+                        pairing.secret,
+                        reference=reference,
+                    ),
+                    retire=self._secrets.retire,
+                    validate=lambda session: self._require_native_verified(
+                        session, target_id
+                    ),
+                ) as (session, secret_reference):
                     external = self._require_native_verified(session, target_id)
                     row = session.get(ExternalBridgePairingRow, str(target_id))
                     if (
@@ -715,6 +772,12 @@ class ExternalBridgeService:
                         or row.bridge_port != snapshot.bridge_port
                     ):
                         raise ExternalBridgeServiceError("bridge_replay_rejected")
+                    queue_external_secret_retirement(
+                        session,
+                        store_kind="bridge",
+                        target_id=target_id,
+                        reference=snapshot.token_reference,
+                    )
                     row.pairing_state = ExternalBridgePairingState.PAIRING_PENDING
                     row.reachability_state = ExternalBridgeReachabilityState.REACHABLE
                     row.pairing_token_reference = None
@@ -728,14 +791,36 @@ class ExternalBridgeService:
                         row.production_bridge_trust_revision = (
                             snapshot.bridge_trust_revision
                         )
-            except Exception:
-                self._secrets.retire(secret_reference)
-                raise
-            self._secrets.retire(snapshot.token_reference)
+            except SecretStoreError as error:
+                self._pairing_failed(target_id, "bridge_authentication_failed")
+                raise ExternalBridgeServiceError(
+                    "bridge_authentication_failed"
+                ) from error
+            self._retire_pending_bridge_secrets(target_id)
         return self.status(target_id)
 
     def begin_otp_pairing(
         self, target_id: UUID, *, bridge_port: int, code: str
+    ) -> ExternalBridgeStatus:
+        """Bootstrap once; report whether a failure definitely permits retry."""
+        progress = _OtpDispatchState()
+        try:
+            return self._begin_otp_pairing(
+                target_id, bridge_port=bridge_port, code=code, progress=progress
+            )
+        except ExternalBridgeServiceError as error:
+            raise ExternalBridgeServiceError(
+                error.code,
+                otp_retry_safe=error.otp_retry_safe or not progress.dispatched,
+            ) from error
+
+    def _begin_otp_pairing(
+        self,
+        target_id: UUID,
+        *,
+        bridge_port: int,
+        code: str,
+        progress: _OtpDispatchState,
     ) -> ExternalBridgeStatus:
         """Stage an existing external target using one bridge-generated OTP."""
         if (
@@ -788,10 +873,36 @@ class ExternalBridgeService:
                 info = self._client.bootstrap_info(endpoint, bridge_port=bridge_port)
             except ExternalBridgeError as error:
                 raise ExternalBridgeServiceError(error.code) from error
+            if production:
+                # Discovery is only a candidate lookup. Authenticated identity and
+                # exact capabilities are still checked before trust is committed.
+                if not self._secrets.available:
+                    raise ExternalBridgeServiceError(
+                        "bridge_credential_store_unavailable"
+                    )
+                if info.addon_version != SUPPORTED_V1_BRIDGE_ADDON_VERSION:
+                    raise ExternalBridgeServiceError("bridge_identity_mismatch")
+                with self._sessions() as session:
+                    reviewed = session.scalar(
+                        select(ReviewedBridgeBuildRow).where(
+                            ReviewedBridgeBuildRow.semantic_fingerprint
+                            == info.build_fingerprint,
+                            ReviewedBridgeBuildRow.addon_id == BRIDGE_ADDON_ID,
+                            ReviewedBridgeBuildRow.addon_version == info.addon_version,
+                            ReviewedBridgeBuildRow.protocol_version
+                            == BRIDGE_PROTOCOL_VERSION,
+                            ReviewedBridgeBuildRow.state == "active",
+                        )
+                    )
+                    if reviewed is None or kodi_version not in self._parse_closed(
+                        reviewed.supported_kodi_versions_json
+                    ):
+                        raise ExternalBridgeServiceError("bridge_build_not_reviewed")
             secret = os.urandom(32)
             request_id = otp_bootstrap_request_id(secret, target_id)
             try:
                 try:
+                    progress.dispatched = True
                     self._client.bootstrap_otp(
                         endpoint,
                         bridge_port=bridge_port,
@@ -802,6 +913,19 @@ class ExternalBridgeService:
                         request_id=request_id,
                     )
                 except ExternalBridgeError as error:
+                    if error.code in {
+                        "wrong_code",
+                        "pairing_code_expired",
+                        "pairing_code_unavailable",
+                        "pairing_temporarily_locked",
+                        "already_paired",
+                        "bootstrap_version_mismatch",
+                    }:
+                        # These are definite bootstrap rejections. The same error
+                        # code from a subsequent identity response is not safe.
+                        raise ExternalBridgeServiceError(
+                            error.code, otp_retry_safe=True
+                        ) from error
                     if error.code != "bridge_unreachable":
                         raise
                     # A lost success response must not cause a second OTP attempt.
@@ -833,15 +957,23 @@ class ExternalBridgeService:
                     else error.code
                 ) from error
             try:
-                reference = self._secrets.write(
-                    target_id, "request_authentication", secret
-                )
-            except SecretStoreError as error:
-                raise ExternalBridgeServiceError(
-                    "bridge_authentication_failed"
-                ) from error
-            try:
-                with self._sessions.begin() as session:
+                with external_secret_publication(
+                    self._sessions,
+                    store_kind="bridge",
+                    target_id=target_id,
+                    write=lambda reference: self._secrets.write(
+                        target_id,
+                        "request_authentication",
+                        secret,
+                        reference=reference,
+                    ),
+                    retire=self._secrets.retire,
+                    validate=lambda session: self._require_native_verified(
+                        session,
+                        target_id,
+                        allow_disabled=True,
+                    ),
+                ) as (session, reference):
                     external = self._require_native_verified(
                         session, target_id, allow_disabled=True
                     )
@@ -905,9 +1037,10 @@ class ExternalBridgeService:
                     row.endpoint_revision_digest = self._endpoint_digest(
                         external, bridge_port
                     )
-            except Exception:
-                self._secrets.retire(reference)
-                raise
+            except SecretStoreError as error:
+                raise ExternalBridgeServiceError(
+                    "bridge_authentication_failed"
+                ) from error
         return self.status(target_id)
 
     def commit_otp_pairing(self, target_id: UUID) -> ExternalBridgeStatus:
@@ -1148,89 +1281,78 @@ class ExternalBridgeService:
 
     def revoke(self, target_id: UUID) -> ExternalBridgeStatus:
         now = self._clock()
-        references: list[UUID] = []
         with self._sessions.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             self._require_external(session, target_id)
             row = session.get(ExternalBridgePairingRow, str(target_id))
             if row is None:
                 raise ExternalBridgeServiceError("bridge_not_paired")
-            if (
-                row.pairing_state is ExternalBridgePairingState.REVOKED
-                and row.pairing_token_reference is None
-                and row.bridge_secret_reference is None
-                and row.production_identity_generation is None
-                and row.reviewed_build_id is None
-            ):
-                return self._project(
-                    target_id, self._require_external(session, target_id), row
+            if self._retire_bridge_authority(session, row, target_id, now):
+                self._event(
+                    session,
+                    target_id,
+                    "bridge_revoked",
+                    now,
+                    bridge_id=(
+                        None
+                        if row.pinned_bridge_id is None
+                        else UUID(row.pinned_bridge_id)
+                    ),
                 )
-            for value in (
-                row.pairing_token_reference,
-                row.bridge_secret_reference,
-            ):
-                if value is not None:
-                    references.append(UUID(value))
-            bridge_id = (
-                None if row.pinned_bridge_id is None else UUID(row.pinned_bridge_id)
-            )
-            row.pairing_state = ExternalBridgePairingState.REVOKED
-            row.reachability_state = ExternalBridgeReachabilityState.UNKNOWN
-            row.pairing_token_reference = None
-            row.bridge_secret_reference = None
-            row.pairing_token_expires_at = None
-            row.verified_capabilities_json = "[]"
-            row.revoked_at = self._text(now)
-            if row.production_bridge_trust_revision is not None:
-                row.production_bridge_trust_revision += 1
-                row.production_identity_generation = None
-                row.reviewed_build_id = None
-                row.production_confirmed_by = None
-                row.production_confirmed_at = None
-            self._event(
-                session,
-                target_id,
-                "bridge_revoked",
-                now,
-                bridge_id=bridge_id,
-            )
-        for reference in references:
-            self._secrets.retire(reference)
+        # Revocation remains durable even if deletion or acknowledgement fails.
+        # An already-revoked target must still retry its pending deletions.
+        self._retire_pending_bridge_secrets(target_id)
         return self.status(target_id)
 
     def invalidate_production_native_identity(self, target_id: UUID) -> None:
-        """Delete Lab bridge authority after native generation/config drift."""
-
-        references: list[UUID] = []
-        now = self._clock()
+        """Retire Lab bridge authority, including interrupted credential deletion."""
         with self._sessions.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             target = session.get(TargetRow, str(target_id))
             row = session.get(ExternalBridgePairingRow, str(target_id))
             if (
-                target is None
-                or target.target_type is not TargetType.EXTERNAL_PRODUCTION
-                or row is None
+                target is not None
+                and target.target_type is TargetType.EXTERNAL_PRODUCTION
+                and row is not None
             ):
-                return
-            if (
-                row.pairing_state is ExternalBridgePairingState.REVOKED
-                and row.pairing_token_reference is None
-                and row.bridge_secret_reference is None
-                and row.production_identity_generation is None
-                and row.reviewed_build_id is None
-            ):
-                return
-            for value in (
-                row.pairing_token_reference,
-                row.bridge_secret_reference,
-            ):
-                if value is not None:
-                    references.append(UUID(value))
-            row.pairing_state = ExternalBridgePairingState.REVOKED
-            row.reachability_state = ExternalBridgeReachabilityState.UNKNOWN
-            row.pairing_token_reference = None
-            row.pairing_token_expires_at = None
-            row.bridge_secret_reference = None
-            row.verified_capabilities_json = "[]"
+                self._retire_bridge_authority(
+                    session, row, target_id, self._clock(), production_invalidation=True
+                )
+        self._retire_pending_bridge_secrets(target_id)
+
+    def _retire_bridge_authority(
+        self,
+        session: Session,
+        row: ExternalBridgePairingRow,
+        target_id: UUID,
+        now: datetime,
+        *,
+        production_invalidation: bool = False,
+    ) -> bool:
+        if (
+            row.pairing_state is ExternalBridgePairingState.REVOKED
+            and row.pairing_token_reference is None
+            and row.bridge_secret_reference is None
+            and row.production_identity_generation is None
+            and row.reviewed_build_id is None
+        ):
+            return False
+        for value in (row.pairing_token_reference, row.bridge_secret_reference):
+            if value is not None:
+                queue_external_secret_retirement(
+                    session,
+                    store_kind="bridge",
+                    target_id=target_id,
+                    reference=UUID(value),
+                )
+        row.pairing_state = ExternalBridgePairingState.REVOKED
+        row.reachability_state = ExternalBridgeReachabilityState.UNKNOWN
+        row.pairing_token_reference = None
+        row.bridge_secret_reference = None
+        row.pairing_token_expires_at = None
+        row.verified_capabilities_json = "[]"
+        row.revoked_at = self._text(now)
+        if production_invalidation or row.production_bridge_trust_revision is not None:
             row.production_bridge_trust_revision = (
                 row.production_bridge_trust_revision or 0
             ) + 1
@@ -1238,9 +1360,15 @@ class ExternalBridgeService:
             row.reviewed_build_id = None
             row.production_confirmed_by = None
             row.production_confirmed_at = None
-            row.revoked_at = self._text(now)
-        for reference in references:
-            self._secrets.retire(reference)
+        return True
+
+    def _retire_pending_bridge_secrets(self, target_id: UUID) -> None:
+        retire_pending_external_secrets(
+            self._sessions,
+            store_kind="bridge",
+            target_id=target_id,
+            retire=self._secrets.retire,
+        )
 
     def mark_needs_reverification(self, target_id: UUID) -> ExternalBridgeStatus:
         now = self._clock()
@@ -1979,13 +2107,20 @@ class ExternalBridgeService:
                 )
         if expired_reference is not None:
             with self._sessions.begin() as session:
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                 row = session.get(ExternalBridgePairingRow, str(target_id))
                 if row is not None and row.pairing_token_reference == str(
                     expired_reference
                 ):
+                    queue_external_secret_retirement(
+                        session,
+                        store_kind="bridge",
+                        target_id=target_id,
+                        reference=expired_reference,
+                    )
                     row.pairing_token_reference = None
                     row.pairing_token_expires_at = None
-            self._secrets.retire(expired_reference)
+            self._retire_pending_bridge_secrets(target_id)
             raise ExternalBridgeServiceError("bridge_authentication_failed")
         assert snapshot is not None
         return snapshot
@@ -2304,6 +2439,7 @@ class ExternalBridgeService:
         now = self._clock()
         token_reference: UUID | None = None
         with self._sessions.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             row = session.get(ExternalBridgePairingRow, str(target_id))
             target = session.get(TargetRow, str(target_id))
             if row is not None:
@@ -2313,6 +2449,12 @@ class ExternalBridgeService:
                     and row.pairing_token_reference is not None
                 ):
                     token_reference = UUID(row.pairing_token_reference)
+                    queue_external_secret_retirement(
+                        session,
+                        store_kind="bridge",
+                        target_id=target_id,
+                        reference=token_reference,
+                    )
                     row.pairing_token_reference = None
                     row.pairing_token_expires_at = None
                 row.reachability_state = self._reachability(code)
@@ -2324,7 +2466,7 @@ class ExternalBridgeService:
                     classification=code,
                 )
         if token_reference is not None:
-            self._secrets.retire(token_reference)
+            self._retire_pending_bridge_secrets(target_id)
 
     def _publish_reachability(self, target_id: UUID, code: str) -> None:
         with self._sessions.begin() as session:
@@ -2472,6 +2614,7 @@ class ExternalBridgeService:
                     session,
                     target_id,
                     required_capabilities=frozenset({"target_inspect"}),
+                    _allow_household_onboarding=True,
                 )
             except ProductionInspectionError as error:
                 raise ExternalBridgeServiceError(error.code) from error

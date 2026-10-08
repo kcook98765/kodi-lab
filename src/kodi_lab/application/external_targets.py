@@ -42,6 +42,7 @@ from kodi_lab.storage.models import (
     ExternalKodiTargetObservationRow,
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
+    HouseholdOnboardingRow,
     McpClientTargetGrantRow,
     McpSecurityEventRow,
     McpTargetPresetAssignmentRow,
@@ -54,6 +55,9 @@ from kodi_lab.storage.secrets import (
     ExternalCredentialStore,
     ExternalKodiCredential,
     SecretStoreError,
+    external_secret_publication,
+    queue_external_secret_retirement,
+    retire_pending_external_secrets,
 )
 
 type ExternalProbeConfiguration = tuple[
@@ -224,6 +228,7 @@ class ExternalTargetAdministrationService:
         configured_capabilities: set[str],
         username: str | None = None,
         password: str | None = None,
+        _household_operation_id: UUID | None = None,
     ) -> ExternalTargetRead:
         name = self._name(logical_name)
         endpoint = self._validate_endpoint(protocol_kind, host, port)
@@ -236,14 +241,42 @@ class ExternalTargetAdministrationService:
         }:
             raise ExternalTargetError("endpoint_not_allowed")
         target_id = uuid4()
+        if _household_operation_id is not None:
+            with self._session_factory() as session:
+                operation = session.get(
+                    HouseholdOnboardingRow, str(_household_operation_id)
+                )
+                if (
+                    operation is None
+                    or operation.stage != "reserved"
+                    or self._target_type is not TargetType.EXTERNAL_PRODUCTION
+                ):
+                    raise ExternalTargetError("household_registration_invalid")
+                target_id = UUID(operation.target_id)
+
+        def validate_registration(session: Session) -> None:
+            if _household_operation_id is not None:
+                operation = session.get(
+                    HouseholdOnboardingRow, str(_household_operation_id)
+                )
+                if operation is None or operation.stage != "reserved":
+                    raise ExternalTargetError("household_registration_invalid")
+
         now = self._clock()
-        secret_reference: UUID | None = None
+        write: Callable[[UUID], UUID] | None = None
         if authentication_mode is ExternalAuthenticationMode.USERNAME_PASSWORD:
-            secret_reference = self._write_credential(target_id, username, password)
+            write = self._credential_writer(target_id, username, password)
         elif username is not None or password is not None:
             raise ExternalTargetError("secret_unavailable")
         try:
-            with self._session_factory.begin() as session:
+            with external_secret_publication(
+                self._session_factory,
+                store_kind="kodi",
+                target_id=target_id,
+                write=write,
+                retire=self._credential_store.retire,
+                validate=validate_registration,
+            ) as (session, secret_reference):
                 session.add(
                     TargetRow(
                         id=str(target_id),
@@ -323,11 +356,53 @@ class ExternalTargetAdministrationService:
                     ),
                     now,
                 )
-        except Exception:
-            if secret_reference is not None:
-                self._credential_store.retire(secret_reference)
-            raise
+        except SecretStoreError as error:
+            raise ExternalTargetError("secret_unavailable") from error
         return self.get(target_id)
+
+    def verify_current_identity(self, target_id: UUID) -> ExternalTargetRead:
+        """Fresh bounded read probe without replacing a confirmed observation."""
+        before = self.get(target_id)
+        if before.verification_state is not ExternalVerificationState.VERIFIED:
+            raise ExternalTargetError("needs_reverification")
+        with self._session_factory() as session:
+            _target, row = self._require_mutable(session, target_id)
+            reference = row.secret_reference
+        try:
+            endpoint = self._validate_endpoint(
+                before.protocol_kind, before.host, before.port
+            )
+            credential = (
+                None
+                if reference is None
+                else self._credential_store.read(target_id, UUID(reference))
+            )
+            observed = self._verifier.probe(
+                endpoint, credential, frozenset(before.configured_capabilities)
+            )
+        except (ExternalProbeError, SecretStoreError) as error:
+            raise ExternalTargetError(
+                getattr(error, "code", "secret_unavailable")
+            ) from None
+        if (
+            observed.addresses != before.verified_addresses
+            or observed.kodi_name != before.kodi_name
+            or observed.kodi_version != before.kodi_version
+            or observed.protocol_version != before.protocol_version
+            or set(observed.verified_capabilities) != set(before.verified_capabilities)
+            or self.get(target_id) != before
+        ):
+            raise ExternalTargetError("identity_mismatch")
+        with self._session_factory.begin() as session:
+            self._event(
+                session,
+                target_id,
+                "probe_succeeded",
+                self._clock(),
+                classification="current_identity_verified",
+                observation_id=before.pending_observation_id,
+            )
+        return before
 
     def list_targets(self) -> list[ExternalTargetRead]:
         with self._session_factory() as session:
@@ -422,22 +497,39 @@ class ExternalTargetAdministrationService:
         username: str | None = None,
         password: str | None = None,
     ) -> ExternalTargetRead:
+        def validate_rotation(session: Session) -> None:
+            _, row = self._require_mutable(session, target_id)
+            if row.administrative_state is not ExternalAdministrativeState.DISABLED:
+                raise ExternalTargetError("verification_required")
+
         current = self.get(target_id)
         if current.administrative_state is not ExternalAdministrativeState.DISABLED:
             raise ExternalTargetError("verification_required")
-        new_reference: UUID | None = None
+        write: Callable[[UUID], UUID] | None = None
         if authentication_mode is ExternalAuthenticationMode.USERNAME_PASSWORD:
-            new_reference = self._write_credential(target_id, username, password)
+            write = self._credential_writer(target_id, username, password)
         elif username is not None or password is not None:
             raise ExternalTargetError("secret_unavailable")
-        old_reference: UUID | None = None
         now = self._clock()
         try:
-            with self._session_factory.begin() as session:
+            with external_secret_publication(
+                self._session_factory,
+                store_kind="kodi",
+                target_id=target_id,
+                write=write,
+                retire=self._credential_store.retire,
+                validate=validate_rotation,
+            ) as (session, new_reference):
                 _target, row = self._require_mutable(session, target_id)
-                old_reference = (
-                    None if row.secret_reference is None else UUID(row.secret_reference)
-                )
+                if row.administrative_state is not ExternalAdministrativeState.DISABLED:
+                    raise ExternalTargetError("verification_required")
+                if row.secret_reference is not None:
+                    queue_external_secret_retirement(
+                        session,
+                        store_kind="kodi",
+                        target_id=target_id,
+                        reference=UUID(row.secret_reference),
+                    )
                 row.authentication_mode = authentication_mode
                 row.secret_reference = (
                     None if new_reference is None else str(new_reference)
@@ -451,12 +543,14 @@ class ExternalTargetAdministrationService:
                     bind_external_production_transition(session, row, policy, now=now)
                 self._event(session, target_id, "credential_rotated", now)
                 self._event(session, target_id, "reverification_required", now)
-        except Exception:
-            if new_reference is not None:
-                self._credential_store.retire(new_reference)
-            raise
-        if old_reference is not None:
-            self._credential_store.retire(old_reference)
+        except SecretStoreError as error:
+            raise ExternalTargetError("secret_unavailable") from error
+        retire_pending_external_secrets(
+            self._session_factory,
+            store_kind="kodi",
+            target_id=target_id,
+            retire=self._credential_store.retire,
+        )
         return self.get(target_id)
 
     def probe(self, target_id: UUID) -> ExternalTargetRead:
@@ -736,38 +830,65 @@ class ExternalTargetAdministrationService:
 
     def deactivate(self, target_id: UUID) -> ExternalTargetRead:
         now = self._clock()
-        old_reference: UUID | None = None
         with self._session_factory.begin() as session:
-            target, row = self._require_mutable(session, target_id)
-            old_reference = (
-                None if row.secret_reference is None else UUID(row.secret_reference)
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            target, row = self._require_mutable(
+                session, target_id, allow_deactivated=True
             )
-            row.secret_reference = None
-            row.administrative_state = ExternalAdministrativeState.DEACTIVATED
-            row.deactivated_at = _to_text(now)
-            policy = _production_policy(session, target_id)
-            if policy is not None:
-                policy.designation_state = ProductionDesignationState.DEACTIVATED
-                policy.mutations_suspended = True
-                bind_external_production_transition(session, row, policy, now=now)
-                self._cancel_live_approvals(session, now=now, target_id=target_id)
-            target.availability = TargetAvailability.UNAVAILABLE
-            target.connection_state = ConnectionState.DISCONNECTED
-            target.health = HealthStatus.WARNING
-            session.execute(
-                delete(McpClientTargetGrantRow).where(
-                    McpClientTargetGrantRow.target_id == str(target_id)
+            if row.administrative_state is not ExternalAdministrativeState.DEACTIVATED:
+                old_reference = (
+                    None if row.secret_reference is None else UUID(row.secret_reference)
                 )
-            )
-            session.execute(
-                delete(McpTargetPresetAssignmentRow).where(
-                    McpTargetPresetAssignmentRow.target_id == str(target_id)
+                if old_reference is not None:
+                    queue_external_secret_retirement(
+                        session,
+                        store_kind="kodi",
+                        target_id=target_id,
+                        reference=old_reference,
+                    )
+                row.secret_reference = None
+                row.administrative_state = ExternalAdministrativeState.DEACTIVATED
+                row.deactivated_at = _to_text(now)
+                policy = _production_policy(session, target_id)
+                if policy is not None:
+                    policy.designation_state = ProductionDesignationState.DEACTIVATED
+                    policy.mutations_suspended = True
+                    bind_external_production_transition(session, row, policy, now=now)
+                    self._cancel_live_approvals(session, now=now, target_id=target_id)
+                target.availability = TargetAvailability.UNAVAILABLE
+                target.connection_state = ConnectionState.DISCONNECTED
+                target.health = HealthStatus.WARNING
+                session.execute(
+                    delete(McpClientTargetGrantRow).where(
+                        McpClientTargetGrantRow.target_id == str(target_id)
+                    )
                 )
-            )
-            self._event(session, target_id, "deactivated", now)
-        if old_reference is not None:
-            self._credential_store.retire(old_reference)
+                session.execute(
+                    delete(McpTargetPresetAssignmentRow).where(
+                        McpTargetPresetAssignmentRow.target_id == str(target_id)
+                    )
+                )
+                self._event(session, target_id, "deactivated", now)
+        self.retire_deactivated_credentials(target_id)
         return self.get(target_id)
+
+    def retire_deactivated_credentials(self, target_id: UUID) -> None:
+        with self._session_factory() as session:
+            if session.get(TargetRow, str(target_id)) is not None:
+                _, row = self._require_mutable(
+                    session, target_id, allow_deactivated=True
+                )
+                if (
+                    row.administrative_state
+                    is not ExternalAdministrativeState.DEACTIVATED
+                ):
+                    raise ExternalTargetError("verification_required")
+        retire_pending_external_secrets(
+            self._session_factory,
+            store_kind="kodi",
+            target_id=target_id,
+            retire=self._credential_store.retire,
+        )
 
     @staticmethod
     def _cancel_live_approvals(
@@ -1009,7 +1130,7 @@ class ExternalTargetAdministrationService:
         row.verified_capabilities_json = "[]"
 
     def _require_mutable(
-        self, session: Session, target_id: UUID
+        self, session: Session, target_id: UUID, *, allow_deactivated: bool = False
     ) -> tuple[TargetRow, ExternalKodiTargetRow]:
         target = session.get(TargetRow, str(target_id))
         row = session.get(ExternalKodiTargetRow, str(target_id))
@@ -1022,7 +1143,10 @@ class ExternalTargetAdministrationService:
             and _production_policy(session, target_id) is None
         ):
             raise ExternalTargetError("production_policy_missing")
-        if row.administrative_state is ExternalAdministrativeState.DEACTIVATED:
+        if (
+            row.administrative_state is ExternalAdministrativeState.DEACTIVATED
+            and not allow_deactivated
+        ):
             raise ExternalTargetError("verification_required")
         return target, row
 
@@ -1034,17 +1158,20 @@ class ExternalTargetAdministrationService:
         except ExternalEndpointError as error:
             raise ExternalTargetError("endpoint_not_allowed") from error
 
-    def _write_credential(
+    def _credential_writer(
         self, target_id: UUID, username: str | None, password: str | None
-    ) -> UUID:
+    ) -> Callable[[UUID], UUID]:
         if username is None or password is None:
             raise ExternalTargetError("secret_unavailable")
         try:
-            return self._credential_store.write(
-                target_id, ExternalKodiCredential(username=username, password=password)
-            )
-        except (SecretStoreError, ValueError) as error:
+            credential = ExternalKodiCredential(username=username, password=password)
+        except ValueError as error:
             raise ExternalTargetError("secret_unavailable") from error
+        return lambda reference: self._credential_store.write(
+            target_id,
+            credential,
+            reference=reference,
+        )
 
     @staticmethod
     def _name(value: str) -> str:

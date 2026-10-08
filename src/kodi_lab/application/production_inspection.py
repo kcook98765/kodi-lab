@@ -10,7 +10,7 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from kodi_lab.domain import (
@@ -25,6 +25,7 @@ from kodi_lab.storage.models import (
     ExternalKodiTargetObservationRow,
     ExternalKodiTargetRow,
     ExternalProductionPolicyRow,
+    HouseholdOnboardingRow,
     ProductionBridgeHttpAcknowledgementRow,
     ReviewedBridgeBuildRow,
     TargetRow,
@@ -97,12 +98,27 @@ def evaluate_production_inspection_state(
     target_id: UUID,
     *,
     required_capabilities: frozenset[str],
+    _allow_household_onboarding: bool = False,
 ) -> ProductionInspectionState:
     """Evaluate the current confirmed production target state without I/O."""
 
     target = session.get(TargetRow, str(target_id))
     if target is None or target.target_type is not TargetType.EXTERNAL_PRODUCTION:
         raise ProductionInspectionError("target_not_found_or_not_authorized")
+    if (
+        not _allow_household_onboarding
+        # Historical migration fixtures predate the coordinator table and cannot
+        # contain a household operation. Normal Web startup requires current head.
+        and inspect(session.connection()).has_table("household_onboarding_operations")
+        and session.scalar(
+            select(HouseholdOnboardingRow.id).where(
+                HouseholdOnboardingRow.target_id == str(target_id),
+                HouseholdOnboardingRow.stage != "connected",
+            )
+        )
+        is not None
+    ):
+        raise ProductionInspectionError("household_onboarding_incomplete")
     row = session.get(ExternalKodiTargetRow, str(target_id))
     policy = session.get(ExternalProductionPolicyRow, str(target_id))
     if row is None or policy is None:

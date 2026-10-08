@@ -5848,3 +5848,63 @@ D-0413 resolves the provisional managed pairing-source assumption below.
   Reviewed builds, authenticated transport, exact HTTP acknowledgement, native trust,
   target isolation and production mutation/development vetoes are unchanged. This
   operation performs no live Kodi I/O and adds no MCP tool or Web UI workflow.
+
+## D-0416: Durable household Connect coordinates existing production trust
+
+- Household Kodi remains `external_production`. An authenticated Web administrator
+  coordinates registration, bounded native observation/confirmation, production
+  designation, safe enablement, explicit HTTP acknowledgement, reviewed OTP
+  pairing, read-only target policy and final fresh verification. Existing native
+  and Bridge audit/provenance records remain authoritative. No MCP grants/scopes,
+  remote-control consent or managed lifecycle changes are introduced.
+- A caller-retained operation UUID, durable preallocated target UUID and active
+  endpoint reservation precede registration. SQLite endpoint guards prevent other
+  administrator paths from adopting that reservation. POSIX locks serialize workers
+  sharing the same data-root, and release on process loss. Different operation IDs
+  at an occupied endpoint conflict; retries never adopt a target by name/version/IP.
+- Initial Connect stages an accurate endpoint/identity/revision-bound HTTP
+  disclosure. Only explicit acceptance of a previously returned current disclosure
+  records acknowledgement through the existing service. Pairing secrets and pixels
+  remain subject to the existing unencrypted HTTP risks; consent cannot be invented.
+  The safe target maximum is assigned before disclosure because assignment advances
+  native policy revision. A durable native binding pins the reserved endpoint,
+  confirmed observation, generation and resulting policy revision. Acknowledgement
+  validates the expected binding and writes its audit evidence under one SQLite
+  writer reservation; final publication also checks the original binding and token.
+  Concurrent edits cannot silently move consent to the target record's newer state.
+- A reviewed bootstrap candidate is checked before consuming OTP; it creates no
+  approval or trust. Existing authenticated full identity/capability/provenance
+  checks still precede commit. Unknown, retired or modified builds fail closed.
+- A bootstrap checkpoint precedes dispatch. Known rejection permits explicit
+  correction; uncertain outcomes never cause another OTP attempt. Existing durable
+  credentials recover lost commits. Missing credential after uncertain bootstrap
+  requires explicit local abandonment plus Bridge reset in Kodi. This deliberately
+  bounds recovery without redesigning the shared OTP state machine.
+- Intermediate native enablement cannot admit agents: production admission checks
+  require the household operation to be connected. Final SQLite publication binds
+  the fresh native/Bridge snapshots and Production Visual Inspection maximum.
+  Mutations remain suspended, screenshots use their independent initial preference,
+  and a later administrator preference is preserved on retry. Explicit abandonment
+  retires local trust/deactivates the target, preserves history and releases the
+  endpoint reservation; it never resets or controls the remote Kodi.
+  Retried cleanup accepts an already deactivated target, so interruption before
+  recording abandonment can converge without restoring credentials or authority.
+- Authority retirement and file deletion are separate durable steps. Existing shared
+  Bridge revocation/native invalidation and native credential deactivation journal
+  only opaque reference/store/target identities in the authority-retirement transaction.
+  New external credentials register an obligation before secret-store writes; a
+  serialized publication transaction rechecks lifecycle state and atomically transfers
+  the reference to live ownership. Replacement journals displaced references in that
+  transaction. Cleanup rechecks obligations under the same SQLite writer lock and
+  deletes both final and interrupted temporary files before acknowledgement.
+  Deletion obligations survive restart and are acknowledged only after idempotent
+  file deletion succeeds. Abandonment checks residual Bridge trust after deactivation
+  and cannot release its reservation while pending deletion obligations remain.
+- Only the shared OTP service's definitive pre-dispatch/pre-consumption classification
+  may reopen the bootstrap checkpoint. A post-consumption identity/protocol failure
+  remains uncertain even when unsigned discovery metadata is replayed. Persisted
+  credentials recover the existing transaction; otherwise reset/abandonment is required.
+- Migration 0071 adds coordinator persistence/reservation guards and the opaque
+  credential-retirement journal, and refuses populated downgrade. Historical pre-coordinator migration fixtures retain their
+  ordinary production contracts. See `HOUSEHOLD-ONBOARDING.md` for API, transitions,
+  deployment assumptions and the conservative pre-persistence recovery limitation.

@@ -134,6 +134,10 @@ from kodi_lab.storage.development_capability_sql import (
     DEVELOPMENT_CAPABILITY_TRIGGERS,
     PRODUCTION_SCREENSHOT_TARGET_GUARD,
 )
+from kodi_lab.storage.household_onboarding_sql import (
+    EXTERNAL_SECRET_RETIREMENT_TRIGGERS,
+    HOUSEHOLD_ONBOARDING_TRIGGERS,
+)
 from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.screenshot_preference_sql import SCREENSHOT_PREFERENCE_TRIGGERS
 
@@ -1337,6 +1341,64 @@ class TargetRow(Base):
         ),
         nullable=False,
     )
+
+
+class ExternalSecretRetirementRow(Base):
+    """Opaque obligation preceding publication or following authority retirement."""
+
+    __tablename__ = "external_secret_retirements"
+    __table_args__ = (
+        CheckConstraint(
+            "store_kind IN ('bridge','kodi')",
+            name="external_secret_retirement_store_closed",
+        ),
+        CheckConstraint(
+            "length(reference)=36 AND length(target_id)=36 AND length(created_at)=27",
+            name="external_secret_retirement_identity_bounded",
+        ),
+    )
+
+    store_kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    reference: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # No cascading FK: deleting a target must not erase a deletion obligation.
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class HouseholdOnboardingRow(Base):
+    """Durable request identity; target UUID is reserved before registration."""
+
+    __tablename__ = "household_onboarding_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "stage IN ('reserved','native_verified','bootstrap_started',"
+            "'paired','connected','blocked','abandoned')",
+            name="household_onboarding_stage",
+        ),
+        Index(
+            "uq_household_onboarding_endpoint",
+            "host",
+            "kodi_port",
+            unique=True,
+            sqlite_where=text("stage <> 'abandoned'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Deliberately no FK: reservation must precede target creation durably.
+    target_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    host: Mapped[str] = mapped_column(String(64), nullable=False)
+    kodi_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    disclosure_token: Mapped[str | None] = mapped_column(String(64))
+    native_binding_digest: Mapped[str | None] = mapped_column(String(64))
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
 class ExternalScreenshotPreferenceRow(Base):
@@ -7688,6 +7750,8 @@ for _trigger_sql in _CAPABILITY_AMENDMENT_CREATE_TRIGGERS:
 for _trigger_sql in (
     *DEVELOPMENT_CAPABILITY_TRIGGERS,
     *SCREENSHOT_PREFERENCE_TRIGGERS,
+    *HOUSEHOLD_ONBOARDING_TRIGGERS,
+    *EXTERNAL_SECRET_RETIREMENT_TRIGGERS,
 ):
     event.listen(
         Base.metadata,

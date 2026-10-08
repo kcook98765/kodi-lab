@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0070_external_screenshot_preference",)
+        ).fetchone() == ("0071_household_onboarding",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -486,6 +486,8 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "mcp_workspace_execution_operations",
         "workspace_execution_recovery_operations",
         "historical_workspace_execution_containment_resolutions",
+        "household_onboarding_operations",
+        "external_secret_retirements",
         "mcp_workspace_validations",
         "managed_instance_delete_operations",
         "managed_instance_addon_repository_sources",

@@ -6,19 +6,158 @@ import base64
 import json
 import os
 import stat
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid4
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from kodi_lab.storage.models import ExternalSecretRetirementRow
 
 MAX_SECRET_FILE_BYTES = 16_384
 
 
 class SecretStoreError(RuntimeError):
     """Fail-closed secret configuration or storage error."""
+
+
+def queue_external_secret_retirement(
+    session: Session,
+    *,
+    store_kind: Literal["bridge", "kodi"],
+    target_id: UUID,
+    reference: UUID,
+) -> None:
+    """Journal an unpublished reference or atomically remove live ownership."""
+    key = (store_kind, str(reference))
+    existing = session.get(ExternalSecretRetirementRow, key)
+    if existing is not None:
+        if existing.target_id != str(target_id):
+            raise SecretStoreError("secret retirement target mismatch")
+        return
+    session.add(
+        ExternalSecretRetirementRow(
+            store_kind=store_kind,
+            reference=str(reference),
+            target_id=str(target_id),
+            created_at=datetime.now(UTC)
+            .isoformat(timespec="microseconds")
+            .replace("+00:00", "Z"),
+        )
+    )
+
+
+@contextmanager
+def external_secret_publication(
+    sessions: sessionmaker[Session],
+    *,
+    store_kind: Literal["bridge", "kodi"],
+    target_id: UUID,
+    write: Callable[[UUID], object] | None,
+    retire: Callable[[UUID], None],
+    validate: Callable[[Session], object] | None = None,
+) -> Iterator[tuple[Session, UUID | None]]:
+    """Journal before materializing, then atomically transfer to durable ownership.
+
+    The caller publishes the reference in the yielded writer transaction. No
+    network work belongs here. Process loss leaves the previously committed
+    obligation; rollback never depends on successful secret deletion.
+    """
+    reference = None if write is None else uuid4()
+    if reference is not None:
+        with sessions.begin() as session:
+            queue_external_secret_retirement(
+                session,
+                store_kind=store_kind,
+                target_id=target_id,
+                reference=reference,
+            )
+    try:
+        with sessions.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            if validate is not None:
+                validate(session)
+            pending = None
+            if reference is not None:
+                pending = session.get(
+                    ExternalSecretRetirementRow, (store_kind, str(reference))
+                )
+                # Cleanup can win between registration and writer acquisition.
+                # A removed obligation must never be rematerialized.
+                if pending is None or pending.target_id != str(target_id):
+                    raise SecretStoreError("secret publication was retired")
+                assert write is not None
+                write(reference)
+            yield session, reference
+            session.flush()
+            if pending is not None:
+                session.delete(pending)
+    except Exception:
+        if reference is not None:
+            retire_pending_external_secrets(
+                sessions,
+                store_kind=store_kind,
+                target_id=target_id,
+                retire=retire,
+                reference=reference,
+            )
+        raise
+
+
+def retire_pending_external_secrets(
+    sessions: sessionmaker[Session],
+    *,
+    store_kind: Literal["bridge", "kodi"],
+    target_id: UUID,
+    retire: Callable[[UUID], None],
+    reference: UUID | None = None,
+) -> None:
+    """Delete exact files before clearing their durable deletion obligations."""
+    with sessions() as session:
+        query = select(ExternalSecretRetirementRow.reference).where(
+            ExternalSecretRetirementRow.store_kind == store_kind,
+            ExternalSecretRetirementRow.target_id == str(target_id),
+        )
+        if reference is not None:
+            query = query.where(ExternalSecretRetirementRow.reference == str(reference))
+        references = session.scalars(query).all()
+    for value in references:
+        with sessions.begin() as session:
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            pending = session.get(ExternalSecretRetirementRow, (store_kind, value))
+            if pending is None or pending.target_id != str(target_id):
+                continue
+            # Serialize deletion with publication and recheck after acquiring
+            # the writer lock: an earlier snapshot may now have a live owner.
+            retire(UUID(value))
+            session.execute(
+                delete(ExternalSecretRetirementRow).where(
+                    ExternalSecretRetirementRow.store_kind == store_kind,
+                    ExternalSecretRetirementRow.target_id == str(target_id),
+                    ExternalSecretRetirementRow.reference == value,
+                )
+            )
+
+
+def _retire_secret_files(directory_fd: int, reference: UUID) -> None:
+    for name in (f"{reference}.json", f".{reference}.tmp"):
+        try:
+            metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            raise SecretStoreError("secret file metadata is unsafe")
+        os.unlink(name, dir_fd=directory_fd)
+    # Even an already-missing file needs this: an earlier unlink may have
+    # succeeded while its directory fsync failed before acknowledgement.
+    os.fsync(directory_fd)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,9 +206,15 @@ class ExternalCredentialStore:
     def available(self) -> bool:
         return self._master_key is not None
 
-    def write(self, target_id: UUID, credential: ExternalKodiCredential) -> UUID:
+    def write(
+        self,
+        target_id: UUID,
+        credential: ExternalKodiCredential,
+        *,
+        reference: UUID | None = None,
+    ) -> UUID:
         key = self._require_key()
-        reference = uuid4()
+        reference = reference or uuid4()
         plaintext = json.dumps(
             {"username": credential.username, "password": credential.password},
             sort_keys=True,
@@ -91,7 +236,7 @@ class ExternalCredentialStore:
         if len(document) > MAX_SECRET_FILE_BYTES:
             raise SecretStoreError("encrypted credential is too large")
         directory_fd = self._open_directory(create=True)
-        temporary = f".{uuid4()}.tmp"
+        temporary = f".{reference}.tmp"
         final = f"{reference}.json"
         try:
             try:
@@ -194,18 +339,15 @@ class ExternalCredentialStore:
             ) from error
 
     def retire(self, reference: UUID) -> None:
-        """Remove one exact UUID secret without following attacker-controlled links."""
-
-        directory_fd = self._open_directory(create=False)
+        """Delete final and interrupted temporary files for one exact reference."""
         try:
-            name = f"{reference}.json"
-            metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-            if not stat.S_ISREG(metadata.st_mode):
-                raise SecretStoreError("secret file metadata is unsafe")
-            os.unlink(name, dir_fd=directory_fd)
-            os.fsync(directory_fd)
-        except FileNotFoundError:
-            return
+            directory_fd = self._open_directory(create=False)
+        except SecretStoreError as error:
+            if isinstance(error.__cause__, FileNotFoundError):
+                return
+            raise
+        try:
+            _retire_secret_files(directory_fd, reference)
         finally:
             os.close(directory_fd)
 
@@ -258,11 +400,18 @@ class ExternalBridgeSecretStore:
     def available(self) -> bool:
         return self._master_key is not None
 
-    def write(self, target_id: UUID, purpose: str, secret: bytes) -> UUID:
+    def write(
+        self,
+        target_id: UUID,
+        purpose: str,
+        secret: bytes,
+        *,
+        reference: UUID | None = None,
+    ) -> UUID:
         if purpose not in self._PURPOSES or len(secret) != 32:
             raise SecretStoreError("bridge secret shape is invalid")
         key = self._require_key()
-        reference = uuid4()
+        reference = reference or uuid4()
         nonce = os.urandom(12)
         ciphertext = AESGCM(key).encrypt(
             nonce,
@@ -284,7 +433,7 @@ class ExternalBridgeSecretStore:
             raise SecretStoreError("encrypted bridge secret is too large")
         reference_name = f"{reference}.json"
         directory_fd = self._open_directory(create=True)
-        temporary = f".{uuid4()}.tmp"
+        temporary = f".{reference}.tmp"
         try:
             try:
                 os.stat(reference_name, dir_fd=directory_fd, follow_symlinks=False)
@@ -387,16 +536,15 @@ class ExternalBridgeSecretStore:
             ) from error
 
     def retire(self, reference: UUID) -> None:
-        directory_fd = self._open_directory(create=False)
+        """Delete final and interrupted temporary files for one exact reference."""
         try:
-            name = f"{reference}.json"
-            metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-            if not stat.S_ISREG(metadata.st_mode):
-                raise SecretStoreError("secret file metadata is unsafe")
-            os.unlink(name, dir_fd=directory_fd)
-            os.fsync(directory_fd)
-        except FileNotFoundError:
-            return
+            directory_fd = self._open_directory(create=False)
+        except SecretStoreError as error:
+            if isinstance(error.__cause__, FileNotFoundError):
+                return
+            raise
+        try:
+            _retire_secret_files(directory_fd, reference)
         finally:
             os.close(directory_fd)
 
