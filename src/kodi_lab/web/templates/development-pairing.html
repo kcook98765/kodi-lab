@@ -1,0 +1,57 @@
+
+
+      <p>In Kodi, open <strong>Pair Kodi Lab</strong> and enter its four-character code here. The code expires after five minutes.</p>
+      {% if unified_add_kodi %}<p class="notice">Development pairing uses unencrypted HTTP on your private network. Pairing codes and credentials can be observed in transit. Continue only on a network you trust.</p><p>Connecting development Kodi does not grant an agent development or deployment permissions. Agent access is managed separately.</p>{% endif %}
+      <form{% if unified_add_kodi %} method="post" action="/add-kodi"{% endif %} data-pair-form>
+        {% if unified_add_kodi %}<fieldset class="household-js-gate" data-pair-gate disabled><legend class="visually-hidden">Development Kodi connection</legend>{% endif %}
+        <label>Friendly name <input name="name" maxlength="120" required autocomplete="off"></label>
+        <label>Kodi IP address <input name="address" maxlength="64" required inputmode="decimal" autocomplete="off" placeholder="192.168.1.20"></label>
+        <label>Pairing code <input name="code" class="pair-code" type="text" minlength="4" maxlength="4" pattern="[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}" required autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="development-code-help"></label>
+        <p id="development-code-help" class="secondary">Use the code currently shown in Kodi. Letters are not case-sensitive.</p>
+        <details>
+          <summary>Kodi username and password</summary>
+          <p class="secondary">Fill these in only if Kodi requires HTTP/JSON-RPC sign-in.</p>
+          <label>Username <input name="username" maxlength="256" autocomplete="username"></label>
+          <label>Password <input name="password" type="password" maxlength="1024" autocomplete="current-password"></label>
+        </details>
+        <details>
+          <summary>Advanced ports</summary>
+          <label>Kodi HTTP port <input name="kodi_port" type="number" min="1" max="65535" value="8080" required></label>
+          <label>Kodi Lab bridge port <input name="bridge_port" type="number" min="1" max="65535" value="8765" required></label>
+        </details>
+        <button class="{% if unified_add_kodi %}primary-action{% endif %}" type="submit" data-pair-button>{{ 'Connect' if unified_add_kodi else 'Pair' }}</button>
+        {% if unified_add_kodi %}</fieldset>{% endif %}
+      </form>
+      <p data-progress role="status" aria-live="polite" hidden></p>
+      <p class="error" data-error role="alert" hidden></p>
+      <section data-resume hidden>
+        <p data-development-recovery-message>Pairing may have started. Check and finish this connection without entering the code again.</p>
+        <button type="button" data-resume-button>Resume pairing</button>
+        {% if unified_add_kodi %}<p><a href="/external-targets">Review development connections</a></p>{% endif %}
+      </section>
+      <section data-success role="status" aria-live="polite" hidden>
+        <h2>Paired</h2>
+        <p><strong data-paired-name></strong> · Kodi <span data-kodi-version></span> · <span data-paired-address></span></p>
+        <p>Kodi Lab bridge connected.</p>
+        <a href="/external-targets">View connected Kodi targets</a>
+        {% if unified_add_kodi %}<p><button type="button" data-development-another>Add another development Kodi</button></p>{% endif %}
+      </section>
+      {% if unified_add_kodi %}
+      <details class="household-details">
+        <summary>Advanced: recover development pairing</summary>
+        <form method="post" action="/add-kodi" data-development-recovery>
+          <fieldset class="household-js-gate" data-pair-gate disabled>
+            <legend class="visually-hidden">Development pairing recovery</legend>
+            <label for="development-recovery-id">Development target identifier</label>
+            <input id="development-recovery-id" data-development-recovery-id required maxlength="36" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" autocomplete="off" spellcheck="false">
+            <p class="field-help">Use the identifier of an existing development connection from advanced administration. This checks saved pairing without sending a code. A Home operation identifier cannot be used here.</p>
+            <button type="submit">Resume development pairing</button>
+          </fieldset>
+        </form>
+      </details>
+      {% endif %}
+      <details>
+        <summary>Older bridges</summary>
+        <p>Code pairing requires a current Kodi Lab bridge. <a href="/external-targets">Legacy pairing</a> is available in advanced target administration.</p>
+      </details>
+{% if not unified_add_kodi %}<p><a href="/external-targets">Back to connected Kodi targets</a></p>{% endif %}

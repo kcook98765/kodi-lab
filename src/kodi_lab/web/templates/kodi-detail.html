@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% set nav_section = 'kodi' %}
+{% block title %}{{ kodi.target.logical_name }} · Kodi Lab{% endblock %}
+{% block main_class %}kodi-page kodi-detail{% endblock %}
+{% block content %}
+<a class="kodi-back" href="/kodi">← All Kodi</a>
+<h1>{{ kodi.target.logical_name }}</h1>
+<p class="kodi-recorded-note">Status reflects the last recorded checks. Live availability is not checked when you view this page.</p>
+<section class="kodi-panel" aria-labelledby="overview-heading">
+  <h2 id="overview-heading">Overview</h2>
+  <p><span class="kodi-status" data-status="{{ kodi.status }}">{{ kodi.status_label }}</span></p>
+  <p>{{ kodi.status_note }}</p>
+  <dl>
+    <dt>Kodi version</dt><dd>{{ kodi.target.kodi_version or 'Not yet known' }}</dd>
+    <dt>Bridge connection</dt><dd>{{ kodi.bridge_label }}</dd>
+    {% if kodi.bridge and kodi.bridge.verified_at %}<dt>Bridge last verified</dt><dd><time datetime="{{ kodi.bridge.verified_at.isoformat() }}">{{ kodi.bridge.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time></dd>{% endif %}
+    {% if kodi.target.verified_at %}<dt>Kodi last verified</dt><dd><time datetime="{{ kodi.target.verified_at.isoformat() }}">{{ kodi.target.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time></dd>{% endif %}
+  </dl>
+</section>
+<section class="kodi-panel" aria-labelledby="access-heading">
+  <h2 id="access-heading">Access</h2>
+  <dl><dt>Access mode</dt><dd>{{ kodi.access_label }}</dd><dt>Remote control</dt><dd>{{ kodi.remote_label }}</dd></dl>
+  <p>Read-only inspection is the normal baseline. These settings do not grant an agent access to Kodi.</p>
+</section>
+<section class="kodi-panel" aria-labelledby="screenshots-heading">
+  <h2 id="screenshots-heading">Screenshots</h2>
+  <dl><dt>Capture preference</dt><dd>{% if kodi.preference %}{{ 'Enabled' if kodi.preference.enabled else 'Disabled' }}{% else %}Unavailable{% endif %}</dd></dl>
+  <p>Screenshots are ordinary read-only inspection. This preference is independent of the access mode.</p>
+  <p>Capture also requires authorization and a verified connection. This view does not capture an image or change your preference.</p>
+</section>
+<section class="kodi-panel" aria-labelledby="connection-heading">
+  <h2 id="connection-heading">Connection</h2>
+  <dl>
+    <dt>Address</dt><dd>{{ kodi.target.host }}</dd>
+    <dt>Connection type</dt><dd>{{ 'Encrypted HTTPS' if kodi.target.protocol_kind.value == 'jsonrpc_https' else 'HTTP on your local network' }}</dd>
+  </dl>
+  {% if kodi.status == 'connected' %}<p>The stored Bridge relationship is verified. No connection check is sent when this page opens.</p>
+  {% elif kodi.status == 'disconnected' %}<p>Check that Kodi is running and on your network. An administrator can review the existing connection settings.</p>
+  {% else %}<p>An administrator can review setup and verification in the existing advanced administration.</p>{% endif %}
+  <details class="kodi-diagnostics">
+    <summary>Advanced diagnostics</summary>
+    <dl>
+      <dt>Target identifier</dt><dd><code>{{ kodi.target.target_id }}</code></dd>
+      <dt>Administration</dt><dd>{{ kodi.target.administrative_state.value }}</dd>
+      <dt>Native verification</dt><dd>{{ kodi.target.verification_state.value }}</dd>
+      <dt>Native observation</dt><dd>{{ kodi.target.observation_state.value if kodi.target.observation_state else 'unknown' }}</dd>
+      {% if kodi.target.last_observed_at %}<dt>Native last checked</dt><dd><time datetime="{{ kodi.target.last_observed_at.isoformat() }}">{{ kodi.target.last_observed_at.strftime('%d %b %Y, %H:%M UTC') }}</time> (may include a failed check)</dd>{% endif %}
+      <dt>Kodi port</dt><dd>{{ kodi.target.port }}</dd>
+      {% if kodi.onboarding_stage %}<dt>Onboarding stage</dt><dd>{{ kodi.onboarding_stage }}</dd>{% endif %}
+      {% if kodi.bridge %}
+      <dt>Bridge pairing</dt><dd>{{ kodi.bridge.pairing_state.value }}</dd>
+      <dt>Bridge observation</dt><dd>{{ kodi.bridge.reachability_state.value }}</dd>
+      <dt>Bridge port</dt><dd>{{ kodi.bridge.bridge_port or 'Not configured' }}</dd>
+      {% endif %}
+      {% if kodi.diagnostic_code %}<dt>Verification result</dt><dd><code>{{ kodi.diagnostic_code }}</code></dd>{% endif %}
+    </dl>
+    <a class="button-link" href="/production-targets">Open advanced administration</a>
+  </details>
+</section>
+{% endblock %}

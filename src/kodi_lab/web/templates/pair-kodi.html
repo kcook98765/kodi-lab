@@ -7,41 +7,6 @@
 {% block main_class %}pair-kodi{% endblock %}
 {% block main_attributes %}data-pair-kodi data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
-      <h1>Pair Kodi</h1>
-      <p>In Kodi, open <strong>Pair Kodi Lab</strong> and enter its four-character code here. The code expires after five minutes.</p>
-      <form data-pair-form>
-        <label>Friendly name <input name="name" maxlength="120" required autocomplete="off"></label>
-        <label>Kodi IP address <input name="address" maxlength="64" required inputmode="decimal" autocomplete="off" placeholder="192.168.1.20"></label>
-        <label>Pairing code <input name="code" class="pair-code" type="text" minlength="4" maxlength="4" pattern="[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}" required autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="pair-code-help"></label>
-        <p id="pair-code-help" class="secondary">Use the code currently shown in Kodi. Letters are not case-sensitive.</p>
-        <details>
-          <summary>Kodi username and password</summary>
-          <p class="secondary">Fill these in only if Kodi requires HTTP/JSON-RPC sign-in.</p>
-          <label>Username <input name="username" maxlength="256" autocomplete="username"></label>
-          <label>Password <input name="password" type="password" maxlength="1024" autocomplete="current-password"></label>
-        </details>
-        <details>
-          <summary>Advanced ports</summary>
-          <label>Kodi HTTP port <input name="kodi_port" type="number" min="1" max="65535" value="8080" required></label>
-          <label>Kodi Lab bridge port <input name="bridge_port" type="number" min="1" max="65535" value="8765" required></label>
-        </details>
-        <button type="submit" data-pair-button>Pair</button>
-      </form>
-      <p data-progress role="status" aria-live="polite" hidden></p>
-      <p class="error" data-error role="alert" hidden></p>
-      <section data-resume hidden>
-        <p>Pairing may have started. Check and finish this connection without entering the code again.</p>
-        <button type="button" data-resume-button>Resume pairing</button>
-      </section>
-      <section data-success role="status" aria-live="polite" hidden>
-        <h2>Paired</h2>
-        <p><strong data-paired-name></strong> · Kodi <span data-kodi-version></span> · <span data-paired-address></span></p>
-        <p>Kodi Lab bridge connected.</p>
-        <a href="/external-targets">View connected Kodi targets</a>
-      </section>
-      <details>
-        <summary>Older bridges</summary>
-        <p>Code pairing requires a current Kodi Lab bridge. <a href="/external-targets">Legacy pairing</a> is available in advanced target administration.</p>
-      </details>
-      <p><a href="/external-targets">Back to connected Kodi targets</a></p>
-    {% endblock %}
+<h1>Pair Kodi</h1>
+{% include 'development-pairing.html' %}
+{% endblock %}

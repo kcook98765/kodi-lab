@@ -352,7 +352,7 @@ def _read_reviewed_bridge(
         or provenance.get("protocol") != "1"
         or provenance.get("bootstrap") != "otp-1"
         or provenance.get("builder") != "kodi-lab-narrow-bridge-zip-v2"
-        or provenance.get("capabilities") != _bridge_capabilities(bridge)
+        or provenance.get("capabilities") != bridge_capabilities(bridge)
         or provenance.get("source_commit") != manifest.get("source_commit")
         or provenance.get("source_tree") != manifest.get("source_tree")
     ):
@@ -360,7 +360,7 @@ def _read_reviewed_bridge(
     return bridge, manifest, provenance
 
 
-def _bridge_capabilities(bridge: bytes) -> list[str]:
+def bridge_capabilities(bridge: bytes) -> list[str]:
     """Match provenance to the exact pinned ZIP, including retained releases."""
     with (
         zipfile.ZipFile(io.BytesIO(bridge)) as archive,

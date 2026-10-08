@@ -24,7 +24,8 @@ def test_add_kodi_requires_auth_and_preserves_legacy_page(client: TestClient) ->
     assert "data-js-gate disabled" in response.text
     assert "data-manual-recovery" in response.text
     assert 'type="checkbox" required data-consent' in response.text
-    assert "checked" not in response.text
+    assert 'type="checkbox" required data-consent checked' not in response.text
+    assert 'name="kodi_use" value="home" checked' in response.text
     assert "unencrypted HTTP" in response.text
     assert "does not grant access to an MCP agent" in response.text
     assert "frame-ancestors" in response.headers["content-security-policy"]

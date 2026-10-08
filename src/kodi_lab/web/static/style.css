@@ -178,3 +178,60 @@ dd { margin: 0; }
   .admin-content dl { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
   .admin-content dd { margin-bottom: .6rem; }
 }
+
+/* Household Kodi inventory and settings; no live polling or controls. */
+.kodi-page-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.kodi-page-heading h1 { margin: 0; font-size: 1.75rem; }
+.kodi-page-heading p { margin: .5rem 0; }
+.kodi-page .button-link, .kodi-back, .kodi-diagnostics summary { min-height: 2.75rem; padding: .65rem .85rem; }
+.kodi-page .kodi-primary { background: #235b8e; color: #fff; border-color: #235b8e; font-weight: 600; }
+.kodi-recorded-note { font-size: .95rem; margin: 1.25rem 0 1.75rem; }
+.kodi-page h2 { font-size: 1.25rem; }
+.kodi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; list-style: none; padding: 0; }
+.kodi-card, .kodi-panel, .kodi-empty { border: 1px solid var(--admin-border); border-radius: .5rem; padding: 1.25rem; min-width: 0; }
+.kodi-card { display: flex; flex-direction: column; align-items: flex-start; }
+.kodi-card h3, .kodi-panel h2, .kodi-empty h3 { margin-top: 0; }
+.kodi-card h3 { margin-bottom: .5rem; font-size: 1.2rem; }
+.kodi-card p { margin: .35rem 0; }
+.kodi-card .kodi-view-action { margin-top: auto; }
+.admin-content .kodi-card dl { grid-template-columns: minmax(0, 1fr); gap: .15rem; width: 100%; margin: 1rem 0; }
+.kodi-card dd { margin-bottom: .5rem; }
+.kodi-status { display: inline-block; font-weight: 600; border-radius: .3rem; padding: .25rem .6rem; background: #eef0f3; color: #343c48; }
+.kodi-status[data-status="connected"] { background: #e1f0e7; color: #205b39; }
+.kodi-status[data-status="attention"] { background: #fff0d6; color: #785013; }
+.kodi-panel { margin: 1rem 0; }
+.kodi-detail { max-width: 48rem; }
+.kodi-back { display: inline-block; padding-left: 0; }
+.kodi-detail > h1 { margin: .5rem 0; font-size: 1.75rem; }
+.kodi-diagnostics { margin-top: 1.5rem; }
+.kodi-diagnostics summary { cursor: pointer; font-weight: 600; padding-left: 0; }
+.kodi-diagnostics dl { margin: 1rem 0; }
+@media (max-width: 600px) {
+  .kodi-page-heading { align-items: flex-start; }
+  .kodi-grid { grid-template-columns: minmax(0, 1fr); }
+  .kodi-card, .kodi-panel, .kodi-empty { padding: 1rem; }
+}
+@media (prefers-color-scheme: dark) {
+  .kodi-status { background: #303a48; color: #e2e7ef; }
+  .kodi-status[data-status="connected"] { background: #234632; color: #c2efd2; }
+  .kodi-status[data-status="attention"] { background: #4f3c1c; color: #ffe2a5; }
+}
+
+/* Unified choice wraps the existing mode-specific onboarding forms. */
+.household-panel [data-unified-add-kodi], .household-panel [data-onboarding-mode] { min-width: 0; }
+.household-panel .kodi-use-choice { margin: 1.25rem 0 .75rem; }
+.household-panel .kodi-installation { border: 1px solid #8887; border-radius: .4rem; padding: 0 1rem; margin: 1rem 0; }
+.household-panel .kodi-installation summary { padding: .85rem 0; }
+.household-panel .kodi-installation p, .household-panel .kodi-installation li { line-height: 1.6; }
+.household-panel .kodi-installation h2 { font-size: 1.2rem; }
+.household-panel .kodi-installation-steps { padding-left: 1.4rem; }
+.household-panel .kodi-installation-steps li { padding-left: .2rem; margin: .65rem 0; }
+.household-panel .repository-source-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .6rem; margin-bottom: .5rem; }
+@media (max-width: 600px) {
+  .household-panel .repository-source-actions { grid-template-columns: minmax(0, 1fr); }
+}
+.household-panel input[type="radio"] { flex: 0 0 1.25rem; width: 1.25rem; min-height: 1.25rem; height: 1.25rem; margin: .1rem 0 0; }
+.household-panel .kodi-use-choice .check-label { margin: 0; }
+.household-panel [data-onboarding-mode="development"] label { display: grid; gap: .35rem; }
+.household-panel [data-onboarding-mode="development"] details { margin: .75rem 0; }
+.household-panel [data-onboarding-mode="development"] summary { min-height: 2.75rem; padding: .65rem 0; cursor: pointer; font-weight: 600; }

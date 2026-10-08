@@ -4,7 +4,7 @@
 {% block main_attributes %}data-external-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
       <h1>External development targets</h1>
-      <p><a class="button-link" href="/pair-kodi">Pair Kodi</a> <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
+      <p>{% if add_kodi_enabled %}<a class="button-link" href="/add-kodi?mode=development">Add Kodi</a>{% else %}<a class="button-link" href="/pair-kodi">Pair Kodi</a>{% endif %} <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
       <p class="secondary">Web-only registration, native verification, and optional authenticated screenshot bridge pairing. MCP bridge administration, external deployment, execution, lifecycle control, and external production are unavailable.</p>
       <p>Allowed ports: {{ allowed_ports | join(', ') }}. {% if test_loopback_enabled %}<strong>Test-only loopback is enabled.</strong>{% else %}Private-LAN IP literals only; loopback is disabled.{% endif %}</p>
       <p class="error" data-error role="alert" hidden></p>

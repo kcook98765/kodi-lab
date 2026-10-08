@@ -83,6 +83,8 @@ async function consentAndSuccess() {
   b.form.listeners.submit(event); // Double click cannot dispatch twice.
   await settle();
   assert.equal(b.calls.length, 1);
+  assert.deepEqual(Object.keys(JSON.parse(b.stored.get(key))).sort(), ["id", "mode", "namespace"]);
+  assert.equal(JSON.parse(b.stored.get(key)).mode, "home");
   assert.equal(b.calls[0].url, "/api/household-onboarding");
   assert.equal(b.calls[0].options.credentials, "same-origin");
   assert.equal(b.calls[0].options.headers["X-Kodi-Lab-CSRF"], "csrf-fixture");
@@ -107,7 +109,7 @@ async function consentAndSuccess() {
   assert.equal(b.find("agent-note").hidden, false);
   assert.equal(b.find("resume-code").value, "");
   assert.equal(b.find("abandon-form").hidden, true);
-  assert.deepEqual(Object.keys(JSON.parse(b.stored.get(key))).sort(), ["id", "namespace"]);
+  assert.equal(b.stored.has(key), false, "Completed operations do not remain as stale recovery records");
   assert.ok(!JSON.stringify([...b.stored]).includes("7KQ4"));
   assert.ok(!JSON.stringify([...b.stored]).includes("PRIVATE-PASSWORD"));
 }

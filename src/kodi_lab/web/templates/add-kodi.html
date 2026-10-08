@@ -1,20 +1,62 @@
 {% extends 'base.html' %}
 {% set nav_section = 'kodi' %}
+{% set initial_mode = initial_mode|default('home') %}
 {% block title %}Add Kodi · Kodi Lab{% endblock %}
 {% block head %}
+<script src="{{ url_for('static', path='/add-kodi-mode.js') }}" defer></script>
 <script src="{{ url_for('static', path='/add-kodi.js') }}" defer></script>
+<script src="{{ url_for('static', path='/pair-kodi.js') }}" defer></script>
+<script src="{{ url_for('static', path='/add-kodi-installation.js') }}" defer></script>
 {% endblock %}
 {% block body_class %}household-page{% endblock %}
 {% block main_class %}household-panel{% endblock %}
-{% block main_attributes %}data-add-kodi data-csrf-token="{{ csrf_token }}" data-recovery-namespace="{{ recovery_namespace }}"{% endblock %}
+{% block main_attributes %}data-unified-add-kodi data-initial-mode="{{ initial_mode }}"{% endblock %}
 {% block content %}
       <h1>Add Kodi</h1>
-      <ol class="household-steps">
-        <li>Install the <a href="/kodi-repository">Kodi Lab repository</a> on Kodi.</li>
-        <li>Install <strong>Kodi Lab Bridge</strong>.</li>
-        <li>Open Bridge to obtain the pairing code.</li>
-      </ol>
-      <noscript><p class="notice">Enable JavaScript to connect Kodi and recover an incomplete connection.</p></noscript>
+      <details class="household-details kodi-installation" data-installation>
+        <summary>Install Kodi Lab Bridge</summary>
+        <p>Follow these steps on Kodi before entering a pairing code below. The same Bridge works for Home and Development Kodi.</p>
+        {% if repository_source_url %}
+        <label for="repository-source-url">Kodi Lab repository source URL</label>
+        <div class="repository-source-actions">
+          <input id="repository-source-url" data-repository-source-url type="text" value="{{ repository_source_url }}" readonly autocomplete="off" spellcheck="false" aria-describedby="repository-copy-status">
+          <button type="button" data-copy-repository-url hidden>Copy URL</button>
+        </div>
+        <p id="repository-copy-status" class="field-help" data-copy-status role="status" aria-live="polite">Use this URL in Kodi's File manager.</p>
+        {% else %}
+        <p class="notice">The Kodi Lab repository source URL is not configured. Ask your administrator to check <a href="/kodi-repository">Kodi repository settings</a> before installing.</p>
+        {% endif %}
+        <ol class="kodi-installation-steps">
+          <li>In Kodi, open <strong>Settings → File manager → Add source</strong>.</li>
+          <li>Enter the Kodi Lab repository source URL shown above.</li>
+          <li>Name the source <strong>Kodi Lab</strong> and select <strong>OK</strong>.</li>
+          <li>Open <strong>Add-ons → Install from zip file</strong>. If prompted, enable <strong>Unknown sources</strong> in <strong>Settings → System → Add-ons</strong>, then return to Install from zip file.</li>
+          <li>Select the <strong>Kodi Lab</strong> source and install <strong>{{ repository_zip_name|default('repository.kodi-lab-1.0.0.zip') }}</strong>. This installs the repository.</li>
+          <li>Open <strong>Install from repository → Kodi Lab</strong>.</li>
+          <li>Under <strong>Services</strong>, install <strong>Kodi Lab Bridge</strong>. Kodi currently lists it as <strong>Kodi Lab Narrow Bridge</strong>.</li>
+          <li>Open <strong>Add-ons → My add-ons → Services → Kodi Lab Narrow Bridge</strong>. Enable the add-on if needed, then open <strong>Configure</strong> and turn on <strong>Enable bridge</strong>. Save the settings and restart Kodi locally so the service starts.</li>
+          <li>Return to the Bridge's <strong>Configure</strong> screen and choose <strong>Pair Kodi Lab</strong> to see the four-character code. If no code is active, choose <strong>Generate new code</strong>. Enter the code on this page before it expires after five minutes.</li>
+        </ol>
+        <p>Kodi Lab Bridge is installed through the Kodi Lab repository.</p>
+        <p>Compatible official Bridge releases from the Kodi Lab repository are recognized automatically. No separate build approval is needed.</p>
+        {% if required_home_bridge_version %}<details><summary>Advanced compatibility details</summary><p>This Kodi Lab release supports Bridge <strong>{{ required_home_bridge_version }}</strong>. If an older or custom build is not recognized, install the compatible version from the Kodi Lab repository. Repository updates and custom builds can be checked in <a href="/external-targets">advanced administration</a>.</p></details>{% endif %}
+        <h2>Kodi web interface</h2>
+        <p>In <strong>Settings → Services → Control</strong>, turn on <strong>Allow remote control via HTTP</strong>. Use port <strong>8080</strong>, or enter your configured port in Advanced connection details (Home) or Advanced ports (Development) below. This also provides Kodi's JSON-RPC connection.</p>
+        <p>Keep <strong>Require authentication</strong> enabled where available and set a Kodi username and password. Enter those same credentials in this page's Kodi sign-in fields. For a Kodi already configured without authentication, leave the fields empty.</p>
+        <p>Keep Kodi and Kodi Lab on a trusted private network. The Kodi Lab server must be able to reach Kodi's web port and Bridge port (normally <strong>8765</strong>); Kodi must be able to reach the repository URL. If settings are hidden, change Kodi's settings level to <strong>Standard</strong> or higher.</p>
+      </details>
+      <fieldset class="kodi-use-choice" data-mode-controls disabled aria-describedby="mode-help">
+        <legend>How will you use this Kodi?</legend>
+        <label class="check-label" for="kodi-use-home"><input id="kodi-use-home" type="radio" name="kodi_use" value="home"{% if initial_mode == 'home' %} checked{% endif %}> Home / everyday Kodi</label>
+        <p class="field-help">For your everyday movies, TV and library. Starts with read-only inspection.</p>
+        <label class="check-label" for="kodi-use-development"><input id="kodi-use-development" type="radio" name="kodi_use" value="development"{% if initial_mode == 'development' %} checked{% endif %}> Development Kodi</label>
+        <p class="field-help">For testing add-ons. Agent access is managed separately.</p>
+      </fieldset>
+      <p id="mode-help" class="field-help" data-mode-help>Choose how you will use Kodi before connecting.</p>
+      <noscript><p class="notice">Enable JavaScript to choose a mode, connect Kodi and recover an incomplete connection.</p></noscript>
+      <section data-onboarding-mode="home" data-add-kodi data-csrf-token="{{ csrf_token }}" data-recovery-namespace="{{ recovery_namespace }}" aria-label="Home Kodi connection"{% if initial_mode != 'home' %} hidden{% endif %}>
+      <p>In Kodi, open the Bridge's settings and choose <strong>Pair Kodi Lab</strong>. Enter its four-character code below.</p>
+
       <form method="post" action="/add-kodi" data-connect-form aria-describedby="transport-notice">
         <fieldset class="household-js-gate" data-js-gate disabled>
         <legend class="visually-hidden">Kodi connection</legend>
@@ -99,5 +141,10 @@
           </fieldset>
         </form>
       </details>
-      <p><a href="/">Back to Kodi Lab</a></p>
+      </section>
+      <section data-onboarding-mode="development" data-pair-kodi data-unified-mode="development" data-csrf-token="{{ csrf_token }}" data-recovery-namespace="{{ recovery_namespace }}" aria-label="Development Kodi connection"{% if initial_mode != 'development' %} hidden{% endif %}>
+        {% set unified_add_kodi = true %}
+        {% include 'development-pairing.html' %}
+      </section>
+      <p><a href="/kodi">Back to Kodi</a></p>
     {% endblock %}

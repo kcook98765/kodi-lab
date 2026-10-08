@@ -367,7 +367,7 @@ class ExternalBridgeService:
         source_reference: str,
         administrator_reference: str = "local_administrator",
     ) -> ReviewedBridgeBuildRead:
-        """Register explicit reviewed provenance; no build is seeded implicitly."""
+        """Register explicit manual provenance for advanced/custom builds."""
 
         administrator = self._administrator(administrator_reference)
         fingerprint = self._sha256(semantic_fingerprint)

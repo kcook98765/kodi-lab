@@ -25,17 +25,21 @@
   let operationId = null;
   let disclosure = null;
   let busy = false;
+  let finished = false;
+  const notifyState = () => root.dispatchEvent?.(new CustomEvent("kodi-onboarding-state", {
+    bubbles:true, detail:{mode:"home", active:Boolean(operationId && !finished), busy},
+  }));
 
   // The only stored record is an operation ID bound to this Web sign-in.
   const saveOperation = () => {
     try {
-      if (operationId) sessionStorage.setItem(storageKey, JSON.stringify({id: operationId, namespace}));
+      if (operationId && !finished) sessionStorage.setItem(storageKey, JSON.stringify({id: operationId, namespace, mode:"home"}));
       else sessionStorage.removeItem(storageKey);
     } catch (_) { /* Recovery still works in this page; Advanced exposes the ID. */ }
   };
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey) || "null");
-    if (saved && saved.namespace === namespace && uuidPattern.test(saved.id)) operationId = saved.id;
+    if (saved && saved.namespace === namespace && (saved.mode === undefined || saved.mode === "home") && uuidPattern.test(saved.id)) operationId = saved.id;
     else sessionStorage.removeItem(storageKey);
   } catch (_) { /* Ignore unavailable or malformed tab storage. */ }
 
@@ -84,7 +88,7 @@
     authentication_failed: "Kodi requires valid native sign-in credentials. Review the saved Kodi sign-in in advanced administration before resuming.",
     secret_unavailable: "Kodi’s credentials could not be stored. An administrator must restore Kodi Lab’s encryption key and protected storage. Then retry with the original details.",
     bridge_credential_store_unavailable: "Bridge credentials could not be stored. An administrator must restore Kodi Lab’s encryption key and protected storage before resuming.",
-    bridge_build_not_reviewed: "This Bridge build needs an administrator’s independent review and approval. Resume after approval; connecting does not approve it automatically.",
+    bridge_build_not_reviewed: "This Bridge build is not recognized. Install a compatible Kodi Lab Bridge from the Kodi Lab repository. Older or custom builds can be checked in Advanced details.",
     transport_consent_required: "Kodi was reached. Review the connection details and explicitly accept the HTTP risks to continue.",
     transport_disclosure_changed: "The connection details changed. Review the current disclosure and accept it again to continue.",
     transport_acknowledgement_required: "Transport consent is required. Resume to obtain the current connection disclosure.",
@@ -94,7 +98,7 @@
     otp_required: "Enter the current pairing code shown in Bridge and review the HTTP risks to continue.",
     pairing_recovery_required: "The code may have been consumed and this connection cannot safely resend it. Abandon this operation in Advanced, reset Bridge pairing locally in Kodi, then start again.",
     already_paired: "Bridge is already paired elsewhere. Review that connection. To start again, abandon this operation in Advanced and explicitly reset Bridge pairing locally in Kodi.",
-    identity_mismatch: "Kodi or Bridge identity changed. An administrator must review it. This connection cannot adopt a replacement Kodi.",
+    identity_mismatch: "Kodi or Bridge identity changed, or the Bridge version is incompatible. Check the repository version in Advanced details. This connection cannot adopt a replacement Kodi.",
     onboarding_binding_changed: "Kodi’s address, identity or policy changed. Abandon this operation in Advanced and review the Kodi before starting again.",
     endpoint_conflict: "This Kodi address already has a connection or an incomplete operation. Review the existing connection in advanced administration.",
     pairing_commit_failed: "The connection is incomplete. Resume the saved operation to recover using its saved credentials; do not enter another pairing code.",
@@ -123,6 +127,8 @@
     abandonForm.reset();
   };
   const render = async (result) => {
+    finished = result.state === "connected" || result.code === "abandoned";
+    saveOperation();
     resetResult();
     resultPanel.hidden = false;
     resultPanel.dataset.state = result.state;
@@ -187,8 +193,9 @@
     resumeButton.hidden = false;
   };
   const run = async (work) => {
-    if (busy) return;
+    if (busy || root.hidden) return;
     busy = true;
+    notifyState();
     root.setAttribute("aria-busy", "true");
     root.querySelectorAll("button").forEach((button) => { button.disabled = true; });
     errorBox.hidden = true;
@@ -208,6 +215,7 @@
       root.querySelectorAll("button").forEach((button) => { button.disabled = false; });
       root.setAttribute("aria-busy", "false");
       busy = false;
+      notifyState();
     }
   };
 
@@ -225,7 +233,7 @@
   for (const input of [codeInput, resumeCode]) input.addEventListener("input", () => { input.value = input.value.toUpperCase(); });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (busy || !form.reportValidity()) return;
+    if (busy || root.hidden || finished || !form.reportValidity()) return;
     const fields = new FormData(form);
     const code = String(fields.get("code") || "").toUpperCase();
     if (!otpPattern.test(code)) return showError("Enter the four-character pairing code shown in Bridge.", codeInput);
@@ -252,7 +260,7 @@
   });
   consentForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (busy || !operationId || !disclosure || !consent.checked || !consentForm.reportValidity()) return;
+    if (root.hidden || busy || !operationId || !disclosure || !consent.checked || !consentForm.reportValidity()) return;
     const code = resumeCode.value.toUpperCase();
     if (!otpPattern.test(code)) return showError("Enter the current four-character code shown in Bridge.", resumeCode);
     const body = {code, transport_decision: {disclosure_token: disclosure.disclosure_token, accept_http_risk: true}};
@@ -261,12 +269,13 @@
     run(async () => { await render(await request(`/api/household-onboarding/${operationId}/resume`, body)); });
   });
   resumeButton.addEventListener("click", () => {
-    if (!operationId) return;
+    if (root.hidden || busy || !operationId || finished) return;
     clearSecrets();
     consent.checked = false;
     run(async () => { await render(await request(`/api/household-onboarding/${operationId}/resume`, {})); });
   });
   retryButton.addEventListener("click", () => {
+    if (root.hidden || busy || finished) return;
     clearSecrets();
     consentForm.hidden = true;
     find("[data-retry-note]").hidden = false;
@@ -276,15 +285,18 @@
   });
   abandonForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (!operationId || !abandonForm.reportValidity()) return;
+    if (root.hidden || busy || finished || !operationId || !abandonForm.reportValidity()) return;
     clearSecrets();
     run(async () => { await render(await request(`/api/household-onboarding/${operationId}/abandon`, {})); });
   });
   anotherButton.addEventListener("click", () => {
+    if (root.hidden || busy || !finished) return;
     operationId = null;
+    finished = false;
     saveOperation();
     resetResult();
     resultPanel.hidden = true;
+    notifyState();
     errorBox.hidden = true;
     form.reset();
     nativeFields.hidden = true;
@@ -300,16 +312,19 @@
     event.preventDefault();
     const recoveryForm = find("[data-manual-recovery]");
     const input = find("[data-recovery-id]");
-    if (busy || !recoveryForm.reportValidity()) return;
+    if (root.hidden || busy || !recoveryForm.reportValidity()) return;
     const id = input.value.trim().toLowerCase();
     if (!uuidPattern.test(id)) return showError("Enter a valid saved operation identifier.", input);
     clearSecrets();
     operationId = id;
+    finished = false;
     saveOperation();
     run(async () => { await render(await request(`/api/household-onboarding/${operationId}/resume`, {})); });
   });
   // Do not retain DOM secrets in a browser's back/forward cache.
   window.addEventListener("pagehide", clearSecrets);
+  root.addEventListener?.("kodi-mode-leave", clearSecrets);
   // Secret-bearing fields stay disabled if this script fails to initialize.
   root.querySelectorAll("[data-js-gate]").forEach((fieldset) => { fieldset.disabled = false; });
+  notifyState();
 })();

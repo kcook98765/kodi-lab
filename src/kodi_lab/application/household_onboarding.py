@@ -147,7 +147,9 @@ _MESSAGES = {
         "operation and explicitly reset Bridge pairing in Kodi before retrying."
     ),
     "pairing_temporarily_locked": "Wait for Bridge's cooldown, then generate a code.",
-    "bridge_protocol_unsupported": "Update Bridge to a compatible reviewed release.",
+    "bridge_protocol_unsupported": (
+        "Install a compatible Kodi Lab Bridge from the repository."
+    ),
     "bridge_credential_store_unavailable": (
         "Configure Kodi Lab's credential encryption key before resuming Connect."
     ),
@@ -160,7 +162,8 @@ _MESSAGES = {
         "Retry Connect with the same operation ID and Kodi credentials."
     ),
     "bridge_build_not_reviewed": (
-        "An administrator must independently review this Bridge build before resuming."
+        "This Bridge build is not recognized. Install a compatible Kodi Lab Bridge "
+        "from the Kodi Lab repository; see Advanced details for older or custom builds."
     ),
     "pairing_recovery_required": (
         "The bootstrap outcome is uncertain and no recoverable credential "

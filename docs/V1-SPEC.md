@@ -977,14 +977,18 @@ Capability levels:
 - plain JSON-RPC;
 - bridge-enhanced.
 
-Production bridge bootstrap is manual operator installation of an exact
-reviewed release ZIP after checksum verification. Kodi Lab verifies native
-identity separately, registers the reviewed build in Web administration, pairs
-bridge 1.1.15 through the shared four-character `otp-1` protocol and requires
-explicit provenance confirmation. There is
-no repository prerequisite, automatic refresh, bridge update or production
-support-addon deployment. Future bridge deployment/update capability requires
-a new post-V1 architecture and security gate.
+Production Bridge bootstrap uses operator installation of the compatible official
+Bridge through Kodi Lab's built-in stable repository. At Web startup, the
+deployment-pinned, locally verified repository generation and the application's
+exact official ZIP digest establish an immutable build record automatically.
+Ordinary administrators do not separately approve official builds. Custom builds
+retain the existing advanced manual reviewed-build mechanism and compatibility
+checks. Kodi Lab verifies native identity separately, pairs Bridge 1.1.15 through
+the shared four-character `otp-1` protocol and checks authenticated identity and
+target-bound provenance. Household Connect coordinates the existing provenance
+confirmation. No automatic refresh, Bridge update or production support-addon
+deployment is introduced. Future Bridge deployment/update capability requires
+a new post-V1 architecture and security gate. Managed lifecycle trust is separate.
 
 ## 36. Hosted Kodi repository
 

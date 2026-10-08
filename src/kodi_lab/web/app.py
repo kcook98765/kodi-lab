@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -291,6 +292,7 @@ from kodi_lab.application.mutations import (
     ManagedInstanceMutationConflictError,
     ManagedInstanceMutationCoordinator,
 )
+from kodi_lab.application.official_bridge_builds import recognize_official_bridge
 from kodi_lab.application.production_capability_amendments import (
     ProductionCapabilityAmendmentError,
     ProductionCapabilityAmendmentRead,
@@ -494,7 +496,7 @@ from kodi_lab.repository.development import (
 from kodi_lab.repository.development import (
     load_current as load_development_current,
 )
-from kodi_lab.repository.stable import load_current
+from kodi_lab.repository.stable import REPOSITORY_ID, REPOSITORY_VERSION, load_current
 from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
 from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
@@ -508,6 +510,7 @@ from kodi_lab.storage.secrets import (
     ExternalCredentialStore,
     decode_master_key,
 )
+from kodi_lab.web.kodi_views import KodiViews
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
 _WEB_ROOT = Path(__file__).parent
@@ -1984,6 +1987,23 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         nonlocal development_repository_error
+        bundle_pin = os.getenv("KODI_LAB_REPOSITORY_BUNDLE_SHA256", "")
+        _app.state.official_bridge_recognition = "unconfigured"
+        if repository_base_url and bundle_pin:
+            try:
+                _app.state.official_bridge_recognition = recognize_official_bridge(
+                    session_factory,
+                    repository_data_root,
+                    base_url=repository_base_url,
+                    expected_bundle_sha256=bundle_pin,
+                )
+            except (OSError, ValueError, KeyError, TypeError):
+                _app.state.official_bridge_recognition = "unavailable"
+            if _app.state.official_bridge_recognition not in {"registered", "existing"}:
+                logging.getLogger(__name__).warning(
+                    "Official Bridge recognition: %s; existing trust is unchanged",
+                    _app.state.official_bridge_recognition,
+                )
         if development_repository is not None:
             try:
                 development_repository.reconcile()
@@ -2936,7 +2956,44 @@ def create_app(
             },
         )
 
+    kodi_views = KodiViews(
+        session_factory,
+        context.production_targets,
+        context.external_bridges,
+        screenshot_preferences,
+    )
+
     @app.get("/kodi", response_class=HTMLResponse)
+    async def kodi_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "kodi.html",
+            {
+                "csrf_token": authenticated.csrf_token,
+                "kodis": kodi_views.list(),
+                "managed_names": kodi_views.managed_names(),
+            },
+        )
+
+    @app.get("/kodi/{target_id}", response_class=HTMLResponse)
+    async def kodi_detail_page(
+        request: Request,
+        target_id: UUID,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        try:
+            kodi = kodi_views.get(target_id)
+        except ExternalTargetError as error:
+            raise HTTPException(status_code=404) from error
+        return templates.TemplateResponse(
+            request,
+            "kodi-detail.html",
+            {"csrf_token": authenticated.csrf_token, "kodi": kodi},
+        )
+
     @app.get("/development", response_class=HTMLResponse)
     @app.get("/settings", response_class=HTMLResponse)
     async def navigation_landing_page(
@@ -3040,12 +3097,38 @@ def create_app(
     @app.get("/add-kodi", response_class=HTMLResponse)
     async def add_kodi_page(
         request: Request,
+        mode: Literal["home", "development"] = "home",
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
+        # Same configured origin and bootstrap identity as repository delivery.
+        # Rendering instructions never probes Kodi or the repository service.
+        base_url = os.getenv("KODI_LAB_REPOSITORY_BASE_URL", "")
+        repository_source_url = None
+        try:
+            origin = urlsplit(base_url)
+            if (
+                origin.scheme in {"http", "https"}
+                and origin.hostname
+                and origin.hostname not in {"localhost", "127.0.0.1", "::1"}
+                and origin.username is None
+                and origin.password is None
+                and not origin.path
+                and not origin.query
+                and not origin.fragment
+                and (origin.port is None or 1 <= origin.port <= 65535)
+                and all(33 <= ord(char) <= 126 for char in base_url)
+            ):
+                repository_source_url = f"{base_url}/install/"
+        except ValueError:
+            pass
         return templates.TemplateResponse(
             request,
             "add-kodi.html",
             {
+                "initial_mode": mode,
+                "repository_source_url": repository_source_url,
+                "repository_zip_name": f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip",
+                "required_home_bridge_version": SUPPORTED_V1_BRIDGE_ADDON_VERSION,
                 "csrf_token": authenticated.csrf_token,
                 "recovery_namespace": hashlib.sha256(
                     authenticated.csrf_token.encode()

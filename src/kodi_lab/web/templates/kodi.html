@@ -1,23 +1,52 @@
 {% extends 'base.html' %}
 {% set nav_section = 'kodi' %}
 {% block title %}Kodi · Kodi Lab{% endblock %}
+{% block main_class %}kodi-page{% endblock %}
 {% block content %}
-<h1>Kodi</h1>
-<p>Connect Kodi in your home, or open its existing administration tools.</p>
-<p><a class="button-link" href="/add-kodi">Add Kodi</a></p>
-<section class="navigation-group">
-  <h2>Kodi in your home</h2>
+<div class="kodi-page-heading">
+  <div><h1>Kodi</h1><p>View the Kodi installations in your home.</p></div>
+  <a class="button-link kodi-primary" href="/add-kodi">Add Kodi</a>
+</div>
+<p class="kodi-recorded-note">Status reflects the last recorded checks. Live availability is not checked when you view this page.</p>
+<section aria-labelledby="household-kodi-heading">
+  <h2 id="household-kodi-heading">Kodi in your home</h2>
+  {% if kodis %}
+  <ul class="kodi-grid">
+    {% for kodi in kodis %}
+    <li class="kodi-card" data-status="{{ kodi.status }}">
+      <h3>{{ kodi.target.logical_name }}</h3>
+      <p><span class="kodi-status" data-status="{{ kodi.status }}">{{ kodi.status_label }}</span></p>
+      <p class="kodi-card-note">{{ kodi.status_note }}</p>
+      <dl>
+        <dt>Kodi version</dt><dd>{{ kodi.target.kodi_version or 'Not yet known' }}</dd>
+        <dt>Access</dt><dd>{{ kodi.access_label }}</dd>
+      </dl>
+      <a class="button-link kodi-view-action" href="/kodi/{{ kodi.target.target_id }}" aria-label="View settings for {{ kodi.target.logical_name }}">View / Settings</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="kodi-empty">
+    <h3>No household Kodi added yet</h3>
+    <p>Add Kodi to view its connection, access and screenshot settings here.</p>
+  </div>
+  {% endif %}
+</section>
+<section class="navigation-group" aria-labelledby="development-kodi-heading">
+  <h2 id="development-kodi-heading">Development Kodi</h2>
+  <p>Managed and external development installations have their own administration.</p>
+  {% if managed_names %}<h3>Managed Kodi</h3><ul>{% for name in managed_names %}<li>{{ name }}</li>{% endfor %}</ul>{% endif %}
   <ul class="destination-list">
-    <li><a href="/production-targets">External Kodi administration</a><p>Existing production targets, connection details, permissions and recovery.</p></li>
+    <li><a href="/development">Development tools and managed Kodi controls</a></li>
+    <li><a href="/external-targets">External development Kodi</a></li>
+    <li><a href="/add-kodi?mode=development">Add Development Kodi</a></li>
+  </ul>
+</section>
+<details class="kodi-diagnostics">
+  <summary>Advanced administration</summary>
+  <ul class="destination-list">
+    <li><a href="/production-targets">External Kodi administration</a><p>Connection verification and existing advanced settings.</p></li>
     <li><a href="/kodi-repository">Kodi Lab repository</a><p>Repository installation instructions and Bridge information.</p></li>
   </ul>
-</section>
-<section class="navigation-group">
-  <h2>Development Kodi</h2>
-  <ul class="destination-list">
-    <li><a href="/external-targets">External development targets</a><p>Existing development connections and Bridge administration.</p></li>
-    <li><a href="/#instances">Managed Kodi instances</a><p>Instance status, details, snapshots and history on Home.</p></li>
-    <li><a href="/development">Development tools</a><p>Reviewed runtimes, sources, workspaces and testing.</p></li>
-  </ul>
-</section>
+</details>
 {% endblock %}

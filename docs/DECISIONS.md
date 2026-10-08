@@ -5925,3 +5925,31 @@ D-0413 resolves the provisional managed pairing-source assumption below.
 - The application enables the new navigation through Jinja globals. Older
   running processes sharing this checkout's templates retain links to existing
   routes until their own authorized restart, avoiding absent landing routes.
+
+## D-0418: Automatically recognize this release's verified official Bridge
+
+- Ordinary users install the single Kodi Lab Narrow Bridge add-on through the
+  built-in stable repository. They do not separately review official builds.
+  Existing release staging already binds the clean source inventory, builder,
+  semantic fingerprint, exact ZIP digest and bundle inputs; the stable publisher
+  emits verified package/index hashes and an immutable generation identity.
+- Web startup can insert the existing immutable reviewed-build record only after
+  the installed generation validates against the deployment's configured bundle
+  digest/base URL and the application's compiled official Bridge ZIP digest.
+  Missing pins/artifacts, mismatch or an incomplete transition fail closed.
+  A remote claim, arbitrary uploaded ZIP or self-consistent unofficial feed cannot
+  establish this authority. Startup verifies installed package identity; its
+  bundle field comparison does not independently hash actual BUNDLE.json bytes.
+- Recognition preserves both uniqueness keys and serializes lookup/insert. It
+  never overwrites or broadens an existing manual/conflicting record or revives a
+  retired release. It writes no target, pairing, policy, permission or managed
+  trust records. Retirement and custom-build administration remain operational.
+- Future compatible Kodi Lab releases update the existing release and backend
+  compatibility pins, then register their own verified artifacts automatically.
+  Older backends do not accept arbitrary future versions. All existing native
+  identity, protocol, OTP, signed Bridge identity, consent, production provenance
+  and authority checks stay in force. Development pairing stays on its existing
+  workflow, without additional grants or a production registry requirement.
+- This automates the existing local build allowlist. The public semantic
+  fingerprint and OTP/HMAC identity are not attestation of remote installed code.
+  Stronger remote artifact attestation would require separately authorized design.

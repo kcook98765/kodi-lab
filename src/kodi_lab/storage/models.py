@@ -2095,7 +2095,7 @@ class ExternalBridgePairingRow(Base):
 
 
 class ReviewedBridgeBuildRow(Base):
-    """Administrator-reviewed immutable production bridge provenance."""
+    """Immutable production provenance from official artifacts or manual review."""
 
     __tablename__ = "reviewed_bridge_builds"
     __table_args__ = (

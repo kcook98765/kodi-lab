@@ -12,10 +12,36 @@
   const resumeButton = root.querySelector("[data-resume-button]");
   const codeInput = form.elements.namedItem("code");
   const passwordInput = form.elements.namedItem("password");
-  const pendingKey = "kodi-lab-pair-kodi-pending";
+  const unified = root.dataset.unifiedMode === "development";
+  const namespace = root.dataset.recoveryNamespace;
+  const pendingKey = unified ? "kodi-lab-add-kodi-development" : "kodi-lab-pair-kodi-pending";
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let pending = null;
   let busy = false;
+  const notifyState = () => {
+    if (unified) root.dispatchEvent(new CustomEvent("kodi-onboarding-state", {
+      bubbles:true, detail:{mode:"development", active:Boolean(pending), busy},
+    }));
+  };
+  const clearSecrets = () => {
+    codeInput.value = "";
+    passwordInput.value = "";
+    form.elements.namedItem("username").value = "";
+  };
+  const record = (id, name, address) => unified
+    ? {id, name, address, namespace, mode:"development"}
+    : {id, name, address};
+  const recoveryCodes = new Set(["pairing_uncertain", "pairing_commit_failed", "bridge_unreachable", "target_persistence_failed"]);
+  // Only bounded, definite failures may reopen a unified initial submission.
+  // A dropped response, malformed success or missing ID stays unresolved.
+  const definiteFailures = new Set([
+    "invalid_name", "invalid_address", "invalid_port", "otp_invalid_format",
+    "invalid_kodi_credentials", "target_already_exists", "pairing_in_progress",
+    "kodi_unreachable", "kodi_identity_mismatch",
+    "otp_invalid", "otp_expired", "otp_locked",
+    "bridge_unreachable", "bridge_already_paired", "bootstrap_version_unsupported",
+    "bridge_identity_mismatch",
+  ]);
 
   const savePending = () => {
     try {
@@ -25,12 +51,22 @@
   };
   try {
     const saved = JSON.parse(sessionStorage.getItem(pendingKey) || "null");
-    if (saved && uuidPattern.test(saved.id) && typeof saved.name === "string" && typeof saved.address === "string") pending = saved;
+    if (saved && typeof saved.name === "string" && typeof saved.address === "string" &&
+        (unified
+          ? saved.namespace === namespace && saved.mode === "development" && (saved.id === null || uuidPattern.test(saved.id))
+          : uuidPattern.test(saved.id))) pending = saved;
+    else if (unified) sessionStorage.removeItem(pendingKey);
   } catch (_) { /* Ignore unavailable or malformed session state. */ }
 
   const showPending = () => {
     resumePanel.hidden = !pending;
     form.hidden = Boolean(pending);
+    if (unified) {
+      resumeButton.hidden = !pending?.id;
+      root.querySelector("[data-development-recovery-message]").textContent = pending?.id
+        ? "Pairing may have started. Resume this development connection without entering the code again."
+        : "The outcome was not confirmed and no development target identifier was returned. Review development connections in advanced administration, then recover the existing target below. Do not resend the pairing code.";
+    }
   };
   const request = async (url, body) => {
     let response;
@@ -42,7 +78,9 @@
         body: JSON.stringify(body),
       });
     } catch (_) {
-      throw new Error("Kodi Lab could not complete the request. Check the connection and try again.");
+      throw new Error(unified
+        ? "Kodi Lab could not confirm the outcome. Review the saved development connection before trying again. Do not resend the pairing code."
+        : "Kodi Lab could not complete the request. Check the connection and try again.");
     }
     let payload;
     try { payload = await response.json(); } catch (_) { payload = {}; }
@@ -55,6 +93,11 @@
     return payload;
   };
   const complete = (result, name, address) => {
+    if (unified && (result.paired !== true || !uuidPattern.test(result.target_id) ||
+        (pending?.id && result.target_id !== pending.id) ||
+        typeof result.target_name !== "string" || typeof result.kodi_version !== "string")) {
+      throw new Error("Kodi Lab returned an unconfirmed pairing result. Review the saved development connection before trying again.");
+    }
     pending = null;
     savePending();
     codeInput.value = "";
@@ -70,8 +113,9 @@
     success.hidden = false;
   };
   const run = async (work) => {
-    if (busy) return;
+    if (busy || root.hidden) return;
     busy = true;
+    notifyState();
     pairButton.disabled = true;
     resumeButton.disabled = true;
     errorBox.hidden = true;
@@ -82,24 +126,30 @@
       errorBox.textContent = failure.message;
       errorBox.hidden = false;
       progress.hidden = true;
-      if (failure.targetId && uuidPattern.test(failure.targetId) &&
-          ["pairing_uncertain", "pairing_commit_failed", "bridge_unreachable", "target_persistence_failed"].includes(failure.code)) {
-        pending = {id: failure.targetId, name: form.elements.namedItem("name").value.trim(), address: form.elements.namedItem("address").value.trim()};
+      if (failure.targetId && uuidPattern.test(failure.targetId) && recoveryCodes.has(failure.code)) {
+        pending = record(failure.targetId,
+          pending?.name || form.elements.namedItem("name").value.trim(),
+          pending?.address || form.elements.namedItem("address").value.trim());
         savePending();
         showPending();
+      } else if (unified && pending && !pending.id && definiteFailures.has(failure.code) && !failure.targetId) {
+        pending = null;
+        savePending();
       }
+      if (unified) showPending();
     } finally {
-      codeInput.value = "";
-      passwordInput.value = "";
+      clearSecrets();
       pairButton.disabled = false;
       resumeButton.disabled = false;
       busy = false;
+      notifyState();
     }
   };
 
   codeInput.addEventListener("input", () => { codeInput.value = codeInput.value.toUpperCase(); });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (root.hidden || busy || pending || (unified && !success.hidden)) return;
     const fields = new FormData(form);
     const code = String(fields.get("code") || "").toUpperCase();
     if (!/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}$/.test(code)) {
@@ -112,6 +162,12 @@
     const username = String(fields.get("username") || "");
     const password = String(fields.get("password") || "");
     run(async () => {
+      if (unified) {
+        pending = record(null, name, address);
+        savePending(); // Before dispatch: an unconfirmed outcome cannot be resubmitted.
+        clearSecrets();
+        showPending();
+      }
       const result = await request("/api/external-targets/onboard-otp", {
         name, address, code,
         kodi_port: Number(fields.get("kodi_port")),
@@ -123,9 +179,41 @@
     });
   });
   resumeButton.addEventListener("click", () => run(async () => {
-    if (!pending) return;
+    if (!pending || (unified && !pending.id)) return;
     const result = await request(`/api/external-targets/onboarding/${pending.id}/resume`, {});
     complete(result, pending.name, pending.address);
   }));
+  if (unified) {
+    root.querySelector("[data-development-another]").addEventListener("click", () => {
+      if (root.hidden || busy || pending || success.hidden) return;
+      clearSecrets();
+      form.reset();
+      success.hidden = true;
+      errorBox.hidden = true;
+      showPending();
+      form.elements.namedItem("name").focus();
+    });
+    root.querySelector("[data-development-recovery]").addEventListener("submit", event => {
+      event.preventDefault();
+      if (root.hidden || busy) return;
+      const recoveryForm = root.querySelector("[data-development-recovery]");
+      const input = root.querySelector("[data-development-recovery-id]");
+      if (!recoveryForm.reportValidity()) return;
+      const id = input.value.trim().toLowerCase();
+      if (!uuidPattern.test(id)) return;
+      clearSecrets();
+      pending = record(id, pending?.name || "Development Kodi", pending?.address || "");
+      savePending();
+      showPending();
+      run(async () => {
+        const result = await request(`/api/external-targets/onboarding/${pending.id}/resume`, {});
+        complete(result, pending.name, pending.address);
+      });
+    });
+    root.addEventListener("kodi-mode-leave", clearSecrets);
+    root.querySelectorAll("[data-pair-gate]").forEach(fieldset => { fieldset.disabled = false; });
+  }
+  if (typeof window !== "undefined") window.addEventListener("pagehide", clearSecrets);
   showPending();
+  notifyState();
 })();

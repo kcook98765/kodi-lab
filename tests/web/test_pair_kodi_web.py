@@ -51,8 +51,8 @@ def test_pair_kodi_entry_and_simple_form(client: TestClient) -> None:
     targets = client.get("/external-targets")
     page = client.get("/pair-kodi")
     assert page.status_code == 200
-    assert 'href="/pair-kodi">Pair Kodi' in development.text
-    assert 'href="/pair-kodi">Pair Kodi' in targets.text
+    assert 'href="/add-kodi?mode=development">Add Development Kodi' in development.text
+    assert 'href="/add-kodi?mode=development">Add Kodi' in targets.text
     assert 'name="name"' in page.text
     assert 'name="address"' in page.text
     assert 'name="code"' in page.text
@@ -218,7 +218,7 @@ def test_pair_kodi_resume_is_csrf_protected_and_never_needs_code(
 def test_pair_kodi_browser_submits_once_and_only_renders_user_fields() -> None:
     script = (_WEB_ROOT / "static" / "pair-kodi.js").read_text()
     assert 'request("/api/external-targets/onboard-otp"' in script
-    assert "if (busy) return" in script
+    assert "if (busy || root.hidden) return" in script
     assert "request(`/api/external-targets/onboarding/${pending.id}/resume`" in script
     assert 'credentials: "same-origin"' in script
     assert '"X-Kodi-Lab-CSRF"' in script
