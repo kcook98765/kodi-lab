@@ -5,15 +5,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.mcp_workspace_development import (
@@ -29,6 +30,10 @@ from kodi_lab.application.production_inspection import (
     evaluate_production_bridge_anchor_state,
     evaluate_production_inspection_state,
     evaluate_production_visual_state,
+)
+from kodi_lab.application.screenshot_preferences import (
+    ScreenshotPreferenceError,
+    read_screenshot_preference,
 )
 from kodi_lab.domain import ExternalAdministrativeState, TargetType
 from kodi_lab.storage.models import (
@@ -228,6 +233,31 @@ class McpProductionScopeRead(BaseModel):
     created_by: str = Field(max_length=64)
     revoked_at: datetime | None
     revoked_by: str | None = Field(default=None, max_length=64)
+
+
+class McpProductionReadOnlyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    expected_client_authority_revision: int = Field(ge=1, strict=True)
+    expected_target_policy_revision: int = Field(ge=1, strict=True)
+    expected_identity_generation: int = Field(ge=1, strict=True)
+    expected_bridge_trust_revision: int | None = Field(default=None, ge=1, strict=True)
+
+
+class McpProductionReadOnlyRead(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    client_id: UUID
+    target_id: UUID
+    client_authority_revision: int
+    target_policy_revision: int
+    identity_generation: int
+    bridge_trust_revision: int | None
+    target_preset_id: UUID
+    inspection_scope: McpProductionScopeRead
+    visual_scope: McpProductionScopeRead | None
+    visual_unavailable_reason: str | None
+    capture_preference_enabled: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -648,6 +678,342 @@ class McpAdministrationService:
                     target_id=target_id,
                 )
         return self.get_client(client_id)
+
+    def authorize_production_read_only(
+        self,
+        client_id: UUID,
+        target_id: UUID,
+        expected: McpProductionReadOnlyRequest,
+        *,
+        administrator_reference: str = "local_administrator",
+    ) -> McpProductionReadOnlyRead:
+        """Atomically establish one exact read relationship without repairing trust."""
+
+        administrator = self._administrator(administrator_reference)
+        try:
+            with self._session_factory.begin() as session:
+                # Reserve the writer before reading expected state. This also
+                # serializes against the existing independent administration APIs.
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                now = self._clock()
+                client = self._require_client(session, client_id)
+                if not client.enabled:
+                    raise McpAdministrationError("read_only_client_disabled")
+                if (
+                    client.authority_revision
+                    != expected.expected_client_authority_revision
+                ):
+                    raise McpAdministrationError("read_only_state_changed")
+                permissions = self._preset_read(
+                    session,
+                    self._require_assignable_preset(session, UUID(client.preset_id)),
+                ).permissions
+                if "target.inspect" not in permissions:
+                    raise McpAdministrationError(
+                        "read_only_inspection_permission_required"
+                    )
+                self._require_production_read_preset(session, client.preset_id)
+                if not any(
+                    _status(credential, now) == "active"
+                    for credential in session.scalars(
+                        select(McpCredentialRow).where(
+                            McpCredentialRow.client_id == str(client_id)
+                        )
+                    )
+                ):
+                    raise McpAdministrationError("read_only_client_credential_required")
+                try:
+                    native = evaluate_production_inspection_state(
+                        session,
+                        target_id,
+                        required_capabilities=frozenset({"target_inspect"}),
+                    )
+                    preference = read_screenshot_preference(session, target_id)
+                except (ProductionInspectionError, ScreenshotPreferenceError) as error:
+                    raise McpAdministrationError(error.code) from error
+                policy = session.get(ExternalProductionPolicyRow, str(target_id))
+                external = session.get(ExternalKodiTargetRow, str(target_id))
+                assert policy is not None and external is not None
+                if (
+                    native.identity_generation != expected.expected_identity_generation
+                    or policy.policy_revision
+                    != expected.expected_target_policy_revision
+                ):
+                    raise McpAdministrationError("read_only_state_changed")
+                configured_visual = "screenshot" in json.loads(
+                    external.configured_capabilities_json
+                )
+                visual_reason = (
+                    "client_missing_visual_permission"
+                    if "target.visual" not in permissions
+                    else "target_not_configured_for_screenshots"
+                    if not configured_visual
+                    else None
+                )
+                bridge_revision = None
+                if visual_reason is None:
+                    try:
+                        bridge_revision = evaluate_production_visual_state(
+                            session, target_id
+                        ).bridge_trust_revision
+                    except ProductionInspectionError as error:
+                        raise McpAdministrationError(error.code) from error
+                if bridge_revision != expected.expected_bridge_trust_revision:
+                    raise McpAdministrationError("read_only_state_changed")
+                assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+                if assignment is not None:
+                    self._require_production_read_preset(session, assignment.preset_id)
+                    if visual_reason is None and assignment.preset_id == str(
+                        PRODUCTION_INSPECTION_PRESET_ID
+                    ):
+                        raise McpAdministrationError(
+                            "read_only_target_policy_review_required"
+                        )
+                elif (
+                    session.scalar(
+                        select(McpSecurityEventRow.id)
+                        .where(
+                            McpSecurityEventRow.target_id == str(target_id),
+                            McpSecurityEventRow.event_kind.in_(
+                                ("target_preset_assigned", "target_preset_unassigned")
+                            ),
+                        )
+                        .limit(1)
+                    )
+                    is not None
+                ):
+                    raise McpAdministrationError(
+                        "read_only_target_policy_review_required"
+                    )
+                history = session.scalars(
+                    select(McpProductionTargetScopeRow).where(
+                        McpProductionTargetScopeRow.client_id == str(client_id),
+                        McpProductionTargetScopeRow.target_id == str(target_id),
+                    )
+                ).all()
+                if any(
+                    row.state == "active"
+                    and row.scope in {"navigate", "request_transient_control"}
+                    for row in history
+                ):
+                    raise McpAdministrationError("read_only_existing_control_authority")
+                inspect = self._existing_read_scope(
+                    history, "inspect", native.identity_generation, None
+                )
+                visual = (
+                    self._existing_read_scope(
+                        history, "visual", native.identity_generation, bridge_revision
+                    )
+                    if visual_reason is None
+                    else None
+                )
+                # Never let a hidden old visual scope become effective through
+                # this grant, even when the current client cannot use screenshots.
+                if visual_reason is not None and any(
+                    row.scope == "visual" and row.state == "active" for row in history
+                ):
+                    raise McpAdministrationError("read_only_scope_review_required")
+                key = {"client_id": str(client_id), "target_id": str(target_id)}
+                grant = session.get(McpClientTargetGrantRow, key)
+                if (
+                    grant is None
+                    and session.scalar(
+                        select(McpSecurityEventRow.id)
+                        .where(
+                            McpSecurityEventRow.client_id == str(client_id),
+                            McpSecurityEventRow.target_id == str(target_id),
+                            McpSecurityEventRow.event_kind == "target_grant_removed",
+                        )
+                        .limit(1)
+                    )
+                    is not None
+                ):
+                    raise McpAdministrationError("read_only_grant_review_required")
+                if assignment is None and (
+                    history
+                    or session.scalar(
+                        select(McpClientTargetGrantRow.client_id)
+                        .where(McpClientTargetGrantRow.target_id == str(target_id))
+                        .limit(1)
+                    )
+                    is not None
+                ):
+                    raise McpAdministrationError(
+                        "read_only_target_policy_review_required"
+                    )
+                changed = (
+                    assignment is None
+                    or grant is None
+                    or inspect is None
+                    or (visual_reason is None and visual is None)
+                )
+                if assignment is None:
+                    preset_id = (
+                        PRODUCTION_VISUAL_PRESET_ID
+                        if configured_visual
+                        else PRODUCTION_INSPECTION_PRESET_ID
+                    )
+                    self._require_production_read_preset(session, str(preset_id))
+                    assignment = McpTargetPresetAssignmentRow(
+                        target_id=str(target_id),
+                        preset_id=str(preset_id),
+                        assigned_at=_to_text(now),
+                    )
+                    session.add(assignment)
+                    self._event(
+                        session,
+                        "target_preset_assigned",
+                        now,
+                        target_id=target_id,
+                        preset_id=preset_id,
+                    )
+                if grant is None:
+                    session.add(
+                        McpClientTargetGrantRow(
+                            **key, grant_id=str(uuid4()), created_at=_to_text(now)
+                        )
+                    )
+                    self._event(
+                        session,
+                        "target_granted",
+                        now,
+                        client_id=client_id,
+                        target_id=target_id,
+                    )
+                if inspect is None:
+                    inspect = self._new_read_scope(
+                        session,
+                        client_id,
+                        target_id,
+                        "inspect",
+                        native.identity_generation,
+                        None,
+                        administrator,
+                        now,
+                    )
+                if visual_reason is None and visual is None:
+                    visual = self._new_read_scope(
+                        session,
+                        client_id,
+                        target_id,
+                        "visual",
+                        native.identity_generation,
+                        bridge_revision,
+                        administrator,
+                        now,
+                    )
+                if changed:
+                    self._event(
+                        session,
+                        "production_read_only_authorized",
+                        now,
+                        client_id=client_id,
+                        target_id=target_id,
+                        identity_generation=native.identity_generation,
+                    )
+                session.flush()
+                # Preset initialization advances policy via its existing trigger.
+                session.refresh(policy)
+                return McpProductionReadOnlyRead(
+                    client_id=client_id,
+                    target_id=target_id,
+                    client_authority_revision=client.authority_revision,
+                    target_policy_revision=policy.policy_revision,
+                    identity_generation=native.identity_generation,
+                    bridge_trust_revision=bridge_revision,
+                    target_preset_id=UUID(assignment.preset_id),
+                    inspection_scope=self._production_scope_read(session, inspect),
+                    visual_scope=None
+                    if visual is None
+                    else self._production_scope_read(session, visual),
+                    visual_unavailable_reason=visual_reason,
+                    capture_preference_enabled=preference.enabled,
+                )
+        except (IntegrityError, OperationalError) as error:
+            raise McpAdministrationError("read_only_authorization_conflict") from error
+
+    def _require_production_read_preset(self, session: Session, preset_id: str) -> None:
+        contract = next(
+            (
+                item
+                for item in _BUILTINS
+                if str(item[0]) == preset_id
+                and item[0]
+                in {
+                    PRODUCTION_INSPECTION_PRESET_ID,
+                    PRODUCTION_VISUAL_PRESET_ID,
+                    PRODUCTION_REMOTE_KODI_PRESET_ID,
+                }
+            ),
+            None,
+        )
+        preset = session.get(McpPresetRow, preset_id)
+        if (
+            contract is None
+            or preset is None
+            or not preset.builtin
+            or not preset.assignable
+            or preset.display_name != contract[1]
+            or set(self._preset_read(session, preset).permissions) != set(contract[3])
+        ):
+            raise McpAdministrationError("read_only_preset_incompatible")
+
+    @staticmethod
+    def _existing_read_scope(
+        history: Sequence[McpProductionTargetScopeRow],
+        scope: str,
+        generation: int,
+        bridge_revision: int | None,
+    ) -> McpProductionTargetScopeRow | None:
+        rows = [row for row in history if row.scope == scope]
+        if not rows:
+            return None
+        active = [row for row in rows if row.state == "active"]
+        if (
+            len(active) != 1
+            or active[0].identity_generation != generation
+            or active[0].bridge_trust_revision != bridge_revision
+        ):
+            raise McpAdministrationError("read_only_scope_review_required")
+        return active[0]
+
+    def _new_read_scope(
+        self,
+        session: Session,
+        client_id: UUID,
+        target_id: UUID,
+        scope: str,
+        generation: int,
+        bridge_revision: int | None,
+        administrator: str,
+        now: datetime,
+    ) -> McpProductionTargetScopeRow:
+        row = McpProductionTargetScopeRow(
+            id=str(uuid4()),
+            client_id=str(client_id),
+            target_id=str(target_id),
+            identity_generation=generation,
+            bridge_trust_revision=bridge_revision,
+            scope=scope,
+            state="active",
+            created_at=_to_text(now),
+            created_by=administrator,
+            revoked_at=None,
+            revoked_by=None,
+        )
+        session.add(row)
+        self._event(
+            session,
+            "production_inspection_scope_granted"
+            if scope == "inspect"
+            else "production_visual_scope_granted",
+            now,
+            client_id=client_id,
+            target_id=target_id,
+            production_scope_id=UUID(row.id),
+            identity_generation=generation,
+        )
+        return row
 
     def grant_production_inspection_scope(
         self,

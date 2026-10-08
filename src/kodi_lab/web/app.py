@@ -262,6 +262,8 @@ from kodi_lab.application.mcp_administration import (
     McpEligibleWorkspaceRead,
     McpIssuedCredential,
     McpPresetRead,
+    McpProductionReadOnlyRead,
+    McpProductionReadOnlyRequest,
     McpProductionScopeRead,
     McpTargetPolicyRead,
     McpWorkspaceBindingRead,
@@ -2616,7 +2618,36 @@ def create_app(
         _request: Request, error: McpAdministrationError
     ) -> JSONResponse:
         status_code = 404 if error.code.endswith("_not_found") else 409
-        return _json_error(status_code, error.code, "MCP administration rejected.")
+        message = {
+            "read_only_inspection_permission_required": (
+                "The client preset lacks target.inspect."
+            ),
+            "read_only_preset_incompatible": (
+                "The client or target preset is incompatible with production "
+                "read-only access."
+            ),
+            "read_only_state_changed": (
+                "Authorization state changed. Refresh and review before retrying."
+            ),
+            "read_only_client_credential_required": (
+                "The client needs an active credential. Read-only authorization "
+                "cannot restore credentials."
+            ),
+            "read_only_scope_review_required": (
+                "Existing inspection scopes need administrator review."
+            ),
+            "read_only_target_policy_review_required": (
+                "The existing target policy needs administrator review."
+            ),
+            "read_only_grant_review_required": (
+                "The removed target grant needs administrator review."
+            ),
+            "read_only_existing_control_authority": (
+                "This relationship already has control authority and cannot be "
+                "designated read-only."
+            ),
+        }.get(error.code, "MCP administration rejected.")
+        return _json_error(status_code, error.code, message)
 
     @app.exception_handler(ExternalTargetError)
     async def external_target_failure(
@@ -4134,6 +4165,20 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> McpClientRead:
         return context.mcp_administration.remove_target_grant(client_id, target_id)
+
+    @app.post(
+        "/api/mcp/clients/{client_id}/targets/{target_id}/read-only-access",
+        response_model=McpProductionReadOnlyRead,
+    )
+    def authorize_mcp_production_read_only(
+        client_id: UUID,
+        target_id: UUID,
+        payload: McpProductionReadOnlyRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> McpProductionReadOnlyRead:
+        return context.mcp_administration.authorize_production_read_only(
+            client_id, target_id, payload, administrator_reference="web_admin"
+        )
 
     @app.get(
         "/api/mcp/production-inspection-scopes",

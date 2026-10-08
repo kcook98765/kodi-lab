@@ -5815,3 +5815,36 @@ D-0413 resolves the provisional managed pairing-source assumption below.
   destructive compatibility operation. Re-enabling the preference creates no
   credentials, grants or scopes and cannot restore retired authority. Changed
   preferences refuse downgrade to a schema that cannot enforce them.
+
+## D-0415: One administrator operation establishes production read-only access
+
+- A selected existing compatible client can receive one exact production target
+  grant, its current native inspection scope and, when its immutable preset and
+  the target support screenshots, the current Bridge-bound visual scope in one
+  transaction. No credentials, client presets, control scopes or trust are created
+  or repaired. No other client or target is enrolled.
+- Existing production preset contracts remain required. Production Inspection,
+  Production Visual Inspection and Production Remote Kodi clients are compatible;
+  ordinary development-profile Read-only Inspection and custom clients remain
+  incompatible. Missing `target.inspect` is reported explicitly. A client without
+  `target.visual` receives inspection only. The operation does not remove authority
+  from an existing control relationship; that relationship requires explicit review.
+- Requests bind expected client authority revision, target policy revision, native
+  identity generation and applicable Bridge trust revision. SQLite writer
+  reservation precedes all reads; validation, policy initialization, grant, scopes
+  and their existing security events commit together or roll back together.
+- A target without prior assignment/history receives the existing production
+  read-only preset appropriate to its configured maximum. Existing target presets
+  are preserved. Incompatible or narrowed target policy requires administrator
+  intervention rather than an automatic expansion affecting other agents.
+- Current active read scopes are reused. Missing scopes can be created only without
+  corresponding historical scopes; revoked/stale bindings and removed grants need
+  explicit review through existing administration. A disabled client or one without
+  an active credential is not repaired. Repeated current-state requests write no
+  duplicate authorization or audit; callers refresh expected state after initial
+  preset assignment advances the existing target policy revision.
+- Screenshot preference is independent: an off preference does not prevent scope
+  establishment, and existing admission/replay/publication gates still deny capture.
+  Reviewed builds, authenticated transport, exact HTTP acknowledgement, native trust,
+  target isolation and production mutation/development vetoes are unchanged. This
+  operation performs no live Kodi I/O and adds no MCP tool or Web UI workflow.
