@@ -1,7 +1,7 @@
 # Linux amd64 V1 local deployment candidate contract
 
 The V1 bundle distributes Kodi Lab application images, the reviewed bridge
-1.1.14 ZIP, and three current reviewed runtime recipes. It distributes no Kodi binaries.
+1.1.15 ZIP, and three current reviewed runtime recipes. It distributes no Kodi binaries.
 The candidate is local and unpublished. `BUNDLE.json` records the exact source
 Git commit/tree, application image identities, bridge artifact identity, recipe
 metadata, and every distributed file. `SHA256SUMS`
@@ -13,7 +13,7 @@ download checks integrity but does not establish publisher identity.
 | Application | `kodi-lab-application-images.tar` | Saved image IDs, OCI config IDs, linux/amd64 platform, installed package identity |
 | Deployment | `compose.release.yaml`, `compose.lab.yaml`, `compose.development.yaml`, `.env.example`, `linux-v1-bundle` | Exact file hashes; generated `.env` pins local image IDs and may record one host source directory |
 | Reviewed runtime inputs | `runtime-recipes/matrix-19.4-r2.json`, `nexus-20.5-r2.json`, `omega-21.3-r2.json` | File hashes and installed wheel recipe digests; provider, suite, version |
-| Remote bridge | `bridge/service.kodi_lab_bridge-1.1.14.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
+| Remote bridge | `bridge/service.kodi_lab_bridge-1.1.15.zip`, `bridge/BRIDGE.json` | Exact ZIP hash, closed source inventory and Git bridge tree, source commit/tree, protocol, builder and MIT license |
 | Stable Kodi feed input | `repository/STABLE.json`, installed repository generator/server | Reviewed ID/version/bridge hash; generated bootstrap and feed bytes have separate per-install provenance |
 | Verification | `BUNDLE.json`, `SHA256SUMS` | Canonical inventory and byte hashes |
 | Guidance | `LICENSE`, `THIRD_PARTY_NOTICES.md`, `INSTALL.md`, `RELEASE.md`, `PRODUCTION-OPERATIONS.md`, `UPGRADE-ROLLBACK.md`, `MANAGED-STATE-RECOVERY.md` | Exact file hashes |

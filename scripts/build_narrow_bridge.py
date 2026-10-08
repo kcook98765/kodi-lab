@@ -17,12 +17,12 @@ from typing import Any, cast
 BUILDER_ID = "kodi-lab-narrow-bridge-zip-v2"
 NORMALIZED_TIMESTAMP = (2026, 9, 21, 0, 0, 0)
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.14"
+ADDON_VERSION = "1.1.15"
 PROTOCOL = "1"
 BOOTSTRAP = "otp-1"
 FINGERPRINT_INPUT = (
-    b"kodi-lab-narrow-bridge|1.1.14|protocol-1|identity,capabilities,"
-    b"gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset"
+    b"kodi-lab-narrow-bridge|1.1.15|protocol-1|identity,capabilities,"
+    b"gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation"
 )
 SEMANTIC_FINGERPRINT = hashlib.sha256(FINGERPRINT_INPUT).hexdigest()
 RELEASE_INVENTORY = (
@@ -30,6 +30,7 @@ RELEASE_INVENTORY = (
     "README.md",
     "addon.xml",
     "narrow_bridge.py",
+    "ui_observation.py",
     "onboarding.py",
     "pairing_ui.py",
     "resources/language/resource.language.en_gb/strings.po",
@@ -171,7 +172,7 @@ def provenance(addon_root: Path, archive: Path, repository: Path) -> dict[str, A
         "bootstrap": BOOTSTRAP,
         "license": "MIT",
         "semantic_fingerprint": SEMANTIC_FINGERPRINT,
-        "capabilities": ["screenshot", "workspace_deployment"],
+        "capabilities": ["screenshot", "workspace_deployment", "ui_observation"],
         "source_commit": commit,
         "source_tree": tree,
         "bridge_tree": bridge_tree,

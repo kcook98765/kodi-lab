@@ -142,6 +142,7 @@ def test_registration_probe_confirmation_enable_and_mcp_administration_eligibili
     assert tuple(build_mcp_tool_registry().names()) == (
         "addon_list",
         "development_source_list",
+        "inspect_ui_state",
         "promotion_request",
         "remote_action",
         "screenshot_capture",
@@ -152,6 +153,7 @@ def test_registration_probe_confirmation_enable_and_mcp_administration_eligibili
         "workspace_deploy",
         "workspace_edit",
         "workspace_execute",
+        "workspace_execution_recover",
         "workspace_read",
         "workspace_source_scan",
         "workspace_status",

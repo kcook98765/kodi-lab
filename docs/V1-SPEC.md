@@ -61,12 +61,13 @@ v1 must provide:
 This section supersedes the broader speculative MCP catalog and production
 capabilities retained later in this document as design history.
 
-The authoritative V1 MCP registry contains eighteen tools. Client discovery is
+The authoritative V1 MCP registry contains nineteen tools. Client discovery is
 filtered by current preset permissions:
 
 - `target_list`
 - `target_status`
 - `addon_list`
+- `inspect_ui_state`
 - `screenshot_capture`
 - `remote_action`
 - `development_source_list`
@@ -83,6 +84,11 @@ filtered by current preset permissions:
 - `workspace_execution_recover`
 - `promotion_request`
 
+`inspect_ui_state` is a read-only `target.inspect` operation with a compact,
+provider-independent schema, actual focus and explicitly validated container/item
+association. Bounded non-atomic snapshots invalidate associations after detected
+GUI changes. See [UI observation](UI-OBSERVATION.md) for provider and fallback semantics.
+
 `workspace_execution_recover` requires both `target.control` and
 `development.execute`. It provides one bounded containment/recovery operation
 for an exact timeout-classified ambiguous smoke on an internal disposable
@@ -90,8 +96,8 @@ target, under D-0405's identity, ownership, grant, and state gates. It never
 rewrites or redispatches the original execution and grants no generic lifecycle
 or execution authority.
 
-Exactly five are production-eligible: `target_list`, `target_status`,
-`addon_list`, `screenshot_capture`, and `remote_action`. Production has no
+Exactly six are production-eligible: `target_list`, `target_status`,
+`addon_list`, `inspect_ui_state`, `screenshot_capture`, and `remote_action`. Production has no
 deployment tool. Raw JSON-RPC, production logs/diagnostics/library queries,
 generic add-on installation/update, production lifecycle, host lifecycle,
 shell, SSH, generic filesystem access, user-development workspace deployment
@@ -886,7 +892,7 @@ Discovery is target-independent and reflects only current client-preset
 permission. Exact grants, target policy, capability, and current state are
 recomputed for every call; discovery is never authorization.
 
-The implemented flat catalog is the exact eighteen-tool list in Section 2.1.
+The implemented flat catalog is the exact nineteen-tool list in Section 2.1.
 Earlier candidate names such as `player_state`, `library_search`,
 `addon_install`, `log_search`, and `jsonrpc_call` were never V1 commitments and
 are not implied missing tools. Raw JSON-RPC, generic lifecycle, production deployment,
@@ -932,7 +938,7 @@ Effective access is intersection.
 
 ## 33. Managed development policy
 
-V1 managed development is the least-authority eighteen-tool contract. It
+V1 managed development is the least-authority nineteen-tool contract. It
 supports bounded workspace inspection/create/edit/validate, registered-source
 scan/capture, exact approved deployment, fixed execution, exact ambiguous-smoke
 recovery, Web-reviewed promotion requests, bounded target
@@ -974,7 +980,7 @@ Capability levels:
 Production bridge bootstrap is manual operator installation of an exact
 reviewed release ZIP after checksum verification. Kodi Lab verifies native
 identity separately, registers the reviewed build in Web administration, pairs
-bridge 1.1.14 through the shared four-character `otp-1` protocol and requires
+bridge 1.1.15 through the shared four-character `otp-1` protocol and requires
 explicit provenance confirmation. There is
 no repository prerequisite, automatic refresh, bridge update or production
 support-addon deployment. Future bridge deployment/update capability requires
@@ -1151,7 +1157,7 @@ MCP public-v1 gate:
 - remote target;
 - Production and Development policy;
 - allowed/blocked/approval behavior;
-- the exact eighteen-tool contract in Section 2.1; parity with an older Kodi MCP
+- the exact nineteen-tool contract in Section 2.1; parity with an older Kodi MCP
   tool set is explicitly not required.
 
 Manual capability checklist acceptable initially; automate later.
@@ -1182,7 +1188,7 @@ Must include at least by public release:
 - Phase 15 operational diagnostics/hardening evidence; no MCP diagnostic tool
   is implied;
 - required web workflows;
-- the exact eighteen-tool MCP catalog in Section 2.1;
+- the exact nineteen-tool MCP catalog in Section 2.1;
 - approved bounded development add-on workflows;
 - screenshots and closed semantic actions according to policy; MCP logs,
   diagnostics and raw JSON-RPC are not V1 requirements;

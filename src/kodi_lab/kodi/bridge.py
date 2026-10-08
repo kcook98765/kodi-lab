@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import httpx
+from pydantic import ValidationError
 
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
 from kodi_lab.kodi.screenshots import (
@@ -21,6 +22,7 @@ from kodi_lab.kodi.screenshots import (
     ScreenshotArtifactError,
     validate_external_png,
 )
+from kodi_lab.kodi.ui_state import UiCollection
 from kodi_lab.screenshot_diagnostics import emit_screenshot_stage
 
 BRIDGE_PROTOCOL_VERSION = "1"
@@ -28,9 +30,11 @@ BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT_PATH = "/kodi-lab/bridge/bootstrap/v1"
 BOOTSTRAP_PROTOCOL_VERSION = "otp-1"
 BRIDGE_ADDON_ID = "service.kodi_lab_bridge"
-SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.14"
+SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.15"
 OTP_CODE_ALPHABET = frozenset("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
-BRIDGE_CAPABILITIES = frozenset({"screenshot", "workspace_deployment"})
+BRIDGE_CAPABILITIES = frozenset(
+    {"screenshot", "workspace_deployment", "ui_observation"}
+)
 BRIDGE_JSON_ERROR_CODES = frozenset(
     {
         "addon_inspection_failed",
@@ -42,6 +46,7 @@ BRIDGE_JSON_ERROR_CODES = frozenset(
 )
 BRIDGE_OPERATIONS = frozenset(
     {
+        "inspect_ui_state",
         "bridge_identity",
         "bridge_capabilities",
         "capture_screenshot",
@@ -628,6 +633,32 @@ class ExternalBridgeClient:
         ):
             raise ExternalBridgeError("bridge_capability_unavailable")
         return tuple(sorted(values))
+
+    def inspect_ui_state(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+    ) -> tuple[BridgeIdentity, UiCollection]:
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            operation="inspect_ui_state",
+        )
+        if not isinstance(payload, dict) or set(payload) != {"identity", "observation"}:
+            raise ExternalBridgeError("bridge_operation_failed")
+        try:
+            return self._identity(payload["identity"]), UiCollection.model_validate(
+                payload["observation"]
+            )
+        except ValidationError as error:
+            raise ExternalBridgeError("bridge_operation_failed") from error
 
     def inspect_addon(
         self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import io
 import ipaddress
@@ -14,14 +15,15 @@ import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import cast
 from urllib.parse import urlsplit
 
 REPOSITORY_ID = "repository.kodi-lab"
 REPOSITORY_VERSION = "1.0.0"
 BRIDGE_ID = "service.kodi_lab_bridge"
-BRIDGE_VERSION = "1.1.14"
-BRIDGE_SHA256 = "bf0b4f441c310f0621458792ccf4d05227576086186c65843fb66e5da6811832"
-BRIDGE_FINGERPRINT = "64bd532dcbb11fd655f347038b50fc9e6cbd1db74d262d9588b534c66312bb4b"
+BRIDGE_VERSION = "1.1.15"
+BRIDGE_SHA256 = "c894ca88c491edc716997aab3d7a91f2ee30722eff8d7a75b68233ddec9c3bf7"
+BRIDGE_FINGERPRINT = "b125a428b12cb48b3a93d2c9009478803b7bd65c85b2fdc632e0b644f2abc4c2"
 GENERATOR_ID = "kodi-lab-stable-repository-v1"
 
 
@@ -350,12 +352,35 @@ def _read_reviewed_bridge(
         or provenance.get("protocol") != "1"
         or provenance.get("bootstrap") != "otp-1"
         or provenance.get("builder") != "kodi-lab-narrow-bridge-zip-v2"
-        or provenance.get("capabilities") != ["screenshot", "workspace_deployment"]
+        or provenance.get("capabilities") != _bridge_capabilities(bridge)
         or provenance.get("source_commit") != manifest.get("source_commit")
         or provenance.get("source_tree") != manifest.get("source_tree")
     ):
         raise ValueError("reviewed bridge provenance differs")
     return bridge, manifest, provenance
+
+
+def _bridge_capabilities(bridge: bytes) -> list[str]:
+    """Match provenance to the exact pinned ZIP, including retained releases."""
+    with (
+        zipfile.ZipFile(io.BytesIO(bridge)) as archive,
+        archive.open(f"{BRIDGE_ID}/narrow_bridge.py") as source,
+    ):
+        body = source.read(MAX_MEMBER_BYTES + 1)
+    if len(body) > MAX_MEMBER_BYTES:
+        raise ValueError("bridge capability source exceeds bounds")
+    for node in ast.parse(body).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "CAPABILITIES"
+            for target in node.targets
+        ):
+            value = ast.literal_eval(node.value)
+            if value in (
+                ["screenshot", "workspace_deployment"],
+                ["screenshot", "workspace_deployment", "ui_observation"],
+            ):
+                return cast(list[str], value)
+    raise ValueError("bridge capability inventory differs")
 
 
 def reviewed_bridge_from_bundle(

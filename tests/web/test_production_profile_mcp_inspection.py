@@ -229,7 +229,7 @@ def _ready_target(
     return web, ready
 
 
-def test_exact_web_authority_and_three_tool_transport(
+def test_exact_web_authority_and_four_tool_transport(
     client: TestClient,
     database: sessionmaker[Session],
     external_kodi: FakeExternalKodi,
@@ -247,7 +247,12 @@ def test_exact_web_authority_and_three_tool_transport(
         assert plaintext_token is not None
         assert authority.target_id == target_id
         protocol = inspection.inspect_catalog()
-        assert protocol.tool_names == ("addon_list", "target_list", "target_status")
+        assert protocol.tool_names == (
+            "addon_list",
+            "inspect_ui_state",
+            "target_list",
+            "target_status",
+        )
         assert not [
             record
             for record in mcp_audit_records

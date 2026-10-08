@@ -192,6 +192,7 @@ def test_addon_protocol_is_closed_and_crypto_matches_lab(
     assert bridge["ENDPOINT"] == "/kodi-lab/bridge/v1"
     assert bridge["ADDON_ID"] == BRIDGE_ADDON_ID
     assert bridge["OPERATIONS"] == {
+        "inspect_ui_state",
         "bridge_identity",
         "bridge_capabilities",
         "capture_screenshot",
@@ -202,7 +203,11 @@ def test_addon_protocol_is_closed_and_crypto_matches_lab(
         "deployment_receipt",
         "pairing_commit",
     }
-    assert bridge["CAPABILITIES"] == ["screenshot", "workspace_deployment"]
+    assert bridge["CAPABILITIES"] == [
+        "screenshot",
+        "workspace_deployment",
+        "ui_observation",
+    ]
 
     secret = os.urandom(32)
     envelope: dict[str, object] = {
@@ -249,10 +254,10 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.14"
-    assert bridge["BUILD_FINGERPRINT"] == (
-        "64bd532dcbb11fd655f347038b50fc9e6cbd1db74d262d9588b534c66312bb4b"
-    )
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.15"
+    from scripts.build_narrow_bridge import SEMANTIC_FINGERPRINT
+
+    assert bridge["BUILD_FINGERPRINT"] == SEMANTIC_FINGERPRINT
     assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_11_SEMANTIC_FINGERPRINT
     assert bridge["BUILD_FINGERPRINT"] != BRIDGE_1_1_8_SEMANTIC_FINGERPRINT
     dependency = descriptor.find("./requires/import")
@@ -351,7 +356,7 @@ def test_enabled_service_initializes_otp_but_paired_state_wins(
 
     class Server:
         def __init__(self, _endpoint: object, _handler: object) -> None:
-            pass
+            self.stopping = threading.Event()
 
         def serve_forever(self) -> None:
             pass
@@ -425,6 +430,7 @@ def test_deterministic_successor_review_archive(
         "resources/language/resource.language.en_gb/strings.po",
         "resources/settings.xml",
         "service.py",
+        "ui_observation.py",
     )
     assert package_entries(ADDON_ROOT) == expected
     with zipfile.ZipFile(first) as archive:
@@ -474,7 +480,7 @@ def test_packaged_metadata_describes_bounded_development_and_production_use() ->
         "host lifecycle access",
     ):
         assert statement in readme
-    assert "Production uses only `screenshot`" in readme
+    assert "Production observation additionally requires" in readme
 
 
 def test_addon_inspection_uses_kodi_20_compatible_detail_properties(
@@ -619,6 +625,58 @@ def test_addon_capture_protocol_rejects_even_authenticated_path_payload(
     handler = object.__new__(bridge["Handler"])
     with pytest.raises(ValueError):
         handler._authenticated(request, "0" * 64)
+
+
+def test_authenticated_ui_observation_is_bounded_and_carries_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tests.kodi.test_ui_state import movie_collection
+
+    bridge = _load(
+        monkeypatch,
+        state_path=tmp_path / "state/state.json",
+        temp_root=tmp_path / "temp",
+    )
+    state = bridge["_load_state"]()
+    target_id, secret = str(uuid4()), os.urandom(32)
+    state.update(target_id=target_id, secret=b64url(secret))
+    bridge["_save_state"](state)
+    values = []
+    monkeypatch.setitem(
+        sys.modules,
+        "ui_observation",
+        _module(
+            "ui_observation", collect=lambda **_kw: movie_collection().model_dump()
+        ),
+    )
+    handler = object.__new__(bridge["Handler"])
+    handler.server = SimpleNamespace(stopping=threading.Event())
+    handler._json_response = lambda document, request_hash, key, payload: values.append(
+        payload
+    )
+
+    def request(payload: dict[str, object]) -> dict[str, object]:
+        value = {
+            "protocol_version": "1",
+            "operation": "inspect_ui_state",
+            "target_id": target_id,
+            "bridge_id": state["bridge_id"],
+            "request_id": str(uuid4()),
+            "timestamp": bridge["_timestamp"](),
+            "nonce": b64url(os.urandom(32)),
+            "payload": payload,
+        }
+        value["signature"] = bridge["_request_signature"](secret, value)
+        return value
+
+    handler._authenticated(request({}), "0" * 64)
+    assert len(values) == 1
+    assert set(values[0]) == {"identity", "observation"}
+    assert "ui_observation" in values[0]["identity"]["capabilities"]
+    with pytest.raises(ValueError):
+        handler._authenticated(request({"labels": ["ListItem.Label"]}), "0" * 64)
+    assert len(values) == 1
 
 
 def test_addon_gui_capture_deletes_invalid_and_oversized_files(

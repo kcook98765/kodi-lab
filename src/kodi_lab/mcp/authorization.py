@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol, TypeVar
+from typing import Protocol, TypeVar, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -160,9 +160,19 @@ class InternalManagedTargetAuthorityProvider:
         return frozenset(capabilities)
 
     def resolve(self, target_id: UUID) -> TargetTechnicalAuthority:
+        return self._resolve(target_id, observe_runtime=True)
+
+    def resolve_ui_state(self, target_id: UUID) -> TargetTechnicalAuthority:
+        # UI observation requires reconciled authority here. Its managed
+        # collector checks fresh health/readiness/identity inside the target gate.
+        return self._resolve(target_id, observe_runtime=False)
+
+    def _resolve(
+        self, target_id: UUID, *, observe_runtime: bool
+    ) -> TargetTechnicalAuthority:
         capabilities = self.capabilities(target_id)
         states: set[str] = set()
-        if self._status is not None:
+        if observe_runtime and self._status is not None:
             runtime = self._status.get(target_id)
             if runtime.container_state is ContainerRuntimeState.RUNNING:
                 states.add("running")
@@ -420,7 +430,7 @@ class McpAuthorizationService:
                 client_permissions.intersection(target_permissions)
             ):
                 raise McpAuthorizationError("permission_denied")
-        technical = self._technical(target_id)
+        technical = self._technical(target_id, tool_name=definition.name)
         if technical.target_class not in definition.allowed_target_classes:
             raise McpAuthorizationError("permission_denied")
         if (
@@ -715,6 +725,7 @@ class McpAuthorizationService:
                 "target_list",
                 "target_status",
                 "addon_list",
+                "inspect_ui_state",
                 "screenshot_capture",
             }
         ):
@@ -898,8 +909,15 @@ class McpAuthorizationService:
             raise McpAuthorizationError("permission_denied")
         return client
 
-    def _technical(self, target_id: UUID) -> TargetTechnicalAuthority:
+    def _technical(
+        self, target_id: UUID, *, tool_name: str | None = None
+    ) -> TargetTechnicalAuthority:
         try:
+            resolver = getattr(self._targets, "resolve_ui_state", None)
+            if tool_name == "inspect_ui_state" and callable(resolver):
+                return cast(Callable[[UUID], TargetTechnicalAuthority], resolver)(
+                    target_id
+                )
             return self._targets.resolve(target_id)
         except McpAuthorizationError:
             raise

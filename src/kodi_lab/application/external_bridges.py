@@ -53,6 +53,7 @@ from kodi_lab.kodi.external import (
     ExternalEndpointPolicy,
     ValidatedExternalEndpoint,
 )
+from kodi_lab.kodi.ui_state import UiCollection
 from kodi_lab.screenshot_diagnostics import (
     bind_screenshot_bridge_revision,
     emit_screenshot_observation,
@@ -347,7 +348,12 @@ class ExternalBridgeService:
         kodi_versions = tuple(sorted(set(supported_kodi_versions)))
         if (
             capability_set
-            not in {("screenshot",), ("screenshot", "workspace_deployment")}
+            not in {
+                ("screenshot",),
+                ("screenshot", "workspace_deployment"),
+                ("screenshot", "ui_observation"),
+                ("screenshot", "ui_observation", "workspace_deployment"),
+            }
             or not kodi_versions
             or any(not value or len(value) > 32 for value in kodi_versions)
             or not addon_id
@@ -1331,6 +1337,46 @@ class ExternalBridgeService:
                     bridge_id=identity.bridge_id,
                 )
         return self.status(target_id)
+
+    def inspect_ui_state(self, target_id: UUID) -> UiCollection:
+        snapshot = self._active_snapshot(
+            target_id,
+            allow_no_configured_bridge_capability=True,
+        )
+        if snapshot.target_type is TargetType.EXTERNAL_PRODUCTION:
+            with self._sessions() as session:
+                pairing = session.get(ExternalBridgePairingRow, str(target_id))
+                reviewed = (
+                    session.get(ReviewedBridgeBuildRow, pairing.reviewed_build_id)
+                    if pairing
+                    else None
+                )
+                if reviewed is None or "ui_observation" not in self._parse_closed(
+                    reviewed.capabilities_json
+                ):
+                    raise ExternalBridgeServiceError("bridge_capability_unavailable")
+        try:
+            identity, observation = self._client.inspect_ui_state(
+                snapshot.endpoint,
+                bridge_port=snapshot.bridge_port,
+                target_id=target_id,
+                bridge_id=snapshot.bridge_id,
+                secret=self._read_secret(snapshot),
+            )
+            self._require_pinned_identity(snapshot, identity)
+            if "ui_observation" not in identity.capabilities:
+                raise ExternalBridgeServiceError("bridge_capability_unavailable")
+            # Do not publish rich metadata using authority revoked or replaced
+            # while Kodi was collecting it. This is a read-only registry check.
+            current = self._active_snapshot(
+                target_id,
+                allow_no_configured_bridge_capability=True,
+            )
+            if current != snapshot:
+                raise ExternalBridgeServiceError("bridge_identity_mismatch")
+            return observation
+        except ExternalBridgeError as error:
+            raise ExternalBridgeServiceError(error.code) from error
 
     def screenshot_available(self, target_id: UUID) -> bool:
         try:

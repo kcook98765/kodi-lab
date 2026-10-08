@@ -83,6 +83,8 @@ from kodi_lab.broker.operations import (
     DeprovisionManagedContainerParams,
     DeprovisionManagedContainerResult,
     EmptyParams,
+    EstablishManagedBridgeTrustParams,
+    EstablishManagedBridgeTrustResult,
     InspectRepositoryReplacementParams,
     InspectRepositoryReplacementResult,
     ManagedContainerInventoryParams,
@@ -163,6 +165,28 @@ class BrokerClient:
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
         self._write_timeout = write_timeout
+
+    def establish_managed_bridge_trust(
+        self, *, managed_instance_id: str, expected_container_id: str, generation: int
+    ) -> EstablishManagedBridgeTrustResult:
+        params = EstablishManagedBridgeTrustParams(
+            managed_instance_id=managed_instance_id,
+            expected_container_id=expected_container_id,
+            generation=generation,
+        )
+        result = self._call(
+            "establish_managed_bridge_trust",
+            params,
+            EstablishManagedBridgeTrustResult,
+            response_timeout=10.0,
+        )
+        if (result.managed_instance_id, result.container_id, result.generation) != (
+            managed_instance_id,
+            expected_container_id,
+            generation,
+        ):
+            raise ClientProtocolError("Managed Bridge establishment identity differs")
+        return result
 
     def ping(self) -> PingResult:
         """Verify that the authorized broker boundary is healthy."""

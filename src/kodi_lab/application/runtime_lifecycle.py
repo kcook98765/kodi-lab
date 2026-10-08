@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from threading import Event
 from typing import Literal, Protocol
@@ -23,6 +24,10 @@ from kodi_lab.application.lifecycle_operations import (
 from kodi_lab.application.lifecycle_status import (
     observe_lifecycle_semantic_state,
     semantic_state_is_unambiguous,
+)
+from kodi_lab.application.managed_bridge_trust import (
+    ManagedBridgeTrustService,
+    invalidate_managed_bridge_trust,
 )
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.reset_operations import ResetOperationCoordinator
@@ -128,6 +133,7 @@ class ManagedRuntimeLifecycleService:
         reset_operations: ResetOperationCoordinator | None = None,
         lifecycle_operations: ManagedInstanceLifecycleOperationCoordinator
         | None = None,
+        bridge_trust: ManagedBridgeTrustService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._broker = broker
@@ -135,6 +141,7 @@ class ManagedRuntimeLifecycleService:
         self._status = status
         self._coordinator_factory = coordinator_factory
         self._reset_operations = reset_operations
+        self._bridge_trust = bridge_trust
         self._operations = lifecycle_operations or (
             ManagedInstanceLifecycleOperationCoordinator(session_factory)
         )
@@ -173,9 +180,23 @@ class ManagedRuntimeLifecycleService:
 
         def run(cancel_event: Event) -> ReadinessResult:
             coordinator = self._coordinator_factory(self._broker, profile)
-            return coordinator.wait_until_usable(
+            result = coordinator.wait_until_usable(
                 str(instance_id), cancelled=cancel_event.is_set
             )
+            if (
+                result.usability_state.value == "usable"
+                and not cancel_event.is_set()
+                and self._bridge_trust is not None
+            ):
+                try:
+                    self._bridge_trust.prepare(instance_id)
+                except Exception:
+                    # Optional resident capability must not make native Kodi
+                    # operations unusable. No secret or raw error is logged.
+                    logging.getLogger(__name__).warning(
+                        "Managed resident Bridge preparation unavailable"
+                    )
+            return result
 
         self._readiness.start(instance_id, run)
 
@@ -211,6 +232,7 @@ class ManagedRuntimeLifecycleService:
         with self._session_factory.begin() as session:
             invalidate_development_source_deployments(session, instance_id)
             invalidate_addon_zip_installation_evidence(session, instance_id)
+            invalidate_managed_bridge_trust(session, instance_id)
         try:
             self._broker.deprovision_managed_container(
                 managed_instance_id=str(instance_id),

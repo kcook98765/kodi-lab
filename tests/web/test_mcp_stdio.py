@@ -217,6 +217,7 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
                 ]
                 assert [item.name for item in stdio_tools.tools] == [
                     "addon_list",
+                    "inspect_ui_state",
                     "screenshot_capture",
                     "target_list",
                     "target_status",
@@ -346,6 +347,7 @@ def test_official_sdk_http_stdio_equivalence_and_next_request_authority(
                 administration.set_client_enabled(mcp_client.id, True)
                 assert [item.name for item in (await stdio.list_tools()).tools] == [
                     "addon_list",
+                    "inspect_ui_state",
                     "screenshot_capture",
                     "target_list",
                     "target_status",
@@ -431,6 +433,7 @@ def test_remote_action_replay_is_shared_across_http_and_stdio(
                 assert [item.name for item in (await direct.list_tools()).tools] == [
                     "addon_list",
                     "development_source_list",
+                    "inspect_ui_state",
                     "promotion_request",
                     "remote_action",
                     "screenshot_capture",
@@ -588,6 +591,7 @@ def test_development_inspection_is_identical_over_modern_http_and_stdio(
                 assert [item.name for item in (await stdio.list_tools()).tools] == [
                     "addon_list",
                     "development_source_list",
+                    "inspect_ui_state",
                     "promotion_request",
                     "remote_action",
                     "screenshot_capture",

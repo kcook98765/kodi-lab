@@ -96,6 +96,10 @@ from kodi_lab.broker.kodi_logs import (
     KodiLogWindowProvider,
     SqliteKodiLogAuthorityResolver,
 )
+from kodi_lab.broker.managed_bridge_trust import (
+    DockerManagedBridgeTrustProvider,
+    SqliteManagedBridgeTrustResolver,
+)
 from kodi_lab.broker.protocol import (
     PROTOCOL_VERSION,
     Request,
@@ -150,6 +154,33 @@ from kodi_lab.snapshot.storage import SnapshotArtifactDeletionError
 
 class EmptyParams(StrictModel):
     """An operation that accepts no caller-controlled parameters."""
+
+
+class EstablishManagedBridgeTrustParams(StrictModel):
+    managed_instance_id: str
+    expected_container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    generation: int = Field(ge=1, strict=True)
+
+    @field_validator("managed_instance_id")
+    @classmethod
+    def _uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("managed identity must be canonical")
+        return value
+
+
+class EstablishManagedBridgeTrustResult(StrictModel):
+    managed_instance_id: str
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    generation: int = Field(ge=1, strict=True)
+    bridge_id: str
+
+    @field_validator("managed_instance_id", "bridge_id")
+    @classmethod
+    def _uuid(cls, value: str) -> str:
+        if not is_canonical_uuid(value):
+            raise ValueError("identity must be canonical")
+        return value
 
 
 class ReviewedInstallationLaunchParams(StrictModel):
@@ -1416,6 +1447,8 @@ def build_foundation_registry(
     reviewed_installation_worker: DockerReviewedInstallationWorker | None = None,
     reconstruction_resolver: SqliteReconstructionAuthorizationResolver | None = None,
     reconstruction_provider: DockerManagedContainerAdapter | None = None,
+    managed_bridge_resolver: SqliteManagedBridgeTrustResolver | None = None,
+    managed_bridge_provider: DockerManagedBridgeTrustProvider | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
@@ -3790,5 +3823,39 @@ def build_foundation_registry(
             "broker_replacement_operation_id": result.replacement_operation_id,
             "broker_replacement_matched": result.matched,
         },
+    )
+
+    def establish_managed_bridge_trust(
+        params: EstablishManagedBridgeTrustParams,
+    ) -> EstablishManagedBridgeTrustResult:
+        try:
+            trust_resolver = (
+                managed_bridge_resolver or SqliteManagedBridgeTrustResolver.production()
+            )
+            spec = trust_resolver.resolve(
+                params.managed_instance_id,
+                params.expected_container_id,
+                params.generation,
+            )
+            bridge_id = (
+                managed_bridge_provider or DockerManagedBridgeTrustProvider()
+            ).establish(spec)
+        except Exception as error:
+            raise OperationError(
+                "managed_bridge_establishment_failed",
+                "Managed Bridge trust could not be established.",
+            ) from error
+        return EstablishManagedBridgeTrustResult(
+            managed_instance_id=params.managed_instance_id,
+            container_id=params.expected_container_id,
+            generation=params.generation,
+            bridge_id=bridge_id,
+        )
+
+    registry.register(
+        name="establish_managed_bridge_trust",
+        params_model=EstablishManagedBridgeTrustParams,
+        result_model=EstablishManagedBridgeTrustResult,
+        handler=establish_managed_bridge_trust,
     )
     return registry

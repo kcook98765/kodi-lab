@@ -17,7 +17,7 @@ The bundle contains Web/broker application images, source-free Compose files,
 configuration example, optional development-source Compose overlay, bundle
 verifier, manifest and checksums, three reviewed
 recipe descriptions in `runtime-recipes/`, license and notices, and recovery
-documents. It also contains `bridge/service.kodi_lab_bridge-1.1.14.zip` and its
+documents. It also contains `bridge/service.kodi_lab_bridge-1.1.15.zip` and its
 `bridge/BRIDGE.json` provenance and the reviewed `repository/STABLE.json` and
 `repository/DEVELOPMENT.json` feed inputs. The same recipes are wheel resources inside
 both installed images.
@@ -127,7 +127,7 @@ shell access or an already-paired bridge. Kodi may require its normal explicit
 permission/warning for HTTP sources; do not disable unrelated protections.
 Private-LAN HTTP does not authenticate the server against a malicious LAN actor.
 
-The exact `bridge/service.kodi_lab_bridge-1.1.14.zip` remains a manual fallback.
+The exact `bridge/service.kodi_lab_bridge-1.1.15.zip` remains a manual fallback.
 Verify its SHA-256 against `bridge/BRIDGE.json` and the `BUNDLE.json` file record
 before transferring it. The stable feed serves these identical reviewed bytes.
 
@@ -186,7 +186,7 @@ reporting deployment success. [Kodi Add-on manager](https://kodi.wiki/view/Add-o
    independent bridge credential, and displays the authenticated bridge
    identity. If the response is uncertain, use **Resume pairing**; do not
    submit the code a second time. Check the observed UUID, add-on version
-   `1.1.14`, protocol `1`, Kodi version, and capabilities under **Connected
+   `1.1.15`, protocol `1`, Kodi version, and capabilities under **Connected
    Kodi targets**. Advanced external target administration supports explicit
    target approval and capability limits before development deployment.
 4. For a production target, use **Production targets** instead. Register and

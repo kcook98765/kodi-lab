@@ -68,6 +68,7 @@ from kodi_lab.domain.smoke_diagnostics import AddonExceptionDiagnostic
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
+from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION, McpToolRegistry
 from kodi_lab.mcp.tools import (
@@ -122,6 +123,7 @@ _principal_context: contextvars.ContextVar[McpPrincipal] = contextvars.ContextVa
 _MCP_AUDIT_SCHEMA_VERSION = 1
 _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
     {
+        "inspect_ui_state",
         "addon_list",
         "development_source_list",
         "promotion_request",
@@ -751,6 +753,22 @@ def build_mcp_http_transport(
         idle_seconds=15 * 60,
     )
     inventory = {
+        "inspect_ui_state": Tool(
+            name="inspect_ui_state",
+            title="Inspect Kodi UI state",
+            description=(
+                "Inspect the foreground window/dialog, actual focused control, "
+                "associated container and selected item, basic playback and UI flags. "
+                "Use before/after navigation to understand what Kodi is showing; "
+                "structured state is usually cheaper than a screenshot. Focus and "
+                "selected item are distinct: associated=true means item metadata "
+                "belongs to the current container context. Snapshots are non-atomic."
+            ),
+            input_schema=_TargetStatusInput.model_json_schema(),
+            output_schema=UiObservation.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "addon_list": Tool(
             name="addon_list",
             title="List installed Kodi add-ons",
@@ -1011,6 +1029,7 @@ def build_mcp_http_transport(
             arguments = params.arguments or {}
             result: (
                 AddonListResult
+                | UiObservation
                 | McpRemoteActionResult
                 | ProductionApprovalRequiredResult
                 | ProductionApprovalTerminalResult
@@ -1045,7 +1064,12 @@ def build_mcp_http_transport(
                 "workspace_capture",
             } and not edit_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
-            if params.name == "addon_list":
+            if params.name == "inspect_ui_state":
+                target_id = _TargetStatusInput.model_validate(arguments).target_id
+                result = await asyncio.to_thread(
+                    tools.inspect_ui_state, principal, target_id=target_id
+                )
+            elif params.name == "addon_list":
                 parsed_addons = _AddonListInput.model_validate(arguments)
                 target_id = parsed_addons.target_id
                 result = await asyncio.to_thread(
@@ -1660,6 +1684,7 @@ def _tool_capability(tool_name: str) -> str:
     return {
         "target_list": "target_inspect",
         "target_status": "target_inspect",
+        "inspect_ui_state": "target_inspect",
         "addon_list": "addon_inventory",
         "remote_action": "semantic_remote",
         "screenshot_capture": "screenshot",

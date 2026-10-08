@@ -1,9 +1,11 @@
 # Kodi Lab narrow bridge
 
 This ordinary Kodi service add-on provides an authenticated identity anchor,
-capability verification and bounded screenshots for approved Kodi Lab
-external-development targets and reviewed production targets. Installation is
-manual. After enabling the bridge, open **Pair Kodi Lab** in its settings to
+capability verification, bounded screenshots and protected UI observations for
+managed Kodi Lab targets, approved external-development targets and reviewed
+production targets. Managed runtime lifecycle establishes its credential without
+user OTP. External installation and pairing remain manual. For external targets,
+after enabling the bridge, open **Pair Kodi Lab** in its settings to
 view the four-character code. The code lasts five minutes, can be replaced
 locally after a 30-second cooldown, and is never the normal request credential.
 The `otp-1` HTTP bootstrap protocol is used by the implemented Kodi Lab Web
@@ -44,8 +46,17 @@ deployment, update or lifecycle authority. Production control uses separate
 fixed server-owned native Kodi actions; this is not an arbitrary production
 command channel.
 
-Protocol 1 advertises `screenshot` and `workspace_deployment`. Production uses
-only `screenshot`. On an approved external-development target, deployment is a
+Bridge 1.1.15 protocol 1 advertises `screenshot`, `workspace_deployment` and
+`ui_observation`. Production observation additionally requires the existing
+reviewed-build confirmation and transport policy; deployment stays development-only.
+`inspect_ui_state` accepts only an empty payload. Its protected collector reads
+direct window/dialog/focus/player facts and dispatches curated Container/ListItem
+labels and conditions through Kodi's GUI messenger. It never directly reads generic
+ListItem labels on the request thread. Managed targets use lifecycle-established
+resident Bridge trust; external targets retain their existing pairing authority.
+The operation accepts no arbitrary labels, conditions, paths or code.
+
+On an approved external-development target, deployment is a
 closed, pathless operation for one exactly authorized copied Python video
 plug-in: Kodi Lab sends an exact manifest and referenced content chunks while
 the add-on derives the destination from `special://home/addons` and the

@@ -18,6 +18,7 @@ from kodi_lab.application.development_source_deployments import (
     invalidate_development_source_deployments,
 )
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
+from kodi_lab.application.managed_bridge_trust import invalidate_managed_bridge_trust
 from kodi_lab.application.reset_activity import (
     ResetActivityCapacityError,
     ResetActivityConflictError,
@@ -429,6 +430,7 @@ class DisposableInstanceResetService:
                 with self._session_factory.begin() as session:
                     invalidate_development_source_deployments(session, instance_id)
                     invalidate_addon_zip_installation_evidence(session, instance_id)
+                    invalidate_managed_bridge_trust(session, instance_id)
                 self._broker.deprovision_managed_container(
                     managed_instance_id=str(instance_id),
                     expected_container_id=container.container_id,

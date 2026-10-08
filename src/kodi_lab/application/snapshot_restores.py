@@ -20,6 +20,7 @@ from kodi_lab.application.addon_zip_installations import (
 from kodi_lab.application.development_source_deployments import (
     invalidate_development_source_deployments,
 )
+from kodi_lab.application.managed_bridge_trust import invalidate_managed_bridge_trust
 from kodi_lab.application.snapshot_restore_operations import (
     SnapshotRestoreLease,
     SnapshotRestoreLeaseLostError,
@@ -214,6 +215,9 @@ class DisposableSnapshotRestoreService:
                     session, self._lease.managed_instance_id
                 )
                 invalidate_addon_zip_installation_evidence(
+                    session, self._lease.managed_instance_id
+                )
+                invalidate_managed_bridge_trust(
                     session, self._lease.managed_instance_id
                 )
             self._broker.deprovision_managed_container(

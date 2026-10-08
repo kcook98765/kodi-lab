@@ -1,9 +1,9 @@
 # Phase 11 MCP transports and security
 
 The phase and slice counts below describe their historical checkpoints. For the
-current eighteen-tool registry, including later development tools, see
+current nineteen-tool registry, including later development tools, see
 [V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract).
-Exactly five current tools are production-eligible; that subset is unchanged.
+Exactly six current tools are production-eligible, including read-only UI observation.
 
 Kodi Lab's primary MCP authority is modern Streamable HTTP POST `/mcp`, exact
 protocol `2026-07-28`. Exact legacy `2025-11-25` is a bounded stateless HTTP
@@ -100,7 +100,7 @@ Built-in Add-on Development, Read-only Inspection and Full Lab Control presets
 contain both `target.inspect` and `target.visual`. Phase 14 Slice 4A later
 activates the non-clonable Production Remote Kodi maximum only for external
 production. A client with only `target.inspect` discovers
-`addon_list`, `target_list` and `target_status`; `target.visual` additionally
+`addon_list`, `inspect_ui_state`, `target_list` and `target_status`; `target.visual` additionally
 reveals `screenshot_capture`. Discovery does not replace invocation-time exact
 grant, target policy, target-class, capability or state checks.
 

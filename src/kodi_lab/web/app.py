@@ -246,6 +246,10 @@ from kodi_lab.application.live_display import (
     LiveDisplayFrameSkipped,
     ManagedLiveDisplayService,
 )
+from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustService
+from kodi_lab.application.managed_observation_bridge import (
+    ManagedObservationBridgeService,
+)
 from kodi_lab.application.mcp_administration import (
     ADDON_DEVELOPMENT_PRESET_ID,
     EXPLICIT_SOURCE_CAPTURE_PERMISSIONS,
@@ -409,6 +413,7 @@ from kodi_lab.application.snapshots import (
     SnapshotCreateExecutor,
     SnapshotServiceFactory,
 )
+from kodi_lab.application.ui_state import ManagedUiObservationService
 from kodi_lab.application.workspace_capture_presentation import (
     WorkspaceCapturePresentationService,
     WorkspaceCaptureStatus,
@@ -1045,7 +1050,7 @@ class ReviewedBridgeBuildRequest(BaseModel):
     addon_id: str = Field(min_length=1, max_length=128)
     addon_version: str = Field(min_length=1, max_length=64)
     protocol_version: str = Field(min_length=1, max_length=16)
-    capabilities: tuple[str, ...] = Field(min_length=1, max_length=2)
+    capabilities: tuple[str, ...] = Field(min_length=1, max_length=3)
     supported_kodi_versions: tuple[str, ...] = Field(min_length=1, max_length=8)
     source_reference: str = Field(min_length=1, max_length=512)
 
@@ -1176,6 +1181,8 @@ class WebApplicationContext:
     production_capability_amendments: ProductionCapabilityAmendmentService
     development_capability_amendments: DevelopmentCapabilityAmendmentService
     external_bridges: ExternalBridgeService
+    managed_observation_bridges: ManagedObservationBridgeService
+    managed_bridge_trust: ManagedBridgeTrustService
     production_native_control_acknowledgements: (
         ProductionNativeControlAcknowledgementService
     )
@@ -1427,6 +1434,21 @@ def create_app(
         screenshots=screenshots,
         status=status_service,
     )
+    managed_observation_bridges = ManagedObservationBridgeService(
+        session_factory,
+        external_bridge_secret_store,
+    )
+    managed_bridge_trust = ManagedBridgeTrustService(
+        session_factory, broker, external_bridge_secret_store
+    )
+    managed_ui_state = ManagedUiObservationService(
+        session_factory,
+        broker,
+        status_service,
+        reconciliation,
+        bridges=managed_observation_bridges,
+    )
+
     mcp_target_adapters = KodiTargetAdapterService(
         session_factory,
         managed_status=status_service,
@@ -1438,6 +1460,7 @@ def create_app(
         endpoint_policy=external_endpoint_policy,
         credential_store=external_credential_store,
         external_transport=external_target_transport,
+        managed_ui_state=managed_ui_state,
     )
     mcp_workspace_development.configure_external(
         bridges=external_bridges,
@@ -1816,6 +1839,7 @@ def create_app(
             coordinator_factory=coordinator_factory or KodiReadinessCoordinator,
             reset_operations=reset_operations,
             lifecycle_operations=lifecycle_operations,
+            bridge_trust=managed_bridge_trust,
         ),
         matrix=RuntimeMatrixService(
             session_factory,
@@ -1896,6 +1920,8 @@ def create_app(
         production_capability_amendments=production_capability_amendments,
         development_capability_amendments=development_capability_amendments,
         external_bridges=external_bridges,
+        managed_observation_bridges=managed_observation_bridges,
+        managed_bridge_trust=managed_bridge_trust,
         production_native_control_acknowledgements=(
             production_native_control_acknowledgements
         ),
@@ -1981,6 +2007,8 @@ def create_app(
                 context.agent_workspace_executor.close()
                 context.agent_workspace_cleanup_executor.close()
                 context.readiness.close()
+                context.managed_observation_bridges.close()
+                context.managed_bridge_trust.close()
 
     app = FastAPI(
         title="Kodi Lab",

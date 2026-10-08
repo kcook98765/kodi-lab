@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID, uuid4
 
 import httpx
@@ -45,6 +45,7 @@ from kodi_lab.application.screenshots import (
     ManagedScreenshotService,
     ScreenshotServiceError,
 )
+from kodi_lab.application.ui_state import ManagedUiObservationService, ObservationGate
 from kodi_lab.domain import (
     EXTERNAL_CAPABILITY_VALUES,
     ConnectionState,
@@ -78,6 +79,8 @@ from kodi_lab.kodi.remote import (
     RemoteKodiRejectedError,
     RemoteNoActivePlayerError,
 )
+from kodi_lab.kodi.ui_state import UiObservation, normalize_collection
+from kodi_lab.kodi.ui_state_native import UiObservationError
 from kodi_lab.mcp.authorization import TargetTechnicalAuthority
 from kodi_lab.mcp.registry import TargetClass
 from kodi_lab.storage.models import (
@@ -128,6 +131,7 @@ _TARGET_TOOL_CAPABILITIES = (
     ("addon_list", "addon_inventory"),
     ("remote_action", "semantic_remote"),
     ("screenshot_capture", "screenshot"),
+    ("inspect_ui_state", "target_inspect"),
 )
 
 
@@ -219,6 +223,7 @@ class KodiTargetAdapterService:
         managed_screenshots: ManagedScreenshotService | None = None,
         external_bridges: ExternalBridgeService | None = None,
         external_transport: httpx.BaseTransport | None = None,
+        managed_ui_state: ManagedUiObservationService | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._sessions = session_factory
@@ -231,6 +236,8 @@ class KodiTargetAdapterService:
         self._endpoint_policy = endpoint_policy
         self._credential_store = credential_store
         self._external_transport = external_transport
+        self._managed_ui_state = managed_ui_state
+        self._observation_gate = ObservationGate()
         self._now = now
         self._gate = _ExternalOperationGate()
         self._production_gate = _ExternalOperationGate(global_limit=4)
@@ -279,6 +286,15 @@ class KodiTargetAdapterService:
             capabilities=frozenset(capabilities),
             current_states=frozenset(states),
         )
+
+    def resolve_ui_state(self, target_id: UUID) -> TargetTechnicalAuthority:
+        if self._target_type(target_id) is TargetType.MANAGED:
+            resolver = getattr(self._managed_authority, "resolve_ui_state", None)
+            if callable(resolver):
+                return cast(Callable[[UUID], TargetTechnicalAuthority], resolver)(
+                    target_id
+                )
+        return self.resolve(target_id)
 
     def summary(self, target_id: UUID, *, fresh: bool) -> KodiTargetSummaryData:
         if self._target_type(target_id) is TargetType.MANAGED:
@@ -579,6 +595,52 @@ class KodiTargetAdapterService:
                 ),
             )
         except ExternalBridgeServiceError as error:
+            raise KodiTargetAdapterError(error.code) from error
+        except ExternalProbeError as error:
+            raise KodiTargetAdapterError(error.code) from error
+
+    def inspect_ui_state(self, target_id: UUID) -> UiObservation:
+        try:
+            with self._observation_gate.enter(target_id):
+                target_type = self._target_type(target_id)
+                if target_type is TargetType.MANAGED:
+                    if self._managed_ui_state is None:
+                        raise KodiTargetAdapterError("capability_unavailable")
+                    return self._managed_ui_state.inspect(target_id)
+                snapshot = (
+                    self._production_snapshot(
+                        target_id,
+                        required_capabilities=frozenset({"target_inspect"}),
+                        load_secret=True,
+                    )
+                    if target_type is TargetType.EXTERNAL_PRODUCTION
+                    else self._external_snapshot(target_id, load_secret=True)
+                )
+                if self._external_bridges is not None:
+                    try:
+                        raw = self._external_bridges.inspect_ui_state(target_id)
+                        return normalize_collection(raw)
+                    except ExternalBridgeServiceError as error:
+                        if error.code not in {
+                            "bridge_not_paired",
+                            "bridge_capability_unavailable",
+                            "bridge_operation_failed",
+                            "bridge_unreachable",
+                            "bridge_build_not_reviewed",
+                            "bridge_reverification_required",
+                            "bridge_http_risk_not_acknowledged",
+                        }:
+                            raise KodiTargetAdapterError(error.code) from error
+                adapter = self._external_adapter(snapshot)
+                with self._gate.enter(target_id):
+                    if target_type is TargetType.EXTERNAL_PRODUCTION:
+                        self._require_production_identity(
+                            snapshot, adapter.get_production_identity()
+                        )
+                    else:
+                        self._require_identity(snapshot, adapter)
+                    return adapter.inspect_ui_state()
+        except UiObservationError as error:
             raise KodiTargetAdapterError(error.code) from error
         except ExternalProbeError as error:
             raise KodiTargetAdapterError(error.code) from error

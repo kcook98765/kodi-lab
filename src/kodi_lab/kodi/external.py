@@ -36,6 +36,7 @@ from kodi_lab.kodi.remote import (
     dispatch_semantic_remote,
     fixed_request_mapping,
 )
+from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.storage.secrets import ExternalKodiCredential
 
 MAX_EXTERNAL_RESPONSE_BYTES = 65_536
@@ -535,6 +536,22 @@ class NativeExternalKodiAdapter:
         self._connect_timeout = connect_timeout
         self._response_timeout = response_timeout
         self._total_timeout = total_timeout
+
+    def inspect_ui_state(self) -> UiObservation:
+        from kodi_lab.kodi.ui_state_native import UiObservationError, collect_native
+
+        started = time.monotonic()
+        with self._client() as client:
+
+            def call(method: str, params: dict[str, Any] | None) -> object:
+                try:
+                    return self._verifier._call(
+                        client, self._endpoint, method, params, started
+                    )
+                except ExternalProbeError as error:
+                    raise UiObservationError(error.code) from error
+
+            return collect_native(call)
 
     def get_identity(self) -> KodiApplicationIdentity:
         started = time.monotonic()

@@ -30,7 +30,7 @@ def candidate(tmp_path: Path) -> Path:
     bundle = tmp_path / "candidate"
     (bundle / "bridge").mkdir(parents=True)
     (bundle / "repository").mkdir()
-    bridge = bundle / "bridge/service.kodi_lab_bridge-1.1.14.zip"
+    bridge = bundle / "bridge/service.kodi_lab_bridge-1.1.15.zip"
     build_archive(ROOT / "bridge/service.kodi_lab_bridge", bridge)
     assert sha256(bridge.read_bytes()) == BRIDGE_SHA256
     stable = ROOT / "repository/STABLE.json"
@@ -38,10 +38,10 @@ def candidate(tmp_path: Path) -> Path:
     provenance = {
         "schema": "kodi-lab-bridge-artifact-v1",
         "addon_id": "service.kodi_lab_bridge",
-        "version": "1.1.14",
+        "version": "1.1.15",
         "sha256": BRIDGE_SHA256,
         "semantic_fingerprint": (
-            "64bd532dcbb11fd655f347038b50fc9e6cbd1db74d262d9588b534c66312bb4b"
+            "b125a428b12cb48b3a93d2c9009478803b7bd65c85b2fdc632e0b644f2abc4c2"
         ),
         "source_commit": "c" * 40,
         "source_tree": "a" * 40,
@@ -49,7 +49,7 @@ def candidate(tmp_path: Path) -> Path:
         "protocol": "1",
         "bootstrap": "otp-1",
         "builder": "kodi-lab-narrow-bridge-zip-v2",
-        "capabilities": ["screenshot", "workspace_deployment"],
+        "capabilities": ["screenshot", "workspace_deployment", "ui_observation"],
     }
     (bundle / "bridge/BRIDGE.json").write_bytes(canonical(provenance))
     manifest = {
@@ -57,7 +57,7 @@ def candidate(tmp_path: Path) -> Path:
         "source_commit": "c" * 40,
         "source_tree": "a" * 40,
         "bridge": {
-            "zip": "bridge/service.kodi_lab_bridge-1.1.14.zip",
+            "zip": "bridge/service.kodi_lab_bridge-1.1.15.zip",
             "provenance": "bridge/BRIDGE.json",
         },
         "files": {
@@ -65,7 +65,7 @@ def candidate(tmp_path: Path) -> Path:
                 "sha256": "sha256:" + sha256(stable.read_bytes()),
                 "size": stable.stat().st_size,
             },
-            "bridge/service.kodi_lab_bridge-1.1.14.zip": {
+            "bridge/service.kodi_lab_bridge-1.1.15.zip": {
                 "sha256": "sha256:" + BRIDGE_SHA256,
                 "size": bridge.stat().st_size,
             },
@@ -123,7 +123,7 @@ def test_generation_is_deterministic_and_restarts(tmp_path: Path) -> None:
         stat.S_IMODE(
             (
                 data
-                / "packages/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.14.zip"
+                / "packages/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.15.zip"
             )
             .stat()
             .st_mode

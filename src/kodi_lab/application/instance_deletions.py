@@ -19,6 +19,7 @@ from kodi_lab.application.instance_delete_operations import (
     ManagedInstanceDeleteOperationCoordinator,
     ManagedInstanceDeleteUnsupportedError,
 )
+from kodi_lab.application.managed_bridge_trust import invalidate_managed_bridge_trust
 from kodi_lab.application.readiness_tasks import ReadinessTaskRegistry
 from kodi_lab.application.snapshot_deletions import (
     SnapshotDeleteBroker,
@@ -148,6 +149,10 @@ class DisposableManagedInstanceDeletionService:
                 raise ManagedInstanceDeleteLeaseLostError(
                     "Instance deletion operation disappeared."
                 )
+            with self._session_factory.begin() as session:
+                invalidate_managed_bridge_trust(
+                    session, self._lease.managed_instance_id
+                )
             try:
                 self._broker.deprovision_managed_container(
                     managed_instance_id=str(self._lease.managed_instance_id),
@@ -168,6 +173,8 @@ class DisposableManagedInstanceDeletionService:
             raise ManagedInstanceDeletionError(
                 "Complete managed-container absence could not be proven."
             )
+        with self._session_factory.begin() as session:
+            invalidate_managed_bridge_trust(session, self._lease.managed_instance_id)
         self._readiness.clear(self._lease.managed_instance_id)
 
         if self._lease.preserve_snapshots:

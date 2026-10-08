@@ -96,8 +96,8 @@ tool still requires an explicit `target_id`; stdio creates no selected target or
 session. See [`docs/PHASE11-MCP.md`](docs/PHASE11-MCP.md) for security and
 client configuration details.
 
-The current V1 MCP registry contains eighteen tools: `addon_list`,
-`development_source_list`, `promotion_request`, `remote_action`,
+The current V1 MCP registry contains nineteen tools: `addon_list`,
+`development_source_list`, `inspect_ui_state`, `promotion_request`, `remote_action`,
 `screenshot_capture`, `target_list`, `target_status`, `workspace_capture`,
 `workspace_create`, `workspace_deploy`, `workspace_edit`, `workspace_execute`,
 `workspace_execution_recover`, `workspace_read`, `workspace_source_scan`,
@@ -105,6 +105,17 @@ The current V1 MCP registry contains eighteen tools: `addon_list`,
 only the subset allowed by the client's current permissions.
 Screenshots are returned as native MCP `image/png` content through either
 transport; stdio does not write a temporary image or bypass the HTTP authority.
+
+`inspect_ui_state` is read-only and uses `target.inspect`. Use it before and after
+navigation for a compact observation of the base window, topmost dialog, actual
+focus, associated container/selected item, playback and UI flags. Focus is distinct
+from retained media metadata: only `associated: true` establishes ownership.
+Snapshots are bounded and non-atomic; a detected GUI change clears associations.
+Unavailable scalars/flags are `null`, and unassociated metadata is cleared.
+Use screenshots when appearance, layout or other visual details matter.
+Bridge 1.1.15 supplies the protected hybrid collector; an absent or unavailable
+Bridge uses native JSON-RPC with conservative, unassociated container/item state.
+See [UI observation](docs/UI-OBSERVATION.md) for routing and semantics.
 
 Phase 12 workspace mutation requires `workspace.edit`, available only in the
 Add-on Development and Full Lab Control built-ins. Creation is request-ID
@@ -186,12 +197,12 @@ For a development bridge, install
 `bridge/service.kodi_lab_bridge` as an ordinary Kodi service add-on. Keep it
 disabled until the external target is registered, native-verified, explicitly
 confirmed/enabled and configured with the required capability maximum. Enable
-bridge 1.1.14, obtain its four-character code, and enter that code with the
+bridge 1.1.15, obtain its four-character code, and enter that code with the
 allowlisted bridge port in Kodi Lab's Web onboarding flow. Kodi Lab uses the
 shared `otp-1` protocol and confirms the authenticated bridge identity.
 Re-pairing rotates the secret
 and revocation disables screenshot/deployment authority immediately. The add-on
-exposes only identity, capability, screenshot and pathless content-addressed
+exposes only identity, capability, bounded UI observation, screenshot and pathless content-addressed
 deployment operations; fixed execution remains native. Establish the exact
 DevelopmentSource baseline in Web before deployment and use only Web receipt
 reconciliation after ambiguity. With HTTP,
@@ -200,9 +211,9 @@ use normally validated HTTPS when confidentiality is required.
 
 ## Production targets
 
-Phase 14 keeps production separate from external development. Exactly five of
-the eighteen current MCP tools are production-eligible: `target_list`,
-`target_status`, `addon_list`, `screenshot_capture` and `remote_action`. Production has no
+Phase 14 keeps production separate from external development. Exactly six of
+the nineteen current MCP tools are production-eligible: `target_list`,
+`target_status`, `addon_list`, `inspect_ui_state`, `screenshot_capture` and `remote_action`. Production has no
 workspace/deployment tool. Native inspection, bridge-backed visual inspection
 and remote control each require exact Web-assigned presets, grants and current
 generation/revision-bound scopes.
@@ -214,10 +225,10 @@ permit only `up`, `down`, `left`, `right`, `back`, `home` and `info`.
 always prohibited. Mutation vetoes start blocked, exact request replay cannot
 dispatch twice, and ambiguity stops rather than retries.
 
-The production bridge supplies identity and bounded screenshots, not arbitrary
-control. Operators manually install an exact reviewed release ZIP after
+The production bridge supplies identity, bounded screenshots and structured UI
+observation. Operators manually install an exact reviewed release ZIP after
 checking its published SHA-256; Web then registers the reviewed build, pairs
-bridge 1.1.14 with its four-character `otp-1` code and explicitly confirms
+bridge 1.1.15 with its four-character `otp-1` code and explicitly confirms
 provenance. Kodi Lab does not
 install/update production software or own Kodi/host lifecycle. Automatic bridge
 updates, hosted-repository bootstrap, generic production add-on installation,
@@ -226,7 +237,7 @@ are outside V1 authority.
 
 A source-free local deployment candidate built from this checkout includes the
 exact reviewed
-`service.kodi_lab_bridge-1.1.14.zip` and `BRIDGE.json` provenance under `bridge/`.
+`service.kodi_lab_bridge-1.1.15.zip` and `BRIDGE.json` provenance under `bridge/`.
 The bundle verifier checks the ZIP hash, closed inventory, descriptor, license,
 and Git source identity. Historical 1.1.7/1.1.8 packages remain separate review
 evidence; they are not the current `otp-1` package. See the [bridge trust model](docs/BRIDGE.md),

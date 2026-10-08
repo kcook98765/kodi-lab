@@ -100,6 +100,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
+from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION
 from kodi_lab.storage.models import ManagedInstanceRow, TargetRow
@@ -413,7 +414,9 @@ class WorkspaceEditInput(BaseModel):
         json_schema_extra={
             "allOf": [
                 {
-                    "if": {"properties": {"operation": {"enum": ["create", "replace"]}}},
+                    "if": {
+                        "properties": {"operation": {"enum": ["create", "replace"]}}
+                    },
                     "then": {
                         "required": ["content"],
                         "properties": {"content": {"type": "string"}},
@@ -1287,6 +1290,27 @@ class McpTargetToolService:
             raise McpAuthorizationError(error.code) from error
         self._require_bounded(result)
         return result
+
+    def inspect_ui_state(
+        self, principal: McpPrincipal, *, target_id: UUID
+    ) -> UiObservation:
+        def inspect() -> UiObservation:
+            if self._target_adapters is None:
+                raise McpAuthorizationError("capability_unavailable")
+            try:
+                result = self._target_adapters.inspect_ui_state(target_id)
+            except ManagedInstanceNotFoundError as error:
+                raise McpAuthorizationError(
+                    "target_not_found_or_not_authorized"
+                ) from error
+            except KodiTargetAdapterError as error:
+                raise McpAuthorizationError(error.code) from error
+            self._require_bounded(result)
+            return result
+
+        return self._authorization.invoke_target(
+            principal, "inspect_ui_state", target_id, inspect
+        )
 
     def addon_list(
         self,

@@ -22,6 +22,7 @@ from kodi_lab.application.addon_zip_installations import (
 from kodi_lab.application.development_source_deployments import (
     invalidate_development_source_deployments,
 )
+from kodi_lab.application.managed_bridge_trust import invalidate_managed_bridge_trust
 from kodi_lab.application.reconciliation import (
     ManagedInstanceReconciliationRequiredError,
     ManagedInstanceReconciliationService,
@@ -556,6 +557,7 @@ class ManagedRuntimeReconstructionCoordinator:
                 invalidate_addon_zip_installation_evidence(
                     session, UUID(row.managed_instance_id)
                 )
+                invalidate_managed_bridge_trust(session, UUID(row.managed_instance_id))
             current.state = "resolved"
             current.failure_reason = (
                 f"Administrator confirmed {observed} after interrupted reconstruction."
@@ -707,6 +709,7 @@ class ManagedRuntimeReconstructionExecutor:
         with self._session_factory.begin() as session:
             invalidate_development_source_deployments(session, instance_id)
             invalidate_addon_zip_installation_evidence(session, instance_id)
+            invalidate_managed_bridge_trust(session, instance_id)
         self._coordinator.phase(operation_id, digest, "provisioning")
         destination = self._broker.reconstruction_destination(
             managed_instance_id=row.managed_instance_id

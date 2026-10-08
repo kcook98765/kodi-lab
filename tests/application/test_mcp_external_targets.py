@@ -110,6 +110,60 @@ def _principal(client_id: UUID, preset_id: UUID) -> McpPrincipal:
     )
 
 
+def test_ui_observation_external_bridge_uses_generic_normalizer(
+    external_authority: tuple[
+        sessionmaker[Session], McpAdministrationService, KodiTargetAdapterService
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from kodi_lab.application.external_bridges import ExternalBridgeServiceError
+    from kodi_lab.kodi.ui_state_native import collect_native
+    from tests.kodi.test_ui_state import movie_collection, native_fixture
+
+    _, _, adapters = external_authority
+    adapters._external_bridges = cast(
+        Any,
+        SimpleNamespace(
+            inspect_ui_state=lambda target: movie_collection(),
+            screenshot_available=lambda target: False,
+            deployment_available=lambda target: False,
+        ),
+    )
+    result = adapters.inspect_ui_state(TARGET_ID)
+    assert result.selected_item.associated and result.focus.control_id == 50
+
+    def unavailable(target: UUID) -> None:
+        raise ExternalBridgeServiceError("bridge_not_paired")
+
+    monkeypatch.setattr(adapters._external_bridges, "inspect_ui_state", unavailable)
+    checked = []
+    monkeypatch.setattr(
+        adapters,
+        "_require_identity",
+        lambda snapshot, adapter: checked.append(snapshot.target_id),
+    )
+    monkeypatch.setattr(
+        adapters,
+        "_external_adapter",
+        lambda snapshot: SimpleNamespace(
+            inspect_ui_state=lambda: collect_native(native_fixture)
+        ),
+    )
+    fallback = adapters.inspect_ui_state(TARGET_ID)
+    assert checked == [TARGET_ID] and not fallback.selected_item.associated
+
+    def mismatch(target: UUID) -> None:
+        raise ExternalBridgeServiceError("bridge_identity_mismatch")
+
+    monkeypatch.setattr(adapters._external_bridges, "inspect_ui_state", mismatch)
+    from kodi_lab.application.mcp_target_adapters import KodiTargetAdapterError
+
+    with pytest.raises(KodiTargetAdapterError, match="bridge_identity_mismatch"):
+        adapters.inspect_ui_state(TARGET_ID)
+
+
 def _authorize(
     authorization: McpAuthorizationService,
     principal: McpPrincipal,
@@ -130,7 +184,7 @@ def test_external_summary_projects_only_verified_capabilities_without_duplicates
 ) -> None:
     factory, _administration, adapters = external_authority
     limited = adapters.summaries([TARGET_ID])[0]
-    assert limited.capabilities == ("target_status",)
+    assert limited.capabilities == ("target_status", "inspect_ui_state")
     assert limited.process_state == "unknown"
     assert limited.jsonrpc_state == "not_checked"
     assert limited.usability_state == "not_checked"
@@ -141,7 +195,12 @@ def test_external_summary_projects_only_verified_capabilities_without_duplicates
         assert row is not None
         row.verified_capabilities_json = row.configured_capabilities_json
     complete = adapters.summaries([TARGET_ID])[0]
-    assert complete.capabilities == ("target_status", "addon_list", "remote_action")
+    assert complete.capabilities == (
+        "target_status",
+        "addon_list",
+        "remote_action",
+        "inspect_ui_state",
+    )
     assert len(complete.capabilities) == len(set(complete.capabilities))
     assert "screenshot_capture" not in complete.capabilities
     assert adapters.summaries([TARGET_ID])[0].capabilities == complete.capabilities
@@ -152,6 +211,7 @@ def test_external_summary_projects_only_verified_capabilities_without_duplicates
     [
         ("target_list", "target_inspect"),
         ("target_status", "target_inspect"),
+        ("inspect_ui_state", "target_inspect"),
         ("addon_list", "addon_inventory"),
         ("remote_action", "semantic_remote"),
     ],

@@ -119,7 +119,7 @@ def _historical_bridge(bundle: Path) -> None:
     assert sha256(historical_zip) == HISTORICAL_SHA256
     historical_provenance = (fixtures / "reviewed-bridge-1.1.13.json").read_bytes()
     historical_stable = (fixtures / "reviewed-stable-1.1.13.json").read_bytes()
-    current_zip = bundle / "bridge/service.kodi_lab_bridge-1.1.14.zip"
+    current_zip = bundle / "bridge/service.kodi_lab_bridge-1.1.15.zip"
     current_zip.unlink()
     old_zip = bundle / "bridge/service.kodi_lab_bridge-1.1.13.zip"
     old_zip.write_bytes(historical_zip)
@@ -130,7 +130,7 @@ def _historical_bridge(bundle: Path) -> None:
     manifest["source_commit"] = provenance["source_commit"]
     manifest["source_tree"] = provenance["source_tree"]
     manifest["bridge"]["zip"] = "bridge/service.kodi_lab_bridge-1.1.13.zip"
-    del manifest["files"]["bridge/service.kodi_lab_bridge-1.1.14.zip"]
+    del manifest["files"]["bridge/service.kodi_lab_bridge-1.1.15.zip"]
     for name, content in (
         ("bridge/service.kodi_lab_bridge-1.1.13.zip", historical_zip),
         ("bridge/BRIDGE.json", historical_provenance),
@@ -179,7 +179,7 @@ def _cross_version_setup(
     return old, new, data, state, old_hash, new_hash, backup_id
 
 
-def test_reviewed_bridge_113_to_114_and_reverse(
+def test_reviewed_bridge_113_to_115_and_reverse(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     old, new, data, state, old_hash, new_hash, backup_id = _cross_version_setup(
@@ -190,13 +190,13 @@ def test_reviewed_bridge_113_to_114_and_reverse(
     )[1]
     forward = transition(old, new, data, state, BASE, old_hash, new_hash, backup_id)
     assert forward["bridge_zip_sha256"] == sha256(
-        (new / "bridge/service.kodi_lab_bridge-1.1.14.zip").read_bytes()
+        (new / "bridge/service.kodi_lab_bridge-1.1.15.zip").read_bytes()
     )
     packages = cast(
         list[dict[str, str]],
         load_current(data, expected_bundle_sha256=new_hash)[1]["packages"],
     )
-    assert packages[1]["version"] == "1.1.14"
+    assert packages[1]["version"] == "1.1.15"
     reverse = transition(
         new, old, data, state, BASE, new_hash, old_hash, backup_id, rollback=True
     )
@@ -233,7 +233,7 @@ def test_cross_version_candidate_tampering_fails_before_transition(
     before_pointer = (data / "CURRENT").read_bytes()
     side, component = tamper.removeprefix("missing_").split("_", 1)
     bundle = old if side == "old" else new
-    version = "1.1.13" if side == "old" else "1.1.14"
+    version = "1.1.13" if side == "old" else "1.1.15"
     name = {
         "stable": "repository/STABLE.json",
         "provenance": "bridge/BRIDGE.json",
@@ -273,8 +273,8 @@ def test_self_consistent_unreviewed_bridge_cannot_replace_current_review(
     old, new, data, state, old_hash, _new_hash, backup_id = _cross_version_setup(
         tmp_path, monkeypatch
     )
-    original_zip = new / "bridge/service.kodi_lab_bridge-1.1.14.zip"
-    unreviewed_zip = new / "bridge/service.kodi_lab_bridge-1.1.15.zip"
+    original_zip = new / "bridge/service.kodi_lab_bridge-1.1.15.zip"
+    unreviewed_zip = new / "bridge/service.kodi_lab_bridge-1.1.16.zip"
     output = io.BytesIO()
     with (
         zipfile.ZipFile(original_zip) as source,
@@ -283,8 +283,8 @@ def test_self_consistent_unreviewed_bridge_cannot_replace_current_review(
         for member in source.infolist():
             content = source.read(member)
             if member.filename == "service.kodi_lab_bridge/addon.xml":
-                assert b'version="1.1.14"' in content
-                content = content.replace(b'version="1.1.14"', b'version="1.1.15"')
+                assert b'version="1.1.15"' in content
+                content = content.replace(b'version="1.1.15"', b'version="1.1.16"')
             target.writestr(member, content)
     original_zip.unlink()
     unreviewed_zip.write_bytes(output.getvalue())
@@ -293,7 +293,7 @@ def test_self_consistent_unreviewed_bridge_cannot_replace_current_review(
     stable_path = new / "repository/STABLE.json"
     stable = json.loads(stable_path.read_bytes())
     stable.update(
-        bridge_version="1.1.15",
+        bridge_version="1.1.16",
         bridge_zip_sha256=digest,
         bridge_semantic_fingerprint=fingerprint,
     )
@@ -301,7 +301,7 @@ def test_self_consistent_unreviewed_bridge_cannot_replace_current_review(
     provenance_path = new / "bridge/BRIDGE.json"
     provenance = json.loads(provenance_path.read_bytes())
     provenance.update(
-        version="1.1.15",
+        version="1.1.16",
         filename=unreviewed_zip.name,
         sha256=digest,
         semantic_fingerprint=fingerprint,
@@ -316,10 +316,10 @@ def test_self_consistent_unreviewed_bridge_cannot_replace_current_review(
     provenance_path.write_bytes(canonical(provenance))
     manifest_path = new / "BUNDLE.json"
     manifest = json.loads(manifest_path.read_bytes())
-    manifest["bridge"]["zip"] = "bridge/service.kodi_lab_bridge-1.1.15.zip"
-    del manifest["files"]["bridge/service.kodi_lab_bridge-1.1.14.zip"]
+    manifest["bridge"]["zip"] = "bridge/service.kodi_lab_bridge-1.1.16.zip"
+    del manifest["files"]["bridge/service.kodi_lab_bridge-1.1.15.zip"]
     for name in (
-        "bridge/service.kodi_lab_bridge-1.1.15.zip",
+        "bridge/service.kodi_lab_bridge-1.1.16.zip",
         "bridge/BRIDGE.json",
         "repository/STABLE.json",
     ):
@@ -330,7 +330,7 @@ def test_self_consistent_unreviewed_bridge_cannot_replace_current_review(
         }
     manifest_path.write_bytes(canonical(manifest))
     unreviewed_hash = sha256(manifest_path.read_bytes())
-    assert reviewed_bridge_from_bundle(new, unreviewed_hash).version == "1.1.15"
+    assert reviewed_bridge_from_bundle(new, unreviewed_hash).version == "1.1.16"
     before_pointer = (data / "CURRENT").read_bytes()
     with pytest.raises(
         ValueError, match="replacement candidate reviewed inputs differ"

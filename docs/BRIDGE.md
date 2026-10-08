@@ -13,8 +13,8 @@ If the bridge is paired to an obsolete Kodi Lab target, use **Pair Kodi Lab** â†
 then pair with the current Kodi Lab. This local action removes the old
 credential and target binding, preserves the bridge ID, and needs no old server.
 It does not reset the Kodi profile or other add-ons.
-Protocol 1 may
-advertise `screenshot` and `workspace_deployment`. Deployment is pathless and
+Protocol 1 may advertise `screenshot`, `workspace_deployment` and
+`ui_observation`. Deployment is pathless and
 content-addressed for one exactly authorized workspace; fixed execution remains
 a closed native Kodi call. Source baseline establishment and ambiguous receipt
 reconciliation are Web-only.
@@ -29,8 +29,9 @@ protocol, Kodi-version or capability mismatch suspends bridge-dependent
 authority. Native read-only inspection remains independent when its native
 trust intersection is still coherent.
 
-For production, only the `screenshot` bridge capability is used. The bridge is
-an identity and screenshot support component; production control never travels
+Production uses `screenshot` and may use `ui_observation` when the exact reviewed
+build declares it and existing provenance/transport confirmation is current.
+The bridge is an identity and inspection support component; production control never travels
 through it. The existing `remote_action` service sends only fixed server-owned
 semantic methods through the native Kodi endpoint after fresh authorization.
 The bridge's advertised development deployment capability grants no production
@@ -57,9 +58,9 @@ HTTPS when pixels may be sensitive.
 ## Local deployment candidate artifact
 
 A source-free Linux amd64 candidate built from the current clean committed
-checkout carries `bridge/service.kodi_lab_bridge-1.1.14.zip` and
+checkout carries `bridge/service.kodi_lab_bridge-1.1.15.zip` and
 `bridge/BRIDGE.json`. The latter
-binds the ZIP SHA-256, exact nine-file release inventory and hash, Git source
+binds the ZIP SHA-256, exact ten-file release inventory and hash, Git source
 commit/tree and bridge subtree, builder identity/hash, protocol `1`, bootstrap
 `otp-1`, semantic fingerprint, and MIT license. Verify the full bundle and the
 ZIP before installing it on a remote Kodi box. The ZIP root is
@@ -70,7 +71,8 @@ production uses separate target and reviewed-build administration. See
 [PRODUCTION-OPERATIONS.md](PRODUCTION-OPERATIONS.md).
 
 Older bridge 1.1.7, 1.1.8, and 1.1.13 hashes remain historical evidence tied only
-to those exact bytes. Bridge 1.1.14 adds local pairing reset. An existing
+to those exact bytes. Bridge 1.1.14 added local pairing reset; 1.1.15 adds protected
+UI observation. An existing
 1.1.13 installation requires the reviewed candidate transition before using
 the successor; source changes alone do not upgrade an installation. This is
 a local deployment candidate, not a public release. Screenshot platform

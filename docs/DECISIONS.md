@@ -5716,3 +5716,76 @@ approvals atomically with the governing revision transition.
   broker remains the filesystem authority. A disabled inventory result is
   retained in failed workspace deployment evidence so the enablement reason
   is distinguishable from a missing or wrong-version add-on.
+
+
+## UI observation V1 (2026-10-07)
+
+The fresh-script transport below is the original implementation checkpoint;
+D-0412 and D-0413 supersede it with lifecycle-owned resident Bridge trust.
+
+- `inspect_ui_state` reuses `target.inspect` and the target adapter boundary.
+  A provider-independent closed schema contains actual focus and explicitly
+  associated container/item state, with null unavailable values and deterministic
+  summary. GUI observations are bounded and non-atomic.
+- One generic protected hybrid collector serves qualified Matrix 19.4, Nexus
+  20.5 and Omega 21.3. Direct generic ListItem reads are prohibited following
+  the preserved Kodi collector-bookkeeping crash; labels/conditions use the GUI
+  messenger. No Kodi-major field/provider branches are introduced.
+- An authenticated, empty-payload Bridge operation serves paired external targets.
+  Managed targets have no external pairing authority; their fixed installed
+  Bridge script uses UUID-correlated bounded native transport. Inspection never
+  installs/enables the Bridge. Native fallback has explicitly lower association
+  richness. Existing production review, identity and transport checks remain.
+- Per-target host admission gates aggregate collectors, independently of GUI
+  navigation. Bridge collectors also serialize inbound acquisition. Paths,
+  artwork, arbitrary condition catalogs and visible-item enumeration remain V2.
+
+## D-0412: Use the resident authenticated Bridge for bounded UI observations
+
+D-0413 resolves the provisional managed pairing-source assumption below.
+
+- Keep schema v1, focus/container/item association and protected hybrid collection
+  independent of transport. No generic direct ListItem reads are permitted.
+- Managed observation is intended to use a durable target/runtime/container
+  and Bridge identity binding with existing encrypted request-authentication secrets.
+  Existing pairing owns OTP policy, onboarding, and credential establishment.
+  Observation consumes its trusted established result; no new OTP flow is added.
+  Integration is blocked on an authoritative managed pairing source: the existing
+  pairing records and coordinator accept external targets only. The observation
+  binding must not become a second trust or credential owner.
+- Retain per-call authorization, fresh broker admission and native application identity,
+  signed per-response Bridge identity and the final runtime-pin check. Revocation or
+  replacement cannot authorize an already in-flight response.
+- Reuse HTTP client setup, but close request connections; the persistence prototype
+  exposed a Kodi service-stop issue with idle keep-alive workers. Collectors check
+  service cancellation between GUI batches. Do not claim GUI-transaction atomicity.
+- Unavailability may take one conservative native fallback. Auth/identity mismatch
+  fails closed; it does not justify a weaker provider or a hidden rebind.
+
+## D-0413: Managed lifecycle owns resident Bridge trust without external pairing
+
+- This resolves the managed trust-source blocker in D-0412 and supersedes the
+  earlier fresh-script managed observation transport. Managed targets do not
+  enter the external OTP pairing registry, coordinator or onboarding flow.
+- `managed_bridge_trust` is the authoritative managed record. It references the
+  target and runtime revision, pins the admitted container and authenticated
+  Bridge UUID/protocol/build identity, and records state and generation. Existing
+  target-bound encrypted secret storage is reused as a storage primitive;
+  managed lifecycle owns credential creation and retirement.
+- After ordinary start/readiness, lifecycle preparation may establish trust for
+  an installed, enabled approved Bridge. A prepared credential reference precedes
+  one fixed broker operation in the exact owned, validated container. Signed
+  identity confirmation and fresh runtime/generation checks precede activation.
+  No caller secret, code or filesystem path is accepted by that operation.
+- Observation only consumes active trust. It never installs, provisions,
+  repairs or retires credentials. Missing trust leaves existing native managed
+  operations available and permits only conservative native observation.
+  Authentication failure, revocation or identity drift fails closed.
+- Same-container restarts reuse persistent identity and credential state.
+  Replacement, reset, restore, revision changes and deletion invalidate host
+  authority and retire the encrypted credential. Restored profile bytes are not
+  authority to reuse an old binding. Confirmed same-container drift or revocation
+  requires explicit managed lifecycle replacement, not observation recovery.
+- The resident collector, protected GUI dispatch, per-target gate, connection
+  closing policy and schema semantics remain unchanged. External pairing and
+  credential ownership remain unchanged; managed establishment uses no user OTP.

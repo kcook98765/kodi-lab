@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from threading import Event
 from typing import Protocol
@@ -94,6 +95,15 @@ class _StatusBroker(Protocol):
     ) -> ObserveManagedKodiRuntimeResult: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ManagedStatusObservation:
+    """One fresh status read and its trusted inputs; never a cross-call cache."""
+
+    status: ManagedRuntimeStatus
+    inventory: ManagedContainerInventoryResult | None
+    runtime: ObserveManagedKodiRuntimeResult | None
+
+
 class _ReadinessCoordinator(Protocol):
     def wait_until_usable(
         self, managed_instance_id: str, *, cancelled: Callable[[], bool] | None = None
@@ -143,13 +153,18 @@ class ManagedRuntimeStatusService:
         ]
 
     def get(self, instance_id: UUID) -> ManagedRuntimeStatus:
+        return self.get_observation(instance_id).status
+
+    def get_observation(self, instance_id: UUID) -> ManagedStatusObservation:
         context = self._load_context(instance_id)
         try:
             inventory = self._broker.managed_container_inventory(
                 managed_instance_id=str(instance_id)
             )
         except ClientError as error:
-            return self._observe_one(context, inventory_error=error)
+            return ManagedStatusObservation(
+                self._observe_one(context, inventory_error=error), None, None
+            )
         container = next(
             (
                 item
@@ -158,7 +173,13 @@ class ManagedRuntimeStatusService:
             ),
             None,
         )
-        return self._observe_one(context, container=container)
+        captured: list[ObserveManagedKodiRuntimeResult] = []
+        status = self._observe_one(
+            context, container=container, observation_sink=captured.append
+        )
+        return ManagedStatusObservation(
+            status, inventory, captured[0] if captured else None
+        )
 
     def _observe_one(
         self,
@@ -166,11 +187,13 @@ class ManagedRuntimeStatusService:
         *,
         container: ManagedContainerInventoryEntry | None = None,
         inventory_error: ClientError | None = None,
+        observation_sink: Callable[[ObserveManagedKodiRuntimeResult], None]
+        | None = None,
     ) -> ManagedRuntimeStatus:
         status = (
             self._dependency_failure(context, inventory_error)
             if inventory_error is not None
-            else self._aggregate(context, container)
+            else self._aggregate(context, container, observation_sink=observation_sink)
         )
         blocked = False
         if inventory_error is None and self._reconciliation is not None:
@@ -278,6 +301,9 @@ class ManagedRuntimeStatusService:
         self,
         context: _StatusContext,
         container: ManagedContainerInventoryEntry | None,
+        *,
+        observation_sink: Callable[[ObserveManagedKodiRuntimeResult], None]
+        | None = None,
     ) -> ManagedRuntimeStatus:
         instance_id = context[0]
         task = self._readiness.snapshot(instance_id)
@@ -348,6 +374,8 @@ class ManagedRuntimeStatusService:
                 failure_detail=self._safe_detail(error),
             )
 
+        if observation_sink is not None:
+            observation_sink(observation)
         if observation.runtime_revision_id != str(context[3]):
             return self._status(
                 context,

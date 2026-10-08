@@ -29,10 +29,10 @@ PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.14"
-CAPABILITIES = ["screenshot", "workspace_deployment"]
+ADDON_VERSION = "1.1.15"
+CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.14|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset"
+    b"kodi-lab-narrow-bridge|1.1.15|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -64,6 +64,7 @@ MAX_SCREENSHOT_HEIGHT = 2160
 MAX_SCREENSHOT_DECODED = MAX_SCREENSHOT_WIDTH * MAX_SCREENSHOT_HEIGHT * 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 OPERATIONS = {
+    "inspect_ui_state",
     "bridge_identity",
     "bridge_capabilities",
     "capture_screenshot",
@@ -1930,6 +1931,27 @@ class Handler(BaseHTTPRequestHandler):
             if document["payload"] != {}:
                 raise ValueError
             self._screenshot_response(document, request_hash, secret)
+        elif document["operation"] == "inspect_ui_state":
+            if document["payload"] != {}:
+                raise ValueError
+            from ui_observation import collect
+
+            try:
+                observation = collect(abort=self.server.stopping.is_set)
+            except Exception:
+                self._json_error_response(
+                    document, request_hash, secret, "bridge_operation_failed"
+                )
+                return
+            self._json_response(
+                document,
+                request_hash,
+                secret,
+                {
+                    "identity": _identity(state),
+                    "observation": observation,
+                },
+            )
         else:
             self._deployment_response(document, request_hash, secret, state)
 
@@ -2554,6 +2576,10 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 4
 
+    def __init__(self, *args, **kwargs):
+        self.stopping = threading.Event()
+        super().__init__(*args, **kwargs)
+
 
 def run():
     monitor = xbmc.Monitor()
@@ -2581,6 +2607,7 @@ def run():
         while not monitor.waitForAbort(1.0):
             pass
     finally:
+        server.stopping.set()
         server.shutdown()
         server.server_close()
         thread.join(timeout=2.0)

@@ -1866,10 +1866,14 @@ class ExternalBridgePairingRow(Base):
         CheckConstraint(
             "observed_capabilities_json IN "
             "('[]','[\"screenshot\"]','[\"workspace_deployment\"]',"
-            '\'["screenshot","workspace_deployment"]\') AND '
+            '\'["screenshot","workspace_deployment"]\',\'["ui_observation"]\','
+            '\'["screenshot","ui_observation"]\',\'["ui_observation","workspace_deployment"]\','
+            '\'["screenshot","ui_observation","workspace_deployment"]\') AND '
             "verified_capabilities_json IN "
             "('[]','[\"screenshot\"]','[\"workspace_deployment\"]',"
-            '\'["screenshot","workspace_deployment"]\')',
+            '\'["screenshot","workspace_deployment"]\',\'["ui_observation"]\','
+            '\'["screenshot","ui_observation"]\',\'["ui_observation","workspace_deployment"]\','
+            '\'["screenshot","ui_observation","workspace_deployment"]\')',
             name="external_bridge_capabilities_closed",
         ),
         CheckConstraint(
@@ -2020,7 +2024,9 @@ class ReviewedBridgeBuildRow(Base):
         ),
         CheckConstraint(
             "capabilities_json IN "
-            '(\'["screenshot"]\',\'["screenshot","workspace_deployment"]\') '
+            '(\'["screenshot"]\',\'["screenshot","workspace_deployment"]\','
+            '\'["screenshot","ui_observation"]\','
+            '\'["screenshot","ui_observation","workspace_deployment"]\') '
             "AND length(supported_kodi_versions_json) BETWEEN 5 AND 256",
             name="reviewed_bridge_build_sets_bounded",
         ),
@@ -2582,6 +2588,60 @@ class ManagedInstanceRow(Base):
         ForeignKey("fixture_definitions.id", ondelete="RESTRICT"),
         nullable=True,
     )
+
+
+class ManagedBridgeTrustRow(Base):
+    """Lifecycle-owned resident Bridge trust; observations only consume it."""
+
+    __tablename__ = "managed_bridge_trust"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('prepared','active','invalidated','revoked')",
+            name="managed_bridge_trust_state",
+        ),
+        CheckConstraint("bridge_port=8765", name="managed_bridge_trust_port"),
+        CheckConstraint(
+            "length(container_id)=64 AND container_id NOT GLOB '*[^0-9a-f]*' "
+            "AND (bridge_id IS NULL OR length(bridge_id)=36) "
+            "AND (secret_reference IS NULL OR length(secret_reference)=36)",
+            name="managed_bridge_trust_identity_shape",
+        ),
+        CheckConstraint(
+            "identity_json IS NULL OR length(identity_json) BETWEEN 2 AND 4096",
+            name="managed_bridge_trust_identity_bounded",
+        ),
+        CheckConstraint("generation>=1", name="managed_bridge_trust_generation"),
+        CheckConstraint(
+            "(state IN ('prepared','active') AND secret_reference IS NOT NULL) OR "
+            "(state IN ('invalidated','revoked') AND secret_reference IS NULL)",
+            name="managed_bridge_trust_credential_state",
+        ),
+        CheckConstraint(
+            "state<>'active' OR (bridge_id IS NOT NULL AND identity_json IS NOT NULL "
+            "AND established_at IS NOT NULL)",
+            name="managed_bridge_trust_activation_complete",
+        ),
+    )
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    runtime_revision_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("runtime_revisions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    bridge_id: Mapped[str | None] = mapped_column(String(36))
+    bridge_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    secret_reference: Mapped[str | None] = mapped_column(String(36))
+    identity_json: Mapped[str | None] = mapped_column(String(4096))
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    prepared_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    established_at: Mapped[str | None] = mapped_column(String(27))
+    invalidated_at: Mapped[str | None] = mapped_column(String(27))
 
 
 class ManagedScreenshotRow(Base):

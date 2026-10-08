@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0066_historical_workspace_execution_containment",)
+        ).fetchone() == ("0069_managed_bridge_trust",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -458,6 +458,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "production_mutation_control",
         "global_heavy_operation_lease",
         "managed_instances",
+        "managed_bridge_trust",
         "managed_screenshots",
         "mcp_clients",
         "mcp_client_target_grants",

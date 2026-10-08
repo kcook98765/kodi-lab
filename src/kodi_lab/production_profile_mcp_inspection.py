@@ -35,9 +35,15 @@ from kodi_lab.production_profile_web_client import (
 )
 
 _CLIENT_NAME: Final = "Disposable production inspection client"
-_EXPECTED_TOOLS: Final = ("addon_list", "target_list", "target_status")
+_EXPECTED_TOOLS: Final = (
+    "addon_list",
+    "inspect_ui_state",
+    "target_list",
+    "target_status",
+)
 _EXPECTED_VISUAL_TOOLS: Final = (
     "addon_list",
+    "inspect_ui_state",
     "screenshot_capture",
     "target_list",
     "target_status",

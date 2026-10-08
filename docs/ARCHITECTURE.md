@@ -4,7 +4,7 @@
 not a replacement specification.
 
 Phase sections below retain their checkpoint tool counts and artifact identities.
-The current eighteen-tool MCP contract and five-tool production subset are in
+The current nineteen-tool MCP contract and six-tool production subset are in
 [V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract).
 The current Bridge packaging contract is in [BRIDGE.md](BRIDGE.md).
 
@@ -2924,3 +2924,14 @@ Migration 0059 retains the exact digest of a successful validation for honest
 current/stale presentation; older validation rows are backfilled only when their
 generation still matches the workspace. Direct source writes remain outside V1
 MCP authority.
+
+Managed resident Bridge trust is distinct from external pairing.
+`ManagedBridgeTrustService` owns prepare/confirm/activate and credential retirement,
+backed by `ManagedBridgeTrustRow`. Its fixed broker provisioning operation derives
+a prepared secret reference from canonical state and validates the exact managed
+container/image/profile/network before local provisioning. Runtime start/readiness
+is the automatic preparation trigger when an approved Bridge is already installed
+and enabled. The observation service only consumes active pinned trust. No managed
+OTP flow or arbitrary remote execution endpoint is introduced. Lifecycle
+replacement, reset, restore and deletion invalidate trust; same-container restarts
+reuse it. See [UI observation](UI-OBSERVATION.md) for fallback and snapshot semantics.

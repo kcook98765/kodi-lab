@@ -200,6 +200,15 @@ def production_inspection(tmp_path: Path) -> _Environment:
                 ],
                 "limits": {"start": 0, "end": 1, "total": 1},
             }
+        elif method in {
+            "XBMC.GetInfoLabels",
+            "XBMC.GetInfoBooleans",
+            "GUI.GetProperties",
+            "Player.GetActivePlayers",
+        }:
+            from tests.kodi.test_ui_state import native_fixture
+
+            result = native_fixture(method, body.get("params"))
         else:  # pragma: no cover - the closed adapter must never get here
             raise AssertionError(method)
         return httpx.Response(
@@ -284,6 +293,37 @@ def test_exact_intersection_list_status_and_inventory_are_bounded_and_private(
         "Addons.GetAddons",
     ]
     assert "/" not in inventory.addons[0].addon_id
+
+
+def test_ui_observation_production_native_fallback_requires_current_inspection_scope(
+    production_inspection: _Environment,
+) -> None:
+    env = production_inspection
+    observation = env.tools.inspect_ui_state(env.principal, target_id=env.target_id)
+    assert observation.window.id == 10025
+    assert observation.focus.control_id == 50
+    assert observation.focus.label == "Blade Runner"
+    assert observation.focus.is_container is None
+    assert not observation.container.associated
+    assert not observation.selected_item.associated
+    assert observation.selected_item.label is None
+    assert [call["method"] for call in env.calls] == [
+        "JSONRPC.Ping",
+        "JSONRPC.Version",
+        "Application.GetProperties",
+        "XBMC.GetInfoLabels",
+        "GUI.GetProperties",
+        "XBMC.GetInfoBooleans",
+        "Player.GetActivePlayers",
+        "XBMC.GetInfoLabels",
+    ]
+    env.calls.clear()
+    env.administration.revoke_production_inspection_scope(env.scope_id)
+    with pytest.raises(
+        McpAuthorizationError, match="target_not_found_or_not_authorized"
+    ):
+        env.tools.inspect_ui_state(env.principal, target_id=env.target_id)
+    assert env.calls == []
 
 
 def test_generic_grant_scope_and_exact_presets_are_all_mandatory(
@@ -437,9 +477,11 @@ def test_exact_inspection_catalog_denies_visual_control_and_credential_mismatch(
     env = production_inspection
     assert env.authorization.discoverable_tools(env.principal) == (
         "addon_list",
+        "inspect_ui_state",
         "target_list",
         "target_status",
     )
+    env.authorization.authorize_target(env.principal, "inspect_ui_state", env.target_id)
     for tool_name in ("screenshot_capture", "remote_action"):
         with pytest.raises(McpAuthorizationError, match="permission_denied"):
             env.authorization.authorize_target(env.principal, tool_name, env.target_id)
@@ -703,7 +745,7 @@ def test_production_native_timeout_is_target_unreachable(
         env.tools.target_status(env.principal, target_id=env.target_id)
 
 
-def test_registry_allows_exactly_five_production_tools() -> None:
+def test_registry_allows_exactly_six_production_tools() -> None:
     registry = build_mcp_tool_registry()
     eligible = {
         definition.name
@@ -711,11 +753,12 @@ def test_registry_allows_exactly_five_production_tools() -> None:
         if definition.production_eligible
         and TargetClass.EXTERNAL_PRODUCTION in definition.allowed_target_classes
     }
-    assert len(registry.names()) == 17
+    assert len(registry.names()) == 19
     assert eligible == {
         "target_list",
         "target_status",
         "addon_list",
+        "inspect_ui_state",
         "screenshot_capture",
         "remote_action",
     }

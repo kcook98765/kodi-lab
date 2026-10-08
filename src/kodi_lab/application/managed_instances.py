@@ -29,6 +29,7 @@ from kodi_lab.application.errors import (
     TrustedCustomBuildConfirmationRequiredError,
     TrustedCustomBuildDisabledError,
 )
+from kodi_lab.application.managed_bridge_trust import invalidate_managed_bridge_trust
 from kodi_lab.application.mutations import ManagedInstanceMutationCoordinator
 from kodi_lab.application.reset_operations import ResetOperationCoordinator
 from kodi_lab.application.runtime_eligibility import (
@@ -178,6 +179,7 @@ class ManagedInstanceService:
                     updated = replace(current, runtime_revision_id=revision.id)
                     invalidate_development_source_deployments(session, target_id)
                     invalidate_addon_zip_installation_evidence(session, target_id)
+                    invalidate_managed_bridge_trust(session, target_id)
                     instances.update(updated)
                     return updated
             except IntegrityError as error:
