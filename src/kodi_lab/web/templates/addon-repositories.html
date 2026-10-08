@@ -1,16 +1,10 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Add-on repositories · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main data-repository-workflow data-csrf-token="{{ csrf_token }}">
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Add-on repositories · Kodi Lab{% endblock %}
+{% block main_attributes %}data-repository-workflow data-csrf-token="{{ csrf_token }}"{% endblock %}
+{% block content %}
       <h1>Add-on repository testing</h1>
       <p class="secondary">Register a direct public HTTPS addons.xml endpoint, attach it to an instance, refresh immutable metadata, fetch a supported package, then install it disabled. Replacement and update are not available.</p>
-
       <section>
         <h2>1. Register repository</h2>
         <form data-repository-register>
@@ -19,7 +13,6 @@
           <button type="submit">Register</button>
         </form>
       </section>
-
       {% for repository, candidates in repository_cards %}
       <article data-repository-id="{{ repository.repository_id }}">
         <h2>{{ repository.logical_name }}</h2>
@@ -37,7 +30,6 @@
         <button type="button" data-action="detach">Detach</button>
         <button type="button" data-action="refresh">3. Refresh metadata</button>
         <p class="secondary" data-status role="status"></p>
-
         <h3>4. Current candidates</h3>
         {% for candidate in candidates %}
         <section data-candidate-id="{{ candidate.candidate_id }}">
@@ -51,7 +43,7 @@
       </article>
       {% else %}<p>No repositories are registered.</p>{% endfor %}
       <p><a href="/">Back to dashboard</a></p>
-    </main>
-    <script src="{{ url_for('static', path='/addon-repositories.js') }}" defer></script>
-  </body>
-</html>
+    {% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='/addon-repositories.js') }}" defer></script>
+{% endblock %}

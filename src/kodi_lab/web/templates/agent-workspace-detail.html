@@ -1,12 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Agent Workspace · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body><main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Agent Workspace · Kodi Lab{% endblock %}
+{% block content %}
     <h1>{{ workspace.source_logical_name }}</h1>
     <dl>
       <dt>Workspace</dt><dd>{{ workspace.id }}</dd>
@@ -94,5 +89,4 @@
     <script src="{{ url_for('static', path='/agent-workspace-promotion.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-retention.js') }}" defer></script>
     <script src="{{ url_for('static', path='/agent-workspace-source-capture.js') }}" defer></script>
-  </main></body>
-</html>
+  {% endblock %}

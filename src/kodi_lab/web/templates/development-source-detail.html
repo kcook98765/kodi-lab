@@ -1,13 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ detail.source.logical_name }} · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}{{ detail.source.logical_name }} · Kodi Lab{% endblock %}
+{% block content %}
       <h1>{{ detail.source.logical_name }}</h1>
       <p class="secondary">Registered source {{ detail.source.id }}</p>
       <dl>
@@ -35,6 +29,4 @@
         {% else %}<p>This source has no current live instance attachments.</p>{% endfor %}
       </section>
       <p><a href="/development-sources">Back to Development Sources</a> · <a href="/">Dashboard</a></p>
-    </main>
-  </body>
-</html>
+    {% endblock %}

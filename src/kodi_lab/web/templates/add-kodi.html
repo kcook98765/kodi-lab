@@ -1,21 +1,13 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Add Kodi · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-    <script src="{{ url_for('static', path='/add-kodi.js') }}" defer></script>
-  </head>
-  <body class="household-page">
-    <header class="household-header">
-      <a href="/">Kodi Lab</a>
-      <form method="post" action="/logout">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">Sign out</button>
-      </form>
-    </header>
-    <main class="household-panel" data-add-kodi data-csrf-token="{{ csrf_token }}" data-recovery-namespace="{{ recovery_namespace }}">
+{% extends 'base.html' %}
+{% set nav_section = 'kodi' %}
+{% block title %}Add Kodi · Kodi Lab{% endblock %}
+{% block head %}
+<script src="{{ url_for('static', path='/add-kodi.js') }}" defer></script>
+{% endblock %}
+{% block body_class %}household-page{% endblock %}
+{% block main_class %}household-panel{% endblock %}
+{% block main_attributes %}data-add-kodi data-csrf-token="{{ csrf_token }}" data-recovery-namespace="{{ recovery_namespace }}"{% endblock %}
+{% block content %}
       <h1>Add Kodi</h1>
       <ol class="household-steps">
         <li>Install the <a href="/kodi-repository">Kodi Lab repository</a> on Kodi.</li>
@@ -108,6 +100,4 @@
         </form>
       </details>
       <p><a href="/">Back to Kodi Lab</a></p>
-    </main>
-  </body>
-</html>
+    {% endblock %}

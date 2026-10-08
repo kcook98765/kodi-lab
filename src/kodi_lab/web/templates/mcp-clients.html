@@ -1,13 +1,8 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MCP clients · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main data-mcp-administration data-csrf-token="{{ csrf_token }}">
+{% extends 'base.html' %}
+{% set nav_section = 'agents' %}
+{% block title %}MCP clients · Kodi Lab{% endblock %}
+{% block main_attributes %}data-mcp-administration data-csrf-token="{{ csrf_token }}"{% endblock %}
+{% block content %}
       <h1>MCP clients</h1>
       <p class="secondary">MCP bearer identities are separate from this Web administrator session. Token plaintext is shown once and cannot be recovered after navigation or reload.</p>
       <p class="error" data-error role="alert" hidden></p>
@@ -72,7 +67,7 @@
         <ul>{% for preset in presets %}<li>{{ preset.display_name }} · {{ 'built-in' if preset.builtin else 'custom' }} · permissions {{ preset.permissions | join(', ') if preset.permissions else 'none' }} · UUID {{ preset.id }}</li>{% endfor %}</ul>
       </section>
       <p><a href="/">Back to dashboard</a></p>
-    </main>
-    <script src="{{ url_for('static', path='/mcp-clients.js') }}" defer></script>
-  </body>
-</html>
+    {% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='/mcp-clients.js') }}" defer></script>
+{% endblock %}

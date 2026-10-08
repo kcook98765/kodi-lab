@@ -1,24 +1,15 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
-    <meta name="kodi-lab-poll-ms" content="{{ poll_interval_ms }}">
-    <title>Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+{% extends 'base.html' %}
+{% set nav_section = 'home' %}
+{% block title %}Kodi Lab{% endblock %}
+{% block head %}
+<meta name="kodi-lab-poll-ms" content="{{ poll_interval_ms }}">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
-  </head>
-  <body>
-    <header>
-      <h1>Kodi Lab</h1>
-      <form method="post" action="/logout">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">Sign out</button>
-      </form>
-    </header>
-    <main>
-      <nav aria-label="Administration"><a href="/kodi-repository">Kodi Repository</a> · {% if add_kodi_enabled %}<a href="/add-kodi">Add Kodi</a> · {% endif %}<a href="/pair-kodi">Pair Kodi</a> · <a href="/runtimes">Reviewed runtimes</a> · <a href="/mcp-clients">MCP clients</a> · <a href="/external-targets">External development targets</a> · <a href="/production-targets">Production targets</a> · <a href="/development-sources">Development Sources</a> · <a href="/agent-workspaces">Agent Workspaces</a> · <a href="/addon-repositories">Add-on repositories</a> · <a href="/snapshots/preserved">Preserved snapshots</a> · <a href="/history/instances">Deleted instance history</a></nav>
+{% endblock %}
+{% block content %}
+      <h1>Home</h1>
+      {% if shared_navigation_enabled %}<p>Manage Kodi and open the tools you need from the navigation.</p>{% endif %}
+      {% if add_kodi_enabled %}<p><a class="button-link" href="/add-kodi">Add Kodi</a></p>{% endif %}
+      <h2>Managed Kodi instances</h2>
       <p id="global-error" class="error" role="alert" hidden></p>
       <section id="instances" aria-live="polite">
         {% for instance in instances %}
@@ -100,6 +91,4 @@
         <p id="empty-state">No managed instances are configured.</p>
         {% endfor %}
       </section>
-    </main>
-  </body>
-</html>
+    {% endblock %}

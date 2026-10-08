@@ -1,0 +1,26 @@
+{% if shared_navigation_enabled %}
+<header class="admin-sidebar" data-admin-sidebar>
+  <div class="admin-brand-row">
+    <a class="admin-brand" href="/">Kodi Lab</a>
+    <button class="admin-menu-toggle" type="button" aria-expanded="false" aria-controls="admin-navigation" data-menu-toggle hidden><span aria-hidden="true">☰</span> Menu</button>
+  </div>
+  <nav id="admin-navigation" class="admin-navigation" aria-label="Main navigation" data-admin-navigation>
+    <ul>
+      {% for section, label, destination in [('home', 'Home', '/'), ('kodi', 'Kodi', '/kodi'), ('agents', 'Agents', '/mcp-clients'), ('development', 'Development', '/development'), ('settings', 'Settings', '/settings')] %}
+      <li><a href="{{ destination }}"{% if nav_section == section %} aria-current="page"{% endif %}>{{ label }}</a></li>
+      {% endfor %}
+    </ul>
+    <form class="admin-account" method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">Sign out</button>
+    </form>
+  </nav>
+</header>
+{% else %}
+{# Older running processes share these templates but do not have the landing routes. #}
+<header>
+  <a href="/">Kodi Lab</a>
+  {% if csrf_token %}<form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Sign out</button></form>{% endif %}
+</header>
+<nav aria-label="Administration"><a href="/kodi-repository">Kodi Repository</a> · {% if add_kodi_enabled %}<a href="/add-kodi">Add Kodi</a> · {% endif %}<a href="/pair-kodi">Pair Kodi</a> · <a href="/runtimes">Reviewed runtimes</a> · <a href="/mcp-clients">MCP clients</a> · <a href="/external-targets">External development targets</a> · <a href="/production-targets">Production targets</a> · <a href="/development-sources">Development Sources</a> · <a href="/agent-workspaces">Agent Workspaces</a> · <a href="/addon-repositories">Add-on repositories</a> · <a href="/addon-zips">Add-on ZIP testing</a> · <a href="/snapshots/preserved">Preserved snapshots</a> · <a href="/history/instances">Deleted instance history</a></nav>
+{% endif %}

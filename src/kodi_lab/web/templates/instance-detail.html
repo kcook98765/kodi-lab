@@ -1,12 +1,8 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
-    <title>{{ detail.runtime.name }} · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-    <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}{{ detail.runtime.name }} · Kodi Lab{% endblock %}
+{% block head %}
+<script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-attachment.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-enable.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-smoke.js') }}" defer></script>
@@ -15,9 +11,8 @@
     <script src="{{ url_for('static', path='/managed-screenshot.js') }}" defer></script>
     <script src="{{ url_for('static', path='/browser-remote.js') }}" defer></script>
     <script src="{{ url_for('static', path='/live-display.js') }}" defer></script>
-  </head>
-  <body>
-    <main>
+{% endblock %}
+{% block content %}
       <h1>{{ detail.runtime.name }}</h1>
       <p class="secondary">{{ detail.runtime.managed_instance_id }}</p>
       <dl>
@@ -222,6 +217,4 @@
         <p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history">View full retained history</a></p>
       </section>
       <p><a href="/">Back to dashboard</a></p>
-    </main>
-  </body>
-</html>
+    {% endblock %}

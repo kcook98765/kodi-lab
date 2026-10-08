@@ -1,14 +1,8 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
-    <title>Delete snapshot · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main class="confirmation-panel">
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Delete snapshot · Kodi Lab{% endblock %}
+{% block main_class %}confirmation-panel{% endblock %}
+{% block content %}
       <h1>Permanently delete snapshot</h1>
       <h2>{{ instance.name }}</h2>
       <dl>
@@ -26,7 +20,7 @@
         <button id="confirm-snapshot-delete" type="button" data-instance-id="{{ instance.managed_instance_id }}" data-snapshot-id="{{ snapshot.snapshot_id }}">Permanently delete snapshot</button>
         <a href="/instances/{{ instance.managed_instance_id }}/snapshots">Cancel</a>
       </div>
-    </main>
-    <script src="{{ url_for('static', path='/snapshot-delete.js') }}" defer></script>
-  </body>
-</html>
+    {% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='/snapshot-delete.js') }}" defer></script>
+{% endblock %}

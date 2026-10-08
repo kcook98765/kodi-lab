@@ -1,13 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Snapshots · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Snapshots · Kodi Lab{% endblock %}
+{% block content %}
       <h1>Snapshots</h1>
       <h2>{{ instance.name }}</h2>
       <p><a href="/instances/{{ instance.managed_instance_id }}">Instance detail</a> · <a href="/instances/{{ instance.managed_instance_id }}/history">Full activity history</a></p>
@@ -48,6 +42,4 @@
       <p>No snapshots have been captured for this instance.</p>
       {% endfor %}
       <p><a href="/">Back to instances</a></p>
-    </main>
-  </body>
-</html>
+    {% endblock %}

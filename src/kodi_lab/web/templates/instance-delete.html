@@ -1,15 +1,10 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
-    <title>Delete {{ instance.name }} · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-    <script src="{{ url_for('static', path='/instance-delete.js') }}" defer></script>
-  </head>
-  <body>
-    <main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Delete {{ instance.name }} · Kodi Lab{% endblock %}
+{% block head %}
+<script src="{{ url_for('static', path='/instance-delete.js') }}" defer></script>
+{% endblock %}
+{% block content %}
       <h1>Delete managed instance</h1>
       <p><strong>{{ instance.name }}</strong> ({{ instance.managed_instance_id }})</p>
       <p>Kodi {{ instance.kodi_version }} · revision {{ instance.runtime_revision_number }}</p>
@@ -37,6 +32,4 @@
       <p class="error" id="instance-delete-error" role="alert" hidden></p>
       <button id="confirm-instance-delete" data-instance-id="{{ instance.managed_instance_id }}" disabled>Delete managed instance</button>
       <a href="/">Cancel</a>
-    </main>
-  </body>
-</html>
+    {% endblock %}

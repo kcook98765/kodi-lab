@@ -2055,6 +2055,9 @@ def create_app(
     )
     app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
     templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
+    # Older host processes can share the templates without these new routes.
+    templates.env.globals["shared_navigation_enabled"] = True
+    templates.env.globals["add_kodi_enabled"] = True
     app.mount("/static", StaticFiles(directory=_WEB_ROOT / "static"), name="static")
     app.router.routes.append(
         Route(
@@ -2933,6 +2936,19 @@ def create_app(
             },
         )
 
+    @app.get("/kodi", response_class=HTMLResponse)
+    @app.get("/development", response_class=HTMLResponse)
+    @app.get("/settings", response_class=HTMLResponse)
+    async def navigation_landing_page(
+        request: Request,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            f"{request.url.path.lstrip('/')}.html",
+            {"csrf_token": authenticated.csrf_token},
+        )
+
     @app.get("/mcp-clients", response_class=HTMLResponse)
     async def mcp_clients_page(
         request: Request,
@@ -3192,13 +3208,16 @@ def create_app(
         request: Request, source_id: UUID
     ) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         return templates.TemplateResponse(
             request,
             "development-source-detail.html",
-            {"detail": context.development_sources.get_source(source_id)},
+            {
+                "detail": context.development_sources.get_source(source_id),
+                "csrf_token": authenticated.csrf_token,
+            },
         )
 
     @app.get("/agent-workspaces", response_class=HTMLResponse)
@@ -3772,7 +3791,7 @@ def create_app(
     @app.get("/instances/{instance_id}/history", response_class=HTMLResponse)
     async def instance_history_page(request: Request, instance_id: UUID) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         instance = context.status.get(instance_id)
@@ -3782,19 +3801,23 @@ def create_app(
             {
                 "instance": instance,
                 "activity": context.activity.list_for_live_instance(instance_id),
+                "csrf_token": authenticated.csrf_token,
             },
         )
 
     @app.get("/history/instances", response_class=HTMLResponse)
     async def deleted_instance_list_page(request: Request) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         return templates.TemplateResponse(
             request,
             "deleted-instances.html",
-            {"instances": context.deleted_history.list()},
+            {
+                "instances": context.deleted_history.list(),
+                "csrf_token": authenticated.csrf_token,
+            },
         )
 
     @app.get("/history/instances/{original_instance_id}", response_class=HTMLResponse)
@@ -3802,13 +3825,16 @@ def create_app(
         request: Request, original_instance_id: UUID
     ) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         return templates.TemplateResponse(
             request,
             "deleted-instance-history.html",
-            {"history": context.deleted_history.get(original_instance_id)},
+            {
+                "history": context.deleted_history.get(original_instance_id),
+                "csrf_token": authenticated.csrf_token,
+            },
         )
 
     @app.get("/instances/{instance_id}/reset", response_class=HTMLResponse)
@@ -3941,7 +3967,7 @@ def create_app(
     @app.get("/instances/{instance_id}/snapshots", response_class=HTMLResponse)
     async def snapshot_history_page(request: Request, instance_id: UUID) -> Response:
         try:
-            current_session(request)
+            authenticated = current_session(request)
         except HTTPException:
             return RedirectResponse("/login", status_code=303)
         instance = context.status.get(instance_id)
@@ -3951,6 +3977,7 @@ def create_app(
             {
                 "instance": instance,
                 "snapshots": context.snapshot_status.list_for_instance(instance_id),
+                "csrf_token": authenticated.csrf_token,
                 "reconciliation_statuses": {
                     item.snapshot_id: context.snapshot_reconciliation.status(
                         item.snapshot_id

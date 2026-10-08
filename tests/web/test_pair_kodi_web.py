@@ -47,11 +47,11 @@ def _result() -> ExternalKodiOnboardingResult:
 def test_pair_kodi_entry_and_simple_form(client: TestClient) -> None:
     assert client.get("/pair-kodi").status_code == 401
     login(client)
-    dashboard = client.get("/")
+    development = client.get("/development")
     targets = client.get("/external-targets")
     page = client.get("/pair-kodi")
     assert page.status_code == 200
-    assert 'href="/pair-kodi">Pair Kodi' in dashboard.text
+    assert 'href="/pair-kodi">Pair Kodi' in development.text
     assert 'href="/pair-kodi">Pair Kodi' in targets.text
     assert 'name="name"' in page.text
     assert 'name="address"' in page.text

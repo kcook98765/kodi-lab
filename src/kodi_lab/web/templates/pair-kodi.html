@@ -1,14 +1,12 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Pair Kodi · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-    <script src="{{ url_for('static', path='/pair-kodi.js') }}" defer></script>
-  </head>
-  <body>
-    <main class="pair-kodi" data-pair-kodi data-csrf-token="{{ csrf_token }}">
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Pair Kodi · Kodi Lab{% endblock %}
+{% block head %}
+<script src="{{ url_for('static', path='/pair-kodi.js') }}" defer></script>
+{% endblock %}
+{% block main_class %}pair-kodi{% endblock %}
+{% block main_attributes %}data-pair-kodi data-csrf-token="{{ csrf_token }}"{% endblock %}
+{% block content %}
       <h1>Pair Kodi</h1>
       <p>In Kodi, open <strong>Pair Kodi Lab</strong> and enter its four-character code here. The code expires after five minutes.</p>
       <form data-pair-form>
@@ -46,6 +44,4 @@
         <p>Code pairing requires a current Kodi Lab bridge. <a href="/external-targets">Legacy pairing</a> is available in advanced target administration.</p>
       </details>
       <p><a href="/external-targets">Back to connected Kodi targets</a></p>
-    </main>
-  </body>
-</html>
+    {% endblock %}

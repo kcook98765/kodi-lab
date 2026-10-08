@@ -1,20 +1,15 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Production Kodi targets · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main data-production-targets data-csrf-token="{{ csrf_token }}">
+{% extends 'base.html' %}
+{% set nav_section = 'kodi' %}
+{% block title %}Production Kodi targets · Kodi Lab{% endblock %}
+{% block main_attributes %}data-production-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
+{% block content %}
       <h1>Production Kodi targets</h1>
       <p><strong>Production targets are a separate immutable class.</strong> Seven standing navigation actions require no approval. Seven playback and volume actions require one exact, one-shot Web approval; context menu and select remain prohibited.</p>
       <p>Private-LAN IP literals only; no DNS, WAN, redirects, ambient proxy, SSH, shell, filesystem, or raw JSON-RPC authority.</p>
       <p><strong>Privacy warning:</strong> production screenshots may contain personal or media information. Kodi Lab keeps pixels only in memory, but the receiving MCP client may persist them outside Kodi Lab.</p>
       <p class="error" data-error role="alert" hidden></p>
       <section>
-        <h2>Global mutation emergency control</h2>
+        <h2 id="global-mutation-control">Global mutation emergency control</h2>
         <p>State: <strong>{{ 'BLOCKED' if mutation_control.production_mutations_blocked else 'unblocked (grants no authority)' }}</strong> · policy epoch {{ mutation_control.policy_epoch }}. Clearing this deny-only control does not authorize any operation.</p>
         <button type="button" data-global-block data-blocked="{{ 'true' if mutation_control.production_mutations_blocked else 'false' }}">{{ 'Clear global block' if mutation_control.production_mutations_blocked else 'Block production mutations' }}</button>
       </section>
@@ -33,7 +28,7 @@
         {% else %}<p>No live pending or approved operations.</p>{% endfor %}
       </section>
       <section>
-        <h2>Reviewed production bridge builds</h2>
+        <h2 id="reviewed-bridge-builds">Reviewed production bridge builds</h2>
         <p>A source fingerprint is not approved until an administrator explicitly registers the exact reviewed ZIP provenance here. Kodi Lab never updates bridges automatically.</p>
         <form data-reviewed-build>
           <label>Semantic fingerprint <input name="semantic_fingerprint" minlength="64" maxlength="64" required></label>
@@ -116,7 +111,7 @@
         {% else %}<p>No production targets.</p>{% endfor %}
       </section>
       <p><a href="/">Back to dashboard</a></p>
-    </main>
-    <script src="{{ url_for('static', path='/production-targets.js') }}" defer></script>
-  </body>
-</html>
+    {% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='/production-targets.js') }}" defer></script>
+{% endblock %}

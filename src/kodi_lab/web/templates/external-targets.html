@@ -1,13 +1,8 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>External development targets · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main data-external-targets data-csrf-token="{{ csrf_token }}">
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}External development targets · Kodi Lab{% endblock %}
+{% block main_attributes %}data-external-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
+{% block content %}
       <h1>External development targets</h1>
       <p><a class="button-link" href="/pair-kodi">Pair Kodi</a> <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
       <p class="secondary">Web-only registration, native verification, and optional authenticated screenshot bridge pairing. MCP bridge administration, external deployment, execution, lifecycle control, and external production are unavailable.</p>
@@ -82,7 +77,7 @@
         {% else %}<p>No external development targets.</p>{% endfor %}
       </section>
       <p><a href="/">Back to dashboard</a></p>
-    </main>
-    <script src="{{ url_for('static', path='/external-targets.js') }}" defer></script>
-  </body>
-</html>
+    {% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='/external-targets.js') }}" defer></script>
+{% endblock %}

@@ -1,13 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Kodi Repository · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main>
+{% extends 'base.html' %}
+{% set nav_section = 'settings' %}
+{% block title %}Kodi Repository · Kodi Lab{% endblock %}
+{% block content %}
       <h1>Kodi Repository</h1>
       <h2>Stable · reviewed Kodi Lab infrastructure</h2>
       {% if provenance %}
@@ -93,7 +87,7 @@
       {% else %}<p>Development repository is unavailable{% if development_error %}: {{ development_error }}{% endif %}.</p>{% endif %}
       <p>Private-LAN HTTP does not authenticate the server or protect artifacts against a malicious LAN actor. Use only on a trusted private network.</p>
       <p><a href="/">Back to dashboard</a></p>
-    </main>
-    <script src="{{ url_for('static', path='/kodi-repository.js') }}" defer></script>
-  </body>
-</html>
+    {% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='/kodi-repository.js') }}" defer></script>
+{% endblock %}

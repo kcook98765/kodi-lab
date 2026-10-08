@@ -1,14 +1,10 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
-    <title>Agent Workspaces · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-    <script src="{{ url_for('static', path='/agent-workspaces.js') }}" defer></script>
-  </head>
-  <body><main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Agent Workspaces · Kodi Lab{% endblock %}
+{% block head %}
+<script src="{{ url_for('static', path='/agent-workspaces.js') }}" defer></script>
+{% endblock %}
+{% block content %}
     <h1>Agent Workspaces</h1>
     <p class="secondary">Protected plain working copies with explicit abandonment and manual byte cleanup. Durable history is retained; automatic pruning is unavailable.</p>
     <form id="agent-workspace-create" data-csrf="{{ csrf_token }}">
@@ -23,5 +19,4 @@
     <article><h2><a href="/agent-workspaces/{{ workspace.id }}">{{ workspace.source_logical_name }}</a></h2><p>{{ workspace.source_addon_id }} — {{ workspace.state.value }} — bytes {{ workspace.bytes_state.value }} — generation {{ workspace.generation }}</p></article>
     {% else %}<p>No workspaces.</p>{% endfor %}
     <p><a href="/">Back to dashboard</a></p>
-  </main></body>
-</html>
+  {% endblock %}

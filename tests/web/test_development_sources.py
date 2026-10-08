@@ -214,7 +214,7 @@ def test_empty_catalog_and_missing_source(
     assert page.status_code == 200
     assert page.headers["Cache-Control"] == "no-store"
     assert "No development sources are registered." in page.text
-    assert 'href="/development-sources"' in client.get("/").text
+    assert 'href="/development-sources"' in client.get("/development").text
     assert client.get(f"/development-sources/{SOURCE_A}").status_code == 404
     missing = client.get(f"/api/development-sources/{SOURCE_A}")
     assert missing.status_code == 404
@@ -480,7 +480,10 @@ def test_catalog_detail_and_api_are_path_free_and_link_live_instances(
     assert f'href="/instances/{INSTANCE_ID}/history"' in detail.text
     assert "stored registration-time observations" in detail.text
     assert "does not revalidate source files" in detail.text
-    assert "<form" not in detail.text
+    # Source details stay read-only; account sign-out belongs to the shared shell.
+    content = detail.text.partition("<main ")[2].partition("</main>")[0]
+    assert content
+    assert "<form" not in content
     assert "<script>not markup</script>" not in detail.text
     assert "Kodi &lt;script&gt;not markup&lt;/script&gt;" in detail.text
     assert 'id="development-source-registration"' in catalog.text

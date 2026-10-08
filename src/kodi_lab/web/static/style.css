@@ -105,3 +105,76 @@ dd { margin: 0; }
   .household-result { padding: 1rem; }
   .household-panel .actions { flex-direction: column; }
 }
+
+/* Shared admin shell; login and older running servers keep their own layout. */
+.skip-link { position: absolute; left: 1rem; top: 1rem; transform: translateY(-200%); z-index: 2; padding: .75rem; background: #fff; color: #163e62; }
+.skip-link:focus { transform: none; }
+.admin-layout {
+  --admin-background: #fff;
+  --admin-sidebar: #f5f6f7;
+  --admin-border: #d5d9de;
+  --admin-text: #202833;
+  --admin-link: #235b8e;
+  --admin-active: #e0eaf3;
+  display: grid;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  background: var(--admin-background);
+  color: var(--admin-text);
+  line-height: 1.5;
+}
+.admin-layout *, .admin-layout *::before, .admin-layout *::after { box-sizing: border-box; }
+.admin-layout a { color: var(--admin-link); }
+.admin-layout :focus-visible { outline: 3px solid #337fbe; outline-offset: 3px; }
+.admin-sidebar { position: sticky; top: 0; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; height: 100dvh; overflow-y: auto; padding: 1.25rem 1rem; background: var(--admin-sidebar); border-right: 1px solid var(--admin-border); }
+.admin-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.admin-brand { font-size: 1.25rem; font-weight: 700; text-decoration: none; padding: .5rem; }
+.admin-navigation { display: flex; flex: 1; flex-direction: column; }
+.admin-navigation[hidden], .admin-menu-toggle[hidden] { display: none; }
+.admin-navigation ul { list-style: none; padding: 0; margin: 0; }
+.admin-navigation li { margin: .2rem 0; }
+.admin-navigation a { display: block; min-height: 2.75rem; padding: .65rem .75rem; border-radius: .25rem; text-decoration: none; }
+.admin-navigation a[aria-current="page"] { background: var(--admin-active); color: var(--admin-text); font-weight: 700; box-shadow: inset 3px 0 var(--admin-link); }
+.admin-account { margin-top: auto; padding-top: 1.5rem; }
+.admin-account button { min-height: 2.75rem; cursor: pointer; }
+.admin-menu-toggle { display: none; min-height: 2.75rem; align-items: center; gap: .5rem; cursor: pointer; }
+.admin-workarea { min-width: 0; padding: 1.75rem 2rem; }
+.admin-content { width: 100%; max-width: 64rem; margin: 0 auto; min-width: 0; overflow-wrap: anywhere; }
+.admin-content > h1:first-child { margin-top: 0; font-size: 1.75rem; }
+.admin-layout .household-panel { max-width: 38rem; }
+.admin-layout .pair-kodi { max-width: 35rem; }
+.admin-layout .confirmation-panel { max-width: 42rem; margin: 0 auto; }
+.admin-content input, .admin-content select, .admin-content button { max-width: 100%; min-width: 0; }
+.admin-content fieldset { min-width: 0; }
+.admin-content dl { grid-template-columns: minmax(0, 10rem) minmax(0, 1fr); }
+.admin-content .household-result dl { grid-template-columns: minmax(0, 1fr); }
+.admin-content table:not(.matrix-table) { display: block; max-width: 100%; overflow-x: auto; }
+.admin-content .runtime-install-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.admin-content #instances { display: grid; gap: 1rem; }
+.navigation-group { border-top: 1px solid var(--admin-border); margin-top: 1.5rem; }
+.navigation-group h2 { font-size: 1.15rem; }
+.destination-list { list-style: none; padding: 0; }
+.destination-list li { margin: .75rem 0; }
+.destination-list a { display: inline-block; min-height: 2.75rem; padding: .5rem 0; font-weight: 600; }
+.destination-list p { margin: 0; }
+@media (prefers-color-scheme: dark) {
+  .admin-layout { --admin-background: #121212; --admin-sidebar: #1c2025; --admin-border: #434b54; --admin-text: #eee; --admin-link: #8fbaff; --admin-active: #293e52; }
+  .admin-layout .error { color: #ff9595; }
+}
+@media (max-width: 960px) {
+  .admin-layout { display: block; }
+  .admin-sidebar { position: static; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--admin-border); padding: .75rem 1rem; }
+  .admin-brand-row { margin-bottom: 0; }
+  .admin-menu-toggle { display: inline-flex; }
+  .admin-navigation { margin-top: .75rem; }
+  .admin-account { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--admin-border); }
+  .admin-account button { justify-self: start; }
+  .admin-workarea { padding: 1.5rem; }
+}
+@media (max-width: 600px) {
+  .admin-workarea { padding: 1.25rem 1rem; }
+  .admin-content dl { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
+  .admin-content dd { margin-bottom: .6rem; }
+}

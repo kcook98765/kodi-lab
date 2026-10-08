@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% set nav_section = 'settings' %}
+{% block title %}Settings · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p>Open existing access, security and administrative settings.</p>
+<section class="navigation-group">
+  <h2>Access and security</h2>
+  <ul class="destination-list">
+    <li><a href="/mcp-clients">MCP clients and permission presets</a><p>Agent credentials, exact grants and target policies.</p></li>
+    <li><a href="/production-targets#global-mutation-control">Production mutation emergency control</a><p>Existing global deny control and one-shot approval queue.</p></li>
+    <li><a href="/production-targets#reviewed-bridge-builds">Reviewed Bridge builds</a><p>Existing reviewed build registration and retirement.</p></li>
+  </ul>
+</section>
+<section class="navigation-group">
+  <h2>Repositories</h2>
+  <ul class="destination-list">
+    <li><a href="/kodi-repository">Kodi Lab repository configuration and status</a><p>Stable and development repository information and administration.</p></li>
+    <li><a href="/addon-repositories">Add-on repository administration</a><p>Registered repositories and their existing settings.</p></li>
+  </ul>
+</section>
+<section class="navigation-group">
+  <h2>Diagnostics and records</h2>
+  <ul class="destination-list">
+    <li><a href="/production-targets">External Kodi status and recovery</a><p>Existing trust, connection and recovery details.</p></li>
+    <li><a href="/#instances">Managed Kodi status and diagnostics</a><p>Open an instance for its status, failure details and activity history.</p></li>
+    <li><a href="/history/instances">Deleted instance history</a><p>Retained administrative records.</p></li>
+    <li><a href="/snapshots/preserved">Preserved snapshots</a><p>Retained snapshot records and administration.</p></li>
+  </ul>
+</section>
+{% endblock %}

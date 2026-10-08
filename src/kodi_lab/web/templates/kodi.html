@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% set nav_section = 'kodi' %}
+{% block title %}Kodi · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Kodi</h1>
+<p>Connect Kodi in your home, or open its existing administration tools.</p>
+<p><a class="button-link" href="/add-kodi">Add Kodi</a></p>
+<section class="navigation-group">
+  <h2>Kodi in your home</h2>
+  <ul class="destination-list">
+    <li><a href="/production-targets">External Kodi administration</a><p>Existing production targets, connection details, permissions and recovery.</p></li>
+    <li><a href="/kodi-repository">Kodi Lab repository</a><p>Repository installation instructions and Bridge information.</p></li>
+  </ul>
+</section>
+<section class="navigation-group">
+  <h2>Development Kodi</h2>
+  <ul class="destination-list">
+    <li><a href="/external-targets">External development targets</a><p>Existing development connections and Bridge administration.</p></li>
+    <li><a href="/#instances">Managed Kodi instances</a><p>Instance status, details, snapshots and history on Home.</p></li>
+    <li><a href="/development">Development tools</a><p>Reviewed runtimes, sources, workspaces and testing.</p></li>
+  </ul>
+</section>
+{% endblock %}

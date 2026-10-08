@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
+    <title>{% block title %}Kodi Lab{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    {% if shared_navigation_enabled %}<script src="{{ url_for('static', path='/navigation.js') }}" defer></script>{% endif %}
+    {% block head %}{% endblock %}
+  </head>
+  <body class="{% if shared_navigation_enabled %}admin-layout {% endif %}{% block body_class %}{% endblock %}">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    {% include 'navigation.html' %}
+    <div class="admin-workarea">
+      <main id="main-content" tabindex="-1" class="admin-content {% block main_class %}{% endblock %}" {% block main_attributes %}{% endblock %}>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

@@ -1,13 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ instance.name }} history · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}{{ instance.name }} history · Kodi Lab{% endblock %}
+{% block content %}
       <h1>{{ instance.name }} full retained history</h1>
       <p class="secondary">{{ instance.managed_instance_id }}</p>
       {% for item in activity %}
@@ -26,6 +20,4 @@
       </article>
       {% else %}<p>No retained activity.</p>{% endfor %}
       <p><a href="/instances/{{ instance.managed_instance_id }}">Back to instance detail</a></p>
-    </main>
-  </body>
-</html>
+    {% endblock %}

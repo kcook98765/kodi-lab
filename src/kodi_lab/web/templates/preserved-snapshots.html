@@ -1,13 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Preserved snapshots · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Preserved snapshots · Kodi Lab{% endblock %}
+{% block content %}
       <h1>Preserved snapshots</h1>
       {% for snapshot in snapshots %}
       {% set reconciliation = reconciliation_statuses.get(snapshot.snapshot_id) %}
@@ -37,6 +31,4 @@
       <p>No preserved snapshots exist.</p>
       {% endfor %}
       <p><a href="/">Back to instances</a></p>
-    </main>
-  </body>
-</html>
+    {% endblock %}

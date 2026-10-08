@@ -1,21 +1,12 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Reviewed runtimes · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
-    <script src="{{ url_for('static', path='/runtime-installations.js') }}" defer></script>
-  </head>
-  <body>
-    <header>
-      <div>
-        <h1>Reviewed runtimes</h1>
-        <a href="/">Managed instances</a>
-      </div>
-    </header>
-    <main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Reviewed runtimes · Kodi Lab{% endblock %}
+{% block head %}
+<script src="{{ url_for('static', path='/runtime-installations.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+      <h1>Reviewed runtimes</h1>
+      <p><a href="/">Managed instances</a></p>
       <p class="notice">Installation downloads packages and may use several GB of Docker storage while building.</p>
       <div class="runtime-install-grid" data-runtime-installations>
         {% for item in installations %}
@@ -74,6 +65,4 @@
         </table>
       </div>
       </details>
-    </main>
-  </body>
-</html>
+    {% endblock %}

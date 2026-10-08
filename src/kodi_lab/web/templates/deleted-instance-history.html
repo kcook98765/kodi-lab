@@ -1,13 +1,7 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ history.summary.historical_name }} history · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-  </head>
-  <body>
-    <main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}{{ history.summary.historical_name }} history · Kodi Lab{% endblock %}
+{% block content %}
       <h1>{{ history.summary.historical_name }} retained history</h1>
       <dl>
         <dt>Original instance UUID</dt><dd>{{ history.summary.original_managed_instance_id }}</dd>
@@ -34,6 +28,4 @@
         {% else %}<p>No retained activity.</p>{% endfor %}
       </section>
       <p><a href="/history/instances">Back to deleted instance history</a></p>
-    </main>
-  </body>
-</html>
+    {% endblock %}

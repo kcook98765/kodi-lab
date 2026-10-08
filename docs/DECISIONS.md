@@ -5908,3 +5908,20 @@ D-0413 resolves the provisional managed pairing-source assumption below.
   credential-retirement journal, and refuses populated downgrade. Historical pre-coordinator migration fixtures retain their
   ordinary production contracts. See `HOUSEHOLD-ONBOARDING.md` for API, transitions,
   deployment assumptions and the conservative pre-persistence recovery limitation.
+
+## D-0417: Shared server-rendered Web administration navigation
+
+- Authenticated admin pages inherit `web/templates/base.html`, which includes
+  one navigation component. Pages retain their existing content, form hooks and
+  scripts, and select the active Home, Kodi, Agents, Development or Settings
+  section. Login remains a separate unauthenticated page.
+- `/kodi`, `/development` and `/settings` are authenticated, read-only landing
+  pages linking to existing administration. Agents uses `/mcp-clients`; Home
+  retains the managed instance overview. This adds no backend authority,
+  configuration mutation, migration, pairing or deployment workflow.
+- A compact desktop sidebar becomes an in-flow disclosure menu at widths up to
+  960 pixels. Its button reports expanded state; hidden links leave keyboard
+  navigation; Escape returns focus. Without JavaScript, links remain visible.
+- The application enables the new navigation through Jinja globals. Older
+  running processes sharing this checkout's templates retain links to existing
+  routes until their own authorized restart, avoiding absent landing routes.

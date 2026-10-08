@@ -1,15 +1,10 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="kodi-lab-csrf" content="{{ csrf_token }}">
-    <title>Development Sources · Kodi Lab</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-    <script src="{{ url_for('static', path='/development-source-registration.js') }}" defer></script>
-  </head>
-  <body>
-    <main>
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Development Sources · Kodi Lab{% endblock %}
+{% block head %}
+<script src="{{ url_for('static', path='/development-source-registration.js') }}" defer></script>
+{% endblock %}
+{% block content %}
       <h1>Development Sources</h1>
       <p class="secondary">Registered source metadata observed at its validation time. Registration and attachment do not indicate deployment or current filesystem validity.</p>
       {% if development_root_available %}
@@ -45,6 +40,4 @@
       </article>
       {% else %}<p>No development sources are registered.</p>{% endfor %}
       <p><a href="/">Back to dashboard</a></p>
-    </main>
-  </body>
-</html>
+    {% endblock %}

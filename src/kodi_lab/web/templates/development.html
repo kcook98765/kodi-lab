@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% set nav_section = 'development' %}
+{% block title %}Development · Kodi Lab{% endblock %}
+{% block content %}
+<h1>Development</h1>
+<p>Tools for developing and testing add-ons with Kodi.</p>
+<section class="navigation-group">
+  <h2>Kodi instances</h2>
+  <ul class="destination-list">
+    <li><a href="/#instances">Managed Kodi instances</a><p>Status and existing instance controls, snapshots and history.</p></li>
+    <li><a href="/runtimes">Reviewed runtimes</a><p>Available Kodi versions and runtime installation.</p></li>
+    <li><a href="/external-targets">External development targets</a><p>Administer Kodi used for development.</p></li>
+    <li><a href="/pair-kodi">Pair Kodi</a><p>The existing development pairing workflow.</p></li>
+  </ul>
+</section>
+<section class="navigation-group">
+  <h2>Sources and testing</h2>
+  <ul class="destination-list">
+    <li><a href="/development-sources">Development sources</a><p>Register and inspect add-on source trees.</p></li>
+    <li><a href="/agent-workspaces">Workspaces</a><p>Working copies, validation, execution results and promotion review.</p></li>
+    <li><a href="/addon-zips">Add-on ZIP testing</a><p>Existing ZIP upload and testing tools.</p></li>
+    <li><a href="/addon-repositories">Add-on repositories</a><p>Repository sources and add-on testing.</p></li>
+    <li><a href="/kodi-repository">Kodi Lab repository management</a><p>Development publication and installation review.</p></li>
+  </ul>
+</section>
+<section class="navigation-group">
+  <h2>Snapshots and history</h2>
+  <ul class="destination-list">
+    <li><a href="/snapshots/preserved">Preserved snapshots</a><p>Snapshots retained after an instance is deleted.</p></li>
+    <li><a href="/history/instances">Deleted instance history</a><p>Retained instance records and activity.</p></li>
+  </ul>
+</section>
+{% endblock %}
