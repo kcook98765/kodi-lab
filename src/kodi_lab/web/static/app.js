@@ -13,6 +13,27 @@ function showError(message) {
   node.hidden = !message;
 }
 
+function updateManagedAttention() {
+  const notice = document.getElementById("managed-attention");
+  if (!notice) return;
+  const names = Array.from(document.querySelectorAll("[data-instance-id]"))
+    .filter((card) => Array.from(card.querySelectorAll(
+      '[data-field="failure_detail"], [data-reconciliation-warning], [data-reset-field="reset-failure"], [data-reset-field="reconciliation"], [data-reconstruction-operation-id] .error'
+    )).some((warning) => !warning.hidden && warning.textContent.trim()))
+    .map((card) => card.querySelector('[data-field="name"]').textContent);
+  notice.querySelector("span").textContent = names.join(", ");
+  notice.hidden = !names.length;
+}
+
+function openManagedFragment() {
+  if (window.location.hash !== "#instances") return;
+  const details = document.getElementById("managed-details");
+  if (details) {
+    details.open = true;
+    document.getElementById("instances").scrollIntoView();
+  }
+}
+
 function updateCard(status) {
   const card = document.querySelector(`[data-instance-id="${CSS.escape(status.managed_instance_id)}"]`);
   if (!card) return;
@@ -36,6 +57,7 @@ function updateCard(status) {
     deleteLink.hidden = mismatch || reconstructing;
     deleteBlocked.hidden = !mismatch && !reconstructing;
   }
+  updateManagedAttention();
 }
 
 function updateResetStatus(card, status) {
@@ -75,6 +97,7 @@ function updateResetStatus(card, status) {
   }
   const resetAction = card.querySelector("[data-reset-action]");
   if (resetAction) resetAction.hidden = status.eligibility !== "supported" || reconstructing;
+  updateManagedAttention();
 }
 
 async function refreshReconstructionStatus(card) {
@@ -148,4 +171,6 @@ document.addEventListener("click", (event) => {
   if (card) void act(card, button.dataset.action);
 });
 
+window.addEventListener("hashchange", openManagedFragment);
+openManagedFragment();
 window.setInterval(() => void refresh(), pollMs);

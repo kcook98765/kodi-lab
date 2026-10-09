@@ -1,16 +1,54 @@
 {% extends 'base.html' %}
 {% set nav_section = 'home' %}
 {% block title %}Kodi Lab{% endblock %}
+{% block main_class %}home-page{% endblock %}
 {% block head %}
 <meta name="kodi-lab-poll-ms" content="{{ poll_interval_ms }}">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
 {% endblock %}
 {% block content %}
       <h1>Home</h1>
-      {% if shared_navigation_enabled %}<p>Manage Kodi and open the tools you need from the navigation.</p>{% endif %}
-      {% if add_kodi_enabled %}<p><a class="button-link" href="/add-kodi">Add Kodi</a></p>{% endif %}
-      <h2>Managed Kodi instances</h2>
+      <p>Connect Kodi, then give your agent access to inspect it.</p>
+      <div class="actions home-next-actions">
+        {% if add_kodi_enabled %}<a class="button-link kodi-primary" href="/add-kodi">Add Kodi</a>{% endif %}
+        <a class="button-link" href="/mcp-clients">Connect an agent</a>
+      </div>
+      <section aria-labelledby="home-kodi-heading">
+        <h2 id="home-kodi-heading">Kodi in your home</h2>
+        <p class="kodi-recorded-note">Status reflects the last recorded checks. Live availability is not checked when you view this page.</p>
+        <ul class="kodi-grid">
+          {% for kodi in kodis %}
+          <li class="kodi-card" data-status="{{ kodi.status }}">
+            <h3>{{ kodi.target.logical_name }}</h3>
+            <p><span class="kodi-status" data-status="{{ kodi.status }}">{{ kodi.status_label }}</span></p>
+            <p class="kodi-card-note">{{ kodi.status_note }}</p>
+            <dl>
+              <dt>Kodi version</dt><dd>{{ kodi.target.kodi_version or 'Not yet known' }}</dd>
+              <dt>Access</dt><dd>{{ kodi.access_label }}</dd>
+            </dl>
+            <a class="button-link kodi-view-action" href="/kodi/{{ kodi.target.target_id }}" aria-label="View Kodi: {{ kodi.target.logical_name }}">View Kodi</a>
+          </li>
+          {% else %}
+          <li class="kodi-empty">No Home Kodi added yet. Choose Add Kodi to get started.</li>
+          {% endfor %}
+        </ul>
+        <p><a href="/kodi">All Kodi and connection settings</a></p>
+      </section>
       <p id="global-error" class="error" role="alert" hidden></p>
+      {% set attention = namespace(names=[]) %}
+      {% for instance in instances %}
+      {% set reset = reset_statuses.get(instance.managed_instance_id) %}
+      {% set reconciliation = reconciliation_statuses.get(instance.managed_instance_id) %}
+      {% set reconstruction = reconstruction_statuses.get(instance.managed_instance_id) %}
+      {% if instance.failure_detail or (reconciliation and reconciliation.required) or (reset and (reset.failure_reason or reset.reconciliation_required)) or (reconstruction and reconstruction.failure_reason) %}
+      {% set attention.names = attention.names + [instance.name] %}
+      {% endif %}
+      {% endfor %}
+      <p id="managed-attention" class="error" {% if not attention.names %}hidden{% endif %}>Development Kodi needs attention: <span>{{ attention.names|join(', ') }}</span>. <a href="#instances">Review status</a></p>
+      <details id="managed-details" class="home-development">
+      <summary>Development Kodi — managed instances ({{ instances|length }})</summary>
+      <p>Runtime, reset and lifecycle controls for development and testing. <a href="/development">All development tools</a></p>
+      <h2>Managed Kodi instances</h2>
       <section id="instances" aria-live="polite">
         {% for instance in instances %}
         {% set reset = reset_statuses.get(instance.managed_instance_id) %}
@@ -91,4 +129,5 @@
         <p id="empty-state">No managed instances are configured.</p>
         {% endfor %}
       </section>
+      </details>
     {% endblock %}

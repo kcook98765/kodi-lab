@@ -1,0 +1,235 @@
+"""Ordinary setup presentation preserves recorded state and explicit authority."""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any, cast
+from uuid import UUID
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import event, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from kodi_lab.domain import ExternalObservationState
+from kodi_lab.mcp.stdio_proxy import load_configuration
+from kodi_lab.storage.metadata import Base
+from kodi_lab.storage.models import ExternalKodiTargetRow
+from tests.web.conftest import INSTANCE_ID, ORIGIN, login
+from tests.web.test_kodi_views import household as household
+
+
+def test_home_empty_keeps_next_actions_and_managed_controls(client: TestClient) -> None:
+    assert client.get("/", follow_redirects=False).status_code == 303
+    login(client)
+    page = client.get("/").text
+    primary, managed = page.split('<details id="managed-details"', 1)
+    assert "No Home Kodi added yet" in primary
+    assert 'href="/add-kodi"' in primary
+    assert 'href="/mcp-clients">Connect an agent' in primary
+    assert "Fixture and reset" not in primary
+    assert " open" not in managed.split(">", 1)[0]
+    assert 'id="instances"' in managed
+    assert f'href="/instances/{INSTANCE_ID}/snapshots"' in managed
+    assert "Fixture and reset" in managed
+
+
+@pytest.mark.parametrize("unreachable", [False, True])
+def test_home_household_is_recorded_and_network_free(
+    client: TestClient,
+    database: sessionmaker[Session],
+    household: UUID,
+    monkeypatch: pytest.MonkeyPatch,
+    unreachable: bool,
+) -> None:
+    if unreachable:
+        with database.begin() as session:
+            row = session.get(ExternalKodiTargetRow, str(household))
+            assert row is not None
+            row.observation_state = ExternalObservationState.UNREACHABLE
+    login(client)
+    context = cast(FastAPI, client.app).state.kodi_lab
+    # Existing managed status refresh records runtime observations. Freeze that
+    # unchanged dashboard so the write guard isolates the new household view.
+    managed = context.status.list_statuses()
+    monkeypatch.setattr(context.status, "list_statuses", lambda: managed)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("Home attempted external Kodi I/O or changed authority")
+
+    for service, names in [
+        (context.production_targets, ["probe", "set_enabled", "confirm"]),
+        (
+            context.external_bridges,
+            ["reverify", "attempt_pairing", "capture_screenshot"],
+        ),
+    ]:
+        for name in names:
+            monkeypatch.setattr(service, name, forbidden)
+    statements: list[str] = []
+
+    def record(
+        _conn: Any,
+        _cursor: Any,
+        statement: str,
+        _params: Any,
+        _context: Any,
+        _executemany: Any,
+    ) -> None:
+        statements.append(statement)
+
+    bind = database.kw["bind"]
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        response = client.get("/")
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+    assert response.status_code == 200
+    primary = response.text.split('<details id="managed-details"', 1)[0]
+    assert "Living room" in primary
+    assert f'href="/kodi/{household}"' in primary
+    assert "Live availability is not checked" in primary
+    assert (
+        'data-status="disconnected"' in primary
+        if unreachable
+        else 'data-status="connected"' in primary
+    )
+    if unreachable:
+        assert "Temporarily unreachable" in primary
+    assert not [
+        statement
+        for statement in statements
+        if re.match(
+            r"\s*(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER)\b", statement, re.I
+        )
+    ]
+
+
+def test_home_managed_failure_visible_before_disclosure(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    login(client)
+    service = cast(FastAPI, client.app).state.kodi_lab.status
+    status = service.list_statuses()[0].model_copy(
+        update={
+            "failure_detail": "Runtime check failed",
+            "failure_code": "runtime_revision_mismatch",
+        }
+    )
+    monkeypatch.setattr(service, "list_statuses", lambda: [status])
+    page = client.get("/").text
+    primary, managed = page.split('<details id="managed-details"', 1)
+    notice = re.search(r'<p id="managed-attention".*?</p>', primary, re.S)
+    assert notice is not None
+    assert " hidden" not in notice.group()
+    assert "Development Kodi needs attention" in notice.group()
+    assert 'href="#instances"' in notice.group()
+    assert "Runtime check failed" in managed
+
+
+def test_agents_requires_deliberate_preset_and_supported_config(
+    client: TestClient,
+) -> None:
+    assert client.get("/mcp-clients").status_code == 401
+    csrf = login(client)
+    presets = client.get("/api/mcp/presets").json()
+    custom = client.post(
+        "/api/mcp/presets",
+        headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
+        json={
+            "display_name": "0065 Historical acceptance only",
+            "template_preset_id": next(
+                p["id"] for p in presets if p["display_name"] == "Read-only Inspection"
+            ),
+            "permissions": ["target.inspect"],
+        },
+    )
+    assert custom.status_code == 201
+    page = client.get("/mcp-clients").text
+    assert "<h1>Agents</h1>" in page
+    assert page.index("Create or select a client") < page.index("Create custom preset")
+    assert '<option value="" selected>Choose a preset' in page
+    recommended = re.search(
+        r'<optgroup label="Read-only Home Kodi inspection">(.*?)</optgroup>', page, re.S
+    )
+    assert recommended is not None
+    assert re.findall(r'<option value="([^"]+)"', recommended.group(1)) == [
+        p["id"]
+        for p in presets
+        if p["display_name"]
+        in ["Production Inspection", "Production Visual Inspection"]
+    ]
+    assert custom.json()["id"] not in recommended.group(1)
+    assert "read-only health, add-on and UI-state inspection" in page
+    assert "if you also need screenshots" in page
+    configuration = re.search(r'<pre id="agent-config"[^>]*>(.*?)</pre>', page, re.S)
+    assert configuration is not None
+    template = json.loads(configuration.group(1))
+    assert template["command"] == "kodi-lab-mcp-stdio"
+    assert template["args"] == []
+    supported = load_configuration(template["env"])
+    assert supported.endpoint == "http://127.0.0.1:8100/mcp"
+    assert supported.token == "PASTE_NEW_TOKEN_HERE"
+    assert "default local port" in page and "18100" in page
+    assert "LAN Web address is not supported" in page
+
+
+def test_agents_get_preserves_authority_and_never_recovers_token(
+    client: TestClient, database: sessionmaker[Session], household: UUID
+) -> None:
+    csrf = login(client)
+    headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
+    presets = client.get("/api/mcp/presets").json()
+    ordinary = client.post(
+        "/api/mcp/clients",
+        headers=headers,
+        json={
+            "display_name": "My agent",
+            "preset_id": next(
+                p["id"] for p in presets if p["display_name"] == "Production Inspection"
+            ),
+        },
+    )
+    assert ordinary.status_code == 201
+    identity = ordinary.json()["id"]
+    credential = client.post(
+        f"/api/mcp/clients/{identity}/credentials",
+        headers=headers,
+        json={"expiration_seconds": 86400},
+    )
+    assert credential.status_code == 201
+
+    def snapshot() -> dict[str, list[str]]:
+        with database() as session:
+            return {
+                table.name: sorted(
+                    repr(tuple(row)) for row in session.execute(select(table))
+                )
+                for table in Base.metadata.sorted_tables
+                if table.name != "web_sessions"
+            }
+
+    before = snapshot()
+    page = client.get("/mcp-clients").text
+    assert snapshot() == before
+    assert credential.json()["token"] not in page
+    assert 'data-token-result tabindex="-1"' in page
+    assert "<code data-token></code>" in page
+    assert '<details class="agent-client-details">' in page
+    assert '<details data-agent-advanced class="agent-advanced">' in page
+    assert 'Client name <input name="display_name" value="My agent"' in page
+    assert 'aria-label="Policy for Living room"' in page
+    assert f'data-target-id="{household}"' in page
+    for action in [
+        "issue",
+        "rotate",
+        "revoke",
+        "grant",
+        "remove-grant",
+        "grant-production-scope",
+    ]:
+        assert f'data-action="{action}"' in page
+    assert "Exact permissions to grant" in page
+    assert "Development access and workspace bindings" in page

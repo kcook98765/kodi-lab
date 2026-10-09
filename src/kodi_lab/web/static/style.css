@@ -235,3 +235,22 @@ dd { margin: 0; }
 .household-panel [data-onboarding-mode="development"] label { display: grid; gap: .35rem; }
 .household-panel [data-onboarding-mode="development"] details { margin: .75rem 0; }
 .household-panel [data-onboarding-mode="development"] summary { min-height: 2.75rem; padding: .65rem 0; cursor: pointer; font-weight: 600; }
+.home-page .home-next-actions { margin-bottom: 1.5rem; }
+.home-page .home-development,
+.agents-page details { border: 1px solid #bbb; border-radius: .4rem; padding: .75rem 1rem; margin: 1rem 0; }
+.home-page summary,
+.agents-page summary { cursor: pointer; min-height: 44px; align-content: center; overflow-wrap: anywhere; }
+.home-page #managed-attention { overflow-wrap: anywhere; }
+.agents-page [data-create-client],
+.agents-page [data-rename] { max-width: 42rem; grid-template-columns: minmax(0, 1fr); }
+.agents-page [data-create-client] label,
+.agents-page [data-rename] label { display: grid; gap: .4rem; min-width: 0; }
+.agents-page [data-create-client] input,
+.agents-page [data-create-client] select,
+.agents-page [data-create-client] button,
+.agents-page [data-rename] input { box-sizing: border-box; width: 100%; min-width: 0; }
+.agents-page .agent-setup-steps { padding-left: 1.5rem; }
+.agents-page .agent-setup-steps li { margin: .75rem 0; }
+.agents-page #agent-config { max-width: 100%; box-sizing: border-box; padding: 1rem; border: 1px solid #bbb; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agents-page [data-client-id] { overflow-wrap: anywhere; }
+.agents-page .agent-client-details > summary span { display: block; margin-top: .3rem; font-size: .95rem; }

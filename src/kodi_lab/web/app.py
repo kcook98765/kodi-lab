@@ -2947,6 +2947,7 @@ def create_app(
             "index.html",
             {
                 "instances": instances,
+                "kodis": kodi_views.list(),
                 "add_kodi_enabled": True,
                 "reset_statuses": reset_statuses,
                 "reconciliation_statuses": reconciliation_statuses,

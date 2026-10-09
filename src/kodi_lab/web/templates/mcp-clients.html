@@ -1,11 +1,95 @@
 {% extends 'base.html' %}
 {% set nav_section = 'agents' %}
-{% block title %}MCP clients · Kodi Lab{% endblock %}
+{% block title %}Agents · Kodi Lab{% endblock %}
+{% block main_class %}agents-page{% endblock %}
 {% block main_attributes %}data-mcp-administration data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
-      <h1>MCP clients</h1>
-      <p class="secondary">MCP bearer identities are separate from this Web administrator session. Token plaintext is shown once and cannot be recovered after navigation or reload.</p>
+      <h1>Agents</h1>
+      <p>Connect an MCP-compatible agent to Kodi. An MCP client is the set of permissions and sign-in tokens for one agent; it is separate from your Web administrator account.</p>
       <p class="error" data-error role="alert" hidden></p>
+      <section aria-labelledby="agent-create-heading">
+        <h2 id="agent-create-heading">1. Create or select a client</h2>
+        <p>Use a separate client for each agent. If you already have one, open it in <a href="#agent-clients-heading">Your clients</a> below.</p>
+        <form data-create-client>
+          <label>Client name <input name="display_name" required maxlength="120" placeholder="My coding assistant"></label>
+          <label>Permissions preset <select name="preset_id" required aria-describedby="agent-preset-help">
+            <option value="" selected>Choose a preset…</option>
+            <optgroup label="Read-only Home Kodi inspection">
+              {% for preset in presets if preset.builtin and preset.assignable and preset.display_name in ['Production Inspection','Production Visual Inspection'] %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
+            </optgroup>
+            <optgroup label="Other presets — advanced and development">
+              {% for preset in presets if preset.assignable and not (preset.builtin and preset.display_name in ['Production Inspection','Production Visual Inspection']) %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}
+            </optgroup>
+          </select></label>
+          <p id="agent-preset-help" class="secondary"><strong>Production Inspection</strong> is for read-only health, add-on and UI-state inspection. Choose <strong>Production Visual Inspection</strong> if you also need screenshots. Neither preset grants Kodi control or development access.</p>
+          <button type="submit">Create client</button>
+        </form>
+      </section>
+      <section aria-labelledby="agent-config-heading">
+        <h2 id="agent-config-heading">2. Give access and connect your agent</h2>
+        <ol class="agent-setup-steps">
+          <li>Open your client below and grant access to the specific Kodi you want it to inspect. Follow the Kodi access instructions in that client.</li>
+          <li>Choose a token lifetime and select <strong>Issue token</strong>. Copy the token immediately: it is shown once and cannot be recovered after navigation or reload.</li>
+          <li>Use the settings below in your agent's MCP server configuration. Replace the token placeholder in the agent's protected local settings, never in command arguments. Your agent may require a server name or an outer configuration wrapper.</li>
+          <li>Connect the agent, then ask it to list available Kodi instances and inspect your Kodi's health or UI state. If you chose visual inspection, try a screenshot. If access is denied, check the client preset and that Kodi's grants and current scopes below.</li>
+        </ol>
+        <p>The <code>kodi-lab-mcp-stdio</code> command must be installed where your agent runs. Its connection must reach Kodi Lab at a local <code>127.0.0.1</code> or <code>localhost</code> address on that computer. An agent on another computer needs an existing local forwarding arrangement; a LAN Web address is not supported by this command.</p>
+        <h3>Configuration template</h3>
+        <p>This uses the default local port <strong>8100</strong>. Replace it with your Kodi Lab Web port if different (for example, <code>18100</code>). This template contains a placeholder, not an issued token.</p>
+        <pre id="agent-config" tabindex="0" aria-label="MCP server configuration template">{
+  "command": "kodi-lab-mcp-stdio",
+  "args": [],
+  "env": {
+    "KODI_LAB_MCP_TOKEN": "PASTE_NEW_TOKEN_HERE",
+    "KODI_LAB_MCP_URL": "http://127.0.0.1:8100/mcp"
+  }
+}</pre>
+        <button type="button" data-copy-agent-config hidden>Copy configuration template</button>
+        <p data-agent-copy-status role="status" aria-live="polite"></p>
+        <p class="secondary">You can also select and copy the template manually. Protect the local settings containing your token as you would a password.</p>
+      </section>
+      <section data-token-result tabindex="-1" aria-labelledby="agent-token-heading" hidden>
+        <h2 id="agent-token-heading">Token shown once</h2>
+        <code data-token></code>
+        <p>Copy it now into your agent's protected settings. It cannot be recovered later.</p>
+      </section>
+      <section aria-labelledby="agent-clients-heading">
+      <h2 id="agent-clients-heading">Your clients</h2>
+      {% for client in clients %}
+      <article data-client-id="{{ client.id }}">
+        <details class="agent-client-details">
+        <summary><strong>{{ client.display_name }}</strong><span>{{ 'Enabled' if client.enabled else 'Disabled' }} · {{ client.preset.display_name }}</span></summary>
+        <p>{{ 'Enabled' if client.enabled else 'Disabled' }} · {{ client.preset.display_name }} · last used {{ client.last_used_at or 'never' }}{% if client.disabled_at %} · disabled since {{ client.disabled_at }}{% endif %}</p>
+        <form data-rename><label>Client name <input name="display_name" value="{{ client.display_name }}" required maxlength="120"></label><button type="submit">Rename</button></form>
+        <label>Preset <select data-client-preset>{% for preset in presets if preset.assignable %}<option value="{{ preset.id }}"{% if preset.id == client.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select></label>
+        <button type="button" data-action="toggle" data-enabled="{{ 'true' if client.enabled else 'false' }}">{{ 'Disable' if client.enabled else 'Enable' }}</button>
+        <label>Token lifetime <select data-token-lifetime><option value="3600">1 hour</option><option value="86400" selected>24 hours</option><option value="604800">7 days</option><option value="none">Non-expiring</option></select></label>
+        <button type="button" data-action="issue">Issue token</button>
+        <h3>Credentials</h3>
+        <ul>{% for credential in client.credentials %}<li data-credential-id="{{ credential.id }}">{{ credential.id }} · {{ credential.status }} · expires {{ credential.expires_at or 'never' }} · last used {{ credential.last_used_at or 'never' }} <button type="button" data-action="rotate">Rotate</button> <button type="button" data-action="revoke">Revoke</button></li>{% else %}<li>No credentials.</li>{% endfor %}</ul>
+        <h3>Kodi access</h3>
+        <p>Creating a client or issuing a token does not grant access to Kodi. The client preset and the Kodi policy must both allow the requested inspection.</p>
+        <p>For Home Kodi, use <strong>Grant</strong>, then <strong>Grant current inspect scope</strong> for that Kodi. For screenshots, also use <strong>Grant current visual scope</strong> when available. These are separate, explicit permissions. If the required control is missing, review this client's preset and the Kodi policy under Advanced administration.</p>
+        <h4>Exact target grants</h4>
+        <ul>{% for target in targets %}{% set bridge = production_bridge_statuses.get(target.target_id) %}<li>{{ target.target_name }} · {{ target.target_class }} · policy {{ target.preset.display_name if target.preset else 'deny (unassigned)' }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %}{% if bridge and bridge.production_bridge_trust_revision %} · bridge revision {{ bridge.production_bridge_trust_revision }}{% endif %} <button type="button" data-action="grant" data-target-id="{{ target.target_id }}">Grant</button> <button type="button" data-action="remove-grant" data-target-id="{{ target.target_id }}">Remove grant</button>{% if target.target_class == 'external_production' %} <button type="button" data-action="grant-production-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}">Grant current inspect scope</button>{% if client.preset.display_name in ['Production Visual Inspection','Production Remote Kodi'] and target.preset and target.preset.display_name in ['Production Visual Inspection','Production Remote Kodi'] and bridge and bridge.production_bridge_trust_revision %} <button type="button" data-action="grant-production-visual-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}" data-bridge-revision="{{ bridge.production_bridge_trust_revision }}">Grant current visual scope</button>{% endif %}{% if client.preset.display_name == 'Production Remote Kodi' and target.preset and target.preset.display_name == 'Production Remote Kodi' and bridge and bridge.production_bridge_trust_revision %} <button type="button" data-action="grant-production-navigate-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}" data-bridge-revision="{{ bridge.production_bridge_trust_revision }}">Grant current navigate scope</button> <button type="button" data-action="grant-production-transient-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}" data-bridge-revision="{{ bridge.production_bridge_trust_revision }}">Grant transient approval-request scope</button>{% endif %}{% endif %}</li>{% endfor %}</ul>
+        <h3>Production inspection scopes</h3>
+        <ul>{% for scope in production_scopes if scope.client_id == client.id %}<li>{{ scope.target_id }} · {{ scope.scope }} · generation {{ scope.identity_generation }} (current {{ scope.current_identity_generation }}){% if scope.bridge_trust_revision %} · bridge revision {{ scope.bridge_trust_revision }} (current {{ scope.current_bridge_trust_revision }}){% endif %} · {{ scope.effective_state }} · created {{ scope.created_at }} by {{ scope.created_by }}{% if scope.revoked_at %} · revoked {{ scope.revoked_at }} by {{ scope.revoked_by }}{% endif %}{% if scope.state == 'active' %} <button type="button" data-action="revoke-production-scope" data-scope-id="{{ scope.scope_id }}">Revoke</button>{% endif %}</li>{% else %}<li>No production inspection scopes.</li>{% endfor %}</ul>
+        <details class="agent-development-details">
+        <summary>Development access and workspace bindings</summary>
+        <h3>Exact DevelopmentSource grants</h3>
+        <p class="secondary">A source grant is necessary but does not expose unbound workspaces.</p>
+        <ul>{% for source in development_sources %}<li>{{ source.logical_name }} · {{ source.addon_id }} · {{ 'granted' if source.id in client.development_source_grants else 'not granted' }} <button type="button" data-action="grant-source" data-source-id="{{ source.id }}">Grant</button> <button type="button" data-action="revoke-source" data-source-id="{{ source.id }}">Revoke</button></li>{% else %}<li>No registered DevelopmentSources.</li>{% endfor %}</ul>
+        <h3>Workspace bindings</h3>
+        <ul>{% for binding in client.workspace_bindings %}<li>{{ binding.workspace_id }} · source {{ binding.development_source_id }} · {{ binding.binding_origin }} · owner {{ 'enabled' if binding.owning_client_enabled else 'disabled' }} · retention {{ binding.retention_classification }}{% if binding.retention_deadline_at %} · deadline {{ binding.retention_deadline_at }}{% endif %}{% if binding.automatic_cleanup_blocked %} · automatic cleanup blocked; use existing workspace administration{% endif %}{% if binding.latest_deployment_id %} · deployment {{ binding.latest_deployment_state }} generation {{ binding.latest_deployment_generation }} target {{ binding.latest_deployment_target_id }}{% endif %}{% if binding.latest_execution_id %} · execution {{ binding.latest_execution_state }} generation {{ binding.latest_execution_generation }} target {{ binding.latest_execution_target_id }}{% endif %}</li>{% else %}<li>No bound workspaces.</li>{% endfor %}</ul>
+        <h3>Eligible unbound workspaces</h3>
+        <ul>{% for workspace in eligible_workspaces[client.id] %}<li>{{ workspace.workspace_id }} · {{ workspace.source_logical_name }} · generation {{ workspace.generation }} <button type="button" data-action="bind-workspace" data-workspace-id="{{ workspace.workspace_id }}">Bind</button></li>{% else %}<li>No eligible unbound workspaces for current grants.</li>{% endfor %}</ul>
+        </details>
+        </details>
+      </article>
+      {% else %}<p>No clients yet. Create one above to connect your first agent.</p>{% endfor %}
+      </section>
+      <details data-agent-advanced class="agent-advanced">
+        <summary>Advanced administration — custom presets and Kodi policies</summary>
       <section>
         <h2>Create custom preset</h2>
         <p>Select an explicit permission subset below a built-in ceiling. The saved snapshot is immutable. For validation, repository deployment and verified execution, select <code>workspace.inspect</code>, <code>workspace.deploy</code>, and <code>development.execute</code>. Fresh source scanning and capture are separately opted into with <code>development_source.inspect</code> and <code>workspace.capture</code>; existing clients retain their present permissions.</p>
@@ -18,56 +102,17 @@
         </form>
       </section>
       <section>
-        <h2>Create client</h2>
-        <form data-create-client>
-          <label>Name <input name="display_name" required maxlength="120"></label>
-          <label>Preset <select name="preset_id" required>{% for preset in presets if preset.assignable %}<option value="{{ preset.id }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
-          <button type="submit">Create client</button>
-        </form>
-      </section>
-      <section data-token-result hidden>
-        <h2>Token shown once</h2>
-        <code data-token></code>
-        <p>Copy it now. Kodi Lab persists only its SHA-256 verifier.</p>
-      </section>
-      <section>
-        <h2>Stdio client configuration</h2>
-        <p>Use command <code>kodi-lab-mcp-stdio</code> and provide the issued token through the protected <code>KODI_LAB_MCP_TOKEN</code> environment variable. Never place the token in command arguments. Target selection remains explicit in each target-scoped tool call.</p>
-      </section>
-      {% for client in clients %}
-      <article data-client-id="{{ client.id }}">
-        <h2>{{ client.display_name }}</h2>
-        <p>{{ 'Enabled' if client.enabled else 'Disabled' }} · {{ client.preset.display_name }} · last used {{ client.last_used_at or 'never' }}{% if client.disabled_at %} · disabled since {{ client.disabled_at }}{% endif %}</p>
-        <form data-rename><input name="display_name" value="{{ client.display_name }}" required maxlength="120"><button type="submit">Rename</button></form>
-        <label>Preset <select data-client-preset>{% for preset in presets if preset.assignable %}<option value="{{ preset.id }}"{% if preset.id == client.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select></label>
-        <button type="button" data-action="toggle" data-enabled="{{ 'true' if client.enabled else 'false' }}">{{ 'Disable' if client.enabled else 'Enable' }}</button>
-        <label>Token lifetime <select data-token-lifetime><option value="3600">1 hour</option><option value="86400" selected>24 hours</option><option value="604800">7 days</option><option value="none">Non-expiring</option></select></label>
-        <button type="button" data-action="issue">Issue token</button>
-        <h3>Credentials</h3>
-        <ul>{% for credential in client.credentials %}<li data-credential-id="{{ credential.id }}">{{ credential.id }} · {{ credential.status }} · expires {{ credential.expires_at or 'never' }} · last used {{ credential.last_used_at or 'never' }} <button type="button" data-action="rotate">Rotate</button> <button type="button" data-action="revoke">Revoke</button></li>{% else %}<li>No credentials.</li>{% endfor %}</ul>
-        <h3>Exact target grants</h3>
-        <ul>{% for target in targets %}{% set bridge = production_bridge_statuses.get(target.target_id) %}<li>{{ target.target_name }} · {{ target.target_class }} · policy {{ target.preset.display_name if target.preset else 'deny (unassigned)' }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %}{% if bridge and bridge.production_bridge_trust_revision %} · bridge revision {{ bridge.production_bridge_trust_revision }}{% endif %} <button type="button" data-action="grant" data-target-id="{{ target.target_id }}">Grant</button> <button type="button" data-action="remove-grant" data-target-id="{{ target.target_id }}">Remove grant</button>{% if target.target_class == 'external_production' %} <button type="button" data-action="grant-production-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}">Grant current inspect scope</button>{% if client.preset.display_name in ['Production Visual Inspection','Production Remote Kodi'] and target.preset and target.preset.display_name in ['Production Visual Inspection','Production Remote Kodi'] and bridge and bridge.production_bridge_trust_revision %} <button type="button" data-action="grant-production-visual-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}" data-bridge-revision="{{ bridge.production_bridge_trust_revision }}">Grant current visual scope</button>{% endif %}{% if client.preset.display_name == 'Production Remote Kodi' and target.preset and target.preset.display_name == 'Production Remote Kodi' and bridge and bridge.production_bridge_trust_revision %} <button type="button" data-action="grant-production-navigate-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}" data-bridge-revision="{{ bridge.production_bridge_trust_revision }}">Grant current navigate scope</button> <button type="button" data-action="grant-production-transient-scope" data-target-id="{{ target.target_id }}" data-generation="{{ target.identity_generation }}" data-bridge-revision="{{ bridge.production_bridge_trust_revision }}">Grant transient approval-request scope</button>{% endif %}{% endif %}</li>{% endfor %}</ul>
-        <h3>Production inspection scopes</h3>
-        <ul>{% for scope in production_scopes if scope.client_id == client.id %}<li>{{ scope.target_id }} · {{ scope.scope }} · generation {{ scope.identity_generation }} (current {{ scope.current_identity_generation }}){% if scope.bridge_trust_revision %} · bridge revision {{ scope.bridge_trust_revision }} (current {{ scope.current_bridge_trust_revision }}){% endif %} · {{ scope.effective_state }} · created {{ scope.created_at }} by {{ scope.created_by }}{% if scope.revoked_at %} · revoked {{ scope.revoked_at }} by {{ scope.revoked_by }}{% endif %}{% if scope.state == 'active' %} <button type="button" data-action="revoke-production-scope" data-scope-id="{{ scope.scope_id }}">Revoke</button>{% endif %}</li>{% else %}<li>No production inspection scopes.</li>{% endfor %}</ul>
-        <h3>Exact DevelopmentSource grants</h3>
-        <p class="secondary">A source grant is necessary but does not expose unbound workspaces.</p>
-        <ul>{% for source in development_sources %}<li>{{ source.logical_name }} · {{ source.addon_id }} · {{ 'granted' if source.id in client.development_source_grants else 'not granted' }} <button type="button" data-action="grant-source" data-source-id="{{ source.id }}">Grant</button> <button type="button" data-action="revoke-source" data-source-id="{{ source.id }}">Revoke</button></li>{% else %}<li>No registered DevelopmentSources.</li>{% endfor %}</ul>
-        <h3>Workspace bindings</h3>
-        <ul>{% for binding in client.workspace_bindings %}<li>{{ binding.workspace_id }} · source {{ binding.development_source_id }} · {{ binding.binding_origin }} · owner {{ 'enabled' if binding.owning_client_enabled else 'disabled' }} · retention {{ binding.retention_classification }}{% if binding.retention_deadline_at %} · deadline {{ binding.retention_deadline_at }}{% endif %}{% if binding.automatic_cleanup_blocked %} · automatic cleanup blocked; use existing workspace administration{% endif %}{% if binding.latest_deployment_id %} · deployment {{ binding.latest_deployment_state }} generation {{ binding.latest_deployment_generation }} target {{ binding.latest_deployment_target_id }}{% endif %}{% if binding.latest_execution_id %} · execution {{ binding.latest_execution_state }} generation {{ binding.latest_execution_generation }} target {{ binding.latest_execution_target_id }}{% endif %}</li>{% else %}<li>No bound workspaces.</li>{% endfor %}</ul>
-        <h3>Eligible unbound workspaces</h3>
-        <ul>{% for workspace in eligible_workspaces[client.id] %}<li>{{ workspace.workspace_id }} · {{ workspace.source_logical_name }} · generation {{ workspace.generation }} <button type="button" data-action="bind-workspace" data-workspace-id="{{ workspace.workspace_id }}">Bind</button></li>{% else %}<li>No eligible unbound workspaces for current grants.</li>{% endfor %}</ul>
-      </article>
-      {% else %}<p>No MCP clients exist.</p>{% endfor %}
-      <section>
         <h2>Target policy assignments</h2>
-        {% for target in targets %}<p data-target-policy="{{ target.target_id }}">{{ target.target_name }} · {{ target.target_class }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %} <select>{% for preset in presets if preset.assignable and ((target.target_class == 'external_production' and preset.display_name in ['Production Inspection','Production Visual Inspection','Production Remote Kodi']) or (target.target_class != 'external_production' and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'])) %}<option value="{{ preset.id }}"{% if target.preset and preset.id == target.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select> <button type="button">Assign policy</button></p>{% else %}<p>No targets.</p>{% endfor %}
+        {% for target in targets %}<p data-target-policy="{{ target.target_id }}">{{ target.target_name }} · {{ target.target_class }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %} <select aria-label="Policy for {{ target.target_name }}">{% for preset in presets if preset.assignable and ((target.target_class == 'external_production' and preset.display_name in ['Production Inspection','Production Visual Inspection','Production Remote Kodi']) or (target.target_class != 'external_production' and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'])) %}<option value="{{ preset.id }}"{% if target.preset and preset.id == target.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select> <button type="button">Assign policy</button></p>{% else %}<p>No targets.</p>{% endfor %}
       </section>
       <section>
         <h2>Presets</h2>
         <ul>{% for preset in presets %}<li>{{ preset.display_name }} · {{ 'built-in' if preset.builtin else 'custom' }} · permissions {{ preset.permissions | join(', ') if preset.permissions else 'none' }} · UUID {{ preset.id }}</li>{% endfor %}</ul>
       </section>
-      <p><a href="/">Back to dashboard</a></p>
-    {% endblock %}
+      </details>
+      <p><a href="/">Back to Home</a></p>
+{% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', path='/mcp-clients.js') }}" defer></script>
+<script src="{{ url_for('static', path='/agents-setup.js') }}" defer></script>
 {% endblock %}
