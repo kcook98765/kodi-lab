@@ -69,7 +69,11 @@ def test_lab_compose_confines_docker_mount_to_broker() -> None:
         ("broker_socket", "/run/kodi-lab"),
         ("remote_state", "/var/lib/kodi-lab"),
     }
-    assert broker["healthcheck"]["test"] == ["CMD", "kodi-lab-broker", "--healthcheck"]
+    assert broker["healthcheck"]["test"] == ["CMD", "kodi-lab-broker-healthcheck"]
+    assert broker["healthcheck"]["timeout"] == "3s"
+    assert broker["healthcheck"]["interval"] == "10s"
+    assert broker["healthcheck"]["retries"] == 3
+    assert broker["healthcheck"]["start_period"] == "15s"
 
 
 def test_lab_overlay_connects_web_to_managed_network_without_docker_socket() -> None:
@@ -83,3 +87,26 @@ def test_lab_overlay_connects_web_to_managed_network_without_docker_socket() -> 
     assert not any(item["target"] == "/var/run/docker.sock" for item in web["volumes"])
     broker = config["services"]["broker"]
     assert set(broker["networks"]) == {"default"}
+
+
+def test_release_broker_keeps_the_same_watchdog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, value in {
+        "KODI_LAB_REMOTE_IMAGE": "sha256:" + "a" * 64,
+        "KODI_LAB_BROKER_IMAGE": "sha256:" + "b" * 64,
+        "KODI_LAB_REPOSITORY_BIND": "127.0.0.1",
+        "KODI_LAB_REPOSITORY_PORT": "18120",
+        "KODI_LAB_REPOSITORY_BASE_URL": "http://127.0.0.1:18120",
+        "KODI_LAB_REPOSITORY_BUNDLE_SHA256": "c" * 64,
+    }.items():
+        monkeypatch.setenv(name, value)
+    config = _compose("-f", "compose.release.yaml", "--profile", "lab")
+    broker = config["services"]["broker"]
+    assert broker["healthcheck"] == {
+        "test": ["CMD", "kodi-lab-broker-healthcheck"],
+        "interval": "10s",
+        "timeout": "3s",
+        "retries": 3,
+        "start_period": "15s",
+    }

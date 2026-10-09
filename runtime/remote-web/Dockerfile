@@ -51,4 +51,5 @@ ENTRYPOINT ["/usr/local/bin/kodi-lab-remote-web"]
 FROM installed-runtime AS broker
 
 USER 0:0
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 CMD ["kodi-lab-broker-healthcheck"]
 ENTRYPOINT ["kodi-lab-broker"]

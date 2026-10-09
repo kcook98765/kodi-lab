@@ -136,7 +136,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: [CMD, kodi-lab-broker, --healthcheck]
+      test: [CMD, kodi-lab-broker-healthcheck]
       interval: 10s
       timeout: 3s
       retries: 3
