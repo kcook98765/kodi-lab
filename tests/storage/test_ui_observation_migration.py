@@ -7,6 +7,16 @@ import pytest
 from alembic import command
 from alembic.config import Config
 
+REVISION = "0068_ui_observation_capability"
+PREDECESSOR = "0067_managed_runtime_reconstruction"
+
+
+def _revision(database: Path) -> str:
+    with sqlite3.connect(database) as connection:
+        return str(
+            connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        )
+
 
 def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Config, Path]:
     root = tmp_path / "state"
@@ -58,12 +68,14 @@ def test_upgrade_preserves_triggers_and_reviewed_rows_and_rejects_unknown_caps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, "0067_managed_runtime_reconstruction")
+    command.upgrade(config, PREDECESSOR)
+    assert _revision(database) == PREDECESSOR
     with sqlite3.connect(database) as connection:
         _review(connection, '["screenshot","workspace_deployment"]', 1)
     original = _triggers(database)
     assert original
-    command.upgrade(config, "head")
+    command.upgrade(config, REVISION)
+    assert _revision(database) == REVISION
     assert _triggers(database) == original
     with sqlite3.connect(database) as connection:
         assert connection.execute(
@@ -77,7 +89,8 @@ def test_upgrade_preserves_triggers_and_reviewed_rows_and_rejects_unknown_caps(
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             _review(connection, '["screenshot","arbitrary_execution"]', 3)
     with pytest.raises(RuntimeError, match="cannot be downgraded"):
-        command.downgrade(config, "0067_managed_runtime_reconstruction")
+        command.downgrade(config, PREDECESSOR)
+    assert _revision(database) == REVISION
     assert _triggers(database) == original
 
 
@@ -86,10 +99,14 @@ def test_empty_state_round_trip_retains_all_triggers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config, database = _config(tmp_path, monkeypatch)
-    command.upgrade(config, "0067_managed_runtime_reconstruction")
+    command.upgrade(config, PREDECESSOR)
+    assert _revision(database) == PREDECESSOR
     original = _triggers(database)
-    command.upgrade(config, "head")
-    command.downgrade(config, "0067_managed_runtime_reconstruction")
+    command.upgrade(config, REVISION)
+    assert _revision(database) == REVISION
+    command.downgrade(config, PREDECESSOR)
+    assert _revision(database) == PREDECESSOR
     assert _triggers(database) == original
-    command.upgrade(config, "head")
+    command.upgrade(config, REVISION)
+    assert _revision(database) == REVISION
     assert _triggers(database) == original

@@ -58,9 +58,14 @@ from tests.application.test_repository_workspace_deployment import (
 from tests.application.test_repository_workspace_deployment import (
     _version as workspace_source_version,
 )
-from tests.repository.test_development import BASE, fixture_zip, phase2_candidate
+from tests.repository.test_development import (
+    BASE,
+    current_migration_head,
+    fixture_zip,
+    phase2_candidate,
+)
 
-CURRENT_HEAD = "0059_workspace_validation_digest"
+CURRENT_HEAD = current_migration_head()
 HISTORICAL_SHA256 = "665b15cb6597f6a8e40b3cbdfc29606f453f567d49b6877a1ca2ee704c90f5f3"
 
 
@@ -157,6 +162,7 @@ def _cross_version_setup(
     state = tmp_path / "state"
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     initialize(state, url)
+    assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == CURRENT_HEAD
     engine = create_database_engine(url)
     DevelopmentRepositoryService(create_session_factory(engine), data, BASE).reconcile()
     engine.dispose()
@@ -365,10 +371,15 @@ def _setup(
     state = tmp_path / "state"
     url = f"sqlite:///{state / 'database/kodi-lab.db'}"
     initialize(state, url)
+    assert remote_lifecycle._revision(state / remote_lifecycle.DATABASE) == CURRENT_HEAD
     initial_revision = live_revision or old_revision
     if initial_revision != CURRENT_HEAD:
         with packaged_migrations.packaged_config(url) as config:
             command.downgrade(config, initial_revision)
+    assert (
+        remote_lifecycle._revision(state / remote_lifecycle.DATABASE)
+        == initial_revision
+    )
     engine = create_database_engine(url)
     service = DevelopmentRepositoryService(create_session_factory(engine), data, BASE)
     service.reconcile()
@@ -736,6 +747,7 @@ def test_missing_transition_receipt_blocks_upgrade_and_completion(
     "wrong",
     [
         "0055_development_repository_publications",
+        "0059_workspace_validation_digest",
         CURRENT_HEAD,
     ],
 )

@@ -13,6 +13,8 @@ from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from kodi_lab.repository import development
 from kodi_lab.repository.development import (
@@ -63,12 +65,23 @@ def fixture_zip(
     return output.getvalue()
 
 
+def current_migration_head() -> str:
+    """Bind current-schema candidates to the real, unbranched source graph."""
+    config = Config()
+    config.set_main_option(
+        "script_location", str(Path(__file__).parents[2] / "migrations")
+    )
+    head = ScriptDirectory.from_config(config).get_current_head()
+    assert head is not None
+    return head
+
+
 def phase2_candidate(tmp_path: Path) -> Path:
     bundle = candidate(tmp_path)
     reviewed = Path(__file__).parents[2] / "repository/DEVELOPMENT.json"
     (bundle / "repository/DEVELOPMENT.json").write_bytes(reviewed.read_bytes())
     manifest = json.loads((bundle / "BUNDLE.json").read_bytes())
-    manifest["repository"] = {"migration_head": "0059_workspace_validation_digest"}
+    manifest["repository"] = {"migration_head": current_migration_head()}
     manifest["files"]["repository/DEVELOPMENT.json"] = {
         "sha256": "sha256:" + sha256(reviewed.read_bytes()),
         "size": reviewed.stat().st_size,
