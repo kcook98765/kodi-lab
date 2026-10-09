@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% set nav_section = 'settings' %}
 {% block title %}Kodi Repository · Kodi Lab{% endblock %}
+{% block main_class %}responsive-forms{% endblock %}
 {% block content %}
       <h1>Kodi Repository</h1>
       <h2>Stable · reviewed Kodi Lab infrastructure</h2>
@@ -30,8 +31,8 @@
       <p>For this manual update workflow, set Kodi Settings → System → Add-ons → Updates to “Notify, but don't install updates” before confirming the target.</p>
       <form id="development-target-confirm" data-csrf-token="{{ csrf_token }}" data-base-url="{{ base_url }}">
         <label>Target <select name="target_id" required>{% for target in repository_targets %}<option value="{{ target.id }}">{{ target.name }} · {{ target.id }}{% if target.ready %} · confirmed {{ target.confirmed_at }}{% endif %}</option>{% endfor %}</select></label>
-        <label><input type="checkbox" name="reachable" required> I confirmed this Kodi can refresh the configured development repository.</label>
-        <label><input type="checkbox" name="manual_updates" required> I confirmed Kodi will notify about updates without installing them automatically.</label>
+        <label class="check-label"><input type="checkbox" name="reachable" required> I confirmed this Kodi can refresh the configured development repository.</label>
+        <label class="check-label"><input type="checkbox" name="manual_updates" required> I confirmed Kodi will notify about updates without installing them automatically.</label>
         <button type="submit">Confirm target repository</button>
       </form>
       <p id="development-target-confirm-status" role="status"></p>
@@ -42,7 +43,7 @@
         <label>Target <select name="target_id" required>{% for target in repository_targets if target.ready %}<option value="{{ target.id }}">{{ target.name }} · {{ target.id }}</option>{% endfor %}</select></label>
         <label>Approved publication <select name="publication_id" required>{% for item in existing_candidates %}<option value="{{ item.publication_id }}" data-addon-id="{{ item.addon_id }}" data-addon-version="{{ item.version }}" data-zip-sha256="{{ item.zip_sha256 }}" data-manifest-digest="{{ item.expected_manifest_digest }}">{{ item.addon_id }} {{ item.version }} · {{ item.publication_id }}</option>{% endfor %}</select></label>
         <p id="development-verify-existing-identity"></p>
-        <label><input type="checkbox" name="confirmed_existing" required> I confirm this add-on is already installed on the selected target and want Kodi Lab to verify and record that existing installation.</label>
+        <label class="check-label"><input type="checkbox" name="confirmed_existing" required> I confirm this add-on is already installed on the selected target and want Kodi Lab to verify and record that existing installation.</label>
         <button type="submit">Verify existing approved installation</button>
       </form>
       <p id="development-verify-existing-status" role="status"></p>
@@ -63,9 +64,9 @@
       <form id="development-import" data-csrf-token="{{ csrf_token }}">
         <label>Development video-plugin ZIP <input type="file" name="zip" accept=".zip,application/zip" required></label>
         <fieldset><legend>Claimed Kodi compatibility</legend>
-          <label><input type="checkbox" name="generation" value="matrix" checked> Matrix 19.4</label>
-          <label><input type="checkbox" name="generation" value="nexus" checked> Nexus 20.5</label>
-          <label><input type="checkbox" name="generation" value="omega" checked> Omega 21.3</label>
+          <label class="check-label"><input type="checkbox" name="generation" value="matrix" checked> Matrix 19.4</label>
+          <label class="check-label"><input type="checkbox" name="generation" value="nexus" checked> Nexus 20.5</label>
+          <label class="check-label"><input type="checkbox" name="generation" value="omega" checked> Omega 21.3</label>
         </fieldset>
         <button type="submit">Prepare and validate</button>
       </form>
@@ -76,7 +77,8 @@
         <button id="development-approve" type="button">Approve this exact ID, version and ZIP hash</button>
         <p id="development-approval-status" role="status"></p>
       </div>
-      <h3>Publication history</h3>
+      <h3 id="publication-history">Publication history</h3>
+      <div class="repository-table-scroll" role="region" aria-labelledby="publication-history" tabindex="0">
       <table><thead><tr><th>Add-on</th><th>Version</th><th>Status</th><th>ZIP SHA-256</th><th>Tree SHA-256</th><th>Source</th><th>Compatibility</th><th>Approval</th></tr></thead>
       <tbody>{% for item in publications %}<tr>
         <td><code>{{ item.addon_id }}</code></td><td>{{ item.version }}</td><td>{{ item.status }}</td>
@@ -84,6 +86,7 @@
         <td>{{ item.source_kind }} · {{ item.source_id }}</td><td>{{ item.compatible_generations }}</td>
         <td>{{ item.approval_identity or 'pending' }} {{ item.approved_at or '' }}</td>
       </tr>{% else %}<tr><td colspan="8">No development publications.</td></tr>{% endfor %}</tbody></table>
+      </div>
       {% else %}<p>Development repository is unavailable{% if development_error %}: {{ development_error }}{% endif %}.</p>{% endif %}
       <p>Private-LAN HTTP does not authenticate the server or protect artifacts against a malicious LAN actor. Use only on a trusted private network.</p>
       <p><a href="/">Back to dashboard</a></p>

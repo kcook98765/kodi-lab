@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% set nav_section = 'kodi' %}
 {% block title %}Production Kodi targets · Kodi Lab{% endblock %}
+{% block main_class %}responsive-forms{% endblock %}
 {% block main_attributes %}data-production-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
       <h1>Production Kodi targets</h1>
@@ -53,7 +54,7 @@
           <label>Authentication <select name="authentication_mode"><option value="none">No authentication</option><option value="username_password">Username and password</option></select></label>
           <label>Username <input name="username" maxlength="256" autocomplete="off"></label>
           <label>Password <input name="password" type="password" maxlength="1024" autocomplete="new-password"></label>
-          <fieldset><legend>Configured semantic maximum</legend><label><input type="checkbox" name="capability" value="target_inspect" checked> target_inspect</label><label><input type="checkbox" name="capability" value="addon_inventory"> addon_inventory</label><label><input type="checkbox" name="capability" value="screenshot"> screenshot</label><label><input type="checkbox" name="capability" value="semantic_remote"> semantic_remote (seven-action navigation only after independent authority)</label></fieldset>
+          <fieldset><legend>Configured semantic maximum</legend><label class="check-label"><input type="checkbox" name="capability" value="target_inspect" checked> target_inspect</label><label class="check-label"><input type="checkbox" name="capability" value="addon_inventory"> addon_inventory</label><label class="check-label"><input type="checkbox" name="capability" value="screenshot"> screenshot</label><label class="check-label"><input type="checkbox" name="capability" value="semantic_remote"> semantic_remote (seven-action navigation only after independent authority)</label></fieldset>
           <button type="submit">Create disabled, unverified production target</button>
         </form>
       </section>
@@ -104,8 +105,8 @@
           <button type="button" data-action="bridge-reverify">Reverify bridge</button>
           <button type="button" data-action="bridge-revoke" class="destructive">Revoke bridge</button>
           {% endif %}
-          <details><summary>Edit disabled endpoint</summary><form data-endpoint><select name="protocol_kind"><option value="jsonrpc_http"{% if target.protocol_kind.value == 'jsonrpc_http' %} selected{% endif %}>HTTP</option><option value="jsonrpc_https"{% if target.protocol_kind.value == 'jsonrpc_https' %} selected{% endif %}>HTTPS</option></select><input name="host" value="{{ target.host }}" maxlength="64" required><select name="port">{% for port in allowed_ports %}<option value="{{ port }}"{% if port == target.port %} selected{% endif %}>{{ port }}</option>{% endfor %}</select><button type="submit">Change endpoint and invalidate trust</button></form></details>
-          <details><summary>Rotate credentials</summary><form data-credentials><select name="authentication_mode"><option value="none">No authentication</option><option value="username_password">Username and password</option></select><input name="username" maxlength="256" autocomplete="off" placeholder="Username"><input name="password" type="password" maxlength="1024" autocomplete="new-password" placeholder="New password"><button type="submit">Rotate and invalidate trust</button></form></details>
+          <details><summary>Edit disabled endpoint</summary><form data-endpoint><label>Protocol <select name="protocol_kind"><option value="jsonrpc_http"{% if target.protocol_kind.value == 'jsonrpc_http' %} selected{% endif %}>HTTP</option><option value="jsonrpc_https"{% if target.protocol_kind.value == 'jsonrpc_https' %} selected{% endif %}>HTTPS</option></select></label><label>IP literal <input name="host" value="{{ target.host }}" maxlength="64" required></label><label>Port <select name="port">{% for port in allowed_ports %}<option value="{{ port }}"{% if port == target.port %} selected{% endif %}>{{ port }}</option>{% endfor %}</select></label><button type="submit">Change endpoint and invalidate trust</button></form></details>
+          <details><summary>Rotate credentials</summary><form data-credentials><label>Authentication <select name="authentication_mode"><option value="none">No authentication</option><option value="username_password">Username and password</option></select></label><label>Username <input name="username" maxlength="256" autocomplete="off" placeholder="Username"></label><label>New password <input name="password" type="password" maxlength="1024" autocomplete="new-password" placeholder="New password"></label><button type="submit">Rotate and invalidate trust</button></form></details>
           {% endif %}
         </article>
         {% else %}<p>No production targets.</p>{% endfor %}

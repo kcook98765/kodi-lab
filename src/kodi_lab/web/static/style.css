@@ -254,3 +254,27 @@ dd { margin: 0; }
 .agents-page #agent-config { max-width: 100%; box-sizing: border-box; padding: 1rem; border: 1px solid #bbb; white-space: pre-wrap; overflow-wrap: anywhere; }
 .agents-page [data-client-id] { overflow-wrap: anywhere; }
 .agents-page .agent-client-details > summary span { display: block; margin-top: .3rem; font-size: .95rem; }
+
+/* Contain the audited advanced forms without changing other admin pages. */
+:is(.agents-page, .responsive-forms) form { grid-template-columns: minmax(0, 1fr); }
+:is(.agents-page, .responsive-forms) label { min-width: 0; }
+.responsive-forms form { max-width: 42rem; }
+.responsive-forms label { display: grid; gap: .35rem; }
+:is(.agents-page, .responsive-forms) input,
+:is(.agents-page, .responsive-forms) select,
+:is(.agents-page, .responsive-forms) button { min-height: 2.75rem; }
+.responsive-forms input:not([type="checkbox"]),
+.responsive-forms select { width: 100%; }
+.agents-page [data-permission-choice],
+.responsive-forms .check-label { display: flex; align-items: flex-start; gap: .6rem; min-height: 2.75rem; padding: .5rem 0; cursor: pointer; }
+.agents-page [data-permission-choice][hidden] { display: none; }
+.agents-page [data-permission-choice] input,
+.responsive-forms .check-label input { flex: 0 0 1.25rem; width: 1.25rem; height: 1.25rem; min-height: 1.25rem; margin: .15rem 0 0; }
+.responsive-forms summary { min-height: 2.75rem; padding: .65rem 0; cursor: pointer; }
+.repository-table-scroll { max-width: 100%; overflow-x: auto; }
+.admin-content .repository-table-scroll table { display: table; width: 100%; }
+@media (max-width: 600px) {
+  .agents-page label:not([data-permission-choice]) { display: grid; gap: .35rem; }
+  .agents-page select { width: 100%; }
+  .agents-page [data-target-policy] select { display: block; margin: .5rem 0; }
+}
