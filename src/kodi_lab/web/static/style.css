@@ -131,6 +131,12 @@ dd { margin: 0; }
 .admin-sidebar { position: sticky; top: 0; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; height: 100dvh; overflow-y: auto; padding: 1.25rem 1rem; background: var(--admin-sidebar); border-right: 1px solid var(--admin-border); }
 .admin-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .admin-brand { font-size: 1.25rem; font-weight: 700; text-decoration: none; padding: .5rem; }
+.admin-view-selector { margin: 0 0 1rem; }
+.admin-view-selector fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
+.admin-view-selector legend { padding: 0 0 .35rem; font-size: .85rem; }
+.admin-view-buttons { display: flex; flex-wrap: wrap; gap: .35rem; }
+.admin-view-buttons button { flex: 1; min-height: 2.75rem; padding: .5rem .4rem; font: inherit; font-size: .85rem; border: 1px solid var(--admin-border); border-radius: .25rem; background: var(--admin-background); color: var(--admin-text); cursor: pointer; }
+.admin-view-buttons button[aria-pressed="true"] { background: var(--admin-active); border-color: var(--admin-link); font-weight: 700; box-shadow: inset 0 -3px var(--admin-link); }
 .admin-navigation { display: flex; flex: 1; flex-direction: column; }
 .admin-navigation[hidden], .admin-menu-toggle[hidden] { display: none; }
 .admin-navigation ul { list-style: none; padding: 0; margin: 0; }

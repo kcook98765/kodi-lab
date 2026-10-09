@@ -1761,3 +1761,11 @@ def test_attached_snapshot_cannot_use_preserved_delete_route(
         headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf},
     )
     assert response.status_code == 409
+
+
+@pytest.fixture(autouse=True)
+def development_admin_view(request: pytest.FixtureRequest) -> None:
+    """Existing full-administration contracts run in Development view."""
+    if "client" in request.fixturenames:
+        client: TestClient = request.getfixturevalue("client")
+        client.cookies.set("kodi_lab_admin_view", "development")

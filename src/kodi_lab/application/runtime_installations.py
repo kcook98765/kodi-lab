@@ -15,6 +15,7 @@ from kodi_lab.application.runtime_eligibility import (
     RuntimeRevisionEligibilityPolicy,
     RuntimeSelectionPolicy,
 )
+from kodi_lab.broker.errors import BrokerAuthorizationError, RemoteBrokerError
 from kodi_lab.config import Settings
 from kodi_lab.runtime.recipes import (
     load_recorded_reviewed_recipe,
@@ -116,6 +117,7 @@ class RuntimeInstallationView:
     note: str | None = None
     newly_accepted: bool = False
     technical_details: dict[str, str] | None = None
+    unavailable_code: str | None = None
 
 
 class RuntimeInstallationService:
@@ -166,10 +168,64 @@ class RuntimeInstallationService:
             return False
 
     def _capable(self) -> bool:
+        return self._capability_failure() is None
+
+    def _capability_failure(self) -> str | None:
         try:
-            return REQUIRED_OPERATIONS.issubset(self._broker.capabilities().operations)
+            if REQUIRED_OPERATIONS.issubset(self._broker.capabilities().operations):
+                return None
+            return "backend_capability_missing"
+        except AttributeError:
+            return "backend_capability_missing"
+        except BrokerAuthorizationError:
+            return "broker_authorization_denied"
+        except RemoteBrokerError as error:
+            return (
+                "backend_capability_missing"
+                if error.code == "unknown_operation"
+                else "broker_unreachable"
+            )
         except Exception:
-            return False
+            return "broker_unreachable"
+
+    def _unavailable(
+        self, view: RuntimeInstallationView, code: str
+    ) -> RuntimeInstallationView:
+        messages = {
+            "broker_authorization_denied": (
+                "The broker denied this Web service's installation access. "
+                "An administrator must check the configured service identity."
+            ),
+            "backend_capability_missing": (
+                "This broker does not provide the reviewed runtime installation API. "
+                "An administrator must use a compatible installed broker."
+            ),
+            "broker_unreachable": (
+                "Could not contact the installation broker. Check its service and "
+                "connection before retrying."
+            ),
+            "worker_unavailable": (
+                "Could not safely verify the installation worker or acquisition lock. "
+                "Check broker health and installation diagnostics before retrying."
+            ),
+            "image_check_unavailable": (
+                "Could not verify the exact local runtime image. Check the broker "
+                "and image storage before retrying."
+            ),
+            "runtime_ineligible": (
+                "The recorded runtime does not meet current approval, provenance or "
+                "validation requirements. An administrator must review the runtime "
+                "record before installation can continue."
+            ),
+        }
+        return replace(
+            view,
+            status="unavailable",
+            phase="Installation unavailable",
+            action="none",
+            unavailable_code=code,
+            failure_message=messages[code],
+        )
 
     def _active_worker(self) -> Any:
         try:
@@ -224,6 +280,7 @@ class RuntimeInstallationService:
         *,
         capable: bool,
         worker_operation_id: str | None = None,
+        unavailable_code: str = "broker_unreachable",
     ) -> RuntimeInstallationView:
         recipe = load_reviewed_recipe(generation).recipe
         major, stable_version = STABLE_RELEASES[generation]
@@ -236,12 +293,25 @@ class RuntimeInstallationService:
             action="install",
         )
         if not capable:
-            return replace(
-                base,
-                status="unavailable",
-                phase="Installation unavailable",
-                action="none",
-            )
+            if row is not None:
+                target_id = recipe_target_id(load_reviewed_recipe(generation))
+                with self._factory() as session:
+                    instance = ManagedInstanceRepository(session).get(target_id)
+                base = replace(
+                    base,
+                    operation_id=row.id,
+                    technical_details={
+                        "recorded_state": row.state.value,
+                        "revision_id": row.runtime_revision_id or "",
+                        "image_id": row.image_id or "",
+                        "failure_code": row.failure_code or "",
+                    },
+                    note="Stored records do not prove runtime files are available.",
+                    managed_instance_url=f"/instances/{target_id}"
+                    if instance
+                    else None,
+                )
+            return self._unavailable(base, unavailable_code)
         if worker_operation_id is not None and (
             row is None or row.id != worker_operation_id
         ):
@@ -265,7 +335,7 @@ class RuntimeInstallationService:
             "acquired_at": row.completed_at or "",
             "revision_id": row.runtime_revision_id or "",
             "image_id": row.image_id or "",
-            "validation": "Passed" if state == "ready" else "",
+            "validation": "Recorded as passed" if state == "ready" else "",
         }
         current = replace(
             base,
@@ -296,16 +366,11 @@ class RuntimeInstallationService:
         if state != "ready":
             return current
         if not self._eligible_ready(row):
-            return replace(
-                current,
-                status="unavailable",
-                phase="Installation unavailable",
-                action="none",
-            )
+            return self._unavailable(current, "runtime_ineligible")
         try:
             present = self._broker.reviewed_runtime_image_present(operation_id).present
-        except Exception as error:
-            raise RuntimeInstallationUnavailable from error
+        except Exception:
+            return self._unavailable(current, "image_check_unavailable")
         if not present:
             return replace(
                 current,
@@ -340,13 +405,26 @@ class RuntimeInstallationService:
         )
 
     def list(self) -> list[RuntimeInstallationView]:
-        capable = self._capable()
-        if not capable:
-            return [self._view(gen, None, capable=False) for gen in GENERATIONS]
+        failure = self._capability_failure()
+        if failure is not None:
+            return [
+                self._view(
+                    gen, self._latest(gen), capable=False, unavailable_code=failure
+                )
+                for gen in GENERATIONS
+            ]
         try:
             active = self._active_worker()
         except RuntimeInstallationUnavailable:
-            return [self._view(gen, None, capable=False) for gen in GENERATIONS]
+            return [
+                self._view(
+                    gen,
+                    self._latest(gen),
+                    capable=False,
+                    unavailable_code="worker_unavailable",
+                )
+                for gen in GENERATIONS
+            ]
         views = []
         for generation in GENERATIONS:
             row = self._latest(generation)
@@ -358,7 +436,14 @@ class RuntimeInstallationService:
                     )
                 )
             except RuntimeInstallationUnavailable:
-                views.append(self._view(generation, None, capable=False))
+                views.append(
+                    self._view(
+                        generation,
+                        row,
+                        capable=False,
+                        unavailable_code="worker_unavailable",
+                    )
+                )
         return views
 
     def get(self, operation_id: UUID) -> RuntimeInstallationView | None:

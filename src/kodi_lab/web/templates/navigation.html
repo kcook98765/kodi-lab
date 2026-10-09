@@ -4,10 +4,23 @@
     <a class="admin-brand" href="/">Kodi Lab</a>
     <button class="admin-menu-toggle" type="button" aria-expanded="false" aria-controls="admin-navigation" data-menu-toggle hidden><span aria-hidden="true">☰</span> Menu</button>
   </div>
+  {% if admin_view_enabled %}
+  <form class="admin-view-selector" method="post" action="/admin-view" data-admin-view-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="return_to" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+    <fieldset>
+      <legend>Administrator view</legend>
+      <div class="admin-view-buttons">
+        <button type="submit" name="mode" value="standard" aria-pressed="{{ 'false' if development_view else 'true' }}">Standard</button>
+        <button type="submit" name="mode" value="development" aria-pressed="{{ 'true' if development_view else 'false' }}">Development</button>
+      </div>
+    </fieldset>
+  </form>
+  {% endif %}
   <nav id="admin-navigation" class="admin-navigation" aria-label="Main navigation" data-admin-navigation>
     <ul>
       {% for section, label, destination in [('home', 'Home', '/'), ('kodi', 'Kodi', '/kodi'), ('agents', 'Agents', '/mcp-clients'), ('development', 'Development', '/development'), ('settings', 'Settings', '/settings')] %}
-      <li><a href="{{ destination }}"{% if nav_section == section %} aria-current="page"{% endif %}>{{ label }}</a></li>
+      {% if section != 'development' or development_view %}<li><a href="{{ destination }}"{% if nav_section == section %} aria-current="page"{% endif %}>{{ label }}</a></li>{% endif %}
       {% endfor %}
     </ul>
     <form class="admin-account" method="post" action="/logout">

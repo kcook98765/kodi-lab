@@ -233,3 +233,11 @@ def test_agents_get_preserves_authority_and_never_recovers_token(
         assert f'data-action="{action}"' in page
     assert "Exact permissions to grant" in page
     assert "Development access and workspace bindings" in page
+
+
+@pytest.fixture(autouse=True)
+def development_admin_view(request: pytest.FixtureRequest) -> None:
+    """Original full-administration presentation remains available."""
+    if "client" in request.fixturenames:
+        client: TestClient = request.getfixturevalue("client")
+        client.cookies.set("kodi_lab_admin_view", "development")

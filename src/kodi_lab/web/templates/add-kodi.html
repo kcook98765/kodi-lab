@@ -10,7 +10,7 @@
 {% endblock %}
 {% block body_class %}household-page{% endblock %}
 {% block main_class %}household-panel{% endblock %}
-{% block main_attributes %}data-unified-add-kodi data-initial-mode="{{ initial_mode }}"{% endblock %}
+{% block main_attributes %}data-unified-add-kodi data-initial-mode="{{ initial_mode }}"{% if not development_view %} data-standard-view{% endif %}{% endblock %}
 {% block content %}
       <h1>Add Kodi</h1>
       <details class="household-details kodi-installation" data-installation>
@@ -48,7 +48,7 @@
         <p>Keep <strong>Require authentication</strong> enabled where available and set a Kodi username and password. Enter those same credentials in this page's Kodi sign-in fields. For a Kodi already configured without authentication, leave the fields empty.</p>
         <p>Keep Kodi and Kodi Lab on a trusted private network. The Kodi Lab server must be able to reach Kodi's web port and Bridge port (normally <strong>8765</strong>); Kodi must be able to reach the repository URL. If settings are hidden, change Kodi's settings level to <strong>Standard</strong> or higher.</p>
       </details>
-      <fieldset class="kodi-use-choice" data-mode-controls disabled aria-describedby="mode-help">
+      <fieldset class="kodi-use-choice" data-mode-controls disabled aria-describedby="mode-help"{% if not development_view and initial_mode == 'home' %} hidden{% endif %}>
         <legend>How will you use this Kodi?</legend>
         <label class="check-label" for="kodi-use-home"><input id="kodi-use-home" type="radio" name="kodi_use" value="home"{% if initial_mode == 'home' %} checked{% endif %}> Home / everyday Kodi</label>
         <p class="field-help">For your everyday movies, TV and library. Starts with read-only inspection.</p>

@@ -3,6 +3,7 @@
 {% block title %}Settings · Kodi Lab{% endblock %}
 {% block content %}
 <h1>Settings</h1>
+{% if development_view %}
 <p>Open existing access, security and administrative settings.</p>
 <section class="navigation-group">
   <h2>Access and security</h2>
@@ -28,4 +29,13 @@
     <li><a href="/snapshots/preserved">Preserved snapshots</a><p>Retained snapshot records and administration.</p></li>
   </ul>
 </section>
+{% else %}
+<p>Manage your household Kodi and agent connections.</p>
+<ul class="destination-list">
+  <li><a href="/kodi">Kodi connection and screenshot settings</a></li>
+  <li><a href="/mcp-clients">Agent connections and access</a></li>
+  <li><a href="/add-kodi">Kodi Lab Bridge setup</a></li>
+</ul>
+<p>Choose Development for full administrative settings.</p>
+{% endif %}
 {% endblock %}

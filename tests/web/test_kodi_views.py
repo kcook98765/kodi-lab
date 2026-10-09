@@ -415,6 +415,7 @@ def test_multiple_household_and_development_separation(
         authentication_mode=ExternalAuthenticationMode.NONE,
         configured_capabilities={"target_inspect"},
     )
+    client.cookies.set("kodi_lab_admin_view", "development")
     page = client.get("/kodi").text
     assert page.count('class="kodi-card"') == 2
     assert page.index("Bedroom") < page.index("Living room")

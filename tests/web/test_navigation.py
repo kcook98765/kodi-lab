@@ -121,3 +121,11 @@ def test_grouped_links_resolve_including_fragments(client: TestClient) -> None:
             links = Links()
             links.feed(response.text)
             assert url.fragment in links.ids, destination
+
+
+@pytest.fixture(autouse=True)
+def development_admin_view(request: pytest.FixtureRequest) -> None:
+    """Existing full-administration contracts run in Development view."""
+    if "client" in request.fixturenames:
+        client: TestClient = request.getfixturevalue("client")
+        client.cookies.set("kodi_lab_admin_view", "development")

@@ -1,3 +1,4 @@
+{% set development_view = not admin_view_enabled|default(false) or admin_view_mode == 'development' %}
 <!doctype html>
 <html lang="en">
   <head>
@@ -14,6 +15,9 @@
     {% include 'navigation.html' %}
     <div class="admin-workarea">
       <main id="main-content" tabindex="-1" class="admin-content {% block main_class %}{% endblock %}" {% block main_attributes %}{% endblock %}>
+        {% if not development_view and nav_section == 'development' %}
+        <p class="notice">This is a Development administration page. Its existing controls remain available. Choose Development above to see all development navigation.</p>
+        {% endif %}
         {% block content %}{% endblock %}
       </main>
     </div>

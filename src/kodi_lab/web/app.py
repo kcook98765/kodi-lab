@@ -510,6 +510,11 @@ from kodi_lab.storage.secrets import (
     ExternalCredentialStore,
     decode_master_key,
 )
+from kodi_lab.web.admin_views import (
+    ADMIN_VIEW_COOKIE,
+    admin_view_context,
+    admin_view_return_path,
+)
 from kodi_lab.web.kodi_views import KodiViews
 from kodi_lab.workspace import AgentWorkspaceStorageError
 
@@ -2074,7 +2079,9 @@ def create_app(
         allowed_hosts=[settings.web_host, "localhost", *settings.web_allowed_hosts],
     )
     app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
-    templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
+    templates = Jinja2Templates(
+        directory=_WEB_ROOT / "templates", context_processors=[admin_view_context]
+    )
     # Older host processes can share the templates without these new routes.
     templates.env.globals["shared_navigation_enabled"] = True
     templates.env.globals["add_kodi_enabled"] = True
@@ -2887,6 +2894,36 @@ def create_app(
             settings.web_session_cookie_name,
             created.token,
             max_age=settings.web_session_absolute_seconds,
+            httponly=True,
+            secure=settings.web_cookie_secure,
+            samesite="strict",
+            path="/",
+        )
+        return response
+
+    @app.post("/admin-view")
+    async def change_admin_view(request: Request) -> Response:
+        _require_same_origin(request)
+        authenticated = current_session(request)
+        form = await request.form()
+        csrf_value = form.get("csrf_token")
+        csrf_token = csrf_value if isinstance(csrf_value, str) else None
+        if not context.auth.csrf_matches(authenticated, csrf_token):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        mode = form.get("mode")
+        if mode not in ("standard", "development"):
+            raise HTTPException(status_code=400, detail="invalid_admin_view")
+        destination = form.get("return_to")
+        response = RedirectResponse(
+            admin_view_return_path(
+                destination if isinstance(destination, str) else "/"
+            ),
+            status_code=303,
+        )
+        response.set_cookie(
+            ADMIN_VIEW_COOKIE,
+            str(mode),
+            max_age=31536000,
             httponly=True,
             secure=settings.web_cookie_secure,
             samesite="strict",

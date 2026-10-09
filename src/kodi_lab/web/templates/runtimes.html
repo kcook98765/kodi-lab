@@ -6,8 +6,11 @@
 {% endblock %}
 {% block content %}
       <h1>Reviewed runtimes</h1>
-      <p><a href="/">Managed instances</a></p>
+      <p><a href="/#instances">Managed instances</a></p>
       <p class="notice">Installation downloads packages and may use several GB of Docker storage while building.</p>
+      <p>Install acquires and validates the approved runtime, then makes a stopped managed instance available. Open the instance to provision and start it using the existing lifecycle controls.</p>
+      <p>The technical matrix describes recorded runtime eligibility. Installation also requires a compatible, reachable broker and verified local runtime files.</p>
+      <p class="error" role="alert" data-runtime-install-error hidden></p>
       <div class="runtime-install-grid" data-runtime-installations>
         {% for item in installations %}
         <section class="runtime-install-card" data-generation="{{ item.generation }}" data-state="{{ item.status }}">
@@ -19,6 +22,7 @@
           <div class="runtime-install-action">
             {% if item.action == 'open' %}<a href="{{ item.managed_instance_url }}">Open managed instance</a>
             {% elif item.action in ('install', 'retry', 'reacquire') %}<button type="button" data-install-action="{{ item.action }}">{{ item.action|capitalize }}</button>{% endif %}
+            {% if item.managed_instance_url and item.action != 'open' %}<a href="{{ item.managed_instance_url }}">View existing pinned instance</a>{% endif %}
           </div>
           {% if item.technical_details %}
           <details>

@@ -3,6 +3,25 @@
 (() => {
   const sidebar = document.querySelector("[data-admin-sidebar]");
   if (!sidebar) return;
+  const managed = document.querySelector("[data-managed-deep-link]");
+  let managedScriptLoaded = false;
+  function openManagedDeepLink() {
+    if (!managed || !["#instances", "#managed-details"].includes(location.hash)) return;
+    managed.hidden = false;
+    managed.open = true;
+    if (!managedScriptLoaded) {
+      const script = document.createElement("script");
+      script.src = managed.dataset.managedScript;
+      document.head.append(script);
+      managedScriptLoaded = true;
+    }
+    document.querySelector(location.hash).scrollIntoView();
+  }
+  openManagedDeepLink();
+  window.addEventListener("hashchange", openManagedDeepLink);
+  sidebar.querySelector("[data-admin-view-form]")?.addEventListener("submit", event => {
+    event.currentTarget.elements.return_to.value = location.pathname + location.search + location.hash;
+  });
   const toggle = sidebar.querySelector("[data-menu-toggle]");
   const navigation = sidebar.querySelector("[data-admin-navigation]");
   const narrow = window.matchMedia("(max-width: 960px)");

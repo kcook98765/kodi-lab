@@ -4,7 +4,7 @@
 {% block main_class %}home-page{% endblock %}
 {% block head %}
 <meta name="kodi-lab-poll-ms" content="{{ poll_interval_ms }}">
-    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+    {% if development_view %}<script src="{{ url_for('static', path='/app.js') }}" defer></script>{% endif %}
 {% endblock %}
 {% block content %}
       <h1>Home</h1>
@@ -44,8 +44,8 @@
       {% set attention.names = attention.names + [instance.name] %}
       {% endif %}
       {% endfor %}
-      <p id="managed-attention" class="error" {% if not attention.names %}hidden{% endif %}>Development Kodi needs attention: <span>{{ attention.names|join(', ') }}</span>. <a href="#instances">Review status</a></p>
-      <details id="managed-details" class="home-development">
+      <p id="managed-attention" class="error" {% if not attention.names %}hidden{% endif %}>Development Kodi needs attention: <span>{{ attention.names|join(', ') }}</span>. <a href="{{ '#instances' if development_view else '/development' }}">Review status</a></p>
+      <details id="managed-details" class="home-development"{% if not development_view %} hidden data-managed-deep-link data-managed-script="{{ url_for('static', path='/app.js') }}"{% endif %}>
       <summary>Development Kodi — managed instances ({{ instances|length }})</summary>
       <p>Runtime, reset and lifecycle controls for development and testing. <a href="/development">All development tools</a></p>
       <h2>Managed Kodi instances</h2>

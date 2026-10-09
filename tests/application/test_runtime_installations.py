@@ -15,6 +15,7 @@ from kodi_lab.application.runtime_installations import (
     RuntimeInstallationBusy,
     RuntimeInstallationService,
 )
+from kodi_lab.broker.errors import RemoteBrokerError
 from kodi_lab.domain import RuntimeRecipeInstallationState
 from kodi_lab.runtime.recipes import load_reviewed_recipe
 from kodi_lab.storage import metadata
@@ -216,3 +217,83 @@ def test_ready_noop_missing_image_and_no_silent_repin(
     assert service.list()[1].phase == "Preparing"
     assert row.runtime_revision_id == str(revision_id)
     assert broker.launches == [("nexus", reacquired.operation_id)]
+
+
+@pytest.mark.parametrize(
+    "kind,code",
+    [
+        ("missing_operations", "backend_capability_missing"),
+        ("unknown_operation", "backend_capability_missing"),
+        ("connection", "broker_unreachable"),
+        ("worker", "worker_unavailable"),
+    ],
+)
+def test_unavailable_reasons_do_not_launch_or_discard_records(
+    factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    code: str,
+) -> None:
+    broker = FakeBroker()
+    operation_id = uuid4()
+    create_row(factory, "omega", operation_id)
+    with factory.begin() as session:
+        RuntimeRecipeInstallationRepository(session).fail(
+            operation_id, code="validation_failed", now=datetime.now(UTC)
+        )
+
+    def unavailable() -> SimpleNamespace:
+        if kind == "unknown_operation":
+            raise RemoteBrokerError(
+                "unknown_operation", "Not supported", request_id=None
+            )
+        raise ConnectionError("private details must never be shown")
+
+    if kind == "missing_operations":
+        monkeypatch.setattr(
+            broker, "capabilities", lambda: SimpleNamespace(operations=[])
+        )
+    elif kind == "worker":
+        monkeypatch.setattr(broker, "active_reviewed_runtime_installation", unavailable)
+    else:
+        monkeypatch.setattr(broker, "capabilities", unavailable)
+    items = RuntimeInstallationService(factory, broker).list()
+    assert len(items) == 3
+    assert all(
+        item.unavailable_code == code and item.action == "none" for item in items
+    )
+    assert items[2].operation_id == str(operation_id)
+    assert items[2].technical_details is not None
+    assert items[2].technical_details["failure_code"] == "validation_failed"
+    assert "private details" not in str(items)
+    assert broker.launches == []
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation_id)
+        assert row is not None and row.failure_code == "validation_failed"
+
+
+def test_unverified_record_and_image_probe_failure_are_distinct(
+    factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broker = FakeBroker()
+    service = RuntimeInstallationService(factory, broker)
+    operation_id = uuid4()
+    create_row(factory, "omega", operation_id)
+    with factory() as session:
+        row = RuntimeRecipeInstallationRepository(session).get(operation_id)
+        assert row is not None
+        session.expunge(row)
+        row.state = RuntimeRecipeInstallationState.READY
+    invalid = service._view("omega", row, capable=True)
+    assert invalid is not None and invalid.unavailable_code == "runtime_ineligible"
+    assert invalid.action == "none"
+    monkeypatch.setattr(service, "_eligible_ready", lambda _row: True)
+
+    def unavailable(_id: str) -> SimpleNamespace:
+        raise ConnectionError("private artifact details")
+
+    monkeypatch.setattr(broker, "reviewed_runtime_image_present", unavailable)
+    blocked = service._view("omega", row, capable=True)
+    assert blocked is not None and blocked.unavailable_code == "image_check_unavailable"
+    assert blocked.action == "none"
+    assert broker.launches == []

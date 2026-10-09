@@ -32,6 +32,7 @@
   </div>
   {% endif %}
 </section>
+{% if development_view %}
 <section class="navigation-group" aria-labelledby="development-kodi-heading">
   <h2 id="development-kodi-heading">Development Kodi</h2>
   <p>Managed and external development installations have their own administration.</p>
@@ -49,4 +50,5 @@
     <li><a href="/kodi-repository">Kodi Lab repository</a><p>Repository installation instructions and Bridge information.</p></li>
   </ul>
 </details>
+{% endif %}
 {% endblock %}
