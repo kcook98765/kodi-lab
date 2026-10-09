@@ -19,8 +19,9 @@
     errorBox.hidden = true;
     try { await work(); } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
   };
-  const showToken = (payload) => {
+  const showToken = (payload, card) => {
     const box = root.querySelector("[data-token-result]");
+    box.querySelector("[data-token-client]").textContent = `For ${card.querySelector("summary strong").textContent}`;
     box.querySelector("[data-token]").textContent = payload.token;
     box.hidden = false;
   };
@@ -39,6 +40,9 @@
         input.disabled = !allowed.has(input.value);
         if (input.disabled) input.checked = false;
         choice.hidden = input.disabled;
+      }
+      for (const group of presetForm.querySelectorAll("[data-permission-group]")) {
+        group.hidden = !group.querySelector("[data-permission-choice]:not([hidden])");
       }
       presetForm.querySelector("[data-selected-permissions]").textContent = new FormData(presetForm).getAll("permission").sort().join(", ") || "none";
     };
@@ -73,7 +77,7 @@
       if (!button) return;
       const action = button.dataset.action;
       if (action === "toggle") await request(`/api/mcp/clients/${id}/enabled`, "POST", {enabled: button.dataset.enabled !== "true"});
-      if (action === "issue") showToken(await request(`/api/mcp/clients/${id}/credentials`, "POST", {expiration_seconds: lifetime()}));
+      if (action === "issue") showToken(await request(`/api/mcp/clients/${id}/credentials`, "POST", {expiration_seconds: lifetime()}), card);
       if (action === "grant") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}`, "POST");
       if (action === "remove-grant") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}`, "DELETE");
       if (action === "grant-production-scope") await request(`/api/mcp/clients/${id}/targets/${button.dataset.targetId}/production-inspection-scopes`, "POST", {identity_generation: Number(button.dataset.generation)});
@@ -85,7 +89,7 @@
       if (action === "revoke-source") await request(`/api/mcp/clients/${id}/development-sources/${button.dataset.sourceId}`, "DELETE");
       if (action === "bind-workspace") await request(`/api/mcp/clients/${id}/workspaces/${button.dataset.workspaceId}/binding`, "POST");
       const credential = button.closest("[data-credential-id]")?.dataset.credentialId;
-      if (action === "rotate") showToken(await request(`/api/mcp/clients/${id}/credentials/${credential}/rotate`, "POST", {expiration_seconds: lifetime()}));
+      if (action === "rotate") showToken(await request(`/api/mcp/clients/${id}/credentials/${credential}/rotate`, "POST", {expiration_seconds: lifetime()}), card);
       if (action === "revoke") await request(`/api/mcp/clients/${id}/credentials/${credential}/revoke`, "POST");
       if (!["issue", "rotate"].includes(action)) location.reload();
     }));

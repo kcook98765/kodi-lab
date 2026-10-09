@@ -5,10 +5,11 @@
 {% block main_attributes %}data-mcp-administration data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
       <h1>Agents</h1>
-      <p>Connect an MCP-compatible agent to Kodi. An MCP client is the set of permissions and sign-in tokens for one agent; it is separate from your Web administrator account.</p>
+      <p>Connect one MCP-compatible agent to Kodi in five steps. A client holds that agent's permissions and tokens, separate from your Web administrator account.</p>
       <p class="error" data-error role="alert" hidden></p>
+      <noscript><p>Enable JavaScript to create clients, issue tokens and use copy controls. The configuration template is available for manual copying.</p></noscript>
       <section aria-labelledby="agent-create-heading">
-        <h2 id="agent-create-heading">1. Create or select a client</h2>
+        <h2 id="agent-create-heading">1. Create or select a client and choose permissions</h2>
         <p>Use a separate client for each agent. If you already have one, open it in <a href="#agent-clients-heading">Your clients</a> below.</p>
         <form data-create-client>
           <label>Client name <input name="display_name" required maxlength="120" placeholder="My coding assistant"></label>
@@ -26,16 +27,27 @@
         </form>
       </section>
       <section aria-labelledby="agent-config-heading">
-        <h2 id="agent-config-heading">2. Give access and connect your agent</h2>
-        <ol class="agent-setup-steps">
-          <li>Open your client below and grant access to the specific Kodi you want it to inspect. Follow the Kodi access instructions in that client.</li>
-          <li>Choose a token lifetime and select <strong>Issue token</strong>. Copy the token immediately: it is shown once and cannot be recovered after navigation or reload.</li>
-          <li>Use the settings below in your agent's MCP server configuration. Replace the token placeholder in the agent's protected local settings, never in command arguments. Your agent may require a server name or an outer configuration wrapper.</li>
-          <li>Connect the agent, then ask it to list available Kodi instances and inspect your Kodi's health or UI state. If you chose visual inspection, try a screenshot. If access is denied, check the client preset and that Kodi's grants and current scopes below.</li>
-        </ol>
-        <p>The <code>kodi-lab-mcp-stdio</code> command must be installed where your agent runs. Its connection must reach Kodi Lab at a local <code>127.0.0.1</code> or <code>localhost</code> address on that computer. An agent on another computer needs an existing local forwarding arrangement; a LAN Web address is not supported by this command.</p>
-        <h3>Configuration template</h3>
-        <p>This uses the default local port <strong>8100</strong>. Replace it with your Kodi Lab Web port if different (for example, <code>18100</code>). This template contains a placeholder, not an issued token.</p>
+        <h2 id="agent-config-heading">2. Allow access to your Kodi</h2>
+        <p>Open your client in <a href="#agent-clients-heading">Your clients</a>. Under <strong>Kodi access</strong>, select <strong>Grant</strong> for your Home Kodi, then <strong>Grant current inspect scope</strong>. For screenshots, also grant the current visual scope when available. These are explicit actions; creating a client does not grant access.</p>
+      </section>
+      <section aria-labelledby="agent-copy-heading">
+        <h2 id="agent-copy-heading">3. Issue a token and copy configuration</h2>
+        <p>In your client, choose a <strong>Token lifetime</strong> and select <strong>Issue token</strong>. The configuration below will include the new token. Copy and store it securely before leaving or reloading this page: the token is shown only once and cannot be recovered.</p>
+        <p>The <code>kodi-lab-mcp-stdio</code> command must be installed where your agent runs. It connects to a local <code>127.0.0.1</code> address on that computer.</p>
+        <details class="agent-connection-details">
+          <summary>Agent on another computer or command unavailable?</summary>
+          <p>Install the Kodi Lab package in the agent's environment so <code>kodi-lab-mcp-stdio</code> is on its command path, or use the full path to that installed command in the configuration. An agent on another computer needs an existing local forwarding arrangement to Kodi Lab. A LAN Web address is not supported by this command; opening this preview in a browser does not provide that forwarding.</p>
+        </details>
+        <section data-token-result tabindex="-1" aria-labelledby="agent-token-heading" hidden>
+          <h3 id="agent-token-heading">Token shown once</h3>
+          <p data-token-client></p>
+          <code data-token></code>
+          <p>Copy the configuration below now into your agent's protected settings. It contains this token and cannot be recovered later.</p>
+        </section>
+        <label class="agent-port-label">Local MCP port <input type="number" data-agent-local-port value="8100" min="1" max="65535" required aria-describedby="agent-port-help"></label>
+        <p id="agent-port-help">Use the Kodi Lab port reachable on the agent's computer: default local port <strong>8100</strong>, or <strong>18100</strong> for the deployed Web service on this host. With forwarding, use its local port.</p>
+        <h3 data-agent-config-title>Configuration template</h3>
+        <p data-agent-config-help>This template contains a placeholder. Issue a token to fill it in, or replace the placeholder in your agent's protected settings.</p>
         <pre id="agent-config" tabindex="0" aria-label="MCP server configuration template">{
   "command": "kodi-lab-mcp-stdio",
   "args": [],
@@ -46,12 +58,16 @@
 }</pre>
         <button type="button" data-copy-agent-config hidden>Copy configuration template</button>
         <p data-agent-copy-status role="status" aria-live="polite"></p>
-        <p class="secondary">You can also select and copy the template manually. Protect the local settings containing your token as you would a password.</p>
+        <p class="secondary">You can also select and copy the configuration manually. Protect settings containing your token as you would a password. Keep the token in <code>env</code>; never put it in command arguments.</p>
       </section>
-      <section data-token-result tabindex="-1" aria-labelledby="agent-token-heading" hidden>
-        <h2 id="agent-token-heading">Token shown once</h2>
-        <code data-token></code>
-        <p>Copy it now into your agent's protected settings. It cannot be recovered later.</p>
+      <section aria-labelledby="agent-add-heading">
+        <h2 id="agent-add-heading">4. Add configuration to your agent</h2>
+        <p>Open your agent's MCP server settings and add this stdio configuration. The supported fields are <code>command</code>, <code>args</code> and <code>env</code>. Your agent may require a server name or an outer configuration wrapper; follow its own instructions. Save the settings, then reconnect or restart the agent.</p>
+      </section>
+      <section aria-labelledby="agent-verify-heading">
+        <h2 id="agent-verify-heading">5. Verify read-only access</h2>
+        <p>Ask your agent: <q>List the Kodi instances I can access, then inspect the health of my Kodi.</q> It can use <code>target_list</code>, then <code>target_status</code> with that Kodi's <code>target_id</code>. Both Home inspection presets also support <code>addon_list</code> and <code>inspect_ui_state</code>; screenshots require Production Visual Inspection and the visual scope.</p>
+        <p class="secondary">If connection fails, check the installed command, local port and token expiry. If access is denied, check the client preset, Kodi policy and current scopes in your client's Kodi access section. A token alone does not authorize a Kodi.</p>
       </section>
       <section aria-labelledby="agent-clients-heading">
       <h2 id="agent-clients-heading">Your clients</h2>
@@ -92,22 +108,54 @@
         <summary>Advanced administration — custom presets and Kodi policies</summary>
       <section>
         <h2>Create custom preset</h2>
-        <p>Select an explicit permission subset below a built-in ceiling. The saved snapshot is immutable. For validation, repository deployment and verified execution, select <code>workspace.inspect</code>, <code>workspace.deploy</code>, and <code>development.execute</code>. Fresh source scanning and capture are separately opted into with <code>development_source.inspect</code> and <code>workspace.capture</code>; existing clients retain their present permissions.</p>
+        <p>For ordinary Home inspection, choose an existing Production Inspection preset above. Custom presets are for advanced use. The permission ceiling limits the available choices; no checkboxes are selected automatically. A saved preset is immutable.</p>
         <form data-create-preset>
           <label>Name <input name="display_name" required maxlength="120"></label>
           <label>Permission ceiling <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
-          <fieldset><legend>Exact permissions to grant</legend>{% for permission in custom_preset_permissions %}<label data-permission-choice><input type="checkbox" name="permission" value="{{ permission }}"> {{ permission }}</label>{% endfor %}</fieldset>
+          {% set permission_labels = {
+            'target.inspect': 'Inspect Kodi health, add-ons and UI state',
+            'target.visual': 'Capture Kodi screenshots',
+            'target.control': 'Control Kodi',
+            'development_source.inspect': 'Scan development sources',
+            'workspace.capture': 'Capture a source into a workspace',
+            'workspace.edit': 'Edit workspace files',
+            'workspace.inspect': 'Read and validate workspaces',
+            'workspace.deploy': 'Deploy workspace builds',
+            'development.execute': 'Execute development builds',
+            'development.request_promotion': 'Request build promotion'
+          } %}
+          <fieldset class="agent-permissions"><legend>Exact permissions to grant</legend>
+            {% for title, description, members in [
+              ('Read-only Kodi inspection', 'Observe Kodi without control or development access. Target grants and any required current scopes still apply.', ['target.inspect', 'target.visual']),
+              ('Kodi control', 'Allows actions that change Kodi state when the target and its scopes authorize them.', ['target.control']),
+              ('Development sources and workspaces', 'Access to development files and validation. Source grants and workspace bindings still apply.', ['development_source.inspect', 'workspace.capture', 'workspace.edit', 'workspace.inspect']),
+              ('Deployment and execution', 'Can deploy or run development builds, or request promotion. These are not ordinary inspection permissions.', ['workspace.deploy', 'development.execute', 'development.request_promotion']),
+              ('Other permissions', 'Additional exact permissions available under the selected ceiling.', custom_preset_permissions | reject('in', permission_labels) | list)
+            ] %}
+            {% set group_permissions = members | select('in', custom_preset_permissions) | list %}
+            {% if group_permissions %}
+            <fieldset data-permission-group class="agent-permission-group">
+              <legend>{{ title }}</legend><p class="secondary">{{ description }}</p>
+              {% for permission in group_permissions %}
+              <label data-permission-choice><input type="checkbox" name="permission" value="{{ permission }}"><span>{{ permission_labels.get(permission, permission) }}<code>{{ permission }}</code></span></label>
+              {% endfor %}
+            </fieldset>
+            {% endif %}
+            {% endfor %}
+          </fieldset>
+          <p class="secondary">These custom ceilings do not create a Home production preset. Assign client presets and Kodi policies separately. Administration controls below can change other clients' access.</p>
           <p>Selected permissions: <strong data-selected-permissions>none</strong></p>
           <button type="submit">Create preset</button>
         </form>
       </section>
       <section>
-        <h2>Target policy assignments</h2>
+        <h2>Administration: Kodi policies</h2>
+        <p>Changing a Kodi policy changes its permission ceiling. It does not replace client grants or current production scopes.</p>
         {% for target in targets %}<p data-target-policy="{{ target.target_id }}">{{ target.target_name }} · {{ target.target_class }}{% if target.identity_generation %} · generation {{ target.identity_generation }}{% endif %} <select aria-label="Policy for {{ target.target_name }}">{% for preset in presets if preset.assignable and ((target.target_class == 'external_production' and preset.display_name in ['Production Inspection','Production Visual Inspection','Production Remote Kodi']) or (target.target_class != 'external_production' and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'])) %}<option value="{{ preset.id }}"{% if target.preset and preset.id == target.preset.id %} selected{% endif %}>{{ preset.display_name }}</option>{% endfor %}</select> <button type="button">Assign policy</button></p>{% else %}<p>No targets.</p>{% endfor %}
       </section>
       <section>
-        <h2>Presets</h2>
-        <ul>{% for preset in presets %}<li>{{ preset.display_name }} · {{ 'built-in' if preset.builtin else 'custom' }} · permissions {{ preset.permissions | join(', ') if preset.permissions else 'none' }} · UUID {{ preset.id }}</li>{% endfor %}</ul>
+        <h2>Preset reference</h2>
+        {% for preset in presets %}<details class="agent-preset-details"><summary>{{ preset.display_name }} · {{ 'built-in' if preset.builtin else 'custom' }}</summary><p>Exact permissions: {{ preset.permissions | join(', ') if preset.permissions else 'none' }}</p><p class="secondary">Preset ID: {{ preset.id }}</p></details>{% endfor %}
       </section>
       </details>
       <p><a href="/">Back to Home</a></p>

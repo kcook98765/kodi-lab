@@ -254,6 +254,21 @@ dd { margin: 0; }
 .agents-page #agent-config { max-width: 100%; box-sizing: border-box; padding: 1rem; border: 1px solid #bbb; white-space: pre-wrap; overflow-wrap: anywhere; }
 .agents-page [data-client-id] { overflow-wrap: anywhere; }
 .agents-page .agent-client-details > summary span { display: block; margin-top: .3rem; font-size: .95rem; }
+.agents-page > section { margin-bottom: 2rem; }
+.agents-page .agent-port-label { display: grid; gap: .4rem; max-width: 18rem; }
+.agents-page [data-token-result] { border-left: .25rem solid currentColor; padding: .5rem 1rem; margin: 1rem 0; }
+.agents-page [data-token] { display: block; overflow-wrap: anywhere; }
+.agents-page [data-create-preset] { max-width: 46rem; }
+.agents-page .agent-permissions { min-width: 0; padding: .75rem; }
+.agents-page .agent-permission-group { min-width: 0; margin: .75rem 0; padding: .5rem .75rem; border: 1px solid #8887; }
+.agents-page .agent-permission-group[hidden] { display: none; }
+.agents-page .agent-permission-group legend { font-weight: 600; }
+.agents-page .agent-permission-group p { margin: .35rem 0; }
+.agents-page [data-permission-choice] span { min-width: 0; overflow-wrap: anywhere; }
+.agents-page [data-permission-choice] code { display: block; margin-top: .2rem; font-size: .9rem; }
+.agents-page [data-selected-permissions],
+.agents-page .agent-preset-details { overflow-wrap: anywhere; }
+.agents-page [data-target-policy] { padding: .75rem 0; border-bottom: 1px solid #8887; }
 
 /* Contain the audited advanced forms without changing other admin pages. */
 :is(.agents-page, .responsive-forms) form { grid-template-columns: minmax(0, 1fr); }
