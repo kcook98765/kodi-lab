@@ -35,7 +35,16 @@ def test_both_modes_have_shared_accurate_repository_instructions(
     assert "data-copy-repository-url hidden>Copy URL" in text
     assert text.count("add-kodi-installation.js") == 1
     steps = text.split('<ol class="kodi-installation-steps">')[1].split("</ol>")[0]
-    assert steps.count("<li>") == 9
+    assert steps.count("<li>") == 12
+    navigation = [
+        "Open Kodi <strong>Add-ons</strong>",
+        "Select the <strong>package / open-box icon</strong>",
+        "Select <strong>Install from zip file</strong>",
+        "Select the <strong>Kodi Lab</strong> source",
+        "Install <strong>repository.kodi-lab-1.0.0.zip</strong>",
+    ]
+    positions = [steps.index(instruction) for instruction in navigation]
+    assert positions == sorted(positions)
     for instruction in [
         "Settings → File manager → Add source",
         "Unknown sources",

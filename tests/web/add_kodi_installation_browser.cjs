@@ -51,7 +51,15 @@ const report={baseURL,sourceURL:repository.source_url,checks:[],screenshots:[],a
         await copy.waitFor({state:'visible'});
         assert.equal(await input.inputValue(),repository.source_url);
         assert.equal(await input.getAttribute('readonly'),'');
-        assert.equal(await details.locator('ol li').count(),9);
+        assert.equal(await details.locator('ol li').count(),12);
+        const steps=await details.locator('ol li').allInnerTexts();
+        assert.deepEqual(steps.slice(3,8),[
+          'Open Kodi Add-ons.',
+          'Select the package / open-box icon.',
+          'Select Install from zip file. If prompted, enable Unknown sources in Settings → System → Add-ons, then return to Install from zip file.',
+          'Select the Kodi Lab source.',
+          'Install repository.kodi-lab-1.0.0.zip. This installs the repository.'
+        ]);
         assert.match(await details.innerText(), /official Bridge releases.*recognized automatically/);
         assert.match(await details.innerText(), /No separate build approval is needed/);
         assert.doesNotMatch(await details.innerText(), /reviewed by your Kodi Lab administrator/);
