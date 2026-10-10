@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from urllib.parse import parse_qs
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from mcp.server.caching import CacheHint
 from mcp.server.context import ServerRequestContext
@@ -70,6 +70,7 @@ from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE
 from kodi_lab.kodi.ui_state import UiObservation
 from kodi_lab.mcp.authorization import McpAuthorizationError, McpAuthorizationService
+from kodi_lab.mcp.lan import MCP_INSTANCE_HEADER
 from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION, McpToolRegistry
 from kodi_lab.mcp.tools import (
     AddonListResult,
@@ -346,9 +347,13 @@ class ModernMcpAuthMiddleware:
         failed_auth: BoundedTokenBucketLimiter | None = None,
         authenticated: BoundedTokenBucketLimiter | None = None,
         concurrency: BoundedConcurrencyLimiter | None = None,
+        transport_security: TransportSecuritySettings | None = None,
+        instance_id: str | None = None,
     ) -> None:
         self._app = app
         self._authentication = authentication
+        self._transport_security = transport_security
+        self._instance_id = instance_id
         self.failed_auth = failed_auth or BoundedTokenBucketLimiter(
             rate=5.0, burst=20, maximum_buckets=1024, idle_seconds=15 * 60
         )
@@ -361,12 +366,42 @@ class ModernMcpAuthMiddleware:
         if scope["type"] != "http":
             await Response(status_code=404)(scope, receive, send)
             return
+        headers = Headers(scope=scope)
+        if self._transport_security is not None:
+            # Check before authentication/protocol dispatch, including GET/DELETE.
+            # The SDK logs rejected caller-controlled headers; do not pass them on.
+            for name, allowed, status_code in (
+                ("host", self._transport_security.allowed_hosts, 421),
+                ("origin", self._transport_security.allowed_origins, 403),
+            ):
+                values = headers.getlist(name)
+                if (
+                    (name == "host" and not values)
+                    or len(values) > 1
+                    or (values and not self._allowed_header(values[0], allowed))
+                ):
+                    await Response(
+                        f"Invalid {name.title()} header", status_code=status_code
+                    )(scope, receive, send)
+                    return
+        if any(
+            len(headers.getlist(name)) > 1
+            for name in (
+                "authorization",
+                "mcp-protocol-version",
+                "mcp-method",
+                "mcp-name",
+                "content-length",
+                "content-type",
+            )
+        ):
+            await Response(status_code=400)(scope, receive, send)
+            return
         if scope["method"] != "POST":
             await Response(status_code=405, headers={"Allow": "POST"})(
                 scope, receive, send
             )
             return
-        headers = Headers(scope=scope)
         length = headers.get("content-length")
         if length is not None:
             try:
@@ -525,8 +560,31 @@ class ModernMcpAuthMiddleware:
         await JSONResponse(
             {"error": "authentication_failed"},
             status_code=401,
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={
+                "WWW-Authenticate": "Bearer",
+                **(
+                    {MCP_INSTANCE_HEADER: self._instance_id}
+                    if self._instance_id is not None
+                    else {}
+                ),
+            },
         )(scope, receive, send)
+
+    @staticmethod
+    def _allowed_header(value: str, allowed: list[str]) -> bool:
+        if value in allowed:
+            return True
+        for pattern in allowed:
+            if pattern.endswith(":*") and value.startswith(pattern[:-1]):
+                port = value[len(pattern) - 1 :]
+                if (
+                    1 <= len(port) <= 5
+                    and port.isascii()
+                    and port.isdecimal()
+                    and 1 <= int(port) <= 65535
+                ):
+                    return True
+        return False
 
     @staticmethod
     async def _protocol_error(
@@ -686,6 +744,7 @@ class McpHttpTransport:
     server: Server[dict[str, Any]]
     development_read_limiter: BoundedTokenBucketLimiter
     development_edit_limiter: BoundedTokenBucketLimiter
+    instance_id: str
 
 
 def build_mcp_http_transport(
@@ -1435,42 +1494,47 @@ def build_mcp_http_transport(
         on_call_tool=call_tool,
     )
 
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[
+            "127.0.0.1",
+            "127.0.0.1:*",
+            "localhost",
+            "localhost:*",
+            *additional_allowed_hosts,
+        ],
+        allowed_origins=[
+            "http://127.0.0.1",
+            "http://127.0.0.1:*",
+            "http://localhost",
+            "http://localhost:*",
+            *additional_allowed_origins,
+        ],
+    )
     sdk_app = server.streamable_http_app(
         streamable_http_path="/mcp",
         json_response=True,
         stateless_http=True,
         max_request_body_size=MCP_MAX_REQUEST_BODY,
-        transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=True,
-            allowed_hosts=[
-                "127.0.0.1",
-                "127.0.0.1:*",
-                "localhost",
-                "localhost:*",
-                *additional_allowed_hosts,
-            ],
-            allowed_origins=[
-                "http://127.0.0.1",
-                "http://127.0.0.1:*",
-                "http://localhost",
-                "http://localhost:*",
-                *additional_allowed_origins,
-            ],
-        ),
+        transport_security=transport_security,
         host="127.0.0.1",
     )
+    instance_id = str(uuid4())
     protected = ModernMcpAuthMiddleware(
         sdk_app,
         authentication,
         failed_auth=failed_auth_limiter,
         authenticated=authenticated_limiter,
         concurrency=concurrency_limiter,
+        transport_security=transport_security,
+        instance_id=instance_id,
     )
     return McpHttpTransport(
         app=protected,
         server=server,
         development_read_limiter=development_limiter,
         development_edit_limiter=edit_limiter,
+        instance_id=instance_id,
     )
 
 

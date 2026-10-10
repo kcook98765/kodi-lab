@@ -9,6 +9,8 @@ from typing import Literal
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from kodi_lab.mcp.lan import validate_lan_url
+
 
 class Settings(BaseSettings):
     """Bootstrap settings with environment-over-default precedence."""
@@ -26,6 +28,8 @@ class Settings(BaseSettings):
     web_host: Literal["127.0.0.1", "10.251.0.10"] = "127.0.0.1"
     web_bind_host: Literal["127.0.0.1", "10.251.0.10", "0.0.0.0"] | None = None
     web_allowed_hosts: tuple[str, ...] = ()
+    mcp_lan_url: str | None = None
+    mcp_lan_ca_file: Path | None = None
     web_port: int = Field(default=8100, ge=1, le=65_535)
     web_session_cookie_name: Literal["kodi_lab_session"] = "kodi_lab_session"
     web_cookie_secure: Literal[False] = False
@@ -42,6 +46,20 @@ class Settings(BaseSettings):
     # validation bridges. An absent pool retains Docker's ordinary allocator.
     temporary_network_pool: str | None = None
     temporary_network_child_prefix: int = Field(default=24, ge=24, le=28)
+
+    @field_validator("mcp_lan_url")
+    @classmethod
+    def _approved_mcp_lan_url(cls, value: str | None) -> str | None:
+        return validate_lan_url(value)
+
+    @field_validator("mcp_lan_ca_file", mode="before")
+    @classmethod
+    def _approved_mcp_lan_ca_file(cls, value: object) -> object:
+        if value == "":
+            return None
+        if value is not None and not Path(str(value)).is_absolute():
+            raise ValueError("MCP LAN CA file must be an absolute path")
+        return value
 
     @field_validator("temporary_network_pool")
     @classmethod

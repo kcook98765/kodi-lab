@@ -15,6 +15,8 @@ services:
       - no-new-privileges:true
     environment:
       KODI_LAB_WEB_ALLOWED_HOSTS: '["127.0.0.1"]'
+      KODI_LAB_MCP_LAN_URL: ${KODI_LAB_MCP_LAN_URL:-}
+      KODI_LAB_MCP_LAN_CA_FILE: ${KODI_LAB_MCP_LAN_CA_FILE:-}
       KODI_LAB_REPOSITORY_BASE_URL: ${KODI_LAB_REPOSITORY_BASE_URL:?configure repository first}
       KODI_LAB_REPOSITORY_DATA_ROOT: /srv/kodi-lab-repository
       KODI_LAB_REPOSITORY_BUNDLE_SHA256: ${KODI_LAB_REPOSITORY_BUNDLE_SHA256:?configure repository first}

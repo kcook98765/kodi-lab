@@ -4,10 +4,11 @@
 {% block main_class %}agents-page{% endblock %}
 {% block main_attributes %}data-mcp-administration data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
+{% set lan_ready = mcp_lan is defined and mcp_lan.ready %}
       <h1>Agents</h1>
       <p>Connect one MCP-compatible agent to Kodi in five steps. A client holds that agent's permissions and tokens, separate from your Web administrator account.</p>
       <p class="error" data-error role="alert" hidden></p>
-      <noscript><p>Enable JavaScript to create clients, issue tokens and use copy controls. The configuration template is available for manual copying.</p></noscript>
+      <noscript><p>Enable JavaScript to create clients, issue tokens, change connection method and use copy controls. The configuration templates are available for manual copying; the selected example does not change without JavaScript.</p></noscript>
       <section aria-labelledby="agent-create-heading">
         <h2 id="agent-create-heading">1. Create or select a client and choose permissions</h2>
         <p>Use a separate client for each agent. If you already have one, open it in <a href="#agent-clients-heading">Your clients</a> below.</p>
@@ -33,41 +34,59 @@
       <section aria-labelledby="agent-copy-heading">
         <h2 id="agent-copy-heading">3. Issue a token and copy configuration</h2>
         <p>In your client, choose a <strong>Token lifetime</strong> and select <strong>Issue token</strong>. The configuration below will include the new token. Copy and store it securely before leaving or reloading this page: the token is shown only once and cannot be recovered.</p>
-        <p>The <code>kodi-lab-mcp-stdio</code> command must be installed where your agent runs. It connects to a local <code>127.0.0.1</code> address on that computer.</p>
-        <details class="agent-connection-details">
-          <summary>Agent on another computer or command unavailable?</summary>
-          <p>Install the Kodi Lab package in the agent's environment so <code>kodi-lab-mcp-stdio</code> is on its command path, or use the full path to that installed command in the configuration. An agent on another computer needs an existing local forwarding arrangement to Kodi Lab. A LAN Web address is not supported by this command; opening this preview in a browser does not provide that forwarding.</p>
-        </details>
+        <fieldset class="agent-transport">
+          <legend>Connection method</legend>
+          <label><input type="radio" name="agent-transport" value="lan" data-agent-transport{% if lan_ready %} checked data-endpoint="{{ mcp_lan.url }}"{% else %} disabled{% endif %}> LAN / Streamable HTTP{% if lan_ready %} (recommended){% endif %}</label>
+          <label><input type="radio" name="agent-transport" value="stdio" data-agent-transport{% if not lan_ready %} checked{% endif %}> Local / stdio</label>
+        </fieldset>
+        <p data-agent-lan-status>{% if mcp_lan is defined %}{{ mcp_lan.message }}{% else %}Direct LAN MCP is not configured in this running server. Use Local / stdio.{% endif %}</p>
+        {% if mcp_lan is defined and mcp_lan.url %}
+        <p>{% if lan_ready %}Verified MCP endpoint{% else %}Configured endpoint — verification failed{% endif %}: <code id="agent-endpoint" data-agent-url>{{ mcp_lan.url }}</code></p>
+        {% if lan_ready %}<button type="button" data-copy-agent-url hidden>Copy MCP URL</button>{% endif %}
+        {% endif %}
+        <div data-agent-lan-help{% if not lan_ready %} hidden{% endif %}>
+          <p>For an agent on another authorized LAN computer, use this HTTPS URL with <strong>Streamable HTTP</strong>. No local Kodi Lab adapter or SSH forwarding is needed. Send <code>Authorization: Bearer</code> with your token on every MCP request. Web login cookies do not authenticate agents.</p>
+          <p>Your agent must trust the certificate for this exact address. For a private certificate authority, have your administrator install its CA certificate in the agent's trust store. Keep TLS verification enabled. The server's connection check cannot verify connectivity or certificate trust on your agent's computer.</p>
+          <p>HTTP supports MCP <code>2026-07-28</code> and <code>2025-11-25</code>. Older revisions, including <code>2025-06-18</code>, are rejected. Choose a client that supports one of these versions and custom bearer headers.</p>
+        </div>
+        <div data-agent-stdio-help>
+          <p>The <code>kodi-lab-mcp-stdio</code> command must be installed where your agent runs. It connects to a local <code>127.0.0.1</code> address on that computer and supports MCP <code>2026-07-28</code>.</p>
+          <details class="agent-connection-details">
+            <summary>Agent on another computer or command unavailable?</summary>
+            <p>Install the Kodi Lab package in the agent's environment so <code>kodi-lab-mcp-stdio</code> is on its command path, or use the full path to that installed command in the configuration. With stdio, an agent on another computer needs an existing local forwarding arrangement to Kodi Lab. A LAN Web address is not supported by this command; use the verified LAN / Streamable HTTP option above when available.</p>
+          </details>
+          <label class="agent-port-label">Local MCP port <input type="number" data-agent-local-port value="{{ agent_stdio_port | default(8100) }}" min="1" max="65535" required aria-describedby="agent-port-help"></label>
+          <p id="agent-port-help">This server's configured port is <strong>{{ agent_stdio_port | default(8100) }}</strong>. Use the port reachable on the agent's computer: normally <strong>18100</strong> for the Docker host publication, or your local forwarding port. The configured server port does not verify access from your agent.</p>
+        </div>
         <section data-token-result tabindex="-1" aria-labelledby="agent-token-heading" hidden>
           <h3 id="agent-token-heading">Token shown once</h3>
           <p data-token-client></p>
           <code data-token></code>
           <p>Copy the configuration below now into your agent's protected settings. It contains this token and cannot be recovered later.</p>
         </section>
-        <label class="agent-port-label">Local MCP port <input type="number" data-agent-local-port value="8100" min="1" max="65535" required aria-describedby="agent-port-help"></label>
-        <p id="agent-port-help">Use the Kodi Lab port reachable on the agent's computer: default local port <strong>8100</strong>, or <strong>18100</strong> for the deployed Web service on this host. With forwarding, use its local port.</p>
         <h3 data-agent-config-title>Configuration template</h3>
         <p data-agent-config-help>This template contains a placeholder. Issue a token to fill it in, or replace the placeholder in your agent's protected settings.</p>
-        <pre id="agent-config" tabindex="0" aria-label="MCP server configuration template">{
+        <pre id="agent-config" tabindex="0" aria-label="MCP server configuration template">{% if agent_configuration is defined %}{{ agent_configuration | tojson(indent=2) }}{% else %}{
   "command": "kodi-lab-mcp-stdio",
   "args": [],
   "env": {
     "KODI_LAB_MCP_TOKEN": "PASTE_NEW_TOKEN_HERE",
     "KODI_LAB_MCP_URL": "http://127.0.0.1:8100/mcp"
   }
-}</pre>
+}{% endif %}</pre>
+        {% if lan_ready %}<noscript><details><summary>Local / stdio configuration template</summary><pre>{{ agent_stdio_configuration | tojson(indent=2) }}</pre></details></noscript>{% endif %}
         <button type="button" data-copy-agent-config hidden>Copy configuration template</button>
         <p data-agent-copy-status role="status" aria-live="polite"></p>
-        <p class="secondary">You can also select and copy the configuration manually. Protect settings containing your token as you would a password. Keep the token in <code>env</code>; never put it in command arguments.</p>
+        <p class="secondary">You can also select and copy the configuration manually. Protect settings containing your token as you would a password. Keep HTTP tokens in authorization headers and stdio tokens in <code>env</code>; never put tokens in URLs, command arguments or shared project files.</p>
       </section>
       <section aria-labelledby="agent-add-heading">
         <h2 id="agent-add-heading">4. Add configuration to your agent</h2>
-        <p>Open your agent's MCP server settings and add this stdio configuration. The supported fields are <code>command</code>, <code>args</code> and <code>env</code>. Your agent may require a server name or an outer configuration wrapper; follow its own instructions. Save the settings, then reconnect or restart the agent.</p>
+        <p>Open your agent's MCP server settings and add the configuration for your selected connection method. The HTTP example uses <code>type: http</code>, <code>url</code> and <code>headers</code>, as in Claude Code or VS Code. The stdio example uses <code>command</code>, <code>args</code> and <code>env</code>. Your agent may require a server name or an outer configuration wrapper; follow its own instructions. Save in protected user settings, then reconnect or restart the agent.</p>
       </section>
       <section aria-labelledby="agent-verify-heading">
         <h2 id="agent-verify-heading">5. Verify read-only access</h2>
         <p>Ask your agent: <q>List the Kodi instances I can access, then inspect the health of my Kodi.</q> It can use <code>target_list</code>, then <code>target_status</code> with that Kodi's <code>target_id</code>. Both Home inspection presets also support <code>addon_list</code> and <code>inspect_ui_state</code>; screenshots require Production Visual Inspection and the visual scope.</p>
-        <p class="secondary">If connection fails, check the installed command, local port and token expiry. If access is denied, check the client preset, Kodi policy and current scopes in your client's Kodi access section. A token alone does not authorize a Kodi.</p>
+        <p class="secondary">If connection fails, check the selected transport, supported MCP version and token expiry. For LAN, check endpoint, network access and certificate trust; for stdio, check the installed command and local port. If access is denied, check the client preset, Kodi policy and current scopes in your client's Kodi access section. A token alone does not authorize a Kodi.</p>
       </section>
       <section aria-labelledby="agent-clients-heading">
       <h2 id="agent-clients-heading">Your clients</h2>

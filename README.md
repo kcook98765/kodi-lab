@@ -78,7 +78,15 @@ For a foreground, artifact-installed host that connects to remote Kodi, see
 [`docs/REMOTE-HOST-ARTIFACT.md`](docs/REMOTE-HOST-ARTIFACT.md). This Ubuntu
 procedure does not validate Windows or macOS host operation.
 
-## MCP stdio
+## MCP agents: LAN HTTP and optional stdio
+
+Kodi Lab already serves Streamable HTTP at `/mcp`. For agents on another
+authorized LAN computer, configure the opt-in HTTPS proxy and use the verified
+endpoint on **Agents**. See [native LAN MCP setup](docs/NATIVE-LAN-MCP.md) for
+certificate, network and protocol requirements. The default remains loopback;
+the Web address alone does not imply remote MCP connectivity.
+
+Local / stdio remains available as a compatibility option.
 
 Phase 11's primary protocol is modern `2026-07-28`. Its canonical stdio command
 is a thin modern-only proxy to the running loopback MCP HTTP authority:

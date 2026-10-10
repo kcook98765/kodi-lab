@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from typing import Any, cast
 
@@ -14,10 +15,23 @@ from kodi_lab.storage.engine import create_database_engine, create_session_facto
 from kodi_lab.web.app import create_app
 
 
+class McpAccessLogFilter(logging.Filter):
+    """MCP URLs are fixed; suppress query/path material in request-line logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) == 5:
+            peer, method, path, version, status = record.args
+            if isinstance(path, str) and path.split("?", 1)[0].startswith("/mcp"):
+                record.args = (peer, method, "/mcp", version, status)
+        return True
+
+
 def application_logging_config() -> dict[str, Any]:
     """Return the Web process logging graph, including bounded MCP audits."""
 
     config = deepcopy(LOGGING_CONFIG)
+    config["filters"] = {"mcp_access": {"()": McpAccessLogFilter}}
+    config["handlers"]["access"]["filters"] = ["mcp_access"]
     loggers = cast(dict[str, dict[str, object]], config["loggers"])
     loggers["kodi_lab.mcp"] = {
         "handlers": ["default"],

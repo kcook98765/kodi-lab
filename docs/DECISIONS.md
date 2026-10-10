@@ -5953,3 +5953,28 @@ D-0413 resolves the provisional managed pairing-source assumption below.
 - This automates the existing local build allowlist. The public semantic
   fingerprint and OTP/HMAC identity are not attestation of remote installed code.
   Stronger remote artifact attestation would require separately authorized design.
+
+## D-0419: Opt-in native LAN MCP through an HTTPS-only narrow proxy
+
+- The existing shared Web `/mcp` Streamable HTTP authority is reused, with exact
+  `2026-07-28` and `2025-11-25` support. No replacement server, identity store,
+  permission default, grant or scope changes are introduced. Local loopback and
+  modern-only stdio remain available.
+- An administrator configures an actual LAN HTTPS `/mcp` URL, certificate,
+  explicit private bind and subnet ACL in an external proxy. Compose keeps its
+  plaintext Web publication on loopback. The supplied nginx template proxies
+  only exact `/mcp`, preserves Host/Origin/bearer headers, rejects queries and
+  disables request logging; it is not automatically deployed.
+- MCP validates Host/Origin before protocol/auth dispatch, rejects duplicate
+  authority/auth/protocol headers and bounds wildcard port matching. Only the
+  exact configured HTTPS authority/origin is added. Existing SDK validation and
+  all authentication/authorization remain in force. Application access logging
+  redacts MCP request paths/queries so a rejected query cannot disclose a token.
+- Agents prefers LAN only after a bounded credential-free TLS request verifies
+  the anonymous Bearer 401 and an opaque per-process instance marker. Missing,
+  redirected, untrusted, public-resolving or mismatched endpoints fail closed to
+  Local / stdio. Readiness grants no authority, does no Kodi I/O and cannot prove
+  connectivity or certificate trust on another agent computer.
+- See `docs/NATIVE-LAN-MCP.md` for certificate/configuration prerequisites and
+  protocol/client limits. Qualification uses isolated state and synthetic Kodi
+  adapters; real second-host acceptance requires separate retained evidence.

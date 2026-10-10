@@ -17,6 +17,8 @@ services:
       - no-new-privileges:true
     environment:
       KODI_LAB_WEB_ALLOWED_HOSTS: '["127.0.0.1"]'
+      KODI_LAB_MCP_LAN_URL: ${KODI_LAB_MCP_LAN_URL:-}
+      KODI_LAB_MCP_LAN_CA_FILE: ${KODI_LAB_MCP_LAN_CA_FILE:-}
     ports:
       - "127.0.0.1:${KODI_LAB_PUBLISHED_PORT:-18100}:8100"
     healthcheck:

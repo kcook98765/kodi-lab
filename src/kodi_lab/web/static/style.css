@@ -262,6 +262,11 @@ dd { margin: 0; }
 .agents-page .agent-client-details > summary span { display: block; margin-top: .3rem; font-size: .95rem; }
 .agents-page > section { margin-bottom: 2rem; }
 .agents-page .agent-port-label { display: grid; gap: .4rem; max-width: 18rem; }
+.agents-page .agent-transport { min-width: 0; margin: 1rem 0; }
+.agents-page .agent-transport label { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
+.agents-page .agent-transport input { flex: 0 0 auto; width: 1.2rem; }
+.agents-page [data-agent-url] { overflow-wrap: anywhere; }
+.agents-page noscript pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .agents-page [data-token-result] { border-left: .25rem solid currentColor; padding: .5rem 1rem; margin: 1rem 0; }
 .agents-page [data-token] { display: block; overflow-wrap: anywhere; }
 .agents-page [data-create-preset] { max-width: 46rem; }
@@ -296,6 +301,7 @@ dd { margin: 0; }
 .admin-content .repository-table-scroll table { display: table; width: 100%; }
 @media (max-width: 600px) {
   .agents-page label:not([data-permission-choice]) { display: grid; gap: .35rem; }
+  .agents-page .agent-transport label { display: flex; gap: .6rem; }
   .agents-page select { width: 100%; }
   .agents-page [data-target-policy] select { display: block; margin: .5rem 0; }
 }

@@ -487,6 +487,7 @@ from kodi_lab.mcp.authorization import (
     InternalManagedTargetAuthorityProvider,
     McpAuthorizationService,
 )
+from kodi_lab.mcp.lan import check_lan_endpoint
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
@@ -1816,6 +1817,13 @@ def create_app(
     mcp_promotion_requests = McpPromotionRequestService(
         session_factory, agent_workspace_promotions
     )
+    lan_endpoint = urlsplit(settings.mcp_lan_url) if settings.mcp_lan_url else None
+    lan_hosts = (
+        (lan_endpoint.netloc,)
+        + ((lan_endpoint.hostname or "",) if lan_endpoint.port == 443 else ())
+        if lan_endpoint
+        else ()
+    )
     mcp_transport = build_mcp_http_transport(
         authentication=McpAuthenticationService(session_factory),
         authorization=mcp_authorization,
@@ -1841,12 +1849,14 @@ def create_app(
             entry
             for host in (settings.web_host, *settings.web_allowed_hosts)
             for entry in (host, f"{host}:*")
-        ),
+        )
+        + lan_hosts,
         additional_allowed_origins=tuple(
             entry
             for host in settings.web_allowed_hosts
             for entry in (f"http://{host}", f"http://{host}:*")
-        ),
+        )
+        + tuple(f"https://{host}" for host in lan_hosts),
     )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
@@ -2076,7 +2086,12 @@ def create_app(
     app.state.kodi_lab = context
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=[settings.web_host, "localhost", *settings.web_allowed_hosts],
+        allowed_hosts=[
+            settings.web_host,
+            "localhost",
+            *settings.web_allowed_hosts,
+            *([lan_endpoint.hostname or ""] if lan_endpoint else []),
+        ],
     )
     app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
     templates = Jinja2Templates(
@@ -2090,7 +2105,7 @@ def create_app(
         Route(
             "/mcp",
             context.mcp_transport.app,
-            methods=["POST"],
+            methods=["POST", "GET", "DELETE", "PUT", "PATCH", "OPTIONS", "HEAD"],
             name="mcp",
             include_in_schema=False,
         )
@@ -3049,6 +3064,28 @@ def create_app(
         request: Request,
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
+        mcp_lan = await check_lan_endpoint(
+            settings.mcp_lan_url,
+            instance_id=context.mcp_transport.instance_id,
+            ca_file=settings.mcp_lan_ca_file,
+        )
+        agent_stdio_configuration = {
+            "command": "kodi-lab-mcp-stdio",
+            "args": [],
+            "env": {
+                "KODI_LAB_MCP_TOKEN": "PASTE_NEW_TOKEN_HERE",
+                "KODI_LAB_MCP_URL": f"http://127.0.0.1:{settings.web_port}/mcp",
+            },
+        }
+        agent_configuration = (
+            {
+                "type": "http",
+                "url": mcp_lan.url,
+                "headers": {"Authorization": "Bearer PASTE_NEW_TOKEN_HERE"},
+            }
+            if mcp_lan.ready
+            else agent_stdio_configuration
+        )
         production_bridge_statuses: dict[UUID, ExternalBridgeStatus] = {}
         for target in context.mcp_administration.list_target_policies():
             if target.target_class == "external_production":
@@ -3061,6 +3098,10 @@ def create_app(
             "mcp-clients.html",
             {
                 "csrf_token": authenticated.csrf_token,
+                "mcp_lan": mcp_lan,
+                "agent_configuration": agent_configuration,
+                "agent_stdio_configuration": agent_stdio_configuration,
+                "agent_stdio_port": settings.web_port,
                 "clients": context.mcp_administration.list_clients(),
                 "presets": context.mcp_administration.list_presets(),
                 "custom_preset_permissions": sorted(
