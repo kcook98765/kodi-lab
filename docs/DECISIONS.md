@@ -5998,3 +5998,30 @@ D-0413 resolves the provisional managed pairing-source assumption below.
 - Setup and rollback are documented in `docs/NATIVE-LAN-MCP.md`. Qualification
   uses disposable services/credentials and direct second-host requests. No
   production activation or firewall/router change is part of this work.
+
+## D-0421: HTTP internal proxy health is separate from LAN acceptance
+
+- Supersedes D-0420's server-originated HTTP ingress readiness check. Web's
+  Docker source is intentionally outside the trusted client subnet; it must
+  not need an IP/firewall exception merely to verify its own proxy/upstream.
+  HTTPS configuration, probe and existing deployment behavior remain unchanged.
+- The HTTP proxy adds a filesystem Unix listener to the same MCP-only server
+  block, with `allow unix:` alongside the existing private TCP subnet ACL.
+  Exact Host/Origin, `/mcp`, bearer gate, upstream, cookie/query restrictions and
+  permission/grant authority remain identical for both listeners. No health TCP
+  port, administrative endpoint, Docker subnet or second authority is introduced.
+- Installed Web mounts only a stable protected root:10001 directory read-only.
+  Proxy master group 10001, directory 0750, no symlinks or extra POSIX access
+  ACLs, and preservation of the directory inode across stop/start are required.
+  Nginx's socket 0666 is confined by that directory. Default Compose does not
+  mount or start this optional path; the opt-in overlay refuses missing paths.
+- Internal readiness validates safe metadata, private DNS/bind configuration,
+  anonymous same-instance 401 Bearer and exact bounded authentication-failure
+  JSON over that socket, with a two-second whole-operation deadline. It fails
+  closed on missing/stopped proxy, wrong upstream, unsafe filesystem metadata,
+  malformed/oversized response or timeout and never falls back to LAN ingress.
+- Agents describes internal service health accurately. It cannot establish
+  external LAN/WAN connectivity or successful authenticated tool access; direct
+  acceptance from a genuine allowed LAN client remains a separate activation
+  prerequisite, together with firewall/router exposure verification and fresh
+  state/rollback preservation. HTTP is still never selected automatically.

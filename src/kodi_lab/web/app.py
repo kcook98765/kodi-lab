@@ -487,7 +487,7 @@ from kodi_lab.mcp.authorization import (
     InternalManagedTargetAuthorityProvider,
     McpAuthorizationService,
 )
-from kodi_lab.mcp.lan import McpLanStatus, check_lan_endpoint
+from kodi_lab.mcp.lan import McpLanStatus, check_http_proxy, check_lan_endpoint
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
@@ -3080,10 +3080,11 @@ def create_app(
             ca_file=settings.mcp_lan_ca_file,
         )
         mcp_lan_http = (
-            await check_lan_endpoint(
+            await check_http_proxy(
                 settings.mcp_lan_http_url,
                 instance_id=context.mcp_transport.instance_id,
-                trusted_http_bind=settings.mcp_lan_http_bind_address,
+                bind_address=settings.mcp_lan_http_bind_address,
+                readiness_socket=settings.mcp_lan_http_readiness_socket,
             )
             if settings.mcp_lan_http_enabled
             else McpLanStatus(

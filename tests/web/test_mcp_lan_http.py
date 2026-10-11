@@ -10,6 +10,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import tempfile
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -29,8 +30,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.production_inspection import PRODUCTION_INSPECTION_PRESET_ID
 from kodi_lab.config import Settings
-from kodi_lab.mcp.lan import check_lan_endpoint, is_private_lan_address
+from kodi_lab.mcp.lan import (
+    McpLanStatus,
+    check_http_proxy,
+    check_lan_endpoint,
+    is_private_lan_address,
+)
 from kodi_lab.storage.models import ExternalProductionPolicyRow
+from kodi_lab.web import app as app_module
 from kodi_lab.web.app import create_app
 
 from .conftest import (
@@ -151,6 +158,10 @@ def _http_proxy(root: Path, settings: Settings, upstream: str) -> Iterator[str]:
     url = settings.mcp_lan_http_url
     assert settings.mcp_lan_http_enabled and url
     parsed = urlsplit(url)
+    socket_directory = tempfile.TemporaryDirectory(prefix="kl-http-")
+    settings.mcp_lan_http_readiness_socket = (
+        Path(socket_directory.name) / "readiness.sock"
+    )
     replacements = {
         "PRIVATE_LAN_IPV4": settings.mcp_lan_http_bind_address,
         "HTTP_PORT": str(parsed.port or 80),
@@ -158,6 +169,7 @@ def _http_proxy(root: Path, settings: Settings, upstream: str) -> Iterator[str]:
         "MCP_AUTHORITY": parsed.netloc,
         "AUTHORIZED_LAN_CIDR": settings.mcp_lan_http_allowed_cidr,
         "LOOPBACK_WEB_PORT": str(urlsplit(upstream).port),
+        "READINESS_SOCKET_PATH": str(settings.mcp_lan_http_readiness_socket),
     }
     template = (REPOSITORY / "deployment/mcp-lan-http-nginx.conf.template").read_text()
     for marker, value in replacements.items():
@@ -193,12 +205,54 @@ def _http_proxy(root: Path, settings: Settings, upstream: str) -> Iterator[str]:
     finally:
         process.terminate()
         process.wait(timeout=5)
+        socket_directory.cleanup()
 
 
 def _free_port(bind: str) -> int:
     with socket.socket() as listener:
         listener.bind((bind, 0))
         return cast(int, listener.getsockname()[1])
+
+
+@pytest.mark.parametrize("healthy", [False, True])
+def test_agents_separates_http_internal_health_from_https_and_lan_acceptance(
+    client: TestClient,
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    external_kodi: FakeExternalKodi,
+    monkeypatch: pytest.MonkeyPatch,
+    healthy: bool,
+) -> None:
+    app = _http_app(client, database, broker, external_kodi)
+    checks: list[str] = []
+
+    async def https(url: str | None, **kwargs: object) -> McpLanStatus:
+        assert url == LAN_URL and "trusted_http_bind" not in kwargs
+        checks.append("https")
+        return McpLanStatus(url, True, "HTTPS verification unchanged")
+
+    async def internal(url: str | None, **kwargs: object) -> McpLanStatus:
+        assert url == HTTP_URL and kwargs["bind_address"] == "192.168.50.10"
+        assert "readiness_socket" in kwargs
+        checks.append("internal")
+        return McpLanStatus(url, healthy, "Internal health; separate LAN test required")
+
+    monkeypatch.setattr(app_module, "check_lan_endpoint", https)
+    monkeypatch.setattr(app_module, "check_http_proxy", internal)
+    with TestClient(app, base_url="http://127.0.0.1") as authority:
+        login(authority)
+        page = authority.get("/mcp-clients")
+        assert page.status_code == 200 and checks == ["https", "internal"]
+        assert "separate LAN test required" in page.text
+        assert 'value="lan" data-agent-transport checked' in page.text
+        assert "Reachable HTTP endpoint" not in page.text
+        if healthy:
+            assert (
+                "internal health verified; LAN access requires a client test"
+                in page.text
+            )
+        else:
+            assert "internal health unverified" in page.text
 
 
 def test_real_http_and_https_sdk_with_direct_ryzen_and_disposable_credentials(
@@ -248,6 +302,17 @@ def test_real_http_and_https_sdk_with_direct_ryzen_and_disposable_credentials(
             reader.id, household, identity_generation=generation
         )
         credential = admin.issue_credential(reader.id)
+        internal_health = asyncio.run(
+            check_http_proxy(
+                url,
+                instance_id=app.state.kodi_lab.mcp_transport.instance_id,
+                bind_address=bind,
+                readiness_socket=settings.mcp_lan_http_readiness_socket,
+            )
+        )
+        assert internal_health.ready
+        assert "separate test" in internal_health.message
+        # Explicit test-client LAN acceptance remains separate from internal health.
         assert asyncio.run(
             check_lan_endpoint(
                 url,

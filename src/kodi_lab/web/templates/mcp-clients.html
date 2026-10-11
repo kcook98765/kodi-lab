@@ -53,7 +53,7 @@
         {% if lan_ready %}<button type="button" data-copy-agent-url hidden>Copy MCP URL</button>{% endif %}
         {% endif %}
         {% if mcp_lan_http is defined and mcp_lan_http.url %}
-        <p>{% if http_ready %}Reachable HTTP endpoint — unencrypted{% else %}Configured HTTP endpoint — reachability failed{% endif %}: <code id="agent-http-endpoint" data-agent-url>{{ mcp_lan_http.url }}</code></p>
+        <p>{% if http_ready %}HTTP endpoint — internal health verified; LAN access requires a client test{% else %}Configured HTTP endpoint — internal health unverified{% endif %}: <code id="agent-http-endpoint" data-agent-url>{{ mcp_lan_http.url }}</code></p>
         {% if http_ready %}<button type="button" data-copy-agent-http-url hidden>Copy HTTP MCP URL</button>{% endif %}
         {% endif %}
         <div data-agent-lan-help{% if not lan_ready %} hidden{% endif %}>

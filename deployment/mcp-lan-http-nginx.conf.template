@@ -3,9 +3,12 @@
 # This server block exposes only MCP, never the Web/admin application.
 server {
     listen @PRIVATE_LAN_IPV4@:@HTTP_PORT@;
+    # Protected directory, mounted read-only into Web; no additional TCP listener.
+    listen unix:@READINESS_SOCKET_PATH@;
     server_name @MCP_HOST@;
 
     allow @AUTHORIZED_LAN_CIDR@;
+    allow unix:;
     deny all;
     access_log off;
     error_log /dev/null crit;

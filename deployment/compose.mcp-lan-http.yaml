@@ -1,0 +1,13 @@
+# Explicit opt-in overlay after compose.release.yaml; no proxy is started here.
+# Precreate the stable root:10001 directory (0750), preserving its inode on restart.
+services:
+  web:
+    environment:
+      KODI_LAB_MCP_LAN_HTTP_READINESS_SOCKET: /run/kodi-lab-mcp-http/readiness.sock
+    volumes:
+      - type: bind
+        source: ${KODI_LAB_MCP_LAN_HTTP_SOCKET_DIRECTORY:?protected proxy socket directory required}
+        target: /run/kodi-lab-mcp-http
+        read_only: true
+        bind:
+          create_host_path: false

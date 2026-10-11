@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import ipaddress
+import json
+import os
 import re
 import socket
 import ssl
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -120,6 +124,158 @@ class McpLanStatus:
     url: str | None
     ready: bool
     message: str
+
+
+def validate_http_readiness_socket(value: Path | None) -> Path | None:
+    """Accept a short filesystem socket path, never a TCP health endpoint."""
+    if value is not None and (
+        not value.is_absolute()
+        or ".." in value.parts
+        or len(os.fsencode(value)) > 100
+        or re.fullmatch(r"/[a-zA-Z0-9_./-]+", str(value)) is None
+    ):
+        raise ValueError(
+            "MCP HTTP readiness socket must be a safe absolute socket path"
+        )
+    return value
+
+
+def _protected_readiness_socket(path: Path) -> bool:
+    """The directory confines nginx's socket even when nginx creates mode 0666."""
+    try:
+        resolved = path.resolve(strict=True)
+    except RuntimeError:  # Python 3.12 represents symlink loops this way.
+        return False
+    if resolved != path:
+        return False
+    container = bool(os.environ.get("KODI_LAB_REMOTE_CONTAINER"))
+    trusted_owners = {0} if container else {0, os.geteuid()}
+    parent = path.parent.stat()
+    sock = path.stat()
+    if (
+        not stat.S_ISSOCK(sock.st_mode)
+        or sock.st_uid not in trusted_owners
+        or sock.st_gid != parent.st_gid
+        or (container and parent.st_gid != os.getegid())
+        or parent.st_mode & 0o027
+    ):
+        return False
+    for directory in path.parents:
+        metadata = directory.stat()
+        if metadata.st_uid not in trusted_owners:
+            return False
+        # A root-owned sticky temporary directory is suitable for private fixtures.
+        sticky_root = metadata.st_uid == 0 and metadata.st_mode & stat.S_ISVTX
+        if metadata.st_mode & 0o022 and not sticky_root:
+            return False
+    # Named POSIX ACL entries can grant access beyond the apparent mode bits.
+    for component in (path, *path.parents):
+        try:
+            os.getxattr(component, "system.posix_acl_access")
+        except OSError as error:
+            if error.errno not in (errno.ENODATA, errno.ENOTSUP):
+                raise
+        else:
+            return False
+    return True
+
+
+async def check_http_proxy(
+    url: str | None,
+    *,
+    instance_id: str,
+    bind_address: str | None,
+    readiness_socket: Path | None,
+) -> McpLanStatus:
+    """Check the same MCP-only proxy/application over a protected Unix socket.
+
+    No connection traverses the LAN ingress. DNS is configuration validation;
+    genuine LAN connectivity and authenticated access require external acceptance.
+    """
+    unavailable = McpLanStatus(
+        url,
+        False,
+        "Internal HTTP proxy health could not be verified. Check the protected "
+        "readiness socket, proxy and application. LAN access requires a separate "
+        "test from an allowed client.",
+    )
+    try:
+        validate_lan_url(url, scheme="http")
+        validate_http_readiness_socket(readiness_socket)
+        if (
+            not url
+            or not instance_id
+            or not bind_address
+            or not is_private_lan_address(bind_address)
+            or readiness_socket is None
+        ):
+            return unavailable
+        parsed = urlsplit(url)
+        async with asyncio.timeout(2):
+            if not await asyncio.to_thread(
+                _protected_readiness_socket, readiness_socket
+            ):
+                return unavailable
+            addresses = await asyncio.to_thread(
+                socket.getaddrinfo,
+                parsed.hostname,
+                parsed.port or 80,
+                socket.AF_UNSPEC,
+                socket.SOCK_STREAM,
+            )
+            if not addresses or any(
+                str(address[4][0]) != bind_address for address in addresses
+            ):
+                return unavailable
+            async with (
+                httpx.AsyncClient(
+                    transport=httpx.AsyncHTTPTransport(uds=str(readiness_socket)),
+                    trust_env=False,
+                    follow_redirects=False,
+                    timeout=1.5,
+                ) as client,
+                client.stream(
+                    "POST",
+                    url,
+                    headers={
+                        "Host": parsed.netloc,
+                        "Accept": "application/json, text/event-stream",
+                        "MCP-Protocol-Version": "2025-11-25",
+                    },
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 0,
+                        "method": "tools/list",
+                        "params": {},
+                    },
+                ) as response,
+            ):
+                if (
+                    response.status_code != 401
+                    or response.headers.get("WWW-Authenticate") != "Bearer"
+                    or response.headers.get(MCP_INSTANCE_HEADER) != instance_id
+                    or response.headers.get("Content-Type", "").split(";", 1)[0]
+                    != "application/json"
+                    or response.headers.get("Content-Encoding", "identity")
+                    != "identity"
+                ):
+                    return unavailable
+                body = bytearray()
+                async for chunk in response.aiter_raw(chunk_size=257):
+                    body.extend(chunk)
+                    if len(body) > 256:
+                        return unavailable
+                if json.loads(body) != {"error": "authentication_failed"}:
+                    return unavailable
+    except (OSError, ValueError, TimeoutError, httpx.HTTPError):
+        return unavailable
+    return McpLanStatus(
+        url,
+        True,
+        "Internal HTTP proxy and this application's anonymous MCP gate are healthy. "
+        "LAN reachability and authorized access require a separate test from an "
+        "allowed client. HTTP traffic is unencrypted.",
+    )
 
 
 async def check_lan_endpoint(

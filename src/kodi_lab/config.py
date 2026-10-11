@@ -9,7 +9,11 @@ from typing import Literal
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from kodi_lab.mcp.lan import validate_lan_http_configuration, validate_lan_url
+from kodi_lab.mcp.lan import (
+    validate_http_readiness_socket,
+    validate_lan_http_configuration,
+    validate_lan_url,
+)
 
 
 class Settings(BaseSettings):
@@ -34,6 +38,7 @@ class Settings(BaseSettings):
     mcp_lan_http_url: str | None = None
     mcp_lan_http_bind_address: str | None = None
     mcp_lan_http_allowed_cidr: str | None = None
+    mcp_lan_http_readiness_socket: Path | None = None
     web_port: int = Field(default=8100, ge=1, le=65_535)
     web_session_cookie_name: Literal["kodi_lab_session"] = "kodi_lab_session"
     web_cookie_secure: Literal[False] = False
@@ -66,8 +71,17 @@ class Settings(BaseSettings):
     def _empty_mcp_lan_http_setting(cls, value: str | None) -> str | None:
         return value or None
 
+    @field_validator("mcp_lan_http_readiness_socket", mode="before")
+    @classmethod
+    def _approved_http_readiness_socket(cls, value: object) -> Path | None:
+        return validate_http_readiness_socket(Path(str(value)) if value else None)
+
     @model_validator(mode="after")
     def _approved_mcp_lan_http(self) -> "Settings":
+        if self.mcp_lan_http_readiness_socket and not self.mcp_lan_http_enabled:
+            raise ValueError(
+                "MCP HTTP readiness socket requires explicit HTTP enablement"
+            )
         validate_lan_http_configuration(
             enabled=self.mcp_lan_http_enabled,
             url=self.mcp_lan_http_url,

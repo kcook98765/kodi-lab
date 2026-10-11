@@ -79,6 +79,7 @@ KODI_LAB_MCP_LAN_HTTP_ENABLED=true
 KODI_LAB_MCP_LAN_HTTP_URL=http://192.168.2.191:18121/mcp
 KODI_LAB_MCP_LAN_HTTP_BIND_ADDRESS=192.168.2.191
 KODI_LAB_MCP_LAN_HTTP_ALLOWED_CIDR=192.168.2.0/24
+KODI_LAB_MCP_LAN_HTTP_READINESS_SOCKET=/run/kodi-lab-mcp-http/readiness.sock
 ```
 
 These are examples, not an activated endpoint. Choose an available port and
@@ -96,6 +97,8 @@ the validated settings: `PRIVATE_LAN_IPV4` is the bind address, `HTTP_PORT`
 is the URL's port (80 if omitted), `MCP_HOST` is its hostname, `MCP_AUTHORITY`
 is its exact URL authority, `AUTHORIZED_LAN_CIDR` is the configured ACL, and
 `LOOPBACK_WEB_PORT` is the existing loopback publication, normally 18100.
+`READINESS_SOCKET_PATH` is the host filesystem socket described below. Use
+the same path inside Web, or configure the corresponding container mount path.
 Replace all markers, validate with `nginx -t`, and verify the resulting
 listener binds only the chosen interface. Use a separate listener/configuration
 without overwriting existing HTTPS or other services. These settings and the
@@ -108,21 +111,104 @@ request logging. No Web/admin route becomes remotely available. Client
 permissions, per-target grants, current scopes, expiration and revocation are
 identical to HTTPS. Enabling HTTP creates no clients or credentials.
 
-Agents shows **Trusted LAN HTTP / unencrypted** only as a selectable option
-after anonymous reachability succeeds. The check sends no token, pins the
-configured private address, does not follow redirects and compares the running
-MCP marker. On HTTP that is a connectivity check, not authenticated server
-identity or confidentiality. HTTPS remains the default when verified; otherwise
+Agents shows **Trusted LAN HTTP / unencrypted** as a selectable option only
+after internal proxy/application health succeeds. This does **not** verify LAN
+reachability, a client's permissions, server identity over HTTP or confidentiality.
+External acceptance from an allowed LAN client is separately required. HTTPS
+readiness behavior remains unchanged. HTTPS remains the default when verified; otherwise
 Local / stdio remains selected until the user deliberately chooses HTTP. Copy
 controls then generate the chosen endpoint and bearer-header configuration.
 Without JavaScript, separate labelled manual templates remain available.
 
-To withdraw HTTP, stop only its listener, then clear all four HTTP settings
-(the enable flag becomes false). Keep HTTPS URL, CA, listener, client identities
-and grants intact. Separately approved deployment/rollback procedures must
-preserve existing services and state. Do not disable authorization to make an
-HTTP connection work. Isolated implementation qualification does not authorize
-production HTTP activation.
+#### Internal HTTP health and external acceptance
+
+HTTP readiness must not originate from a Docker address through the LAN ingress.
+The previous check sent anonymous `POST /mcp` from Web `10.250.0.2` to
+`192.168.2.191:8088`. Both the host firewall and the LAN-only source ACL reject
+that source. An anonymous `401 Bearer` with the same process marker combined
+proxy/application health with reachability from the server's own network;
+it did not prove successful bearer authorization or genuine LAN connectivity.
+Keep the existing HTTPS listener, its readiness procedure and firewall rule.
+
+The HTTP template now listens on a protected Unix socket **in the same server
+block** as the private TCP listener. Both use the same exact `/mcp` location,
+upstream, Host/Origin validation and bearer gate. `allow unix:` accepts only
+filesystem peers; the TCP listener still permits only `AUTHORIZED_LAN_CIDR`.
+No additional IP/subnet exception, TCP health port or administrative route is
+created. Nginx supports [Unix socket listeners](https://nginx.org/en/docs/http/ngx_http_core_module.html#listen)
+and [Unix socket access rules](https://nginx.org/en/docs/http/ngx_http_access_module.html#allow).
+
+For installed Compose Web (UID/GID 10001), use a stable root-owned directory
+`/run/kodi-lab-mcp-http`, group 10001, mode **0750**, without extra POSIX access
+ACLs. No untrusted/group-writable ancestor or symlink is allowed. The dedicated
+proxy's root master must use **Group=10001**, so its socket is root:10001.
+Nginx creates Unix sockets with mode 0666; **the protected directory controls
+access**, and umask alone must not be treated as socket protection. Workers
+inherit the listening descriptor. Keep worker body/proxy temporary files in
+separate directories writable by the worker account (for example the installed
+`/var/lib/nginx/body` and `/var/lib/nginx/proxy` for `www-data`), not in the
+protected socket directory.
+
+A separately approved dedicated proxy unit can use these directory settings:
+
+```ini
+[Service]
+Group=10001
+RuntimeDirectory=kodi-lab-mcp-http
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+```
+
+Start the proxy unit before Web's optional mount is created. Its listener can
+start before the upstream; internal readiness remains false until Web responds
+correctly. Preserve the **directory inode** across proxy stop/start/restart.
+The directory mount then sees each new socket inode without recreating Web.
+Do not mount only the socket file or delete/recreate the directory on restart.
+On host reboot, recreate/validate the directory before starting Compose Web;
+these settings do not establish whole-host startup acceptance. A container with
+`restart: unless-stopped` may start as soon as Docker starts, before the proxy
+unit. Before production approval, establish and verify boot ordering that creates
+the root:10001 directory before Docker restores Web (for example, a separately
+reviewed tmpfiles entry and Docker ordering dependency). Test a host restart and
+fail closed if ownership, mount identity or ordering differs. Do not rely on
+Compose service dependencies alone for Docker's automatic container restoration.
+
+Use the explicit [HTTP socket mount overlay](../deployment/compose.mcp-lan-http.yaml)
+after the current Compose configuration, with
+`KODI_LAB_MCP_LAN_HTTP_SOCKET_DIRECTORY=/run/kodi-lab-mcp-http`. It mounts only
+that directory read-only into Web and uses `create_host_path: false`, so a
+missing directory cannot silently become a permissive root:root mount. Default
+Compose does not mount this socket, start a proxy or expose another TCP port.
+The fifth setting is internal health configuration; all four original HTTP
+enablement/address/subnet settings remain mandatory. A missing socket setting
+leaves HTTP health unverified, with no external probe fallback.
+
+The internal check sends no bearer/cookie and follows no redirects or ambient
+proxies. It validates filesystem ownership, directory permissions and absence
+of extra POSIX access ACLs. Installed containers require root ownership and
+Web's effective group; local user installations permit their own protected
+owner directories. It validates configured DNS answers against the private
+bind address but connects exclusively to the Unix socket. A two-second whole
+operation deadline includes a 1.5-second HTTP timeout. Success requires exact
+`401`, `WWW-Authenticate: Bearer`, the current application instance marker,
+JSON content type and the bounded (at most 256-byte) body
+`{"error":"authentication_failed"}`. Missing/stopped proxy, wrong upstream,
+malformed/oversized/compressed response, permissions failure or timeout leaves
+health unverified. This proves the proxy reaches the intended application's
+anonymous gate; it does not exercise an authenticated tool or Kodi.
+
+Before activation, independently test actual TCP ingress from Ryzen or another
+genuine allowed LAN client: initialization, discovery, authorized read-only
+inspection, invalid/revoked/expired and insufficient-authority denial,
+Host/Origin and route isolation. Verify the listener and ACL, retained firewall
+rules and absence of WAN/router forwarding. Internal health alone must never
+satisfy this gate. Keep these receipts separate from internal health evidence.
+
+To withdraw HTTP, stop only its dedicated listener and restore Web's HTTP-off
+configuration without the optional socket mount. Remove the protected directory
+only after the mount is gone. Preserve the existing HTTPS unit/route, CA,
+loopback Web administration and current image/authority state. Do not use a
+historical pre-HTTPS rollback procedure that disables the working HTTPS endpoint.
 
 Open **Agents**, deliberately choose a client preset, grant the exact target and
 current Home inspection scope, then issue a token. Choose **LAN HTTPS / Streamable
