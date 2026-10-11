@@ -62,9 +62,72 @@ each agent computer must separately verify its network and certificate trust.
 
 ## Agent setup
 
+### Optional Trusted LAN HTTP (unencrypted)
+
+This optional mode lets agents connect directly without certificate setup.
+It is **disabled by default** and must be enabled deliberately by an
+administrator. Bearer tokens and MCP contents travel in plaintext. A network
+observer can read or modify traffic and replay an intercepted token with its
+existing permissions and target grants. Use only on a private LAN whose hosts
+and network path you trust. Prefer short-lived tokens and read-only, narrowly
+granted clients. HTTPS remains the preferred remote option.
+
+The independent HTTP settings can coexist with the existing HTTPS settings:
+
+```dotenv
+KODI_LAB_MCP_LAN_HTTP_ENABLED=true
+KODI_LAB_MCP_LAN_HTTP_URL=http://192.168.2.191:18121/mcp
+KODI_LAB_MCP_LAN_HTTP_BIND_ADDRESS=192.168.2.191
+KODI_LAB_MCP_LAN_HTTP_ALLOWED_CIDR=192.168.2.0/24
+```
+
+These are examples, not an activated endpoint. Choose an available port and
+the actual private IPv4 of this server. The URL must use HTTP and exact `/mcp`;
+it cannot include credentials, queries or fragments. Public, wildcard,
+loopback and IPv6 addresses are rejected. All four settings are required when
+enabled; setting a URL without the enable flag fails closed. The authorized
+CIDR must be canonical, wholly within RFC1918 space and contain the bind
+address. If using a DNS hostname, every answer must equal that bind address.
+
+Keep Web on its existing loopback publication. Do **not** bind or publish the
+whole Web/admin process on the LAN. Render the separate
+[HTTP proxy template](../deployment/mcp-lan-http-nginx.conf.template) using
+the validated settings: `PRIVATE_LAN_IPV4` is the bind address, `HTTP_PORT`
+is the URL's port (80 if omitted), `MCP_HOST` is its hostname, `MCP_AUTHORITY`
+is its exact URL authority, `AUTHORIZED_LAN_CIDR` is the configured ACL, and
+`LOOPBACK_WEB_PORT` is the existing loopback publication, normally 18100.
+Replace all markers, validate with `nginx -t`, and verify the resulting
+listener binds only the chosen interface. Use a separate listener/configuration
+without overwriting existing HTTPS or other services. These settings and the
+template do not install a service, publish a port or modify a firewall.
+
+Expose only exact `/mcp`, with the subnet ACL and existing firewall restricting
+LAN access. Do not forward the port through a router. Preserve Host, Origin
+and bearer headers; retain query rejection, cookie stripping and disabled
+request logging. No Web/admin route becomes remotely available. Client
+permissions, per-target grants, current scopes, expiration and revocation are
+identical to HTTPS. Enabling HTTP creates no clients or credentials.
+
+Agents shows **Trusted LAN HTTP / unencrypted** only as a selectable option
+after anonymous reachability succeeds. The check sends no token, pins the
+configured private address, does not follow redirects and compares the running
+MCP marker. On HTTP that is a connectivity check, not authenticated server
+identity or confidentiality. HTTPS remains the default when verified; otherwise
+Local / stdio remains selected until the user deliberately chooses HTTP. Copy
+controls then generate the chosen endpoint and bearer-header configuration.
+Without JavaScript, separate labelled manual templates remain available.
+
+To withdraw HTTP, stop only its listener, then clear all four HTTP settings
+(the enable flag becomes false). Keep HTTPS URL, CA, listener, client identities
+and grants intact. Separately approved deployment/rollback procedures must
+preserve existing services and state. Do not disable authorization to make an
+HTTP connection work. Isolated implementation qualification does not authorize
+production HTTP activation.
+
 Open **Agents**, deliberately choose a client preset, grant the exact target and
-current Home inspection scope, then issue a token. Choose **LAN / Streamable
-HTTP** when available. Copy the verified URL and generated HTTP configuration
+current Home inspection scope, then issue a token. Choose **LAN HTTPS / Streamable
+HTTP** when available, or deliberately select **Trusted LAN HTTP / unencrypted**
+after considering its warning. Copy the selected URL and generated HTTP configuration
 into protected user settings on the other LAN computer. The generated server
 entry uses `type: "http"`, `url` and `headers.Authorization: "Bearer …"`;
 Claude Code and VS Code accept this shape, with their respective outer

@@ -1,0 +1,31 @@
+# OPTIONAL UNENCRYPTED MCP: explicit administrator opt-in is required.
+# Render using the validated HTTP settings in docs/NATIVE-LAN-MCP.md.
+# This server block exposes only MCP, never the Web/admin application.
+server {
+    listen @PRIVATE_LAN_IPV4@:@HTTP_PORT@;
+    server_name @MCP_HOST@;
+
+    allow @AUTHORIZED_LAN_CIDR@;
+    deny all;
+    access_log off;
+    error_log /dev/null crit;
+    client_max_body_size 64k;
+
+    if ($http_host != "@MCP_AUTHORITY@") { return 421; }
+    location = /mcp {
+        if ($args != "") { return 400; }
+        proxy_pass http://127.0.0.1:@LOOPBACK_WEB_PORT@;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $http_host;
+        proxy_set_header Origin $http_origin;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header Cookie "";
+        proxy_hide_header Set-Cookie;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_buffering off;
+        proxy_read_timeout 120s;
+    }
+    location / { return 404; }
+}

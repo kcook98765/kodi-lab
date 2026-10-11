@@ -9,6 +9,7 @@ import socket
 import ssl
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -28,8 +29,10 @@ def is_private_lan_address(value: str) -> bool:
     return any(address in network for network in _PRIVATE_NETWORKS)
 
 
-def validate_lan_url(value: str | None) -> str | None:
-    """Accept an explicit HTTPS /mcp URL; never infer one from the Web URL."""
+def validate_lan_url(
+    value: str | None, *, scheme: Literal["https", "http"] = "https"
+) -> str | None:
+    """Accept one explicit /mcp URL; HTTP needs separately validated opt-in."""
     if value is None or value == "":
         return None
     try:
@@ -38,12 +41,12 @@ def validate_lan_url(value: str | None) -> str | None:
         host = parsed.hostname or ""
     except ValueError:
         raise ValueError(
-            "MCP LAN URL must be an explicit HTTPS /mcp endpoint"
+            f"MCP LAN URL must be an explicit {scheme.upper()} /mcp endpoint"
         ) from None
     if (
         len(value) > 512
         or any(ord(character) < 33 or ord(character) > 126 for character in value)
-        or parsed.scheme != "https"
+        or parsed.scheme != scheme
         or parsed.username is not None
         or parsed.password is not None
         or parsed.path != "/mcp"
@@ -55,7 +58,9 @@ def validate_lan_url(value: str | None) -> str | None:
         or parsed.netloc != host + (f":{port}" if port is not None else "")
         or (port is not None and not 1 <= port <= 65535)
     ):
-        raise ValueError("MCP LAN URL must be an explicit HTTPS /mcp endpoint")
+        raise ValueError(
+            f"MCP LAN URL must be an explicit {scheme.upper()} /mcp endpoint"
+        )
     try:
         ipaddress.ip_address(host)
     except ValueError:
@@ -72,6 +77,44 @@ def validate_lan_url(value: str | None) -> str | None:
     return value
 
 
+def validate_lan_http_configuration(
+    *,
+    enabled: bool,
+    url: str | None,
+    bind_address: str | None,
+    allowed_cidr: str | None,
+) -> None:
+    """Require deliberate HTTP opt-in, a concrete interface and a private ACL."""
+    if not enabled:
+        if url or bind_address or allowed_cidr:
+            raise ValueError(
+                "Trusted-LAN HTTP configuration requires explicit enablement"
+            )
+        return
+    if not url or not bind_address or not allowed_cidr:
+        raise ValueError("Trusted-LAN HTTP requires URL, bind address and allowed CIDR")
+    validate_lan_url(url, scheme="http")
+    if not is_private_lan_address(bind_address):
+        raise ValueError("Trusted-LAN HTTP bind must be a concrete private IPv4")
+    try:
+        network = ipaddress.IPv4Network(allowed_cidr, strict=True)
+    except ValueError:
+        raise ValueError("Trusted-LAN HTTP ACL must be a private IPv4 CIDR") from None
+    address = ipaddress.IPv4Address(bind_address)
+    if (
+        not any(network.subnet_of(parent) for parent in _PRIVATE_NETWORKS)
+        or address not in network
+        or (
+            address in (network.network_address, network.broadcast_address)
+            and network.prefixlen < 31
+        )
+    ):
+        raise ValueError("Trusted-LAN HTTP ACL must contain the private bind interface")
+    host = urlsplit(url).hostname or ""
+    if is_private_lan_address(host) and host != bind_address:
+        raise ValueError("Trusted-LAN HTTP URL must name the configured interface")
+
+
 @dataclass(frozen=True, slots=True)
 class McpLanStatus:
     url: str | None
@@ -80,34 +123,51 @@ class McpLanStatus:
 
 
 async def check_lan_endpoint(
-    url: str | None, *, instance_id: str, ca_file: Path | None = None
+    url: str | None,
+    *,
+    instance_id: str,
+    ca_file: Path | None = None,
+    trusted_http_bind: str | None = None,
 ) -> McpLanStatus:
-    """Verify TLS and this process's anonymous 401; never send a bearer token."""
+    """Check anonymous readiness; HTTP requires an explicit private interface."""
     if url is None:
         return McpLanStatus(
             None,
             False,
-            "Direct LAN MCP is not configured. An administrator must provide a "
-            "LAN-only HTTPS endpoint and a certificate trusted by your agent.",
+            "LAN HTTPS is not configured. To use HTTPS, an administrator must "
+            "provide a LAN-only endpoint and a certificate trusted by your agent.",
         )
     unavailable = McpLanStatus(
         url,
         False,
-        "The configured LAN endpoint could not be verified. Check the proxy, "
-        "private LAN DNS, certificate trust and firewall before connecting.",
+        (
+            "The configured HTTP endpoint could not be reached or matched to "
+            "this instance. Check the private interface, proxy, DNS, subnet ACL "
+            "and firewall before connecting."
+            if trusted_http_bind
+            else "The configured HTTPS endpoint could not be verified. Check the "
+            "proxy, private LAN DNS, certificate trust and firewall before connecting."
+        ),
     )
     parsed = urlsplit(url)
     try:
+        validate_lan_url(url, scheme="http" if trusted_http_bind else "https")
+        if trusted_http_bind and not is_private_lan_address(trusted_http_bind):
+            return unavailable
         async with asyncio.timeout(2):
             addresses = await asyncio.to_thread(
                 socket.getaddrinfo,
                 parsed.hostname,
-                parsed.port or 443,
+                parsed.port or (80 if trusted_http_bind else 443),
                 socket.AF_UNSPEC,
                 socket.SOCK_STREAM,
             )
             if not addresses or not all(
                 is_private_lan_address(str(address[4][0])) for address in addresses
+            ):
+                return unavailable
+            if trusted_http_bind and any(
+                str(address[4][0]) != trusted_http_bind for address in addresses
             ):
                 return unavailable
             tls = ssl.create_default_context(cafile=ca_file)
@@ -146,6 +206,11 @@ async def check_lan_endpoint(
     return McpLanStatus(
         url,
         True,
-        "HTTPS reached this Kodi Lab MCP server without a token. Your agent "
-        "must also be on an allowed LAN and trust this endpoint's certificate.",
+        (
+            "HTTP reached the configured interface without a token. This checks "
+            "reachability, not server identity or encryption."
+            if trusted_http_bind
+            else "HTTPS reached this Kodi Lab MCP server without a token. Your agent "
+            "must also be on an allowed LAN and trust this endpoint's certificate."
+        ),
     )

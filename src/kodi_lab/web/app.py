@@ -487,7 +487,7 @@ from kodi_lab.mcp.authorization import (
     InternalManagedTargetAuthorityProvider,
     McpAuthorizationService,
 )
-from kodi_lab.mcp.lan import check_lan_endpoint
+from kodi_lab.mcp.lan import McpLanStatus, check_lan_endpoint
 from kodi_lab.mcp.registry import build_mcp_tool_registry
 from kodi_lab.mcp.tools import McpTargetToolService
 from kodi_lab.mcp.transport import McpHttpTransport, build_mcp_http_transport
@@ -1817,13 +1817,23 @@ def create_app(
     mcp_promotion_requests = McpPromotionRequestService(
         session_factory, agent_workspace_promotions
     )
-    lan_endpoint = urlsplit(settings.mcp_lan_url) if settings.mcp_lan_url else None
-    lan_hosts = (
-        (lan_endpoint.netloc,)
-        + ((lan_endpoint.hostname or "",) if lan_endpoint.port == 443 else ())
-        if lan_endpoint
-        else ()
-    )
+    lan_endpoints = [
+        urlsplit(url)
+        for url in (
+            settings.mcp_lan_url,
+            settings.mcp_lan_http_url if settings.mcp_lan_http_enabled else None,
+        )
+        if url
+    ]
+    lan_authorities = [
+        (endpoint.scheme, authority)
+        for endpoint in lan_endpoints
+        for authority in (
+            (endpoint.netloc, endpoint.hostname or "")
+            if endpoint.port == (443 if endpoint.scheme == "https" else 80)
+            else (endpoint.netloc,)
+        )
+    ]
     mcp_transport = build_mcp_http_transport(
         authentication=McpAuthenticationService(session_factory),
         authorization=mcp_authorization,
@@ -1850,13 +1860,13 @@ def create_app(
             for host in (settings.web_host, *settings.web_allowed_hosts)
             for entry in (host, f"{host}:*")
         )
-        + lan_hosts,
+        + tuple(authority for _, authority in lan_authorities),
         additional_allowed_origins=tuple(
             entry
             for host in settings.web_allowed_hosts
             for entry in (f"http://{host}", f"http://{host}:*")
         )
-        + tuple(f"https://{host}" for host in lan_hosts),
+        + tuple(f"{scheme}://{authority}" for scheme, authority in lan_authorities),
     )
     instance_detail = ManagedInstanceDetailService(
         session_factory,
@@ -2090,7 +2100,7 @@ def create_app(
             settings.web_host,
             "localhost",
             *settings.web_allowed_hosts,
-            *([lan_endpoint.hostname or ""] if lan_endpoint else []),
+            *(endpoint.hostname or "" for endpoint in lan_endpoints),
         ],
     )
     app.add_middleware(_WorkspaceMutationBodyLimitMiddleware)
@@ -3069,6 +3079,20 @@ def create_app(
             instance_id=context.mcp_transport.instance_id,
             ca_file=settings.mcp_lan_ca_file,
         )
+        mcp_lan_http = (
+            await check_lan_endpoint(
+                settings.mcp_lan_http_url,
+                instance_id=context.mcp_transport.instance_id,
+                trusted_http_bind=settings.mcp_lan_http_bind_address,
+            )
+            if settings.mcp_lan_http_enabled
+            else McpLanStatus(
+                None,
+                False,
+                "Trusted LAN HTTP is disabled. An administrator must explicitly "
+                "enable it for a chosen private interface and trusted subnet.",
+            )
+        )
         agent_stdio_configuration = {
             "command": "kodi-lab-mcp-stdio",
             "args": [],
@@ -3099,6 +3123,7 @@ def create_app(
             {
                 "csrf_token": authenticated.csrf_token,
                 "mcp_lan": mcp_lan,
+                "mcp_lan_http": mcp_lan_http,
                 "agent_configuration": agent_configuration,
                 "agent_stdio_configuration": agent_stdio_configuration,
                 "agent_stdio_port": settings.web_port,

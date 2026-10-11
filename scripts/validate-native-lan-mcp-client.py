@@ -1,13 +1,14 @@
 """Disposable stdlib MCP client: JSON secrets enter via stdin, never argv/logs.
 
 Launch on an explicitly authorized second LAN host via SSH. SSH launches this
-process only; HTTPS requests go directly to the supplied Kodi Lab endpoint.
-The caller supplies isolated tokens and a test CA in memory. No files, packages,
-SSH configuration or persistent trust stores are changed on the client host.
+process only; HTTP(S) requests go directly to the supplied Kodi Lab endpoint.
+The caller supplies isolated tokens and an optional test CA in memory. No files,
+packages, SSH configuration or persistent trust stores change on the client host.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import pwd
@@ -29,10 +30,21 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def exercise(configuration: dict[str, Any]) -> dict[str, Any]:
     endpoint = configuration["endpoint"]
     parsed = urlsplit(endpoint)
-    if parsed.scheme != "https" or parsed.path != "/mcp" or parsed.query:
+    if parsed.scheme not in {"https", "http"} or parsed.path != "/mcp" or parsed.query:
         raise RuntimeError("invalid_test_endpoint")
+    if parsed.scheme == "http":
+        private = tuple(
+            ipaddress.ip_network(n)
+            for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+        )
+        address = ipaddress.ip_address(parsed.hostname or "")
+        if not configuration.get("trusted_lan_http") or not any(
+            address in n for n in private
+        ):
+            raise RuntimeError("http_test_requires_explicit_private_opt_in")
     context = ssl.create_default_context()
-    context.load_verify_locations(cadata=configuration["ca_pem"])
+    if parsed.scheme == "https":
+        context.load_verify_locations(cadata=configuration["ca_pem"])
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}),
         urllib.request.HTTPSHandler(context=context),
@@ -312,7 +324,7 @@ def exercise(configuration: dict[str, Any]) -> dict[str, Any]:
                 protocol=version,
             )
             for origin, expected in (
-                (f"https://{parsed.netloc}", 200),
+                (f"{parsed.scheme}://{parsed.netloc}", 200),
                 ("https://attacker.invalid", 403),
                 ("null", 403),
             ):
@@ -346,7 +358,8 @@ def exercise(configuration: dict[str, Any]) -> dict[str, Any]:
         status, _, _ = post({}, None, "2025-11-25", url=endpoint + "?token=fake-secret")
         expect(status == 400, "query_credentials_rejected")
     with socket.create_connection(
-        (parsed.hostname, parsed.port or 443), timeout=5
+        (parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)),
+        timeout=5,
     ) as connection:
         source_address = connection.getsockname()[0]
     return {
@@ -355,7 +368,8 @@ def exercise(configuration: dict[str, Any]) -> dict[str, Any]:
         "user": pwd.getpwuid(os.geteuid()).pw_name,
         "source_address": source_address,
         "destination": endpoint,
-        "tls_certificate_verified": True,
+        "tls_certificate_verified": parsed.scheme == "https",
+        "trusted_lan_http": parsed.scheme == "http",
         "ssh_forwarding": False,
         "adapter_installed": False,
         "checks": checks,

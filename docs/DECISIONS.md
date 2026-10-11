@@ -5978,3 +5978,23 @@ D-0413 resolves the provisional managed pairing-source assumption below.
 - See `docs/NATIVE-LAN-MCP.md` for certificate/configuration prerequisites and
   protocol/client limits. Qualification uses isolated state and synthetic Kodi
   adapters; real second-host acceptance requires separate retained evidence.
+
+## D-0420: Optional unencrypted MCP on an explicitly trusted private LAN
+
+- Local-only exposure remains the default. HTTPS settings and certificate
+  validation are unchanged. A separate HTTP enable flag requires a complete
+  exact `/mcp` URL, explicit RFC1918 IPv4 bind address and private subnet ACL.
+  Every DNS answer must equal that interface for anonymous readiness; the
+  connection is pinned to that address, without proxies, redirects or a token.
+- A separately installed MCP-only proxy uses that interface/subnet, preserves
+  bearer/Host/Origin headers, strips cookies, rejects queries and denies other
+  routes. Bootstrap settings do not start a listener or change publications.
+  HTTP and HTTPS reuse the same transport, identities, permissions and grants;
+  there is no migration or automatic authority expansion.
+- Agents distinguishes HTTPS, Trusted LAN HTTP and local/stdio. HTTP is never
+  selected automatically. Its warning explains plaintext token and traffic
+  interception, modification and replay. Marker readiness proves reachability,
+  not authenticated server identity. HTTPS remains preferred when available.
+- Setup and rollback are documented in `docs/NATIVE-LAN-MCP.md`. Qualification
+  uses disposable services/credentials and direct second-host requests. No
+  production activation or firewall/router change is part of this work.

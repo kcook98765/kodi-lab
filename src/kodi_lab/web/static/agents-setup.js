@@ -7,15 +7,23 @@
   const choices = [...document.querySelectorAll("[data-agent-transport]")];
   if (!button || !template || !status || !port || !choices.length) return;
   const lan = choices.find(choice => choice.value === "lan");
+  const http = choices.find(choice => choice.value === "lan-http");
   const title = document.querySelector("[data-agent-config-title]");
   const help = document.querySelector("[data-agent-config-help]");
   const tokenResult = document.querySelector("[data-token-result]");
   let token = "PASTE_NEW_TOKEN_HERE";
   let hasToken = false;
-  const lanSelected = () => lan.checked && !lan.disabled && Boolean(lan.dataset.endpoint);
+  const selectedLan = () => choices.find(choice => choice.checked && !choice.disabled && choice.dataset.endpoint);
+  const lanSelected = () => Boolean(selectedLan());
   const renderConfiguration = () => {
     const useLan = lanSelected();
-    document.querySelector("[data-agent-lan-help]").hidden = !useLan;
+    document.querySelector("[data-agent-lan-help]").hidden = selectedLan() !== lan;
+    const httpHelp = document.querySelector("[data-agent-http-help]");
+    if (httpHelp) httpHelp.hidden = selectedLan() !== http;
+    const httpsCopy = document.querySelector("[data-copy-agent-url]");
+    const httpCopy = document.querySelector("[data-copy-agent-http-url]");
+    if (httpsCopy) httpsCopy.hidden = selectedLan() !== lan;
+    if (httpCopy) httpCopy.hidden = selectedLan() !== http;
     document.querySelector("[data-agent-stdio-help]").hidden = useLan;
     button.disabled = !useLan && !port.checkValidity();
     if (button.disabled) {
@@ -24,7 +32,7 @@
       return;
     }
     const configuration = useLan
-      ? {type: "http", url: lan.dataset.endpoint, headers: {Authorization: `Bearer ${token}`}}
+      ? {type: "http", url: selectedLan().dataset.endpoint, headers: {Authorization: `Bearer ${token}`}}
       : {command: "kodi-lab-mcp-stdio", args: [], env: {
         KODI_LAB_MCP_TOKEN: token,
         KODI_LAB_MCP_URL: `http://127.0.0.1:${port.valueAsNumber}/mcp`
@@ -84,10 +92,17 @@
       : "Configuration template copied. Replace the token placeholder in your agent's protected settings.");
   });
   const urlButton = document.querySelector("[data-copy-agent-url]");
-  const urlText = document.querySelector("[data-agent-url]");
+  const urlText = document.getElementById("agent-endpoint");
   if (urlButton && urlText && !lan.disabled) {
     urlText.tabIndex = 0;
-    urlButton.hidden = false;
+    urlButton.hidden = selectedLan() !== lan;
     urlButton.addEventListener("click", () => copy(urlText, lan.dataset.endpoint, "MCP endpoint URL copied."));
+  }
+  const httpUrlButton = document.querySelector("[data-copy-agent-http-url]");
+  const httpUrlText = document.getElementById("agent-http-endpoint");
+  if (httpUrlButton && httpUrlText && http && !http.disabled) {
+    httpUrlText.tabIndex = 0;
+    httpUrlButton.hidden = selectedLan() !== http;
+    httpUrlButton.addEventListener("click", () => copy(httpUrlText, http.dataset.endpoint, "Unencrypted HTTP endpoint URL copied."));
   }
 })();

@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from kodi_lab.mcp.lan import validate_lan_url
+from kodi_lab.mcp.lan import validate_lan_http_configuration, validate_lan_url
 
 
 class Settings(BaseSettings):
@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     web_allowed_hosts: tuple[str, ...] = ()
     mcp_lan_url: str | None = None
     mcp_lan_ca_file: Path | None = None
+    mcp_lan_http_enabled: bool = False
+    mcp_lan_http_url: str | None = None
+    mcp_lan_http_bind_address: str | None = None
+    mcp_lan_http_allowed_cidr: str | None = None
     web_port: int = Field(default=8100, ge=1, le=65_535)
     web_session_cookie_name: Literal["kodi_lab_session"] = "kodi_lab_session"
     web_cookie_secure: Literal[False] = False
@@ -51,6 +55,26 @@ class Settings(BaseSettings):
     @classmethod
     def _approved_mcp_lan_url(cls, value: str | None) -> str | None:
         return validate_lan_url(value)
+
+    @field_validator("mcp_lan_http_url")
+    @classmethod
+    def _approved_mcp_lan_http_url(cls, value: str | None) -> str | None:
+        return validate_lan_url(value, scheme="http")
+
+    @field_validator("mcp_lan_http_bind_address", "mcp_lan_http_allowed_cidr")
+    @classmethod
+    def _empty_mcp_lan_http_setting(cls, value: str | None) -> str | None:
+        return value or None
+
+    @model_validator(mode="after")
+    def _approved_mcp_lan_http(self) -> "Settings":
+        validate_lan_http_configuration(
+            enabled=self.mcp_lan_http_enabled,
+            url=self.mcp_lan_http_url,
+            bind_address=self.mcp_lan_http_bind_address,
+            allowed_cidr=self.mcp_lan_http_allowed_cidr,
+        )
+        return self
 
     @field_validator("mcp_lan_ca_file", mode="before")
     @classmethod
