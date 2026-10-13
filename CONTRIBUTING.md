@@ -1,8 +1,36 @@
 # Contributing
 
-Read `docs/V1-SPEC.md` and the relevant decision records before changing
-architecture or host integration. Preserve the legacy lab boundary in
-`docs/LEGACY-LAB-BOUNDARY.md`.
+Home Kodi users, add-on developers and MCP agent users are welcome to contribute.
+Documentation fixes and small improvements do not require learning the whole
+architecture. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Bugs and feature requests
+
+Search [existing issues](https://github.com/kcook98765/kodi-lab/issues), then use
+the bug or feature form. For bugs, include your Kodi Lab version or commit,
+Kodi version, managed or external target type, host platform, reproduction steps,
+and expected and actual behavior. Add short sanitized logs when useful.
+For features, explain the problem, who benefits and any alternatives.
+
+Do not share passwords, tokens, pairing codes, Bridge credentials, private keys
+or database secrets. Review logs, screenshots and configuration for sensitive
+contents before posting. Suspected vulnerabilities belong in the
+[security reporting process](SECURITY.md), not a public bug report.
+
+## Pull requests
+
+Keep a pull request focused, explain the reason for the change and list the
+checks you ran. Mention affected Kodi versions and target types, plus relevant
+documentation or security implications. Discuss substantial features in an issue
+first; small fixes can go directly to a pull request.
+
+Start with [installation guidance](docs/LINUX-SOURCE-INSTALL.md) and the relevant
+[developer documentation](docs/PHASE12-MCP-DEVELOPMENT.md). For architecture or
+host integration changes, read [the specification](docs/V1-SPEC.md), relevant
+[decision records](docs/DECISIONS.md) and the
+[legacy lab boundary](docs/LEGACY-LAB-BOUNDARY.md).
+
+## Testing changes
 
 Install the locked development environment:
 

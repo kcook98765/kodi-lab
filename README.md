@@ -186,7 +186,8 @@ see [qualification notes](docs/RC1-TESTING-CHECKPOINT.md).
 - [Agent add-on development](docs/PHASE12-MCP-DEVELOPMENT.md)
 - [Screenshots and UI inspection](docs/UI-OBSERVATION.md)
 - [Backup, upgrade and rollback](docs/LINUX-V1-UPGRADE-ROLLBACK.md)
-- [Contributing](CONTRIBUTING.md)
+- [Contributing](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security reporting](SECURITY.md) and [accessibility](ACCESSIBILITY.md)
 
 Agents act only on targets and permissions you grant. Web and Kodi containers
 do not receive the Docker socket; the broker manages container lifecycle.

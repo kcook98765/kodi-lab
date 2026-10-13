@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an improvement for Kodi Lab users or developers.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What task is difficult or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the outcome you would like.
+    validations:
+      required: true
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who would benefit?
+      multiple: true
+      options:
+        - Home Kodi users
+        - Kodi add-on developers
+        - MCP / AI agent users
+        - Kodi Lab administrators
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing workarounds or other approaches, if any.

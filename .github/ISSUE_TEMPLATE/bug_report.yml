@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a Kodi Lab problem or accessibility barrier.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Share only sanitized logs and examples.
+        Do not post passwords, tokens, pairing codes, private keys or vulnerability details.
+        For suspected vulnerabilities, visit [Security Advisories](https://github.com/kcook98765/kodi-lab/security/advisories).
+        If private reporting is unavailable, request a private security contact without disclosing details.
+  - type: input
+    id: kodi-lab-version
+    attributes:
+      label: Kodi Lab version or commit
+      description: Include the installed version or Git commit; say unknown if unsure.
+    validations:
+      required: true
+  - type: input
+    id: kodi-version
+    attributes:
+      label: Kodi version
+      description: Include the full version and release channel, if known.
+  - type: dropdown
+    id: target-type
+    attributes:
+      label: Kodi target
+      options:
+        - Managed Kodi instance
+        - Existing / external Kodi
+        - No Kodi target involved
+        - Not sure
+  - type: textarea
+    id: platform
+    attributes:
+      label: Platform and client
+      description: Host OS/architecture and relevant browser or MCP client versions.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Explain what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or diagnostics
+      description: Optional short excerpts. Remove secrets and private information before sharing.
+      render: text
