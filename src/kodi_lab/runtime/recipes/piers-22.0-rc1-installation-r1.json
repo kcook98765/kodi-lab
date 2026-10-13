@@ -1,0 +1,85 @@
+{
+  "schema_version": 3,
+  "recipe_id": "piers-22.0-rc1-r1",
+  "recipe_revision": 1,
+  "generation": "piers",
+  "display_generation": "Kodi 22 Piers RC1 (Development Preview)",
+  "kodi_version": "22.0-rc.1",
+  "platform": "linux/amd64",
+  "definition_id": "080f7ace-9a0c-5b95-be80-5867b230f710",
+  "definition_slug": "kodi-22.0-rc1",
+  "base_image_reference": "ubuntu:26.04@sha256:e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+  "base_image_digest": "sha256:e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+  "provider": {
+    "type": "flathub_ostree",
+    "architecture": "x86_64",
+    "primary_key_fingerprint": "6E5C05D979C76DAF93C081354184DD4D907A7CAE",
+    "signing_subkey_fingerprint": "54A6CDDD8919FB204200D8AC562702E9E3ED7EE8",
+    "key_sha256": "8bdc20abc4e19c0796460beb5bfe0e7aa4138716999e19c6f2dbdd78cc41aeaa",
+    "verification_policy": "ostree-gpg-pinned-closure-v1",
+    "components": [
+      {
+        "role": "app",
+        "repository_url": "https://dl.flathub.org/beta-repo/",
+        "ref": "app/tv.kodi.Kodi/x86_64/beta",
+        "commit": "0a381e42781914ae76ed338d3aa11f9403c55c57f5c9c194e1f4fb437cf71630",
+        "collection": "org.flathub.Beta",
+        "metadata_sha256": "d22840d60457caa455f01a90a9262d8f699d333ea13ed47b5a82f04af41dd0f6"
+      },
+      {
+        "role": "platform",
+        "repository_url": "https://dl.flathub.org/repo/",
+        "ref": "runtime/org.freedesktop.Platform/x86_64/26.08",
+        "commit": "92659297ffdb4f9f14dd1562bd919b48160b0dc42c99653dcfc0688096af41df",
+        "collection": "org.flathub.Stable",
+        "metadata_sha256": "0ab22b227c5658600cb197ea0463e6735355d0adcd92303ba7d89c6a367758fc"
+      },
+      {
+        "role": "gl",
+        "repository_url": "https://dl.flathub.org/repo/",
+        "ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/26.08",
+        "commit": "badc1097c419e73781cf098413ffa8e7bf7db3528572c11712265b9193921842",
+        "collection": "org.flathub.Stable",
+        "metadata_sha256": "8802a8c0a93df4c521a62b9be924574c2c40bc8c03e48075387c795d308d781b"
+      }
+    ]
+  },
+  "critical_packages": [],
+  "support_packages": [],
+  "asset_hashes": {
+    "Dockerfile": "sha256:d7a09140a19cc1aba5490b368838050bfa6aae53f6f799d83ecc488ef4ef85f5",
+    "guisettings.xml": "sha256:58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8",
+    "healthcheck.py": "sha256:c9b9cd117b7e530813dd873a58f6e5aa6c3100b93083466caa9780f0e21e3835",
+    "launcher.sh": "sha256:f4cba80ab1a48b348f61c2faa756a81755199df32f6707fdf0283c4783b5550a",
+    "profile_init.py": "sha256:486cf5c2130415028960bac3731082935efaae29667625ed48a271769b8e40b0",
+    "supervisor.py": "sha256:d61525f4aae165e366aa8de302a8fffcd3dc2fca96f8b1ad6d27fa2fb639e187",
+    "xrandr.sh": "sha256:a8e94f4bce5467d99e5eefb565f0dfb8a661e3a015c484c9e0bca930795ad12d",
+    "xvfb_guard.py": "sha256:7e7c4a7874567586a4344e948ef32830d2ed3a34072d6e0cfb7a86e8515afc98"
+  },
+  "execution_profile": {
+    "runtime_kind": "kodi",
+    "runtime_uid": 1000,
+    "runtime_gid": 1000,
+    "python_bytecode_policy": "suppress",
+    "expected_application_name": "Kodi",
+    "expected_kodi_version": "22.0",
+    "expected_version_tag": "rc",
+    "expected_prerelease_ordinal": 1,
+    "jsonrpc_port": 8080,
+    "jsonrpc_path": "/jsonrpc",
+    "process_observation": "docker_healthcheck",
+    "readiness_probe": "kodi_jsonrpc",
+    "readiness_timeout_seconds": 120,
+    "poll_interval_seconds": 1.0,
+    "http_timeout_seconds": 3.0
+  },
+  "validation_contract": "kodi-runtime-v1",
+  "source_references": [
+    "https://kodi.tv/article/kodi-22-piers-rc-1/",
+    "https://github.com/flathub/tv.kodi.Kodi/tree/beta"
+  ],
+  "license_references": [
+    "https://kodi.wiki/view/License",
+    "https://flathub.org/apps/tv.kodi.Kodi"
+  ]
+}

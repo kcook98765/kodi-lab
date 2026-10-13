@@ -1,0 +1,50 @@
+{
+  "schema_version": 2,
+  "recipe_id": "piers-22.0-rc1-r1",
+  "recipe_revision": 1,
+  "generation": "piers",
+  "kodi_version": "22.0-rc.1",
+  "kodi_source_revision": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+  "platform": "linux/amd64",
+  "support_tier": "preview",
+  "development_only": true,
+  "acquisition_trigger": "explicit-user-install",
+  "installation_status": "inactive",
+  "support_dependencies_status": "unqualified",
+  "image_assets_status": "unqualified",
+  "validation_status": "unqualified",
+  "provider": {
+    "type": "flathub_ostree",
+    "architecture": "x86_64",
+    "primary_key_fingerprint": "6E5C05D979C76DAF93C081354184DD4D907A7CAE",
+    "signing_subkey_fingerprint": "54A6CDDD8919FB204200D8AC562702E9E3ED7EE8",
+    "key_sha256": "8bdc20abc4e19c0796460beb5bfe0e7aa4138716999e19c6f2dbdd78cc41aeaa",
+    "verification_policy": "ostree-gpg-pinned-closure-v1",
+    "components": [
+      {
+        "role": "app",
+        "repository_url": "https://dl.flathub.org/beta-repo/",
+        "ref": "app/tv.kodi.Kodi/x86_64/beta",
+        "commit": "0a381e42781914ae76ed338d3aa11f9403c55c57f5c9c194e1f4fb437cf71630",
+        "collection": "org.flathub.Beta",
+        "metadata_sha256": "d22840d60457caa455f01a90a9262d8f699d333ea13ed47b5a82f04af41dd0f6"
+      },
+      {
+        "role": "platform",
+        "repository_url": "https://dl.flathub.org/repo/",
+        "ref": "runtime/org.freedesktop.Platform/x86_64/26.08",
+        "commit": "92659297ffdb4f9f14dd1562bd919b48160b0dc42c99653dcfc0688096af41df",
+        "collection": "org.flathub.Stable",
+        "metadata_sha256": "0ab22b227c5658600cb197ea0463e6735355d0adcd92303ba7d89c6a367758fc"
+      },
+      {
+        "role": "gl",
+        "repository_url": "https://dl.flathub.org/repo/",
+        "ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/26.08",
+        "commit": "badc1097c419e73781cf098413ffa8e7bf7db3528572c11712265b9193921842",
+        "collection": "org.flathub.Stable",
+        "metadata_sha256": "8802a8c0a93df4c521a62b9be924574c2c40bc8c03e48075387c795d308d781b"
+      }
+    ]
+  }
+}

@@ -8,12 +8,27 @@ The stable Linux amd64 V1 release set is Matrix 19.4, Nexus 20.5, and Omega
 remains private compatibility evidence, not the installable V1 set. Windows,
 macOS, and ARM64/Apple Silicon host support are post-V1. The local `1.0.0rc1`
 candidate is a prerelease and has not been published.
+For an independent Linux installation from GitHub, follow the
+[clean-clone installation guide](docs/LINUX-SOURCE-INSTALL.md).
 For a source checkout, use the [development setup](CONTRIBUTING.md) and the
 [remote-Web Compose startup](docs/REMOTE-MODE-CONTAINER.md#build-and-initialize)
 to connect to existing Kodi targets. For managed V1, start from a clean committed
 checkout and [stage a local bundle](docs/LINUX-V1-INSTALL.md#candidate-staging),
 then follow the [Linux amd64 installation guide](docs/LINUX-V1-INSTALL.md) to
 acquire Matrix 19.4, Nexus 20.5, or Omega 21.3 through reviewed recipes.
+
+Kodi 22 **Piers RC1 (22.0-rc.1)** is an additional Linux amd64 **Preview**
+runtime in Development mode. Kodi Lab ships no Kodi executables: the user
+selects Install, acknowledges the exact prerelease, and Kodi Lab downloads and
+verifies pinned upstream Flathub artifacts, builds the image locally and validates
+it automatically. Stable 19/20/21 choices remain available. Additional managed
+instances reuse the installed image. Installation continues after navigation or
+browser closure, and its page updates automatically.
+
+Initial installation has a provisional **5–15 minute** estimate, supported by two
+cold installations measured at **8m10.45s** and **9m3.02s**. These are observations,
+not a guaranteed duration. Duration depends on download, storage and
+host performance. See [the RC1 workflow](docs/RC1-WEB-WORKFLOW.md).
 
 Web administration controls credentials, target registration, grants, and
 infrastructure. The restricted broker exposes only bounded operations on owned

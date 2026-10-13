@@ -43,9 +43,10 @@ def test_prerelease_ordinals_and_channels_are_distinct() -> None:
         KodiReleaseIdentity.parse("22.0-beta.1"),
         KodiReleaseIdentity.parse("22.0-beta.2"),
         KodiReleaseIdentity.parse("22.0-rc.1"),
+        KodiReleaseIdentity.parse("22.0-rc.2"),
         KodiReleaseIdentity.parse("22.0"),
     }
-    assert len(identities) == 4
+    assert len(identities) == 5
 
 
 @pytest.mark.parametrize(
@@ -58,6 +59,11 @@ def test_prerelease_ordinals_and_channels_are_distinct() -> None:
         "22.0-beta",
         "22.0-beta.0",
         "22.0-beta.01",
+        "22.0-rc",
+        "22.0-rc.0",
+        "22.0-rc.-1",
+        "22.0-rc.01",
+        "22.0-releasecandidate.1",
         "22.0-Beta.2",
         "22.0-nightly.1",
         "0.1",
@@ -68,9 +74,12 @@ def test_malformed_release_identity_is_rejected(value: str) -> None:
         KodiReleaseIdentity.parse(value)
 
 
-def test_channel_and_support_tier_are_independent_but_consistent() -> None:
+@pytest.mark.parametrize("prerelease_text", ["22.0-beta.2", "22.0-rc.1"])
+def test_channel_and_support_tier_are_independent_but_consistent(
+    prerelease_text: str,
+) -> None:
     stable = KodiReleaseIdentity.parse("21.3")
-    prerelease = KodiReleaseIdentity.parse("22.0-beta.2")
+    prerelease = KodiReleaseIdentity.parse(prerelease_text)
     for tier in (
         RuntimeSupportTier.CURRENT,
         RuntimeSupportTier.LEGACY,
@@ -82,6 +91,10 @@ def test_channel_and_support_tier_are_independent_but_consistent() -> None:
         validate_support_tier_for_release(stable, RuntimeSupportTier.PREVIEW)
     with pytest.raises(ValueError):
         validate_support_tier_for_release(prerelease, RuntimeSupportTier.CURRENT)
+    with pytest.raises(ValueError):
+        validate_support_transition(
+            prerelease, RuntimeSupportTier.PREVIEW, RuntimeSupportTier.CURRENT
+        )
 
 
 def test_support_transitions_are_monotonic_and_retired_is_terminal() -> None:

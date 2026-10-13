@@ -194,6 +194,8 @@ def test_ready_noop_missing_image_and_no_silent_repin(
         id=str(operation_id),
         generation="nexus",
         state=RuntimeRecipeInstallationState.READY,
+        created_at="2026-09-27T23:50:00.000000Z",
+        updated_at="2026-09-28T00:00:00.000000Z",
         completed_at="2026-09-28T00:00:00.000000Z",
         runtime_revision_id=str(revision_id),
         image_id="sha256:" + "a" * 64,
@@ -206,6 +208,9 @@ def test_ready_noop_missing_image_and_no_silent_repin(
     )
     ready = service.start("nexus")
     assert ready.status == "ready" and ready.action == "open"
+    assert ready.created_at == row.created_at
+    assert ready.phase_started_at == row.updated_at
+    assert ready.completed_at == row.completed_at
     assert ready.managed_instance_url.startswith("/instances/")  # type: ignore[union-attr]
     assert not broker.launches
     broker.image_present = False

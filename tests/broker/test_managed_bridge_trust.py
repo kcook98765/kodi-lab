@@ -30,11 +30,13 @@ from tests.web.conftest import database as database
 @pytest.mark.parametrize("extra", ["secret", "program", "path", "otp", "bridge_id"])
 def test_no_caller_secret_or_arbitrary_execution(extra: str) -> None:
     with pytest.raises(ValidationError):
-        EstablishManagedBridgeTrustParams(
-            managed_instance_id=str(INSTANCE_ID),
-            expected_container_id="a" * 64,
-            generation=1,
-            **{extra: "anything"},
+        EstablishManagedBridgeTrustParams.model_validate(
+            {
+                "managed_instance_id": str(INSTANCE_ID),
+                "expected_container_id": "a" * 64,
+                "generation": 1,
+                extra: "anything",
+            }
         )
 
 
@@ -42,6 +44,16 @@ def test_manifest_matches_packaged_approved_bridge() -> None:
     root = Path(__file__).parents[2] / "bridge/service.kodi_lab_bridge"
     for name, digest in approved_bridge_build()["files"].items():
         assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest
+
+
+def test_stable_bridge_approval_is_not_replaced_by_preview() -> None:
+    legacy = approved_bridge_build()
+    assert legacy["addon_version"] == "1.1.15"
+    assert legacy["build_fingerprint"] == (
+        "b125a428b12cb48b3a93d2c9009478803b7bd65c85b2fdc632e0b644f2abc4c2"
+    )
+    assert approved_bridge_build("21.3") == legacy
+    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.16"
 
 
 @pytest.mark.parametrize(

@@ -9,8 +9,27 @@
     installation_busy: "Another runtime installation is in progress. Wait for it to finish, then try again.",
     installation_action_conflict: "Runtime status changed. Review the refreshed action before trying again.",
     installation_unavailable: "The installation broker is unavailable or cannot safely perform this action. Check the status below and broker diagnostics.",
+    exact_preview_acknowledgement_required: "Acknowledge this exact Kodi 22 RC1 prerelease before continuing. Refresh the page if its reviewed recipe changed.",
+    development_mode_required: "Switch to Development mode to install this prerelease runtime.",
   };
   let submitting = false;
+  let refreshing = false;
+  let timer;
+  let retryDelay = 3000;
+  const busyStates = ["pending", "acquiring", "assembling", "validating"];
+  function schedule() {
+    clearTimeout(timer);
+    if (document.hidden) return;
+    const busy = [...root.querySelectorAll("[data-generation]")].some(card => busyStates.includes(card.dataset.state));
+    timer = setTimeout(poll, Math.max(retryDelay, busy ? 3000 : 30000));
+  }
+  async function poll() {
+    if (submitting || refreshing) { schedule(); return; }
+    refreshing = true;
+    try { await refresh(); retryDelay = 3000; }
+    catch (error) { showError(error.message); retryDelay = Math.min(retryDelay * 2, 60000); }
+    finally { refreshing = false; schedule(); }
+  }
   function showError(message) {
     errorBox.textContent = message;
     errorBox.hidden = !message;
@@ -20,6 +39,10 @@
     const card = root.querySelector(`[data-generation="${item.generation}"]`);
     if (!card) return;
     card.dataset.state = item.status;
+    const progress = card.querySelector("[data-install-progress]");
+    const duration = card.querySelector("[data-install-duration]");
+    if (progress) progress.hidden = !busyStates.includes(item.status);
+    if (duration) duration.hidden = busyStates.includes(item.status) || item.status === "ready";
     const phase = card.querySelector(".runtime-install-phase");
     if (phase.textContent !== item.phase) phase.textContent = item.phase;
     card.querySelector(".runtime-install-message").textContent = item.failure_message || "";
@@ -40,11 +63,11 @@
       link.href = item.managed_instance_url;
       link.textContent = "View existing pinned instance";
       actions.append(link);
-    } else if (["install", "retry", "reacquire"].includes(item.action)) {
+    } else if (["install", "retry", "reacquire", "create"].includes(item.action)) {
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.installAction = item.action;
-      button.textContent = item.action[0].toUpperCase() + item.action.slice(1);
+      button.textContent = item.action === "create" ? "Create managed instance" : item.action[0].toUpperCase() + item.action.slice(1);
       actions.append(button);
     }
     if (restoreFocus) {
@@ -69,13 +92,19 @@
     const button = event.target.closest("button[data-install-action]");
     if (!button || submitting) return;
     const card = button.closest("[data-generation]");
+    const acknowledgement = card.querySelector("[data-preview-acknowledgement]");
+    if (acknowledgement && !acknowledgement.checked) {
+      showError("Acknowledge that Kodi 22 RC1 is prerelease development software before continuing.");
+      acknowledgement.focus();
+      return;
+    }
     submitting = true;
     button.disabled = true;
     showError("");
     try {
       const response = await fetch(
-        `/api/runtime-installations/${card.dataset.generation}?action=${button.dataset.installAction}`,
-        { method: "POST", credentials: "same-origin", headers: { "X-Kodi-Lab-CSRF": token } },
+        button.dataset.installAction === "create" ? `/api/runtime-installations/${card.dataset.generation}/instances` : `/api/runtime-installations/${card.dataset.generation}?action=${button.dataset.installAction}`,
+        { method: "POST", credentials: "same-origin", headers: { "X-Kodi-Lab-CSRF": token, ...(acknowledgement ? {"Content-Type": "application/json"} : {}) }, ...(acknowledgement ? {body: acknowledgement.dataset.scope} : {}) },
       );
       if (response.ok) render(await response.json());
       else {
@@ -89,8 +118,13 @@
     } finally {
       submitting = false;
       button.disabled = false;
+      schedule();
     }
   });
 
-  setInterval(() => { if (!submitting) refresh().catch(error => showError(error.message)); }, 3000);
+  document.addEventListener("visibilitychange", () => {
+    clearTimeout(timer);
+    if (!document.hidden) poll();
+  });
+  poll();
 })();

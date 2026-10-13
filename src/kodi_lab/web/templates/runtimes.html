@@ -16,12 +16,22 @@
         <section class="runtime-install-card" data-generation="{{ item.generation }}" data-state="{{ item.status }}">
           <h2>{{ item.display_name }}</h2>
           <p class="secondary">{{ item.version }}</p>
+          {% if item.preview_acknowledgement %}
+          <p class="notice">Preview / Prerelease · Development</p>
+          <p>Linux amd64 · Verified upstream Flathub binary · On-demand installation</p>
+          <p class="secondary">Stock TagLib has a known Matroska metadata limitation.</p>
+          <p class="secondary" data-install-duration{% if item.status in ('pending', 'acquiring', 'assembling', 'validating', 'ready') %} hidden{% endif %}>Initial runtime installation usually takes several minutes. Estimated time: 5–15 minutes, a provisional estimate supported by two cold-installation measurements. Kodi Lab downloads, verifies, builds and validates the runtime.</p>
+          <p class="secondary" data-install-progress{% if item.status not in ('pending', 'acquiring', 'assembling', 'validating') %} hidden{% endif %}>Installation is in progress. This page updates automatically. You can leave and return later; installation continues even if you close the browser.</p>
+          <p class="secondary">Additional managed instances use the installed runtime image; Kodi is not downloaded again.</p>
+          <label><input type="checkbox" data-preview-acknowledgement data-scope='{{ item.preview_acknowledgement|tojson }}'> I understand Kodi 22 RC1 is prerelease development software.</label>
+          {% endif %}
           <p class="runtime-install-phase" aria-live="polite">{{ item.phase }}</p>
           <p class="runtime-install-message">{{ item.failure_message or '' }}</p>
           <p class="runtime-install-note">{{ item.note or '' }}</p>
           <div class="runtime-install-action">
             {% if item.action == 'open' %}<a href="{{ item.managed_instance_url }}">Open managed instance</a>
             {% elif item.action in ('install', 'retry', 'reacquire') %}<button type="button" data-install-action="{{ item.action }}">{{ item.action|capitalize }}</button>{% endif %}
+            {% if item.action == 'create' %}<button type="button" data-install-action="create">Create managed instance</button>{% endif %}
             {% if item.managed_instance_url and item.action != 'open' %}<a href="{{ item.managed_instance_url }}">View existing pinned instance</a>{% endif %}
           </div>
           {% if item.technical_details %}

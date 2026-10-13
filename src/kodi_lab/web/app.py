@@ -499,6 +499,7 @@ from kodi_lab.repository.development import (
 )
 from kodi_lab.repository.stable import REPOSITORY_ID, REPOSITORY_VERSION, load_current
 from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
+from kodi_lab.runtime.preview import PreviewAcknowledgement
 from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
     McpWorkspaceDeploymentOperationRow,
@@ -3312,22 +3313,42 @@ def create_app(
             include_legacy=_selection_bool(include_legacy),
             include_prerelease=_selection_bool(include_prerelease),
         )
+        if request.cookies.get(ADMIN_VIEW_COOKIE) != "development":
+            matrix = matrix.model_copy(
+                update={
+                    "runtimes": [
+                        entry
+                        for entry in matrix.runtimes
+                        if entry.canonical_release != "22.0-rc.1"
+                    ]
+                }
+            )
         return templates.TemplateResponse(
             request,
             "runtimes.html",
             {
                 "matrix": matrix,
-                "installations": runtime_installations.list(),
+                "installations": runtime_installations.list(
+                    include_preview=request.cookies.get(ADMIN_VIEW_COOKIE)
+                    == "development"
+                ),
                 "csrf_token": authenticated.csrf_token,
             },
         )
 
     @app.get("/api/runtime-installations")
     def list_runtime_installations(
+        request: Request,
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> dict[str, object]:
         return {
-            "installations": [asdict(item) for item in runtime_installations.list()]
+            "installations": [
+                asdict(item)
+                for item in runtime_installations.list(
+                    include_preview=request.cookies.get(ADMIN_VIEW_COOKIE)
+                    == "development"
+                )
+            ]
         }
 
     @app.get("/api/runtime-installations/{operation_id}")
@@ -3352,15 +3373,35 @@ def create_app(
         action: Literal["install", "retry", "reacquire"] = "install",
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> JSONResponse:
-        if generation not in REVIEWED_INSTALL_GENERATIONS:
+        if generation not in (*REVIEWED_INSTALL_GENERATIONS, "piers"):
             raise HTTPException(status_code=404, detail="generation_not_supported")
-        if await request.body():
+        if generation == "piers":
+            from pydantic import ValidationError
+
+            if request.cookies.get(ADMIN_VIEW_COOKIE) != "development":
+                raise HTTPException(status_code=404, detail="generation_not_supported")
+            try:
+                acknowledgement = PreviewAcknowledgement.model_validate(
+                    await request.json()
+                )
+            except (ValueError, ValidationError):
+                raise HTTPException(
+                    status_code=422, detail="exact_preview_acknowledgement_required"
+                ) from None
+        elif await request.body():
             raise HTTPException(status_code=400, detail="request_body_must_be_empty")
         try:
-            item = runtime_installations.start(
-                generation,
-                action=action,
-            )
+            if generation == "piers":
+                result = runtime_installations.start_preview(
+                    development_mode=True,
+                    acknowledgement=acknowledgement,
+                    action=action,
+                )
+                item = runtime_installations.get(UUID(result.operation_id))
+                if item is None:
+                    raise RuntimeInstallationUnavailable
+            else:
+                item = runtime_installations.start(generation, action=action)
         except RuntimeInstallationBusy as error:
             raise HTTPException(status_code=409, detail="installation_busy") from error
         except RuntimeInstallationActionConflict as error:
@@ -3372,6 +3413,29 @@ def create_app(
                 status_code=503, detail="installation_unavailable"
             ) from error
         return JSONResponse(asdict(item), status_code=202)
+
+    @app.post("/api/runtime-installations/piers/instances")
+    def create_preview_managed_instance(
+        request: Request,
+        acknowledgement: PreviewAcknowledgement,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, object]:
+        if request.cookies.get(ADMIN_VIEW_COOKIE) != "development":
+            raise HTTPException(status_code=403, detail="development_mode_required")
+        try:
+            return asdict(
+                runtime_installations.create_preview_instance(
+                    development_mode=True, acknowledgement=acknowledgement
+                )
+            )
+        except RuntimeInstallationActionConflict:
+            raise HTTPException(
+                status_code=409, detail="installation_action_conflict"
+            ) from None
+        except RuntimeInstallationUnavailable:
+            raise HTTPException(
+                status_code=503, detail="installation_unavailable"
+            ) from None
 
     @app.get("/development-sources", response_class=HTMLResponse)
     async def development_source_list_page(request: Request) -> Response:
@@ -5360,6 +5424,18 @@ def create_app(
     ) -> list[ManagedRuntimeStatus]:
         return context.status.list_statuses()
 
+    @app.get("/api/instances/{instance_id}/ui-state")
+    def inspect_managed_ui_state(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> dict[str, object]:
+        from kodi_lab.kodi.ui_state_native import UiObservationError
+
+        try:
+            return managed_ui_state.inspect(instance_id).model_dump(mode="json")
+        except UiObservationError as error:
+            raise HTTPException(status_code=503, detail=error.code) from error
+
     @app.get("/api/development-sources", response_model=list[DevelopmentSourceSummary])
     def list_development_sources(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
@@ -6694,6 +6770,34 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ManagedRuntimeStatus:
         return context.lifecycle.provision(instance_id)
+
+    @app.get("/api/instances/{instance_id}/reviewed-bridge")
+    def reviewed_managed_bridge_status(
+        instance_id: UUID,
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> dict[str, str | int | None]:
+        from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
+
+        try:
+            return context.managed_bridge_trust.status(instance_id)
+        except ManagedBridgeTrustError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post(
+        "/api/instances/{instance_id}/reviewed-bridge",
+        response_model=ManagedRuntimeStatus,
+    )
+    def install_reviewed_managed_bridge(
+        instance_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ManagedRuntimeStatus:
+        from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustError
+
+        try:
+            return context.lifecycle.install_reviewed_bridge(instance_id)
+        except ManagedBridgeTrustError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/instances/{instance_id}/start", response_model=ManagedRuntimeStatus)
     def start(

@@ -53,6 +53,17 @@ packages = ["src/kodi_lab"]
 # One migration tree serves source checkouts and installed artifacts.
 [tool.hatch.build.targets.wheel.force-include]
 "migrations" = "kodi_lab/migrations"
+"THIRD_PARTY_NOTICES.md" = "kodi_lab/THIRD_PARTY_NOTICES.md"
+"bridge/service.kodi_lab_bridge/LICENSE" = "kodi_lab/kodi/bridge_source/LICENSE"
+"bridge/service.kodi_lab_bridge/README.md" = "kodi_lab/kodi/bridge_source/README.md"
+"bridge/service.kodi_lab_bridge/addon.xml" = "kodi_lab/kodi/bridge_source/addon.xml"
+"bridge/service.kodi_lab_bridge/narrow_bridge.py" = "kodi_lab/kodi/bridge_source/narrow_bridge.py"
+"bridge/service.kodi_lab_bridge/ui_observation.py" = "kodi_lab/kodi/bridge_source/ui_observation.py"
+"bridge/service.kodi_lab_bridge/onboarding.py" = "kodi_lab/kodi/bridge_source/onboarding.py"
+"bridge/service.kodi_lab_bridge/pairing_ui.py" = "kodi_lab/kodi/bridge_source/pairing_ui.py"
+"bridge/service.kodi_lab_bridge/resources/language/resource.language.en_gb/strings.po" = "kodi_lab/kodi/bridge_source/resources/language/resource.language.en_gb/strings.po"
+"bridge/service.kodi_lab_bridge/resources/settings.xml" = "kodi_lab/kodi/bridge_source/resources/settings.xml"
+"bridge/service.kodi_lab_bridge/service.py" = "kodi_lab/kodi/bridge_source/service.py"
 
 [tool.hatch.build]
 artifacts = [

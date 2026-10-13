@@ -438,9 +438,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     install_command = commands.add_parser(
         "install", help="acquire, assemble, validate, and register one generation"
     )
-    from kodi_lab.runtime.recipes import supported_generations
+    from kodi_lab.runtime.recipes import installation_generations
 
-    install_command.add_argument("generation", choices=supported_generations())
+    install_command.add_argument("generation", choices=installation_generations())
     install_command.add_argument("--operation-id", type=UUID, default=None)
     commands.add_parser("verify", help="verify all exact local Docker images")
     load_command = commands.add_parser("load", help="verify and load one archive")
@@ -481,6 +481,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
             settings = Settings(_env_file=None)  # type: ignore[call-arg]
+            import signal
+
+            previous_handler = None
+            if arguments.generation == "piers":
+
+                def cancel(_signum: int, _frame: object) -> None:
+                    raise RecipeInstallationError("installation cancelled")
+
+                previous_handler = signal.signal(signal.SIGTERM, cancel)
             try:
                 installed = install_reviewed_runtime(
                     arguments.generation,
@@ -492,6 +501,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             except RecipeInstallationError as error:
                 parser.error(str(error))
+            finally:
+                if previous_handler is not None:
+                    signal.signal(signal.SIGTERM, previous_handler)
             print(
                 f"{arguments.generation}: revision={installed.runtime_revision_id} "
                 f"image={installed.image_id} reused={installed.reused}"

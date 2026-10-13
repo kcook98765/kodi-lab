@@ -137,7 +137,9 @@ def test_runtime_actions_work_in_both_views(
     csrf = login(client)
     initial = client.get("/api/runtime-installations").json()
     client.cookies.set(ADMIN_VIEW_COOKIE, "development")
-    assert client.get("/api/runtime-installations").json() == initial
+    development = client.get("/api/runtime-installations").json()["installations"]
+    assert development[:-1] == initial["installations"]
+    assert development[-1]["generation"] == "piers"
     client.cookies.set(ADMIN_VIEW_COOKIE, "standard")
     accepted = client.post(
         "/api/runtime-installations/matrix", headers={**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
@@ -188,6 +190,7 @@ def test_export_isolated_browser_fixtures(
         "install",
         "install",
         "open",
+        "install",
     ]
     if destination := os.getenv("KODI_ADMIN_VIEW_EVIDENCE"):
         root = Path(destination)

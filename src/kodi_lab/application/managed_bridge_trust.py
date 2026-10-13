@@ -43,15 +43,18 @@ class ManagedBridgeTrustError(RuntimeError):
 
 
 def identity_json(identity: BridgeIdentity) -> str:
+    value = {**asdict(identity), "bridge_id": str(identity.bridge_id)}
+    if identity.kodi_release is None:
+        value.pop("kodi_release")
     return json.dumps(
-        {**asdict(identity), "bridge_id": str(identity.bridge_id)},
+        value,
         sort_keys=True,
         separators=(",", ":"),
     )
 
 
 def require_approved_identity(identity: BridgeIdentity, kodi_version: str) -> None:
-    approved = approved_bridge_build()
+    approved = approved_bridge_build(kodi_version)
     if (
         any(
             getattr(identity, field) != approved[field]
@@ -62,7 +65,8 @@ def require_approved_identity(identity: BridgeIdentity, kodi_version: str) -> No
                 "build_fingerprint",
             )
         )
-        or identity.kodi_version != kodi_version
+        or ("-" in kodi_version and identity.kodi_release is None)
+        or (identity.kodi_release or identity.kodi_version) != kodi_version
         or "ui_observation" not in identity.capabilities
     ):
         raise ManagedBridgeTrustError("managed_bridge_identity_mismatch")
@@ -265,8 +269,37 @@ class ManagedBridgeTrustService:
         with self._gate.enter(target_id):
             return self._prepare(target_id, replace=replace)
 
-    def _prepare(self, target_id: UUID, *, replace: bool) -> bool:
+    def stage_reviewed(self, target_id: UUID) -> None:
+        """Explicit lifecycle admission only; restart must confirm resident identity."""
+        with self._gate.enter(target_id):
+            if not self._prepare(target_id, replace=True, install_reviewed=True):
+                raise ManagedBridgeTrustError("managed_bridge_establishment_failed")
+
+    def status(self, target_id: UUID) -> dict[str, str | int | None]:
+        with self.sessions() as session:
+            instance = session.get(ManagedInstanceRow, str(target_id))
+            profile = (
+                RuntimeExecutionProfileRepository(session).get(
+                    UUID(instance.runtime_revision_id)
+                )
+                if instance
+                else None
+            )
+            if profile is None or profile.kodi_release.canonical != "22.0-rc.1":
+                raise ManagedBridgeTrustError("managed_bridge_candidate_unavailable")
+            row = session.get(ManagedBridgeTrustRow, str(target_id))
+            return {
+                "state": row.state if row else "uninstalled",
+                "generation": row.generation if row else 0,
+                "addon_version": "1.1.16",
+            }
+
+    def _prepare(
+        self, target_id: UUID, *, replace: bool, install_reviewed: bool = False
+    ) -> bool:
         observed, profile = self._admit(target_id)
+        if install_reviewed and profile.kodi_release.canonical != "22.0-rc.1":
+            raise ManagedBridgeTrustError("managed_bridge_candidate_unavailable")
         with self.sessions() as session:
             row = session.get(ManagedBridgeTrustRow, str(target_id))
             if row is not None:
@@ -326,13 +359,27 @@ class ManagedBridgeTrustService:
                 },
             )
         except Exception:
-            return False
+            if not install_reviewed:
+                return False
+            details = None
         if not isinstance(details, dict) or not isinstance(details.get("addon"), dict):
-            return False
-        addon = details["addon"]
-        if (
-            (addon.get("enabled") is not True and not replace)
-            or addon.get("version") != approved_bridge_build()["addon_version"]
+            if not install_reviewed:
+                return False
+            addon = None
+        else:
+            addon = details["addon"]
+        if addon is not None and (
+            (
+                addon.get("enabled") is not True
+                and not replace
+                and not (
+                    row
+                    and row.state == "prepared"
+                    and profile.kodi_release.canonical == "22.0-rc.1"
+                )
+            )
+            or addon.get("version")
+            != approved_bridge_build(profile.kodi_release.canonical)["addon_version"]
             or addon.get("addonid") != "service.kodi_lab_bridge"
         ):
             return False
@@ -372,17 +419,23 @@ class ManagedBridgeTrustService:
                         prepared_at=now,
                     )
                 )
-            self._call(
-                observed,
-                profile,
-                "Addons.SetAddonEnabled",
-                {"addonid": "service.kodi_lab_bridge", "enabled": False},
-            )
+            if addon is not None:
+                self._call(
+                    observed,
+                    profile,
+                    "Addons.SetAddonEnabled",
+                    {"addonid": "service.kodi_lab_bridge", "enabled": False},
+                )
             result = self.broker.establish_managed_bridge_trust(
                 managed_instance_id=str(target_id),
                 expected_container_id=observed.container_id,
                 generation=generation,
+                **({"install_reviewed": True} if install_reviewed else {}),
             )
+            if install_reviewed:
+                # Prepared is not trusted. Existing lifecycle restart + prepare
+                # must confirm exact resident identity before the anchor is active.
+                return True
             # Enable only after the broker proves provisioned authenticated state.
             # A failed partial write must not start ordinary unpaired onboarding.
             self._call(

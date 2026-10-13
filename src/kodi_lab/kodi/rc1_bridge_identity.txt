@@ -1,0 +1,57 @@
+def _identity(state):
+    identity = {
+        "bridge_id": state["bridge_id"],
+        "protocol_version": PROTOCOL,
+        "addon_id": ADDON_ID,
+        "addon_version": ADDON_VERSION,
+        "kodi_version": _kodi_version(),
+        "capabilities": CAPABILITIES,
+        "build_fingerprint": BUILD_FINGERPRINT,
+    }
+    release = _kodi_release()
+    if release is not None:
+        identity["kodi_release"] = release
+    return identity
+
+
+def _kodi_release():
+    """Add exact native identity without changing the legacy version field."""
+    try:
+        response = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "kodi-lab-identity",
+                        "method": "Application.GetProperties",
+                        "params": {"properties": ["version"]},
+                    }
+                )
+            )
+        )
+        version = response["result"]["version"]
+        major, minor = version["major"], version["minor"]
+        if type(major) is not int or major <= 0 or type(minor) is not int or minor < 0:
+            return None
+        base = f"{major}.{minor}"
+        if base != _kodi_version():
+            return None
+        tag = version["tag"]
+        ordinal = version.get("tagversion")
+        if tag == "stable":
+            return base if ordinal in (None, "", 0, "0") else None
+        channel = {
+            "alpha": "alpha",
+            "beta": "beta",
+            "releasecandidate": "rc",
+            "rc": "rc",
+        }.get(tag)
+        if (
+            channel is None
+            or isinstance(ordinal, bool)
+            or not re.fullmatch(r"[1-9][0-9]{0,5}", str(ordinal))
+        ):
+            return None
+        return f"{base}-{channel}.{ordinal}"
+    except (ValueError, KeyError, TypeError):
+        return None

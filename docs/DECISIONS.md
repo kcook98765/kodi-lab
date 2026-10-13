@@ -6025,3 +6025,158 @@ D-0413 resolves the provisional managed pairing-source assumption below.
   acceptance from a genuine allowed LAN client remains a separate activation
   prerequisite, together with firewall/router exposure verification and fresh
   state/rollback preservation. HTTP is still never selected automatically.
+
+## D-0422: Inactive RC1 OSTree acquisition foundation
+
+- Phase 2 adds a closed `flathub_ostree` acquisition definition independently
+  of the unchanged v1 signed-APT recipe model. The schema-2 RC1 definition is
+  Preview, development-only, user-triggered, and explicitly inactive. It is not
+  in the installable recipe registry, CLI selectors, Web actions, or broker
+  generation allowlist. Parsing and acquisition evidence confer no approval.
+- Wheel-owned configuration fixes the three x86_64 refs, immutable commits,
+  metadata hashes, Kodi source revision, public-key bytes, primary fingerprint,
+  and authorized signing subkey. Acquisition has no request-supplied URL,
+  revision, key, destination, command, or Dockerfile. No moving-channel fallback
+  or maintainer-hosted binary archive is supported. Only metadata/signature
+  test fixtures and public trust material are included; no Kodi payload is
+  packaged in the wheel or repository.
+- The acquisition component receives a trusted private worker staging root,
+  creates fixed operation-scoped children, and holds a nonblocking file lock.
+  All path ancestors and sensitive files are opened without following symlinks.
+  Commands use fixed argument arrays, a controlled environment, time/output/
+  process/file/disk limits, and process-group cancellation. Disposable fresh
+  repositories are used; persistent cache reuse is not implemented. Remnants
+  from hard termination are rejected, never treated as verified or silently
+  deleted. Normal failure/interruption and context exit remove only owned work.
+  GPGME's detached agents are stopped through pidfds only when their kernel UID
+  and exact private operation home match; other GPG homes and agents are untouched.
+- Verification requires OSTree integrity, GPG verification, exact full signer
+  identities, signed ref/collection bindings, architecture and dependency
+  metadata, upstream source and RC1 release metadata, critical content hashes,
+  and complete checkout inventories. Reviewed Freedesktop absolute symlinks
+  remain hashed data and are never traversed on the host. Evidence explicitly
+  covers only the three OSTree trees, not supporting Ubuntu dependencies or a
+  managed image; existing APT attestations and eligibility remain unchanged.
+- Supporting dependency closure, final image assembly, native add-on loading,
+  lifecycle validation, installation attestations, Preview admission, capability
+  approval, and Web/broker integration require later qualification. No database
+  migration, installation, runtime approval, image build, or deployment is part
+  of this foundation phase.
+
+## D-0423: Inactive RC1 local image assembly and acceptance
+
+- Phase 3 adds a separate inactive OSTree assembly entrypoint alongside the
+  unchanged signed-APT assembler. No catalog, worker command, broker allowlist,
+  eligibility, database, or Web installation action is activated.
+- Acquisition yields a process-local live operation lease, invalidated on
+  context exit. Assembly copies through descriptor-relative nofollow reads,
+  recomputes the Phase 2 inventory over the bytes actually copied, and compares
+  every component identity, inventory, count and byte total. Docker receives a
+  bounded compressed anonymous memfd with kernel write/grow/shrink seals. Mutable
+  checkout paths and a verification report alone cannot authorize assembly.
+  The descriptor closes on success/failure/interruption; acquisition removes its
+  own staging. No persistent binary cache is introduced.
+- A wheel-owned Ubuntu 26.04 support manifest pins the base digest and all 97
+  additional/updated DEBs, versions, architectures, exact repository paths and
+  SHA256 values. Review evidence binds each package to Ubuntu-signed InRelease
+  and Packages hashes. Subsequent downloads require exact hashes and sizes;
+  missing historical packages fail without replacement. Docker builds offline;
+  APT orders only explicitly supplied local DEBs with repositories disabled and Docker networking disabled, then APT, gpgv and the base signing-key package are removed. The final
+  installed package inventory must equal the reviewed 178-package closure.
+- The final stage copies the merged support filesystem, omitting archive/cache
+  layers, and the exact upstream app/Freedesktop/Mesa trees. Libraries remain in
+  /app, /opt/fdo and /opt/mesa. The explicit Freedesktop loader is retained, as
+  are Python 3.14 library paths and Mesa llvmpipe configuration. Acquisition,
+  compiler and diagnostic toolchains are not added. No Kodi binaries enter the
+  repository or wheel. Fixed image assets are separately hash-bound in evidence.
+- The trusted assembly creates the missing xbmcbin/addons symlink to
+  /app/lib/kodi/addons, rejecting any preexisting destination, and installs the
+  fixed loader-based Xrandr wrapper. Native acceptance uses separately verified
+  upstream Greynetic 22.0.5 as a disposable container test fixture; it does not
+  expand the production acquisition component closure or ship this add-on.
+- UID/GID 1000, display :99 at 1280x720x24, container-local session D-Bus, internal
+  port 8080 and fixed profile remain the contract. The supervisor budgets eight
+  seconds within the broker's ten-second Docker stop timeout. Normal stops must
+  quit Kodi, reap the session and Xvfb, exit zero and leave no display artifacts;
+  forced termination is explicit failure evidence. Runtime acceptance tests use
+  isolated containers without mounts/devices/ports/capabilities or host D-Bus.
+- Stock upstream TagLib 2.3.1 is preserved and its missing Kodi Matroska fast-scan
+  patch is disclosed. Basic development-runtime acceptance does not claim media
+  metadata equivalence to a patched Kodi dependency build. No overlay is added.
+- Assembly evidence is bounded and inactive, not a signed installation
+  attestation or eligibility approval. The original schema-2 recipe deliberately
+  retains its unqualified/inactive policy flags pending production integration.
+  Reproducibility means exact inputs and validated installed contents; Docker
+  history/filesystem generation timestamps are not claimed byte-reproducible.
+
+## D-0424: Exact Preview installation through the existing reviewed worker
+
+- Add only the backend `piers` selector for the separately pinned RC1 installation
+  descriptor. The published stable/Web recipe list is unchanged. Original APT
+  and inactive acquisition resource digests remain immutable.
+- Persist exact recipe/revision/release consent in the existing bounded pending
+  installation evidence. The state-owning application writes it; the broker
+  verifies it read-only and retains its existing peer UID and capabilities.
+  Repeated pending handoffs use the same exact operation, while interrupted
+  active phases use existing worker/lock reconciliation. No migration is needed.
+- Keep one state machine, worker lock, state-owner transactions and HMAC seal.
+  Provider dispatch uses the existing verified acquisition/assembly path and a
+  fixed socketless network helper, removed before sealed context capture. The
+  worker remains offline with its original mounts/capabilities; Web and Kodi
+  receive no Docker socket. No Kodi binaries or persistent binary cache ship.
+- A ready RC1 transaction requires its exact runtime acceptance, records Preview,
+  and does not bootstrap an instance. Eligibility additionally requires exact
+  scoped recipe consent, approved revision, provider provenance, image/profile,
+  capabilities and unchanged HMAC binding. General prerelease opt-in cannot
+  approve RC1, RC2, final or a substituted recipe/image.
+- Use existing RPC/readiness/framebuffer helpers with the Phase 3 RC1 checks,
+  including actual Python, FFmpeg, GUI change and clean two-cycle shutdown.
+  Stock TagLib's known Matroska limitation remains disclosed, without an overlay.
+- Deployed Web activation, production installation records, provisioning,
+  deployment and any security-policy changes remain outside this phase. See
+  `docs/RC1-INSTALLATION-BACKEND.md` for implementation and activation boundaries.
+
+## D-0425: Development Web admission for the exact reviewed RC1 runtime
+
+- Extend existing runtime cards, polling and actions with the exact `piers`
+  reviewed selector in Development view. Installation and instance creation
+  require the typed recipe/revision/release acknowledgement on the backend.
+  Ready means independently eligible sealed evidence and exact local image
+  presence. Preserve stable recipe bytes, installation evidence and defaults.
+- Create the disposable RC1 pin through `ManagedInstanceService`. Its initial
+  fixture is unassigned; normal reset therefore recreates a clean profile.
+  Do not inherit a Beta fixture's approval. Clarify that distinction on the
+  existing reset confirmation page.
+- Use a single periodic screenshot preview and the existing authenticated
+  screenshot path. Pause, bounded intervals and hidden-tab suspension do not
+  grant control authority. Reuse managed UI observation for a bounded read-only
+  window/item projection; remove the obsolete Live display controls from the
+  instance page while retaining the existing mediated API compatibility.
+- An exact reviewed text overlay generates Bridge 1.1.16 with optional canonical
+  `kodi_release` while preserving its major/minor field. Keep the stable Bridge
+  source, publisher and original 1.1.15 approval descriptor byte-for-byte intact;
+  select the new reviewed descriptor only for exact RC1. Require exact release
+  identity for prereleases; preserve legacy identity serialization. Generic
+  service-ZIP installation remains unsupported. The candidate is qualified
+  using a reviewed experimental fixture, not an expanded ZIP permission.
+- Docker's null and empty CMD encodings both mean no entrypoint arguments.
+  Normalize only those two representations in image-default verification;
+  supplied commands, entrypoints, health checks and security checks stay exact.
+- Reset retires resident Bridge authority. The existing consumer refuses an
+  invalidated anchor until lifecycle trust is re-established; do not weaken
+  that gate to conceal the limitation. Production activation, deployment,
+  publication and changes to production state remain separately authorized.
+
+## D0426 — RC1 reviewed Bridge installation and reset recovery
+
+Use a closed wheel-owned candidate overlay for exact Kodi 22.0 RC1, admitted by
+an explicit administrator action under the existing START lifecycle operation
+and mutation lease. Extend the existing prepared-trust broker operation with a
+strict optional installation flag; default stable wire requests remain unchanged.
+The broker independently requires the live typed lease and verifies the complete
+fixed candidate inventory. Generic uploaded service ZIPs remain rejected.
+
+Reset retires the old authority. The same explicit reviewed action after native
+startup installs the candidate into the clean profile and confirms fresh resident
+trust. Observation cannot repair or adopt an invalidated anchor. MCP permissions
+and target grants are unaffected. See [RC1 Bridge and installation UX](RC1-BRIDGE-AND-INSTALLATION-UX.md).

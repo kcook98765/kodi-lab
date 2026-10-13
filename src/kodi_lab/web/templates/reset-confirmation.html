@@ -11,7 +11,10 @@
         <dt>Current status</dt><dd>{{ reset.eligibility_detail }}</dd>
       </dl>
       <p class="notice">Reset permanently discards changes made inside this disposable runtime.</p>
-      <p>The assigned fixture will be reapplied. Kodi and the exact runtime revision remain pinned and will not be upgraded.</p>
+      {% if reset.fixture.assignment == 'none' %}
+      <p>No fixture is assigned. Reset creates a clean profile and removes this instance's settings and installed add-ons.</p>
+      {% else %}<p>The assigned fixture will be reapplied.</p>{% endif %}
+      <p>Kodi and the exact runtime revision remain pinned and will not be upgraded.</p>
       <p>A successful reset finishes provisioned and stopped.</p>
       <p id="reset-error" class="error" role="alert" hidden></p>
       <div class="actions">

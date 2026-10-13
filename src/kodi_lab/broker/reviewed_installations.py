@@ -9,15 +9,22 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import quote
 from uuid import UUID
 
 import docker  # type: ignore[import-untyped]
 from docker.errors import DockerException, NotFound  # type: ignore[import-untyped]
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.config import Settings
 from kodi_lab.domain import RuntimeRecipeInstallationState
-from kodi_lab.runtime.recipes import load_recorded_reviewed_recipe
+from kodi_lab.runtime.preview import PreviewAcknowledgement, admission_evidence
+from kodi_lab.runtime.recipes import (
+    load_inactive_ostree_recipe,
+    load_installation_recipe,
+    load_recorded_reviewed_recipe,
+)
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.repositories import RuntimeRecipeInstallationRepository
 
@@ -31,7 +38,7 @@ LOCK_DESTINATION = "/run/kodi-lab"
 DOCKER_SOCKET = "/var/run/docker.sock"
 HOST_ROUTE_SOURCE = "/proc/1/net/route"
 HOST_ROUTE_DESTINATION = "/tmp/kodi-lab-host-ipv4-route"
-GENERATIONS = ("matrix", "nexus", "omega")
+GENERATIONS = ("matrix", "nexus", "omega", "piers")
 
 
 class ReviewedWorkerError(RuntimeError):
@@ -243,9 +250,55 @@ class DockerReviewedInstallationWorker:
         except DockerException as error:
             raise ReviewedWorkerError("worker inventory is unavailable") from error
 
-    def launch(self, generation: str, operation_id: UUID) -> bool:
+    def _admit_preview(self, operation_id: UUID, ack: PreviewAcknowledgement) -> None:
+        reviewed = load_installation_recipe("piers")
+        expected = admission_evidence(ack, operation_id)
+        factory = self._session_factory
+        engine = None
+        if factory is None:
+            url = make_url(Settings().database_url)
+            if (
+                url.drivername != "sqlite"
+                or not url.database
+                or not Path(url.database).is_absolute()
+            ):
+                raise ReviewedWorkerError("Preview admission database identity differs")
+            engine = create_database_engine(
+                "sqlite:///file:" + quote(url.database, safe="/") + "?mode=ro&uri=true"
+            )
+            factory = create_session_factory(engine)
+        try:
+            with factory() as session:
+                row = RuntimeRecipeInstallationRepository(session).get(operation_id)
+                if (
+                    row is None
+                    or row.state.value != "pending"
+                    or row.generation != "piers"
+                    or row.recipe_id != reviewed.recipe.recipe_id
+                    or row.recipe_revision != reviewed.recipe.recipe_revision
+                    or row.recipe_digest != reviewed.digest
+                    or row.attestation_json != expected
+                ):
+                    raise ReviewedWorkerError(
+                        "exact application-owned Preview admission missing"
+                    )
+        finally:
+            if engine is not None:
+                engine.dispose()
+
+    def launch(
+        self,
+        generation: str,
+        operation_id: UUID,
+        *,
+        preview_acknowledgement: PreviewAcknowledgement | None = None,
+    ) -> bool:
         if generation not in GENERATIONS:
             raise ReviewedWorkerError("generation is unsupported")
+        if generation == "piers" and preview_acknowledgement is None:
+            raise ReviewedWorkerError("exact Preview acknowledgement required")
+        if generation != "piers" and preview_acknowledgement is not None:
+            raise ReviewedWorkerError("Preview acknowledgement/provider mismatch")
         try:
             client = self._client()
             try:
@@ -257,6 +310,19 @@ class DockerReviewedInstallationWorker:
                 if self.lock_held():
                     raise ReviewedWorkerBusy("another runtime installation is active")
                 image_id, state_volume, lock_volume = self._self_contract(client)
+                if generation == "piers":
+                    assert preview_acknowledgement is not None
+                    image = client.api.inspect_image(image_id)
+                    if (
+                        image.get("Config", {})
+                        .get("Labels", {})
+                        .get("io.kodi-lab.reviewed-ostree-worker")
+                        != "v1"
+                    ):
+                        raise ReviewedWorkerError(
+                            "installed worker lacks reviewed OSTree contract"
+                        )
+                    self._admit_preview(operation_id, preview_acknowledgement)
                 settings = Settings()
                 worker_environment = {
                     "KODI_LAB_TEMPORARY_NETWORK_CHILD_PREFIX": str(
@@ -384,7 +450,12 @@ class DockerReviewedInstallationWorker:
                     image.get("Id") == image_id
                     and image.get("Os") == "linux"
                     and image.get("Architecture") == "amd64"
-                    and labels.get("io.kodi-lab.recipe-digest") == digest
+                    and labels.get("io.kodi-lab.recipe-digest")
+                    == (
+                        load_inactive_ostree_recipe().digest
+                        if row.generation == "piers"
+                        else digest
+                    )
                 )
             finally:
                 client.close()

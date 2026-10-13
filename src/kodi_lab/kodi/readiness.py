@@ -58,10 +58,16 @@ class KodiApplicationIdentity:
 
     @property
     def kodi_release(self) -> KodiReleaseIdentity:
+        # Keep the observed upstream tag while normalizing its canonical channel.
+        channel = (
+            KodiReleaseChannel.RC
+            if self.tag == "releasecandidate"
+            else KodiReleaseChannel(self.tag)
+        )
         return KodiReleaseIdentity(
             self.major,
             self.minor,
-            KodiReleaseChannel(self.tag),
+            channel,
             self.tag_version,
         )
 
@@ -217,7 +223,11 @@ class KodiJsonRpcReadinessAdapter:
             tag_version = None
         elif isinstance(raw_tag_version, int) and not isinstance(raw_tag_version, bool):
             tag_version = raw_tag_version
-        elif isinstance(raw_tag_version, str) and raw_tag_version.isdigit():
+        elif (
+            isinstance(raw_tag_version, str)
+            and raw_tag_version.isascii()
+            and raw_tag_version.isdigit()
+        ):
             tag_version = int(raw_tag_version)
         else:
             raise JsonRpcInvalidResponseError(

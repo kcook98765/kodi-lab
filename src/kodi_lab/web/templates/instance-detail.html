@@ -3,6 +3,7 @@
 {% block title %}{{ detail.runtime.name }} · Kodi Lab{% endblock %}
 {% block head %}
 <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
+<script src="{{ url_for('static', path='/reviewed-bridge.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-attachment.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-enable.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-smoke.js') }}" defer></script>
@@ -10,7 +11,6 @@
     <script src="{{ url_for('static', path='/addon-zip-smoke.js') }}" defer></script>
     <script src="{{ url_for('static', path='/managed-screenshot.js') }}" defer></script>
     <script src="{{ url_for('static', path='/browser-remote.js') }}" defer></script>
-    <script src="{{ url_for('static', path='/live-display.js') }}" defer></script>
 {% endblock %}
 {% block content %}
       <h1>{{ detail.runtime.name }}</h1>
@@ -34,8 +34,18 @@
         {% if detail.reconciliation.operation_uuid %}<p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ detail.reconciliation.operation_uuid }}">View the exact history item</a></p>{% endif %}
       </section>
       {% endif %}
+      {% if detail.runtime.kodi_version == '22.0-rc.1' %}
+      <section data-reviewed-bridge="{{ detail.runtime.managed_instance_id }}">
+        <h2>Reviewed Bridge</h2>
+        <p>Bridge 1.1.16 candidate adds rich UI inspection for Kodi 22 RC1. Installation restarts this instance. After a clean-profile reset, start Kodi and install the reviewed Bridge again to establish fresh trust.</p>
+        <button type="button" data-reviewed-bridge-install>Install reviewed Bridge</button>
+        <p role="status" data-reviewed-bridge-status>Checking Bridge status…</p>
+      </section>
+      {% endif %}
       <section id="visual-access" data-instance-id="{{ detail.runtime.managed_instance_id }}">
-        <h2>Screenshot</h2>
+        <h2>Screen preview</h2>
+        <p class="secondary">Read-only Kodi screenshots. Refresh pauses while this tab is hidden.</p>
+        <p class="secondary" data-ui-state>UI state has not been inspected.</p>
         <dl>
           <dt>Capability</dt><dd>{{ 'Supported' if visual.screenshot_supported else 'Not supported in this slice' }}</dd>
           <dt>Available now</dt><dd>{{ 'Yes' if visual.screenshot_available_now else 'No' }}</dd>
@@ -50,16 +60,10 @@
           <img class="managed-screenshot" data-screenshot-image src="/api/instances/{{ detail.runtime.managed_instance_id }}/screenshots/latest" alt="Latest Kodi screenshot" draggable="false">
         </div>
         {% if not visual.latest_capture_available %}<p data-screenshot-empty>No screenshot has been captured.</p>{% endif %}
+        <label>Refresh interval <select data-preview-interval><option value="5">5 seconds</option><option value="10" selected>10 seconds</option><option value="30">30 seconds</option></select></label>
+        <button type="button" data-preview-pause aria-pressed="false">Pause preview</button>
         <button type="button" data-screenshot-refresh{% if not visual.screenshot_available_now %} disabled{% endif %}>Refresh screenshot</button>
         <p data-screenshot-status class="secondary" role="status"{% if not visual.last_error_code %} hidden{% endif %}>{% if visual.last_error_code %}Last refresh failed: {{ visual.last_error_code|replace('_', ' ') }}. The prior valid screenshot, if any, was retained.{% endif %}</p>
-        <section class="live-display" data-live-display data-display-supported="{{ 'true' if visual.display_supported else 'false' }}" data-display-available="{{ 'true' if visual.display_available_now else 'false' }}">
-          <h3>Live display</h3>
-          <p class="secondary">{% if visual.display_supported %}View-only mediated display for exact Kodi 21.3. All input remains on the semantic browser remote.{% else %}display_unsupported{% endif %}</p>
-          <button type="button" data-live-start{% if not visual.display_available_now %} disabled{% endif %}>Live display</button>
-          <button type="button" data-live-stop hidden>Stop</button>
-          <p data-live-label class="secondary" hidden>Live · up to 1 fps</p>
-          <p data-live-status class="secondary" role="status" hidden></p>
-        </section>
         {% if remote_available %}
         <section class="browser-remote" data-browser-remote>
           <h3>Browser remote</h3>

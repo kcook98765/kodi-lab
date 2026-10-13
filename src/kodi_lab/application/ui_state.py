@@ -233,7 +233,7 @@ class ManagedUiObservationService:
             self._bridges.collect(
                 target_id,
                 observed,
-                f"{profile.kodi_release.major}.{profile.kodi_release.minor}",
+                profile.kodi_release.canonical,
             )
             if self._bridges
             else None

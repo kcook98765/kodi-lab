@@ -27,8 +27,11 @@ from kodi_lab.runtime.attestation_integrity import (
     verify_attestation,
 )
 from kodi_lab.runtime.recipes import (
+    REVIEWED_OSTREE_SOURCE_KIND,
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+    FlathubOstreeProvider,
     ReviewedRecipe,
+    SignedDistroAptProvider,
     load_recorded_reviewed_recipe,
 )
 from kodi_lab.storage.repositories import (
@@ -57,6 +60,7 @@ class RuntimeIneligibilityReason(StrEnum):
 class RuntimeSelectionPolicy:
     include_legacy: bool = False
     include_prerelease: bool = False
+    preview_recipe_digest: str | None = None
     trusted_custom_builds_enabled: bool = False
     validation_contract: str = KODI_RUNTIME_VALIDATION_CONTRACT
 
@@ -82,6 +86,12 @@ def _reviewed_attestation_matches(
     if not isinstance(attestation, dict):
         return False
     recipe = reviewed.recipe
+    if isinstance(recipe.provider, FlathubOstreeProvider):
+        from kodi_lab.runtime.ostree_installation import ostree_attestation_matches
+
+        return ostree_attestation_matches(attestation, reviewed, image_id)
+    if not isinstance(recipe.provider, SignedDistroAptProvider):
+        return False
     expected = {
         "schema": "kodi-binary-recipe-acquisition-v1",
         "recipe_id": recipe.recipe_id,
@@ -147,6 +157,11 @@ def _reviewed_validation_matches(
 ) -> bool:
     if not isinstance(validation, dict):
         return False
+    if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
+        from kodi_lab.runtime.ostree_validation import validation_matches
+
+        if not validation_matches(validation):
+            return False
     screenshot = validation.get("screenshot")
     cycles = validation.get("cycles")
     return (
@@ -214,6 +229,11 @@ class RuntimeRevisionEligibilityPolicy:
     ) -> RuntimeEligibility:
         """Evaluate a new pin against one trusted exact release requirement."""
 
+        if required_release.canonical == "22.0-rc.1" and (
+            revision.source_kind != REVIEWED_OSTREE_SOURCE_KIND
+            or definition.support_tier is not RuntimeSupportTier.PREVIEW
+        ):
+            return self._no(RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE)
         if required_release != definition.kodi_release:
             return self._no(RuntimeIneligibilityReason.INCOMPATIBLE_RELEASE)
         if not policy.permits(definition.support_tier):
@@ -237,7 +257,10 @@ class RuntimeRevisionEligibilityPolicy:
             return self._no(RuntimeIneligibilityReason.EXECUTION_PROFILE_UNAVAILABLE)
         if profile.kodi_release != definition.kodi_release:
             return self._no(RuntimeIneligibilityReason.EXECUTION_PROFILE_INCOMPATIBLE)
-        if revision.source_kind == REVIEWED_SIGNED_DISTRO_SOURCE_KIND:
+        if revision.source_kind in (
+            REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+            REVIEWED_OSTREE_SOURCE_KIND,
+        ):
             installation = RuntimeRecipeInstallationRepository(
                 session
             ).ready_for_revision(revision.id)
@@ -263,7 +286,15 @@ class RuntimeRevisionEligibilityPolicy:
                     RuntimeIneligibilityReason.RECIPE_PROVENANCE_UNAVAILABLE
                 )
             if (
-                installation.recipe_id != reviewed.recipe.recipe_id
+                (
+                    revision.source_kind == REVIEWED_OSTREE_SOURCE_KIND
+                    and (
+                        not isinstance(reviewed.recipe.provider, FlathubOstreeProvider)
+                        or policy.preview_recipe_digest != reviewed.digest
+                        or attestation.get("operation_id") != UUID(installation.id).hex
+                    )
+                )
+                or installation.recipe_id != reviewed.recipe.recipe_id
                 or installation.recipe_revision != reviewed.recipe.recipe_revision
                 or installation.recipe_digest != reviewed.digest
                 or installation.image_id != artifact.image_id
@@ -290,7 +321,10 @@ class RuntimeRevisionEligibilityPolicy:
             return self._no(RuntimeIneligibilityReason.UNVALIDATED)
         if evidence.result is RuntimeValidationResult.FAILED:
             return self._no(RuntimeIneligibilityReason.VALIDATION_FAILED)
-        if revision.source_kind == REVIEWED_SIGNED_DISTRO_SOURCE_KIND:
+        if revision.source_kind in (
+            REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+            REVIEWED_OSTREE_SOURCE_KIND,
+        ):
             assert installation is not None
             if installation.completed_at is None:
                 return self._no(

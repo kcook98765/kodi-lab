@@ -16,7 +16,12 @@ from uuid import UUID
 import docker  # type: ignore[import-untyped]
 
 from kodi_lab.config import Settings
-from kodi_lab.runtime.recipes import ReviewedRecipe
+from kodi_lab.runtime.ostree import AcquiredOstree
+from kodi_lab.runtime.ostree_assembly import (
+    OstreeAssemblyEvidence,
+    assemble_ostree_image,
+)
+from kodi_lab.runtime.recipes import ReviewedRecipe, SignedDistroAptProvider
 from kodi_lab.runtime.temporary_networks import (
     TemporaryNetwork,
     TemporaryNetworkError,
@@ -27,6 +32,24 @@ from kodi_lab.runtime.temporary_networks import (
 _IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _MAX_BUILD_EVENT_BYTES = 2 * 1024 * 1024
 _MAX_INVENTORY_BYTES = 64 * 1024
+
+
+def assemble_verified_ostree_image(
+    acquired: AcquiredOstree,
+    *,
+    operation_id: UUID,
+    client: Any | None = None,
+    on_log: Callable[[bytes], None] | None = None,
+    on_resource: Callable[[str, str], None] | None = None,
+) -> OstreeAssemblyEvidence:
+    """Inactive provider assembly; no legacy recipe/install dispatch changes."""
+    return assemble_ostree_image(
+        acquired,
+        operation_id=operation_id,
+        client=client,
+        on_log=on_log,
+        on_resource=on_resource,
+    )
 
 
 class RecipeAssemblyError(RuntimeError):
@@ -48,6 +71,8 @@ class AssemblyResult:
 
 def _apt_sources(reviewed: ReviewedRecipe) -> str:
     provider = reviewed.recipe.provider
+    if not isinstance(provider, SignedDistroAptProvider):
+        raise RecipeAssemblyError("APT provider required")
     options = f"[arch=amd64 signed-by={provider.keyring_path}]"
     components = " ".join(provider.components)
     lines = []
@@ -63,6 +88,8 @@ def _apt_sources(reviewed: ReviewedRecipe) -> str:
 
 def _dockerfile(reviewed: ReviewedRecipe) -> str:
     recipe = reviewed.recipe
+    if not isinstance(recipe.provider, SignedDistroAptProvider):
+        raise RecipeAssemblyError("APT provider required")
     packages = [
         f"{item.name}={item.version}" for item in recipe.critical_packages
     ] + list(recipe.support_packages)
@@ -245,6 +272,8 @@ def _metadata_digests(
         rows = tuple(line.split("  ", 1) for line in payload.decode().splitlines())
     except UnicodeDecodeError as error:
         raise RecipeAssemblyError("APT metadata inventory is invalid") from error
+    if not isinstance(reviewed.recipe.provider, SignedDistroAptProvider):
+        raise RecipeAssemblyError("APT provider required")
     if len(rows) != len(reviewed.recipe.provider.pockets) or any(
         len(row) != 2 or re.fullmatch(r"[0-9a-f]{64}", row[0]) is None for row in rows
     ):

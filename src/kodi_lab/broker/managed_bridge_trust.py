@@ -13,6 +13,7 @@ import stat
 import struct
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from importlib.resources import files
 from typing import Any, cast
 from uuid import UUID
@@ -26,9 +27,19 @@ from kodi_lab.broker.provisioning import (
     SqliteProvisioningResolver,
 )
 from kodi_lab.config import Settings
-from kodi_lab.domain import TargetType
+from kodi_lab.domain import (
+    ManagedInstanceLifecycleKind,
+    ManagedInstanceLifecycleOperationState,
+    ManagedInstanceMutationKind,
+    TargetType,
+)
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
-from kodi_lab.storage.models import ManagedBridgeTrustRow, TargetRow
+from kodi_lab.storage.models import (
+    ManagedBridgeTrustRow,
+    ManagedInstanceLifecycleOperationRow,
+    ManagedInstanceMutationLeaseRow,
+    TargetRow,
+)
 from kodi_lab.storage.secrets import ExternalBridgeSecretStore, decode_master_key
 
 
@@ -36,12 +47,15 @@ class ManagedBridgeProvisionError(RuntimeError):
     """Only a bounded content-free failure crosses the broker boundary."""
 
 
-def approved_bridge_build() -> dict[str, Any]:
+def approved_bridge_build(kodi_release: str | None = None) -> dict[str, Any]:
+    resource = (
+        "managed_bridge_preview_build.json"
+        if kodi_release == "22.0-rc.1"
+        else "managed_bridge_build.json"
+    )
     return cast(
         dict[str, Any],
-        json.loads(
-            files("kodi_lab.kodi").joinpath("managed_bridge_build.json").read_text()
-        ),
+        json.loads(files("kodi_lab.kodi").joinpath(resource).read_text()),
     )
 
 
@@ -51,6 +65,30 @@ class ManagedBridgeProvisionSpec:
     container_id: str
     generation: int
     secret: bytes = field(repr=False)
+    kodi_release: str | None = None
+    install_reviewed: bool = False
+
+
+def require_reviewed_installation_lease(session: Session, target_id: str) -> None:
+    """Candidate materialization belongs to one live, typed lifecycle owner."""
+    lease = session.get(ManagedInstanceMutationLeaseRow, target_id)
+    operation = (
+        session.get(ManagedInstanceLifecycleOperationRow, lease.operation_id)
+        if lease
+        else None
+    )
+    if (
+        lease is None
+        or lease.operation_kind is not ManagedInstanceMutationKind.LIFECYCLE
+        or not lease.lease_token_digest
+        or not lease.lease_expires_at
+        or datetime.fromisoformat(lease.lease_expires_at) <= datetime.now(UTC)
+        or operation is None
+        or operation.managed_instance_id != target_id
+        or operation.kind is not ManagedInstanceLifecycleKind.START
+        or operation.state is not ManagedInstanceLifecycleOperationState.RUNNING
+    ):
+        raise ManagedBridgeProvisionError("managed_bridge_installation_not_owned")
 
 
 class SqliteManagedBridgeTrustResolver:
@@ -94,7 +132,12 @@ class SqliteManagedBridgeTrustResolver:
         )
 
     def resolve(
-        self, target_id: str, container_id: str, generation: int
+        self,
+        target_id: str,
+        container_id: str,
+        generation: int,
+        *,
+        install_reviewed: bool = False,
     ) -> ManagedBridgeProvisionSpec:
         provisioning = SqliteProvisioningResolver(self.sessions).resolve(target_id)
         with self.sessions() as session:
@@ -114,8 +157,19 @@ class SqliteManagedBridgeTrustResolver:
             secret = self.secrets.read(
                 UUID(target_id), UUID(row.secret_reference), "request_authentication"
             )
+            if install_reviewed:
+                if target.kodi_version != "22.0-rc.1":
+                    raise ManagedBridgeProvisionError(
+                        "managed_bridge_identity_mismatch"
+                    )
+                require_reviewed_installation_lease(session, target_id)
         return ManagedBridgeProvisionSpec(
-            provisioning, container_id, generation, secret
+            provisioning,
+            container_id,
+            generation,
+            secret,
+            target.kodi_version,
+            install_reviewed,
         )
 
 
@@ -126,7 +180,7 @@ import base64, fcntl, hashlib, json, os, stat, sys, uuid, xml.etree.ElementTree 
 
 
 def run():
-    value = json.loads(sys.stdin.buffer.readline(16385))
+    value = json.loads(sys.stdin.buffer.readline(1048577))
     target = str(uuid.UUID(value["target_id"]))
     assert (
         target == value["target_id"]
@@ -146,6 +200,89 @@ def run():
     directory("/home/kodi")
     directory(home)
     addon = home + "/addons/service.kodi_lab_bridge"
+    sources = value.get("reviewed_sources")
+    if sources is not None:
+        # Only broker-owned reviewed bytes arrive here. No destination parameter.
+        assert value["approved"]["addon_version"] == "1.1.16"
+        directory(home + "/addons")
+        lock = os.open(
+            home + "/addons/.reviewed-bridge.lock",
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600
+        )
+        try:
+            assert stat.S_ISREG(os.fstat(lock).st_mode)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if os.path.lexists(addon):
+                directory(addon)
+                # Existing code cannot be overwritten or adopted after drift.
+                for relative, encoded in sources.items():
+                    path = addon
+                    for part in relative.split("/")[:-1]:
+                        path += "/" + part
+                        directory(path)
+                    fd = os.open(addon + "/" + relative, os.O_RDONLY | os.O_NOFOLLOW)
+                    try:
+                        assert stat.S_ISREG(os.fstat(fd).st_mode)
+                        assert os.read(fd, 1048577) == base64.b64decode(
+                            encoded, validate=True
+                        )
+                    finally:
+                        os.close(fd)
+            else:
+                temporary = home + "/addons/.reviewed-bridge-" + str(uuid.uuid4())
+                os.mkdir(temporary, 0o700)
+                try:
+                    for relative, encoded in sources.items():
+                        assert not relative.startswith("/") and all(
+                            p not in ("", ".", "..")
+                            for p in relative.split("/")
+                        )
+                        current = temporary
+                        for part in relative.split("/")[:-1]:
+                            current += "/" + part
+                            directory(current)
+                        data = base64.b64decode(encoded, validate=True)
+                        assert len(data) <= 1048576
+                        fd = os.open(
+                            temporary + "/" + relative,
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                            0o644
+                        )
+                        try:
+                            with os.fdopen(fd, "wb", closefd=False) as out:
+                                out.write(data)
+                                out.flush()
+                                os.fsync(fd)
+                        finally:
+                            os.close(fd)
+                    assert not os.path.lexists(addon)
+                    os.rename(temporary, addon)
+                finally:
+                    if os.path.exists(temporary):
+                        import shutil
+                        shutil.rmtree(temporary)
+        finally:
+            os.close(lock)
+    inventory = value.get("reviewed_inventory")
+    if inventory is not None:
+        directory(addon)
+        seen = set()
+        for root, directories, filenames in os.walk(addon, followlinks=False):
+            for name in directories:
+                directory(root + "/" + name)
+            for name in filenames:
+                path = root + "/" + name
+                relative = os.path.relpath(path, addon)
+                assert relative in inventory
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    assert stat.S_ISREG(os.fstat(fd).st_mode)
+                    data = os.read(fd, 1048577)
+                    assert hashlib.sha256(data).hexdigest() == inventory[relative]
+                finally:
+                    os.close(fd)
+                seen.add(relative)
+        assert seen == set(inventory)
     for relative, digest in value["approved"]["files"].items():
         path = addon + "/" + relative
         current = addon
@@ -283,6 +420,25 @@ class DockerManagedBridgeTrustProvider:
         )
 
     def establish(self, spec: ManagedBridgeProvisionSpec) -> str:
+        inventory = None
+        sources = None
+        if spec.kodi_release == "22.0-rc.1":
+            import hashlib
+
+            from kodi_lab.kodi.rc1_bridge import packaged_rc1_bridge_sources
+
+            reviewed = packaged_rc1_bridge_sources()
+            inventory = {
+                name: hashlib.sha256(data).hexdigest()
+                for name, data in reviewed.items()
+            }
+            if spec.install_reviewed:
+                sources = {
+                    name: base64.b64encode(data).decode("ascii")
+                    for name, data in reviewed.items()
+                }
+        elif spec.install_reviewed:
+            raise ManagedBridgeProvisionError("managed_bridge_identity_mismatch")
         client = self._factory()
         attachment = None
         try:
@@ -337,7 +493,17 @@ class DockerManagedBridgeTrustProvider:
                             "secret": base64.urlsafe_b64encode(spec.secret)
                             .rstrip(b"=")
                             .decode(),
-                            "approved": approved_bridge_build(),
+                            "approved": approved_bridge_build(spec.kodi_release),
+                            **(
+                                {"reviewed_inventory": inventory}
+                                if inventory is not None
+                                else {}
+                            ),
+                            **(
+                                {"reviewed_sources": sources}
+                                if sources is not None
+                                else {}
+                            ),
                         }
                     )
                     + "\n"

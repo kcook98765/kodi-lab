@@ -149,6 +149,7 @@ from kodi_lab.domain.smoke_diagnostics import (
     AddonExceptionDiagnostic,
     SmokeDiagnosticStatus,
 )
+from kodi_lab.runtime.preview import PreviewAcknowledgement
 from kodi_lab.snapshot.storage import SnapshotArtifactDeletionError
 
 
@@ -160,6 +161,7 @@ class EstablishManagedBridgeTrustParams(StrictModel):
     managed_instance_id: str
     expected_container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     generation: int = Field(ge=1, strict=True)
+    install_reviewed: bool = Field(default=False, strict=True)
 
     @field_validator("managed_instance_id")
     @classmethod
@@ -184,8 +186,15 @@ class EstablishManagedBridgeTrustResult(StrictModel):
 
 
 class ReviewedInstallationLaunchParams(StrictModel):
-    generation: Literal["matrix", "nexus", "omega"]
+    generation: Literal["matrix", "nexus", "omega", "piers"]
     operation_id: str
+    preview_acknowledgement: PreviewAcknowledgement | None = None
+
+    @model_validator(mode="after")
+    def _preview_scope(self) -> ReviewedInstallationLaunchParams:
+        if (self.generation == "piers") != (self.preview_acknowledgement is not None):
+            raise ValueError("exact Preview acknowledgement/provider mismatch")
+        return self
 
     @field_validator("operation_id")
     @classmethod
@@ -208,13 +217,13 @@ class ReviewedInstallationIdParams(StrictModel):
 
 class ReviewedInstallationLaunchResult(StrictModel):
     operation_id: str
-    generation: Literal["matrix", "nexus", "omega"]
+    generation: Literal["matrix", "nexus", "omega", "piers"]
     newly_accepted: bool
 
 
 class ReviewedInstallationActiveResult(StrictModel):
     operation_id: str | None
-    generation: Literal["matrix", "nexus", "omega"] | None
+    generation: Literal["matrix", "nexus", "omega", "piers"] | None
     lock_held: bool
 
 
@@ -1543,7 +1552,13 @@ def build_foundation_registry(
     ) -> ReviewedInstallationLaunchResult:
         try:
             accepted = reviewed_worker.launch(
-                params.generation, UUID(params.operation_id)
+                params.generation,
+                UUID(params.operation_id),
+                **(
+                    {"preview_acknowledgement": params.preview_acknowledgement}
+                    if params.generation == "piers"
+                    else {}
+                ),
             )
         except ReviewedWorkerBusy as error:
             raise OperationError(
@@ -1581,7 +1596,7 @@ def build_foundation_registry(
         return ReviewedInstallationActiveResult(
             operation_id=str(active[0]) if active else None,
             generation=cast(
-                Literal["matrix", "nexus", "omega"] | None,
+                Literal["matrix", "nexus", "omega", "piers"] | None,
                 active[1] if active else None,
             ),
             lock_held=lock_held,
@@ -3836,6 +3851,7 @@ def build_foundation_registry(
                 params.managed_instance_id,
                 params.expected_container_id,
                 params.generation,
+                **({"install_reviewed": True} if params.install_reviewed else {}),
             )
             bridge_id = (
                 managed_bridge_provider or DockerManagedBridgeTrustProvider()

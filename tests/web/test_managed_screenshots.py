@@ -167,7 +167,10 @@ def test_instance_detail_presents_manual_screenshot_without_remote_controls(
     login(client)
     page = client.get(f"/instances/{INSTANCE_ID}")
     assert page.status_code == 200
-    assert "Screenshot" in page.text
+    assert "Screen preview" in page.text
+    assert "data-preview-pause" in page.text
+    assert "data-preview-interval" in page.text
+    assert "Live display" not in page.text
     assert "Refresh screenshot" in page.text
     assert "managed-screenshot.js" in page.text
     assert "noVNC" not in page.text

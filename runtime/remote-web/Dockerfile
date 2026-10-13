@@ -2,7 +2,8 @@ FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e6
 
 WORKDIR /build
 RUN python -m pip install --no-cache-dir uv==0.11.7 hatchling==1.29.0
-COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY pyproject.toml uv.lock README.md LICENSE THIRD_PARTY_NOTICES.md ./
+COPY bridge/service.kodi_lab_bridge ./bridge/service.kodi_lab_bridge
 COPY migrations ./migrations
 COPY src ./src
 RUN uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file /build/requirements.txt >/dev/null \
@@ -49,6 +50,11 @@ EXPOSE 8100
 ENTRYPOINT ["/usr/local/bin/kodi-lab-remote-web"]
 
 FROM installed-runtime AS broker
+
+LABEL io.kodi-lab.reviewed-ostree-worker="v1"
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ostree gpg gpgv \
+    && rm -rf /var/lib/apt/lists/*
 
 USER 0:0
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 CMD ["kodi-lab-broker-healthcheck"]

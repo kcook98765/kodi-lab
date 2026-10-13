@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 import stat
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -49,10 +50,18 @@ from kodi_lab.runtime.attestation_integrity import (
     seal_attestation,
 )
 from kodi_lab.runtime.managed_network import ensure_managed_network
+from kodi_lab.runtime.ostree_installation import (
+    OstreeInstallationAssembly,
+    ostree_attestation,
+)
 from kodi_lab.runtime.recipes import (
+    REVIEWED_OSTREE_SOURCE_KIND,
     REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+    FlathubOstreeProvider,
     ReviewedRecipe,
-    load_reviewed_recipe,
+    SignedDistroAptProvider,
+    load_inactive_ostree_recipe,
+    load_installation_recipe,
 )
 from kodi_lab.runtime.recipes import recipe_target_id as recipe_target_id
 from kodi_lab.runtime.temporary_networks import (
@@ -62,6 +71,7 @@ from kodi_lab.runtime.temporary_networks import (
 )
 from kodi_lab.runtime.validation import ValidationResult, validate_reviewed_image
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
+from kodi_lab.storage.models import RuntimeRecipeInstallationRow
 from kodi_lab.storage.repositories import (
     ManagedInstanceRepository,
     RuntimeContainerArtifactRepository,
@@ -93,8 +103,14 @@ def _canonical_json(value: object, *, maximum: int) -> str:
     return serialized
 
 
-def acquisition_attestation(reviewed: ReviewedRecipe, assembly: AssemblyResult) -> str:
+def acquisition_attestation(
+    reviewed: ReviewedRecipe, assembly: AssemblyResult | OstreeInstallationAssembly
+) -> str:
     recipe = reviewed.recipe
+    if isinstance(assembly, OstreeInstallationAssembly):
+        return ostree_attestation(reviewed, assembly)
+    if not isinstance(recipe.provider, SignedDistroAptProvider):
+        raise RecipeInstallationError("provider/assembly mismatch")
     return _canonical_json(
         {
             "schema": "kodi-binary-recipe-acquisition-v1",
@@ -139,6 +155,10 @@ def _create_operation(
     with factory.begin() as session:
         repo = RuntimeRecipeInstallationRepository(session)
         stale = repo.active(reviewed.recipe.generation)
+        if stale is not None and stale.id == str(operation_id):
+            if stale.recipe_digest != reviewed.digest or stale.state.value != "pending":
+                raise RecipeInstallationError("accepted operation identity differs")
+            return {"operation_id": str(operation_id)}
         if stale is not None:
             repo.fail(UUID(stale.id), code="interrupted", now=datetime.now(UTC))
         repo.create(
@@ -161,23 +181,60 @@ def _advance(
     attestation_json: str | None = None,
 ) -> dict[str, str]:
     with factory.begin() as session:
-        RuntimeRecipeInstallationRepository(session).advance(
+        repository = RuntimeRecipeInstallationRepository(session)
+        previous_installation = repository.get(operation_id)
+        previous_time = (
+            previous_installation.updated_at
+            if previous_installation is not None
+            else None
+        )
+        repository.advance(
             operation_id,
             expected=expected,
             image_id=image_id,
             attestation_json=attestation_json,
             now=datetime.now(UTC),
         )
+        row = repository.get(operation_id)
+        event = _phase_timing(row, previous_time)
+    if event is not None:
+        print(json.dumps(event, sort_keys=True, separators=(",", ":")), file=sys.stderr)
     return {"state": RuntimeRecipeInstallationRepository._NEXT[expected].value}
+
+
+def _phase_timing(
+    row: RuntimeRecipeInstallationRow | None, previous_time: str | None
+) -> dict[str, object] | None:
+    """Record committed RC1 transitions without changing attestations or schema."""
+    if row is None or row.generation != "piers" or previous_time is None:
+        return None
+    seconds = (
+        datetime.fromisoformat(row.updated_at) - datetime.fromisoformat(previous_time)
+    ).total_seconds()
+    return {
+        "event": "runtime_installation_phase",
+        "operation_id": row.id,
+        "state": row.state.value,
+        "at": row.updated_at,
+        "previous_phase_seconds": round(max(0, seconds), 3),
+    }
 
 
 def _fail(
     factory: sessionmaker[Session], operation_id: UUID, *, code: str
 ) -> dict[str, str]:
     with factory.begin() as session:
-        RuntimeRecipeInstallationRepository(session).fail(
-            operation_id, code=code, now=datetime.now(UTC)
+        repository = RuntimeRecipeInstallationRepository(session)
+        previous_installation = repository.get(operation_id)
+        previous_time = (
+            previous_installation.updated_at
+            if previous_installation is not None
+            else None
         )
+        repository.fail(operation_id, code=code, now=datetime.now(UTC))
+        event = _phase_timing(repository.get(operation_id), previous_time)
+    if event is not None:
+        print(json.dumps(event, sort_keys=True, separators=(",", ":")), file=sys.stderr)
     return {"state": "failed"}
 
 
@@ -279,6 +336,10 @@ def _ready_installation(
                 revision=revision,
                 policy=RuntimeSelectionPolicy(
                     include_legacy=True,
+                    include_prerelease=reviewed.recipe.generation == "piers",
+                    preview_recipe_digest=reviewed.digest
+                    if reviewed.recipe.generation == "piers"
+                    else None,
                     validation_contract=reviewed.recipe.validation_contract,
                 ),
             )
@@ -296,7 +357,7 @@ def _commit_ready(
     factory: sessionmaker[Session],
     reviewed: ReviewedRecipe,
     operation_id: UUID,
-    assembly: AssemblyResult,
+    assembly: AssemblyResult | OstreeInstallationAssembly,
     validation: ValidationResult,
     *,
     data_root: Path,
@@ -304,13 +365,30 @@ def _commit_ready(
     recipe = reviewed.recipe
     attestation = acquisition_attestation(reviewed, assembly)
     validation_data = _validation_json(validation)
+    if isinstance(recipe.provider, FlathubOstreeProvider):
+        from kodi_lab.application.runtime_eligibility import (
+            _reviewed_validation_matches,
+        )
+
+        if (
+            not isinstance(assembly, OstreeInstallationAssembly)
+            or assembly.assembly.operation_id != operation_id.hex
+            or not _reviewed_validation_matches(
+                validation.report, reviewed, assembly.image_id
+            )
+        ):
+            raise RecipeInstallationError("Preview validation/operation differs")
     with factory.begin() as session:
         definitions = RuntimeDefinitionRepository(session)
         expected_definition = RuntimeDefinition(
             id=recipe.definition_id,
             slug=recipe.definition_slug,
             kodi_version=recipe.kodi_version,
-            support_tier=RuntimeSupportTier.CURRENT,
+            support_tier=(
+                RuntimeSupportTier.PREVIEW
+                if isinstance(recipe.provider, FlathubOstreeProvider)
+                else RuntimeSupportTier.CURRENT
+            ),
         )
         existing_definition = definitions.get(recipe.definition_id)
         if existing_definition is None:
@@ -329,9 +407,18 @@ def _commit_ready(
             runtime_definition_id=recipe.definition_id,
             revision_number=max((item.revision_number for item in previous), default=0)
             + 1,
-            source_kind=REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+            source_kind=(
+                REVIEWED_OSTREE_SOURCE_KIND
+                if isinstance(recipe.provider, FlathubOstreeProvider)
+                else REVIEWED_SIGNED_DISTRO_SOURCE_KIND
+            ),
             source_reference=(
-                f"{recipe.provider.distribution} {recipe.provider.suite} signed archive"
+                "Flathub signed immutable RC1 closure"
+                if isinstance(recipe.provider, FlathubOstreeProvider)
+                else (
+                    f"{recipe.provider.distribution} "
+                    f"{recipe.provider.suite} signed archive"
+                )
             ),
             content_digest=assembly.image_id,
             manifest_reference=reviewed.reference,
@@ -375,7 +462,14 @@ def _commit_ready(
             image_id=assembly.image_id,
             evidence=evidence,
         )
-        RuntimeRecipeInstallationRepository(session).ready(
+        repository = RuntimeRecipeInstallationRepository(session)
+        previous_installation = repository.get(operation_id)
+        previous_time = (
+            previous_installation.updated_at
+            if previous_installation is not None
+            else None
+        )
+        repository.ready(
             operation_id,
             revision_id=revision_id,
             image_id=assembly.image_id,
@@ -383,7 +477,10 @@ def _commit_ready(
             validation_json=validation_data,
             now=datetime.now(UTC),
         )
+        event = _phase_timing(repository.get(operation_id), previous_time)
         revisions.approve(revision_id, approved_at=datetime.now(UTC))
+    if event is not None:
+        print(json.dumps(event, sort_keys=True, separators=(",", ":")), file=sys.stderr)
     return {"runtime_revision_id": str(revision_id)}
 
 
@@ -392,6 +489,8 @@ def bootstrap_recipe_instance(
 ) -> dict[str, str]:
     """Create a stopped managed pin once; never rebind an existing instance."""
 
+    if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
+        return {"created": "false"}
     target_id = recipe_target_id(reviewed)
     expected = Target(
         id=target_id,
@@ -553,7 +652,12 @@ def _exact_existing_image(reviewed: ReviewedRecipe, image_id: str) -> bool:
             and inspected.get("Os") == "linux"
             and inspected.get("Architecture") == "amd64"
             and isinstance(labels, dict)
-            and labels.get("io.kodi-lab.recipe-digest") == reviewed.digest
+            and labels.get("io.kodi-lab.recipe-digest")
+            == (
+                load_inactive_ostree_recipe().digest
+                if reviewed.recipe.generation == "piers"
+                else reviewed.digest
+            )
         )
     except Exception:
         return False
@@ -570,22 +674,45 @@ def install_reviewed_runtime(
 ) -> InstallOutcome:
     """Install or ensure one reviewed generation through exact local evidence."""
 
-    reviewed = load_reviewed_recipe(generation)
+    reviewed = load_installation_recipe(generation)
+    preview_ack = None
+    if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
+        from kodi_lab.runtime.preview import recorded_acknowledgement
+
+        if operation_id is None:
+            raise RecipeInstallationError("Preview requires broker admission")
+        preview_operation = operation_id
+        result = _database_call(
+            settings,
+            lambda factory: {
+                "ack": recorded_acknowledgement(
+                    factory, preview_operation
+                ).model_dump_json()
+            },
+        )
+        from kodi_lab.runtime.preview import PreviewAcknowledgement
+
+        preview_ack = PreviewAcknowledgement.model_validate_json(result["ack"])
     with (
         _record_worker_start_failure(settings, reviewed, operation_id),
         _installation_lock(settings.runtime_root),
     ):
         import docker
 
-        network_client = docker.from_env(timeout=30)
-        try:
-            ensure_managed_network(network_client.api)
-        finally:
-            network_client.close()
+        if generation != "piers":
+            network_client = docker.from_env(timeout=30)
+            try:
+                ensure_managed_network(network_client.api)
+            finally:
+                network_client.close()
         prior = _database_call(
             settings, lambda factory: _ready_installation(factory, reviewed)
         )
-        if prior and _exact_existing_image(reviewed, prior["image_id"]):
+        if (
+            prior
+            and generation != "piers"
+            and _exact_existing_image(reviewed, prior["image_id"])
+        ):
             revision_id = UUID(prior["runtime_revision_id"])
             _database_call(
                 settings,
@@ -597,6 +724,7 @@ def install_reviewed_runtime(
                 UUID(prior["operation_id"]), revision_id, prior["image_id"], True
             )
         operation_id = operation_id or uuid4()
+        built_preview_image: str | None = None
         _database_call(
             settings,
             lambda factory: _create_operation(factory, reviewed, operation_id),
@@ -626,10 +754,8 @@ def install_reviewed_runtime(
                     )
                     return result["terminal"] == "true"
 
-                reclaim_terminal_orphans(
-                    preflight_client,
-                    terminal=terminal,
-                )
+                if generation != "piers":
+                    reclaim_terminal_orphans(preflight_client, terminal=terminal)
                 preflight_temporary_networks(preflight_client, settings)
             finally:
                 preflight_client.close()
@@ -646,12 +772,23 @@ def install_reviewed_runtime(
                 )
                 report("assembling")
 
-            assembly = assemble_reviewed_image(
-                reviewed,
-                operation_id=operation_id,
-                on_base_ready=on_base_ready,
-                settings=settings,
-            )
+            assembly: AssemblyResult | OstreeInstallationAssembly
+            if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
+                from kodi_lab.runtime.ostree_worker import assemble_in_worker
+
+                built, acquired = assemble_in_worker(
+                    operation_id, settings, on_base_ready
+                )
+                assert preview_ack is not None
+                assembly = OstreeInstallationAssembly(built, acquired, preview_ack)
+                built_preview_image = built.image_id
+            else:
+                assembly = assemble_reviewed_image(
+                    reviewed,
+                    operation_id=operation_id,
+                    on_base_ready=on_base_ready,
+                    settings=settings,
+                )
             attestation = acquisition_attestation(reviewed, assembly)
             _database_call(
                 settings,
@@ -664,12 +801,22 @@ def install_reviewed_runtime(
                 ),
             )
             report("validating")
-            validation = validate_reviewed_image(
-                reviewed,
-                image_id=assembly.image_id,
-                operation_id=operation_id,
-                settings=settings,
-            )
+            if isinstance(reviewed.recipe.provider, FlathubOstreeProvider):
+                from kodi_lab.runtime.ostree_validation import validate_ostree_image
+
+                validation = validate_ostree_image(
+                    reviewed,
+                    image_id=assembly.image_id,
+                    operation_id=operation_id,
+                    settings=settings,
+                )
+            else:
+                validation = validate_reviewed_image(
+                    reviewed,
+                    image_id=assembly.image_id,
+                    operation_id=operation_id,
+                    settings=settings,
+                )
             committed = _database_call(
                 settings,
                 lambda factory: _commit_ready(
@@ -681,8 +828,25 @@ def install_reviewed_runtime(
                     data_root=settings.data_root,
                 ),
             )
-        except Exception as error:
-            code = _installation_failure_code(error)
+        except BaseException as error:
+            cleanup_error = None
+            if built_preview_image is not None:
+                cleanup_client = docker.from_env(timeout=30)
+                try:
+                    attrs = cleanup_client.api.inspect_image(built_preview_image)
+                    labels = attrs.get("Config", {}).get("Labels", {})
+                    if labels.get("io.kodi-lab.operation-id") != operation_id.hex:
+                        raise RecipeInstallationError("failed image ownership differs")
+                    cleanup_client.images.remove(built_preview_image, force=False)
+                except Exception as exc:
+                    cleanup_error = exc
+                finally:
+                    cleanup_client.close()
+            code = (
+                "installation_cleanup_failed"
+                if cleanup_error
+                else _installation_failure_code(error)
+            )
             with suppress(Exception):
                 _database_call(
                     settings,

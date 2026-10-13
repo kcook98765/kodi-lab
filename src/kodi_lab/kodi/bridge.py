@@ -101,6 +101,7 @@ class BridgeIdentity:
     kodi_version: str
     capabilities: tuple[str, ...]
     build_fingerprint: str
+    kodi_release: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1154,7 +1155,7 @@ class ExternalBridgeClient:
 
     @staticmethod
     def _identity(value: object) -> BridgeIdentity:
-        if not isinstance(value, dict) or set(value) != {
+        if not isinstance(value, dict) or set(value) - {"kodi_release"} != {
             "bridge_id",
             "protocol_version",
             "addon_id",
@@ -1195,6 +1196,19 @@ class ExternalBridgeClient:
             raise ExternalBridgeError("bridge_identity_mismatch")
         if not frozenset(capabilities) <= BRIDGE_CAPABILITIES:
             raise ExternalBridgeError("bridge_capability_unavailable")
+        release = value.get("kodi_release")
+        if release is not None:
+            from kodi_lab.domain import KodiReleaseIdentity
+
+            try:
+                parsed = KodiReleaseIdentity.parse(release)
+                if (
+                    release != parsed.canonical
+                    or value["kodi_version"] != f"{parsed.major}.{parsed.minor}"
+                ):
+                    raise ValueError
+            except (ValueError, TypeError):
+                raise ExternalBridgeError("bridge_identity_mismatch") from None
         return BridgeIdentity(
             bridge_id=bridge_id,
             protocol_version=BRIDGE_PROTOCOL_VERSION,
@@ -1203,6 +1217,7 @@ class ExternalBridgeClient:
             kodi_version=value["kodi_version"],
             capabilities=tuple(sorted(capabilities)),
             build_fingerprint=value["build_fingerprint"],
+            kodi_release=release,
         )
 
     @staticmethod

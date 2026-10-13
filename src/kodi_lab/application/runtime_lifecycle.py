@@ -167,6 +167,22 @@ class ManagedRuntimeLifecycleService:
         self._require_no_reset(instance_id)
         return self._run(instance_id, ManagedInstanceLifecycleKind.START, self._start)
 
+    def install_reviewed_bridge(self, instance_id: UUID) -> ManagedRuntimeStatus:
+        """Closed candidate installation under the existing lifecycle mutation lease."""
+        self._require_no_reset(instance_id)
+
+        def install(target_id: UUID, profile: RuntimeExecutionProfile) -> None:
+            if (
+                profile.kodi_release.canonical != "22.0-rc.1"
+                or self._bridge_trust is None
+            ):
+                raise LifecycleConflictError("reviewed Bridge candidate unavailable")
+            self._bridge_trust.stage_reviewed(target_id)
+            self._stop(target_id, profile)
+            self._start(target_id, profile)
+
+        return self._run(instance_id, ManagedInstanceLifecycleKind.START, install)
+
     def _start(self, instance_id: UUID, profile: RuntimeExecutionProfile) -> None:
         container = self._require_container(instance_id)
         try:

@@ -12,7 +12,11 @@ from kodi_lab.application.runtime_eligibility import (
     RuntimeRevisionEligibilityPolicy,
     RuntimeSelectionPolicy,
 )
-from kodi_lab.runtime.recipes import REVIEWED_SIGNED_DISTRO_SOURCE_KIND
+from kodi_lab.runtime.recipes import (
+    PREVIEW_INSTALLATION_DIGEST,
+    REVIEWED_OSTREE_SOURCE_KIND,
+    REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+)
 from kodi_lab.storage.repositories import (
     RuntimeDefinitionRepository,
     RuntimeRecipeInstallationRepository,
@@ -28,7 +32,10 @@ def supports_reviewed_recipe_capability(
     """Accept only a currently eligible exact revision and recorded test result."""
 
     revision = RuntimeRevisionRepository(session).get(revision_id)
-    if revision is None or revision.source_kind != REVIEWED_SIGNED_DISTRO_SOURCE_KIND:
+    if revision is None or revision.source_kind not in (
+        REVIEWED_SIGNED_DISTRO_SOURCE_KIND,
+        REVIEWED_OSTREE_SOURCE_KIND,
+    ):
         return False
     definition = RuntimeDefinitionRepository(session).get(
         revision.runtime_definition_id
@@ -41,7 +48,13 @@ def supports_reviewed_recipe_capability(
             required_release=definition.kodi_release,
             definition=definition,
             revision=revision,
-            policy=RuntimeSelectionPolicy(include_legacy=True),
+            policy=RuntimeSelectionPolicy(
+                include_legacy=True,
+                include_prerelease=revision.source_kind == REVIEWED_OSTREE_SOURCE_KIND,
+                preview_recipe_digest=PREVIEW_INSTALLATION_DIGEST
+                if revision.source_kind == REVIEWED_OSTREE_SOURCE_KIND
+                else None,
+            ),
         )
         .eligible
     ):

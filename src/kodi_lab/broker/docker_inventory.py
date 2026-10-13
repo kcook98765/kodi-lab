@@ -2147,6 +2147,15 @@ class DockerManagedContainerAdapter:
                 "Managed container profile-derived user has drifted"
             )
         for field in ("Cmd", "Entrypoint", "Healthcheck"):
+            # Docker represents an absent CMD as either null or an empty argv.
+            # Both preserve the image entrypoint with no supplied arguments;
+            # nonempty commands and all other image defaults remain exact.
+            if (
+                field == "Cmd"
+                and config.get(field) in (None, [])
+                and image_config.get(field) in (None, [])
+            ):
+                continue
             if config.get(field) != image_config.get(field):
                 raise ProvisioningConflictError(
                     "Managed container image-default configuration has drifted"

@@ -136,6 +136,7 @@ from kodi_lab.broker.transport import (
     reject_buffered_trailing_data,
     send_frame,
 )
+from kodi_lab.runtime.preview import PreviewAcknowledgement
 
 CONNECT_TIMEOUT_SECONDS = 5.0
 READ_TIMEOUT_SECONDS = 5.0
@@ -167,12 +168,18 @@ class BrokerClient:
         self._write_timeout = write_timeout
 
     def establish_managed_bridge_trust(
-        self, *, managed_instance_id: str, expected_container_id: str, generation: int
+        self,
+        *,
+        managed_instance_id: str,
+        expected_container_id: str,
+        generation: int,
+        install_reviewed: bool = False,
     ) -> EstablishManagedBridgeTrustResult:
         params = EstablishManagedBridgeTrustParams(
             managed_instance_id=managed_instance_id,
             expected_container_id=expected_container_id,
             generation=generation,
+            install_reviewed=install_reviewed,
         )
         result = self._call(
             "establish_managed_bridge_trust",
@@ -213,11 +220,18 @@ class BrokerClient:
     def launch_reviewed_runtime_installation(
         self,
         *,
-        generation: Literal["matrix", "nexus", "omega"],
+        generation: Literal["matrix", "nexus", "omega", "piers"],
         operation_id: str,
+        preview_acknowledgement: PreviewAcknowledgement | None = None,
     ) -> ReviewedInstallationLaunchResult:
         params = ReviewedInstallationLaunchParams(
-            generation=generation, operation_id=operation_id
+            generation=generation,
+            operation_id=operation_id,
+            **(
+                {"preview_acknowledgement": preview_acknowledgement}
+                if generation == "piers"
+                else {}
+            ),
         )
         return self._call(
             "launch_reviewed_runtime_installation",
@@ -1140,11 +1154,22 @@ class BrokerClient:
     ) -> ResultT:
         request_id = str(uuid4())
         try:
+            serialized_params = params.model_dump(mode="json")
+            if (
+                isinstance(params, EstablishManagedBridgeTrustParams)
+                and not params.install_reviewed
+            ):
+                serialized_params.pop("install_reviewed", None)
+            if (
+                isinstance(params, ReviewedInstallationLaunchParams)
+                and params.preview_acknowledgement is None
+            ):
+                serialized_params.pop("preview_acknowledgement", None)
             request = Request(
                 version=PROTOCOL_VERSION,
                 request_id=request_id,
                 operation=operation,
-                params=params.model_dump(mode="json"),
+                params=serialized_params,
             )
         except ValidationError as error:
             raise ClientProtocolError(

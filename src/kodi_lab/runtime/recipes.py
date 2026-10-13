@@ -11,10 +11,17 @@ import hashlib
 import re
 from dataclasses import dataclass
 from importlib import resources
-from typing import Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID, uuid5
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from kodi_lab.domain import KodiReleaseIdentity, normalize_sha256_digest
 from kodi_lab.runtime.manifest import RuntimeProfileManifest
@@ -63,6 +70,10 @@ _ASSETS = (
 )
 _DISPLAY_GUARD_ASSET = "xvfb_guard.py"
 REVIEWED_SIGNED_DISTRO_SOURCE_KIND = "reviewed-signed-distro-package"
+REVIEWED_OSTREE_SOURCE_KIND = "reviewed-flathub-ostree"
+PREVIEW_INSTALLATION_DIGEST: Final = (
+    "sha256:9679a31a2ff4007c63e117319b7893054e475d5a24e69240a2c2e21adbfdd793"
+)
 
 
 class _ClosedModel(BaseModel):
@@ -125,8 +136,113 @@ class SignedDistroAptProvider(_ClosedModel):
         return self
 
 
+FLATHUB_PRIMARY_KEY: Final = "6E5C05D979C76DAF93C081354184DD4D907A7CAE"
+FLATHUB_SIGNING_SUBKEY: Final = "54A6CDDD8919FB204200D8AC562702E9E3ED7EE8"
+FLATHUB_KEY_SHA256 = "8bdc20abc4e19c0796460beb5bfe0e7aa4138716999e19c6f2dbdd78cc41aeaa"
+KODI_RC1_SOURCE_REVISION: Final = "28ea2eac1eb7af8fdcbd2672d933ce87f594be79"
+_INACTIVE_OSTREE_DIGEST = (
+    "sha256:f1abc5dc6f04d143881b3da58fe745da0409273f7b0823c4121a18ebd017cd28"
+)
+# These are acquisition inputs, not installation or capability approvals.
+_OSTREE_COMPONENTS = {
+    "app": (
+        "https://dl.flathub.org/beta-repo/",
+        "app/tv.kodi.Kodi/x86_64/beta",
+        "0a381e42781914ae76ed338d3aa11f9403c55c57f5c9c194e1f4fb437cf71630",
+        "org.flathub.Beta",
+        "d22840d60457caa455f01a90a9262d8f699d333ea13ed47b5a82f04af41dd0f6",
+    ),
+    "platform": (
+        "https://dl.flathub.org/repo/",
+        "runtime/org.freedesktop.Platform/x86_64/26.08",
+        "92659297ffdb4f9f14dd1562bd919b48160b0dc42c99653dcfc0688096af41df",
+        "org.flathub.Stable",
+        "0ab22b227c5658600cb197ea0463e6735355d0adcd92303ba7d89c6a367758fc",
+    ),
+    "gl": (
+        "https://dl.flathub.org/repo/",
+        "runtime/org.freedesktop.Platform.GL.default/x86_64/26.08",
+        "badc1097c419e73781cf098413ffa8e7bf7db3528572c11712265b9193921842",
+        "org.flathub.Stable",
+        "8802a8c0a93df4c521a62b9be924574c2c40bc8c03e48075387c795d308d781b",
+    ),
+}
+
+
+class OstreeComponent(_ClosedModel):
+    role: Literal["app", "platform", "gl"]
+    repository_url: str = Field(max_length=64)
+    ref: str = Field(max_length=128)
+    commit: str = Field(pattern=r"^[0-9a-f]{64}$")
+    collection: str = Field(max_length=64)
+    metadata_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _reviewed_identity(self) -> OstreeComponent:
+        if (
+            self.repository_url,
+            self.ref,
+            self.commit,
+            self.collection,
+            self.metadata_sha256,
+        ) != _OSTREE_COMPONENTS[self.role]:
+            raise ValueError("OSTree component differs from reviewed RC1 identity")
+        return self
+
+
+class FlathubOstreeProvider(_ClosedModel):
+    type: Literal["flathub_ostree"]
+    architecture: Literal["x86_64"]
+    primary_key_fingerprint: str = Field(pattern=r"^[0-9A-F]{40}$")
+    signing_subkey_fingerprint: str = Field(pattern=r"^[0-9A-F]{40}$")
+    key_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    verification_policy: Literal["ostree-gpg-pinned-closure-v1"]
+    components: tuple[OstreeComponent, OstreeComponent, OstreeComponent]
+
+    @model_validator(mode="after")
+    def _closed_trust_and_closure(self) -> FlathubOstreeProvider:
+        if (
+            self.primary_key_fingerprint != FLATHUB_PRIMARY_KEY
+            or self.signing_subkey_fingerprint != FLATHUB_SIGNING_SUBKEY
+            or self.key_sha256 != FLATHUB_KEY_SHA256
+            or tuple(item.role for item in self.components) != ("app", "platform", "gl")
+        ):
+            raise ValueError("OSTree trust or component closure differs")
+        return self
+
+
+# Independent parsing surface: existing v1 APT models and serialization stay intact.
+AcquisitionProvider = Annotated[
+    SignedDistroAptProvider | FlathubOstreeProvider, Field(discriminator="type")
+]
+
+
+class InactiveOstreeRecipe(_ClosedModel):
+    schema_version: Literal[2]
+    recipe_id: Literal["piers-22.0-rc1-r1"]
+    recipe_revision: Literal[1]
+    generation: Literal["piers"]
+    kodi_version: Literal["22.0-rc.1"]
+    kodi_source_revision: Literal["28ea2eac1eb7af8fdcbd2672d933ce87f594be79"]
+    platform: Literal["linux/amd64"]
+    support_tier: Literal["preview"]
+    development_only: Literal[True]
+    acquisition_trigger: Literal["explicit-user-install"]
+    installation_status: Literal["inactive"]
+    support_dependencies_status: Literal["unqualified"]
+    image_assets_status: Literal["unqualified"]
+    validation_status: Literal["unqualified"]
+    provider: FlathubOstreeProvider
+
+
+def parse_acquisition_provider(value: object) -> AcquisitionProvider:
+    """Parse closed provider data; this does not select an installable recipe."""
+
+    return TypeAdapter(AcquisitionProvider).validate_python(value)
+
+
 class RuntimeRecipe(_ClosedModel):
-    schema_version: Literal[1]
+    schema_version: Literal[1, 3]
     recipe_id: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]{1,63}$")
     recipe_revision: int = Field(gt=0)
     generation: str = Field(pattern=r"^[a-z][a-z0-9-]{1,31}$")
@@ -137,7 +253,7 @@ class RuntimeRecipe(_ClosedModel):
     definition_slug: str
     base_image_reference: str = Field(min_length=1, max_length=256)
     base_image_digest: str
-    provider: SignedDistroAptProvider
+    provider: AcquisitionProvider
     critical_packages: tuple[CriticalPackage, ...]
     support_packages: tuple[str, ...]
     asset_hashes: dict[str, str]
@@ -155,6 +271,36 @@ class RuntimeRecipe(_ClosedModel):
 
     @model_validator(mode="after")
     def _consistent(self) -> RuntimeRecipe:
+        if isinstance(self.provider, FlathubOstreeProvider):
+            from kodi_lab.runtime.ostree_assembly import load_assembly_assets
+            from kodi_lab.runtime.ubuntu_support import BASE_IMAGE
+
+            assets = load_assembly_assets()
+            if (
+                self.schema_version != 3
+                or self.recipe_id != "piers-22.0-rc1-r1"
+                or self.recipe_revision != 1
+                or self.generation != "piers"
+                or self.kodi_version != "22.0-rc.1"
+                or self.base_image_reference != BASE_IMAGE
+                or self.base_image_digest != BASE_IMAGE.split("@")[1]
+                or self.critical_packages
+                or self.support_packages
+                or self.asset_hashes
+                != {
+                    k: "sha256:" + hashlib.sha256(v).hexdigest()
+                    for k, v in assets.items()
+                }
+                or self.execution_profile.expected_kodi_version != "22.0"
+                or self.execution_profile.expected_version_tag != "rc"
+                or self.execution_profile.expected_prerelease_ordinal != 1
+                or self.execution_profile.runtime_uid != 1000
+                or self.execution_profile.runtime_gid != 1000
+            ):
+                raise ValueError("reviewed Preview installation identity differs")
+            return self
+        if self.schema_version != 1:
+            raise ValueError("APT recipe schema differs")
         if (
             self.base_image_digest != normalize_sha256_digest(self.base_image_digest)
             or not self.base_image_reference.endswith("@" + self.base_image_digest)
@@ -208,6 +354,18 @@ class ReviewedRecipe:
     raw: bytes
 
 
+class AptRuntimeRecipe(RuntimeRecipe):
+    """Preserve the typed stable recipe interface for existing callers."""
+
+    schema_version: Literal[1]
+    provider: SignedDistroAptProvider
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewedAptRecipe(ReviewedRecipe):
+    recipe: AptRuntimeRecipe
+
+
 _TARGET_NAMESPACE = UUID("dc264ebb-d7c8-4ea7-8d54-77d5e7624e09")
 
 
@@ -224,7 +382,7 @@ def supported_generations() -> tuple[str, ...]:
     return tuple(_RECIPES)
 
 
-def load_reviewed_recipe(generation: str) -> ReviewedRecipe:
+def load_reviewed_recipe(generation: str) -> ReviewedAptRecipe:
     """Resolve the current packaged generation recipe for a new installation."""
 
     return _reviewed_for_generation(generation)[-1]
@@ -235,7 +393,12 @@ def load_recorded_reviewed_recipe(
 ) -> ReviewedRecipe:
     """Resolve only a wheel-owned historical recipe matching a durable install."""
 
-    for reviewed in _reviewed_for_generation(generation):
+    entries = (
+        (load_installation_recipe(generation),)
+        if generation == "piers"
+        else _reviewed_for_generation(generation)
+    )
+    for reviewed in entries:
         if (
             reviewed.recipe.recipe_id == recipe_id
             and reviewed.recipe.recipe_revision == recipe_revision
@@ -245,7 +408,22 @@ def load_recorded_reviewed_recipe(
     raise ValueError("recorded runtime recipe is no longer reviewed")
 
 
-def _reviewed_for_generation(generation: str) -> tuple[ReviewedRecipe, ...]:
+def installation_generations() -> tuple[str, ...]:
+    """Closed backend selectors. Public stable/Web recipe lists stay unchanged."""
+    return (*supported_generations(), "piers")
+
+
+def load_installation_recipe(generation: str) -> ReviewedRecipe:
+    if generation != "piers":
+        return load_reviewed_recipe(generation)
+    return _load_recipe_file(
+        generation,
+        "piers-22.0-rc1-installation-r1.json",
+        PREVIEW_INSTALLATION_DIGEST,
+    )
+
+
+def _reviewed_for_generation(generation: str) -> tuple[ReviewedAptRecipe, ...]:
     try:
         entries = _RECIPES[generation]
     except KeyError as error:
@@ -258,7 +436,9 @@ def _reviewed_for_generation(generation: str) -> tuple[ReviewedRecipe, ...]:
     ]
     if not reviewed or len(identities) != len(set(identities)):
         raise ValueError("reviewed recipe identity is duplicated")
-    return reviewed
+    if any(not isinstance(item, ReviewedAptRecipe) for item in reviewed):
+        raise ValueError("stable registry contains non-APT recipe")
+    return tuple(item for item in reviewed if isinstance(item, ReviewedAptRecipe))
 
 
 def _load_recipe_file(
@@ -272,7 +452,10 @@ def _load_recipe_file(
     recipe = RuntimeRecipe.model_validate_json(raw)
     if recipe.generation != generation:
         raise ValueError("recipe generation differs from reviewed selection")
-    asset_root = package.joinpath("assembly_assets", filename.removesuffix(".json"))
+    asset_root = package.joinpath(
+        "assembly_assets",
+        recipe.recipe_id if generation == "piers" else filename.removesuffix(".json"),
+    )
     if not asset_root.is_dir():
         asset_root = package.joinpath("assembly_assets")
     assets = {
@@ -282,10 +465,50 @@ def _load_recipe_file(
     for name, payload in assets.items():
         if "sha256:" + hashlib.sha256(payload).hexdigest() != recipe.asset_hashes[name]:
             raise ValueError("reviewed assembly asset differs")
+    if generation != "piers":
+        return ReviewedAptRecipe(
+            recipe=AptRuntimeRecipe.model_validate_json(raw),
+            digest=digest,
+            reference=f"kodi-lab-wheel:runtime/recipes/{filename}",
+            assets=assets,
+            raw=raw,
+        )
     return ReviewedRecipe(
         recipe=recipe,
         digest=digest,
         reference=f"kodi-lab-wheel:runtime/recipes/{filename}",
         assets=assets,
         raw=raw,
+    )
+
+
+def parse_runtime_recipe(value: bytes) -> RuntimeRecipe | InactiveOstreeRecipe:
+    """Parse recipe formats without adding inactive definitions to the registry."""
+
+    return TypeAdapter(
+        Annotated[
+            RuntimeRecipe | InactiveOstreeRecipe, Field(discriminator="schema_version")
+        ]
+    ).validate_json(value)
+
+
+@dataclass(frozen=True, slots=True)
+class InactiveOstreeDefinition:
+    recipe: InactiveOstreeRecipe
+    digest: str
+
+
+def load_inactive_ostree_recipe() -> InactiveOstreeDefinition:
+    """Acquisition-only RC1 input; intentionally absent from _RECIPES."""
+
+    raw = (
+        resources.files("kodi_lab.runtime")
+        .joinpath("recipes", "piers-22.0-rc1-r1.json")
+        .read_bytes()
+    )
+    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    if digest != _INACTIVE_OSTREE_DIGEST:
+        raise ValueError("inactive OSTree recipe differs from pinned digest")
+    return InactiveOstreeDefinition(
+        InactiveOstreeRecipe.model_validate_json(raw), digest
     )

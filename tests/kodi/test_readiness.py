@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from uuid import UUID
 
 import pytest
@@ -173,6 +174,100 @@ def test_identity_preserves_observable_prerelease_ordinal() -> None:
         observation(), preview_profile(), transport=transport
     ).get_application_identity()
     assert identity == KodiApplicationIdentity("Kodi", 22, 0, "beta", 2)
+
+
+@pytest.mark.parametrize(
+    ("major", "minor", "tag", "ordinal", "canonical"),
+    [
+        (19, 4, "stable", None, "19.4"),
+        (20, 5, "stable", "", "20.5"),
+        (21, 3, "stable", None, "21.3"),
+        (22, 0, "alpha", "1", "22.0-alpha.1"),
+        (22, 0, "beta", "2", "22.0-beta.2"),
+        (22, 0, "rc", "1", "22.0-rc.1"),
+        (22, 0, "releasecandidate", "1", "22.0-rc.1"),
+        (22, 0, "releasecandidate", 1, "22.0-rc.1"),
+        (22, 0, "releasecandidate", "2", "22.0-rc.2"),
+        (22, 1, "releasecandidate", "1", "22.1-rc.1"),
+        (23, 0, "releasecandidate", "1", "23.0-rc.1"),
+    ],
+)
+def test_native_release_identity_normalizes_only_the_channel(
+    major: int, minor: int, tag: str, ordinal: int | str | None, canonical: str
+) -> None:
+    transport = FakeTransport(
+        [
+            response(
+                "kodi-lab-readiness-identity",
+                {
+                    "name": "Kodi",
+                    "version": {
+                        "major": major,
+                        "minor": minor,
+                        "revision": "20260927-28ea2eac-dirty",
+                        "tag": tag,
+                        "tagversion": ordinal,
+                    },
+                },
+            )
+        ]
+    )
+    identity = KodiJsonRpcReadinessAdapter(
+        observation(), profile(), transport=transport
+    ).get_application_identity()
+    assert identity.tag == tag
+    assert identity.kodi_release.canonical == canonical
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        {"major": 22, "minor": 0, "tag": "releasecandidate"},
+        *[
+            {"major": 22, "minor": 0, "tag": "releasecandidate", "tagversion": value}
+            for value in (
+                None,
+                "",
+                0,
+                "0",
+                -1,
+                "-1",
+                True,
+                1.0,
+                "1.0",
+                "rc1",
+                "+1",
+                " 1",
+                "²",
+                "\u0661",
+            )
+        ],
+        {"major": 22, "minor": 0, "tag": "stable", "tagversion": "1"},
+        {"major": 22, "minor": 0, "tag": "ReleaseCandidate", "tagversion": "1"},
+        {"major": 22, "minor": 0, "tagversion": "1"},
+        {"minor": 0, "tag": "releasecandidate", "tagversion": "1"},
+        {"major": 22, "tag": "releasecandidate", "tagversion": "1"},
+        {"major": "22", "minor": 0, "tag": "releasecandidate", "tagversion": "1"},
+        {"major": True, "minor": 0, "tag": "releasecandidate", "tagversion": "1"},
+        {"major": 22, "minor": -1, "tag": "releasecandidate", "tagversion": "1"},
+    ],
+)
+def test_native_identity_rejects_invalid_or_conflicting_release_fields(
+    version: dict[str, object],
+) -> None:
+    adapter = KodiJsonRpcReadinessAdapter(
+        observation(),
+        profile(),
+        transport=FakeTransport(
+            [
+                response(
+                    "kodi-lab-readiness-identity", {"name": "Kodi", "version": version}
+                )
+            ]
+        ),
+    )
+    with pytest.raises(JsonRpcInvalidResponseError):
+        adapter.get_application_identity()
 
 
 def test_kodi_19_identity_accepts_revision_without_broadening_release() -> None:
@@ -475,6 +570,61 @@ def test_prerelease_ordinal_mismatch_is_not_compatible() -> None:
         ),  # type: ignore[arg-type]
     ).wait_until_usable(INSTANCE_ID)
     assert result.failure_reason is ReadinessFailureReason.UNEXPECTED_KODI_VERSION
+    assert result.elapsed_seconds == 0
+
+
+@pytest.mark.parametrize(
+    ("major", "minor", "tag", "ordinal", "usable"),
+    [
+        (22, 0, "releasecandidate", "1", True),
+        (22, 0, "releasecandidate", "2", False),
+        (22, 1, "releasecandidate", "1", False),
+        (23, 0, "releasecandidate", "1", False),
+        (22, 0, "beta", "1", False),
+        (22, 0, "stable", "", False),
+    ],
+)
+def test_rc_readiness_requires_the_exact_profile_release(
+    major: int, minor: int, tag: str, ordinal: str, usable: bool
+) -> None:
+    rc_profile = replace(
+        preview_profile(), expected_version_tag="rc", expected_prerelease_ordinal=1
+    )
+    adapter = KodiJsonRpcReadinessAdapter(
+        observation(),
+        rc_profile,
+        transport=FakeTransport(
+            [
+                response("kodi-lab-readiness-ping", "pong"),
+                response(
+                    "kodi-lab-readiness-identity",
+                    {
+                        "name": "Kodi",
+                        "version": {
+                            "major": major,
+                            "minor": minor,
+                            "tag": tag,
+                            "tagversion": ordinal,
+                        },
+                    },
+                ),
+            ]
+        ),
+    )
+    clock = FakeClock()
+    result = KodiReadinessCoordinator(
+        FakeBroker(),
+        rc_profile,
+        clock=clock,
+        sleep=clock.sleep,
+        adapter_factory=lambda *_args: adapter,
+    ).wait_until_usable(INSTANCE_ID)
+    assert result.usability_state is (
+        UsabilityState.USABLE if usable else UsabilityState.NOT_USABLE
+    )
+    assert result.failure_reason is (
+        None if usable else ReadinessFailureReason.UNEXPECTED_KODI_VERSION
+    )
     assert result.elapsed_seconds == 0
 
 

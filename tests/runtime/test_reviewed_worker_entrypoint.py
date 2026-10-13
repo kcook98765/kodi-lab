@@ -30,5 +30,7 @@ def test_installed_worker_entrypoint_passes_exact_operation_uuid(
     assert main(["install", "matrix"]) == 0
     assert calls[-1] == ("matrix", None)
     with pytest.raises(SystemExit):
-        main(["install", "piers", "--operation-id", str(operation_id)])
+        main(["install", "piers-rc2", "--operation-id", str(operation_id)])
     assert len(calls) == 2
+    assert main(["install", "piers", "--operation-id", str(operation_id)]) == 0
+    assert calls == [("omega", operation_id), ("matrix", None), ("piers", operation_id)]

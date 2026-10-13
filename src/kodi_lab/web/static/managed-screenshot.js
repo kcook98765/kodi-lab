@@ -12,7 +12,25 @@
   const metadata = section.querySelector("[data-screenshot-metadata]");
   const csrf = document.querySelector('meta[name="kodi-lab-csrf"]')?.getAttribute("content");
 
-  button.addEventListener("click", async () => {
+  let capturing = false;
+  let paused = false;
+  let timer = null;
+  const pause = section.querySelector("[data-preview-pause]");
+  const interval = section.querySelector("[data-preview-interval]");
+  const available = !button.disabled;
+
+  function schedule() {
+    clearTimeout(timer);
+    timer = null;
+    if (!available || paused || document.hidden || capturing) return;
+    const seconds = [5, 10, 30].includes(Number(interval?.value)) ? Number(interval.value) : 10;
+    timer = setTimeout(capture, seconds * 1000);
+  }
+
+  async function capture() {
+    if (!available || capturing || document.hidden) return;
+    capturing = true;
+    clearTimeout(timer);
     button.disabled = true;
     if (status instanceof HTMLElement) {
       status.hidden = false;
@@ -43,6 +61,16 @@
         metadata.textContent = `Captured ${screenshot.captured_at} (${screenshot.age_seconds} seconds ago) · ${screenshot.width}×${screenshot.height} · ${screenshot.byte_size} bytes`;
       }
       section.querySelector("[data-screenshot-empty]")?.remove();
+      const uiState = section.querySelector("[data-ui-state]");
+      if (uiState) {
+        try {
+          const observed = await fetch(`/api/instances/${section.dataset.instanceId}/ui-state`, { credentials: "same-origin" });
+          if (observed.ok) {
+            const ui = await observed.json();
+            uiState.textContent = `Window: ${ui.window.label || ui.window.id || "Unavailable"} · Selected item: ${ui.selected_item.label || "Unavailable"}`;
+          } else uiState.textContent = "UI state is currently unavailable.";
+        } catch (_) { uiState.textContent = "UI state is currently unavailable."; }
+      }
       if (status instanceof HTMLElement) {
         status.textContent = "Screenshot refreshed.";
       }
@@ -51,7 +79,21 @@
         status.textContent = `${error instanceof Error ? error.message : "Screenshot refresh failed."} The prior valid screenshot was retained.`;
       }
     } finally {
-      button.disabled = false;
+      button.disabled = !available;
+      capturing = false;
+      schedule();
     }
+  }
+
+  button.addEventListener("click", capture);
+  pause?.addEventListener("click", () => {
+    paused = !paused;
+    pause.textContent = paused ? "Resume preview" : "Pause preview";
+    pause.setAttribute("aria-pressed", String(paused));
+    schedule();
   });
+  interval?.addEventListener("change", schedule);
+  document.addEventListener("visibilitychange", schedule);
+  window.addEventListener("pagehide", () => { paused = true; clearTimeout(timer); });
+  schedule();
 })();

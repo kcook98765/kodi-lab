@@ -6,10 +6,14 @@ worker. The candidate is local and unpublished. Preserve the Git commit and a
 trusted copy of the `BUNDLE.json` SHA-256 when transferring it to the server;
 hashes inside the bundle establish integrity against that trusted copy.
 
+For installation starting with a GitHub clone, first follow
+`docs/LINUX-SOURCE-INSTALL.md` in that source checkout to stage this bundle.
+
 ## Platform and contents
 
 Use native Linux amd64 Docker Engine with Compose V2, a Docker administrator,
-Python 3.12 or newer, and `sha256sum`. Check that `10.250.0.0/24` conflicts with
+Python 3.12 and `sha256sum`. The application supports Python 3.12
+(`>=3.12,<3.13`); its container images provide their own interpreter. Check that `10.250.0.0/24` conflicts with
 neither host routes nor another Docker network before enabling the managed lab.
 The Web port defaults to `127.0.0.1:18100`.
 
@@ -20,11 +24,15 @@ recipe descriptions in `runtime-recipes/`, license and notices, and recovery
 documents. It also contains `bridge/service.kodi_lab_bridge-1.1.15.zip` and its
 `bridge/BRIDGE.json` provenance and the reviewed `repository/STABLE.json` and
 `repository/DEVELOPMENT.json` feed inputs. The same recipes are wheel resources inside
-both installed images.
+both installed images. Kodi 22 Piers RC1 is an additional Development-only
+Preview runtime; its exact OSTree recipe, public trust key, support closure and
+assembly assets are embedded in the application wheel, not supplied as binaries
+in `runtime-recipes/`.
 No Kodi binary, runtime image export, `.deb`, or package cache is distributed.
 
 Kodi Lab itself installs from the bundle. First Kodi acquisition needs network
-access to the reviewed Ubuntu package provider and pinned base image unless
+access to the reviewed Ubuntu package provider, Flathub for RC1, and pinned
+container base images unless
 the required Docker/package cache is already present. If exact reviewed inputs
 are unavailable, installation stops. There is no alternate Kodi version,
 provider, private archive, or source build fallback.

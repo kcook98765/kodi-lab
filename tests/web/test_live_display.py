@@ -467,10 +467,10 @@ def test_ui_is_view_only_and_keeps_semantic_remote_visible(client: TestClient) -
     csrf = login(client)
     make_visual_ready(client, csrf)
     page = client.get(f"/instances/{INSTANCE_ID}")
-    assert "Live display" in page.text
-    assert "Live · up to 1 fps" in page.text
+    assert "Live display" not in page.text
+    assert "Screen preview" in page.text
     assert "Browser remote" in page.text
-    assert "live-display.js" in page.text
+    assert "live-display.js" not in page.text
     assert "noVNC" not in page.text
     assert "keyboard" not in page.text.lower()
     assert "pointer" not in page.text.lower()

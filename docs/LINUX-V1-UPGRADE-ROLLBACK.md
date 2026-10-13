@@ -181,3 +181,28 @@ and refuses ambiguous or mismatched recovery. A clean-volume recovery has a
 separate `recover-clean` path and requires the matching backup plus separately
 preserved snapshot artifacts. Never use a volume deletion or direct SQLite
 change as a rollback method.
+
+
+## RC1 provenance compatibility boundary
+
+The RC1 integration keeps schema `0071_household_onboarding` and existing stable
+APT recipe/attestation formats. Upgrade Web (including its MCP backend), broker
+and the broker's same-image installation worker together. Preserve existing
+credentials, grants, external pairings, runtime images and profiles. A matching
+schema alone does not establish downgrade compatibility.
+
+Older application eligibility code does not enforce the new OSTree provenance
+and exact Preview acknowledgement gates. After RC1 approvals exist, do not
+blindly select older images against the current database. Quiesce mutations and
+archive current state first; stop any new RC1 instances through the compatible
+broker. Use either a separately qualified rollback build that retains those
+fail-closed guards, or restore a verified, consistent pre-RC1 application/private
+state backup with its matching previous service images and repository provenance.
+Review and reconcile post-backup credentials, grants, pairings and user changes
+before accepting a restore; do not silently discard them. Preserve acquired RC1
+images and profiles, quarantined from the older application, for recovery.
+
+Take the backup with services stopped through the supported backup procedure,
+retain all referenced images and snapshots, and verify restoration prerequisites.
+A live SQLite/WAL observation copy is not a rollback backup. No schema downgrade,
+manual approval-row editing or Docker prune is part of this rollback.

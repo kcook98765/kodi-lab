@@ -85,6 +85,7 @@ class ManagedInstanceService:
         trusted_custom_builds_enabled: bool = False,
         include_legacy: bool = False,
         include_prerelease: bool = False,
+        preview_recipe_digest: str | None = None,
         reset_operations: ResetOperationCoordinator | None = None,
         mutation_coordinator: ManagedInstanceMutationCoordinator | None = None,
     ) -> None:
@@ -93,6 +94,7 @@ class ManagedInstanceService:
             trusted_custom_builds_enabled=trusted_custom_builds_enabled,
             include_legacy=include_legacy,
             include_prerelease=include_prerelease,
+            preview_recipe_digest=preview_recipe_digest,
         )
         self._eligibility = RuntimeRevisionEligibilityPolicy()
         self._reset_operations = reset_operations

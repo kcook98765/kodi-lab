@@ -1,0 +1,143 @@
+{
+  "assembly": {
+    "acquisition_digest": "sha256:ade40c35adaebceefe3ba3ac3f887af172cad075b781c05d35c4d141f5ce143a",
+    "assembly_assets_digest": "sha256:267deb5e56837d9190ba02e7a00a98b48dfac7e8e035d608c6b6990e85d01b0b",
+    "asset_hashes": [
+      [
+        "Dockerfile",
+        "d7a09140a19cc1aba5490b368838050bfa6aae53f6f799d83ecc488ef4ef85f5"
+      ],
+      [
+        "guisettings.xml",
+        "58bb869f7456be0c15696847621c53771a1f0e9dd7aae33ee23f6347b4d79ed8"
+      ],
+      [
+        "healthcheck.py",
+        "c9b9cd117b7e530813dd873a58f6e5aa6c3100b93083466caa9780f0e21e3835"
+      ],
+      [
+        "launcher.sh",
+        "f4cba80ab1a48b348f61c2faa756a81755199df32f6707fdf0283c4783b5550a"
+      ],
+      [
+        "profile_init.py",
+        "486cf5c2130415028960bac3731082935efaae29667625ed48a271769b8e40b0"
+      ],
+      [
+        "supervisor.py",
+        "d61525f4aae165e366aa8de302a8fffcd3dc2fca96f8b1ad6d27fa2fb639e187"
+      ],
+      [
+        "xrandr.sh",
+        "a8e94f4bce5467d99e5eefb565f0dfb8a661e3a015c484c9e0bca930795ad12d"
+      ],
+      [
+        "xvfb_guard.py",
+        "7e7c4a7874567586a4344e948ef32830d2ed3a34072d6e0cfb7a86e8515afc98"
+      ]
+    ],
+    "base_image": "ubuntu:26.04@sha256:e5a4d6262ab5dbc25a85e60550dd7c87fd41a74fe43881534ed8288b2a7a3f8d",
+    "build_log_bytes": 43753,
+    "build_log_digest": "sha256:3d84c7a8db6fa53693a5424209600704143c7128c143f9f20140a9368932cc89",
+    "context_bytes": 624462636,
+    "context_digest": "sha256:0786182fdcbfbe31f136c95c10a94c68c3c3edf6ee0e806aa0e7a6125c77e7d9",
+    "image_id": "sha256:06cec1964c2f70bbb25ce59ed53a91329f006ed46e3a55972bd407446103e49f",
+    "image_size": 654941325,
+    "input_components": [
+      [
+        "app",
+        "app/tv.kodi.Kodi/x86_64/beta",
+        "0a381e42781914ae76ed338d3aa11f9403c55c57f5c9c194e1f4fb437cf71630",
+        "c5d61d04abe03cb899ecefc92eff007bfa0f20157c68e87ecc2ea055d8b17c89"
+      ],
+      [
+        "platform",
+        "runtime/org.freedesktop.Platform/x86_64/26.08",
+        "92659297ffdb4f9f14dd1562bd919b48160b0dc42c99653dcfc0688096af41df",
+        "6469f7480fe60a34c239ab5ddcd833361ebf01ddd38425d08e4d1b875c320fa3"
+      ],
+      [
+        "gl",
+        "runtime/org.freedesktop.Platform.GL.default/x86_64/26.08",
+        "badc1097c419e73781cf098413ffa8e7bf7db3528572c11712265b9193921842",
+        "0f49474c3820d4eca927438cbd85a132371255cdfb124efb88ff0c76d7a82863"
+      ]
+    ],
+    "installation_status": "inactive",
+    "installed_inventory_digest": "sha256:af004383d0bea6ade344306c3101aa6361da30466fd17848c6351c17b1922ad7",
+    "kodi_release": "22.0-rc.1",
+    "kodi_source_revision": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+    "native_addon_path": "/opt/fdo/lib/x86_64-linux-gnu/addons -> /app/lib/kodi/addons",
+    "operation_id": "dd365e67f3cd49ccb87dd621c0de0b0e",
+    "platform": "linux/amd64",
+    "production_approval": false,
+    "recipe_digest": "sha256:f1abc5dc6f04d143881b3da58fe745da0409273f7b0823c4121a18ebd017cd28",
+    "recipe_id": "piers-22.0-rc1-r1",
+    "recipe_revision": 1,
+    "runtime_validation": "separate-evidence-required",
+    "schema_version": "flathub-ostree-assembly-v1",
+    "supporting_closure_digest": "sha256:05afddc1b4174d4a5b3e472173ebbfc04fb0ff5c4630a3b784e7e186de058f29",
+    "taglib": "stock 2.3.1; Kodi Matroska fast-scan patch absent"
+  },
+  "acquisition": {
+    "artifact_closure": "verified",
+    "components": [
+      {
+        "architecture": "x86_64",
+        "collection": "org.flathub.Beta",
+        "commit": "0a381e42781914ae76ed338d3aa11f9403c55c57f5c9c194e1f4fb437cf71630",
+        "content_bytes": 230707146,
+        "detached_metadata_sha256": "7b16604d7d43dd0c8bbbefb813fae2b3f3769de2b0d8056a1de23504aa288752",
+        "entry_count": 5918,
+        "inventory_sha256": "c5d61d04abe03cb899ecefc92eff007bfa0f20157c68e87ecc2ea055d8b17c89",
+        "metadata_sha256": "d22840d60457caa455f01a90a9262d8f699d333ea13ed47b5a82f04af41dd0f6",
+        "primary_key": "6E5C05D979C76DAF93C081354184DD4D907A7CAE",
+        "ref": "app/tv.kodi.Kodi/x86_64/beta",
+        "role": "app",
+        "signature_result": "passed",
+        "signing_subkey": "54A6CDDD8919FB204200D8AC562702E9E3ED7EE8"
+      },
+      {
+        "architecture": "x86_64",
+        "collection": "org.flathub.Stable",
+        "commit": "92659297ffdb4f9f14dd1562bd919b48160b0dc42c99653dcfc0688096af41df",
+        "content_bytes": 718385292,
+        "detached_metadata_sha256": "c910cceae46b3227303600eda29ba5651ff0835ab0032e62acc3a3427fcb4205",
+        "entry_count": 18274,
+        "inventory_sha256": "6469f7480fe60a34c239ab5ddcd833361ebf01ddd38425d08e4d1b875c320fa3",
+        "metadata_sha256": "0ab22b227c5658600cb197ea0463e6735355d0adcd92303ba7d89c6a367758fc",
+        "primary_key": "6E5C05D979C76DAF93C081354184DD4D907A7CAE",
+        "ref": "runtime/org.freedesktop.Platform/x86_64/26.08",
+        "role": "platform",
+        "signature_result": "passed",
+        "signing_subkey": "54A6CDDD8919FB204200D8AC562702E9E3ED7EE8"
+      },
+      {
+        "architecture": "x86_64",
+        "collection": "org.flathub.Stable",
+        "commit": "badc1097c419e73781cf098413ffa8e7bf7db3528572c11712265b9193921842",
+        "content_bytes": 469750522,
+        "detached_metadata_sha256": "74a2c0d80ffb19490670ac3f0c27b596ae0096b2f73dfb6c943a091f463c8f4c",
+        "entry_count": 883,
+        "inventory_sha256": "0f49474c3820d4eca927438cbd85a132371255cdfb124efb88ff0c76d7a82863",
+        "metadata_sha256": "8802a8c0a93df4c521a62b9be924574c2c40bc8c03e48075387c795d308d781b",
+        "primary_key": "6E5C05D979C76DAF93C081354184DD4D907A7CAE",
+        "ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/26.08",
+        "role": "gl",
+        "signature_result": "passed",
+        "signing_subkey": "54A6CDDD8919FB204200D8AC562702E9E3ED7EE8"
+      }
+    ],
+    "installation_status": "inactive",
+    "kodi_release": "22.0-rc.1",
+    "kodi_source_revision": "28ea2eac1eb7af8fdcbd2672d933ce87f594be79",
+    "ostree_integrity": "passed",
+    "platform": "linux/amd64",
+    "provider": "flathub_ostree",
+    "recipe_digest": "sha256:f1abc5dc6f04d143881b3da58fe745da0409273f7b0823c4121a18ebd017cd28",
+    "recipe_id": "piers-22.0-rc1-r1",
+    "recipe_revision": 1,
+    "schema_version": "flathub-ostree-verification-v1",
+    "scope": "three-reviewed-ostree-components"
+  }
+}
