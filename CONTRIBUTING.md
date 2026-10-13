@@ -10,6 +10,12 @@ Install the locked development environment:
 uv sync --dev
 ```
 
+For optional source-development path overrides, copy `.env.example` to `.env`
+in the checkout and edit its two bootstrap paths. The file is ignored by Git;
+the same variables may be supplied through the environment. Bundle installations
+generate their separate `.env` with `linux-v1-bundle configure`; do not copy the
+source-development template into a deployment bundle.
+
 Run development commands as the repository owner. Do not use `sudo` for `uv`,
 Python, pytest, or any check script; the check lanes refuse UID 0 so routine work
 cannot leave root-owned source, cache, virtual-environment, or Git artifacts.

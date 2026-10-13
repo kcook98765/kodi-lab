@@ -1,278 +1,204 @@
 # Kodi Lab
 
-Kodi Lab is a self-hosted Web application for developing, testing, and
-inspecting Kodi installations. Remote-target mode connects to an existing Kodi;
-managed-lab mode provisions disposable Kodi instances in isolated containers.
-The stable Linux amd64 V1 release set is Matrix 19.4, Nexus 20.5, and Omega
-21.3. The earlier four-runtime lab (including Kodi 19.5 and Piers Beta 2)
-remains private compatibility evidence, not the installable V1 set. Windows,
-macOS, and ARM64/Apple Silicon host support are post-V1. The local `1.0.0rc1`
-candidate is a prerelease and has not been published.
-For an independent Linux installation from GitHub, follow the
-[clean-clone installation guide](docs/LINUX-SOURCE-INSTALL.md).
-For a source checkout, use the [development setup](CONTRIBUTING.md) and the
-[remote-Web Compose startup](docs/REMOTE-MODE-CONTAINER.md#build-and-initialize)
-to connect to existing Kodi targets. For managed V1, start from a clean committed
-checkout and [stage a local bundle](docs/LINUX-V1-INSTALL.md#candidate-staging),
-then follow the [Linux amd64 installation guide](docs/LINUX-V1-INSTALL.md) to
-acquire Matrix 19.4, Nexus 20.5, or Omega 21.3 through reviewed recipes.
+Kodi Lab lets AI agents inspect, control, test and develop against Kodi through
+the Model Context Protocol (MCP). Its Web administrator can manage isolated Kodi
+instances for experiments or connect to Kodi installations you already use.
 
-Kodi 22 **Piers RC1 (22.0-rc.1)** is an additional Linux amd64 **Preview**
-runtime in Development mode. Kodi Lab ships no Kodi executables: the user
-selects Install, acknowledges the exact prerelease, and Kodi Lab downloads and
-verifies pinned upstream Flathub artifacts, builds the image locally and validates
-it automatically. Stable 19/20/21 choices remain available. Additional managed
-instances reuse the installed image. Installation continues after navigation or
-browser closure, and its page updates automatically.
+## Features
 
-Initial installation has a provisional **5–15 minute** estimate, supported by two
-cold installations measured at **8m10.45s** and **9m3.02s**. These are observations,
-not a guaranteed duration. Duration depends on download, storage and
-host performance. See [the RC1 workflow](docs/RC1-WEB-WORKFLOW.md).
+- Run multiple Kodi versions side by side.
+- Connect existing Kodi installations without replacing them.
+- Inspect the Kodi UI and capture screenshots.
+- Test and debug add-ons in disposable development instances.
+- Give MCP-compatible AI assistants access to the Kodi targets you choose.
+- Manage runtimes, instances and agent permissions from a Web interface.
 
-Web administration controls credentials, target registration, grants, and
-infrastructure. The restricted broker exposes only bounded operations on owned
-resources. MCP clients cannot request shell, Git, Docker, arbitrary paths, or
-raw JSON-RPC access.
+## Requirements
 
-Web administration owns infrastructure, registration, credentials, presets,
-grants, production scopes, pairing, approvals and lifecycle. MCP is a stateless
-target/development interface with explicit target UUIDs, bounded schemas,
-durable replay safety and no shell, Git, Docker, caller-owned paths, arbitrary
-execution or raw JSON-RPC.
+- **Ubuntu 24.04 on 64-bit Intel/AMD (x86_64/amd64)** is the qualified host baseline.
+- **Docker Engine and Compose V2**, with Docker access for your user. Follow
+  [Docker's Ubuntu installation guide](https://docs.docker.com/engine/install/ubuntu/).
+  Rootless Docker is not qualified for managed runtimes.
+- **Python 3.12, Git, sha256sum and [uv](https://docs.astral.sh/uv/getting-started/installation/)**.
+- Internet access for Python packages, container images and upstream Kodi downloads.
+- Capacity for application images and each Kodi instance. RC1 requires at least
+  **8 GiB free staging space**, plus space for Docker images and profiles. There
+  is no qualified universal RAM minimum; begin with one running instance.
 
-The original Kodi Lab code and the Kodi Lab bridge are MIT licensed. Kodi,
-Ubuntu, Python, Mesa/Xvfb, and other runtime components retain their own
-licenses. Kodi Lab is independent of and not affiliated with the Kodi project.
-The four historical prebuilt runtime archives remain private test artifacts;
-the current release bundle distributes reviewed recipes and no Kodi binaries.
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Setup installs Python build/test packages automatically; editors and AI clients
+are optional.
 
-Stopping a provisioned managed instance retains its container and writable
-layer; deprovisioning removes them while retaining the managed record and
-durable Kodi Lab state. Fixtures, Snapshots, preserved Snapshots, and recovery
-contracts provide bounded preservation. External/production Kodi targets may
-be long-lived installations and are not disposable managed containers.
+Windows/WSL2, macOS and ARM64 hosts are not yet qualified. An existing Kodi target
+can be on another computer; these requirements apply to the Kodi Lab server.
 
-[`docs/V1-SPEC.md`](docs/V1-SPEC.md) is the authoritative v1 product and
-architecture specification.
+## Quick Start — Install Kodi Lab
 
-For the local Linux amd64 release-candidate installation path, see
-[`docs/LINUX-V1-INSTALL.md`](docs/LINUX-V1-INSTALL.md) and the
-[`release artifact contract`](docs/LINUX-V1-RELEASE.md). The Kodi-version
-addition and retirement audit is in
-[`docs/KODI-VERSION-EXTENSIBILITY.md`](docs/KODI-VERSION-EXTENSIBILITY.md).
+These steps are for a fresh installation. For an existing installation, use the
+[upgrade and rollback guide](docs/LINUX-V1-UPGRADE-ROLLBACK.md).
 
-## Development
+**1. Clone and build the application bundle.** Run these commands in Bash as
+your ordinary user, with the prerequisites above installed:
 
-The supported development host baseline is Python 3.12 on Ubuntu 24.04.
-
-```console
-uv sync --dev
-./scripts/check-focused tests/runtime/test_manifest.py
-./scripts/check-integration --focused tests/runtime/test_manifest.py --integration tests/runtime/test_distribution.py
-./scripts/check  # release coverage only
+```sh
+git clone https://github.com/kcook98765/kodi-lab.git
+cd kodi-lab
+uv sync --locked --dev
+./scripts/stage-linux-v1-bundle ../kodi-lab-bundle
+cd ../kodi-lab-bundle
+sha256sum -c SHA256SUMS
+python3 linux-v1-bundle verify .
+docker image load --input kodi-lab-application-images.tar
 ```
 
-The focused command is the default for ordinary changes; select every new or
-materially changed test file and its affected subsystem. Use integration when
-real subsystem interaction warrants it. `./scripts/check` is the complete
-release gate and is not mandatory for every task. The selection rules and
-measured costs are in [CONTRIBUTING.md](CONTRIBUTING.md) and
-[docs/TEST-PERFORMANCE.md](docs/TEST-PERFORMANCE.md).
+Keep your clone unedited and use a new, empty bundle folder. It contains the Kodi
+Lab installation, not Kodi. GitHub access is required.
 
-For optional local path overrides, copy `.env.example` to `.env` and edit the
-two existing bootstrap paths. A `.env` file is ignored by Git and is not
-required in production; the same variables may be supplied by the environment.
+**2. Configure the add-on repository.** Kodi devices download the Bridge and
+other Kodi Lab add-ons from this address. Enter this server's reachable private
+LAN IPv4 address (on your home network), not `127.0.0.1`. Choose an unused port;
+this example uses `18120`. It does not serve Kodi executables.
+Check that ports `18100` and `18120` are available and that Kodi Lab's private
+container network (`10.250.0.0/24`) does not conflict with your LAN, VPN or Docker
+networks.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the complete local foundation
-check and [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) for the
-phased scope.
-
-For a foreground, artifact-installed host that connects to remote Kodi, see
-[`docs/REMOTE-HOST-ARTIFACT.md`](docs/REMOTE-HOST-ARTIFACT.md). This Ubuntu
-procedure does not validate Windows or macOS host operation.
-
-## MCP agents: LAN HTTP and optional stdio
-
-Kodi Lab already serves Streamable HTTP at `/mcp`. For agents on another
-authorized LAN computer, configure the opt-in HTTPS proxy and use the verified
-endpoint on **Agents**. See [native LAN MCP setup](docs/NATIVE-LAN-MCP.md) for
-certificate, network and protocol requirements. The default remains loopback;
-the Web address alone does not imply remote MCP connectivity.
-
-Local / stdio remains available as a compatibility option.
-
-Phase 11's primary protocol is modern `2026-07-28`. Its canonical stdio command
-is a thin modern-only proxy to the running loopback MCP HTTP authority:
-
-```console
-KODI_LAB_MCP_TOKEN='<token shown once by Web administration>' kodi-lab-mcp-stdio
+```sh
+read -r -p "This server's private LAN IPv4 address: " repository_ip
+python3 linux-v1-bundle configure . \
+  --repository-bind "$repository_ip" --repository-port 18120 \
+  --repository-base-url "http://${repository_ip}:18120"
+docker compose -f compose.release.yaml config --quiet
 ```
 
-Generic stdio-capable clients should configure command
-`kodi-lab-mcp-stdio`, set `KODI_LAB_MCP_TOKEN` in the child environment, and
-place no token in argv. The default authority is
-`http://127.0.0.1:8100/mcp`. Development/tests may set `KODI_LAB_MCP_URL`, but
-only an exact plain-HTTP loopback `/mcp` URL is accepted. Every target-scoped
-tool still requires an explicit `target_id`; stdio creates no selected target or
-session. See [`docs/PHASE11-MCP.md`](docs/PHASE11-MCP.md) for security and
-client configuration details.
+**3. Initialize data, set your password and start services.** Initialization
+creates Kodi Lab's private data store. The password command prompts for your Web
+administrator password; there is no default password.
 
-The current V1 MCP registry contains nineteen tools: `addon_list`,
-`development_source_list`, `inspect_ui_state`, `promotion_request`, `remote_action`,
-`screenshot_capture`, `target_list`, `target_status`, `workspace_capture`,
-`workspace_create`, `workspace_deploy`, `workspace_edit`, `workspace_execute`,
-`workspace_execution_recover`, `workspace_read`, `workspace_source_scan`,
-`workspace_status`, `workspace_tree`, and `workspace_validate`. Discovery exposes
-only the subset allowed by the client's current permissions.
-Screenshots are returned as native MCP `image/png` content through either
-transport; stdio does not write a temporary image or bypass the HTTP authority.
+```sh
+docker compose -f compose.release.yaml --profile repository-init \
+  run --rm --no-deps repository-init
+docker compose -f compose.release.yaml run --rm --no-deps \
+  --entrypoint kodi-lab-repository repository verify
+docker compose -f compose.release.yaml run --rm --no-deps \
+  --entrypoint kodi-lab-admin web initialize
+docker compose -f compose.release.yaml run --rm --no-deps \
+  --entrypoint kodi-lab-admin web set-password
+docker compose -f compose.release.yaml --profile lab run --rm --no-deps \
+  --entrypoint kodi-lab-runtime broker network-ensure
+docker compose -f compose.release.yaml -f compose.lab.yaml --profile lab \
+  up -d --wait --no-build web broker repository
+```
 
-`inspect_ui_state` is read-only and uses `target.inspect`. Use it before and after
-navigation for a compact observation of the base window, topmost dialog, actual
-focus, associated container/selected item, playback and UI flags. Focus is distinct
-from retained media metadata: only `associated: true` establishes ownership.
-Snapshots are bounded and non-atomic; a detected GUI change clears associations.
-Unavailable scalars/flags are `null`, and unassociated metadata is cleared.
-Use screenshots when appearance, layout or other visual details matter.
-Bridge 1.1.15 supplies the protected hybrid collector; an absent or unavailable
-Bridge uses native JSON-RPC with conservative, unassociated container/item state.
-See [UI observation](docs/UI-OBSERVATION.md) for routing and semantics.
+Keep the bundle and its generated configuration. The last command starts services
+in the background; reuse it from that directory for future restarts.
 
-Phase 12 workspace mutation requires `workspace.edit`, available only in the
-Add-on Development and Full Lab Control built-ins. Creation is request-ID
-replay-safe and limited to exact Web-granted registered sources, four present
-bound workspaces/client, 32 globally, and one creating/client. Editing is
-generation-bound UTF-8 create/replace/exact-patch over existing Phase 9 paths.
-`workspace_validate` performs only exact-generation closed structural checks;
-it accepts no command, test selector, script, environment, or timeout. MCP-owned
-terminal bytes retain seven days, while ready workspaces of disabled clients
-quarantine for 30 days before safe abandonment and the same seven-day grace.
-Active-client ready, currently deployed and reconciliation-required workspaces
-never age-delete. Exact-generation deployment requires `workspace.deploy`,
-same-generation successful validation, exact ownership/source/target grants and
-an internal disposable target. `development.execute` invokes only the fixed
-copied Python video-plugin smoke shape from exact deployment evidence. Both are
-request-ID replay-safe across HTTP/stdio and expose no paths, lifecycle options,
-add-on selection or raw JSON-RPC. `promotion_request` requires
-`development.request_promotion` plus exact successful validation, deployment
-and fixed execution evidence. It prepares the existing Phase 9 plan for an
-authenticated Web administrator to review, approve or reject; MCP cannot
-approve/apply and receives no diffs, paths or logs. MCP has no abandon,
-cleanup, general execution, shell, Git, repository publication, Docker, or
-caller-selected storage path.
+**4. Open <http://127.0.0.1:18100/login> and sign in with your password.** Web
+access defaults to the server's own computer. If your browser is elsewhere, run
+this SSH tunnel on the browser's computer, replacing the login with your own:
 
-Registered-source scan and capture use the separate opt-in permissions
-`development_source.inspect` and `workspace.capture`. The narrow
-`workspace_execution_recover` tool requires both `target.control` and
-`development.execute` and applies only to an exact timed-out ambiguous smoke on
-an internal disposable target. It contains the original execution without
-rewriting or redispatching it; see D-0405 in [DECISIONS.md](docs/DECISIONS.md).
+```sh
+ssh -N -L 18100:127.0.0.1:18100 your-user@your-server
+```
 
-Exact legacy `2025-11-25` clients may use authenticated Streamable HTTP at
-`/mcp`. Compatibility is stateless and bounded: there is no session/default
-target, `Mcp-Session-Id`, GET stream, alternate credential, legacy stdio, or
-fallback from malformed modern traffic. Every target-scoped call still supplies
-an explicit `target_id`, and both protocol revisions use the same current
-credential, preset, grant, target-policy, registry, capability/state, rate,
-replay, and privacy decisions.
+Leave the tunnel running and open the same local URL. For ports, capacity planning
+and troubleshooting, see the [full Linux installation guide](docs/LINUX-SOURCE-INSTALL.md).
 
-Web MCP administration can create a custom preset by cloning one active
-immutable built-in. The clone receives a new UUID and a creation-time permission
-snapshot. V1 does not provide per-permission editing, custom rename, or custom
-deletion, and future built-in permissions do not silently broaden an existing
-clone. **Phase 11 — MCP core is COMPLETE.** Its independently reviewed
-implementation checkpoint is `3faeeb808ca1a86ab5b1a8a0038827fe9b76b57a`,
-with Alembic head `0038_mcp_remote_control` and 1,928 collected tests.
+## First-Time Setup
 
-**Phase 12 — MCP development workflows is COMPLETE.** Independent review
-accepted implementation checkpoint `dc6f7857b222aff31467222e8d9eff8b96df6328`,
-Alembic head `0043_mcp_promotion_request`, and 2,020 collected tests. Web
-administrators grant exact DevelopmentSources and bind eligible existing
-AgentWorkspaces; MCP creation binds one durable owner atomically. At that
-checkpoint, the exact 15-tool catalog supported bounded inspection, creation,
-editing, validation, internal disposable deployment, fixed execution, and
-promotion-plan request. D-0277
-through D-0279 make shared replay retention lifecycle-aware, evidence-coherent,
-and authoritative to the bounded promotion journal. Web alone reviews and
-approves canonical source apply and mandatory verification. MCP still has no
-shell, Git/repository publication, arbitrary execution, external target, or
-production mutation authority. See
-[`docs/PHASE12-MCP-DEVELOPMENT.md`](docs/PHASE12-MCP-DEVELOPMENT.md).
+1. In Web, switch to **Development** and open **Managed Kodi runtimes**.
+2. Choose a version and click **Install**. RC1 asks you to acknowledge that exact
+   prerelease. Only your chosen runtime is downloaded, on demand. Kodi Lab verifies
+   its binaries, assembles the local image and validates it before **Ready**.
+   No Kodi compilation or manual Flatpak setup is needed; Kodi executables are
+   not bundled with Kodi Lab.
+3. Allow several minutes for installation. RC1's provisional estimate is
+   **5–15 minutes**. The page updates automatically, and installation continues
+   if you leave or close your browser. Return later to check progress.
+4. Once Ready, create a managed instance, then use its **Provision** and **Start**
+   controls. Same-version instances reuse this image without downloading Kodi again.
+5. Check healthy status, open **View screen** and try UI inspection. For richer
+   managed RC1 inspection, use **Install reviewed Bridge** on the instance page.
 
-**Phase 13 — Remote targets is COMPLETE.** It adds Web-only external-development
-registration, fixed native verification/tools, and an authenticated
-screenshot/deployment bridge. Independent formal review closed D-0302's
-replay-capacity and native-deadline remediation without adding production
-authority. Password and bridge secrets require an operator-provided
-`KODI_LAB_EXTERNAL_TARGET_MASTER_KEY` containing a base64url-encoded 32-byte
-key. The key is never generated into the repository or stored in SQLite.
-Structured native endpoints default to allowlisted port `8080`; the separate
-bridge allowlist defaults to `8765`. Loopback is available only through the
-explicit test setting. That checkpoint retained the fifteen-tool catalog.
-Eligible paired external targets use the existing `screenshot_capture`, while
-exact bridge-backed `workspace_deploy`, native fixed `workspace_execute` and
-promotion evidence use their existing schemas. See
-[`docs/PHASE13-EXTERNAL-TARGETS.md`](docs/PHASE13-EXTERNAL-TARGETS.md).
+Stop, restart, reset and removal use the same instance controls. Save anything
+you need before resetting or removing a disposable instance; see
+[state recovery](docs/MANAGED-STATE-RECOVERY.md).
 
-For a development bridge, install
-`bridge/service.kodi_lab_bridge` as an ordinary Kodi service add-on. Keep it
-disabled until the external target is registered, native-verified, explicitly
-confirmed/enabled and configured with the required capability maximum. Enable
-bridge 1.1.15, obtain its four-character code, and enter that code with the
-allowlisted bridge port in Kodi Lab's Web onboarding flow. Kodi Lab uses the
-shared `otp-1` protocol and confirms the authenticated bridge identity.
-Re-pairing rotates the secret
-and revocation disables screenshot/deployment authority immediately. The add-on
-exposes only identity, capability, bounded UI observation, screenshot and pathless content-addressed
-deployment operations; fixed execution remains native. Establish the exact
-DevelopmentSource baseline in Web before deployment and use only Web receipt
-reconciliation after ambiguity. With HTTP,
-HMAC protects integrity but PNG bytes are cleartext to observers on that LAN;
-use normally validated HTTPS when confidentiality is required.
+To connect an existing Kodi instead, open **Add Kodi** and follow the Bridge and
+pairing instructions. See [existing-Kodi setup](docs/LINUX-V1-INSTALL.md#install-and-pair-a-remote-kodi-bridge).
 
-## Production targets
+## Connect Your AI Agent
 
-Phase 14 keeps production separate from external development. Exactly six of
-the nineteen current MCP tools are production-eligible: `target_list`,
-`target_status`, `addon_list`, `inspect_ui_state`, `screenshot_capture` and `remote_action`. Production has no
-workspace/deployment tool. Native inspection, bridge-backed visual inspection
-and remote control each require exact Web-assigned presets, grants and current
-generation/revision-bound scopes.
+Open **Agents** in Web, create a client and grant it access to your chosen Kodi
+target. Start with **Read-only Inspection**; choose additional permissions only
+for the actions you want. Save the token shown once in your agent's private
+environment. Connection details and configuration examples are on **Agents**.
 
-Production remote control is server-owned and semantic. Standing authority can
-permit only `up`, `down`, `left`, `right`, `back`, `home` and `info`.
-`play_pause`, `stop`, `previous`, `next`, `volume_up`, `volume_down` and
-`mute_toggle` require one-shot Web approval. `context_menu` and `select` are
-always prohibited. Mutation vetoes start blocked, exact request replay cannot
-dispatch twice, and ambiguity stops rather than retries.
+For **OpenCode on the same computer**, add this to
+`~/.config/opencode/opencode.json`, merging it with any existing settings:
 
-The production bridge supplies identity, bounded screenshots and structured UI
-observation. Operators manually install an exact reviewed release ZIP after
-checking its published SHA-256; Web then registers the reviewed build, pairs
-bridge 1.1.15 with its four-character `otp-1` code and explicitly confirms
-provenance. Kodi Lab does not
-install/update production software or own Kodi/host lifecycle. Automatic bridge
-updates, hosted-repository bootstrap, generic production add-on installation,
-raw JSON-RPC, shell/SSH/filesystem access and workspace deployment to production
-are outside V1 authority.
+```json
+{
+  "mcp": {
+    "kodi-lab": {
+      "type": "remote",
+      "url": "http://127.0.0.1:18100/mcp",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:KODI_LAB_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
 
-A source-free local deployment candidate built from this checkout includes the
-exact reviewed
-`service.kodi_lab_bridge-1.1.15.zip` and `BRIDGE.json` provenance under `bridge/`.
-The bundle verifier checks the ZIP hash, closed inventory, descriptor, license,
-and Git source identity. Historical 1.1.7/1.1.8 packages remain separate review
-evidence; they are not the current `otp-1` package. See the [bridge trust model](docs/BRIDGE.md),
-[production operations](docs/PRODUCTION-OPERATIONS.md), the
-[non-executed validation runbook](docs/PHASE14-VALIDATION-RUNBOOK.md) and the
-[redacted evidence template](docs/PHASE14-EVIDENCE-TEMPLATE.md).
+Set the token without putting it in a command argument, then launch OpenCode:
 
-Kodi Lab follows least authority: start with Production Inspection, add visual
-authority only for screenshots, and use Production Remote Kodi only when
-bounded control is deliberately intended. Production screenshot pixels are not
-durably retained by Kodi Lab, although a receiving MCP client may persist them.
+```sh
+read -r -s -p "Token from Agents: " KODI_LAB_MCP_TOKEN
+export KODI_LAB_MCP_TOKEN
+opencode
+```
 
-The machine-specific production-profile acceptance fixture is retained in
-private local evidence. The product's production-target authorization and
-inspection tests remain in this repository.
+Ask the agent to list its Kodi targets, then inspect one or capture a screenshot.
+Each tool uses the selected target's ID. Configuration syntax and compatibility
+vary by client.
+See [OpenCode's MCP instructions](https://opencode.ai/docs/mcp-servers/),
+the [client compatibility notes](docs/PHASE11-MCP.md#final-client-and-conformance-matrix)
+and [setup for agents on another computer](docs/NATIVE-LAN-MCP.md).
+
+## Supported Kodi Versions
+
+| Managed runtime | Status |
+| --- | --- |
+| Kodi 19 Matrix **19.4** | Stable runtime |
+| Kodi 20 Nexus **20.5** | Stable runtime |
+| Kodi 21 Omega **21.3** | Stable runtime |
+| Kodi 22 Piers **22.0 RC1** | **Preview / Prerelease — Development only** |
+
+These are the reviewed Linux amd64 choices. RC1 is not a stable Home
+recommendation. Kodi Lab itself is a prerelease development/testing checkpoint;
+see [qualification notes](docs/RC1-TESTING-CHECKPOINT.md).
+
+## Documentation
+
+- [Linux installation and capacity planning](docs/LINUX-SOURCE-INSTALL.md)
+- [Existing Kodi, add-on repository and local source setup](docs/LINUX-V1-INSTALL.md)
+- [Managed RC1 workflow and known limitations](docs/RC1-WEB-WORKFLOW.md)
+- [Agent add-on development](docs/PHASE12-MCP-DEVELOPMENT.md)
+- [Screenshots and UI inspection](docs/UI-OBSERVATION.md)
+- [Backup, upgrade and rollback](docs/LINUX-V1-UPGRADE-ROLLBACK.md)
+- [Contributing](CONTRIBUTING.md)
+
+Agents act only on targets and permissions you grant. Web and Kodi containers
+do not receive the Docker socket; the broker manages container lifecycle.
+See [architecture and security boundaries](docs/ARCHITECTURE.md).
+
+## Support
+
+Report problems through [GitHub Issues](https://github.com/kcook98765/kodi-lab/issues).
+Support development through [GitHub Sponsors](https://github.com/sponsors/kcook98765).
+
+## License
+
+Kodi Lab and its Bridge are [MIT licensed](LICENSE). Upstream Kodi and other
+components retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
+Kodi Lab is independent of the Kodi project and is not an official Kodi product.

@@ -50,7 +50,7 @@ internal; it is not published on the host.
 
 ## Clone and stage the application
 
-Clone the reviewed `main` checkpoint after its owner-authorized push. For a
+Clone the `main` development/testing checkpoint. For a
 private repository, authenticate Git using your normal GitHub mechanism; do not
 put credentials in the URL. Record the resulting commit for issue reports.
 
@@ -68,7 +68,10 @@ outside it. It builds Web/broker images and saves them into a local bundle; it
 does not publish them, download Kodi, or initialize an existing database. Do not
 use an existing production bundle/state directory for an independent test.
 
-Follow [Linux V1 installation](LINUX-V1-INSTALL.md#install-kodi-lab-with-no-kodi-image)
+The [README Quick Start](../README.md#quick-start--install-kodi-lab) includes the
+complete fresh-install commands and starts Web, repository and the managed
+broker together. Alternatively, follow
+[Linux V1 installation](LINUX-V1-INSTALL.md#install-kodi-lab-with-no-kodi-image)
 from the new bundle directory. That procedure verifies checksums, loads the
 application images, configures site-specific repository settings, initializes
 the isolated state and prompts for an administrator password. Preserve the
@@ -82,8 +85,9 @@ the default loopback binding is intentional. No test credentials are provided.
 
 ## Install, create and inspect managed Kodi
 
-From the configured bundle directory, enable the existing managed network and
-broker overlay:
+If you followed the remote-only startup in the bundle guide, enable the existing
+managed network and broker overlay from the configured bundle directory. The
+README Quick Start already performs this step:
 
 ```sh
 docker compose -f compose.release.yaml --profile lab run --rm --no-deps \
@@ -130,8 +134,15 @@ your managed target. Start with inspection permissions; grant bounded control
 only if navigation is intended. Copy the credential shown once into the client's
 private environment/configuration, never into a command argument or issue log.
 
-For a local stdio client, install the application in its own Python 3.12
-environment (`uv sync --locked` already supplies one for a checkout). Configure
+For OpenCode running on the same computer, use the
+[README HTTP example](../README.md#connect-your-ai-agent). It reads the token
+from the agent's environment and connects to `http://127.0.0.1:18100/mcp` without
+requiring a separately enabled LAN endpoint. The retained HTTP qualification is
+OpenCode 1.14.39; client configuration syntax and protocol support vary.
+
+For a local stdio client supporting MCP `2026-07-28`, install the application in
+its own Python 3.12 environment (`uv sync --locked` already supplies one for a
+checkout). Configure
 command `kodi-lab-mcp-stdio` from that environment with:
 
 ```text
@@ -140,7 +151,9 @@ KODI_LAB_MCP_TOKEN=<the credential shown once in Agents>
 ```
 
 The explicit URL matches the bundle port; the proxy's host-process default is
-8100. For a client on another computer, follow [native LAN MCP
+8100. The stdio proxy does not support older initialization handshakes; consult
+the [client compatibility matrix](PHASE11-MCP.md#final-client-and-conformance-matrix)
+before choosing it. For a client on another computer, follow [native LAN MCP
 setup](NATIVE-LAN-MCP.md); opening Web does not enable LAN MCP automatically.
 Do not copy another installation's tokens, grants or pairing records.
 
