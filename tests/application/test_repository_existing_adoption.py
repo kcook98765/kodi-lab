@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import select
+from sqlalchemy import Engine, MetaData, select
 from sqlalchemy.exc import IntegrityError
 
 from kodi_lab.application.mcp_administration import (
@@ -35,6 +35,7 @@ from kodi_lab.mcp.authorization import (
 from kodi_lab.mcp.registry import TargetClass, build_mcp_tool_registry
 from kodi_lab.repository.development import load_current
 from kodi_lab.repository.workspace_package import build_workspace_package
+from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     DevelopmentPublicationRow,
@@ -869,8 +870,29 @@ def test_adopted_result_can_execute_after_separate_authority_and_live_check(
     assert executed.state == "succeeded" and target.executions == 1
 
 
+def _seed_historical_rows(source: Engine, destination: Engine) -> None:
+    """Copy fixture data using only the columns present at the historical revision."""
+    historical = MetaData()
+    historical.reflect(bind=destination)
+    with source.connect() as reader, destination.begin() as writer:
+        for table in historical.sorted_tables:
+            # Keep the built-in authority already seeded by historical migrations.
+            if table.name in {
+                "alembic_version",
+                "mcp_presets",
+                "mcp_preset_permissions",
+            }:
+                continue
+            rows = reader.execute(select(*table.columns)).mappings().all()
+            if rows:
+                writer.execute(table.insert(), [dict(row) for row in rows])
+        assert writer.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+        assert writer.exec_driver_sql("PRAGMA integrity_check").scalar() == "ok"
+
+
+@pytest.mark.parametrize("round_trip", [False, True])
 def test_0059_planned_record_upgrades_without_rewriting_history(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, round_trip: bool
 ) -> None:
     data_root = tmp_path / "data"
     database_path = data_root / "database" / "kodi-lab.db"
@@ -878,8 +900,8 @@ def test_0059_planned_record_upgrades_without_rewriting_history(
     monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(data_root))
     monkeypatch.delenv("KODI_LAB_RUNTIME_ROOT", raising=False)
     config = Config(str(Path(__file__).parents[2] / "alembic.ini"))
-    command.upgrade(config, "0060_repository_existing_verify")
-    env, _, target = _setup(tmp_path, database_path=database_path)
+    command.upgrade(config, "0059_workspace_validation_digest")
+    env, _, target = _setup(tmp_path / "current-fixture")
     generation = _version(env, 0, "1.0.1")
     pending = env.development.deploy(
         client_id=env.client_id,
@@ -920,10 +942,16 @@ def test_0059_planned_record_upgrades_without_rewriting_history(
         )
         assert operation.initiator_kind == "mcp" and linked.origin == "planned"
         assert operation.repository_origin == "planned"
+    historical_engine = create_database_engine(f"sqlite:///{database_path}")
+    _seed_historical_rows(env.sessions.kw["bind"], historical_engine)
     env.sessions.kw["bind"].dispose()
-    command.downgrade(config, "0059_workspace_validation_digest")
+    historical_engine.dispose()
     command.upgrade(config, "0060_repository_existing_verify")
-    with env.sessions() as session:
+    if round_trip:
+        command.downgrade(config, "0059_workspace_validation_digest")
+        command.upgrade(config, "0060_repository_existing_verify")
+    historical_sessions = create_session_factory(historical_engine)
+    with historical_sessions() as session:
         operation = session.get(
             McpWorkspaceDeploymentOperationRow, str(pending.deployment_id)
         )
@@ -944,9 +972,10 @@ def test_0059_planned_record_upgrades_without_rewriting_history(
             linked.verified_at,
             linked.publication_id,
         ) == before
+    historical_engine.dispose()
 
 
-def test_0060_migrated_schema_accepts_exact_adoption(
+def test_current_migrated_schema_accepts_exact_adoption(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     data_root = tmp_path / "data"
@@ -955,13 +984,51 @@ def test_0060_migrated_schema_accepts_exact_adoption(
     monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(data_root))
     monkeypatch.delenv("KODI_LAB_RUNTIME_ROOT", raising=False)
     config = Config(str(Path(__file__).parents[2] / "alembic.ini"))
-    command.upgrade(config, "0060_repository_existing_verify")
+    command.upgrade(config, "head")
     command.check(config)
     env, _, _, publication, identity = _approved_existing(
         tmp_path, database_path=database_path
     )
     result = _adopt(env, publication, identity)
     assert result.origin == "verified_existing" and result.state == "succeeded"
+
     env.sessions.kw["bind"].dispose()
+
+
+def test_0060_verified_existing_record_refuses_lossy_downgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "historical-data"
+    database_path = data_root / "database" / "kodi-lab.db"
+    database_path.parent.mkdir(parents=True)
+    monkeypatch.setenv("KODI_LAB_DATA_ROOT", str(data_root))
+    monkeypatch.delenv("KODI_LAB_RUNTIME_ROOT", raising=False)
+    config = Config(str(Path(__file__).parents[2] / "alembic.ini"))
+    command.upgrade(config, "0060_repository_existing_verify")
+    env, _, _, publication, identity = _approved_existing(tmp_path / "current-fixture")
+    result = _adopt(env, publication, identity)
+    historical_engine = create_database_engine(f"sqlite:///{database_path}")
+    _seed_historical_rows(env.sessions.kw["bind"], historical_engine)
+    env.sessions.kw["bind"].dispose()
+    with historical_engine.connect() as connection:
+        before = connection.exec_driver_sql(
+            "SELECT * FROM repository_workspace_deployments"
+        ).all()
+    historical_engine.dispose()
     with pytest.raises(RuntimeError, match="cannot be downgraded"):
         command.downgrade(config, "0059_workspace_validation_digest")
+    with historical_engine.connect() as connection:
+        assert (
+            connection.exec_driver_sql(
+                "SELECT version_num FROM alembic_version"
+            ).scalar()
+            == "0060_repository_existing_verify"
+        )
+        assert (
+            connection.exec_driver_sql(
+                "SELECT * FROM repository_workspace_deployments"
+            ).all()
+            == before
+        )
+    assert result.origin == "verified_existing" and result.state == "succeeded"
+    historical_engine.dispose()

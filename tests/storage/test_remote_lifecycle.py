@@ -18,6 +18,7 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from kodi_lab import remote_lifecycle
 from kodi_lab.application.agent_workspaces import AgentWorkspaceService
@@ -71,6 +72,16 @@ from tests.application.test_repository_workspace_deployment import (
 )
 from tests.repository.test_development import BASE as REPOSITORY_BASE
 from tests.repository.test_development import fixture_zip, phase2_candidate
+
+
+def _head_revision() -> str:
+    config = Config()
+    config.set_main_option(
+        "script_location", str(Path(__file__).parents[2] / "migrations")
+    )
+    head = ScriptDirectory.from_config(config).get_current_head()
+    assert head is not None
+    return head
 
 
 @pytest.fixture(autouse=True)
@@ -239,9 +250,10 @@ def test_development_repository_backup_recover_clean_round_trip(
         recovered_root / "backups" / identifier,
     )
     monkeypatch.setenv("KODI_LAB_REPOSITORY_DATA_ROOT", str(recovered_repository))
-    assert recover_clean(
-        recovered_root, _url(recovered_root), identifier, identifier
-    ) == ("0064_workspace_smoke_exception")
+    assert (
+        recover_clean(recovered_root, _url(recovered_root), identifier, identifier)
+        == _head_revision()
+    )
     recovered_engine = create_database_engine(_url(recovered_root))
     recovered_service = DevelopmentRepositoryService(
         create_session_factory(recovered_engine), recovered_repository, REPOSITORY_BASE
@@ -349,7 +361,7 @@ def test_historical_transition_and_matching_rollback(
     previous, current, identifier = upgrade(root, _url(root))
     assert identifier is not None
     assert previous == before
-    assert current == "0064_workspace_smoke_exception"
+    assert current == _head_revision()
     assert upgrade(root, _url(root)) == (current, current, None)
     assert (
         _revision(root / "backups" / identifier / "database" / "kodi-lab.db") == before

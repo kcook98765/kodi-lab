@@ -70,6 +70,7 @@ from kodi_lab.storage.models import (
     McpSecurityEventRow,
     TargetRow,
 )
+from kodi_lab.web.admin_views import ADMIN_VIEW_COOKIE
 
 from .conftest import (
     EXTERNAL_TARGET_ID,
@@ -1621,6 +1622,7 @@ def test_web_mcp_administration_is_separate_show_once_and_csrf_protected(
     assert client.get("/mcp-clients", follow_redirects=False).status_code == 401
     assert client.get("/api/mcp/clients").status_code == 401
     csrf = login(client)
+    client.cookies.set(ADMIN_VIEW_COOKIE, "development")
     presets = client.get("/api/mcp/presets").json()
     read_only = next(
         item for item in presets if item["display_name"] == "Read-only Inspection"
@@ -1869,6 +1871,7 @@ def test_web_admin_source_grant_and_existing_workspace_binding(
         == 401
     )
     csrf = login(client)
+    client.cookies.set(ADMIN_VIEW_COOKIE, "development")
     assert client.post(grant_url, headers=ORIGIN).status_code == 403
     mutation_headers = {**ORIGIN, "X-Kodi-Lab-CSRF": csrf}
     granted = client.post(grant_url, headers=mutation_headers)

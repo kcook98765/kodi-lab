@@ -467,7 +467,8 @@ def test_packaged_metadata_describes_bounded_development_and_production_use() ->
 
     readme = " ".join((ADDON_ROOT / "README.md").read_text().split())
     for statement in (
-        "Installation is manual",
+        "Managed runtime lifecycle establishes its credential without user OTP",
+        "External installation and pairing remain manual",
         "exact independently reviewed ZIP and checksum",
         "four-character code",
         "New bridge builds do not accept the old long-token bootstrap",
@@ -1359,11 +1360,12 @@ def test_addon_gui_capture_reports_cleanup_failure_without_returning_pixels(
             raise OSError("injected cleanup failure")
         real_unlink(path)
 
-    monkeypatch.setattr(os, "unlink", fail_capture_unlink)
-    with pytest.raises(
-        bridge["ScreenshotError"], match="screenshot_cleanup_failed"
-    ) as caught:
-        bridge["_capture_png"]()
+    with monkeypatch.context() as cleanup_mock:
+        cleanup_mock.setattr(os, "unlink", fail_capture_unlink)
+        with pytest.raises(
+            bridge["ScreenshotError"], match="screenshot_cleanup_failed"
+        ) as caught:
+            bridge["_capture_png"]()
     assert caught.value.reason == "cleanup_failed"
 
 

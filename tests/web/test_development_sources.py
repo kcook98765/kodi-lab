@@ -873,7 +873,9 @@ def test_get_uses_stored_observation_without_filesystem_revalidation(
         encoding="utf-8",
     )
     registered = DevelopmentSourceAdministrationService(
-        database, DevelopmentSourceValidator(development_root)
+        database,
+        DevelopmentSourceValidator(development_root),
+        clock=lambda: AT.replace(second=9, microsecond=900000),
     ).register_source(logical_name="Mutable source", relative_locator="mutable")
     addon_xml.write_text(
         '<addon id="plugin.video.mutable" name="Changed name" version="9.9">'
@@ -884,10 +886,11 @@ def test_get_uses_stored_observation_without_filesystem_revalidation(
     login(client)
     page = client.get(f"/development-sources/{registered.id}")
     api = client.get(f"/api/development-sources/{registered.id}")
-    assert "Original name" in page.text
-    assert "1.0" in page.text
+    assert "<dt>Observed name</dt><dd>Original name</dd>" in page.text
+    assert "<dt>Observed version</dt><dd>1.0</dd>" in page.text
     assert "Changed name" not in page.text
-    assert "9.9" not in page.text
+    # A timestamp may legitimately contain the changed version's digits.
+    assert "09.9" in page.text
     assert api.json()["source"]["observed_name"] == "Original name"
     assert api.json()["source"]["observed_version"] == "1.0"
     with database() as session:

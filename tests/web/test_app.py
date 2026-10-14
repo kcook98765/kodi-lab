@@ -506,7 +506,7 @@ def test_reconstruction_is_admin_confirmed_fenced_and_readable(
         raising=False,
     )
     monkeypatch.setattr(
-        client.app.state.kodi_lab.reconstruction_executor,
+        cast(FastAPI, client.app).state.kodi_lab.reconstruction_executor,
         "submit",
         lambda _operation_id: None,
     )

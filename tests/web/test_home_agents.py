@@ -172,7 +172,12 @@ def test_agents_requires_deliberate_preset_and_supported_config(
     supported = load_configuration(template["env"])
     assert supported.endpoint == "http://127.0.0.1:8100/mcp"
     assert supported.token == "PASTE_NEW_TOKEN_HERE"
-    assert "default local port" in page and "18100" in page
+    port_help = re.search(r'<p id="agent-port-help">(.*?)</p>', page, re.S)
+    assert port_help is not None
+    assert "configured port is <strong>8100</strong>" in port_help.group(1)
+    assert "<strong>18100</strong> for the Docker host publication" in port_help.group(
+        1
+    )
     assert "LAN Web address is not supported" in page
 
 

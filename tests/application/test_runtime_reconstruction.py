@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TypedDict
 from uuid import UUID, uuid4
 
 import pytest
@@ -32,6 +33,7 @@ from kodi_lab.broker.errors import ClientTransportError, ProvisioningStateError
 from kodi_lab.broker.operations import (
     ManagedContainerInventoryEntry,
     ManagedContainerInventoryResult,
+    ObserveManagedKodiRuntimeResult,
     ProvisionManagedContainerResult,
     ReconstructionDestinationResult,
     RemoveMismatchedManagedContainerResult,
@@ -40,7 +42,11 @@ from kodi_lab.broker.provisioning import (
     ManagedContainerProvisioningSpec,
     SqliteReconstructionAuthorizationResolver,
 )
-from kodi_lab.domain import ManagedInstanceMutationKind, PythonBytecodePolicy
+from kodi_lab.domain import (
+    ManagedInstanceMutationKind,
+    PythonBytecodePolicy,
+    RevisionApprovalState,
+)
 from kodi_lab.fixtures.package import load_packaged_fixture
 from kodi_lab.storage.engine import create_database_engine, create_session_factory
 from kodi_lab.storage.metadata import Base
@@ -63,6 +69,17 @@ OLD_ID = "1" * 64
 FRESH_ID = "2" * 64
 OLD_IMAGE = "sha256:" + "3" * 64
 NEW_IMAGE = "sha256:" + "4" * 64
+
+
+class RemovalRequest(TypedDict):
+    managed_instance_id: str
+    operation_id: str
+    lease_token_digest: str
+    owned_runtime_state_revision: int
+    old_container_id: str
+    old_image_id: str
+    old_runtime_revision_id: str
+    desired_runtime_revision_id: str
 
 
 @pytest.fixture
@@ -150,6 +167,13 @@ class Broker:
 
     def managed_container_inventory(self) -> ManagedContainerInventoryResult:
         return ManagedContainerInventoryResult(containers=list(self.containers))
+
+    def observe_managed_kodi_runtime(
+        self, *, managed_instance_id: str, expected_container_id: str
+    ) -> ObserveManagedKodiRuntimeResult:
+        pytest.fail(
+            "stopped reconstruction must not request a Kodi process observation"
+        )
 
     def reconstruction_destination(
         self, *, managed_instance_id: str
@@ -317,6 +341,7 @@ def test_conflicting_instance_lease_blocks_reconstruction_without_mutation(
 
 def test_changed_desired_image_invalidates_confirmation_and_broker_authorization(
     factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     broker = Broker()
     coordinator = ManagedRuntimeReconstructionCoordinator(factory, broker)
@@ -333,14 +358,18 @@ def test_changed_desired_image_invalidates_confirmation_and_broker_authorization
     row = coordinator.get(operation_id)
     assert row is not None and row.desired_image_id == NEW_IMAGE
     resolver = SqliteReconstructionAuthorizationResolver(factory)
-    resolver._provisioning.resolve = lambda _instance: ManagedContainerProvisioningSpec(
-        managed_instance_id=str(INSTANCE),
-        runtime_revision_id=str(DESIRED),
-        image_id="sha256:" + "5" * 64,
-        container_name=f"kodi-lab-managed-{INSTANCE.hex}",
-        runtime_uid=1000,
-        runtime_gid=1000,
-        python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
+    monkeypatch.setattr(
+        resolver._provisioning,
+        "resolve",
+        lambda managed_instance_id: ManagedContainerProvisioningSpec(
+            managed_instance_id=managed_instance_id,
+            runtime_revision_id=str(DESIRED),
+            image_id="sha256:" + "5" * 64,
+            container_name=f"kodi-lab-managed-{INSTANCE.hex}",
+            runtime_uid=1000,
+            runtime_gid=1000,
+            python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
+        ),
     )
     with pytest.raises(ProvisioningStateError):
         resolver.authorize_removal(
@@ -401,6 +430,7 @@ def test_uncertain_broker_result_blocks_retry_until_proven_resolution(
 
 def test_broker_authorization_binds_exact_live_operation_and_cas(
     factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     broker = Broker()
     coordinator = ManagedRuntimeReconstructionCoordinator(factory, broker)
@@ -413,16 +443,20 @@ def test_broker_authorization_binds_exact_live_operation_and_cas(
     row = coordinator.get(operation_id)
     assert row is not None
     resolver = SqliteReconstructionAuthorizationResolver(factory)
-    resolver._provisioning.resolve = lambda _instance: ManagedContainerProvisioningSpec(
-        managed_instance_id=str(INSTANCE),
-        runtime_revision_id=str(DESIRED),
-        image_id=NEW_IMAGE,
-        container_name=f"kodi-lab-managed-{INSTANCE.hex}",
-        runtime_uid=1000,
-        runtime_gid=1000,
-        python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
+    monkeypatch.setattr(
+        resolver._provisioning,
+        "resolve",
+        lambda managed_instance_id: ManagedContainerProvisioningSpec(
+            managed_instance_id=managed_instance_id,
+            runtime_revision_id=str(DESIRED),
+            image_id=NEW_IMAGE,
+            container_name=f"kodi-lab-managed-{INSTANCE.hex}",
+            runtime_uid=1000,
+            runtime_gid=1000,
+            python_bytecode_policy=PythonBytecodePolicy.INTERPRETER_DEFAULT,
+        ),
     )
-    request = dict(
+    request: RemovalRequest = dict(
         managed_instance_id=str(INSTANCE),
         operation_id=str(operation_id),
         lease_token_digest=digest,
@@ -433,16 +467,20 @@ def test_broker_authorization_binds_exact_live_operation_and_cas(
         desired_runtime_revision_id=str(DESIRED),
     )
     assert resolver.authorize_removal(**request).image_id == NEW_IMAGE
-    for changes in (
-        {"old_container_id": "9" * 64},
-        {"old_image_id": "sha256:" + "9" * 64},
-        {"old_runtime_revision_id": str(DESIRED)},
-        {"desired_runtime_revision_id": str(OLD)},
-        {"owned_runtime_state_revision": row.owned_runtime_state_revision - 1},
-        {"lease_token_digest": "f" * 64},
-    ):
+    invalid_requests: list[RemovalRequest] = [
+        {**request, "old_container_id": "9" * 64},
+        {**request, "old_image_id": "sha256:" + "9" * 64},
+        {**request, "old_runtime_revision_id": str(DESIRED)},
+        {**request, "desired_runtime_revision_id": str(OLD)},
+        {
+            **request,
+            "owned_runtime_state_revision": row.owned_runtime_state_revision - 1,
+        },
+        {**request, "lease_token_digest": "f" * 64},
+    ]
+    for changed_request in invalid_requests:
         with pytest.raises(ProvisioningStateError):
-            resolver.authorize_removal(**(request | changes))
+            resolver.authorize_removal(**changed_request)
     with factory.begin() as session:
         operation = session.get(ManagedRuntimeReconstructionRow, str(operation_id))
         assert operation is not None
@@ -452,7 +490,7 @@ def test_broker_authorization_binds_exact_live_operation_and_cas(
     with factory.begin() as session:
         revision = session.get(RuntimeRevisionRow, str(DESIRED))
         assert revision is not None
-        revision.approval_state = "not_approved"
+        revision.approval_state = RevisionApprovalState.NOT_APPROVED
         revision.approved_at = None
     with pytest.raises(ProvisioningStateError):
         resolver.authorize_removal(**request)

@@ -289,6 +289,7 @@ def test_capabilities_contains_exact_bounded_operation_set() -> None:
         "copy_sync_promoted_development_source",
         "delete_managed_snapshot_artifact",
         "deprovision_managed_container",
+        "establish_managed_bridge_trust",
         "inspect_repository_replacement",
         "launch_reviewed_runtime_installation",
         "managed_container_inventory",

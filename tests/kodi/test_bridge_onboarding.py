@@ -405,6 +405,11 @@ def test_kodi_dialog_paired_reset_confirm_calls_narrow_operation(
         "xbmcaddon",
         _module("xbmcaddon", Addon=lambda _id: _module("addon")),
     )
+
+    def reset_pairing() -> bool:
+        calls.append("reset")
+        return True
+
     monkeypatch.setitem(
         sys.modules,
         "narrow_bridge",
@@ -412,7 +417,7 @@ def test_kodi_dialog_paired_reset_confirm_calls_narrow_operation(
             "narrow_bridge",
             ADDON_ID="service.kodi_lab_bridge",
             _local_pairing_status=lambda: True,
-            _reset_pairing=lambda: calls.append("reset") or True,
+            _reset_pairing=reset_pairing,
             _onboarding_store=lambda: pytest.fail("paired code state must not be read"),
         ),
     )

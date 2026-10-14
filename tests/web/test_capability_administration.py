@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from kodi_lab.web.admin_views import ADMIN_VIEW_COOKIE
+
 from .conftest import EXTERNAL_TARGET_ID, ORIGIN, login, seed_external_target
 
 
@@ -21,6 +23,7 @@ def test_narrow_preset_is_authenticated_csrf_guarded_and_reviewable(
     }
     assert client.get("/mcp-clients").status_code == 401
     csrf = login(client)
+    client.cookies.set(ADMIN_VIEW_COOKIE, "development")
     presets = client.get("/api/mcp/presets").json()
     payload["template_preset_id"] = next(
         item["id"] for item in presets if item["display_name"] == "Add-on Development"

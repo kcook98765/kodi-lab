@@ -190,6 +190,10 @@ def test_development_root_rejects_unsafe_configuration(
 
 def test_migration_metadata_contains_core_storage_tables() -> None:
     assert set(metadata.tables) == {
+        "external_screenshot_preferences",
+        "managed_bridge_trust",
+        "household_onboarding_operations",
+        "external_secret_retirements",
         "external_development_capability_amendments",
         "external_development_repository_readiness",
         "repository_workspace_deployments",

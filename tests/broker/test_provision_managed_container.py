@@ -430,14 +430,16 @@ def test_reconstruction_destination_preflight_is_read_only_and_exact() -> None:
     DockerManagedContainerAdapter(
         lambda: available
     ).validate_reconstruction_destination(spec())
-    assert available.create_calls == available.remove_calls == []
+    assert available.create_calls == []
+    assert available.remove_calls == []
 
     missing = FakeProvisioningDockerClient(image=NotFound("PRIVATE"))
     with pytest.raises(RuntimeImageUnavailableError):
         DockerManagedContainerAdapter(
             lambda: missing
         ).validate_reconstruction_destination(spec())
-    assert missing.create_calls == missing.remove_calls == []
+    assert missing.create_calls == []
+    assert missing.remove_calls == []
 
 
 def test_image_and_network_prerequisites_fail_closed() -> None:

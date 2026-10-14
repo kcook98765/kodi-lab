@@ -400,6 +400,7 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
     engine = create_database_engine(database_url)
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
+        "managed_runtime_reconstruction_operations",
         "external_development_repository_readiness",
         "repository_workspace_deployments",
         "repository_workspace_validation_snapshots",

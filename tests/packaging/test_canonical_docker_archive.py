@@ -28,6 +28,17 @@ def _blob(data: bytes) -> str:
     return "blobs/sha256/" + hashlib.sha256(data).hexdigest()
 
 
+def _regular_files(archive: tarfile.TarFile) -> dict[str, bytes]:
+    files: dict[str, bytes] = {}
+    for item in archive:
+        if item.isfile():
+            stream = archive.extractfile(item)
+            assert stream is not None
+            with stream:
+                files[item.name] = stream.read()
+    return files
+
+
 def _saved_archive(
     path: Path,
     *,
@@ -182,11 +193,7 @@ def test_meaningful_archive_changes_retain_distinct_identity(
     )
     if change == "tag":
         with tarfile.open(second, "r:") as archive:
-            files = {
-                item.name: archive.extractfile(item).read()
-                for item in archive
-                if item.isfile()
-            }
+            files = _regular_files(archive)
         entries = json.loads(files["manifest.json"])
         entries[0]["RepoTags"] = ["different-web:v1"]
         files["manifest.json"] = _json(entries, alternate=False)
@@ -211,11 +218,7 @@ def test_changed_blob_bytes_cannot_be_normalized_away(tmp_path: Path) -> None:
     source = tmp_path / "source.tar"
     _saved_archive(source)
     with tarfile.open(source, "r:") as archive:
-        files = {
-            item.name: archive.extractfile(item).read()
-            for item in archive
-            if item.isfile()
-        }
+        files = _regular_files(archive)
     layer = next(
         name
         for name in files

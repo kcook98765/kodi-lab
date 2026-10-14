@@ -11,6 +11,8 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 
 @pytest.fixture(scope="module")
@@ -97,6 +99,12 @@ def test_wheel_contains_current_web_migrations_and_cli(built_wheel: Path) -> Non
 def test_packaged_migration_from_other_cwd_is_fresh_and_idempotent(
     built_wheel: Path, tmp_path: Path
 ) -> None:
+    config = Config()
+    config.set_main_option(
+        "script_location", str(Path(__file__).parents[2] / "migrations")
+    )
+    head = ScriptDirectory.from_config(config).get_current_head()
+    assert head is not None
     extracted = tmp_path / "installed"
     extracted.mkdir()
     with ZipFile(built_wheel) as archive:
@@ -119,13 +127,13 @@ def test_packaged_migration_from_other_cwd_is_fresh_and_idempotent(
             capture_output=True,
             text=True,
         )
-        assert "current=0059_workspace_validation_digest" in result.stdout
-        assert "head=0059_workspace_validation_digest" in result.stdout
+        assert f"current={head}" in result.stdout
+        assert f"head={head}" in result.stdout
     database = state / "database" / "kodi-lab.db"
     with sqlite3.connect(database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0059_workspace_validation_digest",)
+        ).fetchone() == (head,)
     assert (state / "secrets" / "external-targets").is_dir()
     assert (state / "secrets" / "external-bridges").is_dir()
 
@@ -163,7 +171,7 @@ def test_packaged_migration_from_other_cwd_is_fresh_and_idempotent(
         capture_output=True,
         text=True,
     )
-    assert "current=0059_workspace_validation_digest" in upgraded.stdout
+    assert f"current={head}" in upgraded.stdout
 
     unversioned = tmp_path / "unversioned-state"
     unversioned.mkdir(mode=0o700)
