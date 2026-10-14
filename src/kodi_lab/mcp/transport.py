@@ -1011,7 +1011,9 @@ def build_mcp_http_transport(
             title="Recover one ambiguous workspace smoke",
             description=(
                 "Recover only an eligible, previously dispatched, timeout-ambiguous "
-                "workspace smoke on its managed disposable runtime. Supply that "
+                "workspace smoke, or a completed non-timeout ambiguity with an "
+                "independently verified later stop, on its managed disposable "
+                "runtime. Supply that "
                 "execution's operation ID. A definitive execution_failed result "
                 "is not eligible. Recovery is a separate operation and does not "
                 "rerun the smoke. Contain the original smoke, then verify readiness "

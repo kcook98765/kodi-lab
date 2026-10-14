@@ -91,8 +91,9 @@ GUI changes. See [UI observation](UI-OBSERVATION.md) for provider and fallback s
 
 `workspace_execution_recover` requires both `target.control` and
 `development.execute`. It provides one bounded containment/recovery operation
-for an exact timeout-classified ambiguous smoke on an internal disposable
-target, under D-0405's identity, ownership, grant, and state gates. It never
+for an exact timeout-classified ambiguous smoke, or D-0427's independently
+stopped completed non-timeout ambiguity, on an internal disposable target,
+under D-0405's identity, ownership, grant, and state gates. It never
 rewrites or redispatches the original execution and grants no generic lifecycle
 or execution authority.
 

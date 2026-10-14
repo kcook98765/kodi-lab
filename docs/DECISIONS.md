@@ -6180,3 +6180,30 @@ Reset retires the old authority. The same explicit reviewed action after native
 startup installs the candidate into the clean profile and confirms fresh resident
 trust. Observation cannot repair or adopt an invalidated anchor. MCP permissions
 and target grants are unaffected. See [RC1 Bridge and installation UX](RC1-BRIDGE-AND-INSTALLATION-UX.md).
+
+## D-0427: Recover a completed non-timeout ambiguity only after independent stop
+
+- Extend D-0405 only for a dispatched `smoke` with classification `ambiguous`,
+  failure `execution_ambiguous`, terminal ambiguous state, finalization phase,
+  complete original container/runtime identity, and no retained result or Kodi
+  error. This does not establish why its response was ambiguous or infer success.
+- Require the latest associated lifecycle operation to be a successful,
+  reconciliation-free stop, requested strictly after the completed execution.
+  All execution/stop timestamps must be coherent UTC and not in the future.
+  The managed projection must be stopped at a later revision, and fresh broker
+  inventory must identify the original container as stopped. Missing, stale,
+  contradictory, running, or competing evidence fails closed.
+- Non-timeout recovery also requires the workspace's current generation to match
+  the exact successful deployment/execution generation. Timeout gates are unchanged.
+  Existing identity, ownership, grants, disposable-target, sole-blocker, lease,
+  runtime pin, broker isolation and authorization checks remain unchanged.
+- Eligibility is rechecked under the existing write transaction. The existing
+  exact-container stop and reread, start, readiness, destination provenance,
+  add-on inventory and final process/container checks remain mandatory. A new
+  recovery receipt binds the original execution and records the verified flags;
+  the original execution and later stop history remain immutable. Request replay
+  is idempotent; a new recovery request after resolution is rejected.
+- Only a completed `recovered` receipt resolves this exact blocker. Failure keeps
+  the block; an operator must leave the target stopped through supported lifecycle
+  controls. No historical containment extension, generic force action, schema
+  repair, original execution retry, or external/production authority is added.

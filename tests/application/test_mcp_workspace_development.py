@@ -98,6 +98,7 @@ from kodi_lab.kodi.addons import (
     KodiAddonInventoryRecord,
     KodiAddonInventoryResult,
     KodiAddonSmokeAdapter,
+    KodiAddonSmokeAmbiguousError,
     KodiAddonSmokeJsonRpcError,
     KodiAddonSmokeResult,
     KodiAddonSmokeTimeoutError,
@@ -1967,7 +1968,9 @@ def test_execution_timeout_after_dispatch_is_ambiguous_and_not_retried(
         assert (row.kodi_error_code, row.kodi_error_message) == (None, None)
 
 
-def _ambiguous_recovery_environment(tmp_path: Path) -> tuple[Environment, UUID, UUID]:
+def _ambiguous_recovery_environment(
+    tmp_path: Path, *, non_timeout: bool = False
+) -> tuple[Environment, UUID, UUID]:
     env = _environment(tmp_path)
     _deploy_workspace(env)
     with env.sessions.begin() as session:
@@ -1989,6 +1992,8 @@ def _ambiguous_recovery_environment(tmp_path: Path) -> tuple[Environment, UUID, 
 
     def timeout(_addon_id: str) -> KodiAddonSmokeResult:
         env.smoke.count += 1
+        if non_timeout:
+            raise KodiAddonSmokeAmbiguousError("Unsupported directory response")
         raise KodiAddonSmokeTimeoutError(10)
 
     env.smoke.invoke = timeout  # type: ignore[assignment]

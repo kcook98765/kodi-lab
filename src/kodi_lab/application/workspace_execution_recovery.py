@@ -1,4 +1,4 @@
-"""Exact-container containment for one timed-out managed workspace smoke."""
+"""Exact-container containment for one evidence-bound ambiguous managed smoke."""
 
 from __future__ import annotations
 
@@ -44,6 +44,7 @@ from kodi_lab.domain import (
 from kodi_lab.storage.models import (
     AgentWorkspaceRow,
     ManagedInstanceDevelopmentSourceRow,
+    ManagedInstanceLifecycleOperationRow,
     ManagedInstanceRow,
     McpAgentWorkspaceBindingRow,
     McpClientDevelopmentSourceGrantRow,
@@ -176,6 +177,11 @@ class WorkspaceExecutionRecoveryService:
         ):
             raise WorkspaceExecutionRecoveryError("recovery_not_allowed")
         initial_state = matches[0].runtime_state
+        if (
+            execution.execution_classification == "ambiguous"
+            and initial_state is not ContainerRuntimeState.STOPPED
+        ):
+            raise WorkspaceExecutionRecoveryError("recovery_not_allowed")
 
         token = secrets.token_urlsafe(32)
         digest = hashlib.sha256(token.encode()).hexdigest()
@@ -438,7 +444,7 @@ class WorkspaceExecutionRecoveryService:
             or execution.target_id != str(target_id)
             or execution.execution_kind != "smoke"
             or execution.state != "ambiguous"
-            or execution.execution_classification != "timeout"
+            or execution.execution_classification not in {"timeout", "ambiguous"}
             or execution.failure_code != "execution_ambiguous"
             or not execution.invocation_dispatched
             or execution.original_container_id is None
@@ -454,6 +460,10 @@ class WorkspaceExecutionRecoveryService:
             or deployment.workspace_id != execution.workspace_id
             or deployment.target_id != execution.target_id
             or deployment.generation != execution.generation
+            or (
+                execution.execution_classification == "ambiguous"
+                and workspace.generation != execution.generation
+            )
             or deployment.target_class != "internal_lab"
             or deployment.state != "succeeded"
             or deployment.runtime_revision_id != instance.runtime_revision_id
@@ -464,7 +474,73 @@ class WorkspaceExecutionRecoveryService:
             > instance.runtime_state_revision
         ):
             raise WorkspaceExecutionRecoveryError("recovery_not_allowed")
+        if execution.execution_classification == "ambiguous":
+            self._require_later_stop(session, execution, instance)
         return execution, deployment, instance
+
+    def _require_later_stop(
+        self,
+        session: Session,
+        execution: McpWorkspaceExecutionOperationRow,
+        instance: ManagedInstanceRow,
+    ) -> None:
+        """Require durable later containment; never infer a successful smoke."""
+        lifecycle = session.scalar(
+            select(ManagedInstanceLifecycleOperationRow)
+            .where(
+                ManagedInstanceLifecycleOperationRow.original_managed_instance_id
+                == execution.target_id
+            )
+            .order_by(
+                ManagedInstanceLifecycleOperationRow.requested_at.desc(),
+                ManagedInstanceLifecycleOperationRow.id.desc(),
+            )
+            .limit(1)
+        )
+        if (
+            instance.runtime_state is not InstanceRuntimeState.STOPPED
+            or execution.phase != "finalize"
+            or execution.completed_at is None
+            or execution.result_classification is not None
+            or execution.item_count is not None
+            or execution.kodi_error_code is not None
+            or execution.kodi_error_message is not None
+            or lifecycle is None
+            or lifecycle.managed_instance_id != execution.target_id
+            or lifecycle.kind.value != "stop"
+            or lifecycle.state.value != "succeeded"
+            or lifecycle.resulting_state != "stopped"
+            or lifecycle.reconciliation_required
+            or lifecycle.completed_at is None
+            or execution.original_runtime_state_revision is None
+            or execution.original_runtime_state_revision
+            >= instance.runtime_state_revision
+        ):
+            raise WorkspaceExecutionRecoveryError("recovery_not_allowed")
+        try:
+            times = [
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+                for value in (
+                    execution.requested_at,
+                    execution.started_at or "",
+                    execution.completed_at,
+                    lifecycle.requested_at,
+                    lifecycle.started_at,
+                    lifecycle.completed_at,
+                )
+            ]
+            if any(value.utcoffset() != timedelta(0) for value in times) or not (
+                times[0]
+                <= times[1]
+                <= times[2]
+                < times[3]
+                <= times[4]
+                <= times[5]
+                <= self._clock()
+            ):
+                raise ValueError("Stop chronology is not proven")
+        except (ValueError, TypeError) as error:
+            raise WorkspaceExecutionRecoveryError("recovery_not_allowed") from error
 
     def _wait_ready(self, target_id: UUID, profile: Any) -> bool:
         registry = self._readiness_registry
