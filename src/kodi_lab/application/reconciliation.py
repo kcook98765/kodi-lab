@@ -1570,7 +1570,8 @@ class ManagedInstanceReconciliationService:
                     and recovery.provenance_confirmed
                     and execution_item.state == "ambiguous"
                     and execution_item.execution_kind == "smoke"
-                    and execution_item.execution_classification == "timeout"
+                    and execution_item.execution_classification
+                    in {"timeout", "ambiguous"}
                     and execution_item.failure_code == "execution_ambiguous"
                     and execution_item.original_container_id is not None
                 ):
