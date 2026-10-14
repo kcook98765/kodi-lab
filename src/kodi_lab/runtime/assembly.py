@@ -14,6 +14,7 @@ from typing import Any
 from uuid import UUID
 
 import docker  # type: ignore[import-untyped]
+from docker.types import LogConfig  # type: ignore[import-untyped]
 
 from kodi_lab.config import Settings
 from kodi_lab.runtime.ostree import AcquiredOstree
@@ -240,6 +241,11 @@ def _inventory(client: Any, image_id: str, path: str) -> bytes:
         remove=True,
         stdout=True,
         stderr=False,
+        # SDK synchronous run returns None for daemon defaults such as local.
+        # Select a supported, bounded log only for this temporary fixed read.
+        log_config=LogConfig(
+            type="json-file", config={"max-size": "1m", "max-file": "1"}
+        ),
         labels={"io.kodi-lab.resource": "recipe-inspection"},
     )
     if not isinstance(output, bytes) or not 1 <= len(output) <= _MAX_INVENTORY_BYTES:
