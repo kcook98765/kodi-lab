@@ -358,3 +358,76 @@ def test_production_target_cannot_use_development_amendment(
         target.target_type = TargetType.EXTERNAL_PRODUCTION
     with pytest.raises(DevelopmentCapabilityAmendmentError, match="target_not_found"):
         _amend(service, BEFORE, EXPANDED)
+
+
+# Regression: Bridge capabilities and external-target capabilities are distinct.
+def test_real_bridge_capabilities_navigation_amendment_roundtrip(
+    amendment: tuple[
+        DevelopmentCapabilityAmendmentService, sessionmaker[Session], FakeBridge
+    ],
+) -> None:
+    service, sessions, bridge = amendment
+    bridge.capabilities = ("screenshot", "ui_observation", "workspace_deployment")
+    native = cast(FakeNative, service._verifier)
+    native.supported = native.supported | {"semantic_remote"}
+    requested = BEFORE | {"addon_inventory", "semantic_remote"}
+    first = _amend(service, BEFORE, requested)
+    assert _amend(service, BEFORE, requested) == first
+    readback = service.list_receipts(TARGET)
+    assert len(readback) == 1
+    assert readback[0].bridge_verified_capabilities == bridge.capabilities
+    assert set(readback[0].resulting_capabilities) == requested
+    assert "ui_observation" not in readback[0].resulting_capabilities
+    second = _amend(service, requested, BEFORE)
+    assert first != second
+    assert _amend(service, requested, BEFORE) == second
+    with sessions() as session:
+        row = session.get(ExternalKodiTargetRow, str(TARGET))
+        assert row is not None
+        assert row.configured_capabilities_json == '["screenshot","target_inspect"]'
+        assert row.administrative_state.value == "enabled"
+        assert row.verification_state.value == "verified"
+        pairing = session.get(ExternalBridgePairingRow, str(TARGET))
+        assert pairing is not None
+        assert pairing.pinned_bridge_id == str(BRIDGE)
+        assert pairing.pairing_state.value == "paired"
+    assert len(service.list_receipts(TARGET)) == 2
+
+
+def test_bridge_observation_is_not_a_target_permission(
+    amendment: tuple[
+        DevelopmentCapabilityAmendmentService, sessionmaker[Session], FakeBridge
+    ],
+) -> None:
+    service, _sessions, bridge = amendment
+    bridge.capabilities = ("screenshot", "ui_observation", "workspace_deployment")
+    with pytest.raises(
+        DevelopmentCapabilityAmendmentError, match="capabilities_invalid"
+    ):
+        _amend(service, BEFORE, BEFORE | {"ui_observation"})
+    assert service.list_receipts(TARGET) == ()
+
+
+@pytest.mark.parametrize(
+    "invalid_capability", ["unknown", "target_inspect", "semantic_remote"]
+)
+def test_invalid_bridge_receipt_rolls_back_without_widening(
+    amendment: tuple[
+        DevelopmentCapabilityAmendmentService, sessionmaker[Session], FakeBridge
+    ],
+    invalid_capability: str,
+) -> None:
+    service, sessions, bridge = amendment
+    bridge.capabilities = ("screenshot", "workspace_deployment", invalid_capability)
+    with pytest.raises(
+        DevelopmentCapabilityAmendmentError, match="capabilities_invalid"
+    ):
+        _amend(service, BEFORE, EXPANDED)
+    with sessions() as session:
+        row = session.get(ExternalKodiTargetRow, str(TARGET))
+        assert row is not None
+        assert json.loads(row.configured_capabilities_json) == sorted(BEFORE)
+        assert (
+            session.scalars(select(ExternalDevelopmentCapabilityAmendmentRow)).all()
+            == []
+        )

@@ -28,6 +28,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.bridge import (
     BRIDGE_ADDON_ID,
+    BRIDGE_CAPABILITIES,
     BRIDGE_PROTOCOL_VERSION,
     SUPPORTED_V1_BRIDGE_ADDON_VERSION,
 )
@@ -103,7 +104,9 @@ def _json(values: frozenset[str] | set[str] | tuple[str, ...]) -> str:
     return json.dumps(sorted(values), separators=(",", ":"))
 
 
-def _set(value: str) -> frozenset[str]:
+def _set(
+    value: str, *, allowed_values: frozenset[str] = EXTERNAL_CAPABILITY_VALUES
+) -> frozenset[str]:
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError as error:
@@ -112,7 +115,7 @@ def _set(value: str) -> frozenset[str]:
         not isinstance(parsed, list)
         or any(not isinstance(item, str) for item in parsed)
         or len(parsed) != len(set(parsed))
-        or not set(parsed) <= EXTERNAL_CAPABILITY_VALUES
+        or not set(parsed) <= allowed_values
         or _json(frozenset(parsed)) != value
     ):
         raise DevelopmentCapabilityAmendmentError("capabilities_invalid")
@@ -370,7 +373,11 @@ class DevelopmentCapabilityAmendmentService:
             requested_capabilities=tuple(sorted(_set(row.requested_json))),
             resulting_capabilities=tuple(sorted(_set(row.resulting_json))),
             native_verified_capabilities=tuple(sorted(_set(row.native_verified_json))),
-            bridge_verified_capabilities=tuple(sorted(_set(row.bridge_verified_json))),
+            bridge_verified_capabilities=tuple(
+                sorted(
+                    _set(row.bridge_verified_json, allowed_values=BRIDGE_CAPABILITIES)
+                )
+            ),
             actor=row.actor,
             requested_at=datetime.fromisoformat(
                 row.requested_at.replace("Z", "+00:00")
