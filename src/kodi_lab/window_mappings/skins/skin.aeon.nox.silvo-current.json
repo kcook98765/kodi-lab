@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.aeon.nox.silvo",
+  "skin_versions": [
+    "11.0.0~beta6"
+  ],
+  "kodi_versions": [
+    22
+  ],
+  "source": {
+    "repository": "https://github.com/MikeSiLVO/skin.aeon.nox.silvo",
+    "revision": "bb1aaf8591774b2fb5f522e03d2f078150fdcc55",
+    "version": "11.0.0~beta6",
+    "urls": [
+      "https://github.com/MikeSiLVO/skin.aeon.nox.silvo/blob/bb1aaf8591774b2fb5f522e03d2f078150fdcc55/addon.xml",
+      "https://github.com/MikeSiLVO/skin.aeon.nox.silvo/tree/bb1aaf8591774b2fb5f522e03d2f078150fdcc55",
+      "https://github.com/xbmc/xbmc/blob/22.0rc1-Piers/addons/xbmc.gui/addon.xml"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11101,
+      "name": "Skin startup",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1101_Startup.xml"
+      ]
+    },
+    {
+      "window_id": 11103,
+      "name": "Trailer playback",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1103_TrailersDialog.xml"
+      ]
+    },
+    {
+      "window_id": 11104,
+      "name": "View and background settings menu",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1104_SideMenu.xml"
+      ]
+    },
+    {
+      "window_id": 11112,
+      "name": "Text viewer",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1112_TextViewer.xml"
+      ]
+    },
+    {
+      "window_id": 11113,
+      "name": "Fullscreen fanart",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1113_FullscreenFanart.xml"
+      ]
+    },
+    {
+      "window_id": 11114,
+      "name": "Contextual player settings dialog",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "16x9/custom_1114_SettingsDialog.xml"
+      ],
+      "notes": "SettingsDialogLayout selects content for the current runtime context."
+    },
+    {
+      "window_id": 11115,
+      "name": "Media flag settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1115_CustomizeFlags.xml"
+      ]
+    },
+    {
+      "window_id": 11117,
+      "name": "Supported add-on settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1117_AddonStatus.xml"
+      ]
+    },
+    {
+      "window_id": 11119,
+      "name": "Information extras menu",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1119_ExtrasDialog.xml"
+      ]
+    },
+    {
+      "window_id": 11120,
+      "name": "Cast information",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1120_CastDialog.xml"
+      ]
+    },
+    {
+      "window_id": 11125,
+      "name": "Library search",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1125_LibrarySearch.xml"
+      ]
+    },
+    {
+      "window_id": 11126,
+      "name": "Confirmation dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1126_Confirm.xml"
+      ]
+    },
+    {
+      "window_id": 11127,
+      "name": "Watched status icon settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1127_OverlayIcons.xml"
+      ]
+    },
+    {
+      "window_id": 11129,
+      "name": "Custom selection dialog",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "16x9/custom_1129_Select.xml"
+      ],
+      "notes": "Caller properties choose the selectable content; the numeric ID alone does not identify the current choices."
+    },
+    {
+      "window_id": 11133,
+      "name": "Add-ons",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1133_Apps.xml"
+      ]
+    },
+    {
+      "window_id": 11134,
+      "name": "Paused playback information",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1134_PausedOverlay.xml"
+      ]
+    },
+    {
+      "window_id": 11135,
+      "name": "Window routing helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "16x9/custom_1135_ReplaceWindow.xml"
+      ],
+      "notes": "Destination is selected from caller properties and current content; no fixed destination can be inferred from this ID."
+    },
+    {
+      "window_id": 11140,
+      "name": "Colour settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1140_Colors.xml"
+      ]
+    },
+    {
+      "window_id": 11199,
+      "name": "Debug information overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "16x9/custom_1199_DebugOverlay.xml"
+      ]
+    }
+  ]
+}

@@ -38,7 +38,13 @@ from mcp_types.jsonrpc import (
     METHOD_NOT_FOUND,
     UNSUPPORTED_PROTOCOL_VERSION,
 )
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+)
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -821,7 +827,10 @@ def build_mcp_http_transport(
                 "Use before/after navigation to understand what Kodi is showing; "
                 "structured state is usually cheaper than a screenshot. Focus and "
                 "selected item are distinct: associated=true means item metadata "
-                "belongs to the current container context. Snapshots are non-atomic."
+                "belongs to the current container context. Snapshots are non-atomic. "
+                "Includes original Kodi IDs/labels and semantic resolution for the "
+                "base window and foreground dialog. Resolution source/status "
+                "distinguish reported names, verified mappings, ambiguity and unknowns."
             ),
             input_schema=_TargetStatusInput.model_json_schema(),
             output_schema=UiObservation.model_json_schema(),
@@ -1126,7 +1135,8 @@ def build_mcp_http_transport(
             } and not edit_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
             if params.name == "inspect_ui_state":
-                target_id = _TargetStatusInput.model_validate(arguments).target_id
+                parsed_ui_state = _TargetStatusInput.model_validate(arguments)
+                target_id = parsed_ui_state.target_id
                 result = await asyncio.to_thread(
                     tools.inspect_ui_state, principal, target_id=target_id
                 )

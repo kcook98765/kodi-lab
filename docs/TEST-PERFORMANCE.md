@@ -6,7 +6,13 @@ and the package/configuration import. Its coverage remains intact, while ordinar
 tasks may finish at FOCUSED or INTEGRATION without invoking the full gate.
 
 The gate keeps ordinary pytest temporary files on `/dev/shm` when at least 1 GiB
-is available. Snapshot publication tests use a separate private, run-owned
+is available. For a full run whose temporary files exceed tmpfs capacity, set
+`KODI_LAB_CHECK_PYTEST_TMP_PARENT=/tmp ./scripts/check` (or another absolute,
+writable, non-symlink directory). An explicitly provided parent takes precedence
+over the `/dev/shm` heuristic and is validated before temporary directories are
+created. The default selection is unchanged when the variable is unset. Keep the parent
+path short: Unix socket tests retain the runtime 100-byte socket-path limit.
+Snapshot publication tests use a separate private, run-owned
 scratch directory under `/tmp` by default so the production 2 GiB snapshot
 free-space reserve is evaluated against a suitable filesystem without moving
 thousands of SQLite and fixture operations off tmpfs. Set

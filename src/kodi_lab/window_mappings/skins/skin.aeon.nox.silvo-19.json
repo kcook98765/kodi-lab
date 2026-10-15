@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.aeon.nox.silvo",
+  "skin_versions": [
+    "8.1.0"
+  ],
+  "kodi_versions": [
+    19
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/repo-skins",
+    "revision": "9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff",
+    "version": "8.1.0",
+    "urls": [
+      "https://github.com/xbmc/repo-skins/blob/9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff/skin.aeon.nox.silvo/addon.xml",
+      "https://github.com/xbmc/repo-skins/tree/9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff/skin.aeon.nox.silvo"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11112,
+      "name": "Text viewer",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1112_TextViewer.xml"
+      ]
+    },
+    {
+      "window_id": 11113,
+      "name": "Fullscreen fanart",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1113_FullscreenFanart.xml"
+      ]
+    },
+    {
+      "window_id": 11114,
+      "name": "Information dialog settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1114_DialogInfoSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11115,
+      "name": "Video on-screen display settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1115_VideoOSDSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11117,
+      "name": "Supported add-on settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1117_AddonStatus.xml"
+      ]
+    },
+    {
+      "window_id": 11119,
+      "name": "Information extras menu",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1119_ExtrasDialog.xml"
+      ]
+    },
+    {
+      "window_id": 11120,
+      "name": "Music on-screen display settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1120_MusicOSDSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11122,
+      "name": "Background settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1122_BackgroundCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11126,
+      "name": "Confirmation dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1126_Confirm.xml"
+      ]
+    },
+    {
+      "window_id": 11127,
+      "name": "Watched status icon settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1127_OverlayIcons.xml"
+      ]
+    },
+    {
+      "window_id": 11128,
+      "name": "Window appearance settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1128_WindowCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11129,
+      "name": "Custom selection dialog",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1129_Select.xml"
+      ],
+      "notes": "Caller properties choose the selectable content; the numeric ID alone does not identify the current choices."
+    },
+    {
+      "window_id": 11130,
+      "name": "View selector",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1130_Views.xml"
+      ]
+    },
+    {
+      "window_id": 11131,
+      "name": "View settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1131_ViewSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11132,
+      "name": "View availability settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1132_DisableViews.xml"
+      ]
+    },
+    {
+      "window_id": 11133,
+      "name": "Add-ons",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1133_Apps.xml"
+      ]
+    },
+    {
+      "window_id": 11134,
+      "name": "Paused playback information",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1134_PausedOverlay.xml"
+      ]
+    },
+    {
+      "window_id": 11135,
+      "name": "Window routing helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1135_ReplaceWindow.xml"
+      ],
+      "notes": "Destination is selected from caller properties and current content; no fixed destination can be inferred from this ID."
+    },
+    {
+      "window_id": 11140,
+      "name": "Colour settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1140_Colors.xml"
+      ]
+    },
+    {
+      "window_id": 11150,
+      "name": "Live TV settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.nox.silvo/16x9/custom_1150_LiveTV_Settings.xml"
+      ]
+    }
+  ]
+}

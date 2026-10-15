@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window id="19004" type="dialog">
+  <defaultcontrol always="true">11</defaultcontrol>
+  <controls>
+    <control type="label" id="1"><left>80</left><top>60</top><width>1700</width><height>80</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Unknown ID handling fixture</label></control>
+    <control type="button" id="11"><left>100</left><top>200</top><width>1200</width><height>80</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Close dialog</label><onclick>Action(Close)</onclick></control>
+  </controls>
+</window>

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.confluence",
+  "skin_versions": [
+    "4.8.4"
+  ],
+  "kodi_versions": [
+    20
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/repo-skins",
+    "revision": "5cb9592e19af62ca0915dbd1a709c0726ad16f5f",
+    "version": "4.8.4",
+    "urls": [
+      "https://github.com/xbmc/repo-skins/blob/5cb9592e19af62ca0915dbd1a709c0726ad16f5f/skin.confluence/addon.xml",
+      "https://github.com/xbmc/repo-skins/tree/5cb9592e19af62ca0915dbd1a709c0726ad16f5f/skin.confluence"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11112,
+      "name": "Side menu help",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.confluence/720p/custom_SideMenuHelp.xml"
+      ]
+    },
+    {
+      "window_id": 11113,
+      "name": "PVR channel number input",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.confluence/720p/custom_PVRChannelNumberInput.xml"
+      ]
+    }
+  ]
+}

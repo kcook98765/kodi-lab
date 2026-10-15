@@ -1,0 +1,1846 @@
+{
+  "schema_version": 1,
+  "kind": "kodi",
+  "kodi_versions": [
+    19
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/xbmc",
+    "revision": "f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9",
+    "version": "19.5-Matrix",
+    "urls": [
+      "https://github.com/xbmc/xbmc/blob/f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9/xbmc/guilib/WindowIDs.h",
+      "https://github.com/xbmc/xbmc/blob/f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9/xbmc/input/WindowTranslator.cpp"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 97,
+      "name": "Dim screensaver",
+      "role": "system",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SCREENSAVER_DIM",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h"
+      ]
+    },
+    {
+      "window_id": 98,
+      "name": "Debug information overlay",
+      "role": "system",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DEBUG_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h"
+      ]
+    },
+    {
+      "window_id": 10000,
+      "name": "Home",
+      "role": "home",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_HOME",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "home"
+      ]
+    },
+    {
+      "window_id": 10001,
+      "name": "Programs",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_PROGRAMS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "programs"
+      ]
+    },
+    {
+      "window_id": 10002,
+      "name": "Pictures",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_PICTURES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pictures"
+      ]
+    },
+    {
+      "window_id": 10003,
+      "name": "File manager",
+      "role": "navigation",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_FILES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "filemanager"
+      ]
+    },
+    {
+      "window_id": 10004,
+      "name": "Settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SETTINGS_MENU",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "settings"
+      ]
+    },
+    {
+      "window_id": 10007,
+      "name": "System information",
+      "role": "system",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SYSTEM_INFORMATION",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "systeminfo"
+      ]
+    },
+    {
+      "window_id": 10011,
+      "name": "Screen calibration",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SCREEN_CALIBRATION",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "screencalibration"
+      ]
+    },
+    {
+      "window_id": 10016,
+      "name": "System settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SETTINGS_SYSTEM",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "systemsettings"
+      ]
+    },
+    {
+      "window_id": 10018,
+      "name": "Service settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SETTINGS_SERVICE",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "servicesettings"
+      ]
+    },
+    {
+      "window_id": 10021,
+      "name": "Live TV and radio settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SETTINGS_MYPVR",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrsettings"
+      ]
+    },
+    {
+      "window_id": 10022,
+      "name": "Games settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SETTINGS_MYGAMES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "gamesettings"
+      ]
+    },
+    {
+      "window_id": 10025,
+      "name": "Videos",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_VIDEO_NAV",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "videos"
+      ]
+    },
+    {
+      "window_id": 10028,
+      "name": "Video playlist",
+      "role": "navigation",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_VIDEO_PLAYLIST",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "videoplaylist"
+      ]
+    },
+    {
+      "window_id": 10029,
+      "name": "Login screen",
+      "role": "system",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_LOGIN_SCREEN",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "loginscreen"
+      ]
+    },
+    {
+      "window_id": 10030,
+      "name": "Player settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SETTINGS_PLAYER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "playersettings"
+      ]
+    },
+    {
+      "window_id": 10031,
+      "name": "Media settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SETTINGS_MEDIA",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "mediasettings"
+      ]
+    },
+    {
+      "window_id": 10032,
+      "name": "Interface settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SETTINGS_INTERFACE",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "appearancesettings",
+        "interfacesettings"
+      ]
+    },
+    {
+      "window_id": 10034,
+      "name": "Profile settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SETTINGS_PROFILES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "profiles"
+      ]
+    },
+    {
+      "window_id": 10035,
+      "name": "Skin settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SKIN_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "skinsettings"
+      ]
+    },
+    {
+      "window_id": 10040,
+      "name": "Add-on browser",
+      "role": "navigation",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_ADDON_BROWSER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "addonbrowser"
+      ]
+    },
+    {
+      "window_id": 10050,
+      "name": "Event log",
+      "role": "system",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_EVENT_LOG",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "eventlog"
+      ]
+    },
+    {
+      "window_id": 10099,
+      "name": "Pointer dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_POINTER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h"
+      ]
+    },
+    {
+      "window_id": 10100,
+      "name": "Yes / No dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_YES_NO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "yesnodialog"
+      ]
+    },
+    {
+      "window_id": 10101,
+      "name": "Progress dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PROGRESS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "progressdialog"
+      ]
+    },
+    {
+      "window_id": 10103,
+      "name": "On-screen keyboard",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_KEYBOARD",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "virtualkeyboard"
+      ]
+    },
+    {
+      "window_id": 10104,
+      "name": "Volume bar dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_VOLUME_BAR",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "volumebar"
+      ]
+    },
+    {
+      "window_id": 10105,
+      "name": "Submenu",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_SUB_MENU",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "submenu"
+      ]
+    },
+    {
+      "window_id": 10106,
+      "name": "Context menu",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_CONTEXT_MENU",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "contextmenu"
+      ]
+    },
+    {
+      "window_id": 10107,
+      "name": "Notification dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_KAI_TOAST",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "notification"
+      ]
+    },
+    {
+      "window_id": 10109,
+      "name": "Numeric input dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_NUMERIC",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "numericinput"
+      ]
+    },
+    {
+      "window_id": 10110,
+      "name": "Gamepad input dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_GAMEPAD",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "gamepadinput"
+      ]
+    },
+    {
+      "window_id": 10111,
+      "name": "Shutdown menu",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_BUTTON_MENU",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "shutdownmenu"
+      ]
+    },
+    {
+      "window_id": 10114,
+      "name": "Player controls dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PLAYER_CONTROLS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "playercontrols"
+      ]
+    },
+    {
+      "window_id": 10115,
+      "name": "Seek bar dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_SEEK_BAR",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "seekbar"
+      ]
+    },
+    {
+      "window_id": 10116,
+      "name": "Player process information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PLAYER_PROCESS_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "playerprocessinfo"
+      ]
+    },
+    {
+      "window_id": 10120,
+      "name": "Music on-screen display dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_MUSIC_OSD",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "musicosd"
+      ]
+    },
+    {
+      "window_id": 10121,
+      "name": "Visualisation settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_VIS_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h"
+      ],
+      "notes": "Defined upstream; availability or implementation depends on Kodi build and skin."
+    },
+    {
+      "window_id": 10122,
+      "name": "Visualisation preset list",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_VIS_PRESET_LIST",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "visualisationpresetlist"
+      ]
+    },
+    {
+      "window_id": 10123,
+      "name": "Video on-screen display settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_VIDEO_OSD_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "osdvideosettings"
+      ]
+    },
+    {
+      "window_id": 10124,
+      "name": "Audio on-screen display settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_AUDIO_OSD_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "osdaudiosettings"
+      ]
+    },
+    {
+      "window_id": 10125,
+      "name": "Video bookmarks dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_VIDEO_BOOKMARKS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "videobookmarks"
+      ]
+    },
+    {
+      "window_id": 10126,
+      "name": "File browser dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_FILE_BROWSER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "filebrowser"
+      ]
+    },
+    {
+      "window_id": 10128,
+      "name": "Network setup dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_NETWORK_SETUP",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "networksetup"
+      ]
+    },
+    {
+      "window_id": 10129,
+      "name": "Media source dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_MEDIA_SOURCE",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "mediasource"
+      ]
+    },
+    {
+      "window_id": 10130,
+      "name": "Profile settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PROFILE_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "profilesettings"
+      ]
+    },
+    {
+      "window_id": 10131,
+      "name": "Lock settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_LOCK_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "locksettings"
+      ]
+    },
+    {
+      "window_id": 10132,
+      "name": "Content settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_CONTENT_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "contentsettings"
+      ]
+    },
+    {
+      "window_id": 10133,
+      "name": "Library export settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_LIBEXPORT_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "libexportsettings"
+      ]
+    },
+    {
+      "window_id": 10134,
+      "name": "Favourites dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_FAVOURITES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "favourites"
+      ]
+    },
+    {
+      "window_id": 10135,
+      "name": "Song information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_SONG_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "songinformation"
+      ]
+    },
+    {
+      "window_id": 10136,
+      "name": "Smart playlist editor dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_SMART_PLAYLIST_EDITOR",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "smartplaylisteditor"
+      ]
+    },
+    {
+      "window_id": 10137,
+      "name": "Smart playlist rule dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_SMART_PLAYLIST_RULE",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "smartplaylistrule"
+      ]
+    },
+    {
+      "window_id": 10138,
+      "name": "Busy dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_BUSY",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "busydialog"
+      ]
+    },
+    {
+      "window_id": 10139,
+      "name": "Picture information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PICTURE_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pictureinfo"
+      ]
+    },
+    {
+      "window_id": 10140,
+      "name": "Add-on settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_ADDON_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "addonsettings"
+      ]
+    },
+    {
+      "window_id": 10142,
+      "name": "Fullscreen information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_FULLSCREEN_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "fullscreeninfo"
+      ]
+    },
+    {
+      "window_id": 10145,
+      "name": "Slider dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_SLIDER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "sliderdialog"
+      ]
+    },
+    {
+      "window_id": 10146,
+      "name": "Add-on information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_ADDON_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "addoninformation"
+      ]
+    },
+    {
+      "window_id": 10147,
+      "name": "Text viewer dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_TEXT_VIEWER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "textviewer"
+      ]
+    },
+    {
+      "window_id": 10148,
+      "name": "Play or eject dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PLAY_EJECT",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h"
+      ],
+      "notes": "Optical-drive dialog; availability depends on Kodi build features."
+    },
+    {
+      "window_id": 10149,
+      "name": "Peripherals dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PERIPHERALS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h"
+      ]
+    },
+    {
+      "window_id": 10150,
+      "name": "Peripheral settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PERIPHERAL_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "peripheralsettings"
+      ]
+    },
+    {
+      "window_id": 10151,
+      "name": "Extended progress dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_EXT_PROGRESS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "extendedprogressdialog"
+      ]
+    },
+    {
+      "window_id": 10152,
+      "name": "Media filter dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_MEDIA_FILTER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "mediafilter"
+      ]
+    },
+    {
+      "window_id": 10153,
+      "name": "Subtitle search dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_SUBTITLES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "subtitlesearch"
+      ]
+    },
+    {
+      "window_id": 10156,
+      "name": "Touch keyboard dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_KEYBOARD_TOUCH",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h"
+      ],
+      "notes": "Defined upstream; availability or implementation depends on Kodi build and skin."
+    },
+    {
+      "window_id": 10157,
+      "name": "On-screen color management settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_CMS_OSD_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "osdcmssettings"
+      ]
+    },
+    {
+      "window_id": 10158,
+      "name": "Information provider settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_INFOPROVIDER_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "infoprovidersettings"
+      ]
+    },
+    {
+      "window_id": 10159,
+      "name": "Subtitle on-screen display settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_SUBTITLE_OSD_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "osdsubtitlesettings"
+      ]
+    },
+    {
+      "window_id": 10160,
+      "name": "Busy dialog without cancellation",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_BUSY_NOCANCEL",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "busydialognocancel"
+      ]
+    },
+    {
+      "window_id": 10500,
+      "name": "Music playlist",
+      "role": "navigation",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_MUSIC_PLAYLIST",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "musicplaylist"
+      ]
+    },
+    {
+      "window_id": 10502,
+      "name": "Music",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_MUSIC_NAV",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "music"
+      ]
+    },
+    {
+      "window_id": 10503,
+      "name": "Music playlist editor",
+      "role": "navigation",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_MUSIC_PLAYLIST_EDITOR",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "musicplaylisteditor"
+      ]
+    },
+    {
+      "window_id": 10550,
+      "name": "Teletext dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_OSD_TELETEXT",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrosdteletext",
+        "teletext"
+      ]
+    },
+    {
+      "window_id": 10600,
+      "name": "PVR guide information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_GUIDE_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrguideinfo"
+      ]
+    },
+    {
+      "window_id": 10601,
+      "name": "PVR recording information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_RECORDING_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrrecordinginfo"
+      ]
+    },
+    {
+      "window_id": 10602,
+      "name": "PVR timer settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_TIMER_SETTING",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrtimersetting"
+      ]
+    },
+    {
+      "window_id": 10603,
+      "name": "PVR group manager dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_GROUP_MANAGER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrgroupmanager"
+      ]
+    },
+    {
+      "window_id": 10604,
+      "name": "PVR channel manager dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_CHANNEL_MANAGER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrchannelmanager"
+      ]
+    },
+    {
+      "window_id": 10605,
+      "name": "PVR guide search dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_GUIDE_SEARCH",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrguidesearch"
+      ]
+    },
+    {
+      "window_id": 10606,
+      "name": "PVR channel scan dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_CHANNEL_SCAN",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrchannelscan"
+      ],
+      "notes": "Defined upstream; availability or implementation depends on Kodi build and skin."
+    },
+    {
+      "window_id": 10607,
+      "name": "PVR update progress dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_UPDATE_PROGRESS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrupdateprogress"
+      ],
+      "notes": "Defined upstream; availability or implementation depends on Kodi build and skin."
+    },
+    {
+      "window_id": 10608,
+      "name": "PVR on-screen display channels dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_OSD_CHANNELS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrosdchannels"
+      ]
+    },
+    {
+      "window_id": 10609,
+      "name": "PVR channel guide dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_CHANNEL_GUIDE",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrchannelguide",
+        "pvrosdguide"
+      ]
+    },
+    {
+      "window_id": 10610,
+      "name": "PVR radio RDS information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_RADIO_RDS_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrradiordsinfo"
+      ]
+    },
+    {
+      "window_id": 10611,
+      "name": "PVR recording settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_RECORDING_SETTING",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h"
+      ]
+    },
+    {
+      "window_id": 10612,
+      "name": "PVR client priorities dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_CLIENT_PRIORITIES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h"
+      ]
+    },
+    {
+      "window_id": 10613,
+      "name": "PVR guide controls dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_PVR_GUIDE_CONTROLS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "pvrguidecontrols"
+      ]
+    },
+    {
+      "window_id": 10700,
+      "name": "TV channels",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_TV_CHANNELS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "tvchannels"
+      ]
+    },
+    {
+      "window_id": 10701,
+      "name": "TV recordings",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_TV_RECORDINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "tvrecordings"
+      ]
+    },
+    {
+      "window_id": 10702,
+      "name": "TV guide",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_TV_GUIDE",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "tvguide"
+      ]
+    },
+    {
+      "window_id": 10703,
+      "name": "TV timers",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_TV_TIMERS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "tvtimers"
+      ]
+    },
+    {
+      "window_id": 10704,
+      "name": "TV search",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_TV_SEARCH",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "tvsearch"
+      ]
+    },
+    {
+      "window_id": 10705,
+      "name": "Radio channels",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_RADIO_CHANNELS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "radiochannels"
+      ]
+    },
+    {
+      "window_id": 10706,
+      "name": "Radio recordings",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_RADIO_RECORDINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "radiorecordings"
+      ]
+    },
+    {
+      "window_id": 10707,
+      "name": "Radio guide",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_RADIO_GUIDE",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "radioguide"
+      ]
+    },
+    {
+      "window_id": 10708,
+      "name": "Radio timers",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_RADIO_TIMERS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "radiotimers"
+      ]
+    },
+    {
+      "window_id": 10709,
+      "name": "Radio search",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_RADIO_SEARCH",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "radiosearch"
+      ]
+    },
+    {
+      "window_id": 10710,
+      "name": "TV timer rules",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_TV_TIMER_RULES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "tvtimerrules"
+      ]
+    },
+    {
+      "window_id": 10711,
+      "name": "Radio timer rules",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_RADIO_TIMER_RULES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "radiotimerrules"
+      ]
+    },
+    {
+      "window_id": 10800,
+      "name": "Fullscreen live TV",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_FULLSCREEN_LIVETV",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "fullscreenlivetv"
+      ],
+      "notes": "Virtual keymap context; this ID does not identify a separate rendered window."
+    },
+    {
+      "window_id": 10801,
+      "name": "Fullscreen radio",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_FULLSCREEN_RADIO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "fullscreenradio"
+      ],
+      "notes": "Virtual keymap context; this ID does not identify a separate rendered window."
+    },
+    {
+      "window_id": 10802,
+      "name": "Fullscreen live TV preview",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_FULLSCREEN_LIVETV_PREVIEW",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "fullscreenlivetvpreview"
+      ],
+      "notes": "Virtual keymap context; this ID does not identify a separate rendered window."
+    },
+    {
+      "window_id": 10803,
+      "name": "Fullscreen radio preview",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_FULLSCREEN_RADIO_PREVIEW",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "fullscreenradiopreview"
+      ],
+      "notes": "Virtual keymap context; this ID does not identify a separate rendered window."
+    },
+    {
+      "window_id": 10804,
+      "name": "Fullscreen live TV input",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_FULLSCREEN_LIVETV_INPUT",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "fullscreenlivetvinput"
+      ],
+      "notes": "Virtual keymap context; this ID does not identify a separate rendered window."
+    },
+    {
+      "window_id": 10805,
+      "name": "Fullscreen radio input",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_FULLSCREEN_RADIO_INPUT",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "fullscreenradioinput"
+      ],
+      "notes": "Virtual keymap context; this ID does not identify a separate rendered window."
+    },
+    {
+      "window_id": 10820,
+      "name": "Game controllers dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_GAME_CONTROLLERS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "gamecontrollers"
+      ]
+    },
+    {
+      "window_id": 10821,
+      "name": "Games",
+      "role": "library",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_GAMES",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "games"
+      ]
+    },
+    {
+      "window_id": 10822,
+      "name": "Game on-screen display dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_GAME_OSD",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "gameosd"
+      ]
+    },
+    {
+      "window_id": 10823,
+      "name": "Game video filter dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_GAME_VIDEO_FILTER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "gamevideofilter"
+      ]
+    },
+    {
+      "window_id": 10824,
+      "name": "Game stretch mode dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_GAME_STRETCH_MODE",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "gamestretchmode"
+      ]
+    },
+    {
+      "window_id": 10825,
+      "name": "Game volume dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_GAME_VOLUME",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "gamevolume"
+      ]
+    },
+    {
+      "window_id": 10826,
+      "name": "Game advanced settings",
+      "role": "settings",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_GAME_ADVANCED_SETTINGS",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "gameadvancedsettings"
+      ]
+    },
+    {
+      "window_id": 10827,
+      "name": "Game video rotation dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_GAME_VIDEO_ROTATION",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "gamevideorotation"
+      ]
+    },
+    {
+      "window_id": 12000,
+      "name": "Selection dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_SELECT",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "selectdialog"
+      ]
+    },
+    {
+      "window_id": 12001,
+      "name": "Music information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_MUSIC_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "musicinformation"
+      ]
+    },
+    {
+      "window_id": 12002,
+      "name": "OK dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_OK",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "okdialog"
+      ]
+    },
+    {
+      "window_id": 12003,
+      "name": "Video information dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_VIDEO_INFO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "movieinformation"
+      ]
+    },
+    {
+      "window_id": 12005,
+      "name": "Fullscreen video",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_FULLSCREEN_VIDEO",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "fullscreenvideo"
+      ]
+    },
+    {
+      "window_id": 12006,
+      "name": "Visualisation",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_VISUALISATION",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "visualisation"
+      ]
+    },
+    {
+      "window_id": 12007,
+      "name": "Slideshow",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SLIDESHOW",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "slideshow"
+      ]
+    },
+    {
+      "window_id": 12600,
+      "name": "Weather",
+      "role": "navigation",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_WEATHER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "weather"
+      ]
+    },
+    {
+      "window_id": 12900,
+      "name": "Screensaver",
+      "role": "system",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SCREENSAVER",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "screensaver"
+      ]
+    },
+    {
+      "window_id": 12901,
+      "name": "Video on-screen display dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_DIALOG_VIDEO_OSD",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "videoosd"
+      ]
+    },
+    {
+      "window_id": 12902,
+      "name": "Video menu",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_VIDEO_MENU",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "videomenu"
+      ]
+    },
+    {
+      "window_id": 12905,
+      "name": "Video time seek",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_VIDEO_TIME_SEEK",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "videotimeseek"
+      ],
+      "notes": "Virtual keymap context; this ID does not identify a separate rendered window."
+    },
+    {
+      "window_id": 12906,
+      "name": "Fullscreen game",
+      "role": "playback",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_FULLSCREEN_GAME",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "fullscreengame"
+      ]
+    },
+    {
+      "window_id": 12997,
+      "name": "Splash",
+      "role": "system",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_SPLASH",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "splash"
+      ]
+    },
+    {
+      "window_id": 12998,
+      "name": "Configured start-window target",
+      "role": "system",
+      "verification": "ambiguous",
+      "symbolic_name": "WINDOW_START",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "startwindow"
+      ],
+      "notes": "Routing target for the configured startup window; ID alone cannot identify the rendered destination."
+    },
+    {
+      "window_id": 12999,
+      "name": "Startup animation",
+      "role": "system",
+      "verification": "verified",
+      "symbolic_name": "WINDOW_STARTUP_ANIM",
+      "source_files": [
+        "xbmc/guilib/WindowIDs.h",
+        "xbmc/input/WindowTranslator.cpp"
+      ],
+      "aliases": [
+        "startup"
+      ]
+    }
+  ]
+}

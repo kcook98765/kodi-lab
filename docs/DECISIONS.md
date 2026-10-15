@@ -6207,3 +6207,44 @@ and target grants are unaffected. See [RC1 Bridge and installation UX](RC1-BRIDG
   the block; an operator must leave the target stopped through supported lifecycle
   controls. No historical containment extension, generic force action, schema
   repair, original execution retry, or external/production authority is added.
+
+## D-0428: Resolve window semantics in the central observation layer
+
+Preserve original window/dialog IDs and labels, and add version-scoped semantic
+resolution after existing provider normalization. Prefer useful Kodi names,
+authoritative core definitions, exact active skin/version mappings, then
+conservative classification. Candidate or ambiguous data never supplies a
+verified name. Load schema-validated built-in data and administrator skin-only
+extensions at startup; local files cannot override core definitions. Resolve
+named/core windows without remote calls. For skin candidates, bracket a fresh
+authorized observation with skin/version checks rather than associating later
+identity with an earlier sample. Keep Bridge wire format, target authorization,
+navigation and focus/container association unchanged. See
+[Window mappings](WINDOW-MAPPINGS.md) for provenance, extension rules and tests.
+
+## D-0429: Cache only collection scheduling
+
+Avoid repeating a complete GUI collection on successive skin candidates by
+caching only a bounded, expiring scheduling hint scoped to target/runtime
+identity. The hint chooses when fresh skin/version checks surround collection;
+it never supplies identity or semantic data. Container/endpoint/identity changes,
+failures, absent applicability and expiry remove hints. Skin updates and profile
+changes lack a complete ordered invalidation stream, so ID/version caching is
+not authoritative. Every skin mapping still needs fresh matching identity on
+both sides of a full authorized observation. Unknown/ambiguous summaries retain
+the numeric foreground ID instead of borrowing a base-window name.
+
+## D-0430: Return semantic UI resolution by default in schema version 2
+
+Every MCP and HTTP UI inspection includes semantic resolution automatically.
+The project is pre-release; there is no legacy projection, request switch or
+parallel serializer. Preserve original Kodi IDs and labels beside one compact
+semantic group per base window and foreground dialog. Keep semantic name, role,
+source, status and relevant skin identity/version; mapping files retain detailed
+source revisions without repeating commit hashes in routine responses.
+
+Use UI schema version 2 to identify this deliberate contract change. Mapping
+schema version 1 and the resident Bridge collection contract are independent
+and unchanged. Unknown, ambiguous and unverified results retain their explicit
+status, and mapping version gates, authorization and association checks remain
+mandatory. See [Window mappings](WINDOW-MAPPINGS.md).

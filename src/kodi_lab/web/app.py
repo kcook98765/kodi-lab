@@ -483,6 +483,8 @@ from kodi_lab.kodi.bridge import (
 from kodi_lab.kodi.external import ExternalEndpointPolicy, NativeExternalKodiVerifier
 from kodi_lab.kodi.readiness import KodiReadinessCoordinator
 from kodi_lab.kodi.remote import BrowserRemoteAction, KodiBrowserRemoteAdapter
+from kodi_lab.kodi.ui_state import UiObservation
+from kodi_lab.kodi.window_resolver import WindowResolver
 from kodi_lab.mcp.authorization import (
     InternalManagedTargetAuthorityProvider,
     McpAuthorizationService,
@@ -1477,12 +1479,14 @@ def create_app(
     managed_bridge_trust = ManagedBridgeTrustService(
         session_factory, broker, external_bridge_secret_store
     )
+    window_resolver = WindowResolver(local_root=settings.data_root / "window-mappings")
     managed_ui_state = ManagedUiObservationService(
         session_factory,
         broker,
         status_service,
         reconciliation,
         bridges=managed_observation_bridges,
+        window_resolver=window_resolver,
     )
 
     mcp_target_adapters = KodiTargetAdapterService(
@@ -1497,6 +1501,7 @@ def create_app(
         credential_store=external_credential_store,
         external_transport=external_target_transport,
         managed_ui_state=managed_ui_state,
+        window_resolver=window_resolver,
     )
     mcp_workspace_development.configure_external(
         bridges=external_bridges,
@@ -5424,15 +5429,15 @@ def create_app(
     ) -> list[ManagedRuntimeStatus]:
         return context.status.list_statuses()
 
-    @app.get("/api/instances/{instance_id}/ui-state")
+    @app.get("/api/instances/{instance_id}/ui-state", response_model=UiObservation)
     def inspect_managed_ui_state(
         instance_id: UUID,
         _authenticated: AuthenticatedWebSession = Depends(current_session),
-    ) -> dict[str, object]:
+    ) -> UiObservation:
         from kodi_lab.kodi.ui_state_native import UiObservationError
 
         try:
-            return managed_ui_state.inspect(instance_id).model_dump(mode="json")
+            return managed_ui_state.inspect(instance_id)
         except UiObservationError as error:
             raise HTTPException(status_code=503, detail=error.code) from error
 

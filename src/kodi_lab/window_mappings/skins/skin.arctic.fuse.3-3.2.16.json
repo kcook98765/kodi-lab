@@ -1,0 +1,485 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.arctic.fuse.3",
+  "skin_versions": [
+    "3.2.16"
+  ],
+  "kodi_versions": [
+    21,
+    22
+  ],
+  "source": {
+    "repository": "https://github.com/jurialmunkey/skin.arctic.fuse.3",
+    "revision": "1602291d5b7e3d6e8b5d583c8fbdd110d563fba7",
+    "version": "3.2.16",
+    "urls": [
+      "https://github.com/jurialmunkey/skin.arctic.fuse.3/blob/1602291d5b7e3d6e8b5d583c8fbdd110d563fba7/addon.xml",
+      "https://github.com/jurialmunkey/skin.arctic.fuse.3/tree/1602291d5b7e3d6e8b5d583c8fbdd110d563fba7/1080i",
+      "https://github.com/xbmc/xbmc/blob/21.3-Omega/addons/xbmc.gui/addon.xml"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11101,
+      "name": "Custom hub 1",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1101_Hub.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11102,
+      "name": "Custom hub 2",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1102_Hub.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11103,
+      "name": "Custom hub 3",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1103_Hub.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11104,
+      "name": "Custom hub 4",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1104_Hub.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11105,
+      "name": "Search",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1105_Search.xml"
+      ]
+    },
+    {
+      "window_id": 11106,
+      "name": "Library airing calendar",
+      "role": "library",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1106_NextAired.xml"
+      ],
+      "notes": "Airing mode may be configured by the user."
+    },
+    {
+      "window_id": 11107,
+      "name": "Live TV hub",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1107_LiveTV.xml"
+      ]
+    },
+    {
+      "window_id": 11108,
+      "name": "Add-ons",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1108_Addons.xml"
+      ]
+    },
+    {
+      "window_id": 11109,
+      "name": "Settings and weather hub",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1109_Settings.xml"
+      ],
+      "notes": "Includes the settings landing items and weather widgets."
+    },
+    {
+      "window_id": 11111,
+      "name": "Colour picker",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1111_Dialog_ColourPicker.xml"
+      ]
+    },
+    {
+      "window_id": 11113,
+      "name": "Plot information",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1113_Dialog_Plot.xml"
+      ]
+    },
+    {
+      "window_id": 11114,
+      "name": "Custom information dialog",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1114_Dialog_CustomPlot.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11115,
+      "name": "Shortcut configuration",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1115_Window_Shortcuts.xml"
+      ]
+    },
+    {
+      "window_id": 11116,
+      "name": "Shortcut configuration",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1116_Dialog_Shortcuts.xml"
+      ]
+    },
+    {
+      "window_id": 11117,
+      "name": "Icon selector",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1117_Dialog_IconSelector.xml"
+      ]
+    },
+    {
+      "window_id": 11118,
+      "name": "Custom settings dialog",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1118_Dialog_Settings.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11119,
+      "name": "Custom selection dialog",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1119_Dialog_Select.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11120,
+      "name": "Cast and crew selector",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1120_Dialog_SelectCrew.xml"
+      ]
+    },
+    {
+      "window_id": 11122,
+      "name": "Trailer selector",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1122_Dialog_SelectTrailer.xml"
+      ]
+    },
+    {
+      "window_id": 11123,
+      "name": "Trailer playback",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1123_Dialog_Trailer.xml"
+      ]
+    },
+    {
+      "window_id": 11124,
+      "name": "Shortcut settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1124_Dialog_Shortcut_Settings.xml"
+      ]
+    },
+    {
+      "window_id": 11125,
+      "name": "Widget mode selector",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1125_Dialog_WidgetMode.xml"
+      ]
+    },
+    {
+      "window_id": 11126,
+      "name": "File properties",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1126_Dialog_FileProperties.xml"
+      ]
+    },
+    {
+      "window_id": 11140,
+      "name": "Playback playlist",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1140_OSD_Playlist.xml"
+      ]
+    },
+    {
+      "window_id": 11141,
+      "name": "Playback cast information",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1141_OSD_Cast.xml"
+      ]
+    },
+    {
+      "window_id": 11142,
+      "name": "Music tracks",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1142_OSD_MusicTracks.xml"
+      ]
+    },
+    {
+      "window_id": 11143,
+      "name": "Next playback item overlay",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1143_OSD_NextOverlay.xml"
+      ]
+    },
+    {
+      "window_id": 11145,
+      "name": "Playback information panel",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1145_OSD_InfoPanel.xml"
+      ]
+    },
+    {
+      "window_id": 11146,
+      "name": "Audio stream selector",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1146_OSD_AudioStreams.xml"
+      ]
+    },
+    {
+      "window_id": 11147,
+      "name": "Subtitle stream selector",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1147_OSD_SubtitleStreams.xml"
+      ]
+    },
+    {
+      "window_id": 11148,
+      "name": "Video stream selector",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1148_OSD_VideoStreams.xml"
+      ]
+    },
+    {
+      "window_id": 11151,
+      "name": "Music information overlay",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1151_OSD_MusicInfoOverlay.xml"
+      ]
+    },
+    {
+      "window_id": 11152,
+      "name": "Video information overlay",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1152_OSD_VideoInfoOverlay.xml"
+      ]
+    },
+    {
+      "window_id": 11153,
+      "name": "Top video information overlay",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1153_OSD_VideoInfoOverlayTop.xml"
+      ]
+    },
+    {
+      "window_id": 11160,
+      "name": "Favourites",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1160_Dialog_Favourites.xml"
+      ]
+    },
+    {
+      "window_id": 11161,
+      "name": "Weather dialog",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1161_Dialog_Weather.xml"
+      ]
+    },
+    {
+      "window_id": 11170,
+      "name": "View options",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1170_Dialog_Options.xml"
+      ]
+    },
+    {
+      "window_id": 11171,
+      "name": "View selector",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1171_Dialog_Views.xml"
+      ]
+    },
+    {
+      "window_id": 11172,
+      "name": "Information options",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1172_Dialog_InfoOptions.xml"
+      ]
+    },
+    {
+      "window_id": 11180,
+      "name": "Menu transition helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1180_Dialog_Bumper.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11181,
+      "name": "Home submenu",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1181_Dialog_Submenu.xml"
+      ]
+    },
+    {
+      "window_id": 11182,
+      "name": "Home top menu overlay",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1182_Dialog_Topmenu_Overlay.xml"
+      ]
+    },
+    {
+      "window_id": 11190,
+      "name": "TMDb Helper view",
+      "role": "library",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1190_TMDbHelper.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11191,
+      "name": "Skin test window",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1191_Test.xml"
+      ]
+    },
+    {
+      "window_id": 11192,
+      "name": "Seasonal theme overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1192_SeasonalTheme.xml"
+      ]
+    },
+    {
+      "window_id": 11193,
+      "name": "Video playback information dialog",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1193_VideoOSDInfo.xml"
+      ]
+    },
+    {
+      "window_id": 11194,
+      "name": "Debug grid overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1194_Debug_Grid.xml"
+      ]
+    },
+    {
+      "window_id": 11195,
+      "name": "Skin user login",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1195_SkinUserLoginScreen.xml"
+      ]
+    },
+    {
+      "window_id": 11198,
+      "name": "Skin startup",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1198_Dialog_Startup.xml"
+      ]
+    },
+    {
+      "window_id": 11199,
+      "name": "Debug information overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1199_Debug_Overlay.xml"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.estouchy",
+  "skin_versions": [
+    "3.0.6"
+  ],
+  "kodi_versions": [
+    19
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/xbmc",
+    "revision": "f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9",
+    "version": "3.0.6",
+    "urls": [
+      "https://github.com/xbmc/xbmc/blob/f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9/addons/skin.estouchy/addon.xml",
+      "https://github.com/xbmc/xbmc/tree/f8fdeb6b1b1a7b753e1559d34a98cea62b4920d9/addons/skin.estouchy"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11111,
+      "name": "First-run help",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estouchy/xml/CustomFirstRun.xml"
+      ]
+    },
+    {
+      "window_id": 11112,
+      "name": "Volume control",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estouchy/xml/CustomVolume.xml"
+      ]
+    }
+  ]
+}

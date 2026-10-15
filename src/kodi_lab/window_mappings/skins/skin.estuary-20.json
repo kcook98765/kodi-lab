@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.estuary",
+  "skin_versions": [
+    "3.0.10"
+  ],
+  "kodi_versions": [
+    20
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/xbmc",
+    "revision": "4b95737efaddf7c869736e539318f18433413ff1",
+    "version": "3.0.10",
+    "urls": [
+      "https://github.com/xbmc/xbmc/blob/4b95737efaddf7c869736e539318f18433413ff1/addons/skin.estuary/addon.xml",
+      "https://github.com/xbmc/xbmc/tree/4b95737efaddf7c869736e539318f18433413ff1/addons/skin.estuary"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11100,
+      "name": "Add-on launcher",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estuary/xml/Custom_1100_AddonLauncher.xml"
+      ]
+    },
+    {
+      "window_id": 11101,
+      "name": "Contextual player settings dialog",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "addons/skin.estuary/xml/Custom_1101_SettingsList.xml"
+      ],
+      "notes": "Header and settings sections depend on runtime context and include game and player settings."
+    },
+    {
+      "window_id": 11102,
+      "name": "Text viewer",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estuary/xml/Custom_1102_TextViewer.xml"
+      ]
+    },
+    {
+      "window_id": 11103,
+      "name": "Volume control",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estuary/xml/Custom_1103_VolumeSlider.xml"
+      ]
+    },
+    {
+      "window_id": 11104,
+      "name": "Fullscreen fanart",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estuary/xml/Custom_1104_Fanart.xml"
+      ]
+    },
+    {
+      "window_id": 11105,
+      "name": "Music on-screen display settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estuary/xml/Custom_1105_MusicOSDSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11107,
+      "name": "Search options",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estuary/xml/Custom_1107_SearchDialog.xml"
+      ]
+    },
+    {
+      "window_id": 11109,
+      "name": "Playback top bar overlay",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estuary/xml/Custom_1109_TopBarOverlay.xml"
+      ]
+    },
+    {
+      "window_id": 11110,
+      "name": "Playback speed control",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "addons/skin.estuary/xml/Custom_1110_TempoControl.xml"
+      ]
+    }
+  ]
+}

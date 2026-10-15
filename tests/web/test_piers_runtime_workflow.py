@@ -11,6 +11,7 @@ from kodi_lab.application.runtime_installations import preview_acknowledgement
 from kodi_lab.application.ui_state import ManagedUiObservationService
 from kodi_lab.broker.operations import ReviewedInstallationLaunchResult
 from kodi_lab.kodi.ui_state import UiObservation, WindowState
+from kodi_lab.kodi.ui_window_resolution import resolve_ui_observation
 from kodi_lab.web.admin_views import ADMIN_VIEW_COOKIE
 
 from .conftest import INSTANCE_ID, ORIGIN, FakeBroker, login
@@ -136,13 +137,28 @@ def test_managed_ui_inspection_is_authenticated_and_read_only(
 
     def inspect(_self: ManagedUiObservationService, target: object) -> UiObservation:
         observed.append(target)
-        return UiObservation(window=WindowState(id=10004, label="Settings"))
+        return resolve_ui_observation(
+            UiObservation(window=WindowState(id=10004, label="Settings")),
+            kodi_version="21.3",
+        )
 
     monkeypatch.setattr(ManagedUiObservationService, "inspect", inspect)
     login(client)
     result = client.get(url)
     assert result.status_code == 200
-    assert result.json()["window"] == {"id": 10004, "label": "Settings"}
+    assert result.json()["schema_version"] == 2
+    assert result.json()["window"] == {
+        "id": 10004,
+        "label": "Settings",
+        "resolution": {
+            "name": "Settings",
+            "role": "settings",
+            "source": "reported",
+            "status": "reported",
+            "skin_id": None,
+            "skin_version": None,
+        },
+    }
     assert observed == [INSTANCE_ID]
 
 

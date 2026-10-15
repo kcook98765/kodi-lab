@@ -37,6 +37,7 @@ from kodi_lab.kodi.remote import (
     fixed_request_mapping,
 )
 from kodi_lab.kodi.ui_state import UiObservation
+from kodi_lab.kodi.ui_window_resolution import SkinContext
 from kodi_lab.storage.secrets import ExternalKodiCredential
 
 MAX_EXTERNAL_RESPONSE_BYTES = 65_536
@@ -552,6 +553,41 @@ class NativeExternalKodiAdapter:
                     raise UiObservationError(error.code) from error
 
             return collect_native(call)
+
+    def inspect_window_skin(
+        self,
+        observation: UiObservation | None,
+        *,
+        recollect: Callable[[], UiObservation],
+        accept_skin: Callable[[SkinContext], bool] | None = None,
+        accept_identity: Callable[[str, int], bool] | None = None,
+        accept_observation: Callable[[UiObservation, SkinContext], bool] | None = None,
+    ) -> tuple[UiObservation, SkinContext | None]:
+        """Optional fresh context, using the existing endpoint/credential boundary."""
+        from kodi_lab.kodi.ui_state_native import UiObservationError
+        from kodi_lab.kodi.ui_window_resolution import collect_skin_context
+
+        started = time.monotonic()
+        with self._client() as client:
+
+            def call(method: str, params: dict[str, Any] | None) -> object:
+                try:
+                    return self._verifier._call(
+                        client, self._endpoint, method, params, started
+                    )
+                except (ExternalProbeError, httpx.HTTPError) as error:
+                    if isinstance(error, httpx.HTTPError):
+                        raise UiObservationError("target_unreachable") from error
+                    raise UiObservationError(error.code) from error
+
+            return collect_skin_context(
+                call,
+                observation,
+                recollect=recollect,
+                accept_skin=accept_skin,
+                accept_identity=accept_identity,
+                accept_observation=accept_observation,
+            )
 
     def get_identity(self) -> KodiApplicationIdentity:
         started = time.monotonic()

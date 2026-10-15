@@ -1,0 +1,216 @@
+{
+  "$defs": {
+    "MappingEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "window_id": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Window Id",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^\\S(?:[^\\r\\n]*\\S)?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/WindowRole"
+        },
+        "verification": {
+          "enum": [
+            "verified",
+            "ambiguous",
+            "unverified"
+          ],
+          "title": "Verification",
+          "type": "string"
+        },
+        "symbolic_name": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Symbolic Name"
+        },
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Aliases",
+          "type": "array"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "source_files": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Source Files",
+          "type": "array"
+        },
+        "kodi_min_version": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kodi Min Version"
+        }
+      },
+      "required": [
+        "window_id",
+        "name",
+        "role",
+        "verification"
+      ],
+      "title": "MappingEntry",
+      "type": "object"
+    },
+    "MappingSource": {
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Repository",
+          "type": "string"
+        },
+        "revision": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Revision",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "urls": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Urls",
+          "type": "array"
+        }
+      },
+      "required": [
+        "repository",
+        "revision",
+        "version",
+        "urls"
+      ],
+      "title": "MappingSource",
+      "type": "object"
+    },
+    "WindowRole": {
+      "enum": [
+        "home",
+        "library",
+        "dialog",
+        "settings",
+        "playback",
+        "navigation",
+        "system",
+        "unknown"
+      ],
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "kind": {
+      "enum": [
+        "kodi",
+        "skin"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "kodi_versions": {
+      "items": {
+        "type": "integer"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "title": "Kodi Versions",
+      "type": "array"
+    },
+    "skin_id": {
+      "anyOf": [
+        {
+          "pattern": "^skin\\.[a-z0-9._-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Skin Id"
+    },
+    "skin_versions": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Skin Versions",
+      "type": "array"
+    },
+    "source": {
+      "$ref": "#/$defs/MappingSource"
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/MappingEntry"
+      },
+      "maxItems": 4096,
+      "title": "Entries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "kodi_versions",
+    "source",
+    "entries"
+  ],
+  "title": "MappingDocument",
+  "type": "object"
+}

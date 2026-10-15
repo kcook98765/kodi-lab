@@ -34,6 +34,14 @@ from kodi_lab.kodi.readiness import (
 )
 from kodi_lab.kodi.ui_state import UiObservation, normalize_collection
 from kodi_lab.kodi.ui_state_native import UiObservationError, UiRpc, collect_native
+from kodi_lab.kodi.ui_window_resolution import (
+    SkinObservationHints,
+    applicable_skin,
+    collect_skin_context,
+    needs_skin_context,
+    resolve_ui_observation,
+)
+from kodi_lab.kodi.window_resolver import WindowResolver, builtin_resolver
 from kodi_lab.storage.repositories import RuntimeExecutionProfileRepository
 
 if TYPE_CHECKING:
@@ -93,6 +101,7 @@ class ManagedUiObservationService:
         *,
         transport: _Transport | None = None,
         bridges: ManagedObservationBridgeService | None = None,
+        window_resolver: WindowResolver | None = None,
     ) -> None:
         self._sessions = sessions
         self._broker = broker
@@ -100,6 +109,8 @@ class ManagedUiObservationService:
         self._reconciliation = reconciliation
         self._transport = transport or _BoundedHttpTransport()
         self._bridges = bridges
+        self._window_resolver = window_resolver or builtin_resolver()
+        self._window_hints = SkinObservationHints()
 
     def _admit(
         self, target_id: UUID
@@ -228,20 +239,71 @@ class ManagedUiObservationService:
             raise UiObservationError("identity_mismatch")
 
     def inspect(self, target_id: UUID) -> UiObservation:
+        try:
+            return self._inspect(target_id)
+        except Exception:
+            self._window_hints.discard(target_id)
+            raise
+
+    def _inspect(self, target_id: UUID) -> UiObservation:
         observed, profile = self._admit(target_id)
-        raw = (
-            self._bridges.collect(
-                target_id,
-                observed,
-                profile.kodi_release.canonical,
+
+        def collect() -> UiObservation:
+            raw = (
+                self._bridges.collect(
+                    target_id,
+                    observed,
+                    profile.kodi_release.canonical,
+                )
+                if self._bridges
+                else None
             )
-            if self._bridges
-            else None
+            return (
+                normalize_collection(raw)
+                if raw is not None
+                else collect_native(self._native_call(observed, profile))
+            )
+
+        version = profile.kodi_release.canonical
+        identity = (
+            observed.container_id,
+            observed.runtime_revision_id,
+            observed.ipv4_address,
+            str(observed.jsonrpc_port),
+            version,
         )
-        result = (
-            normalize_collection(raw)
-            if raw is not None
-            else collect_native(self._native_call(observed, profile))
+        result = None if self._window_hints.enabled(target_id, identity) else collect()
+        skin = None
+        if result is None or needs_skin_context(result, version, self._window_resolver):
+            result, skin = collect_skin_context(
+                self._native_call(observed, profile),
+                result,
+                recollect=collect,
+                accept_skin=lambda skin: (
+                    result is None
+                    or applicable_skin(result, version, self._window_resolver, skin)
+                ),
+                accept_identity=lambda skin_id, window_id: any(
+                    candidate is not None
+                    and self._window_resolver.has_skin_id(
+                        candidate if result is not None else None,
+                        kodi_version=version,
+                        skin_id=skin_id,
+                    )
+                    for candidate in (
+                        (window_id,)
+                        if result is None
+                        else (window_id, result.window.id, result.dialog.id)
+                    )
+                ),
+                accept_observation=lambda fresh, skin: (
+                    needs_skin_context(fresh, version, self._window_resolver)
+                    and applicable_skin(fresh, version, self._window_resolver, skin)
+                ),
+            )
+        result = resolve_ui_observation(
+            result, kodi_version=version, resolver=self._window_resolver, skin=skin
         )
         self._verify_current(target_id, observed)
+        self._window_hints.record(target_id, identity, needed=skin is not None)
         return result

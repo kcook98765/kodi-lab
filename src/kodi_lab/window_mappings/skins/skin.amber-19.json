@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.amber",
+  "skin_versions": [
+    "3.4.11"
+  ],
+  "kodi_versions": [
+    19
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/repo-skins",
+    "revision": "9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff",
+    "version": "3.4.11",
+    "urls": [
+      "https://github.com/xbmc/repo-skins/blob/9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff/skin.amber/addon.xml",
+      "https://github.com/xbmc/repo-skins/tree/9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff/skin.amber"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11117,
+      "name": "Colour picker",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1117_ColorPicker.xml"
+      ]
+    },
+    {
+      "window_id": 11118,
+      "name": "Fullscreen music helper",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1118_FullscreenMusic.xml"
+      ]
+    },
+    {
+      "window_id": 11119,
+      "name": "Add-ons",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1119_Addons.xml"
+      ]
+    },
+    {
+      "window_id": 11120,
+      "name": "Game settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1120_GameSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11121,
+      "name": "Information and settings selection dialog",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/Custom_1121_InfoSelect.xml"
+      ],
+      "notes": "Shared selector uses caller properties and multiple conditional includes."
+    },
+    {
+      "window_id": 11122,
+      "name": "Search",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1122_Search.xml"
+      ]
+    },
+    {
+      "window_id": 11123,
+      "name": "Paused playback information",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/custom_1123_PausedOverlay.xml"
+      ]
+    },
+    {
+      "window_id": 11124,
+      "name": "Text viewer",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/custom_1124_TextViewer.xml"
+      ]
+    },
+    {
+      "window_id": 11125,
+      "name": "Favourite add-on settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1125_FavouriteAddons.xml"
+      ]
+    },
+    {
+      "window_id": 11126,
+      "name": "Fullscreen fanart",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1126_Fanart.xml"
+      ]
+    },
+    {
+      "window_id": 11127,
+      "name": "Movie collection information",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1127_InfoSets.xml"
+      ]
+    },
+    {
+      "window_id": 11128,
+      "name": "Custom selection dialog 2",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/Custom_1128_CustomSelect2.xml"
+      ],
+      "notes": "Caller properties choose the selectable content; the numeric ID alone does not identify the current choices."
+    },
+    {
+      "window_id": 11130,
+      "name": "Video information list settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1130_VideoInfoLists.xml"
+      ]
+    },
+    {
+      "window_id": 11131,
+      "name": "Search results",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1131_SingleSearch.xml"
+      ]
+    },
+    {
+      "window_id": 11133,
+      "name": "Search settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1133_SearchOptions.xml"
+      ]
+    },
+    {
+      "window_id": 11134,
+      "name": "TMDb information browser",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1134_TMDB_Info.xml"
+      ]
+    },
+    {
+      "window_id": 11136,
+      "name": "TMDb television guide",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1136_TMDbTVGuide.xml"
+      ]
+    },
+    {
+      "window_id": 11137,
+      "name": "Embuary television guide",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1137_EmbInfoTVGuide.xml"
+      ]
+    },
+    {
+      "window_id": 11138,
+      "name": "Rating display settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1138_SelectRatings.xml"
+      ]
+    },
+    {
+      "window_id": 11199,
+      "name": "Debug information overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_Overlay.xml"
+      ]
+    }
+  ]
+}

@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
+from kodi_lab.kodi.window_resolver import WindowResolution
+
 
 class _Value(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -15,6 +17,7 @@ class _Value(BaseModel):
 class WindowState(_Value):
     id: int | None = None
     label: str | None = Field(default=None, max_length=160)
+    resolution: WindowResolution | None = None
 
 
 class DialogState(WindowState):
@@ -57,7 +60,7 @@ class UiFlags(_Value):
 
 
 class UiObservation(_Value):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     window: WindowState = Field(default_factory=WindowState)
     dialog: DialogState = Field(default_factory=DialogState)
     focus: FocusState = Field(default_factory=FocusState)
@@ -129,10 +132,31 @@ def summarize(value: UiObservation) -> str:
     """Short deterministic prose; structured fields remain authoritative."""
     if value.ui.fullscreen_video and value.playback.active:
         return "Fullscreen video playback active."
-    name = value.window.label or "Kodi"
+
+    def semantic_name(state: WindowState, kind: str) -> str | None:
+        if state.resolution is None:
+            return state.label
+        if state.resolution.name:
+            return state.resolution.name
+        if state.id is None:
+            return None
+        prefix = "Ambiguous" if state.resolution.status == "ambiguous" else "Unknown"
+        return f"{prefix} {kind} {state.id}"
+
+    name = semantic_name(value.window, "window") or "Kodi"
     if value.dialog.active:
-        name = value.dialog.label or name
-        name += " open" if name.casefold().endswith("dialog") else " dialog open"
+        name = semantic_name(value.dialog, "dialog") or (
+            name if value.dialog.resolution is None else "Unknown dialog"
+        )
+        name += (
+            " open"
+            if name.casefold().endswith("dialog")
+            or (
+                value.dialog.resolution is not None
+                and value.dialog.resolution.name is None
+            )
+            else " dialog open"
+        )
     subject = value.focus.label
     if value.selected_item.associated:
         subject = value.selected_item.label

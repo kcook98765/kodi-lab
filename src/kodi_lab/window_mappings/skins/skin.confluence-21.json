@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.confluence",
+  "skin_versions": [
+    "5.0.9"
+  ],
+  "kodi_versions": [
+    21
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/repo-skins",
+    "revision": "a52e842426a85f5cb3d53a5b1ff6b0e8a9f1beed",
+    "version": "5.0.9",
+    "urls": [
+      "https://github.com/xbmc/repo-skins/blob/a52e842426a85f5cb3d53a5b1ff6b0e8a9f1beed/skin.confluence/addon.xml",
+      "https://github.com/xbmc/repo-skins/tree/a52e842426a85f5cb3d53a5b1ff6b0e8a9f1beed/skin.confluence"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11101,
+      "name": "Debug grid overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.confluence/1080p/Custom_1101_Overlay_Grid.xml"
+      ]
+    },
+    {
+      "window_id": 11112,
+      "name": "Side menu help",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.confluence/1080p/custom_SideMenuHelp.xml"
+      ]
+    },
+    {
+      "window_id": 11113,
+      "name": "PVR channel number input",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.confluence/1080p/custom_PVRChannelNumberInput.xml"
+      ]
+    },
+    {
+      "window_id": 11114,
+      "name": "Contextual playback options dialog",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.confluence/1080p/custom_OptionsDialog.xml"
+      ],
+      "notes": "Dialog sections depend on caller properties and active playback context."
+    },
+    {
+      "window_id": 11115,
+      "name": "Playback speed control",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.confluence/1080p/custom_PlaySpeed.xml"
+      ]
+    }
+  ]
+}

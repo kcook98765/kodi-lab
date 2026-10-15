@@ -1,0 +1,301 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.amber",
+  "skin_versions": [
+    "3.99.02"
+  ],
+  "kodi_versions": [
+    21
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/repo-skins",
+    "revision": "a52e842426a85f5cb3d53a5b1ff6b0e8a9f1beed",
+    "version": "3.99.02",
+    "urls": [
+      "https://github.com/xbmc/repo-skins/blob/a52e842426a85f5cb3d53a5b1ff6b0e8a9f1beed/skin.amber/addon.xml",
+      "https://github.com/xbmc/repo-skins/tree/a52e842426a85f5cb3d53a5b1ff6b0e8a9f1beed/skin.amber"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11114,
+      "name": "Power action settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1114_Quit.xml"
+      ]
+    },
+    {
+      "window_id": 11117,
+      "name": "Colour picker",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1117_ColorPicker.xml"
+      ]
+    },
+    {
+      "window_id": 11118,
+      "name": "Fullscreen music helper",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1118_FullscreenMusic.xml"
+      ]
+    },
+    {
+      "window_id": 11119,
+      "name": "Add-ons",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1119_Addons.xml"
+      ]
+    },
+    {
+      "window_id": 11120,
+      "name": "Game settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1120_GameSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11121,
+      "name": "Information and settings selection dialog",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/Custom_1121_InfoSelect.xml"
+      ],
+      "notes": "Shared selector uses caller properties and multiple conditional includes."
+    },
+    {
+      "window_id": 11122,
+      "name": "Search",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1122_Search.xml"
+      ]
+    },
+    {
+      "window_id": 11123,
+      "name": "Paused playback information",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/custom_1123_PausedOverlay.xml"
+      ]
+    },
+    {
+      "window_id": 11124,
+      "name": "Text viewer",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/custom_1124_TextViewer.xml"
+      ]
+    },
+    {
+      "window_id": 11125,
+      "name": "Favourite add-on settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1125_FavouriteAddons.xml"
+      ]
+    },
+    {
+      "window_id": 11126,
+      "name": "Fullscreen fanart",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1126_Fanart.xml"
+      ]
+    },
+    {
+      "window_id": 11127,
+      "name": "Movie collection information",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1127_InfoSets.xml"
+      ]
+    },
+    {
+      "window_id": 11128,
+      "name": "Custom selection dialog 2",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/Custom_1128_CustomSelect2.xml"
+      ],
+      "notes": "Caller properties choose the selectable content; the numeric ID alone does not identify the current choices."
+    },
+    {
+      "window_id": 11130,
+      "name": "Video information list settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1130_VideoInfoLists.xml"
+      ]
+    },
+    {
+      "window_id": 11131,
+      "name": "Search results",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1131_SingleSearch.xml"
+      ]
+    },
+    {
+      "window_id": 11133,
+      "name": "Search settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1133_SearchOptions.xml"
+      ]
+    },
+    {
+      "window_id": 11134,
+      "name": "TMDb information browser",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1134_TMDB_Info.xml"
+      ]
+    },
+    {
+      "window_id": 11136,
+      "name": "TMDb television guide",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1136_TMDbTVGuide.xml"
+      ]
+    },
+    {
+      "window_id": 11137,
+      "name": "Embuary television guide",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1137_EmbInfoTVGuide.xml"
+      ]
+    },
+    {
+      "window_id": 11138,
+      "name": "Rating display settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_1138_SelectRatings.xml"
+      ]
+    },
+    {
+      "window_id": 11139,
+      "name": "Custom selection dialog 3",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/Custom_1139_CustomSelect3.xml"
+      ],
+      "notes": "Caller properties choose the selectable content; the numeric ID alone does not identify the current choices."
+    },
+    {
+      "window_id": 11140,
+      "name": "Window routing helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/Custom_1140_ReplaceWindow.xml"
+      ],
+      "notes": "Destination is selected from caller properties and current content; no fixed destination can be inferred from this ID."
+    },
+    {
+      "window_id": 11141,
+      "name": "Internal skin helper: Trailer 5",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/custom_1141_Trailer_5.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11142,
+      "name": "Internal skin helper: Trailer 10",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/custom_1142_Trailer_10.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11143,
+      "name": "Internal skin helper: Trailer Clear",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/custom_1143_TrailerClear.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11144,
+      "name": "Home shelf information popup",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/custom_1144_ShelfInfoPopup.xml"
+      ]
+    },
+    {
+      "window_id": 11145,
+      "name": "Episode list",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/custom_1145_EpisodesList.xml"
+      ]
+    },
+    {
+      "window_id": 11146,
+      "name": "Internal skin helper: Auto Close OSD",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/custom_1146_AutoCloseOSD.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11195,
+      "name": "Internal skin helper: Seek Bar On Playback",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.amber/1080i/Custom_1195_SeekBarOnPlayback.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11199,
+      "name": "Debug information overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.amber/1080i/Custom_Overlay.xml"
+      ]
+    }
+  ]
+}

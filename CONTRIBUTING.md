@@ -24,6 +24,9 @@ checks you ran. Mention affected Kodi versions and target types, plus relevant
 documentation or security implications. Discuss substantial features in an issue
 first; small fixes can go directly to a pull request.
 
+For window and skin identification data, follow the
+[mapping contributor guide](docs/WINDOW-MAPPINGS.md).
+
 Start with [installation guidance](docs/LINUX-SOURCE-INSTALL.md) and the relevant
 [developer documentation](docs/PHASE12-MCP-DEVELOPMENT.md). For architecture or
 host integration changes, read [the specification](docs/V1-SPEC.md), relevant

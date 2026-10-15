@@ -81,6 +81,13 @@ from kodi_lab.kodi.remote import (
 )
 from kodi_lab.kodi.ui_state import UiObservation, normalize_collection
 from kodi_lab.kodi.ui_state_native import UiObservationError
+from kodi_lab.kodi.ui_window_resolution import (
+    SkinObservationHints,
+    applicable_skin,
+    needs_skin_context,
+    resolve_ui_observation,
+)
+from kodi_lab.kodi.window_resolver import WindowResolver, builtin_resolver
 from kodi_lab.mcp.authorization import TargetTechnicalAuthority
 from kodi_lab.mcp.registry import TargetClass
 from kodi_lab.storage.models import (
@@ -224,6 +231,7 @@ class KodiTargetAdapterService:
         external_bridges: ExternalBridgeService | None = None,
         external_transport: httpx.BaseTransport | None = None,
         managed_ui_state: ManagedUiObservationService | None = None,
+        window_resolver: WindowResolver | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._sessions = session_factory
@@ -237,6 +245,8 @@ class KodiTargetAdapterService:
         self._credential_store = credential_store
         self._external_transport = external_transport
         self._managed_ui_state = managed_ui_state
+        self._window_resolver = window_resolver or builtin_resolver()
+        self._window_hints = SkinObservationHints()
         self._observation_gate = ObservationGate()
         self._now = now
         self._gate = _ExternalOperationGate()
@@ -618,8 +628,22 @@ class KodiTargetAdapterService:
                 )
                 if self._external_bridges is not None:
                     try:
-                        raw = self._external_bridges.inspect_ui_state(target_id)
-                        return normalize_collection(raw)
+
+                        def recollect_bridge() -> UiObservation:
+                            assert self._external_bridges is not None
+                            return normalize_collection(
+                                self._external_bridges.inspect_ui_state(target_id)
+                            )
+
+                        return self._resolve_external_windows(
+                            None
+                            if self._window_hints.enabled(
+                                target_id, self._skin_hint_identity(snapshot)
+                            )
+                            else recollect_bridge(),
+                            snapshot,
+                            recollect=recollect_bridge,
+                        )
                     except ExternalBridgeServiceError as error:
                         if error.code not in {
                             "bridge_not_paired",
@@ -639,11 +663,95 @@ class KodiTargetAdapterService:
                         )
                     else:
                         self._require_identity(snapshot, adapter)
-                    return adapter.inspect_ui_state()
+                    return self._resolve_external_windows(
+                        None
+                        if self._window_hints.enabled(
+                            target_id, self._skin_hint_identity(snapshot)
+                        )
+                        else adapter.inspect_ui_state(),
+                        snapshot,
+                        adapter=adapter,
+                        recollect=adapter.inspect_ui_state,
+                    )
         except UiObservationError as error:
+            self._window_hints.discard(target_id)
             raise KodiTargetAdapterError(error.code) from error
         except ExternalProbeError as error:
+            self._window_hints.discard(target_id)
             raise KodiTargetAdapterError(error.code) from error
+        except Exception:
+            self._window_hints.discard(target_id)
+            raise
+
+    @staticmethod
+    def _skin_hint_identity(snapshot: _ExternalSnapshot) -> tuple[str, ...]:
+        return (
+            snapshot.endpoint.address,
+            snapshot.endpoint.protocol_kind.value,
+            str(snapshot.endpoint.port),
+            snapshot.kodi_name,
+            snapshot.kodi_version,
+            str(snapshot.identity_generation),
+            snapshot.target_class.value,
+        )
+
+    def _resolve_external_windows(
+        self,
+        result: UiObservation | None,
+        snapshot: _ExternalSnapshot,
+        *,
+        adapter: NativeExternalKodiAdapter | None = None,
+        recollect: Callable[[], UiObservation],
+    ) -> UiObservation:
+        skin = None
+        if result is None or needs_skin_context(
+            result, snapshot.kodi_version, self._window_resolver
+        ):
+            # Use the same validated endpoint and credentials as native fallback.
+            # Optional failures retain the successful Bridge/native observation.
+            adapter = adapter or self._external_adapter(snapshot)
+            result, skin = adapter.inspect_window_skin(
+                result,
+                recollect=recollect,
+                accept_skin=lambda skin: (
+                    result is None
+                    or applicable_skin(
+                        result, snapshot.kodi_version, self._window_resolver, skin
+                    )
+                ),
+                accept_identity=lambda skin_id, window_id: any(
+                    candidate is not None
+                    and self._window_resolver.has_skin_id(
+                        candidate if result is not None else None,
+                        kodi_version=snapshot.kodi_version,
+                        skin_id=skin_id,
+                    )
+                    for candidate in (
+                        (window_id,)
+                        if result is None
+                        else (window_id, result.window.id, result.dialog.id)
+                    )
+                ),
+                accept_observation=lambda fresh, skin: (
+                    needs_skin_context(
+                        fresh, snapshot.kodi_version, self._window_resolver
+                    )
+                    and applicable_skin(
+                        fresh, snapshot.kodi_version, self._window_resolver, skin
+                    )
+                ),
+            )
+        self._window_hints.record(
+            snapshot.target_id,
+            self._skin_hint_identity(snapshot),
+            needed=skin is not None,
+        )
+        return resolve_ui_observation(
+            result,
+            kodi_version=snapshot.kodi_version,
+            resolver=self._window_resolver,
+            skin=skin,
+        )
 
     def capture_screenshot(
         self, target_id: UUID, *, request_id: UUID | None = None

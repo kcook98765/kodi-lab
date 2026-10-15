@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.ftv",
+  "skin_versions": [
+    "8.4.0"
+  ],
+  "kodi_versions": [
+    22
+  ],
+  "source": {
+    "repository": "https://github.com/Hitcher/skin.ftv",
+    "revision": "cf2ef5801310232c940e6b4832a8047b1c0e992a",
+    "version": "8.4.0",
+    "urls": [
+      "https://github.com/Hitcher/skin.ftv/blob/cf2ef5801310232c940e6b4832a8047b1c0e992a/addon.xml",
+      "https://github.com/Hitcher/skin.ftv/tree/cf2ef5801310232c940e6b4832a8047b1c0e992a",
+      "https://github.com/xbmc/xbmc/blob/22.0rc1-Piers/addons/xbmc.gui/addon.xml"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11101,
+      "name": "Internal skin helper: Bounce Up",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "xml/Custom_1101_Bounce_Up.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11102,
+      "name": "Internal skin helper: Bounce Down",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "xml/Custom_1102_Bounce_Down.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11103,
+      "name": "Internal skin helper: Bounce Right",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "xml/Custom_1103_Bounce_Right.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11104,
+      "name": "Internal skin helper: Fade",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "xml/Custom_1104_Fade.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11105,
+      "name": "Home widget configuration",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "xml/Custom_1105_Home_Widgets.xml"
+      ]
+    },
+    {
+      "window_id": 11107,
+      "name": "X-Ray information overlay",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "xml/Custom_1107_Overlay_XRay_Image.xml"
+      ]
+    },
+    {
+      "window_id": 11108,
+      "name": "fTV startup",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "xml/Custom_1108_fTV_Startup.xml"
+      ]
+    },
+    {
+      "window_id": 11109,
+      "name": "Debug information overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "xml/Custom_1109_Overlay_Debug.xml"
+      ]
+    },
+    {
+      "window_id": 11110,
+      "name": "Debug grid overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "xml/Custom_1110_Overlay_Grid.xml"
+      ]
+    },
+    {
+      "window_id": 11111,
+      "name": "Playback speed control",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "xml/Custom_1111_Play_Speed.xml"
+      ]
+    },
+    {
+      "window_id": 11112,
+      "name": "Programs",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "xml/Custom_1112_My_Programs.xml"
+      ]
+    },
+    {
+      "window_id": 11113,
+      "name": "TMDb Helper browser",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "xml/Custom_1113_themoviedb_helper.xml"
+      ]
+    },
+    {
+      "window_id": 11114,
+      "name": "Contextual playback options dialog",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "xml/Custom_1114_OSD_Options.xml"
+      ],
+      "notes": "Includes and caller state determine the current playback options."
+    },
+    {
+      "window_id": 11115,
+      "name": "Information dialog helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "xml/Custom_1115_Info_Hack.xml"
+      ],
+      "notes": "Internal helper purpose and visible content require runtime context."
+    }
+  ]
+}

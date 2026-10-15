@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addon id="skin.kodilab.windowfixture" version="1.0.0" name="Kodi Lab Window Fixture" provider-name="Kodi Lab">
+  <requires><import addon="xbmc.gui" version="5.17.0"/></requires>
+  <extension point="xbmc.gui.skin" debugging="false">
+    <res width="1920" height="1080" aspect="16:9" default="true" folder="1080i"/>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Isolated window identification acceptance fixture</summary>
+    <description lang="en_GB">Fixed buttons open XML windows without running scripts or changing settings.</description>
+    <platform>all</platform><license>MIT</license>
+  </extension>
+</addon>

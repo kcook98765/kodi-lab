@@ -1,0 +1,509 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.aeon.tajo",
+  "skin_versions": [
+    "9.2.5"
+  ],
+  "kodi_versions": [
+    21
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/repo-skins",
+    "revision": "a52e842426a85f5cb3d53a5b1ff6b0e8a9f1beed",
+    "version": "9.2.5",
+    "urls": [
+      "https://github.com/xbmc/repo-skins/blob/a52e842426a85f5cb3d53a5b1ff6b0e8a9f1beed/skin.aeon.tajo/addon.xml",
+      "https://github.com/xbmc/repo-skins/tree/a52e842426a85f5cb3d53a5b1ff6b0e8a9f1beed/skin.aeon.tajo"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11101,
+      "name": "Contextual player settings dialog",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1101_SettingsList.xml"
+      ],
+      "notes": "Header and settings sections depend on runtime context and include game and player settings."
+    },
+    {
+      "window_id": 11104,
+      "name": "Wikipedia search",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1104_Wikipedia.xml"
+      ]
+    },
+    {
+      "window_id": 11105,
+      "name": "Party video playback",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1105_PartyVideos.xml"
+      ]
+    },
+    {
+      "window_id": 11106,
+      "name": "Search",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1106_Search.xml"
+      ]
+    },
+    {
+      "window_id": 11107,
+      "name": "Snow animation overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1107_snow.xml"
+      ]
+    },
+    {
+      "window_id": 11108,
+      "name": "Video view availability settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1108_EnableDisableVideoViews.xml"
+      ]
+    },
+    {
+      "window_id": 11109,
+      "name": "Music view availability settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1109_EnableDisableMusicViews.xml"
+      ]
+    },
+    {
+      "window_id": 11110,
+      "name": "Widget opacity settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1110_WidgetOpacity.xml"
+      ]
+    },
+    {
+      "window_id": 11111,
+      "name": "Trailer delay settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1111_DelayTrailer.xml"
+      ]
+    },
+    {
+      "window_id": 11113,
+      "name": "Fullscreen fanart",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1113_FullscreenFanart.xml"
+      ]
+    },
+    {
+      "window_id": 11114,
+      "name": "Fullscreen music fanart",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1114_FullscreenFanartMusic.xml"
+      ]
+    },
+    {
+      "window_id": 11118,
+      "name": "Forced video view settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1118_ForceVideoViews.xml"
+      ]
+    },
+    {
+      "window_id": 11119,
+      "name": "Forced music view settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1119_ForceMusicViews.xml"
+      ]
+    },
+    {
+      "window_id": 11120,
+      "name": "Music on-screen display settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1120_OSDSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11121,
+      "name": "Home menu settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1121_HomeMenuCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11122,
+      "name": "Background settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1122_BackgroundCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11123,
+      "name": "Menu action settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1123_OnClickCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11124,
+      "name": "Widget settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1124_WidgetCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11125,
+      "name": "Information line settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1125_InfoLineCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11126,
+      "name": "Menu order settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1126_MenuOrderCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11128,
+      "name": "Window appearance settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1128_WindowCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11129,
+      "name": "View selector",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1129_Views.xml"
+      ]
+    },
+    {
+      "window_id": 11130,
+      "name": "Custom selection dialog",
+      "role": "dialog",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1130_Select.xml"
+      ],
+      "notes": "Caller properties choose the selectable content; the numeric ID alone does not identify the current choices."
+    },
+    {
+      "window_id": 11131,
+      "name": "Fullscreen fanart",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1131_FSFanart.xml"
+      ]
+    },
+    {
+      "window_id": 11132,
+      "name": "Text viewer",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1132_TextViewer.xml"
+      ]
+    },
+    {
+      "window_id": 11133,
+      "name": "Add-ons",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1133_Apps.xml"
+      ]
+    },
+    {
+      "window_id": 11134,
+      "name": "Paused playback information",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1134_PausedOverlay.xml"
+      ]
+    },
+    {
+      "window_id": 11138,
+      "name": "Small widget settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1138_WidgetCustomizerTypeSmall.xml"
+      ]
+    },
+    {
+      "window_id": 11139,
+      "name": "Full widget settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1139_WidgetCustomizerTypeFull.xml"
+      ]
+    },
+    {
+      "window_id": 11150,
+      "name": "Live TV settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1150_LiveTvSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11156,
+      "name": "Internal skin helper: Home Music",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1156_HomeMusic.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11166,
+      "name": "Internal skin helper: Stop Melodies",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1166_StopMelodies.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11169,
+      "name": "Aeon Tajo menu settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1169_SettingsTajo_3.xml"
+      ]
+    },
+    {
+      "window_id": 11170,
+      "name": "Aeon Tajo supported add-on settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1170_TajoAddons.xml"
+      ]
+    },
+    {
+      "window_id": 11171,
+      "name": "Internal skin helper: Aux Multi Sort",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1171_AuxMultiSort.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11172,
+      "name": "Internal skin helper: Aux Multi Sortm",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1172_AuxMultiSortm.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11174,
+      "name": "Internal skin helper: Aux Multi Wall",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1174_AuxMultiWall.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11175,
+      "name": "Internal skin helper: Aux Multi Wall 2",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1175_AuxMultiWall_2.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11177,
+      "name": "Internal skin helper: Aux Discog",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1177_AuxDiscog.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11183,
+      "name": "Internal skin helper: Trailer",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1183_Trailer.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11184,
+      "name": "Internal skin helper: Trailer Clear",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1184_TrailerClear.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11185,
+      "name": "Internal skin helper: Trailer 10",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1185_Trailer_10.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11186,
+      "name": "Internal skin helper: Start Music Artists",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1186_StartMusicArtists.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11187,
+      "name": "Internal skin helper: Stop Music Artists",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1187_StopMusicArtists.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11188,
+      "name": "Internal skin helper: Start Music Albums",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1188_StartMusicAlbums.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11189,
+      "name": "Internal skin helper: Stop Music Albums",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1189_StopMusicAlbums.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11190,
+      "name": "Fullscreen extras",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1190_FullscreenExtras.xml"
+      ]
+    },
+    {
+      "window_id": 11193,
+      "name": "Internal skin helper: Blurred Album",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1193_BlurredAlbum.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11195,
+      "name": "TMDb browser",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1195_TMDB.xml"
+      ]
+    },
+    {
+      "window_id": 11196,
+      "name": "Music extras playback controls",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1196_OSDMusicExtras.xml"
+      ]
+    },
+    {
+      "window_id": 11198,
+      "name": "Similar movies helper",
+      "role": "library",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1198_SimilarMovies.xml"
+      ],
+      "notes": "Transient helper changes focus and TMDb Helper state; displayed content depends on the current movie."
+    },
+    {
+      "window_id": 11199,
+      "name": "Similar music helper",
+      "role": "library",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.aeon.tajo/1080i/custom_1199_SimilarMusic.xml"
+      ],
+      "notes": "Transient helper changes focus and TMDb Helper state; displayed content depends on the current artist or album."
+    }
+  ]
+}

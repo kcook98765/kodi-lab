@@ -1,0 +1,289 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.arctic.horizon.2",
+  "skin_versions": [
+    "0.8.30~nexus"
+  ],
+  "kodi_versions": [
+    20
+  ],
+  "source": {
+    "repository": "https://github.com/jurialmunkey/skin.arctic.horizon.2",
+    "revision": "5668ff2bc9ef4bcbef72cb53e1f54e0b98e3bf5d",
+    "version": "0.8.30~nexus",
+    "urls": [
+      "https://github.com/jurialmunkey/skin.arctic.horizon.2/blob/5668ff2bc9ef4bcbef72cb53e1f54e0b98e3bf5d/addon.xml",
+      "https://github.com/jurialmunkey/skin.arctic.horizon.2/tree/5668ff2bc9ef4bcbef72cb53e1f54e0b98e3bf5d/1080i",
+      "https://github.com/xbmc/xbmc/blob/20.5-Nexus/addons/xbmc.gui/addon.xml"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11111,
+      "name": "Colour picker",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1111_Colours.xml"
+      ]
+    },
+    {
+      "window_id": 11112,
+      "name": "Background settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1112_Backgrounds.xml"
+      ]
+    },
+    {
+      "window_id": 11113,
+      "name": "Plot information",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1113_Plot.xml"
+      ]
+    },
+    {
+      "window_id": 11114,
+      "name": "Search",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1114_Search.xml"
+      ]
+    },
+    {
+      "window_id": 11115,
+      "name": "Preset selector",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1115_DialogPreset.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11116,
+      "name": "Trakt airing calendar",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1116_NextAired.xml"
+      ]
+    },
+    {
+      "window_id": 11117,
+      "name": "Library airing calendar",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1117_NextAired.xml"
+      ]
+    },
+    {
+      "window_id": 11118,
+      "name": "Custom settings dialog",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1118_DialogSettings.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11119,
+      "name": "Side menu",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1119_SideMenu.xml"
+      ]
+    },
+    {
+      "window_id": 11120,
+      "name": "TMDb movies hub",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1120_Hub_TMDb_Movies.xml"
+      ]
+    },
+    {
+      "window_id": 11121,
+      "name": "TMDb TV shows hub",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1121_Hub_TMDb_TVShows.xml"
+      ]
+    },
+    {
+      "window_id": 11122,
+      "name": "TMDb mixed media hub",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1122_Hub_TMDb_Mixed.xml"
+      ]
+    },
+    {
+      "window_id": 11130,
+      "name": "Movie library hub",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1130_Hub_Library_Movies.xml"
+      ]
+    },
+    {
+      "window_id": 11131,
+      "name": "TV show library hub",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1131_Hub_Library_TVShows.xml"
+      ]
+    },
+    {
+      "window_id": 11132,
+      "name": "User hub",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1132_Hub_User.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11140,
+      "name": "Playback playlist",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1140_OSD_Playlist.xml"
+      ]
+    },
+    {
+      "window_id": 11141,
+      "name": "Playback cast information",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1141_OSD_Cast.xml"
+      ]
+    },
+    {
+      "window_id": 11142,
+      "name": "Music tracks",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1142_OSD_MusicTracks.xml"
+      ]
+    },
+    {
+      "window_id": 11143,
+      "name": "Audio stream selector",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1143_OSD_AudioStreams.xml"
+      ]
+    },
+    {
+      "window_id": 11144,
+      "name": "Subtitle stream selector",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1144_OSD_SubtitleStreams.xml"
+      ]
+    },
+    {
+      "window_id": 11145,
+      "name": "Favourites",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1145_DialogFavourites.xml"
+      ]
+    },
+    {
+      "window_id": 11151,
+      "name": "Game options",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1151_GameOptions.xml"
+      ]
+    },
+    {
+      "window_id": 11190,
+      "name": "TMDb Helper view",
+      "role": "library",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1190_TMDbHelper.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11191,
+      "name": "TMDb Helper view",
+      "role": "library",
+      "verification": "ambiguous",
+      "source_files": [
+        "1080i/Custom_1191_TMDbHelper.xml"
+      ],
+      "notes": "Context depends on caller properties, generated includes, or user configuration; the numeric ID does not identify the current content."
+    },
+    {
+      "window_id": 11194,
+      "name": "Debug grid overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1194_OverlayGrid.xml"
+      ]
+    },
+    {
+      "window_id": 11196,
+      "name": "Automatic visualisation overlay",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1196_AutoVis.xml"
+      ]
+    },
+    {
+      "window_id": 11197,
+      "name": "Window transition helper",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1197_Dummy.xml"
+      ]
+    },
+    {
+      "window_id": 11198,
+      "name": "Skin startup",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1198_Startup.xml"
+      ]
+    },
+    {
+      "window_id": 11199,
+      "name": "Debug information overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "1080i/Custom_1199_Overlay.xml"
+      ]
+    }
+  ]
+}

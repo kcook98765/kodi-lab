@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window>
+  <defaultcontrol always="true">9001</defaultcontrol>
+  <controls>
+    <control type="label" id="1"><left>80</left><top>60</top><width>1700</width><height>70</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Kodi Lab isolated window fixture</label></control>
+    <control type="button" id="9001"><left>100</left><top>180</top><width>1200</width><height>80</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Open verified base window</label><onclick>ActivateWindow(29001)</onclick><onup>9004</onup><ondown>9002</ondown></control>
+    <control type="button" id="9002"><left>100</left><top>290</top><width>1200</width><height>80</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Open verified foreground dialog</label><onclick>ActivateWindow(29002)</onclick><onup>9001</onup><ondown>9003</ondown></control>
+    <control type="button" id="9003"><left>100</left><top>400</top><width>1200</width><height>80</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Open ambiguous foreground dialog</label><onclick>ActivateWindow(29003)</onclick><onup>9002</onup><ondown>9004</ondown></control>
+    <control type="button" id="9004"><left>100</left><top>510</top><width>1200</width><height>80</height><font>font13</font><textcolor>FFFFFFFF</textcolor><label>Open unknown foreground dialog</label><onclick>ActivateWindow(29004)</onclick><onup>9003</onup><ondown>9001</ondown></control>
+  </controls>
+</window>

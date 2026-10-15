@@ -1,8 +1,14 @@
 # UI observation
 
-`inspect_ui_state(target_id)` returns normalized schema version 1. It is a
+`inspect_ui_state(target_id)` returns normalized schema version 2. It is a
 read-only `target.inspect` operation for authorized managed and external targets.
 Use it before/after navigation; reserve screenshots for visual questions.
+
+MCP and HTTP automatically include semantic window resolution. Each window or
+dialog preserves its original Kodi `id` and `label` alongside `resolution`
+(name, role, source, status and relevant skin identity/version). Unknown or
+ambiguous results retain their numeric IDs without a verified semantic name.
+See [window mappings](WINDOW-MAPPINGS.md) for data, version gates and extensions.
 
 The response contains `window`, `dialog`, `focus`, `container`, `selected_item`,
 `playback`, `ui`, `changed_during_collection` and a deterministic short `summary`.
@@ -22,6 +28,7 @@ wrapper classification, and GUI-dispatched curated InfoLabels/conditions. Generi
 direct Python ListItem reads are prohibited. The same collector profile supports
 qualified Kodi 19.4, 20.5 and 21.3, without Kodi-major branches. Screensaver uses
 the fixed `System.ScreenSaverActive` condition.
+The separately reviewed Bridge 1.1.16 provides this collection on Kodi 22 RC1.
 
 Managed observation consumes lifecycle-owned trust in `managed_bridge_trust`.
 The runtime start/readiness lifecycle prepares an installed, enabled approved
@@ -67,7 +74,8 @@ closed after its response to avoid keeping a Kodi service request worker alive
 through shutdown. Shutdown blocks further collection between GUI batches.
 
 Paths, artwork, arbitrary labels/conditions, visible items and detailed playback
-metadata are intentionally excluded. Provider provenance is not returned.
+metadata are intentionally excluded. Collection-provider provenance (Bridge
+versus native) is not returned.
 
 Normal application upgrade applies migrations `0068_ui_observation_capability`
 and `0069_managed_bridge_trust`.

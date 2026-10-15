@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.mimic.lr",
+  "skin_versions": [
+    "7.0.7"
+  ],
+  "kodi_versions": [
+    19
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/repo-skins",
+    "revision": "9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff",
+    "version": "7.0.7",
+    "urls": [
+      "https://github.com/xbmc/repo-skins/blob/9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff/skin.mimic.lr/addon.xml",
+      "https://github.com/xbmc/repo-skins/tree/9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff/skin.mimic.lr"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11118,
+      "name": "View selector",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.mimic.lr/1080i/custom_1118_ViewtypeMenu.xml"
+      ]
+    },
+    {
+      "window_id": 11119,
+      "name": "Add-ons",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.mimic.lr/1080i/custom_1119_Apps.xml"
+      ]
+    },
+    {
+      "window_id": 11120,
+      "name": "Music on-screen display settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.mimic.lr/1080i/custom_1120_OSDSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11122,
+      "name": "Background settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.mimic.lr/1080i/custom_1122_BackgroundCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11123,
+      "name": "Additional information menu",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.mimic.lr/1080i/custom_1123_MoreMenu.xml"
+      ]
+    },
+    {
+      "window_id": 11127,
+      "name": "Watched status icon settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.mimic.lr/1080i/custom_1127_OverlayIcons.xml"
+      ]
+    },
+    {
+      "window_id": 11129,
+      "name": "View availability settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.mimic.lr/1080i/custom_1129_ViewtypeCustomizer.xml"
+      ]
+    },
+    {
+      "window_id": 11133,
+      "name": "Artwork selection menu",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.mimic.lr/1080i/custom_1133_ArtMenu.xml"
+      ],
+      "notes": "Choices depend on the current library view and item."
+    }
+  ]
+}

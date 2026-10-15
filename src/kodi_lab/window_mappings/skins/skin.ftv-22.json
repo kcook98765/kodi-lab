@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.ftv",
+  "skin_versions": [
+    "8.3.1"
+  ],
+  "kodi_versions": [
+    22
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/repo-skins",
+    "revision": "277c62221fd973ed03c07857259f0d6f95fb4b2c",
+    "version": "8.3.1",
+    "urls": [
+      "https://github.com/xbmc/repo-skins/blob/277c62221fd973ed03c07857259f0d6f95fb4b2c/skin.ftv/addon.xml",
+      "https://github.com/xbmc/repo-skins/tree/277c62221fd973ed03c07857259f0d6f95fb4b2c/skin.ftv"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11101,
+      "name": "Internal skin helper: Bounce Up",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.ftv/xml/Custom_1101_Bounce_Up.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11102,
+      "name": "Internal skin helper: Bounce Down",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.ftv/xml/Custom_1102_Bounce_Down.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11103,
+      "name": "Internal skin helper: Bounce Right",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.ftv/xml/Custom_1103_Bounce_Right.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11104,
+      "name": "Internal skin helper: Fade",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.ftv/xml/Custom_1104_Fade.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11105,
+      "name": "Home widget configuration",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.ftv/xml/Custom_1105_Home_Widgets.xml"
+      ]
+    },
+    {
+      "window_id": 11107,
+      "name": "X-Ray information overlay",
+      "role": "dialog",
+      "verification": "verified",
+      "source_files": [
+        "skin.ftv/xml/Custom_1107_Overlay_XRay_Image.xml"
+      ]
+    },
+    {
+      "window_id": 11108,
+      "name": "fTV startup",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.ftv/xml/Custom_1108_fTV_Startup.xml"
+      ]
+    },
+    {
+      "window_id": 11109,
+      "name": "Debug information overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.ftv/xml/Custom_1109_Overlay_Debug.xml"
+      ]
+    },
+    {
+      "window_id": 11110,
+      "name": "Debug grid overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.ftv/xml/Custom_1110_Overlay_Grid.xml"
+      ]
+    },
+    {
+      "window_id": 11111,
+      "name": "Playback speed control",
+      "role": "playback",
+      "verification": "verified",
+      "source_files": [
+        "skin.ftv/xml/Custom_1111_Play_Speed.xml"
+      ]
+    },
+    {
+      "window_id": 11112,
+      "name": "Programs",
+      "role": "navigation",
+      "verification": "verified",
+      "source_files": [
+        "skin.ftv/xml/Custom_1112_My_Programs.xml"
+      ]
+    },
+    {
+      "window_id": 11113,
+      "name": "TMDb Helper browser",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.ftv/xml/Custom_1113_themoviedb_helper.xml"
+      ]
+    },
+    {
+      "window_id": 11114,
+      "name": "Contextual playback options dialog",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.ftv/xml/Custom_1114_OSD_Options.xml"
+      ],
+      "notes": "Includes and caller state determine the current playback options."
+    }
+  ]
+}

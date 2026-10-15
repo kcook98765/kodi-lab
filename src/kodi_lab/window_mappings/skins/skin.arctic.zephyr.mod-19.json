@@ -1,0 +1,424 @@
+{
+  "schema_version": 1,
+  "kind": "skin",
+  "skin_id": "skin.arctic.zephyr.mod",
+  "skin_versions": [
+    "1.1.72"
+  ],
+  "kodi_versions": [
+    19
+  ],
+  "source": {
+    "repository": "https://github.com/xbmc/repo-skins",
+    "revision": "9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff",
+    "version": "1.1.72",
+    "urls": [
+      "https://github.com/xbmc/repo-skins/blob/9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff/skin.arctic.zephyr.mod/addon.xml",
+      "https://github.com/xbmc/repo-skins/tree/9b26c1303dc1ca00b955ed6bf67b01f9d53a9cff/skin.arctic.zephyr.mod"
+    ]
+  },
+  "entries": [
+    {
+      "window_id": 11104,
+      "name": "TMDb movie browser",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_MovieDB_Movies.xml"
+      ]
+    },
+    {
+      "window_id": 11105,
+      "name": "TMDb television browser",
+      "role": "library",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_MovieDB_Shows.xml"
+      ]
+    },
+    {
+      "window_id": 11106,
+      "name": "Widget selector",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_WidgetSelect.xml"
+      ],
+      "notes": "User configuration and caller properties choose the widget content."
+    },
+    {
+      "window_id": 11108,
+      "name": "Internal skin helper: Artist Slideshow Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_ArtistSlideshow_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11109,
+      "name": "View settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_SetViewtype.xml"
+      ]
+    },
+    {
+      "window_id": 11110,
+      "name": "Internal skin helper: Auto Close OSD Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_AutoClose_OSD_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11111,
+      "name": "Custom hub 1111",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Hub_1111.xml"
+      ],
+      "notes": "Hub label, widget content and destination are user configurable; the ID alone does not identify the current media category."
+    },
+    {
+      "window_id": 11112,
+      "name": "Custom hub 1112",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Hub_1112.xml"
+      ],
+      "notes": "Hub label, widget content and destination are user configurable; the ID alone does not identify the current media category."
+    },
+    {
+      "window_id": 11113,
+      "name": "Custom hub 1113",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Hub_1113.xml"
+      ],
+      "notes": "Hub label, widget content and destination are user configurable; the ID alone does not identify the current media category."
+    },
+    {
+      "window_id": 11114,
+      "name": "Custom hub 1114",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Hub_1114.xml"
+      ],
+      "notes": "Hub label, widget content and destination are user configurable; the ID alone does not identify the current media category."
+    },
+    {
+      "window_id": 11115,
+      "name": "Custom hub 1115",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Hub_1115.xml"
+      ],
+      "notes": "Hub label, widget content and destination are user configurable; the ID alone does not identify the current media category."
+    },
+    {
+      "window_id": 11116,
+      "name": "Custom hub 1116",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Hub_1116.xml"
+      ],
+      "notes": "Hub label, widget content and destination are user configurable; the ID alone does not identify the current media category."
+    },
+    {
+      "window_id": 11117,
+      "name": "Custom hub 1117",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Hub_1117.xml"
+      ],
+      "notes": "Hub label, widget content and destination are user configurable; the ID alone does not identify the current media category."
+    },
+    {
+      "window_id": 11118,
+      "name": "Custom hub 1118",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Hub_1118.xml"
+      ],
+      "notes": "Hub label, widget content and destination are user configurable; the ID alone does not identify the current media category."
+    },
+    {
+      "window_id": 11119,
+      "name": "Custom hub 1119",
+      "role": "navigation",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Hub_1119.xml"
+      ],
+      "notes": "Hub label, widget content and destination are user configurable; the ID alone does not identify the current media category."
+    },
+    {
+      "window_id": 11120,
+      "name": "Music settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_MusicSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11131,
+      "name": "Internal skin helper: Reset Textbox Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Reset_Textbox_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11140,
+      "name": "Internal skin helper: Auto Close Now Playing Controls Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_AutoClose_NowPlaying_Controls_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11144,
+      "name": "Internal skin helper: Plot Overlay Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_PlotOverlay_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11150,
+      "name": "Skin startup",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Startup.xml"
+      ]
+    },
+    {
+      "window_id": 11153,
+      "name": "Music view settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_SetMusicViewtype.xml"
+      ]
+    },
+    {
+      "window_id": 11154,
+      "name": "Internal skin helper: Music Fullscreen Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_MusicFullscreen_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11155,
+      "name": "Internal skin helper: Auto Close OSD Info Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_AutoClose_OSD_Info_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11181,
+      "name": "Internal skin helper: OSD Info Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_OSD_Info_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11189,
+      "name": "RSS overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Rss.xml"
+      ]
+    },
+    {
+      "window_id": 11190,
+      "name": "Internal skin helper: Now Playing Stop Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_NowPlaying_Stop_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11193,
+      "name": "Internal skin helper: Auto Trailer Stop Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_AutoTrailer_Stop_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11194,
+      "name": "Internal skin helper: Auto Trailer Background Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_AutoTrailer_Background_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11195,
+      "name": "Internal skin helper: Auto Trailer Start Helper",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_AutoTrailer_Start_Helper.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11197,
+      "name": "Video settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_VideoSetting.xml"
+      ]
+    },
+    {
+      "window_id": 11198,
+      "name": "Busy indicator",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_DialogBusy.xml"
+      ]
+    },
+    {
+      "window_id": 11199,
+      "name": "Debug information overlay",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Overlay.xml"
+      ]
+    },
+    {
+      "window_id": 11248,
+      "name": "Custom settings dialog",
+      "role": "settings",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_DialogCustomSettings.xml"
+      ],
+      "notes": "Header and settings content come from dynamic container properties."
+    },
+    {
+      "window_id": 11254,
+      "name": "Reset forced views confirmation",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_ResetForcedViews.xml"
+      ]
+    },
+    {
+      "window_id": 11255,
+      "name": "Home layout settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_SetHomeViewtype.xml"
+      ]
+    },
+    {
+      "window_id": 11260,
+      "name": "Information dialog settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_DialogInfoSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11261,
+      "name": "Save colour configuration confirmation",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_SaveColorConfiguration.xml"
+      ]
+    },
+    {
+      "window_id": 11265,
+      "name": "Reset skin settings confirmation",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_ResetSkinSettings.xml"
+      ]
+    },
+    {
+      "window_id": 11266,
+      "name": "Rating display settings",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Ratings.xml"
+      ]
+    },
+    {
+      "window_id": 11288,
+      "name": "Debug settings",
+      "role": "system",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Debugging.xml"
+      ]
+    },
+    {
+      "window_id": 11297,
+      "name": "Internal skin helper: Blur",
+      "role": "system",
+      "verification": "ambiguous",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_Blur.xml"
+      ],
+      "notes": "Internal helper or context-dependent window. Filename and explicit ID are source verified; no fixed user-facing semantic identity is asserted."
+    },
+    {
+      "window_id": 11298,
+      "name": "Reset colour settings confirmation",
+      "role": "settings",
+      "verification": "verified",
+      "source_files": [
+        "skin.arctic.zephyr.mod/1080i/Custom_ResetColors.xml"
+      ]
+    }
+  ]
+}
