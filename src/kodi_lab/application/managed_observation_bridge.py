@@ -71,7 +71,7 @@ class ManagedObservationBridgeService:
                 bridge_id=UUID(row.bridge_id),
                 secret=secret,
             )
-            require_approved_identity(identity, kodi_version)
+            require_approved_identity(identity, kodi_version, established=True)
             if identity_json(identity) != row.identity_json:
                 raise UiObservationError("identity_mismatch")
             self._require_current(row)

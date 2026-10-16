@@ -52,7 +52,7 @@ class RCNative(Native):
                     "result": {
                         "addon": {
                             "addonid": "service.kodi_lab_bridge",
-                            "version": "1.1.16",
+                            "version": "1.1.18",
                             "enabled": self.enabled,
                         }
                     },
@@ -83,7 +83,7 @@ def rc(
         client.value,
         kodi_version="22.0",
         kodi_release="22.0-rc.1",
-        addon_version="1.1.16",
+        addon_version="1.1.18",
         build_fingerprint=approved["build_fingerprint"],
     )
     original = broker.establish_managed_bridge_trust

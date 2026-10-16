@@ -95,3 +95,33 @@ def test_exact_preview_trust_and_legacy_serialization() -> None:
             )
     with pytest.raises(ExternalBridgeError):
         ExternalBridgeClient._identity({**preview, "kodi_release": "21.3"})
+
+
+@pytest.mark.parametrize("release", ["20.5", "21.3", "22.0-rc.1"])
+def test_previous_exact_build_only_preserves_established_trust(release: str) -> None:
+    previous = approved_bridge_build(release, previous=True)
+    document = {
+        **previous,
+        "bridge_id": str(uuid4()),
+        "kodi_version": "22.0" if "-" in release else release,
+        "capabilities": ["ui_observation"],
+    }
+    document.pop("files")
+    if "-" in release:
+        document["kodi_release"] = release
+    identity = ExternalBridgeClient._identity(document)
+    require_approved_identity(identity, release, established=True)
+    with pytest.raises(ManagedBridgeTrustError):
+        require_approved_identity(identity, release)
+    for field in ("addon_version", "build_fingerprint"):
+        with pytest.raises(ManagedBridgeTrustError):
+            require_approved_identity(
+                ExternalBridgeClient._identity(
+                    {
+                        **document,
+                        field: "f" * 64 if field == "build_fingerprint" else "unknown",
+                    }
+                ),
+                release,
+                established=True,
+            )

@@ -47,12 +47,20 @@ class ManagedBridgeProvisionError(RuntimeError):
     """Only a bounded content-free failure crosses the broker boundary."""
 
 
-def approved_bridge_build(kodi_release: str | None = None) -> dict[str, Any]:
+def approved_bridge_build(
+    kodi_release: str | None = None, *, previous: bool = False
+) -> dict[str, Any]:
     resource = (
         "managed_bridge_preview_build.json"
         if kodi_release == "22.0-rc.1"
         else "managed_bridge_build.json"
     )
+    if previous:
+        resource = (
+            "managed_bridge_previous_preview_build.json"
+            if kodi_release == "22.0-rc.1"
+            else "managed_bridge_previous_build.json"
+        )
     return cast(
         dict[str, Any],
         json.loads(files("kodi_lab.kodi").joinpath(resource).read_text()),
@@ -203,7 +211,7 @@ def run():
     sources = value.get("reviewed_sources")
     if sources is not None:
         # Only broker-owned reviewed bytes arrive here. No destination parameter.
-        assert value["approved"]["addon_version"] == "1.1.16"
+        assert value["approved"]["addon_version"] == "1.1.18"
         directory(home + "/addons")
         lock = os.open(
             home + "/addons/.reviewed-bridge.lock",

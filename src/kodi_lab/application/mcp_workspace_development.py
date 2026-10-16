@@ -1697,6 +1697,9 @@ class McpWorkspaceDevelopmentService:
             or receipt.request_id != UUID(operation.request_id)
             or operation.bridge_id is None
             or receipt.bridge_id != UUID(operation.bridge_id)
+            or receipt.addon_id != operation.addon_id
+            or receipt.addon_version != operation.addon_version
+            or receipt.generation != operation.generation
             or receipt.manifest_digest != local.expected_manifest_digest
             or receipt.file_count != local.file_count
             or receipt.total_bytes != local.total_bytes

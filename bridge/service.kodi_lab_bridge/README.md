@@ -46,7 +46,7 @@ deployment, update or lifecycle authority. Production control uses separate
 fixed server-owned native Kodi actions; this is not an arbitrary production
 command channel.
 
-Bridge 1.1.15 protocol 1 advertises `screenshot`, `workspace_deployment` and
+Bridge 1.1.17 protocol 1 advertises `screenshot`, `workspace_deployment` and
 `ui_observation`. Production observation additionally requires the existing
 reviewed-build confirmation and transport policy; deployment stays development-only.
 `inspect_ui_state` accepts only an empty payload. Its protected collector reads
@@ -88,6 +88,29 @@ children of real `__pycache__` directories because Kodi's external Python
 runtime can create those after a valid invocation. That scan is non-recursive,
 count/size bounded, and rejects links, nested directories and unknown files;
 all source paths remain exact provenance.
+Bridge 1.1.17 corrects Windows direct installation. On local Windows drives,
+every ancestor is opened without following reparse points and held without
+delete sharing during access. Files require mandatory native regular-file and
+single-link checks; directory moves use checked handles. Missing native metadata,
+UNC/device paths, Windows device names, alternate streams, trailing-dot/space
+aliases and case collisions fail closed. A private Kodi profile remains required;
+this is not isolation from another program running as the Kodi account.
+Windows retains incoming executable modes as logical manifest metadata because
+NTFS has no POSIX execute bit. Initial source baselines use regular-file mode
+0644; later installed-tree inspection uses the latest successful receipt's modes.
+Source baselines containing executable files must be normalized before initial
+Windows baseline establishment. Linux continues to verify actual executable bits.
+Files are flushed before commit. Windows has no POSIX directory fsync, and the
+two directory moves are best-available replacement, not a power-loss-atomic
+transaction. A stopped/interrupted replacement remains ambiguous and requires
+receipt reconciliation; it never yields an invented successful receipt.
+Authenticated installer exceptions return signed bounded operation errors;
+HTTP 401 remains a credential/signature rejection. Diagnostic logs contain only
+the operation, request UUID, exception category and numeric OS error codes.
+Pre-transaction failure removes its exact staging tree; cleanup failures are
+reported explicitly. Existing transfer metadata remains resumable under the same
+pairing; legacy unbound transfers cannot be activated by the corrected installer.
+Terminal receipt identities remain readable. No upgrade resets pairing.
 Inventory verification requests only the Kodi 19.5-through-22-compatible
 `enabled` and `version` detail properties; Kodi returns the add-on type as a
 base field, so the bridge does not request the Kodi-20-invalid `type` property.

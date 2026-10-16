@@ -17,12 +17,12 @@ from typing import Any, cast
 BUILDER_ID = "kodi-lab-narrow-bridge-zip-v2"
 NORMALIZED_TIMESTAMP = (2026, 9, 21, 0, 0, 0)
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.15"
+ADDON_VERSION = "1.1.17"
 PROTOCOL = "1"
 BOOTSTRAP = "otp-1"
 FINGERPRINT_INPUT = (
-    b"kodi-lab-narrow-bridge|1.1.15|protocol-1|identity,capabilities,"
-    b"gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation"
+    b"kodi-lab-narrow-bridge|1.1.17|protocol-1|identity,capabilities,"
+    b"gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install"
 )
 SEMANTIC_FINGERPRINT = hashlib.sha256(FINGERPRINT_INPUT).hexdigest()
 RELEASE_INVENTORY = (

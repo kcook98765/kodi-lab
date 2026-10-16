@@ -58,7 +58,7 @@ HTTPS when pixels may be sensitive.
 ## Local deployment candidate artifact
 
 A source-free Linux amd64 candidate built from the current clean committed
-checkout carries `bridge/service.kodi_lab_bridge-1.1.15.zip` and
+checkout carries `bridge/service.kodi_lab_bridge-1.1.17.zip` and
 `bridge/BRIDGE.json`. The latter
 binds the ZIP SHA-256, exact ten-file release inventory and hash, Git source
 commit/tree and bridge subtree, builder identity/hash, protocol `1`, bootstrap
@@ -71,8 +71,10 @@ production uses separate target and reviewed-build administration. See
 [PRODUCTION-OPERATIONS.md](PRODUCTION-OPERATIONS.md).
 
 Older bridge 1.1.7, 1.1.8, and 1.1.13 hashes remain historical evidence tied only
-to those exact bytes. Bridge 1.1.14 added local pairing reset; 1.1.15 adds protected
-UI observation. An existing
+to those exact bytes. Bridge 1.1.14 added local pairing reset; 1.1.15 added protected
+UI observation; 1.1.17 corrects Windows direct installation and installer error
+classification. See [Windows direct installation](WINDOWS-DIRECT-INSTALL.md) for
+platform guarantees, validation and paired-target recovery. An existing
 1.1.13 installation requires the reviewed candidate transition before using
 the successor; source changes alone do not upgrade an installation. This is
 a local deployment candidate, not a public release. Screenshot platform

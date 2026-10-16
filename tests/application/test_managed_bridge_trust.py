@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from kodi_lab.application.managed_bridge_trust import (
     ManagedBridgeTrustError,
     ManagedBridgeTrustService,
+    identity_json,
     invalidate_managed_bridge_trust,
 )
 from kodi_lab.broker.docker_inventory import ContainerRuntimeState
@@ -100,7 +101,7 @@ class Native:
             result = {
                 "addon": {
                     "addonid": "service.kodi_lab_bridge",
-                    "version": "1.1.15",
+                    "version": "1.1.17",
                     "enabled": self.enabled,
                 }
             }
@@ -152,6 +153,35 @@ def test_prepare_confirms_identity_before_active_and_reuses_after_restart(
     assert all(
         "otp" not in method.lower() and "pair" not in method.lower()
         for method in owner.transport.calls
+    )
+
+
+def test_existing_previous_bridge_keeps_its_credential_and_generation(
+    setup: Any,
+) -> None:
+    owner, broker, client, secrets = setup
+    assert owner.prepare(INSTANCE_ID)
+    previous = approved_bridge_build(previous=True)
+    client.value = replace(
+        client.value,
+        addon_version=previous["addon_version"],
+        build_fingerprint=previous["build_fingerprint"],
+    )
+    with owner.sessions.begin() as session:
+        active = session.get(ManagedBridgeTrustRow, str(INSTANCE_ID))
+        assert active is not None
+        active.identity_json = identity_json(client.value)
+    before = row(owner)
+    assert owner.prepare(INSTANCE_ID)
+    after = row(owner)
+    assert (after.generation, after.secret_reference, after.identity_json) == (
+        before.generation,
+        before.secret_reference,
+        before.identity_json,
+    )
+    assert after.state == "active" and broker.establishments == 1
+    assert secrets.read(
+        INSTANCE_ID, UUID(after.secret_reference), "request_authentication"
     )
 
 

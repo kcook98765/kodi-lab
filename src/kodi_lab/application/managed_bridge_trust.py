@@ -53,17 +53,24 @@ def identity_json(identity: BridgeIdentity) -> str:
     )
 
 
-def require_approved_identity(identity: BridgeIdentity, kodi_version: str) -> None:
-    approved = approved_bridge_build(kodi_version)
+def require_approved_identity(
+    identity: BridgeIdentity, kodi_version: str, *, established: bool = False
+) -> None:
+    builds = [approved_bridge_build(kodi_version)]
+    if established:
+        builds.append(approved_bridge_build(kodi_version, previous=True))
     if (
-        any(
-            getattr(identity, field) != approved[field]
-            for field in (
-                "addon_id",
-                "addon_version",
-                "protocol_version",
-                "build_fingerprint",
+        not any(
+            all(
+                getattr(identity, field) == approved[field]
+                for field in (
+                    "addon_id",
+                    "addon_version",
+                    "protocol_version",
+                    "build_fingerprint",
+                )
             )
+            for approved in builds
         )
         or ("-" in kodi_version and identity.kodi_release is None)
         or (identity.kodi_release or identity.kodi_version) != kodi_version
@@ -291,7 +298,7 @@ class ManagedBridgeTrustService:
             return {
                 "state": row.state if row else "uninstalled",
                 "generation": row.generation if row else 0,
-                "addon_version": "1.1.16",
+                "addon_version": "1.1.18",
             }
 
     def _prepare(
@@ -322,7 +329,9 @@ class ManagedBridgeTrustService:
                         target_id, UUID(row.secret_reference), "request_authentication"
                     ),
                 )
-                require_approved_identity(identity, profile.kodi_release.canonical)
+                require_approved_identity(
+                    identity, profile.kodi_release.canonical, established=True
+                )
                 if identity_json(identity) != row.identity_json:
                     raise ManagedBridgeTrustError("managed_bridge_identity_mismatch")
                 self._require_unchanged(row, observed)

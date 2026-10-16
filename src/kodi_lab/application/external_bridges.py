@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from importlib.resources import files
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -1393,6 +1394,7 @@ class ExternalBridgeService:
         with self._pairing_gate.enter(target_id):
             snapshot = self._active_snapshot(target_id, allow_needs_reverification=True)
             identity, capabilities = self._observe_authenticated(snapshot)
+            upgrade = False
             if (
                 snapshot.target_type is TargetType.EXTERNAL_PRODUCTION
                 and identity.bridge_id != snapshot.bridge_id
@@ -1407,8 +1409,11 @@ class ExternalBridgeService:
                         target_id, identity, capabilities
                     )
                     return self.status(target_id)
-                self._invalidate_identity(target_id, "bridge_identity_mismatch")
-                raise
+                if self._known_development_upgrade(snapshot, identity, capabilities):
+                    upgrade = True
+                else:
+                    self._invalidate_identity(target_id, "bridge_identity_mismatch")
+                    raise
             if not set(capabilities).intersection(
                 {"screenshot", "workspace_deployment"}
             ):
@@ -1426,6 +1431,26 @@ class ExternalBridgeService:
                 row = session.get(ExternalBridgePairingRow, str(target_id))
                 if row is None or row.pinned_bridge_id != str(identity.bridge_id):
                     raise ExternalBridgeServiceError("bridge_identity_mismatch")
+                if upgrade:
+                    if (
+                        row.bridge_secret_reference != str(snapshot.secret_reference)
+                        or row.bridge_port != snapshot.bridge_port
+                        or row.pinned_build_fingerprint != snapshot.build_fingerprint
+                        or row.pinned_addon_version != snapshot.addon_version
+                        or self._parse_closed(row.observed_capabilities_json)
+                        != set(capabilities)
+                        or row.pairing_state
+                        not in {
+                            ExternalBridgePairingState.PAIRED,
+                            ExternalBridgePairingState.NEEDS_REVERIFICATION,
+                        }
+                        or self._endpoint_digest(external, snapshot.bridge_port)
+                        != snapshot.endpoint_digest
+                    ):
+                        raise ExternalBridgeServiceError("bridge_identity_mismatch")
+                    self._set_observed(row, identity, capabilities)
+                    row.pinned_addon_version = identity.addon_version
+                    row.pinned_build_fingerprint = identity.build_fingerprint
                 if snapshot.target_type is TargetType.EXTERNAL_PRODUCTION:
                     reviewed = self._require_reviewed_identity(
                         session,
@@ -1468,8 +1493,40 @@ class ExternalBridgeService:
                     "bridge_reverified",
                     now,
                     bridge_id=identity.bridge_id,
+                    classification="known_development_build_updated"
+                    if upgrade
+                    else None,
                 )
         return self.status(target_id)
+
+    @staticmethod
+    def _known_development_upgrade(
+        snapshot: _Snapshot, identity: BridgeIdentity, capabilities: tuple[str, ...]
+    ) -> bool:
+        """Explicit Web reverification may adopt only this exact paired build update."""
+        if snapshot.target_type is not TargetType.EXTERNAL_DEVELOPMENT:
+            return False
+        package = files("kodi_lab.kodi")
+        previous = json.loads(
+            package.joinpath("managed_bridge_previous_build.json").read_text()
+        )
+        current = json.loads(package.joinpath("managed_bridge_build.json").read_text())
+        return (
+            snapshot.addon_id
+            == identity.addon_id
+            == current["addon_id"]
+            == previous["addon_id"]
+            and snapshot.addon_version == previous["addon_version"]
+            and snapshot.build_fingerprint == previous["build_fingerprint"]
+            and identity.addon_version == current["addon_version"]
+            and identity.build_fingerprint == current["build_fingerprint"]
+            and snapshot.bridge_id == identity.bridge_id
+            and snapshot.kodi_version == identity.kodi_version
+            and snapshot.protocol_version
+            == identity.protocol_version
+            == current["protocol_version"]
+            and set(identity.capabilities) == set(capabilities)
+        )
 
     def inspect_ui_state(self, target_id: UUID) -> UiCollection:
         snapshot = self._active_snapshot(
@@ -1656,7 +1713,9 @@ class ExternalBridgeService:
 
                 try:
                     receipt = begin()
-                except ExternalBridgeError:
+                except ExternalBridgeError as error:
+                    if error.code != "bridge_unreachable":
+                        raise
                     receipt = begin()
                 if receipt.state in {"succeeded", "failed", "ambiguous"}:
                     return receipt
@@ -1725,7 +1784,9 @@ class ExternalBridgeService:
 
         try:
             return transfer()
-        except ExternalBridgeError:
+        except ExternalBridgeError as error:
+            if error.code != "bridge_unreachable":
+                raise
             return transfer()
 
     def deployment_receipt(
@@ -2556,6 +2617,15 @@ class ExternalBridgeService:
 
     @staticmethod
     def _reachability(code: str) -> ExternalBridgeReachabilityState:
+        if code in {
+            "deployment_request_invalid",
+            "deployment_installation_failed",
+            "deployment_cleanup_failed",
+            "addon_inspection_failed",
+            "bridge_operation_failed",
+        }:
+            # These codes are accepted only after response HMAC verification.
+            return ExternalBridgeReachabilityState.REACHABLE
         if code == "bridge_authentication_failed":
             return ExternalBridgeReachabilityState.AUTHENTICATION_FAILED
         if code == "bridge_identity_mismatch":

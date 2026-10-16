@@ -2935,3 +2935,18 @@ and enabled. The observation service only consumes active pinned trust. No manag
 OTP flow or arbitrary remote execution endpoint is introduced. Lifecycle
 replacement, reset, restore and deletion invalidate trust; same-container restarts
 reuse it. See [UI observation](UI-OBSERVATION.md) for fallback and snapshot semantics.
+
+## Portable external direct installation
+
+D-0431 keeps direct installation within the existing external-development
+transaction. Bridge 1.1.17 uses mandatory checked Windows handles for ancestor,
+file and directory replacement operations, rejects reparse/link and Win32 path
+aliases, and retains source modes as logical NTFS manifest metadata. Linux
+continues descriptor-relative no-follow access. Signed authenticated installer
+errors are independent from credential failures and preserve reachable pairing
+state only after response verification. New transfer metadata binds target and
+Bridge; reconciliation also checks exact add-on/version/generation. The existing
+best-available two-directory-move rollback/receipt model remains in force,
+including explicit Windows directory-fsync limitations. The
+[Windows recovery guide](WINDOWS-DIRECT-INSTALL.md) describes exact-source
+re-baselining after manual installation and remaining native verification.

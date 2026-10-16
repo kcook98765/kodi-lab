@@ -21,9 +21,9 @@ from urllib.parse import urlsplit
 REPOSITORY_ID = "repository.kodi-lab"
 REPOSITORY_VERSION = "1.0.0"
 BRIDGE_ID = "service.kodi_lab_bridge"
-BRIDGE_VERSION = "1.1.15"
-BRIDGE_SHA256 = "c894ca88c491edc716997aab3d7a91f2ee30722eff8d7a75b68233ddec9c3bf7"
-BRIDGE_FINGERPRINT = "b125a428b12cb48b3a93d2c9009478803b7bd65c85b2fdc632e0b644f2abc4c2"
+BRIDGE_VERSION = "1.1.17"
+BRIDGE_SHA256 = "8e5ec104ced1cdc05ff7d8464d8d2fe3bdbe74e6b19cb543b44f1add250f75ce"
+BRIDGE_FINGERPRINT = "bcc6526c379f09b52f14cad3a582aafb227eafc309cb66b8387dcec057462a37"
 GENERATOR_ID = "kodi-lab-stable-repository-v1"
 
 

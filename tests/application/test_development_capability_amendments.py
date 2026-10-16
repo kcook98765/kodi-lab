@@ -19,7 +19,7 @@ from kodi_lab.application.external_bridges import (
     ExternalBridgeServiceError,
 )
 from kodi_lab.domain import ExternalBridgePairingState, TargetType
-from kodi_lab.kodi.bridge import BridgeIdentity
+from kodi_lab.kodi.bridge import SUPPORTED_V1_BRIDGE_ADDON_VERSION, BridgeIdentity
 from kodi_lab.kodi.external import (
     ExternalEndpointPolicy,
     ExternalKodiProbeResult,
@@ -73,7 +73,7 @@ class FakeBridge:
                 bridge_id=BRIDGE,
                 protocol_version="1",
                 addon_id="service.kodi_lab_bridge",
-                addon_version="1.1.15",
+                addon_version=SUPPORTED_V1_BRIDGE_ADDON_VERSION,
                 kodi_version="20.5",
                 capabilities=self.capabilities,
                 build_fingerprint=self.fingerprint,
@@ -143,14 +143,14 @@ def amendment(
                 observed_bridge_id=str(BRIDGE),
                 observed_protocol_version="1",
                 observed_addon_id="service.kodi_lab_bridge",
-                observed_addon_version="1.1.15",
+                observed_addon_version=SUPPORTED_V1_BRIDGE_ADDON_VERSION,
                 observed_kodi_version="20.5",
                 observed_build_fingerprint=FINGERPRINT,
                 observed_capabilities_json='["screenshot","workspace_deployment"]',
                 pinned_bridge_id=str(BRIDGE),
                 pinned_protocol_version="1",
                 pinned_addon_id="service.kodi_lab_bridge",
-                pinned_addon_version="1.1.15",
+                pinned_addon_version=SUPPORTED_V1_BRIDGE_ADDON_VERSION,
                 pinned_kodi_version="20.5",
                 pinned_build_fingerprint=FINGERPRINT,
                 verified_capabilities_json='["screenshot","workspace_deployment"]',

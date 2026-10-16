@@ -23,7 +23,7 @@ _INVENTORY = (
     "service.py",
 )
 _FRAGMENT_SHA256 = "7f95447d72a99e2688d638c715209a2b3afce90d4174f4e6eef404f0a1adc672"
-RC1_ARCHIVE_SHA256 = "6ed14263da261258f580f72466f164b429733d0b8183ecab22564b9284700abe"
+RC1_ARCHIVE_SHA256 = "36b91ba4210ed246f2b1e397319aee383b983a58a4d609142198d072923db0fc"
 
 
 def packaged_rc1_bridge_sources() -> dict[str, bytes]:
@@ -84,13 +84,13 @@ def reviewed_rc1_bridge_sources(legacy_root: Path) -> dict[str, bytes]:
             raise ValueError("Stable Bridge source differs from review")
         result[name] = data
     result["addon.xml"] = result["addon.xml"].replace(
-        b'version="1.1.15"', b'version="1.1.16"'
+        b'version="1.1.17"', b'version="1.1.18"'
     )
     source = result["narrow_bridge.py"]
-    source = source.replace(b'ADDON_VERSION = "1.1.15"', b'ADDON_VERSION = "1.1.16"')
-    source = source.replace(b"|1.1.15|protocol-1|", b"|1.1.16|protocol-1|")
+    source = source.replace(b'ADDON_VERSION = "1.1.17"', b'ADDON_VERSION = "1.1.18"')
+    source = source.replace(b"|1.1.17|protocol-1|", b"|1.1.18|protocol-1|")
     source = source.replace(
-        b',protected-ui-observation"', b',protected-ui-observation,exact-release"'
+        b',portable-direct-install"', b',portable-direct-install,exact-release"'
     )
     start = source.index(b"def _identity(state):")
     end = source.index(b"def _png_chunk(kind, data):")

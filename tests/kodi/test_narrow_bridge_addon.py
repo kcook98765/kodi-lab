@@ -254,7 +254,7 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.15"
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.17"
     from scripts.build_narrow_bridge import SEMANTIC_FINGERPRINT
 
     assert bridge["BUILD_FINGERPRINT"] == SEMANTIC_FINGERPRINT
@@ -1679,7 +1679,8 @@ def test_replacement_failure_rolls_back_or_requires_reconciliation(
     deployment_id, digest, _payload = _stage_deployment(bridge, handler, state, source)
     stage = Path(bridge["_stage_path"](deployment_id))
     backup = Path(bridge["_backup_path"](deployment_id))
-    real_replace = os.replace
+    globals_ = handler._deployment_commit.__func__.__globals__
+    real_replace = globals_["_deployment_replace"]
 
     def fail_selected(source_path: str | Path, destination_path: str | Path) -> None:
         source_value = Path(source_path)
@@ -1694,7 +1695,7 @@ def test_replacement_failure_rolls_back_or_requires_reconciliation(
             raise OSError("injected rollback failure")
         real_replace(source_path, destination_path)
 
-    monkeypatch.setattr(os, "replace", fail_selected)
+    monkeypatch.setitem(globals_, "_deployment_replace", fail_selected)
     receipt = handler._deployment_commit(
         {"deployment_id": deployment_id, "manifest_digest": digest}, state
     )
@@ -1727,7 +1728,8 @@ def test_replacement_failure_before_tree_mutation_is_terminal(
     handler = object.__new__(bridge["Handler"])
     deployment_id, digest, _payload = _stage_deployment(bridge, handler, state, source)
     backup = Path(bridge["_backup_path"](deployment_id))
-    real_replace = os.replace
+    globals_ = handler._deployment_commit.__func__.__globals__
+    real_replace = globals_["_deployment_replace"]
 
     def fail_before_mutation(
         source_path: str | Path, destination_path: str | Path
@@ -1736,7 +1738,7 @@ def test_replacement_failure_before_tree_mutation_is_terminal(
             raise OSError("injected pre-mutation failure")
         real_replace(source_path, destination_path)
 
-    monkeypatch.setattr(os, "replace", fail_before_mutation)
+    monkeypatch.setitem(globals_, "_deployment_replace", fail_before_mutation)
     receipt = handler._deployment_commit(
         {"deployment_id": deployment_id, "manifest_digest": digest}, state
     )
@@ -1745,8 +1747,9 @@ def test_replacement_failure_before_tree_mutation_is_terminal(
     assert ET.parse(destination / "addon.xml").getroot().attrib["version"] == "1.0.0"
 
 
+@pytest.mark.parametrize("persistent", [False, True])
 def test_inventory_mismatch_rolls_back_exact_tree(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, persistent: bool
 ) -> None:
     addon_root = tmp_path / "addons"
     addon_root.mkdir()
@@ -1770,7 +1773,7 @@ def test_inventory_mismatch_rolls_back_exact_tree(
         nonlocal calls
         calls += 1
         enabled, details = original_inventory(addon_id)
-        if calls > 1:
+        if calls == 2 or (persistent and calls > 2):
             details = {**details, "version": "9.9.9"}
         return enabled, details
 
@@ -1778,6 +1781,10 @@ def test_inventory_mismatch_rolls_back_exact_tree(
     receipt = handler._deployment_commit(
         {"deployment_id": deployment_id, "manifest_digest": digest}, state
     )
-    assert receipt["state"] == "failed"
-    assert receipt["classification"] == "replacement_failed_rolled_back"
+    assert receipt["state"] == ("ambiguous" if persistent else "failed")
+    assert receipt["classification"] == (
+        "rollback_failed_reconciliation_required"
+        if persistent
+        else "replacement_failed_rolled_back"
+    )
     assert ET.parse(destination / "addon.xml").getroot().attrib["version"] == "1.0.0"

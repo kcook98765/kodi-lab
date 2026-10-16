@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import errno
 import hashlib
 import hmac
 import json
@@ -29,10 +30,10 @@ PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.15"
+ADDON_VERSION = "1.1.17"
 CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.15|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation"
+    b"kodi-lab-narrow-bridge|1.1.17|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -970,10 +971,9 @@ def _windows_open_nofollow(path):
         raise
 
 
-def _windows_handle_info(descriptor):
+def _windows_handle_info(descriptor, native=False):
     """Optional handle attributes/link count; some Windows volumes omit them."""
     import ctypes
-    import msvcrt
     from ctypes import wintypes
 
     class FileInfo(ctypes.Structure):
@@ -995,9 +995,11 @@ def _windows_handle_info(descriptor):
     get_info.argtypes = (wintypes.HANDLE, ctypes.POINTER(FileInfo))
     get_info.restype = wintypes.BOOL
     info = FileInfo()
-    if not get_info(
-        wintypes.HANDLE(msvcrt.get_osfhandle(descriptor)), ctypes.byref(info)
-    ):
+    if not native:
+        import msvcrt
+
+        descriptor = msvcrt.get_osfhandle(descriptor)
+    if not get_info(wintypes.HANDLE(descriptor), ctypes.byref(info)):
         return None
     return info.attributes, info.links
 
@@ -1268,8 +1270,7 @@ def _cleanup_staging(state):
             continue
         operation = _load_operation(deployment_id)
         stage = _stage_path(deployment_id)
-        if os.path.isdir(stage) and not os.path.islink(stage):
-            shutil.rmtree(stage)
+        _remove_deployment_tree(stage)
         operation["state"] = "failed"
         operation["classification"] = "staging_expired"
         operation["receipt_id"] = str(uuid.uuid4())
@@ -1288,6 +1289,7 @@ def _addon_id(value):
         or value != value.lower()
         or ".." in value
         or re.fullmatch(r"[a-z0-9][a-z0-9._-]*", value) is None
+        or (os.name == "nt" and not _windows_component(value))
     ):
         raise ValueError("invalid add-on ID")
     return value
@@ -1307,11 +1309,166 @@ def _relative_path(value):
             or len(part.encode("utf-8")) > 255
             or any(ord(character) < 32 or ord(character) == 127 for character in part)
             or part in {".git", ".hg", ".svn", "__pycache__"}
+            or (
+                os.name == "nt"
+                and (
+                    not _windows_component(part)
+                    or part.casefold() in {".git", ".hg", ".svn", "__pycache__"}
+                )
+            )
         ):
             raise ValueError("invalid relative path")
-    if value.endswith(".pyc") or "/__pycache__/" in f"/{value}/":
+    if (value.lower() if os.name == "nt" else value).endswith(
+        ".pyc"
+    ) or "/__pycache__/" in f"/{value}/":
         raise ValueError("bytecode cache is not deployable")
     return value
+
+
+def _windows_component(part):
+    # Reject Win32 aliases, device names, alternate streams and drive paths.
+    return (
+        not any(character in part for character in '<>:"\\|?*')
+        and not part.endswith((".", " "))
+        and part.split(".", 1)[0].upper()
+        not in {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+        and re.fullmatch(r"(?:COM|LPT)[1-9¹²³]", part.split(".", 1)[0], re.I) is None
+    )
+
+
+def _deployment_metadata(metadata, directory=False):
+    if (
+        getattr(metadata, "st_file_attributes", 0) & 0x400
+        or not (stat.S_ISDIR if directory else stat.S_ISREG)(metadata.st_mode)
+        or (not directory and metadata.st_nlink != 1)
+    ):
+        raise ValueError("unsafe file or directory")
+
+
+@contextmanager
+def _windows_deployment_handle(
+    path, directory=False, create=False, write=False, as_descriptor=False, rename=False
+):
+    """Mandatory reparse/link checks; held handles deny rename/delete sharing."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    open_file = kernel.CreateFileW
+    open_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    open_file.restype = wintypes.HANDLE
+    close = kernel.CloseHandle
+    close.argtypes = (wintypes.HANDLE,)
+    close.restype = wintypes.BOOL
+    access = 0x80 if directory else (0xC0000000 if write else 0x80000000)
+    if rename:
+        access |= 0x10000  # DELETE, needed for a handle-bound directory rename.
+    handle = open_file(
+        path,
+        access,
+        3 if directory else 1,
+        None,
+        1 if create else 3,
+        0x00200000 | (0x02000000 if directory else 0),
+        None,
+    )
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    descriptor = None
+    try:
+        info = _windows_handle_info(handle, native=True)
+        if (
+            info is None
+            or info[0] & 0x400
+            or bool(info[0] & 0x10) != directory
+            or (not directory and info[1] != 1)
+        ):
+            raise ValueError("unsafe deployment handle")
+        if as_descriptor:
+            import msvcrt
+
+            descriptor = msvcrt.open_osfhandle(
+                handle, os.O_BINARY | (os.O_RDWR if write else os.O_RDONLY)
+            )
+        yield handle if descriptor is None else descriptor
+    finally:
+        if descriptor is None:
+            if not close(handle):
+                raise ctypes.WinError(ctypes.get_last_error())
+        else:
+            os.close(descriptor)
+
+
+@contextmanager
+def _deployment_directory(path):
+    """Pin every ancestor without following links, including the Kodi root."""
+    path = os.path.abspath(path)
+    drive, tail = os.path.splitdrive(path)
+    if os.name == "nt" and (
+        len(drive) != 2 or drive[1] != ":" or not drive[0].isalpha()
+    ):
+        raise ValueError("deployment requires a local drive")
+    parts = [part for part in tail.split(os.sep) if part]
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        current = drive + os.sep
+        descriptor = None
+        for part in [None, *parts]:
+            if part is not None:
+                current = os.path.join(current, part)
+            if os.name == "nt":
+                stack.enter_context(_windows_deployment_handle(current, directory=True))
+            else:
+                flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                descriptor = os.open(
+                    current if part is None else part, flags, dir_fd=descriptor
+                )
+                stack.callback(os.close, descriptor)
+                _deployment_metadata(os.fstat(descriptor), directory=True)
+        yield descriptor
+
+
+@contextmanager
+def _deployment_file(path, mode="rb", permissions=0o644):
+    with _deployment_directory(os.path.dirname(path)) as parent:
+        if os.name == "nt":
+            with _windows_deployment_handle(  # noqa: SIM117 - Python 3.8 syntax.
+                path, create=mode == "xb", write=mode != "rb", as_descriptor=True
+            ) as descriptor:
+                with os.fdopen(
+                    os.dup(descriptor), "rb" if mode == "rb" else "r+b"
+                ) as stream:
+                    _deployment_metadata(os.fstat(stream.fileno()))
+                    yield stream
+        else:
+            flags = os.O_RDONLY if mode == "rb" else os.O_RDWR
+            if mode == "xb":
+                flags |= os.O_CREAT | os.O_EXCL
+            try:
+                descriptor = os.open(
+                    os.path.basename(path),
+                    flags | os.O_NOFOLLOW,
+                    permissions,
+                    dir_fd=parent,
+                )
+            except OSError as error:
+                if error.errno == errno.ELOOP:
+                    raise ValueError("unsafe file") from None
+                raise
+            with os.fdopen(descriptor, "rb" if mode == "rb" else "r+b") as stream:
+                _deployment_metadata(os.fstat(stream.fileno()))
+                if mode == "xb":
+                    os.fchmod(stream.fileno(), permissions)
+                yield stream
 
 
 def _manifest_bytes(entries):
@@ -1341,12 +1498,21 @@ def _validate_manifest(payload):
     total = 0
     normalized = []
     seen = set()
+    windows_seen = set()
     for raw in entries:
         if not isinstance(raw, dict):
             raise ValueError("invalid manifest entry")
         path = _relative_path(raw.get("path"))
         if path in seen or (prior is not None and path.encode("utf-8") <= prior):
             raise ValueError("manifest order is invalid")
+        if os.name == "nt":
+            folded = path.casefold()
+            if folded in windows_seen:
+                raise ValueError("Windows path alias")
+            windows_seen.add(folded)
+            parent = path.rpartition("/")[0]
+            if parent and parent not in seen:
+                raise ValueError("manifest parent unavailable")
         prior = path.encode("utf-8")
         seen.add(path)
         kind = raw.get("type")
@@ -1400,7 +1566,12 @@ def _validate_manifest(payload):
     return normalized, digest, files, total
 
 
-def _tree_manifest(root):
+def _tree_manifest(root, expected_entries=None):
+    with _deployment_directory(root):
+        return _tree_manifest_guarded(root, expected_entries)
+
+
+def _tree_manifest_guarded(root, expected_entries=None):
     if not os.path.isdir(root) or os.path.islink(root):
         raise ValueError("add-on tree unavailable")
     entries = []
@@ -1409,6 +1580,11 @@ def _tree_manifest(root):
     cache_files = 0
     cache_bytes = 0
     root_real = os.path.realpath(root)
+    logical_modes = {
+        item["path"]: item["mode"]
+        for item in (expected_entries or [])
+        if item["type"] == "file"
+    }
     for current, directories, names in os.walk(root, topdown=True, followlinks=False):
         if os.path.realpath(current) == root_real:
             prefix = ""
@@ -1436,6 +1612,7 @@ def _tree_manifest(root):
             absolute = os.path.join(current, name)
             if os.path.islink(absolute):
                 raise ValueError("linked directory")
+            _deployment_metadata(os.lstat(absolute), directory=True)
             entries.append(
                 {"mode": 0o755, "path": path, "size": 0, "type": "directory"}
             )
@@ -1445,22 +1622,25 @@ def _tree_manifest(root):
             path = name if not prefix else prefix + "/" + name
             _relative_path(path)
             absolute = os.path.join(current, name)
-            metadata = os.lstat(absolute)
-            if (
-                not os.path.isfile(absolute)
-                or os.path.islink(absolute)
-                or metadata.st_nlink != 1
-            ):
-                raise ValueError("unsafe file")
-            if metadata.st_size > MAX_FILE:
-                raise ValueError("file too large")
             digest = hashlib.sha256()
-            with open(absolute, "rb") as stream:
+            with _deployment_file(absolute) as stream:
+                metadata = os.fstat(stream.fileno())
+                if metadata.st_size > MAX_FILE:
+                    raise ValueError("file too large")
+                read = 0
                 while True:
                     chunk = stream.read(MAX_CHUNK)
                     if not chunk:
                         break
+                    read += len(chunk)
+                    if read > MAX_FILE:
+                        raise ValueError("file too large")
                     digest.update(chunk)
+                if (
+                    read != metadata.st_size
+                    or os.fstat(stream.fileno()).st_size != read
+                ):
+                    raise ValueError("file changed during inspection")
             files += 1
             total += metadata.st_size
             if (
@@ -1470,6 +1650,10 @@ def _tree_manifest(root):
             ):
                 raise ValueError("tree bounds exceeded")
             mode = 0o755 if metadata.st_mode & 0o111 else 0o644
+            if os.name == "nt":
+                # NTFS has no POSIX execute bit. Retain authenticated manifest
+                # modes as logical metadata; bytes, sizes and paths stay exact.
+                mode = logical_modes.get(path, 0o644)
             entries.append(
                 {
                     "mode": mode,
@@ -1485,8 +1669,14 @@ def _tree_manifest(root):
 
 
 def _validate_bytecode_cache(root):
+    with _deployment_directory(root):
+        return _validate_bytecode_cache_guarded(root)
+
+
+def _validate_bytecode_cache_guarded(root):
     try:
         metadata = os.lstat(root)
+        _deployment_metadata(metadata, directory=True)
         if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
             raise ValueError("unsafe bytecode cache")
         files = 0
@@ -1495,6 +1685,7 @@ def _validate_bytecode_cache(root):
             for entry in stream:
                 name = entry.name
                 item = entry.stat(follow_symlinks=False)
+                _deployment_metadata(item)
                 if (
                     not name
                     or not name.endswith(".pyc")
@@ -1514,17 +1705,19 @@ def _validate_bytecode_cache(root):
                 if files > MAX_BYTECODE_CACHE_FILES or total > MAX_BYTECODE_CACHE_BYTES:
                     raise ValueError("bytecode cache bounds exceeded")
         return files, total
-    except ValueError:
-        raise
+    except ValueError as error:
+        raise ValueError("unsafe bytecode cache") from error
     except OSError as error:
         raise ValueError("unsafe bytecode cache") from error
 
 
 def _addon_descriptor(root):
     descriptor = os.path.join(root, "addon.xml")
-    if not os.path.isfile(descriptor) or os.path.getsize(descriptor) > 1024 * 1024:
+    with _deployment_file(descriptor) as stream:
+        raw = stream.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
         raise ValueError("descriptor unavailable")
-    parsed = ET.parse(descriptor).getroot()
+    parsed = ET.fromstring(raw)
     addon_id = _addon_id(parsed.attrib.get("id"))
     version = parsed.attrib.get("version")
     if not isinstance(version, str) or not 1 <= len(version) <= 128:
@@ -1589,15 +1782,108 @@ def _operation_path(deployment_id):
 
 
 def _fsync_directory(path):
+    if os.name == "nt":
+        # Win32 does not expose POSIX directory fsync. Files are flushed before
+        # rename; directory replacement remains best-available, not power-loss atomic.
+        return
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-    except OSError:
-        # Some Kodi platforms do not expose directory fsync.
-        return
+    except OSError as error:
+        if error.errno not in {errno.EINVAL, errno.ENOTSUP}:
+            raise
+
+
+def _remove_deployment_tree(path):
+    with _deployment_directory(os.path.dirname(path)):
+        if os.path.lexists(path):
+            _deployment_metadata(os.lstat(path), directory=True)
+            shutil.rmtree(path)
+
+
+def _deployment_replace(source, destination):
+    parent = os.path.dirname(source)
+    if parent != os.path.dirname(destination):
+        raise ValueError("replacement must stay in one directory")
+    with _deployment_directory(parent) as parent_descriptor:
+        if os.path.lexists(destination):
+            raise ValueError("replacement destination occupied")
+        if os.name != "nt":
+            source_name = os.path.basename(source)
+            _deployment_metadata(
+                os.stat(source_name, dir_fd=parent_descriptor, follow_symlinks=False),
+                directory=True,
+            )
+            os.replace(
+                source_name,
+                os.path.basename(destination),
+                src_dir_fd=parent_descriptor,
+                dst_dir_fd=parent_descriptor,
+            )
+            return
+        import ctypes
+        from ctypes import wintypes
+
+        class RenameInfo(ctypes.Structure):
+            _fields_ = [
+                ("replace", wintypes.BOOL),
+                ("root", wintypes.HANDLE),
+                ("length", wintypes.DWORD),
+                ("name", wintypes.WCHAR * 1),
+            ]
+
+        encoded = os.path.abspath(destination).encode("utf-16-le")
+        size = RenameInfo.name.offset + len(encoded) + 2
+        buffer = ctypes.create_string_buffer(max(size, ctypes.sizeof(RenameInfo)))
+        info = RenameInfo.from_buffer(buffer)
+        info.replace = False
+        info.root = None
+        info.length = len(encoded)
+        ctypes.memmove(
+            ctypes.addressof(buffer) + RenameInfo.name.offset, encoded, len(encoded)
+        )
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        rename_file = kernel.SetFileInformationByHandle
+        rename_file.argtypes = (
+            wintypes.HANDLE,
+            ctypes.c_int,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+        )
+        rename_file.restype = wintypes.BOOL
+        with _windows_deployment_handle(source, directory=True, rename=True) as handle:
+            if not rename_file(handle, 3, buffer, len(buffer)):  # FileRenameInfo
+                raise ctypes.WinError(ctypes.get_last_error())
+
+
+def _deployment_diagnostic(request, error):
+    category = next(
+        (
+            kind.__name__
+            for kind in (OSError, ValueError, AttributeError, RuntimeError)
+            if isinstance(error, kind)
+        ),
+        "Exception",
+    )
+    # Never log exception messages, paths, content, envelopes or credentials.
+    numbers = ""
+    for name in ("errno", "winerror"):
+        value = getattr(error, name, None)
+        if type(value) is int and 0 <= value <= 65535:
+            numbers += " " + name + "=" + str(value)
+    xbmc.log(
+        "[service.kodi_lab_bridge] operation="
+        + request["operation"]
+        + " request_id="
+        + request["request_id"]
+        + " exception="
+        + category
+        + numbers,
+        xbmc.LOGERROR,
+    )
 
 
 def _save_operation(operation):
@@ -1735,7 +2021,11 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._empty(409)
         except Exception:
-            self._empty(401)
+            # Unexpected server failures are never evidence of a bad credential.
+            xbmc.log(
+                "[service.kodi_lab_bridge] request processing failed", xbmc.LOGERROR
+            )
+            self._empty(500)
 
     def _bootstrap_http(self):
         try:
@@ -1953,7 +2243,21 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
         else:
-            self._deployment_response(document, request_hash, secret, state)
+            try:
+                self._deployment_response(document, request_hash, secret, state)
+            except AuthenticationError:
+                raise
+            except Exception as error:
+                _deployment_diagnostic(document, error)
+                code = (
+                    "deployment_request_invalid"
+                    if isinstance(error, ValueError)
+                    else "deployment_cleanup_failed"
+                    if isinstance(error, OperationError)
+                    and error.code == "deployment_cleanup_failed"
+                    else "deployment_installation_failed"
+                )
+                self._json_error_response(document, request_hash, secret, code)
 
     def _pairing_commit(self, document, request_hash, secret):
         payload = document["payload"]
@@ -2035,7 +2339,11 @@ class Handler(BaseHTTPRequestHandler):
     def _deployment_response(self, request, request_hash, secret, state):
         operation = request["operation"]
         payload = request["payload"]
-        with _DEPLOYMENT_LOCK, _state_guard():
+        with (
+            _DEPLOYMENT_LOCK,
+            _state_guard(),
+            _deployment_directory(xbmcvfs.translatePath(ADDON_ROOT)),
+        ):
             state = _load_state()
             _require_current_pairing(state, request, secret)
             if operation == "inspect_addon":
@@ -2044,7 +2352,19 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError
                 root = os.path.join(xbmcvfs.translatePath(ADDON_ROOT), addon_id)
                 try:
-                    _entries, digest, files, total = _tree_manifest(root)
+                    prior_entries = None
+                    if os.name == "nt":
+                        latest = ""
+                        for identity in state["deployments"]:
+                            prior = _load_operation(identity)
+                            if (
+                                prior["addon_id"] == addon_id
+                                and prior["state"] == "succeeded"
+                                and (prior.get("completed_at") or "") > latest
+                            ):
+                                prior_entries = prior["entries"]
+                                latest = prior["completed_at"]
+                    _entries, digest, files, total = _tree_manifest(root, prior_entries)
                     observed_id, version, _eligible = _addon_descriptor(root)
                     if observed_id != addon_id:
                         raise ValueError
@@ -2081,6 +2401,10 @@ class Handler(BaseHTTPRequestHandler):
         self._json_response(request, request_hash, secret, result)
 
     def _deployment_begin(self, payload, state):
+        with _deployment_directory(xbmcvfs.translatePath(ADDON_ROOT)):
+            return self._deployment_begin_guarded(payload, state)
+
+    def _deployment_begin_guarded(self, payload, state):
         _cleanup_staging(state)
         required = {
             "addon_id",
@@ -2133,21 +2457,22 @@ class Handler(BaseHTTPRequestHandler):
             for entry in entries:
                 target = os.path.join(stage, *entry["path"].split("/"))
                 if entry["type"] == "directory":
-                    os.mkdir(target, 0o755)
+                    with _deployment_directory(os.path.dirname(target)) as parent:
+                        if os.name == "nt":
+                            os.mkdir(target, 0o755)
+                        else:
+                            os.mkdir(os.path.basename(target), 0o755, dir_fd=parent)
                 else:
                     parent = os.path.dirname(target)
                     if not os.path.isdir(parent):
                         raise ValueError("manifest parent unavailable")
-                    descriptor = os.open(
-                        target,
-                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                        entry["mode"],
-                    )
-                    os.close(descriptor)
-                    os.chmod(target, entry["mode"])
+                    with _deployment_file(target, "xb", entry["mode"]):
+                        pass
             operation = {
                 "addon_id": addon_id,
                 "addon_version": addon_version,
+                "target_id": state["target_id"],
+                "bridge_id": state["bridge_id"],
                 "classification": "transfer_pending",
                 "completed_at": None,
                 "created_at_epoch": int(time.time()),
@@ -2171,7 +2496,10 @@ class Handler(BaseHTTPRequestHandler):
             }
             _save_state(state)
         except Exception:
-            shutil.rmtree(stage, ignore_errors=True)
+            try:
+                _remove_deployment_tree(stage)
+            except Exception:
+                raise OperationError("deployment_cleanup_failed") from None
             raise
         return _receipt(operation, state["bridge_id"])
 
@@ -2189,6 +2517,11 @@ class Handler(BaseHTTPRequestHandler):
         operation = _load_operation(deployment_id)
         if operation["state"] not in {"staging", "ready"}:
             return _receipt(operation, state["bridge_id"])
+        if (
+            operation.get("target_id") != state["target_id"]
+            or operation.get("bridge_id") != state["bridge_id"]
+        ):
+            raise ValueError("deployment pairing changed")
         path = _relative_path(payload["path"])
         matching = [
             item
@@ -2217,29 +2550,30 @@ class Handler(BaseHTTPRequestHandler):
         ):
             raise ValueError("chunk invalid")
         target = os.path.join(_stage_path(deployment_id), *path.split("/"))
-        current = os.path.getsize(target)
         offset = payload["offset"]
-        if offset < current:
-            with open(target, "rb") as stream:
+        with _deployment_file(target, "r+b") as stream:
+            current = os.fstat(stream.fileno()).st_size
+            if offset < current:
                 stream.seek(offset)
                 if stream.read(len(content)) != content:
                     raise ValueError("chunk conflict")
-        elif offset == current and current + len(content) <= matching[0]["size"]:
-            with open(target, "ab") as stream:
+            elif offset == current and current + len(content) <= matching[0]["size"]:
+                stream.seek(current)
                 stream.write(content)
                 stream.flush()
                 os.fsync(stream.fileno())
-        else:
-            raise ValueError("chunk offset invalid")
+            else:
+                raise ValueError("chunk offset invalid")
         complete = True
         for entry in operation["entries"]:
             if entry["type"] == "file":
                 candidate = os.path.join(
                     _stage_path(deployment_id), *entry["path"].split("/")
                 )
-                if os.path.getsize(candidate) != entry["size"]:
-                    complete = False
-                    break
+                with _deployment_file(candidate) as stream:
+                    if os.fstat(stream.fileno()).st_size != entry["size"]:
+                        complete = False
+                        break
         if complete:
             operation["state"] = "ready"
             operation["classification"] = "transfer_complete"
@@ -2257,10 +2591,15 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("manifest mismatch")
         if operation["state"] in {"succeeded", "failed", "replacing"}:
             return _receipt(operation, state["bridge_id"])
+        if (
+            operation.get("target_id") != state["target_id"]
+            or operation.get("bridge_id") != state["bridge_id"]
+        ):
+            raise ValueError("deployment pairing changed")
         if operation["state"] != "ready":
             raise ValueError("transfer incomplete")
         stage = _stage_path(deployment_id)
-        scanned, digest, files, total = _tree_manifest(stage)
+        scanned, digest, files, total = _tree_manifest(stage, operation["entries"])
         observed_id, observed_version, eligible = _addon_descriptor(stage)
         if (
             scanned != operation["entries"]
@@ -2284,6 +2623,7 @@ class Handler(BaseHTTPRequestHandler):
         )
         backup = _backup_path(deployment_id)
         enabled, _before = _addon_enabled(operation["addon_id"])
+        before_tree = _tree_manifest(destination)
         operation["enabled_state"] = "enabled" if enabled else "disabled"
         operation["state"] = "replacing"
         operation["classification"] = "replacement_started"
@@ -2299,18 +2639,22 @@ class Handler(BaseHTTPRequestHandler):
             if previous is not None:
                 prior_path = _backup_path(previous)
                 if os.path.isdir(prior_path) and not os.path.islink(prior_path):
-                    shutil.rmtree(prior_path)
+                    _remove_deployment_tree(prior_path)
             if not os.path.isdir(destination) or os.path.islink(destination):
                 raise ValueError("destination identity unavailable")
-            os.replace(destination, backup)
+            _deployment_metadata(os.lstat(destination), directory=True)
+            _deployment_metadata(os.lstat(stage), directory=True)
+            if os.path.lexists(backup):
+                raise ValueError("backup identity collision")
+            _deployment_replace(destination, backup)
             moved_old = True
-            os.replace(stage, destination)
+            _deployment_replace(stage, destination)
             moved_new = True
             _fsync_directory(os.path.dirname(destination))
             if enabled:
                 _set_enabled(operation["addon_id"], True)
             after_entries, after_digest, after_files, after_total = _tree_manifest(
-                destination
+                destination, operation["entries"]
             )
             after_id, after_version, _after_eligible = _addon_descriptor(destination)
             after_enabled, details = _addon_enabled(operation["addon_id"])
@@ -2331,20 +2675,40 @@ class Handler(BaseHTTPRequestHandler):
             operation["receipt_id"] = str(uuid.uuid4())
             operation["completed_at"] = _timestamp()
             state["rollback"] = deployment_id
-        except Exception:
+        except Exception as error:
+            _deployment_diagnostic(
+                {
+                    "operation": "deployment_commit",
+                    "request_id": operation["deployment_request_id"],
+                },
+                error,
+            )
+            operation["inventory_verified"] = False
             rollback_ok = False
             restored_before_mutation = False
             try:
                 if moved_new and os.path.isdir(destination):
                     failed = stage + ".failed"
                     if os.path.lexists(failed):
-                        shutil.rmtree(failed, ignore_errors=True)
-                    os.replace(destination, failed)
+                        raise ValueError("failed staging identity collision")
+                    _deployment_replace(destination, failed)
                 if moved_old:
-                    os.replace(backup, destination)
+                    _deployment_replace(backup, destination)
                     _fsync_directory(os.path.dirname(destination))
                 if enabled:
                     _set_enabled(operation["addon_id"], True)
+                # A native rename may finish before handle cleanup reports an
+                # error. Never infer restoration from local move flags alone.
+                restored_tree = _tree_manifest(destination)
+                restored_enabled, restored_details = _addon_enabled(
+                    operation["addon_id"]
+                )
+                if (
+                    restored_tree != before_tree
+                    or restored_enabled != enabled
+                    or restored_details.get("version") != _before.get("version")
+                ):
+                    raise ValueError("rollback verification failed")
                 restored_before_mutation = not moved_old and not moved_new
                 rollback_ok = moved_old or restored_before_mutation
             except Exception:
@@ -2399,6 +2763,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json_error_response(self, request, request_hash, secret, code):
         if code not in {
+            "deployment_request_invalid",
+            "deployment_installation_failed",
+            "deployment_cleanup_failed",
             "addon_inspection_failed",
             "provisional_operation_not_allowed",
             "conflicting_commit",

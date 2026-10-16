@@ -6248,3 +6248,44 @@ schema version 1 and the resident Bridge collection contract are independent
 and unchanged. Unknown, ambiguous and unverified results retain their explicit
 status, and mapping version gates, authorization and association checks remain
 mandatory. See [Window mappings](WINDOW-MAPPINGS.md).
+
+## D-0431: Portable direct installation keeps authenticated errors separate
+
+Protocol 1 direct deployment uses platform-specific no-follow primitives.
+Windows pins every local-drive ancestor with reparse-point-opened handles,
+requires native attributes/link counts, and renames checked directory handles
+without replacing an existing destination. Win32 path aliases and UNC/device
+roots fail closed. Linux retains descriptor-relative no-follow file access and
+directory replacement. NTFS retains executable modes as logical manifest
+metadata; initial Windows source baselines require regular 0644 file modes.
+
+Keep complete staging, content/descriptor checks, enablement preservation,
+immediate rollback, final inventory verification and durable receipt recovery.
+Windows lacks POSIX directory fsync; two-move replacement remains best-available,
+not power-loss atomic. Bind new transfers to their target/Bridge pairing and
+refuse activation of legacy unbound transfers. Read-only receipt recovery stays
+available. Cleanup errors are explicit and incomplete installation cannot yield
+successful verified evidence.
+
+Authenticated installer failures use signed bounded operation errors; genuine
+credential/signature rejection remains 401. Diagnostics contain closed exception
+categories and numeric OS error codes, never exception text or payloads. Lab
+verifies the error signature before preserving reachable pairing state.
+Reconciliation repeats the initial deployment's add-on/version/generation checks.
+Target-specific source baselines and receipts remain the only provenance; manual
+installation needs exact-source Web baseline establishment before new Lab
+lineage. See [Windows direct installation](WINDOWS-DIRECT-INSTALL.md).
+
+Keep the exact previous managed stable/preview pins for existing active trust
+records. New establishment uses the corrected current pin. Prior acceptance
+requires the existing credential and unchanged stored identity, container and
+runtime revision; it is not a version-only fallback or authority for another
+target. The Windows repair must not force replacement of an already trusted
+Nexus Bridge or retire its credential.
+
+The existing authenticated Web development reverify action can adopt only the
+exact previous stable build to the exact corrected build under the same Bridge
+UUID, native Kodi version, protocol, endpoint and stored secret reference, with
+unchanged capabilities. Persist the new build pin only after those checks. No
+OTP, re-pair, grant expansion or baseline adoption is performed. Unknown builds
+remain identity mismatches; production retains its reviewed-build ceremony.
