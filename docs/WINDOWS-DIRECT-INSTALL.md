@@ -232,3 +232,7 @@ controls apply) are:
   endpoint or database repair step.
 
 See [the existing external-development contract](PHASE13-EXTERNAL-TARGETS.md).
+
+For the later validation blocker and manual-catalog native crash, see
+[Windows update reports #4 and #5](WINDOWS-UPDATE-TRIAGE.md). Those reports
+precede installation of the corrected application and Bridge on the workstation.

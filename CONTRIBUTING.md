@@ -41,6 +41,11 @@ Install the locked development environment:
 uv sync --dev
 ```
 
+The browser behavior tests also require the `node` executable on `PATH`. Verify
+`node --version` in the same shell that runs a check lane; `uv sync` installs
+Python dependencies only. Node is a test prerequisite, not a requirement for
+running an installed Lab bundle. See [test prerequisites and isolation](docs/TEST-PERFORMANCE.md#test-prerequisites-and-isolation).
+
 For optional source-development path overrides, copy `.env.example` to `.env`
 in the checkout and edit its two bootstrap paths. The file is ignored by Git;
 the same variables may be supplied through the environment. Bundle installations

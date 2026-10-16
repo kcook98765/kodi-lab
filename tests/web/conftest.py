@@ -430,6 +430,46 @@ def coordinator_factory(
     return ImmediateCoordinator()
 
 
+class FakeManagedKodiTransport:
+    """Native identity with no resident Bridge; never open a socket."""
+
+    def __init__(self) -> None:
+        self.identity = KodiApplicationIdentity("Kodi", 21, 3, "stable")
+        self.calls: list[str] = []
+        self.failure: Exception | None = None
+
+    def post(
+        self, *, host: str, port: int, path: str, body: bytes, timeout: float
+    ) -> bytes:
+        assert (host, port, path) == ("10.250.0.10", 8080, "/jsonrpc")
+        assert 0 < timeout <= 3
+        request = json.loads(body)
+        method = request["method"]
+        self.calls.append(method)
+        if self.failure is not None:
+            raise self.failure
+        document: dict[str, object] = {"jsonrpc": "2.0", "id": request["id"]}
+        if method == "Application.GetProperties":
+            assert request["params"] == {"properties": ["name", "version"]}
+            document["result"] = {
+                "name": self.identity.name,
+                "version": {
+                    "major": self.identity.major,
+                    "minor": self.identity.minor,
+                    "tag": self.identity.tag,
+                },
+            }
+        elif method == "Addons.GetAddonDetails":
+            assert request["params"] == {
+                "addonid": "service.kodi_lab_bridge",
+                "properties": ["enabled", "version"],
+            }
+            document["error"] = {"code": -32602, "message": "Invalid params."}
+        else:
+            raise AssertionError(f"unexpected managed method: {method}")
+        return json.dumps(document).encode()
+
+
 class FakeAddonInventoryAdapter:
     def __init__(self, broker: FakeBroker) -> None:
         self._broker = broker
@@ -688,11 +728,17 @@ def external_kodi() -> FakeExternalKodi:
 
 
 @pytest.fixture
+def managed_native() -> FakeManagedKodiTransport:
+    return FakeManagedKodiTransport()
+
+
+@pytest.fixture
 def client(
     database: sessionmaker[Session],
     broker: FakeBroker,
     data_root: Path,
     external_kodi: FakeExternalKodi,
+    managed_native: FakeManagedKodiTransport,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[TestClient]:
     development_root = data_root.parent / "development-root"
@@ -735,6 +781,9 @@ def client(
         browser_remote_rate_limiter=BrowserRemoteRateLimiter(clock=lambda: 100.0),
         external_target_transport=httpx.MockTransport(external_kodi.handle),
     )
+    # Lifecycle preparation has a separate native transport from external
+    # targets and the readiness coordinator. All three must stay inside fixtures.
+    app.state.kodi_lab.managed_bridge_trust.transport = managed_native
     with TestClient(app, base_url="http://127.0.0.1") as test_client:
         yield test_client
 

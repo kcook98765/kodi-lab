@@ -5,6 +5,26 @@ suite, Ruff formatting and linting, strict mypy, package build, Alembic history,
 and the package/configuration import. Its coverage remains intact, while ordinary
 tasks may finish at FOCUSED or INTEGRATION without invoking the full gate.
 
+## Test prerequisites and isolation
+
+Run `uv sync --dev` and ensure `node --version` succeeds in the gate's shell.
+The Add Kodi JavaScript behavior harness invokes `node` directly; the Python
+lockfile does not install it. A missing executable is an environment failure,
+not a reason to omit the harness. The harness uses Node's built-in modules and
+requires no npm installation. The Node 22 executable passed locally;
+issue #4 also reports the harness passing with Node 24 on the workstation.
+
+Web route fixtures must double every outbound transport, including the managed
+resident Bridge preparation's native JSON-RPC transport. A fake broker and an
+immediate readiness coordinator do not replace this separate HTTP path. Leaving
+it real made lifecycle tests depend on routing to the synthetic `10.250.0.10`
+address: a timeout kept the background readiness task checking longer than the
+test's polling budget, with `jsonrpc_state=not_checked`. The transport fixture
+now returns the fake native identity and reports no installed resident Bridge;
+it does not bypass trust admission or establish credentials. Regression tests
+reject real network calls and cover absent Bridge, transport failure and native
+identity mismatch. Production timeouts, identity checks and trust pins are unchanged.
+
 The gate keeps ordinary pytest temporary files on `/dev/shm` when at least 1 GiB
 is available. For a full run whose temporary files exceed tmpfs capacity, set
 `KODI_LAB_CHECK_PYTEST_TMP_PARENT=/tmp ./scripts/check` (or another absolute,
