@@ -6361,3 +6361,41 @@ No live Bridge upgrade or pairing is implied by applying Lab source changes.
 Migration 0072 extends only canonical closed Bridge capability sets, preserves
 all authority triggers and rows, and refuses lossy downgrade while log-capable
 records remain. No permission, grant, secret, trust or target backfill occurs.
+
+## D-0434: Shared fresh installer with an experimental Windows/WSL2 path
+
+Issue #8 and the authorized follow-up add a prerequisite-based installer for
+native Ubuntu 24.04 amd64 and Windows-hosted Ubuntu 24.04 under WSL2/Docker
+Desktop. Native Linux remains the qualified baseline; the issue's dated
+operational workstation report is evidence of that installation, not acceptance
+of the new installer. Native Windows server execution remains deferred.
+
+`scripts/install.py` orchestrates the existing clean-source bundle builder,
+integrity verifier, image-ID configuration, repository/database initialization,
+interactive administrator password, managed network admission and Compose health
+checks. It requires a local rootful Linux amd64 engine, records that engine's
+identity, refuses an existing managed network and conflicting visible routes,
+and allocates a separate Compose project and private installation directory.
+It never acquires Kodi until the operator installs a runtime in Web.
+
+The verified bundle inventory is unchanged. A sidecar receipt binds the bundle
+hash, engine, project and last completed stage; a copied helper pins subsequent
+commands to them. Ambient Compose/Lab settings cannot substitute another project
+or image. Failures retain artifacts and prohibit blind reinstall; interruption
+after a command but before its receipt update still needs explicit state review.
+This fresh installer is not an automatic updater, migration retry or rollback.
+
+The PowerShell entry point forwards argument arrays directly into WSL. Linux
+filesystem placement retains Unix ownership/socket semantics. The Windows-only
+Compose sidecar replaces repository publication with a loopback backend; explicit
+Windows LAN-IP forwarding and a scoped firewall rule remain operator steps.
+Web/MCP remain on loopback. No Docker socket is added to Web/Kodi, no host broker
+is introduced, and fixed worker socket/route mounts, peer credentials, image
+provenance, target trust and grant checks remain intact. Sign-in startup is
+optional and uses the same start command without stored Web credentials.
+
+Manual Linux installation and existing backup/candidate-transition procedures
+remain available. Formal Windows support requires a recorded clean-host run of
+the new path, including LAN repository access, cold managed acquisition, granted
+and denied MCP inspection, lifecycle and recovery. Linux fixture/Compose tests
+do not establish native Windows acceptance.

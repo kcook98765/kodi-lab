@@ -13,6 +13,7 @@
 /scripts/linux-v1-bundle text eol=lf
 /scripts/stage-linux-v1-bundle text eol=lf
 /scripts/*.py text eol=lf
+/scripts/install-windows.ps1 text eol=lf
 
 # Container assembly inputs are text and checked against reviewed byte hashes.
 # This includes the Python display guard and XML profile, as well as shell code.

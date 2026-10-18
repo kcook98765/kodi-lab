@@ -5,6 +5,12 @@ Kodi Lab's application images locally, then uses the existing verified bundle
 installer. Kodi executables are not in Git, the wheel or the deployment bundle.
 They are acquired only when you explicitly install a reviewed runtime in Web.
 
+For a fresh installation with prerequisites already installed, the
+[shared host installer](HOST-INSTALLER.md) automates the same bundle steps.
+The manual procedure below remains available. Windows-hosted Linux containers
+use the experimental [WSL2/Docker Desktop guide](WINDOWS-WSL2-INSTALL.md);
+that operational report is separate from native Linux qualification.
+
 ## Prerequisites and capacity
 
 The qualified development baseline is Ubuntu 24.04, Linux x86_64/amd64, Python

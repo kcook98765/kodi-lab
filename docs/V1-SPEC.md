@@ -153,7 +153,7 @@ Do not expand MCP into a second lab-admin API merely because an operation exists
 ## 4. Non-goals for v1
 
 Deferred:
-- Windows/macOS host support;
+- native Windows/macOS server execution and formal Windows host qualification;
 - ARM64/Apple Silicon host support;
 - persistent Kodi Lab-created managed instances, unless a concrete post-V1
   use case justifies a separate lifecycle and recovery design;
@@ -228,7 +228,10 @@ Host policy:
 - Docker-capable Linux generally;
 - Ubuntu is the CI-validated host for v1;
 - x86_64 official initially;
-- ARM64/Apple Silicon and Windows/macOS are post-V1 host work.
+- ARM64/Apple Silicon and native Windows/macOS server execution are post-V1 host work;
+- D-0434 permits an experimental Windows/WSL2 Ubuntu amd64 installation path using
+  Docker Desktop's Linux engine and the existing container broker. The recorded
+  working deployment does not establish clean-host Windows qualification.
 
 ## 7. Releases
 

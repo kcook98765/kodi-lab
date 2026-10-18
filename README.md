@@ -28,13 +28,39 @@ instances for experiments or connect to Kodi installations you already use.
 Setup installs Python build/test packages automatically; editors and AI clients
 are optional.
 
-Windows/WSL2, macOS and ARM64 hosts are not yet qualified. An existing Kodi target
-can be on another computer; these requirements apply to the Kodi Lab server.
+Windows 11 with WSL2, Ubuntu 24.04 and Docker Desktop has a reported working
+deployment, including managed Nexus/Omega and MCP. A maintained
+[Windows installation path](docs/WINDOWS-WSL2-INSTALL.md) is available for
+experimental use; clean-host Windows qualification remains pending. macOS and
+ARM64 hosts are not qualified. An existing Kodi target can be on another
+computer; these requirements apply to the Kodi Lab server.
 
 ## Quick Start — Install Kodi Lab
 
 These steps are for a fresh installation. For an existing installation, use the
 [upgrade and rollback guide](docs/LINUX-V1-UPGRADE-ROLLBACK.md).
+
+With the Ubuntu prerequisites installed, clone and run the shared installer:
+
+```sh
+git clone https://github.com/kcook98765/kodi-lab.git
+cd kodi-lab
+python3 scripts/install.py install --directory "$HOME/kodi-lab-install"
+```
+
+It prompts for your private LAN repository address and Web administrator
+password, then builds/verifies the application bundle, initializes fresh state
+and starts services. Open <http://127.0.0.1:18100/login>, sign in and continue
+with [First-Time Setup](#first-time-setup). See the
+[installer guide](docs/HOST-INSTALLER.md) for prerequisites, configuration,
+start/stop and recovery. Windows users follow the
+[WSL2 guide](docs/WINDOWS-WSL2-INSTALL.md), including its explicit repository
+forwarding setup.
+
+### Manual installation
+
+Use these steps when performing installation yourself instead of running the
+installer. Both paths use the same verified bundle and initialization commands.
 
 **1. Clone and build the application bundle.** Run these commands in Bash as
 your ordinary user, with the prerequisites above installed:
@@ -181,6 +207,8 @@ see [qualification notes](docs/RC1-TESTING-CHECKPOINT.md).
 ## Documentation
 
 - [Linux installation and capacity planning](docs/LINUX-SOURCE-INSTALL.md)
+- [Shared installer and everyday management](docs/HOST-INSTALLER.md)
+- [Windows/WSL2 installation and qualification status](docs/WINDOWS-WSL2-INSTALL.md)
 - [Existing Kodi, add-on repository and local source setup](docs/LINUX-V1-INSTALL.md)
 - [Managed RC1 workflow and known limitations](docs/RC1-WEB-WORKFLOW.md)
 - [Agent add-on development](docs/PHASE12-MCP-DEVELOPMENT.md)
