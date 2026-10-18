@@ -253,12 +253,14 @@ class ManagedInstanceDetailService:
                 None,
             )
             if (
-                latest is not None
+                enable_eligible
+                and latest is not None
                 and latest.result_classification
                 is DevelopmentSourceEnablementResult.DEPENDENCY_BLOCKED
             ):
-                state = "Dependency blocked"
-                enable_eligible = False
+                # Historical failure is advisory. A fresh Enable reruns every
+                # preflight after dependencies have been installed or enabled.
+                state = "Dependency blocked at last attempt"
                 blocked_dependency_id = latest.blocked_dependency_id
                 blocked_reason = latest.blocked_dependency_reason
             latest_smoke = next(

@@ -629,7 +629,10 @@ def test_abandoned_dispatched_smoke_is_terminalized_without_resume(
         (True, False, False, None, "dependency_disabled"),
         (False, False, True, None, None),
         (True, True, False, None, None),
-        (True, True, False, "2.0.0", "dependency_version_unverified"),
+        (True, True, False, "2.0.0", "dependency_incompatible"),
+        (True, True, False, "1.0.0", None),
+        (True, True, False, "0.9.0", None),
+        (True, True, False, "1.0.0~beta1", "dependency_version_unverified"),
     ],
 )
 def test_dependency_preflight_never_invokes_when_blocked(

@@ -828,11 +828,15 @@ sources do not. Source dependencies are cross-checked with fixed
 `Addons.GetAddonDetails` data and current complete inventory. Required missing,
 disabled, unknown, mismatched, or version-unverified dependencies block before
 Kodi mutation; optional missing dependencies are allowed. No dependency is
-installed or enabled, and no version ordering is inferred. Kodi's exact
+installed or enabled. D-0432 permits bounded canonical numeric three-component
+ordinary installed-version minima: at or above the minimum is present-enabled;
+proved lower versions are incompatible. Explicit ranges and unsupported version
+shapes remain version-unverified. This check proves the installed minimum,
+not generic provider ABI compatibility. Exact reviewed system API intervals
+cover the existing Python API table and Omega 21.3 GUI API/ABI 5.17.0; unknown
+releases and contradictory system observations remain blocked. Kodi's exact
 `0.0.0` unset-bound sentinel is treated as no declaration constraint during
-cross-checking while the reported value remains preserved. Because the fixed
-API exposes no authoritative compatibility Boolean, any actual required
-version constraint is version-unverified even when strings happen to match.
+cross-checking while the reported value remains preserved.
 
 The only Kodi mutation adapter builds `Addons.SetAddonEnabled` internally with
 the server-derived add-on ID and literal Boolean `true`. Exact live recognition

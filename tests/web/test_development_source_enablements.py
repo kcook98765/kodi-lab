@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import update
 from sqlalchemy.orm import Session, sessionmaker
@@ -26,6 +27,7 @@ from kodi_lab.kodi.readiness import KodiApplicationIdentity
 from kodi_lab.storage.models import (
     DevelopmentSourceDeploymentOperationRow,
     DevelopmentSourceDeploymentRow,
+    DevelopmentSourceEnablementOperationRow,
     RuntimeExecutionProfileRow,
 )
 from kodi_lab.web.app import create_app
@@ -261,3 +263,90 @@ def test_instance_ui_offers_enable_only_for_advisory_eligible_disabled_source(
         "repository_url",
     ):
         assert forbidden not in page.text
+
+
+@pytest.mark.parametrize(
+    ("container_state", "enabled", "stale", "expected_enable", "expected_state"),
+    [
+        (
+            ContainerRuntimeState.RUNNING,
+            False,
+            False,
+            True,
+            "Dependency blocked at last attempt",
+        ),
+        (ContainerRuntimeState.RUNNING, True, False, False, "Recognized, enabled"),
+        (ContainerRuntimeState.STOPPED, False, False, False, "Copied, Kodi stopped"),
+        (ContainerRuntimeState.RUNNING, False, True, False, "Provenance stale"),
+    ],
+)
+def test_historical_dependency_failure_allows_fresh_preflight_only_when_eligible(
+    database: sessionmaker[Session],
+    broker: FakeBroker,
+    data_root: Path,
+    tmp_path: Path,
+    container_state: ContainerRuntimeState,
+    enabled: bool,
+    stale: bool,
+    expected_enable: bool,
+    expected_state: str,
+) -> None:
+    _seed_copied_source(database)
+    development_root = tmp_path / "development"
+    _write_source(development_root)
+    with database.begin() as session:
+        session.add(
+            DevelopmentSourceEnablementOperationRow(
+                id=ENABLEMENT_OPERATION_ID,
+                original_managed_instance_id=str(INSTANCE_ID),
+                managed_instance_id=str(INSTANCE_ID),
+                development_source_id=str(SOURCE_A),
+                source_logical_name="Alpha source",
+                addon_id="plugin.video.alpha",
+                addon_version="1.2.3",
+                runtime_revision_id=str(REVISION_ID),
+                requested_at=AT,
+                started_at=AT,
+                completed_at=AT,
+                state="failed",
+                phase="finalize",
+                result_classification="dependency_blocked",
+                result_enabled=False,
+                enable_performed=False,
+                blocked_dependency_id="script.module.example",
+                blocked_dependency_reason="dependency_missing",
+                failure_reason="dependency_missing",
+                reconciliation_required=False,
+            )
+        )
+        if stale:
+            session.execute(
+                update(DevelopmentSourceDeploymentRow).values(confidence="stale")
+            )
+    broker.container = inventory_entry(container_state)
+    broker.addon_inventory_result = KodiAddonInventoryResult(
+        identity=KodiApplicationIdentity("Kodi", 21, 3, "stable"),
+        items=(
+            KodiAddonInventoryRecord(
+                "plugin.video.alpha",
+                "Alpha Video",
+                "1.2.3",
+                enabled,
+                "xbmc.python.pluginsource",
+            ),
+        ),
+    )
+    service = FakeEnablementService()
+    with _client(database, broker, data_root, development_root, service) as client:
+        login(client)
+        page = client.get(f"/instances/{INSTANCE_ID}")
+    assert expected_state in page.text
+    assert ('class="development-source-enable"' in page.text) is expected_enable
+    assert service.calls == []
+    with database() as session:
+        original = session.get(
+            DevelopmentSourceEnablementOperationRow, ENABLEMENT_OPERATION_ID
+        )
+        assert original is not None
+        assert original.state is DevelopmentSourceEnablementOperationState.FAILED
+        assert original.failure_reason == "dependency_missing"

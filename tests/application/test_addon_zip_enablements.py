@@ -670,7 +670,10 @@ def test_exact_recognition_identity_is_required(
         (False, False, False, None, "dependency_missing", True),
         (True, False, False, None, "dependency_disabled", True),
         (False, False, True, None, None, False),
-        (True, True, False, "2.0.0", "dependency_version_unverified", True),
+        (True, True, False, "2.0.0", "dependency_incompatible", True),
+        (True, True, False, "1.0.0", None, False),
+        (True, True, False, "0.9.0", None, False),
+        (True, True, False, "1.0.0~beta1", "dependency_version_unverified", True),
     ],
 )
 def test_zip_dependency_preflight_is_non_mutating(

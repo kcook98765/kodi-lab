@@ -479,14 +479,20 @@ current suppression revision; safe non-Python sources do not.
 Live Kodi must recognize the copied ID and exact version. Source dependencies
 must agree with fixed `Addons.GetAddonDetails` declarations. Current complete
 inventory then classifies each dependency as present-enabled, missing,
-disabled, optional-missing, version-unverified, or unknown. Required missing or
-disabled dependencies block; optional missing is allowed. A required version
-constraint blocks as `dependency_version_unverified`: the fixed API provides
-no authoritative compatibility Boolean, and exact string equality does not
-prove range compatibility. Kodi's exact `0.0.0` unset-bound sentinel is treated
-as no declaration constraint during cross-checking while its reported string
-remains preserved. Kodi Lab never orders version strings, installs a
-dependency, or automatically enables one.
+disabled, optional-missing, incompatible, version-unverified, or unknown.
+Required missing or disabled dependencies block; optional missing is allowed.
+A lone ordinary `version` minimum and installed version can be compared only
+within the bounded canonical numeric `major.minor.patch` subset: at least the
+minimum is present-enabled; lower is incompatible. Explicit `minversion`
+ranges, suffixes, epochs, revisions and unsupported shapes remain
+`dependency_version_unverified`. This proves an installed version minimum,
+not general provider ABI compatibility or functional behavior. Reviewed system
+APIs use their ABI-to-installed interval: `xbmc.python` retains its exact
+Matrix/Nexus/Omega table and `xbmc.gui` on Omega 21.3 requires exactly 5.17.0.
+Unknown system releases remain blocked. See D-0432 for the precise bounds.
+Kodi's exact `0.0.0` unset-bound sentinel is treated as no declaration constraint
+during cross-checking while its reported string remains preserved. Kodi Lab
+never installs a dependency or automatically enables one.
 
 If all preconditions pass and the target is already enabled, the result is
 successful `already_enabled` with `enable_performed=false`. Otherwise the fixed
@@ -506,7 +512,10 @@ state and dependency inventory do not.
 The authenticated same-origin CSRF-protected endpoint is
 `POST /api/instances/{instance_id}/development-sources/{source_id}/enable` with
 a strict empty body and synchronous HTTP 200 result. UI controls are advisory;
-the POST revalidates all authority. The state ladder remains explicit:
+the POST revalidates all authority. A historical dependency failure leaves a
+fresh Enable available when the live source is otherwise eligible; stopped,
+enabled, stale and blocking states are not overridden by old history.
+The state ladder remains explicit:
 attached, materialized, recognized, enabled, dependencies generally unproven,
 working unproven, tested unproven.
 

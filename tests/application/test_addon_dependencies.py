@@ -24,10 +24,10 @@ def declaration(
 
 
 def inventory_record(
-    dependency_id: str, *, enabled: bool = True
+    dependency_id: str, *, enabled: bool = True, version: str = "1.0.0"
 ) -> KodiAddonInventoryRecord:
     return KodiAddonInventoryRecord(
-        dependency_id, dependency_id, "1.0.0", enabled, "xbmc.python.module"
+        dependency_id, dependency_id, version, enabled, "xbmc.python.module"
     )
 
 
@@ -140,4 +140,102 @@ def test_ordinary_dependency_and_optional_missing_semantics_remain_closed() -> N
         (declaration("script.module.example", version="1.0.0"),),
         {required.dependency_id: inventory_record(required.dependency_id)},
     )
-    assert constrained[0].status is DependencyStatus.VERSION_UNVERIFIED
+    assert constrained[0].status is DependencyStatus.PRESENT_ENABLED
+
+
+@pytest.mark.parametrize(
+    ("required", "installed", "expected"),
+    [
+        ("5.4.16", "5.4.16", DependencyStatus.PRESENT_ENABLED),
+        ("9.0.5", "9.0.7", DependencyStatus.PRESENT_ENABLED),
+        ("0.0.5", "3.0.2", DependencyStatus.PRESENT_ENABLED),
+        ("1.9.0", "1.10.0", DependencyStatus.PRESENT_ENABLED),
+        ("1.10.0", "1.9.0", DependencyStatus.INCOMPATIBLE),
+        ("2.0.0", "1.9.0", DependencyStatus.INCOMPATIBLE),
+        ("1.0.1", "1.0.0", DependencyStatus.INCOMPATIBLE),
+        ("1.0.0", "1.0.0~beta1", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "1.0.0+omega.1", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "1.0.0-1", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "1:1.0.0", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "1.0", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "01.0.0", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "1.0.0.0", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "1.0.0\n", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "?.0.0", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "1000000000.0.0", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0~beta1", "1.0.0", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0", "1.0.0", DependencyStatus.VERSION_UNVERIFIED),
+        ("1.0.0", "", DependencyStatus.VERSION_UNVERIFIED),
+    ],
+)
+def test_installed_dependency_numeric_minimum(
+    required: str, installed: str, expected: DependencyStatus
+) -> None:
+    dependency_id = "script.module.example"
+    states = evaluate_dependencies(
+        (declaration(dependency_id, version=required),),
+        {dependency_id: inventory_record(dependency_id, version=installed)},
+    )
+    assert states[0].status is expected
+    assert states[0].declared_version == required
+    assert states[0].reported_version == installed
+    assert (first_blocking_dependency(states) is None) == (
+        expected is DependencyStatus.PRESENT_ENABLED
+    )
+
+
+@pytest.mark.parametrize("version", [None, "1.0.0"])
+def test_explicit_dependency_range_remains_unverified(version: str | None) -> None:
+    dependency_id = "script.module.example"
+    states = evaluate_dependencies(
+        (declaration(dependency_id, version=version, minversion="1.0.0"),),
+        {dependency_id: inventory_record(dependency_id)},
+    )
+    assert states[0].status is DependencyStatus.VERSION_UNVERIFIED
+    assert first_blocking_dependency(states) is states[0]
+
+
+@pytest.mark.parametrize(
+    ("release", "required", "expected"),
+    [
+        ("21.3", "5.17.0", DependencyStatus.PRESENT_ENABLED),
+        ("21.3", "5.16.0", DependencyStatus.INCOMPATIBLE),
+        ("21.3", "5.15.0", DependencyStatus.INCOMPATIBLE),
+        ("21.3", "5.18.0", DependencyStatus.INCOMPATIBLE),
+        ("21.3", "5.17.0~beta1", DependencyStatus.VERSION_UNVERIFIED),
+        ("20.5", "5.16.0", DependencyStatus.VERSION_UNVERIFIED),
+        ("22.0", "5.17.0", DependencyStatus.VERSION_UNVERIFIED),
+    ],
+)
+def test_reviewed_system_gui_api_respects_abi_floor(
+    release: str, required: str, expected: DependencyStatus
+) -> None:
+    states = evaluate_dependencies(
+        (declaration("xbmc.gui", version=required),), {}, kodi_release=release
+    )
+    assert states[0].status is expected
+    assert states[0].reported_version == ("5.17.0" if release == "21.3" else None)
+
+
+def test_system_gui_contradictory_inventory_and_explicit_range_stay_blocked() -> None:
+    states = evaluate_dependencies(
+        (declaration("xbmc.gui", version="5.17.0"),),
+        {"xbmc.gui": inventory_record("xbmc.gui", version="5.17.0")},
+        kodi_release="21.3",
+    )
+    assert states[0].status is DependencyStatus.UNKNOWN
+    states = evaluate_dependencies(
+        (declaration("xbmc.gui", version="5.17.0", minversion="5.17.0"),),
+        {},
+        kodi_release="21.3",
+    )
+    assert states[0].status is DependencyStatus.VERSION_UNVERIFIED
+
+
+def test_other_system_api_does_not_use_ordinary_numeric_minimum() -> None:
+    states = evaluate_dependencies(
+        (declaration("xbmc.json", version="1.0.0"),),
+        {"xbmc.json": inventory_record("xbmc.json", version="1.0.0")},
+        kodi_release="21.3",
+    )
+    assert states[0].status is DependencyStatus.VERSION_UNVERIFIED

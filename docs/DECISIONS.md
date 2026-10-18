@@ -6289,3 +6289,39 @@ UUID, native Kodi version, protocol, endpoint and stored secret reference, with
 unchanged capabilities. Persist the new build pin only after those checks. No
 OTP, re-pair, grant expansion or baseline adoption is performed. Unknown builds
 remain identity mismatches; production retains its reviewed-build ceremony.
+
+
+## D-0432: Verify bounded installed dependency minima and permit fresh Enable preflight
+
+- Practical Omega skin development showed that D-0142's blanket ordinary-version
+  refusal made the supported Enable action unusable after every required add-on
+  had been installed and enabled. Supersede that refusal only for a lone
+  `version` declaration and an installed version both in the bounded canonical
+  numeric `major.minor.patch` subset (ASCII, no leading zeroes, at most nine
+  digits per component). Numeric tuple ordering agrees with Kodi's
+  `CAddonVersion` for this subset; it is not SemVer or lexicographic ordering.
+  Installed versions at or above the minimum are `present_enabled`; a proven
+  lower version is `incompatible`. Preserve the exact declared/reported strings.
+- Explicit `minversion` ranges, epochs, suffixes, revisions, malformed values and
+  other version shapes remain `version_unverified`. Missing/disabled required
+  dependencies and declaration mismatches still block before mutation. Optional
+  dependency handling is unchanged. This bounded check proves the installed
+  version minimum, not general provider ABI compatibility or runtime behavior.
+  It does not install or enable dependencies, change declarations, weaken the
+  copied-byte/revision/container checks, or expand Web/MCP authority.
+- Extend the reviewed system API exception to `xbmc.gui` on exact Omega 21.3:
+  installed GUI API and backwards-compatible ABI floor are both `5.17.0`.
+  Requirements below that floor or above that version are incompatible. Unknown
+  releases, explicit ranges and contradictory system inventory remain blocked;
+  other system APIs do not inherit ordinary minimum ordering. Existing reviewed
+  `xbmc.python` behavior is unchanged.
+- A historical dependency-blocked Enable attempt remains retained history,
+  rather than permanently hiding Enable. An otherwise eligible copied disabled
+  source may request a new full preflight. Live enabled, stopped, stale,
+  reconciliation-blocked and unsupported states still determine eligibility;
+  the historical failure does not override them. No automatic retry occurs.
+- Primary references: Kodi 21.3-Omega
+  [CAddonVersion](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/addons/AddonVersion.cpp),
+  [dependency representation](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/addons/addoninfo/AddonInfo.h),
+  [version/ABI checks](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/addons/addoninfo/AddonInfo.cpp),
+  and the [GUI descriptor](https://github.com/xbmc/xbmc/blob/21.3-Omega/addons/xbmc.gui/addon.xml).

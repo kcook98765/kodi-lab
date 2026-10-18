@@ -554,7 +554,7 @@ def test_dependency_preflight_blocks_hidden_dependency_mutations(
         assert adapter.enable_calls == []
 
 
-def test_required_version_is_fail_closed_when_not_exactly_proven(
+def test_required_version_below_minimum_blocks_enable(
     factory: sessionmaker[Session], tmp_path: Path
 ) -> None:
     dependency_id = "script.module.versioned"
@@ -573,7 +573,7 @@ def test_required_version_is_fail_closed_when_not_exactly_proven(
         [_target(), _dependency(dependency_id, enabled=True, version="1.9.0")],
         adapter,
     ).enable(INSTANCE_ID, SOURCE_ID)
-    assert result.failure_reason == "dependency_version_unverified"
+    assert result.failure_reason == "dependency_incompatible"
     assert adapter.enable_calls == []
 
 
@@ -910,3 +910,77 @@ def test_enablement_conflicts_with_every_instance_mutation_kind(
             addon_version=VERSION,
             runtime_revision_id=REVISION_ID,
         )
+
+
+@pytest.mark.parametrize("installed", ["5.4.16", "5.4.17", "6.0.0"])
+def test_numeric_minimum_and_omega_gui_allow_skin_enable(
+    factory: sessionmaker[Session], tmp_path: Path, installed: str
+) -> None:
+    dependency_id = "plugin.video.example.helper"
+    _write_descriptor(
+        tmp_path / "source",
+        extension="xbmc.gui.skin",
+        dependency_xml=(
+            '<requires><import addon="xbmc.gui" version="5.17.0"/>'
+            f'<import addon="{dependency_id}" version="5.4.16"/></requires>'
+        ),
+    )
+    with factory.begin() as session:
+        session.execute(
+            update(DevelopmentSourceRow).values(
+                extension_types_json='["xbmc.gui.skin"]'
+            )
+        )
+    adapter = FakeEnableAdapter()
+    adapter.kodi_type = "xbmc.gui.skin"
+    adapter.dependencies = (
+        KodiReportedAddonDependency("xbmc.gui", "5.17.0", False, "5.17.0"),
+        KodiReportedAddonDependency(dependency_id, "5.4.16", False, "5.4.16"),
+    )
+    target = KodiAddonInventoryRecord(
+        ADDON_ID, "Example", VERSION, False, "xbmc.gui.skin"
+    )
+    broker = FakeBroker()
+    result = _service(
+        factory,
+        tmp_path,
+        broker,
+        [target, _dependency(dependency_id, enabled=True, version=installed)],
+        adapter,
+    ).enable(INSTANCE_ID, SOURCE_ID)
+    assert result.result_classification is DevelopmentSourceEnablementResult.ENABLED
+    assert result.result_enabled is True
+    assert adapter.enable_calls == [ADDON_ID]
+    assert broker.verify_calls >= 1
+    assert all(item.status.value == "present_enabled" for item in result.dependencies)
+
+
+def test_dependency_install_then_enable_retains_prior_failure(
+    factory: sessionmaker[Session], tmp_path: Path
+) -> None:
+    dependency_id = "script.module.example"
+    _write_descriptor(
+        tmp_path / "source",
+        dependency_xml=(
+            f'<requires><import addon="{dependency_id}" version="2.0.0"/></requires>'
+        ),
+    )
+    adapter = FakeEnableAdapter()
+    adapter.dependencies = (KodiReportedAddonDependency(dependency_id, "2.0.0", False),)
+    inventory = [_target()]
+    service = _service(factory, tmp_path, FakeBroker(), inventory, adapter)
+    blocked = service.enable(INSTANCE_ID, SOURCE_ID)
+    assert blocked.failure_reason == "dependency_missing"
+    assert adapter.enable_calls == []
+    inventory.append(_dependency(dependency_id, enabled=True, version="2.1.0"))
+    enabled = service.enable(INSTANCE_ID, SOURCE_ID)
+    assert enabled.result_classification is DevelopmentSourceEnablementResult.ENABLED
+    assert enabled.operation_id != blocked.operation_id
+    assert adapter.enable_calls == [ADDON_ID]
+    with factory() as session:
+        original = session.get(
+            DevelopmentSourceEnablementOperationRow, str(blocked.operation_id)
+        )
+        assert original is not None
+        assert original.state is DevelopmentSourceEnablementOperationState.FAILED
+        assert original.failure_reason == "dependency_missing"

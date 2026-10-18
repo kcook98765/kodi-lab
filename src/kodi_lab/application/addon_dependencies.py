@@ -26,7 +26,13 @@ _PYTHON_API_BY_RELEASE = {
     "20.5": ((3, 0, 1), (3, 0, 0)),
     "21.3": ((3, 0, 1), (3, 0, 0)),
 }
+# A bounded subset whose tuple ordering agrees with Kodi CAddonVersion. Epochs,
+# revisions, suffixes and explicit minversion ranges remain unverified.
+_NUMERIC_VERSION = re.compile(r"(?:0|[1-9][0-9]{0,8})(?:\.(?:0|[1-9][0-9]{0,8})){2}\Z")
 _SYSTEM_API_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
+# Reviewed Kodi 21.3-Omega addons/xbmc.gui/addon.xml. Older GUI ABIs must not
+# satisfy Omega's floor merely because their number is below its API version.
+_GUI_API_BY_RELEASE = {"21.3": ((5, 17, 0), (5, 17, 0))}
 
 
 class AddonDependencyDeclaration(Protocol):
@@ -138,9 +144,17 @@ def evaluate_dependencies(
     for declared in declarations:
         record = inventory.get(declared.dependency_id)
         constraint = declared.version or declared.minversion
-        if declared.dependency_id == "xbmc.python" and constraint is not None:
-            status = _system_python_status(declared, record, kodi_release)
-            capability = _PYTHON_API_BY_RELEASE.get(kodi_release or "")
+        if (
+            declared.dependency_id in {"xbmc.python", "xbmc.gui"}
+            and constraint is not None
+        ):
+            capabilities = (
+                _PYTHON_API_BY_RELEASE
+                if declared.dependency_id == "xbmc.python"
+                else _GUI_API_BY_RELEASE
+            )
+            capability = capabilities.get(kodi_release or "")
+            status = _system_api_status(declared, record, capability)
             system_present = capability is not None and record is None
             result.append(
                 AddonDependencyState(
@@ -198,7 +212,7 @@ def evaluate_dependencies(
         if not record.enabled:
             status = DependencyStatus.DISABLED
         elif constraint is not None:
-            status = DependencyStatus.VERSION_UNVERIFIED
+            status = _installed_version_status(declared, record.version)
         else:
             status = DependencyStatus.PRESENT_ENABLED
         result.append(
@@ -216,17 +230,37 @@ def evaluate_dependencies(
     return result
 
 
-def _system_python_status(
+def _installed_version_status(
+    declared: AddonDependencyDeclaration, installed_version: str
+) -> DependencyStatus:
+    """Verify a simple numeric installed-version minimum, not generic ABI health."""
+
+    required_version = declared.version
+    if (
+        is_builtin_dependency(declared.dependency_id)
+        or declared.minversion is not None
+        or required_version is None
+        or _NUMERIC_VERSION.fullmatch(required_version) is None
+        or _NUMERIC_VERSION.fullmatch(installed_version) is None
+    ):
+        return DependencyStatus.VERSION_UNVERIFIED
+    required = tuple(int(part) for part in required_version.split("."))
+    installed = tuple(int(part) for part in installed_version.split("."))
+    if installed < required:
+        return DependencyStatus.INCOMPATIBLE
+    return DependencyStatus.PRESENT_ENABLED
+
+
+def _system_api_status(
     declared: AddonDependencyDeclaration,
     record: KodiAddonInventoryRecord | None,
-    kodi_release: str | None,
+    capability: tuple[tuple[int, int, int], tuple[int, int, int]] | None,
 ) -> DependencyStatus:
     """Check a reviewed Kodi system API against its declared ABI interval."""
 
     if record is not None:
         # System APIs are absent from Addons.GetAddons on reviewed runtimes.
         return DependencyStatus.UNKNOWN
-    capability = _PYTHON_API_BY_RELEASE.get(kodi_release or "")
     if capability is None or declared.minversion is not None:
         return DependencyStatus.VERSION_UNVERIFIED
     version = declared.version
