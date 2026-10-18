@@ -734,6 +734,7 @@ class McpAuthorizationService:
                 "target_status",
                 "addon_list",
                 "inspect_ui_state",
+                "log_read",
                 "screenshot_capture",
             }
         ):
@@ -991,16 +992,18 @@ class McpAuthorizationService:
         try:
             result = adapter()
         except McpAuthorizationError as error:
-            if production and error.code != "identity_mismatch":
+            if (
+                production or tool_name == "log_read"
+            ) and error.code != "identity_mismatch":
                 # Even bounded failure classifications are not disclosed after
                 # durable production authority changes during network work.
                 self.authorize_target(principal, tool_name, target_id)
             raise
         except Exception:
-            if production:
+            if production or tool_name == "log_read":
                 self.authorize_target(principal, tool_name, target_id)
             raise
-        if production or preference_revision is not None:
+        if production or preference_revision is not None or tool_name == "log_read":
             # A result is not publishable unless the entire durable authority
             # intersection still holds after the fresh native read.
             try:

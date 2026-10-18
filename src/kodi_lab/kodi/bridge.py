@@ -16,6 +16,7 @@ import httpx
 from pydantic import ValidationError
 
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
+from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.screenshots import (
     MAX_PNG_BYTES,
     PNG_MIME_TYPE,
@@ -30,13 +31,18 @@ BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT_PATH = "/kodi-lab/bridge/bootstrap/v1"
 BOOTSTRAP_PROTOCOL_VERSION = "otp-1"
 BRIDGE_ADDON_ID = "service.kodi_lab_bridge"
-SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.17"
+SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.19"
 OTP_CODE_ALPHABET = frozenset("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
 BRIDGE_CAPABILITIES = frozenset(
-    {"screenshot", "workspace_deployment", "ui_observation"}
+    {"screenshot", "workspace_deployment", "ui_observation", "log_read"}
 )
 BRIDGE_JSON_ERROR_CODES = frozenset(
     {
+        "log_request_invalid",
+        "log_read_busy",
+        "log_missing",
+        "log_changed",
+        "log_unavailable",
         "deployment_request_invalid",
         "deployment_installation_failed",
         "deployment_cleanup_failed",
@@ -49,6 +55,7 @@ BRIDGE_JSON_ERROR_CODES = frozenset(
 )
 BRIDGE_OPERATIONS = frozenset(
     {
+        "log_read",
         "inspect_ui_state",
         "bridge_identity",
         "bridge_capabilities",
@@ -637,6 +644,34 @@ class ExternalBridgeClient:
         ):
             raise ExternalBridgeError("bridge_capability_unavailable")
         return tuple(sorted(values))
+
+    def read_log(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+        request: KodiLogRequest,
+    ) -> tuple[BridgeIdentity, KodiLogResult]:
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            operation="log_read",
+            payload=request.model_dump(),
+        )
+        try:
+            if not isinstance(payload, dict) or set(payload) != {"identity", "log"}:
+                raise ValueError("invalid log envelope")
+            result = KodiLogResult.model_validate(payload["log"])
+            result.require_request(request)
+            return self._identity(payload["identity"]), result
+        except ValueError as error:
+            raise ExternalBridgeError("bridge_operation_failed") from error
 
     def inspect_ui_state(
         self,

@@ -38,12 +38,14 @@ _CLIENT_NAME: Final = "Disposable production inspection client"
 _EXPECTED_TOOLS: Final = (
     "addon_list",
     "inspect_ui_state",
+    "log_read",
     "target_list",
     "target_status",
 )
 _EXPECTED_VISUAL_TOOLS: Final = (
     "addon_list",
     "inspect_ui_state",
+    "log_read",
     "screenshot_capture",
     "target_list",
     "target_status",

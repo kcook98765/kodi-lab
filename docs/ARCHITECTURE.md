@@ -4,9 +4,11 @@
 not a replacement specification.
 
 Phase sections below retain their checkpoint tool counts and artifact identities.
-The current nineteen-tool MCP contract and six-tool production subset are in
+The current twenty-tool MCP contract and seven-tool production subset are in
 [V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract).
 The current Bridge packaging contract is in [BRIDGE.md](BRIDGE.md).
+Read-only current/previous log inspection, fixed paths, response bounds and
+trust requirements are in [KODI-LOGS.md](KODI-LOGS.md) (D-0433).
 
 For the current V1 release, managed instances are disposable and the stable
 reviewed Linux amd64 recipes are Matrix 19.4, Nexus 20.5, and Omega 21.3.

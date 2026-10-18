@@ -46,7 +46,7 @@ deployment, update or lifecycle authority. Production control uses separate
 fixed server-owned native Kodi actions; this is not an arbitrary production
 command channel.
 
-Bridge 1.1.17 protocol 1 advertises `screenshot`, `workspace_deployment` and
+Bridge 1.1.19 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
 `ui_observation`. Production observation additionally requires the existing
 reviewed-build confirmation and transport policy; deployment stays development-only.
 `inspect_ui_state` accepts only an empty payload. Its protected collector reads
@@ -88,7 +88,7 @@ children of real `__pycache__` directories because Kodi's external Python
 runtime can create those after a valid invocation. That scan is non-recursive,
 count/size bounded, and rejects links, nested directories and unknown files;
 all source paths remain exact provenance.
-Bridge 1.1.17 corrects Windows direct installation. On local Windows drives,
+Bridge 1.1.19 corrects Windows direct installation. On local Windows drives,
 every ancestor is opened without following reparse points and held without
 delete sharing during access. Files require mandatory native regular-file and
 single-link checks; directory moves use checked handles. Missing native metadata,
@@ -138,3 +138,20 @@ Use a trusted network or normal certificate-validated HTTPS where required.
 Kodi Lab does not automatically install or update this add-on. Follow the
 canonical Kodi Lab bridge and production-validation documentation for the
 detailed operating and recovery procedures.
+
+The authenticated `log_read` operation reads only `kodi.log` and `kodi.old.log`
+from Kodi's `special://logpath`. Its closed payload selects `current` or
+`previous` and `stats` (default, no content) or `tail`. Limits are 500 lines and
+8192 raw bytes per call; long lines may return a flagged partial first line.
+Content is UTF-8 with replacement for invalid bytes and is potentially sensitive.
+Responses include the logical Kodi location, size, modification time, observation
+time, snapshot identity, byte interval and truncation information. They do not
+expose the host path. For older excerpts, use `before=start_byte` together with
+`snapshot_id`. Append, truncation or rotation invalidates that snapshot with
+`log_changed`; refresh stats and restart paging. `log_missing` distinguishes an
+absent previous log from an unreachable Bridge or invalid trust. Reads pin path
+ancestors, reject links and nonregular files, and check the file again before
+returning. Log bodies are neither persisted in Bridge state nor replay-cached.
+Existing Bridge installations need this version and the normal trust verification
+before this capability becomes available; MCP inspection grants do not upgrade
+or pair a Bridge.

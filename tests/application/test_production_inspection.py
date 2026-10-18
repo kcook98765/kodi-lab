@@ -478,6 +478,7 @@ def test_exact_inspection_catalog_denies_visual_control_and_credential_mismatch(
     assert env.authorization.discoverable_tools(env.principal) == (
         "addon_list",
         "inspect_ui_state",
+        "log_read",
         "target_list",
         "target_status",
     )
@@ -745,7 +746,7 @@ def test_production_native_timeout_is_target_unreachable(
         env.tools.target_status(env.principal, target_id=env.target_id)
 
 
-def test_registry_allows_exactly_six_production_tools() -> None:
+def test_registry_allows_exactly_seven_production_tools() -> None:
     registry = build_mcp_tool_registry()
     eligible = {
         definition.name
@@ -753,12 +754,13 @@ def test_registry_allows_exactly_six_production_tools() -> None:
         if definition.production_eligible
         and TargetClass.EXTERNAL_PRODUCTION in definition.allowed_target_classes
     }
-    assert len(registry.names()) == 19
+    assert len(registry.names()) == 20
     assert eligible == {
         "target_list",
         "target_status",
         "addon_list",
         "inspect_ui_state",
+        "log_read",
         "screenshot_capture",
         "remote_action",
     }

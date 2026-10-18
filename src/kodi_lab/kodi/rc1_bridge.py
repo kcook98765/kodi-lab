@@ -23,7 +23,7 @@ _INVENTORY = (
     "service.py",
 )
 _FRAGMENT_SHA256 = "7f95447d72a99e2688d638c715209a2b3afce90d4174f4e6eef404f0a1adc672"
-RC1_ARCHIVE_SHA256 = "36b91ba4210ed246f2b1e397319aee383b983a58a4d609142198d072923db0fc"
+RC1_ARCHIVE_SHA256 = "71019d13ae3fa89647f5ee136835400355b854cc0a09940429407195c1676e37"
 
 
 def packaged_rc1_bridge_sources() -> dict[str, bytes]:
@@ -84,14 +84,12 @@ def reviewed_rc1_bridge_sources(legacy_root: Path) -> dict[str, bytes]:
             raise ValueError("Stable Bridge source differs from review")
         result[name] = data
     result["addon.xml"] = result["addon.xml"].replace(
-        b'version="1.1.17"', b'version="1.1.18"'
+        b'version="1.1.19"', b'version="1.1.20"'
     )
     source = result["narrow_bridge.py"]
-    source = source.replace(b'ADDON_VERSION = "1.1.17"', b'ADDON_VERSION = "1.1.18"')
-    source = source.replace(b"|1.1.17|protocol-1|", b"|1.1.18|protocol-1|")
-    source = source.replace(
-        b',portable-direct-install"', b',portable-direct-install,exact-release"'
-    )
+    source = source.replace(b'ADDON_VERSION = "1.1.19"', b'ADDON_VERSION = "1.1.20"')
+    source = source.replace(b"|1.1.19|protocol-1|", b"|1.1.20|protocol-1|")
+    source = source.replace(b',bounded-log-read"', b',bounded-log-read,exact-release"')
     start = source.index(b"def _identity(state):")
     end = source.index(b"def _png_chunk(kind, data):")
     # Keep function separation in assembly, not as empty lines at fragment EOF.

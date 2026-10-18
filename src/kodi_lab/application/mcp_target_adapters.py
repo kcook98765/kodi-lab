@@ -73,6 +73,7 @@ from kodi_lab.kodi.external import (
     ProductionKodiIdentityResult,
     ValidatedExternalEndpoint,
 )
+from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.remote import (
     BrowserRemoteAction,
     RemoteActionAmbiguousError,
@@ -139,6 +140,7 @@ _TARGET_TOOL_CAPABILITIES = (
     ("remote_action", "semantic_remote"),
     ("screenshot_capture", "screenshot"),
     ("inspect_ui_state", "target_inspect"),
+    ("log_read", "target_inspect"),
 )
 
 
@@ -607,6 +609,46 @@ class KodiTargetAdapterService:
         except ExternalBridgeServiceError as error:
             raise KodiTargetAdapterError(error.code) from error
         except ExternalProbeError as error:
+            raise KodiTargetAdapterError(error.code) from error
+
+    def read_log(self, target_id: UUID, request: KodiLogRequest) -> KodiLogResult:
+        try:
+            with self._gate.enter(target_id):
+                if self._target_type(target_id) is TargetType.MANAGED:
+                    if self._managed_ui_state is None:
+                        raise KodiTargetAdapterError("capability_unavailable")
+                    return self._managed_ui_state.read_log(target_id, request)
+                # Native identity is checked afresh before any sensitive Bridge read.
+                snapshot = (
+                    self._production_snapshot(
+                        target_id,
+                        required_capabilities=frozenset({"target_inspect"}),
+                        load_secret=True,
+                    )
+                    if self._target_type(target_id) is TargetType.EXTERNAL_PRODUCTION
+                    else self._external_snapshot(target_id, load_secret=True)
+                )
+                adapter = (
+                    self._production_adapter(snapshot)
+                    if snapshot.target_class is TargetClass.EXTERNAL_PRODUCTION
+                    else self._external_adapter(snapshot)
+                )
+                if snapshot.target_class is TargetClass.EXTERNAL_PRODUCTION:
+                    self._require_production_identity(
+                        snapshot, adapter.get_production_identity()
+                    )
+                else:
+                    self._require_identity(snapshot, adapter)
+                if self._external_bridges is None:
+                    raise KodiTargetAdapterError("capability_unavailable")
+                result = self._external_bridges.read_log(target_id, request)
+                self.resolve(target_id)
+                return result
+        except (
+            ExternalBridgeServiceError,
+            ExternalProbeError,
+            UiObservationError,
+        ) as error:
             raise KodiTargetAdapterError(error.code) from error
 
     def inspect_ui_state(self, target_id: UUID) -> UiObservation:

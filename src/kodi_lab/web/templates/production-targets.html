@@ -37,7 +37,7 @@
           <label>Add-on ID <input name="addon_id" value="service.kodi_lab_bridge" maxlength="128" required></label>
           <label>Add-on version <input name="addon_version" maxlength="64" required></label>
           <label>Protocol <input name="protocol_version" value="1" maxlength="16" required></label>
-          <label>Declared capabilities <select name="capabilities"><option value="screenshot">screenshot</option><option value="screenshot,workspace_deployment">screenshot + workspace_deployment (production still denies deployment)</option></select></label>
+          <label>Declared capabilities <select name="capabilities"><option value="screenshot">screenshot</option><option value="screenshot,workspace_deployment">screenshot + workspace_deployment (production still denies deployment)</option><option value="screenshot,workspace_deployment,ui_observation,log_read">Current Bridge: screenshots, UI inspection, logs and development deployment (production still denies deployment)</option></select></label>
           <label>Supported Kodi versions (comma separated) <input name="supported_kodi_versions" value="19.5,20.5,21.3,22.0" maxlength="256" required></label>
           <label>Source/release reference <input name="source_reference" maxlength="512" required></label>
           <button type="submit">Register active reviewed build</button>

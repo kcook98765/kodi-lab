@@ -59,6 +59,7 @@ def require_approved_identity(
     builds = [approved_bridge_build(kodi_version)]
     if established:
         builds.append(approved_bridge_build(kodi_version, previous=True))
+        builds.append(approved_bridge_build(kodi_version, retained=True))
     if (
         not any(
             all(
@@ -298,7 +299,7 @@ class ManagedBridgeTrustService:
             return {
                 "state": row.state if row else "uninstalled",
                 "generation": row.generation if row else 0,
-                "addon_version": "1.1.18",
+                "addon_version": "1.1.20",
             }
 
     def _prepare(

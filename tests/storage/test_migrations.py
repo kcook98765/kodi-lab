@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0071_household_onboarding",)
+        ).fetchone() == ("0072_kodi_log_capability",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(

@@ -1,5 +1,6 @@
 """Read-only consumer of managed lifecycle-owned resident Bridge trust."""
 
+import json
 from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,6 +13,7 @@ from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
 from kodi_lab.domain import ExternalProtocolKind
 from kodi_lab.kodi.bridge import ExternalBridgeClient, ExternalBridgeError
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
+from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.observation_bridge import ObservationBridgeClient
 from kodi_lab.kodi.ui_state import UiCollection
 from kodi_lab.kodi.ui_state_native import UiObservationError
@@ -81,6 +83,63 @@ class ManagedObservationBridgeService:
                 self._require_current(row)
                 return None
             raise UiObservationError("identity_mismatch") from error
+        except Exception as error:
+            raise UiObservationError("identity_mismatch") from error
+
+    def read_log(
+        self,
+        target_id: UUID,
+        observed: ObserveManagedKodiRuntimeResult,
+        kodi_version: str,
+        request: KodiLogRequest,
+    ) -> KodiLogResult:
+        with self._sessions() as session:
+            row = session.get(ManagedBridgeTrustRow, str(target_id))
+            if row is None:
+                raise UiObservationError("bridge_not_paired")
+            session.expunge(row)
+        try:
+            if (
+                row.state != "active"
+                or row.container_id != observed.container_id
+                or row.runtime_revision_id != observed.runtime_revision_id
+                or observed.managed_instance_id != str(target_id)
+                or not row.secret_reference
+                or not row.bridge_id
+                or not row.identity_json
+            ):
+                raise UiObservationError("identity_mismatch")
+            pinned = ExternalBridgeClient._identity(json.loads(row.identity_json))
+            require_approved_identity(pinned, kodi_version, established=True)
+            if "log_read" not in pinned.capabilities:
+                raise UiObservationError("capability_unavailable")
+            endpoint = ValidatedExternalEndpoint(
+                ExternalProtocolKind.JSONRPC_HTTP,
+                observed.ipv4_address,
+                observed.jsonrpc_port,
+            )
+            secret = self._secrets.read(
+                target_id, UUID(row.secret_reference), "request_authentication"
+            )
+            identity, result = self._client.read_log(
+                endpoint,
+                bridge_port=row.bridge_port,
+                target_id=target_id,
+                bridge_id=UUID(row.bridge_id),
+                secret=secret,
+                request=request,
+            )
+            require_approved_identity(identity, kodi_version, established=True)
+            if identity_json(identity) != row.identity_json:
+                raise UiObservationError("identity_mismatch")
+            if "log_read" not in identity.capabilities:
+                raise UiObservationError("capability_unavailable")
+            self._require_current(row)
+            return result
+        except ExternalBridgeError as error:
+            raise UiObservationError(error.code) from error
+        except UiObservationError:
+            raise
         except Exception as error:
             raise UiObservationError("identity_mismatch") from error
 

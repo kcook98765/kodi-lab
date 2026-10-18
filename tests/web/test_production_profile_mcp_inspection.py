@@ -250,6 +250,7 @@ def test_exact_web_authority_and_four_tool_transport(
         assert protocol.tool_names == (
             "addon_list",
             "inspect_ui_state",
+            "log_read",
             "target_list",
             "target_status",
         )

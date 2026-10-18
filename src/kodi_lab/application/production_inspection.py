@@ -376,6 +376,7 @@ class ProductionReadRateLimiter:
             "target_list": {},
             "target_status": {},
             "addon_list": {},
+            "log_read": {},
         }
 
     def require_target_list(self, client_id: UUID) -> None:
@@ -388,6 +389,8 @@ class ProductionReadRateLimiter:
             self._require(tool_name, (client_id, target_id), rate=1 / 5.0, burst=1)
         elif tool_name == "addon_list":
             self._require(tool_name, (client_id, target_id), rate=1 / 30.0, burst=1)
+        elif tool_name == "log_read":
+            self._require(tool_name, (client_id, target_id), rate=1.0, burst=4)
 
     def _require(self, name: str, key: Hashable, *, rate: float, burst: int) -> None:
         now = self._clock()

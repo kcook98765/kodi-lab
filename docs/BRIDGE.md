@@ -14,7 +14,7 @@ then pair with the current Kodi Lab. This local action removes the old
 credential and target binding, preserves the bridge ID, and needs no old server.
 It does not reset the Kodi profile or other add-ons.
 Protocol 1 may advertise `screenshot`, `workspace_deployment` and
-`ui_observation`. Deployment is pathless and
+`ui_observation` and `log_read`. Deployment is pathless and
 content-addressed for one exactly authorized workspace; fixed execution remains
 a closed native Kodi call. Source baseline establishment and ambiguous receipt
 reconciliation are Web-only.
@@ -29,7 +29,7 @@ protocol, Kodi-version or capability mismatch suspends bridge-dependent
 authority. Native read-only inspection remains independent when its native
 trust intersection is still coherent.
 
-Production uses `screenshot` and may use `ui_observation` when the exact reviewed
+Production uses `screenshot` and may use `ui_observation` or `log_read` when the exact reviewed
 build declares it and existing provenance/transport confirmation is current.
 The bridge is an identity and inspection support component; production control never travels
 through it. The existing `remote_action` service sends only fixed server-owned
@@ -58,7 +58,7 @@ HTTPS when pixels may be sensitive.
 ## Local deployment candidate artifact
 
 A source-free Linux amd64 candidate built from the current clean committed
-checkout carries `bridge/service.kodi_lab_bridge-1.1.17.zip` and
+checkout carries `bridge/service.kodi_lab_bridge-1.1.19.zip` and
 `bridge/BRIDGE.json`. The latter
 binds the ZIP SHA-256, exact ten-file release inventory and hash, Git source
 commit/tree and bridge subtree, builder identity/hash, protocol `1`, bootstrap
@@ -80,3 +80,7 @@ the successor; source changes alone do not upgrade an installation. This is
 a local deployment candidate, not a public release. Screenshot platform
 assurance is described in the
 [cross-platform assurance model](BRIDGE-SCREENSHOT-ASSURANCE.md).
+
+Bridge 1.1.19 adds [bounded current and previous log inspection](KODI-LOGS.md)
+under existing MCP inspection grants. Logs use a metadata-first read and are
+not retained in the Bridge replay cache or routine MCP audit records.

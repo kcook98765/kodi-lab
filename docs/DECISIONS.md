@@ -6325,3 +6325,39 @@ remain identity mismatches; production retains its reviewed-build ceremony.
   [dependency representation](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/addons/addoninfo/AddonInfo.h),
   [version/ABI checks](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/addons/addoninfo/AddonInfo.cpp),
   and the [GUI descriptor](https://github.com/xbmc/xbmc/blob/21.3-Omega/addons/xbmc.gui/addon.xml).
+
+## D-0433: Metadata-first bounded Kodi logs under existing MCP inspection authority
+
+Issue #7 authorizes a narrow exception to the V1 deferral of general diagnostics:
+`log_read` is a read-only `target.inspect` operation for managed, external
+development and production targets. The normative registry now has twenty tools
+and seven production-eligible tools. It requires exact target grants and policy;
+production inspection scope, native identity, reviewed Bridge pins and transport
+acknowledgement remain mandatory. It grants no visual, control, deployment,
+production mutation, arbitrary path, URL, command or filesystem authority.
+
+The authenticated Bridge capability `log_read` restricts access to current and
+previous Kodi logs under its own translated `special://logpath`. Stats are the
+default and do not read content or scan the file. Tail reads seek directly,
+return at most 500 lines and 8192 raw bytes, flag partial lines and truncation,
+and report logical location, size, modification/observation time and a snapshot
+identity. Older excerpts use a byte cursor bound to that snapshot; append,
+truncation, rotation and concurrent replacement fail explicitly. Local log
+timestamps are not interpreted as UTC or used for unbounded time-range scans.
+
+Reads pin ancestors, reject links and nonregular files, and recheck metadata
+before returning. Managed reads consume lifecycle trust without establishment,
+repair or fallback to arbitrary host files, then verify the container and runtime
+revision again. External reads verify native identity before using their exact
+paired Bridge. Every target type reauthorizes before publishing content.
+Routine audits contain bounded outcome/identity metadata only; Bridge responses
+containing excerpts are not replay-cached or persisted.
+
+Bridge 1.1.19 and RC1 overlay 1.1.20 carry distinct fingerprints, exact source
+hashes and deterministic archive pins. Previous exact 1.1.17/1.1.18 managed
+identities remain available for established trust, as do the previously accepted
+1.1.15/1.1.16 exact pins in retained manifests. None gains log support.
+No live Bridge upgrade or pairing is implied by applying Lab source changes.
+Migration 0072 extends only canonical closed Bridge capability sets, preserves
+all authority triggers and rows, and refuses lossy downgrade while log-capable
+records remain. No permission, grant, secret, trust or target backfill occurs.

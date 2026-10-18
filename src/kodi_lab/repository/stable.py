@@ -21,9 +21,9 @@ from urllib.parse import urlsplit
 REPOSITORY_ID = "repository.kodi-lab"
 REPOSITORY_VERSION = "1.0.0"
 BRIDGE_ID = "service.kodi_lab_bridge"
-BRIDGE_VERSION = "1.1.17"
-BRIDGE_SHA256 = "8e5ec104ced1cdc05ff7d8464d8d2fe3bdbe74e6b19cb543b44f1add250f75ce"
-BRIDGE_FINGERPRINT = "bcc6526c379f09b52f14cad3a582aafb227eafc309cb66b8387dcec057462a37"
+BRIDGE_VERSION = "1.1.19"
+BRIDGE_SHA256 = "76fb0b8992a31ec5978cf52a6627f02e7b104e90a96b7f79c9b01d5b36064545"
+BRIDGE_FINGERPRINT = "7c944e3aa253a5758e85a7dd0b687ba605cfef19bf0c87f9d73d132d19979cb1"
 GENERATOR_ID = "kodi-lab-stable-repository-v1"
 
 
@@ -378,6 +378,7 @@ def bridge_capabilities(bridge: bytes) -> list[str]:
             if value in (
                 ["screenshot", "workspace_deployment"],
                 ["screenshot", "workspace_deployment", "ui_observation"],
+                ["screenshot", "workspace_deployment", "ui_observation", "log_read"],
             ):
                 return cast(list[str], value)
     raise ValueError("bridge capability inventory differs")

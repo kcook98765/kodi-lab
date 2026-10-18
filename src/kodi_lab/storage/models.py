@@ -130,6 +130,10 @@ from kodi_lab.domain import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.storage.bridge_capability_sql import (
+    BRIDGE_CAPABILITY_SETS_SQL,
+    REVIEWED_BRIDGE_CAPABILITY_SETS_SQL,
+)
 from kodi_lab.storage.development_capability_sql import (
     DEVELOPMENT_CAPABILITY_TRIGGERS,
     PRODUCTION_SCREENSHOT_TARGET_GUARD,
@@ -1954,16 +1958,8 @@ class ExternalBridgePairingRow(Base):
             name="external_bridge_capabilities_bounded",
         ),
         CheckConstraint(
-            "observed_capabilities_json IN "
-            "('[]','[\"screenshot\"]','[\"workspace_deployment\"]',"
-            '\'["screenshot","workspace_deployment"]\',\'["ui_observation"]\','
-            '\'["screenshot","ui_observation"]\',\'["ui_observation","workspace_deployment"]\','
-            '\'["screenshot","ui_observation","workspace_deployment"]\') AND '
-            "verified_capabilities_json IN "
-            "('[]','[\"screenshot\"]','[\"workspace_deployment\"]',"
-            '\'["screenshot","workspace_deployment"]\',\'["ui_observation"]\','
-            '\'["screenshot","ui_observation"]\',\'["ui_observation","workspace_deployment"]\','
-            '\'["screenshot","ui_observation","workspace_deployment"]\')',
+            f"observed_capabilities_json IN {BRIDGE_CAPABILITY_SETS_SQL} AND "
+            f"verified_capabilities_json IN {BRIDGE_CAPABILITY_SETS_SQL}",
             name="external_bridge_capabilities_closed",
         ),
         CheckConstraint(
@@ -2113,10 +2109,7 @@ class ReviewedBridgeBuildRow(Base):
             name="reviewed_bridge_build_identity_bounded",
         ),
         CheckConstraint(
-            "capabilities_json IN "
-            '(\'["screenshot"]\',\'["screenshot","workspace_deployment"]\','
-            '\'["screenshot","ui_observation"]\','
-            '\'["screenshot","ui_observation","workspace_deployment"]\') '
+            f"capabilities_json IN {REVIEWED_BRIDGE_CAPABILITY_SETS_SQL} "
             "AND length(supported_kodi_versions_json) BETWEEN 5 AND 256",
             name="reviewed_bridge_build_sets_bounded",
         ),

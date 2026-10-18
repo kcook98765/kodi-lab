@@ -1,7 +1,7 @@
 # Phase 12 MCP development workflows
 
 This document retains the Phase 12 implementation and formal-review checkpoints
-below, including their historical tool counts. The current nineteen-tool V1
+below, including their historical tool counts. The current twenty-tool V1
 contract is defined in [V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract);
 later source scan/capture and exact ambiguous-smoke recovery extend that surface.
 

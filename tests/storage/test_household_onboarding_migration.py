@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -27,14 +28,36 @@ from tests.application.test_household_onboarding import (
     env as _environment,
 )
 from tests.application.test_household_onboarding import (
-    live_application as _live_application,
+    live_application as _base_live_application,
 )
 from tests.storage.test_migrations import (  # noqa: F401
     migration_setup,
     migration_templates,
 )
 
-live_application = _live_application
+legacy_application = _base_live_application
+
+
+@pytest.fixture
+def live_application(
+    legacy_application: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, ...]:
+    # Revision 0071 predates log_read. Model a reviewed legacy-capability Bridge
+    # here; the real current Bridge is exercised against revision 0072 elsewhere.
+    bridge = legacy_application[3]
+    legacy = {
+        "CAPABILITIES": [c for c in bridge["CAPABILITIES"] if c != "log_read"],
+        "OPERATIONS": bridge["OPERATIONS"] - {"log_read"},
+        "BUILD_FINGERPRINT": hashlib.sha256(
+            b"household-migration-legacy-capability-test-double"
+        ).hexdigest(),
+    }
+    for name, value in legacy.items():
+        monkeypatch.setitem(bridge, name, value)
+        monkeypatch.setitem(bridge["_identity"].__globals__, name, value)
+    return legacy_application
+
+
 env = _environment
 REVISION = "0071_household_onboarding"
 PREDECESSOR = "0070_external_screenshot_preference"

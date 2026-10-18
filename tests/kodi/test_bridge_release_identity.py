@@ -98,8 +98,11 @@ def test_exact_preview_trust_and_legacy_serialization() -> None:
 
 
 @pytest.mark.parametrize("release", ["20.5", "21.3", "22.0-rc.1"])
-def test_previous_exact_build_only_preserves_established_trust(release: str) -> None:
-    previous = approved_bridge_build(release, previous=True)
+@pytest.mark.parametrize("retained", [False, True])
+def test_previous_exact_build_only_preserves_established_trust(
+    release: str, retained: bool
+) -> None:
+    previous = approved_bridge_build(release, previous=not retained, retained=retained)
     document = {
         **previous,
         "bridge_id": str(uuid4()),

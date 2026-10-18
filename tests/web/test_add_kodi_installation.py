@@ -77,7 +77,7 @@ def test_both_modes_have_shared_accurate_repository_instructions(
     )
     assert "No separate build approval is needed" in text
     assert "Advanced compatibility details" in text
-    assert "supports Bridge <strong>1.1.17</strong>" in text
+    assert "supports Bridge <strong>1.1.19</strong>" in text
     assert "reviewed by your Kodi Lab administrator" not in text
     assert "repository.kodi-lab-dev-" not in text
     with ZipFile(io.BytesIO(bootstrap_zip(BASE))) as archive:

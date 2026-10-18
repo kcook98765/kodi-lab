@@ -1077,7 +1077,7 @@ class ReviewedBridgeBuildRequest(BaseModel):
     addon_id: str = Field(min_length=1, max_length=128)
     addon_version: str = Field(min_length=1, max_length=64)
     protocol_version: str = Field(min_length=1, max_length=16)
-    capabilities: tuple[str, ...] = Field(min_length=1, max_length=3)
+    capabilities: tuple[str, ...] = Field(min_length=1, max_length=4)
     supported_kodi_versions: tuple[str, ...] = Field(min_length=1, max_length=8)
     source_reference: str = Field(min_length=1, max_length=512)
 

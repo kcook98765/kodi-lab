@@ -38,6 +38,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.kodi.bridge import (
     BRIDGE_ADDON_ID,
+    BRIDGE_CAPABILITIES,
     BRIDGE_PROTOCOL_VERSION,
     DEPLOYMENT_CHUNK_BYTES,
     OTP_CODE_ALPHABET,
@@ -58,6 +59,7 @@ from kodi_lab.kodi.external import (
     ExternalEndpointPolicy,
     ValidatedExternalEndpoint,
 )
+from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.ui_state import UiCollection
 from kodi_lab.screenshot_diagnostics import (
     bind_screenshot_bridge_revision,
@@ -376,13 +378,8 @@ class ExternalBridgeService:
         capability_set = tuple(sorted(set(capabilities)))
         kodi_versions = tuple(sorted(set(supported_kodi_versions)))
         if (
-            capability_set
-            not in {
-                ("screenshot",),
-                ("screenshot", "workspace_deployment"),
-                ("screenshot", "ui_observation"),
-                ("screenshot", "ui_observation", "workspace_deployment"),
-            }
+            "screenshot" not in capability_set
+            or not set(capability_set) <= BRIDGE_CAPABILITIES
             or not kodi_versions
             or any(not value or len(value) > 32 for value in kodi_versions)
             or not addon_id
@@ -1527,6 +1524,49 @@ class ExternalBridgeService:
             == current["protocol_version"]
             and set(identity.capabilities) == set(capabilities)
         )
+
+    def read_log(self, target_id: UUID, request: KodiLogRequest) -> KodiLogResult:
+        snapshot = self._active_snapshot(
+            target_id, allow_no_configured_bridge_capability=True
+        )
+        with self._sessions() as session:
+            pairing = session.get(ExternalBridgePairingRow, str(target_id))
+            if pairing is None or "log_read" not in self._parse_closed(
+                pairing.observed_capabilities_json
+            ):
+                raise ExternalBridgeServiceError("bridge_capability_unavailable")
+            if snapshot.target_type is TargetType.EXTERNAL_PRODUCTION:
+                reviewed = (
+                    session.get(ReviewedBridgeBuildRow, pairing.reviewed_build_id)
+                    if pairing
+                    else None
+                )
+                if reviewed is None or "log_read" not in self._parse_closed(
+                    reviewed.capabilities_json
+                ):
+                    raise ExternalBridgeServiceError("bridge_capability_unavailable")
+        try:
+            identity, result = self._client.read_log(
+                snapshot.endpoint,
+                bridge_port=snapshot.bridge_port,
+                target_id=target_id,
+                bridge_id=snapshot.bridge_id,
+                secret=self._read_secret(snapshot),
+                request=request,
+            )
+            self._require_pinned_identity(snapshot, identity)
+            if "log_read" not in identity.capabilities:
+                raise ExternalBridgeServiceError("bridge_capability_unavailable")
+            if (
+                self._active_snapshot(
+                    target_id, allow_no_configured_bridge_capability=True
+                )
+                != snapshot
+            ):
+                raise ExternalBridgeServiceError("bridge_identity_mismatch")
+            return result
+        except ExternalBridgeError as error:
+            raise ExternalBridgeServiceError(error.code) from error
 
     def inspect_ui_state(self, target_id: UUID) -> UiCollection:
         snapshot = self._active_snapshot(

@@ -143,6 +143,7 @@ def test_registration_probe_confirmation_enable_and_mcp_administration_eligibili
         "addon_list",
         "development_source_list",
         "inspect_ui_state",
+        "log_read",
         "promotion_request",
         "remote_action",
         "screenshot_capture",

@@ -26,6 +26,7 @@ from kodi_lab.broker.docker_inventory import (
 from kodi_lab.broker.errors import ClientError
 from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
 from kodi_lab.domain import RuntimeExecutionProfile
+from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.readiness import (
     JsonRpcInvalidResponseError,
     JsonRpcUnavailableError,
@@ -237,6 +238,18 @@ class ManagedUiObservationService:
             or current.process_state is not KodiProcessState.RUNNING
         ):
             raise UiObservationError("identity_mismatch")
+
+    def read_log(self, target_id: UUID, request: KodiLogRequest) -> KodiLogResult:
+        observed, profile = self._admit(target_id)
+        if self._bridges is None:
+            raise UiObservationError("capability_unavailable")
+        result = self._bridges.read_log(
+            target_id, observed, profile.kodi_release.canonical, request
+        )
+        self._verify_current(target_id, observed)
+        if self._reconciliation.status(target_id).blocking:
+            raise UiObservationError("reconciliation_required")
+        return result
 
     def inspect(self, target_id: UUID) -> UiObservation:
         try:

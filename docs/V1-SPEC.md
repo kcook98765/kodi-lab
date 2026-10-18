@@ -61,13 +61,14 @@ v1 must provide:
 This section supersedes the broader speculative MCP catalog and production
 capabilities retained later in this document as design history.
 
-The authoritative V1 MCP registry contains nineteen tools. Client discovery is
+The authoritative V1 MCP registry contains twenty tools (D-0433). Client discovery is
 filtered by current preset permissions:
 
 - `target_list`
 - `target_status`
 - `addon_list`
 - `inspect_ui_state`
+- `log_read`
 - `screenshot_capture`
 - `remote_action`
 - `development_source_list`
@@ -97,9 +98,16 @@ under D-0405's identity, ownership, grant, and state gates. It never
 rewrites or redispatches the original execution and grants no generic lifecycle
 or execution authority.
 
-Exactly six are production-eligible: `target_list`, `target_status`,
-`addon_list`, `inspect_ui_state`, `screenshot_capture`, and `remote_action`. Production has no
-deployment tool. Raw JSON-RPC, production logs/diagnostics/library queries,
+`log_read` provides metadata-first stats and bounded tail excerpts of only
+`kodi.log` and `kodi.old.log` through a trusted authenticated Bridge. It uses
+`target.inspect`, exact target grants and current production inspection scope,
+without visual, remote-control, deployment or production mutation authority.
+Snapshot-bound byte paging detects log changes; routine audits omit content.
+See [Kodi log inspection](KODI-LOGS.md) and D-0433 for limits and trust checks.
+
+Exactly seven are production-eligible: `target_list`, `target_status`,
+`addon_list`, `inspect_ui_state`, `log_read`, `screenshot_capture`, and `remote_action`. Production has no
+deployment tool. Raw JSON-RPC, broader production diagnostics/library queries,
 generic add-on installation/update, production lifecycle, host lifecycle,
 shell, SSH, generic filesystem access, user-development workspace deployment
 to production, and broad persistent Kodi-settings mutation are outside the V1

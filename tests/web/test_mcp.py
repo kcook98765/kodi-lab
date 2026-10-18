@@ -300,6 +300,7 @@ def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
     assert [item["name"] for item in tools] == [
         "addon_list",
         "inspect_ui_state",
+        "log_read",
         "screenshot_capture",
         "target_list",
         "target_status",
@@ -394,6 +395,7 @@ def test_managed_target_list_projects_supported_tools_without_grant_escalation(
         "remote_action",
         "screenshot_capture",
         "inspect_ui_state",
+        "log_read",
     ]
     assert status_lookups == [INSTANCE_ID]
     assert listed["process_state"] != "running"
@@ -449,6 +451,7 @@ def test_external_target_list_is_unprobed_even_when_previously_verified_offline(
         "addon_list",
         "remote_action",
         "inspect_ui_state",
+        "log_read",
     ]
     assert external["process_state"] == "unknown"
     assert external["jsonrpc_state"] == "not_checked"
@@ -505,6 +508,7 @@ def test_pinned_official_sdk_uses_only_modern_stateless_requests(
                 assert [tool.name for tool in listed.tools] == [
                     "addon_list",
                     "inspect_ui_state",
+                    "log_read",
                     "screenshot_capture",
                     "target_list",
                     "target_status",
@@ -586,6 +590,7 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                     "addon_list",
                     "development_source_list",
                     "inspect_ui_state",
+                    "log_read",
                     "promotion_request",
                     "remote_action",
                     "screenshot_capture",
@@ -973,6 +978,7 @@ def test_discovery_filters_visual_permission_without_bypassing_target_policy(
     assert inspect_names == [
         "addon_list",
         "inspect_ui_state",
+        "log_read",
         "target_list",
         "target_status",
     ]
@@ -1000,6 +1006,7 @@ def test_discovery_filters_visual_permission_without_bypassing_target_policy(
     assert expanded_names == [
         "addon_list",
         "inspect_ui_state",
+        "log_read",
         "screenshot_capture",
         "target_list",
         "target_status",
@@ -1023,6 +1030,7 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "addon_list",
         "development_source_list",
         "inspect_ui_state",
+        "log_read",
         "promotion_request",
         "remote_action",
         "screenshot_capture",
@@ -1418,6 +1426,7 @@ def test_legacy_http_malformed_input_and_downgrade_matrix(
     assert [item["name"] for item in listed.json()["result"]["tools"]] == [
         "addon_list",
         "inspect_ui_state",
+        "log_read",
         "screenshot_capture",
         "target_list",
         "target_status",

@@ -30,10 +30,10 @@ PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.17"
-CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation"]
+ADDON_VERSION = "1.1.19"
+CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation", "log_read"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.17|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install"
+    b"kodi-lab-narrow-bridge|1.1.19|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -65,6 +65,7 @@ MAX_SCREENSHOT_HEIGHT = 2160
 MAX_SCREENSHOT_DECODED = MAX_SCREENSHOT_WIDTH * MAX_SCREENSHOT_HEIGHT * 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 OPERATIONS = {
+    "log_read",
     "inspect_ui_state",
     "bridge_identity",
     "bridge_capabilities",
@@ -80,6 +81,7 @@ REPLAY_EVICTABLE_OPERATIONS = OPERATIONS - {"capture_screenshot"}
 _STATE_LOCK = threading.Lock()
 _RESPONSE_LOCK = threading.Lock()
 _CAPTURE_LOCK = threading.Lock()
+_LOG_LOCK = threading.Lock()
 _DEPLOYMENT_LOCK = threading.Lock()
 _RESPONSES = OrderedDict()
 
@@ -93,6 +95,155 @@ def _state_guard():
 
 class AuthenticationError(Exception):
     pass
+
+
+class LogReadError(Exception):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
+def _log_snapshot(metadata):
+    return hashlib.sha256(
+        _canonical(
+            [
+                metadata.st_dev,
+                metadata.st_ino,
+                metadata.st_size,
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+            ]
+        )
+    ).hexdigest()
+
+
+def _read_log(payload):
+    """Read only two fixed local logs, with bounded memory and pinned ancestors."""
+    keys = {"log", "mode", "max_lines", "max_bytes", "before", "snapshot_id"}
+    if not isinstance(payload, dict) or set(payload) != keys:
+        raise LogReadError("log_request_invalid")
+    log, mode = payload["log"], payload["mode"]
+    lines, limit = payload["max_lines"], payload["max_bytes"]
+    before, expected = payload["before"], payload["snapshot_id"]
+    if (
+        log not in ("current", "previous")
+        or mode not in ("stats", "tail")
+        or type(lines) is not int
+        or not 1 <= lines <= 500
+        or type(limit) is not int
+        or not 1 <= limit <= 8192
+        or (
+            expected is not None
+            and (
+                not isinstance(expected, str)
+                or re.fullmatch("[0-9a-f]{64}", expected) is None
+            )
+        )
+        or (
+            before is not None
+            and (
+                type(before) is not int
+                or not 0 <= before <= 2**63 - 1
+                or expected is None
+                or mode != "tail"
+            )
+        )
+    ):
+        raise LogReadError("log_request_invalid")
+    if not _LOG_LOCK.acquire(blocking=False):
+        raise LogReadError("log_read_busy")
+    try:
+        name = "kodi.log" if log == "current" else "kodi.old.log"
+        root = xbmcvfs.translatePath("special://logpath")
+        if not os.path.isabs(root):
+            raise LogReadError("log_unavailable")
+        path = os.path.join(root, name)
+        with _deployment_directory(root) as parent:
+            descriptor = (
+                _windows_open_nofollow(path)
+                if os.name == "nt"
+                else os.open(
+                    name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent
+                )
+            )
+            with os.fdopen(descriptor, "rb") as stream:
+                metadata = os.fstat(stream.fileno())
+                if (
+                    _unsafe_file(metadata)
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_nlink != 1
+                    or _file_identity(metadata) is None
+                    or not 0 <= metadata.st_size <= 2**63 - 1
+                ):
+                    raise LogReadError("log_unavailable")
+                if os.name == "nt":
+                    info = _windows_handle_info(stream.fileno())
+                    if info is None or info[0] & 0x400 or info[1] != 1:
+                        raise LogReadError("log_unavailable")
+                snapshot = _log_snapshot(metadata)
+                if expected is not None and expected != snapshot:
+                    raise LogReadError("log_changed")
+                if before is not None and before > metadata.st_size:
+                    raise LogReadError("log_request_invalid")
+                start = end = 0
+                raw = b""
+                partial = False
+                if mode == "tail":
+                    end = metadata.st_size if before is None else before
+                    start = max(0, end - limit)
+                    stream.seek(max(0, start - 1))
+                    preceding = stream.read(1) if start else b"\n"
+                    raw = stream.read(end - start)
+                    pieces = raw.splitlines(keepends=True)
+                    if len(pieces) > lines:
+                        raw = b"".join(pieces[-lines:])
+                        start = end - len(raw)
+                    elif start and preceding != b"\n":
+                        # Prefer whole lines; retain a bounded fragment of a huge line.
+                        first = raw.find(b"\n")
+                        if 0 <= first < len(raw) - 1:
+                            raw = raw[first + 1 :]
+                            start = end - len(raw)
+                        else:
+                            partial = bool(raw)
+                current = (
+                    os.lstat(path)
+                    if os.name == "nt"
+                    else os.stat(name, dir_fd=parent, follow_symlinks=False)
+                )
+                if (
+                    _unsafe_file(current)
+                    or _log_snapshot(current) != snapshot
+                    or _log_snapshot(os.fstat(stream.fileno())) != snapshot
+                    or len(raw) != end - start
+                ):
+                    raise LogReadError("log_changed")
+                content = raw.decode("utf-8", errors="replace")
+                return {
+                    "log": log,
+                    "mode": mode,
+                    "location": "special://logpath/" + name,
+                    "snapshot_id": snapshot,
+                    "size_bytes": metadata.st_size,
+                    "modified_at_ns": metadata.st_mtime_ns,
+                    "observed_at": _timestamp(),
+                    "start_byte": start,
+                    "end_byte": end,
+                    "bytes_read": len(raw),
+                    "lines_returned": len(content.splitlines()),
+                    "truncated": mode == "tail"
+                    and (start > 0 or end < metadata.st_size),
+                    "partial_first_line": partial,
+                    "content": content,
+                }
+    except FileNotFoundError:
+        raise LogReadError("log_missing") from None
+    except LogReadError:
+        raise
+    except (OSError, ValueError, AttributeError):
+        raise LogReadError("log_unavailable") from None
+    finally:
+        _LOG_LOCK.release()
 
 
 class ScreenshotError(Exception):
@@ -2221,6 +2372,20 @@ class Handler(BaseHTTPRequestHandler):
             if document["payload"] != {}:
                 raise ValueError
             self._screenshot_response(document, request_hash, secret)
+        elif document["operation"] == "log_read":
+            try:
+                result = _read_log(document["payload"])
+            except LogReadError as error:
+                self._json_error_response(document, request_hash, secret, error.code)
+                return
+            # Sensitive excerpts live only in this response, never in the replay cache.
+            self._json_response(
+                document,
+                request_hash,
+                secret,
+                {"identity": _identity(state), "log": result},
+                cache=False,
+            )
         elif document["operation"] == "inspect_ui_state":
             if document["payload"] != {}:
                 raise ValueError
@@ -2763,6 +2928,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json_error_response(self, request, request_hash, secret, code):
         if code not in {
+            "log_request_invalid",
+            "log_read_busy",
+            "log_missing",
+            "log_changed",
+            "log_unavailable",
             "deployment_request_invalid",
             "deployment_installation_failed",
             "deployment_cleanup_failed",

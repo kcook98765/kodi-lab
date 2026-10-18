@@ -184,7 +184,7 @@ def test_external_summary_projects_only_verified_capabilities_without_duplicates
 ) -> None:
     factory, _administration, adapters = external_authority
     limited = adapters.summaries([TARGET_ID])[0]
-    assert limited.capabilities == ("target_status", "inspect_ui_state")
+    assert limited.capabilities == ("target_status", "inspect_ui_state", "log_read")
     assert limited.process_state == "unknown"
     assert limited.jsonrpc_state == "not_checked"
     assert limited.usability_state == "not_checked"
@@ -200,6 +200,7 @@ def test_external_summary_projects_only_verified_capabilities_without_duplicates
         "addon_list",
         "remote_action",
         "inspect_ui_state",
+        "log_read",
     )
     assert len(complete.capabilities) == len(set(complete.capabilities))
     assert "screenshot_capture" not in complete.capabilities
@@ -212,6 +213,7 @@ def test_external_summary_projects_only_verified_capabilities_without_duplicates
         ("target_list", "target_inspect"),
         ("target_status", "target_inspect"),
         ("inspect_ui_state", "target_inspect"),
+        ("log_read", "target_inspect"),
         ("addon_list", "addon_inventory"),
         ("remote_action", "semantic_remote"),
     ],

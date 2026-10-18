@@ -48,8 +48,10 @@ class ManagedBridgeProvisionError(RuntimeError):
 
 
 def approved_bridge_build(
-    kodi_release: str | None = None, *, previous: bool = False
+    kodi_release: str | None = None, *, previous: bool = False, retained: bool = False
 ) -> dict[str, Any]:
+    if previous and retained:
+        raise ValueError("ambiguous Bridge build selection")
     resource = (
         "managed_bridge_preview_build.json"
         if kodi_release == "22.0-rc.1"
@@ -60,6 +62,12 @@ def approved_bridge_build(
             "managed_bridge_previous_preview_build.json"
             if kodi_release == "22.0-rc.1"
             else "managed_bridge_previous_build.json"
+        )
+    if retained:
+        resource = (
+            "managed_bridge_retained_preview_build.json"
+            if kodi_release == "22.0-rc.1"
+            else "managed_bridge_retained_build.json"
         )
     return cast(
         dict[str, Any],
@@ -211,7 +219,7 @@ def run():
     sources = value.get("reviewed_sources")
     if sources is not None:
         # Only broker-owned reviewed bytes arrive here. No destination parameter.
-        assert value["approved"]["addon_version"] == "1.1.18"
+        assert value["approved"]["addon_version"] == "1.1.20"
         directory(home + "/addons")
         lock = os.open(
             home + "/addons/.reviewed-bridge.lock",
