@@ -49,6 +49,15 @@ it does not assume `/data/data/org.xbmc.kodi`. Kodi receives the generated nativ
 capture path. Owner, mode `0700`, no-follow, single-link, identity, PNG validation
 and cleanup checks remain in force. An unavailable internal cache fails closed.
 
+The Android fix requires stable Bridge **1.1.23** (or its **1.1.24** RC1 overlay)
+on the Kodi device. Publishing a new Lab candidate makes the reviewed ZIP
+available; it does not replace the installed Bridge. Follow the
+[manual production upgrade](PRODUCTION-OPERATIONS.md#manual-upgrade), verify the
+observed Bridge version and reviewed provenance, and renew stale revision-bound
+scopes before retrying capture. When the MCP screenshot tool is already callable
+and Kodi logs report `root_not_private`, refreshing the agent cannot repair the
+installed Bridge's filesystem behavior.
+
 ## Previous 1.1.8 assurance and its platform sensitivity
 
 | Check | Purpose | Classification |
