@@ -69,6 +69,7 @@ class DirectInstallIntegration(unittest.TestCase):
         for name in ("xbmc", "xbmcaddon", "xbmcvfs"):
             modules[name] = types.ModuleType(name)
         modules["xbmc"].executeJSONRPC = rpc
+        modules["xbmc"].getCondVisibility = lambda _name: False
         modules["xbmc"].log = lambda *_args: None
         modules["xbmc"].LOGERROR = 2
         modules["xbmcvfs"].translatePath = lambda value: str(

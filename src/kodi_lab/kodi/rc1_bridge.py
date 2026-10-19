@@ -23,7 +23,7 @@ _INVENTORY = (
     "service.py",
 )
 _FRAGMENT_SHA256 = "7f95447d72a99e2688d638c715209a2b3afce90d4174f4e6eef404f0a1adc672"
-RC1_ARCHIVE_SHA256 = "71019d13ae3fa89647f5ee136835400355b854cc0a09940429407195c1676e37"
+RC1_ARCHIVE_SHA256 = "e782d34b99d8b7bd77e8702920ef83980f5544cecf7bb6707b08a9feac4e7033"
 
 
 def packaged_rc1_bridge_sources() -> dict[str, bytes]:
@@ -84,11 +84,11 @@ def reviewed_rc1_bridge_sources(legacy_root: Path) -> dict[str, bytes]:
             raise ValueError("Stable Bridge source differs from review")
         result[name] = data
     result["addon.xml"] = result["addon.xml"].replace(
-        b'version="1.1.19"', b'version="1.1.20"'
+        b'version="1.1.23"', b'version="1.1.24"'
     )
     source = result["narrow_bridge.py"]
-    source = source.replace(b'ADDON_VERSION = "1.1.19"', b'ADDON_VERSION = "1.1.20"')
-    source = source.replace(b"|1.1.19|protocol-1|", b"|1.1.20|protocol-1|")
+    source = source.replace(b'ADDON_VERSION = "1.1.23"', b'ADDON_VERSION = "1.1.24"')
+    source = source.replace(b"|1.1.23|protocol-1|", b"|1.1.24|protocol-1|")
     source = source.replace(b',bounded-log-read"', b',bounded-log-read,exact-release"')
     start = source.index(b"def _identity(state):")
     end = source.index(b"def _png_chunk(kind, data):")

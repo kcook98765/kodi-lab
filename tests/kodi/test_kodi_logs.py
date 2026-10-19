@@ -128,6 +128,36 @@ def test_reader_rejects_symlinked_ancestors(logs: Any) -> None:
         read(logs)
 
 
+@pytest.mark.skipif(not hasattr(os, "O_PATH"), reason="Requires path-only handles")
+@pytest.mark.parametrize("log", ["current", "previous"])
+def test_logs_and_deployment_allow_traverse_only_ancestors(logs: Any, log: str) -> None:
+    bridge, root = logs
+    filename = "kodi.log" if log == "current" else "kodi.old.log"
+    (root / filename).write_text("bounded log line\n", encoding="utf-8")
+    ancestor = root.parent
+    permissions = ancestor.stat().st_mode & 0o777
+    ancestor.chmod(0o111)
+    try:
+        stats = read(logs, log=log)
+        assert stats.bytes_read == 0 and stats.content == ""
+        assert (
+            read(logs, log=log, mode="tail", max_lines=1).content
+            == "bounded log line\n"
+        )
+        with bridge["_deployment_directory"](str(root)) as descriptor:
+            assert os.listdir(descriptor) == [filename]
+    finally:
+        ancestor.chmod(permissions)
+
+
+def test_log_reader_without_path_only_handles(
+    logs: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (logs[1] / "kodi.log").write_text("portable fallback\n", encoding="utf-8")
+    monkeypatch.delattr(os, "O_PATH", raising=False)
+    assert read(logs, mode="tail").content == "portable fallback\n"
+
+
 def test_rotation_during_read_never_publishes_stale_content(
     logs: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

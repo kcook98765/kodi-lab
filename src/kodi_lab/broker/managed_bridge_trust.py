@@ -219,7 +219,7 @@ def run():
     sources = value.get("reviewed_sources")
     if sources is not None:
         # Only broker-owned reviewed bytes arrive here. No destination parameter.
-        assert value["approved"]["addon_version"] == "1.1.20"
+        assert value["approved"]["addon_version"] == "1.1.24"
         directory(home + "/addons")
         lock = os.open(
             home + "/addons/.reviewed-bridge.lock",

@@ -37,6 +37,18 @@ deletes the candidate before returning pixels. The file reader accepts only a
 strict bridge capture basename directly below the translated root. The root
 must be a real directory contained under Kodi's translated temporary directory.
 
+On Android, `special://temp` may be on emulated external storage where directory
+permissions remain `0771` after `chmod(0700)`. Such a root fails the private-root
+check before capture and logs `screenshot rejected: root_not_private`.
+Android captures instead use `kodi-lab-bridge` below Kodi's internal cache,
+derived from its `KODI_BINADDON_PATH` (`<internal-cache>/lib`) environment value.
+Kodi supplies this value in its Android
+[`SetupEnv`](https://github.com/xbmc/xbmc/blob/Omega/xbmc/platform/android/activity/XBMCApp.cpp#L1552).
+This follows Kodi's actual application location, including adopted storage;
+it does not assume `/data/data/org.xbmc.kodi`. Kodi receives the generated native
+capture path. Owner, mode `0700`, no-follow, single-link, identity, PNG validation
+and cleanup checks remain in force. An unavailable internal cache fails closed.
+
 ## Previous 1.1.8 assurance and its platform sensitivity
 
 | Check | Purpose | Classification |

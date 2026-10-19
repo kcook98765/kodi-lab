@@ -299,7 +299,7 @@ class ManagedBridgeTrustService:
             return {
                 "state": row.state if row else "uninstalled",
                 "generation": row.generation if row else 0,
-                "addon_version": "1.1.20",
+                "addon_version": "1.1.24",
             }
 
     def _prepare(

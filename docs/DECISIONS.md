@@ -6399,3 +6399,24 @@ remain available. Formal Windows support requires a recorded clean-host run of
 the new path, including LAN repository access, cold managed acquisition, granted
 and denied MCP inspection, lifecycle and recovery. Linux fixture/Compose tests
 do not establish native Windows acceptance.
+
+## Android Bridge path and mode semantics
+
+Android may place Kodi's special temporary and add-on paths on emulated storage.
+Directory permissions there remain synthetic after chmod, and storage ancestors
+can allow traversal while denying directory reads. Bridge screenshots therefore
+use a private `0700` subdirectory of the internal cache advertised by Kodi's
+`KODI_BINADDON_PATH`; private-root, file identity and cleanup checks remain
+mandatory. Persistent pairing state and UI locks retain their existing paths.
+
+POSIX ancestor guards use no-follow `O_PATH` directory handles when available,
+with a readable final directory for deployment operations. Log reads use
+traversal-only handles throughout. Ports without `O_PATH` retain the readable
+directory fallback, and Windows retains its native held-handle adapter.
+
+On Android mounts marked `noexec`, deployment executable bits are logical
+manifest metadata, following the Windows policy: authenticated incoming modes
+are retained during verification and the latest successful receipt supplies
+later inspection modes. An initial baseline without a receipt uses `0644`.
+Hashes, paths, types, sizes and link checks stay exact. Android exec-capable
+mounts and other POSIX systems continue to verify actual executable bits.

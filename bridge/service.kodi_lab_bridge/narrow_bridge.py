@@ -30,10 +30,10 @@ PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.19"
+ADDON_VERSION = "1.1.23"
 CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation", "log_read"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.19|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read"
+    b"kodi-lab-narrow-bridge|1.1.23|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -158,7 +158,7 @@ def _read_log(payload):
         if not os.path.isabs(root):
             raise LogReadError("log_unavailable")
         path = os.path.join(root, name)
-        with _deployment_directory(root) as parent:
+        with _deployment_directory(root, traverse_only=True) as parent:
             descriptor = (
                 _windows_open_nofollow(path)
                 if os.name == "nt"
@@ -887,6 +887,18 @@ def _windows_private_root(path, create=True, hold=False):
 def _screenshot_root():
     temporary = os.path.abspath(xbmcvfs.translatePath("special://temp"))
     root = os.path.abspath(xbmcvfs.translatePath(SCREENSHOT_ROOT))
+    if os.name == "posix" and xbmc.getCondVisibility("System.Platform.Android"):
+        # Android's emulated special://temp cannot enforce mode 0700. Kodi
+        # supplies its actual internal cache location, including adopted storage.
+        binary_addons = os.environ.get("KODI_BINADDON_PATH", "")
+        if (
+            not os.path.isabs(binary_addons)
+            or os.path.basename(binary_addons) != "lib"
+            or os.path.basename(os.path.dirname(binary_addons)) != "cache"
+        ):
+            raise ScreenshotError("screenshot_capture_failed", "root_not_private")
+        temporary = os.path.dirname(binary_addons)
+        root = os.path.join(temporary, "kodi-lab-bridge")
     try:
         if os.path.commonpath((temporary, root)) != temporary or root == temporary:
             raise ScreenshotError("screenshot_capture_failed")
@@ -1332,6 +1344,8 @@ def _capture_png_in_root(root):
     filename = "capture-" + uuid.uuid4().hex + ".png"
     native_path = os.path.join(root, filename)
     special_path = SCREENSHOT_ROOT + "/" + filename
+    if os.name == "posix" and xbmc.getCondVisibility("System.Platform.Android"):
+        special_path = native_path
     if os.path.lexists(native_path):
         raise ScreenshotError("screenshot_capture_failed", "candidate_preexisting")
     cleanup_failed = False
@@ -1559,7 +1573,7 @@ def _windows_deployment_handle(
 
 
 @contextmanager
-def _deployment_directory(path):
+def _deployment_directory(path, *, traverse_only=False):
     """Pin every ancestor without following links, including the Kodi root."""
     path = os.path.abspath(path)
     drive, tail = os.path.splitdrive(path)
@@ -1573,13 +1587,20 @@ def _deployment_directory(path):
     with ExitStack() as stack:
         current = drive + os.sep
         descriptor = None
-        for part in [None, *parts]:
+        for index, part in enumerate([None, *parts]):
             if part is not None:
                 current = os.path.join(current, part)
             if os.name == "nt":
                 stack.enter_context(_windows_deployment_handle(current, directory=True))
             else:
-                flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                # Ancestors only need traversal, including Android storage
+                # parents. Keep read access on the final deployment directory.
+                access = (
+                    getattr(os, "O_PATH", os.O_RDONLY)
+                    if traverse_only or index < len(parts)
+                    else os.O_RDONLY
+                )
+                flags = access | os.O_DIRECTORY | os.O_NOFOLLOW
                 descriptor = os.open(
                     current if part is None else part, flags, dir_fd=descriptor
                 )
@@ -1617,9 +1638,21 @@ def _deployment_file(path, mode="rb", permissions=0o644):
                 raise
             with os.fdopen(descriptor, "rb" if mode == "rb" else "r+b") as stream:
                 _deployment_metadata(os.fstat(stream.fileno()))
-                if mode == "xb":
+                if mode == "xb" and not _logical_deployment_modes(
+                    os.path.dirname(path)
+                ):
                     os.fchmod(stream.fileno(), permissions)
                 yield stream
+
+
+def _logical_deployment_modes(root):
+    if os.name == "nt":
+        return True
+    # Android emulated storage is mounted noexec and projects synthetic modes.
+    # Ordinary POSIX mounts retain real executable-bit verification.
+    return xbmc.getCondVisibility("System.Platform.Android") and bool(
+        os.statvfs(root).f_flag & getattr(os, "ST_NOEXEC", 0)
+    )
 
 
 def _manifest_bytes(entries):
@@ -1731,6 +1764,7 @@ def _tree_manifest_guarded(root, expected_entries=None):
     cache_files = 0
     cache_bytes = 0
     root_real = os.path.realpath(root)
+    logical_modes_required = _logical_deployment_modes(root)
     logical_modes = {
         item["path"]: item["mode"]
         for item in (expected_entries or [])
@@ -1801,9 +1835,9 @@ def _tree_manifest_guarded(root, expected_entries=None):
             ):
                 raise ValueError("tree bounds exceeded")
             mode = 0o755 if metadata.st_mode & 0o111 else 0o644
-            if os.name == "nt":
-                # NTFS has no POSIX execute bit. Retain authenticated manifest
-                # modes as logical metadata; bytes, sizes and paths stay exact.
+            if logical_modes_required:
+                # Retain authenticated manifest modes on NTFS and Android
+                # noexec mounts; bytes, sizes and paths stay exact.
                 mode = logical_modes.get(path, 0o644)
             entries.append(
                 {
@@ -2518,7 +2552,7 @@ class Handler(BaseHTTPRequestHandler):
                 root = os.path.join(xbmcvfs.translatePath(ADDON_ROOT), addon_id)
                 try:
                     prior_entries = None
-                    if os.name == "nt":
+                    if _logical_deployment_modes(xbmcvfs.translatePath(ADDON_ROOT)):
                         latest = ""
                         for identity in state["deployments"]:
                             prior = _load_operation(identity)

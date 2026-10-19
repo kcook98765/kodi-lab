@@ -2,8 +2,9 @@
 
 `log_read` is a read-only `target.inspect` tool for granted managed instances,
 external development targets and external production targets. It requires an
-authenticated, trusted Bridge that advertises `log_read`. Bridge 1.1.19 adds
-this capability; the exact-release RC1 overlay is 1.1.20. Older Bridges retain
+authenticated, trusted Bridge that advertises `log_read`. Bridge 1.1.19 introduced
+this capability. Bridge 1.1.23 supports traversal-only Android storage ancestors;
+the corresponding exact-release RC1 overlay is 1.1.24. Older Bridges retain
 their existing operations and need the normal operator-controlled upgrade and
 verification before log reading is available. Installing this Lab update alone
 does not deploy a Bridge or change target trust.

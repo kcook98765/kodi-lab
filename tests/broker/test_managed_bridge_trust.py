@@ -48,12 +48,12 @@ def test_manifest_matches_packaged_approved_bridge() -> None:
 
 def test_stable_bridge_approval_is_not_replaced_by_preview() -> None:
     legacy = approved_bridge_build()
-    assert legacy["addon_version"] == "1.1.19"
+    assert legacy["addon_version"] == "1.1.23"
     assert legacy["build_fingerprint"] == (
-        "7c944e3aa253a5758e85a7dd0b687ba605cfef19bf0c87f9d73d132d19979cb1"
+        "27ba0617f92f68bc46e0a38590f6f433b5943c4f67b338e77ad43488d75eb3c6"
     )
     assert approved_bridge_build("21.3") == legacy
-    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.20"
+    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.24"
 
 
 @pytest.mark.parametrize(

@@ -46,7 +46,7 @@ deployment, update or lifecycle authority. Production control uses separate
 fixed server-owned native Kodi actions; this is not an arbitrary production
 command channel.
 
-Bridge 1.1.19 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
+Bridge 1.1.23 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
 `ui_observation`. Production observation additionally requires the existing
 reviewed-build confirmation and transport policy; deployment stays development-only.
 `inspect_ui_state` accepts only an empty payload. Its protected collector reads
@@ -66,7 +66,8 @@ lifecycle access.
 
 Screenshot captures the full Kodi GUI through
 `TakeScreenshot(<bridge-owned-path>,sync)`. The add-on alone creates an
-unpredictable name below `special://temp/kodi-lab-bridge`, performs bounded PNG
+unpredictable name below `special://temp/kodi-lab-bridge` (or Kodi's private
+internal cache on Android), performs bounded PNG
 readback and validation, and deletes the file before responding. Short-TTL
 crash cleanup scans only that directory and strict bridge capture names. No
 request can provide a path or use the bridge as a file reader, and image bytes,
@@ -99,7 +100,13 @@ Windows retains incoming executable modes as logical manifest metadata because
 NTFS has no POSIX execute bit. Initial source baselines use regular-file mode
 0644; later installed-tree inspection uses the latest successful receipt's modes.
 Source baselines containing executable files must be normalized before initial
-Windows baseline establishment. Linux continues to verify actual executable bits.
+Windows baseline establishment. Android noexec mounts, including emulated
+storage, use the same logical-mode and baseline policy because their reported
+permissions do not preserve requested executable bits. Android's ordinary
+exec-capable mounts and other POSIX platforms verify actual executable bits.
+On platforms providing `O_PATH`, ancestor pinning requires traversal permission;
+the final deployment directory still requires read access. All ancestors retain
+the no-follow and directory checks. Log reads need only traversal at every level.
 Files are flushed before commit. Windows has no POSIX directory fsync, and the
 two directory moves are best-available replacement, not a power-loss-atomic
 transaction. A stopped/interrupted replacement remains ambiguous and requires
@@ -155,3 +162,8 @@ returning. Log bodies are neither persisted in Bridge state nor replay-cached.
 Existing Bridge installations need this version and the normal trust verification
 before this capability becomes available; MCP inspection grants do not upgrade
 or pair a Bridge.
+
+Bridge 1.1.23 fixes Android screenshot root privacy and traversal-only storage
+ancestors for logs and deployment. Android noexec mounts retain authenticated
+manifest modes without requiring POSIX chmod semantics. The corresponding
+exact-release RC1 overlay is 1.1.24.

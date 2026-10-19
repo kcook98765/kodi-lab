@@ -129,6 +129,7 @@ def _load(
             "xbmc",
             executebuiltin=execute_builtin,
             getInfoLabel=lambda _name: "21.3 (21.3.0)",
+            getCondVisibility=lambda _name: False,
             log=lambda *_args: None,
             LOGDEBUG=0,
             LOGINFO=1,
@@ -256,7 +257,7 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.19"
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.23"
     from scripts.build_narrow_bridge import SEMANTIC_FINGERPRINT
 
     assert bridge["BUILD_FINGERPRINT"] == SEMANTIC_FINGERPRINT
@@ -762,6 +763,93 @@ def test_addon_gui_capture_rejects_symlink_and_cleans_only_bounded_namespace(
     with pytest.raises(bridge["ScreenshotError"], match="screenshot_invalid"):
         bridge["_read_screenshot"](str(symlink))
     assert outside.exists()
+
+
+def test_android_capture_uses_private_cache_instead_of_emulated_storage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    external = tmp_path / "emulated"
+    external.mkdir()
+    external.chmod(0o771)
+    cache = tmp_path / "adopted-volume" / "user" / "0" / "org.xbmc.kodi" / "cache"
+    cache.mkdir(parents=True)
+    monkeypatch.setenv("KODI_BINADDON_PATH", str(cache / "lib"))
+    bridge = _load(monkeypatch, temp_root=external)
+    module: Any = sys.modules["xbmc"]
+    module.getCondVisibility = lambda name: name == "System.Platform.Android"
+    commands: list[str] = []
+
+    def capture(command: str) -> None:
+        commands.append(command)
+        native_path = command.removeprefix("TakeScreenshot(").removesuffix(",sync)")
+        assert Path(native_path).parent == cache / "kodi-lab-bridge"
+        Path(native_path).write_bytes(_png())
+
+    module.executebuiltin = capture
+    assert validate_external_png(bridge["_capture_png"]()).width == 4
+    root = cache / "kodi-lab-bridge"
+    assert root.stat().st_mode & 0o777 == 0o700
+    assert list(root.iterdir()) == []
+    assert commands and "special://temp" not in commands[0]
+    assert list(external.iterdir()) == []
+
+
+@pytest.mark.parametrize("binary_addons", ["", "relative/cache/lib", "/tmp/lib"])
+def test_android_capture_rejects_unknown_internal_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, binary_addons: str
+) -> None:
+    monkeypatch.setenv("KODI_BINADDON_PATH", binary_addons)
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    module: Any = sys.modules["xbmc"]
+    module.getCondVisibility = lambda _name: True
+    module.executebuiltin = lambda _command: pytest.fail("capture before private root")
+    with pytest.raises(bridge["ScreenshotError"]) as caught:
+        bridge["_capture_png"]()
+    assert caught.value.reason == "root_not_private"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_android_capture_rejects_symlinked_cache_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (cache / "kodi-lab-bridge").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv("KODI_BINADDON_PATH", str(cache / "lib"))
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    module: Any = sys.modules["xbmc"]
+    module.getCondVisibility = lambda _name: True
+    module.executebuiltin = lambda _command: pytest.fail("capture through symlink")
+    with pytest.raises(bridge["ScreenshotError"]):
+        bridge["_capture_png"]()
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize("failure", ["permissions", "owner"])
+def test_android_capture_keeps_private_owner_and_mode_checks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str
+) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    root = cache / "kodi-lab-bridge"
+    root.mkdir(mode=0o771)
+    monkeypatch.setenv("KODI_BINADDON_PATH", str(cache / "lib"))
+    bridge = _load(monkeypatch, temp_root=tmp_path)
+    module: Any = sys.modules["xbmc"]
+    module.getCondVisibility = lambda _name: True
+    module.executebuiltin = lambda _command: pytest.fail("capture before private root")
+    proxy = _module("simulated_android_os")
+    proxy.__dict__.update(vars(os))
+    proxy.fchmod = lambda _fd, _mode: None  # type: ignore[attr-defined]
+    if failure == "owner":
+        root.chmod(0o700)
+        proxy.getuid = lambda: os.getuid() + 1  # type: ignore[attr-defined]
+    monkeypatch.setitem(bridge["_screenshot_root"].__globals__, "os", proxy)
+    with pytest.raises(bridge["ScreenshotError"]) as caught:
+        bridge["_capture_png"]()
+    assert caught.value.reason == "root_not_private"
 
 
 def test_addon_gui_capture_rejects_hardlink(

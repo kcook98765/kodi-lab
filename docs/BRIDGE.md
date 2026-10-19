@@ -58,7 +58,7 @@ HTTPS when pixels may be sensitive.
 ## Local deployment candidate artifact
 
 A source-free Linux amd64 candidate built from the current clean committed
-checkout carries `bridge/service.kodi_lab_bridge-1.1.19.zip` and
+checkout carries `bridge/service.kodi_lab_bridge-1.1.23.zip` and
 `bridge/BRIDGE.json`. The latter
 binds the ZIP SHA-256, exact ten-file release inventory and hash, Git source
 commit/tree and bridge subtree, builder identity/hash, protocol `1`, bootstrap
@@ -81,6 +81,6 @@ a local deployment candidate, not a public release. Screenshot platform
 assurance is described in the
 [cross-platform assurance model](BRIDGE-SCREENSHOT-ASSURANCE.md).
 
-Bridge 1.1.19 adds [bounded current and previous log inspection](KODI-LOGS.md)
+Bridge 1.1.23 adds [bounded current and previous log inspection](KODI-LOGS.md)
 under existing MCP inspection grants. Logs use a metadata-first read and are
 not retained in the Bridge replay cache or routine MCP audit records.

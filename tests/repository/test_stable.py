@@ -30,7 +30,7 @@ def candidate(tmp_path: Path) -> Path:
     bundle = tmp_path / "candidate"
     (bundle / "bridge").mkdir(parents=True)
     (bundle / "repository").mkdir()
-    bridge = bundle / "bridge/service.kodi_lab_bridge-1.1.19.zip"
+    bridge = bundle / "bridge/service.kodi_lab_bridge-1.1.23.zip"
     build_archive(ROOT / "bridge/service.kodi_lab_bridge", bridge)
     assert sha256(bridge.read_bytes()) == BRIDGE_SHA256
     stable = ROOT / "repository/STABLE.json"
@@ -38,10 +38,10 @@ def candidate(tmp_path: Path) -> Path:
     provenance = {
         "schema": "kodi-lab-bridge-artifact-v1",
         "addon_id": "service.kodi_lab_bridge",
-        "version": "1.1.19",
+        "version": "1.1.23",
         "sha256": BRIDGE_SHA256,
         "semantic_fingerprint": (
-            "7c944e3aa253a5758e85a7dd0b687ba605cfef19bf0c87f9d73d132d19979cb1"
+            "27ba0617f92f68bc46e0a38590f6f433b5943c4f67b338e77ad43488d75eb3c6"
         ),
         "source_commit": "c" * 40,
         "source_tree": "a" * 40,
@@ -62,7 +62,7 @@ def candidate(tmp_path: Path) -> Path:
         "source_commit": "c" * 40,
         "source_tree": "a" * 40,
         "bridge": {
-            "zip": "bridge/service.kodi_lab_bridge-1.1.19.zip",
+            "zip": "bridge/service.kodi_lab_bridge-1.1.23.zip",
             "provenance": "bridge/BRIDGE.json",
         },
         "files": {
@@ -70,7 +70,7 @@ def candidate(tmp_path: Path) -> Path:
                 "sha256": "sha256:" + sha256(stable.read_bytes()),
                 "size": stable.stat().st_size,
             },
-            "bridge/service.kodi_lab_bridge-1.1.19.zip": {
+            "bridge/service.kodi_lab_bridge-1.1.23.zip": {
                 "sha256": "sha256:" + BRIDGE_SHA256,
                 "size": bridge.stat().st_size,
             },
@@ -128,7 +128,7 @@ def test_generation_is_deterministic_and_restarts(tmp_path: Path) -> None:
         stat.S_IMODE(
             (
                 data
-                / "packages/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.19.zip"
+                / "packages/service.kodi_lab_bridge/service.kodi_lab_bridge-1.1.23.zip"
             )
             .stat()
             .st_mode
