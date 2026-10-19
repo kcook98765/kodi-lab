@@ -1684,6 +1684,14 @@ class McpAdministrationService:
                         ]
                     )
                 )
+                .where(
+                    TargetRow.id.not_in(
+                        select(ExternalKodiTargetRow.target_id).where(
+                            ExternalKodiTargetRow.administrative_state
+                            == ExternalAdministrativeState.DEACTIVATED
+                        )
+                    )
+                )
                 .order_by(TargetRow.name, TargetRow.id)
             ).all()
             return [self._target_policy_read(session, row) for row in targets]

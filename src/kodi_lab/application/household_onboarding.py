@@ -51,6 +51,7 @@ from kodi_lab.domain import (
     ExternalProtocolKind,
     ExternalVerificationState,
     ProductionDesignationState,
+    TargetType,
 )
 from kodi_lab.storage.models import (
     ExternalKodiTargetRow,
@@ -115,6 +116,11 @@ class HouseholdOnboardingResult(BaseModel):
     code: str
     message: str
     transport: HouseholdTransportDisclosure | None = None
+    existing_target_id: UUID | None = None
+    existing_target_class: (
+        Literal["external_development", "external_production"] | None
+    ) = None
+    existing_operation_id: UUID | None = None
 
 
 _MESSAGES = {
@@ -289,29 +295,11 @@ class HouseholdKodiOnboardingService:
                                 operation_id, "failed", "operation_conflict"
                             )
                     else:
-                        if (
-                            session.scalar(
-                                select(HouseholdOnboardingRow.id).where(
-                                    HouseholdOnboardingRow.host == host,
-                                    HouseholdOnboardingRow.kodi_port
-                                    == request.kodi_port,
-                                    HouseholdOnboardingRow.stage != "abandoned",
-                                )
-                            )
-                            is not None
-                            or session.scalar(
-                                select(ExternalKodiTargetRow.target_id).where(
-                                    ExternalKodiTargetRow.host == host,
-                                    ExternalKodiTargetRow.port == request.kodi_port,
-                                    ExternalKodiTargetRow.administrative_state
-                                    != ExternalAdministrativeState.DEACTIVATED,
-                                )
-                            )
-                            is not None
-                        ):
-                            return self._result(
-                                operation_id, "failed", "endpoint_conflict"
-                            )
+                        conflict = self._existing_connection(
+                            session, operation_id, host, request.kodi_port
+                        )
+                        if conflict is not None:
+                            return conflict
                         if (
                             session.scalar(
                                 select(TargetRow.id)
@@ -370,6 +358,71 @@ class HouseholdKodiOnboardingService:
     def _row(self, operation_id: UUID) -> HouseholdOnboardingRow | None:
         with self._sessions() as session:
             return session.get(HouseholdOnboardingRow, str(operation_id))
+
+    def _existing_connection(
+        self, session: Session, operation_id: UUID, host: str, port: int
+    ) -> HouseholdOnboardingResult | None:
+        reservation = session.scalar(
+            select(HouseholdOnboardingRow).where(
+                HouseholdOnboardingRow.host == host,
+                HouseholdOnboardingRow.kodi_port == port,
+                HouseholdOnboardingRow.stage != "abandoned",
+            )
+        )
+        targets = session.execute(
+            select(TargetRow.id, TargetRow.target_type)
+            .join(
+                ExternalKodiTargetRow, ExternalKodiTargetRow.target_id == TargetRow.id
+            )
+            .where(
+                ExternalKodiTargetRow.host == host,
+                ExternalKodiTargetRow.port == port,
+                ExternalKodiTargetRow.administrative_state
+                != ExternalAdministrativeState.DEACTIVATED,
+                TargetRow.target_type.in_(
+                    (TargetType.EXTERNAL_DEVELOPMENT, TargetType.EXTERNAL_PRODUCTION)
+                ),
+            )
+            .limit(2)
+        ).all()
+        if reservation is None and not targets:
+            return None
+        # A shared endpoint or conflicting reservation cannot select a device by
+        # name or guess which registration the administrator intended.
+        unambiguous = len(targets) <= 1 and (
+            reservation is None or not targets or targets[0].id == reservation.target_id
+        )
+        existing = targets[0] if unambiguous and len(targets) == 1 else None
+        resumable = (
+            reservation is not None
+            and unambiguous
+            and reservation.stage
+            in {"reserved", "native_verified", "bootstrap_started", "paired"}
+        )
+        if resumable and reservation is not None:
+            native = session.get(ExternalKodiTargetRow, reservation.target_id)
+            resumable = (
+                native is None
+                or native.administrative_state
+                is not ExternalAdministrativeState.DEACTIVATED
+            )
+        return HouseholdOnboardingResult(
+            operation_id=operation_id,
+            state="failed",
+            code="endpoint_conflict",
+            message=_MESSAGES["endpoint_conflict"],
+            existing_target_id=None if existing is None else UUID(existing.id),
+            existing_target_class=(
+                None
+                if existing is None
+                else "external_development"
+                if existing.target_type is TargetType.EXTERNAL_DEVELOPMENT
+                else "external_production"
+            ),
+            existing_operation_id=(
+                UUID(reservation.id) if resumable and reservation is not None else None
+            ),
+        )
 
     def _save(self, operation_id: UUID, stage: str, code: str | None = None) -> None:
         with self._sessions.begin() as session:
@@ -780,12 +833,16 @@ class HouseholdKodiOnboardingService:
                 row = self._row(operation_id)
                 if row is None:
                     return self._result(operation_id, "failed", "operation_not_found")
-                if row.stage == "connected":
+                with self._sessions() as session:
+                    exists = session.get(TargetRow, row.target_id) is not None
+                if row.stage == "connected" and (
+                    not exists
+                    or self._targets.get(UUID(row.target_id)).administrative_state
+                    is not ExternalAdministrativeState.DEACTIVATED
+                ):
                     return self._result(
                         operation_id, "requires_action", "administration_changed", row
                     )
-                with self._sessions() as session:
-                    exists = session.get(TargetRow, row.target_id) is not None
                 if row.stage != "abandoned":
                     if exists and (
                         self._targets.get(UUID(row.target_id)).administrative_state
@@ -814,6 +871,27 @@ class HouseholdKodiOnboardingService:
             SecretStoreError,
         ):
             return self._result(operation_id, "incomplete", "persistence_failed")
+
+    def finish_retired_connection(self, target_id: UUID) -> None:
+        """Release a retired registration's reservation after protected cleanup.
+
+        The durable operation and its target identity remain available for audit.
+        An in-flight Connect keeps its reservation until explicit cleanup retries.
+        """
+        with self._sessions() as session:
+            operation_id = session.scalar(
+                select(HouseholdOnboardingRow.id).where(
+                    HouseholdOnboardingRow.target_id == str(target_id)
+                )
+            )
+        if operation_id is None:
+            return
+        target = self._targets.get(target_id)
+        if target.administrative_state is not ExternalAdministrativeState.DEACTIVATED:
+            raise ExternalTargetError("verification_required")
+        result = self.abandon(UUID(operation_id))
+        if result.code != "abandoned":
+            raise ExternalTargetError("connection_retirement_incomplete")
 
     @staticmethod
     def _result(

@@ -97,6 +97,12 @@
       <section class="household-result" data-result tabindex="-1" aria-labelledby="result-title" hidden>
         <h2 id="result-title" data-result-title></h2>
         <p data-result-message></p>
+        <div data-existing-connection hidden>
+          <p>This address already belongs to a saved connection. Review it before starting another registration.</p>
+          <a data-existing-target hidden>Review existing connection</a>
+          <button type="button" data-resume-existing hidden>Resume saved connection</button>
+          <p class="secondary">Resume checks saved progress without resending a pairing code or changing agent permissions.</p>
+        </div>
         <p data-version hidden></p>
         <p data-agent-note hidden>Connecting Kodi does not grant access to an MCP agent. Agent access is managed separately.</p>
         <form method="post" action="/add-kodi" data-consent-form hidden>

@@ -22,6 +22,10 @@ from kodi_lab.development.deployment import (
     DevelopmentTreeManifest,
     capture_development_tree,
 )
+from kodi_lab.development.sources import (
+    CopiedSmokeUnsupportedReason,
+    copied_video_plugin_unsupported_reason,
+)
 from kodi_lab.domain import (
     AgentWorkspace,
     AgentWorkspaceBytesState,
@@ -201,6 +205,8 @@ class AgentWorkspaceStructuralValidationRead(BaseModel):
     addon_id: str = Field(max_length=128)
     addon_version: str = Field(max_length=128)
     extension_types: tuple[str, ...] = Field(max_length=64)
+    fixed_smoke_eligible: bool | None = None
+    fixed_smoke_unsupported_reason: CopiedSmokeUnsupportedReason | None = None
     addon_id_classification: Literal["unchanged", "changed"]
     version_classification: Literal["unchanged", "changed"]
     extension_type_classification: Literal["unchanged", "changed"]
@@ -998,6 +1004,7 @@ class AgentWorkspaceService:
         addon_changed = observed.addon_id != baseline.addon_id
         version_changed = observed.observed_version != baseline.observed_version
         extension_changed = observed.extension_types != baseline.extension_types
+        smoke_reason = copied_video_plugin_unsupported_reason(observed)
         return AgentWorkspaceStructuralValidationRead(
             workspace_id=workspace_id,
             development_source_id=workspace.development_source_id,
@@ -1006,6 +1013,8 @@ class AgentWorkspaceService:
             addon_id=observed.addon_id,
             addon_version=observed.observed_version,
             extension_types=observed.extension_types,
+            fixed_smoke_eligible=smoke_reason is None,
+            fixed_smoke_unsupported_reason=smoke_reason,
             addon_id_classification="changed" if addon_changed else "unchanged",
             version_classification="changed" if version_changed else "unchanged",
             extension_type_classification=(

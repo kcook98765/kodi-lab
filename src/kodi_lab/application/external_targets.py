@@ -404,14 +404,22 @@ class ExternalTargetAdministrationService:
             )
         return before
 
-    def list_targets(self) -> list[ExternalTargetRead]:
+    def list_targets(
+        self, *, include_retired: bool = False
+    ) -> list[ExternalTargetRead]:
         with self._session_factory() as session:
-            rows = session.execute(
+            statement = (
                 select(ExternalKodiTargetRow, TargetRow)
                 .join(TargetRow, TargetRow.id == ExternalKodiTargetRow.target_id)
                 .where(TargetRow.target_type == self._target_type)
                 .order_by(TargetRow.name, TargetRow.id)
-            ).all()
+            )
+            if not include_retired:
+                statement = statement.where(
+                    ExternalKodiTargetRow.administrative_state
+                    != ExternalAdministrativeState.DEACTIVATED
+                )
+            rows = session.execute(statement).all()
             return [self._read(session, target, external) for external, target in rows]
 
     def get(self, target_id: UUID) -> ExternalTargetRead:

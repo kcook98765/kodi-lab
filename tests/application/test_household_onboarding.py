@@ -16,7 +16,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.external_bridges import ExternalBridgeService
 from kodi_lab.application.external_onboarding import ExternalKodiOnboardingService
-from kodi_lab.application.external_targets import ExternalTargetAdministrationService
+from kodi_lab.application.external_targets import (
+    ExternalTargetAdministrationService,
+    ExternalTargetError,
+)
 from kodi_lab.application.household_onboarding import (
     HouseholdKodiOnboardingService,
     HouseholdOnboardingResult,
@@ -406,8 +409,48 @@ def test_existing_endpoint_is_never_adopted(
         authentication_mode=ExternalAuthenticationMode.NONE,
         configured_capabilities={"target_inspect"},
     )
-    assert env.start().code == "endpoint_conflict"
+    result = env.start()
+    assert result.code == "endpoint_conflict"
+    assert result.existing_target_id == target.target_id
+    assert result.existing_target_class == target_type.value
+    assert result.existing_operation_id is None
     assert service.get(target.target_id) == target
+
+
+def test_existing_incomplete_connection_offers_exact_resume_without_new_dispatch(
+    env: Environment,
+) -> None:
+    first = env.start()
+    assert first.code == "transport_consent_required"
+    duplicate = env.request.model_copy(update={"operation_id": uuid4()})
+    result = env.service.start(duplicate)
+    assert result.code == "endpoint_conflict"
+    assert result.existing_target_id == first.target_id
+    assert result.existing_operation_id == env.request.operation_id
+    with env.sessions() as session:
+        assert session.get(HouseholdOnboardingRow, str(duplicate.operation_id)) is None
+    assert result.existing_operation_id is not None
+    resumed = env.service.resume(result.existing_operation_id, HouseholdResumeRequest())
+    assert resumed.code == "transport_consent_required"
+    assert resumed.target_id == first.target_id
+    assert json.loads(env.otp_file.read_text())["code"] is not None
+
+
+def test_shared_endpoint_never_guesses_a_registration(env: Environment) -> None:
+    for name in ("Old registration", "Replacement registration"):
+        env.targets.register(
+            logical_name=name,
+            protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+            host=env.request.address,
+            port=env.request.kodi_port,
+            authentication_mode=ExternalAuthenticationMode.NONE,
+            configured_capabilities={"target_inspect"},
+        )
+    result = env.start()
+    assert result.code == "endpoint_conflict"
+    assert result.existing_target_id is None
+    assert result.existing_target_class is None
+    assert result.existing_operation_id is None
 
 
 def test_request_id_cannot_change_endpoint_or_name(env: Environment) -> None:
@@ -1499,3 +1542,50 @@ def test_abandon_retires_residual_reference_after_deactivation(
         assert session.scalars(select(ExternalSecretRetirementRow)).all() == []
     with pytest.raises(SecretStoreError):
         env.bridges._secrets.read(first.target_id, reference, "request_authentication")
+
+
+def test_retired_connected_registration_releases_reservation_after_cleanup(
+    env: Environment,
+) -> None:
+    connected = env.connect()
+    assert connected.state == "connected" and connected.target_id is not None
+    target_id = connected.target_id
+    # A live completed connection cannot be abandoned or have its reservation
+    # released as if it were an unfinished attempt.
+    with pytest.raises(ExternalTargetError, match="verification_required"):
+        env.service.finish_retired_connection(target_id)
+    assert (
+        env.service.abandon(env.request.operation_id).code == "administration_changed"
+    )
+    env.targets.deactivate(target_id)
+    # Revocation must work on a previously deactivated registration as well.
+    env.bridges.revoke(target_id)
+    env.service.finish_retired_connection(target_id)
+    env.service.finish_retired_connection(target_id)
+    with env.sessions() as session:
+        operation = session.get(HouseholdOnboardingRow, str(env.request.operation_id))
+        assert operation is not None and operation.stage == "abandoned"
+        assert operation.target_id == str(target_id)
+        assert session.get(TargetRow, str(target_id)) is not None
+        assert session.scalar(select(ExternalSecretRetirementRow)) is None
+    replacement = env.targets.register(
+        logical_name=env.request.name,
+        protocol_kind=ExternalProtocolKind.JSONRPC_HTTP,
+        host=env.request.address,
+        port=env.request.kodi_port,
+        authentication_mode=ExternalAuthenticationMode.NONE,
+        configured_capabilities={"target_inspect"},
+    )
+    assert replacement.target_id != target_id
+    assert (
+        env.targets.get(target_id).administrative_state
+        is ExternalAdministrativeState.DEACTIVATED
+    )
+    assert (
+        env.bridges.status(target_id).pairing_state
+        is ExternalBridgePairingState.REVOKED
+    )
+    assert (
+        env.service.resume(env.request.operation_id, HouseholdResumeRequest()).code
+        == "abandoned"
+    )

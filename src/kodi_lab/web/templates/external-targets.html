@@ -4,6 +4,8 @@
 {% block main_attributes %}data-external-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
       <h1>External development targets</h1>
+      <p>Disable is reversible. <strong>Retire connection</strong> permanently removes this Lab registration from current lists and retires its credentials and agent grants. Kodi, its Bridge, profile, add-ons and media are preserved.</p>
+      <p>{% if include_retired %}<a href="/external-targets">Show current connections</a> · Showing current and retired connections.{% else %}<a href="/external-targets?include_retired=true">Connection history (including retired)</a>{% endif %}</p>
       <p>{% if add_kodi_enabled %}<a class="button-link" href="/add-kodi?mode=development">Add Kodi</a>{% else %}<a class="button-link" href="/pair-kodi">Pair Kodi</a>{% endif %} <span class="secondary">Connect a current bridge with the four-character code shown in Kodi.</span></p>
       <p class="secondary">Web-only registration, native verification, and optional authenticated screenshot bridge pairing. MCP bridge administration, external deployment, execution, lifecycle control, and external production are unavailable.</p>
       <p>Allowed ports: {{ allowed_ports | join(', ') }}. {% if test_loopback_enabled %}<strong>Test-only loopback is enabled.</strong>{% else %}Private-LAN IP literals only; loopback is disabled.{% endif %}</p>
@@ -25,10 +27,11 @@
         </form>
       </details>
       <section>
-        <h2>Registered targets</h2>
+        <h2>{{ 'Connection history' if include_retired else 'Current connections' }}</h2>
         {% for target in targets %}
-        <article data-target-id="{{ target.target_id }}">
+        <article id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}">
           <h3>{{ target.logical_name }}</h3>
+          <p>Registration: <code>{{ target.target_id }}</code>{% if target.administrative_state.value == 'deactivated' %} · <strong>Retired</strong> {{ target.deactivated_at }} · <a href="/api/external-targets/{{ target.target_id }}/events">Audit history</a>{% endif %}</p>
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
           <p>Admin: {{ target.administrative_state.value }} · verification: {{ target.verification_state.value }} · observation: {{ target.observation_state.value if target.observation_state else 'none' }}</p>
           <p>Authentication: {{ target.authentication_mode.value }}{% if target.http_password_warning %} · <strong>Password authentication over HTTP is not confidential.</strong>{% endif %}</p>
@@ -69,10 +72,10 @@
           <button type="button" data-action="probe">Run read-only probe</button>
           {% if target.pending_observation_id %}<button type="button" data-action="confirm" data-observation-id="{{ target.pending_observation_id }}">Confirm observed identity</button>{% endif %}
           <button type="button" data-action="toggle" data-enabled="{{ 'true' if target.administrative_state.value == 'enabled' else 'false' }}">{{ 'Disable' if target.administrative_state.value == 'enabled' else 'Enable' }}</button>
-          <button type="button" data-action="deactivate" class="destructive">Deactivate</button>
           <details><summary>Edit disabled endpoint</summary><form data-endpoint><select name="protocol_kind"><option value="jsonrpc_http"{% if target.protocol_kind.value == 'jsonrpc_http' %} selected{% endif %}>HTTP</option><option value="jsonrpc_https"{% if target.protocol_kind.value == 'jsonrpc_https' %} selected{% endif %}>HTTPS</option></select><input name="host" value="{{ target.host }}" maxlength="64" required><select name="port">{% for port in allowed_ports %}<option value="{{ port }}"{% if port == target.port %} selected{% endif %}>{{ port }}</option>{% endfor %}</select><button type="submit">Change endpoint</button></form></details>
           <details><summary>Rotate credentials</summary><form data-credentials><select name="authentication_mode"><option value="none">No authentication</option><option value="username_password">Username and password</option></select><input name="username" maxlength="256" autocomplete="off" placeholder="Username"><input name="password" type="password" maxlength="1024" autocomplete="new-password" placeholder="New password"><button type="submit">Rotate credentials</button></form></details>
           {% endif %}
+          <button type="button" data-action="retire" class="destructive">{{ 'Retry credential cleanup' if target.administrative_state.value == 'deactivated' else 'Retire connection' }}</button>
         </article>
         {% else %}<p>No external development targets.</p>{% endfor %}
       </section>

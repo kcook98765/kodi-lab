@@ -79,8 +79,11 @@ from kodi_lab.broker.operations import (
 )
 from kodi_lab.development import (
     DevelopmentSourceValidationError,
-    copied_video_plugin_library,
     parse_captured_addon_xml,
+)
+from kodi_lab.development.sources import (
+    COPIED_SMOKE_UNSUPPORTED_REASONS,
+    copied_video_plugin_unsupported_reason,
 )
 from kodi_lab.domain import (
     AgentWorkspaceBytesState,
@@ -391,6 +394,10 @@ EXECUTION_DEPENDENCY_REASONS = frozenset(
             )
         ),
     }
+)
+
+EXECUTION_UNSUPPORTED_REASONS = (
+    EXECUTION_DEPENDENCY_REASONS | COPIED_SMOKE_UNSUPPORTED_REASONS
 )
 
 
@@ -1952,7 +1959,7 @@ class McpWorkspaceDevelopmentService:
                         error.reason
                         if not dispatched
                         and error.code == "execution_unsupported"
-                        and error.reason in EXECUTION_DEPENDENCY_REASONS
+                        and error.reason in EXECUTION_UNSUPPORTED_REASONS
                         else None
                     ),
                 )
@@ -3276,11 +3283,18 @@ class McpWorkspaceDevelopmentService:
         deployment = self._execution_deployment(operation)
         self._recheck_execution(operation, deployment)
         descriptor = self._workspace_descriptor(UUID(operation.workspace_id))
-        if copied_video_plugin_library(descriptor) is None:
+        unsupported_reason = copied_video_plugin_unsupported_reason(descriptor)
+        if unsupported_reason is not None:
             self._finish_execution(
-                operation.id, "failed", "execution_unsupported", digest=digest
+                operation.id,
+                "failed",
+                "execution_unsupported",
+                digest=digest,
+                result_classification=unsupported_reason,
             )
-            raise McpWorkspaceDevelopmentError("execution_unsupported")
+            raise McpWorkspaceDevelopmentError(
+                "execution_unsupported", reason=unsupported_reason
+            )
         if deployment.target_class == "external_development":
             return self._run_external_execution(
                 operation, deployment, digest, descriptor
@@ -4169,7 +4183,7 @@ class McpWorkspaceDevelopmentService:
                 reason=(
                     row.result_classification
                     if row.failure_code == "execution_unsupported"
-                    and row.result_classification in EXECUTION_DEPENDENCY_REASONS
+                    and row.result_classification in EXECUTION_UNSUPPORTED_REASONS
                     else None
                 ),
                 diagnostic=(

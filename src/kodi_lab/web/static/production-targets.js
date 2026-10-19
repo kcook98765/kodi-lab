@@ -82,7 +82,10 @@
       if (action === "confirm-designation" && confirm("I confirm this is a production Kodi target and mutations may affect real user state.")) await request(`/api/production-targets/${id}/confirm-designation`, "POST", {confirmed: true, observation_id: observationId, acknowledgement: "I confirm this is a production Kodi target and mutations may affect real user state."});
       if (action === "toggle") await request(`/api/production-targets/${id}/enabled`, "POST", {enabled: button.dataset.enabled !== "true"});
       if (action === "suspension") await request(`/api/production-targets/${id}/mutation-suspension`, "POST", {suspended: button.dataset.suspended !== "true"});
-      if (action === "deactivate" && confirm("Deactivate this production target permanently and retire its credentials?")) await request(`/api/production-targets/${id}/deactivate`, "POST", {confirmed: true});
+      if (action === "retire") {
+        if (!confirm(`Permanently retire connection "${card.querySelector("h3").textContent}" (${id}, ${card.dataset.administrativeState})? Credentials and agent grants will be retired; its audit history is retained. Kodi and its profile, add-ons and media will not be changed.`)) return;
+        await request(`/api/production-targets/${id}/retire`, "POST", {confirmed: true});
+      }
       if (action === "bridge-confirm" && confirm("I confirm this bridge is installed on the production Kodi target and the displayed bridge identity and package provenance match the reviewed package.")) await request(`/api/production-targets/${id}/bridge/confirm`, "POST", {confirmed: true, acknowledgement: "I confirm this bridge is installed on the production Kodi target and the displayed bridge identity and package provenance match the reviewed package."});
       if (action === "bridge-reverify") await request(`/api/production-targets/${id}/bridge/reverify`, "POST", {confirmed: true});
       if (action === "bridge-revoke" && confirm("Revoke the production bridge and delete the Lab-held bridge secret?")) await request(`/api/production-targets/${id}/bridge/revoke`, "POST", {confirmed: true});

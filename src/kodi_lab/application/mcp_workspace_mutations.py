@@ -48,6 +48,14 @@ from kodi_lab.storage.repositories import (
 MCP_PRESENT_WORKSPACES_PER_CLIENT = 4
 MCP_PRESENT_WORKSPACES_GLOBAL = 32
 MCP_CREATING_WORKSPACES_PER_CLIENT = 1
+WORKSPACE_QUOTA_REASONS = frozenset(
+    {
+        "client_retained_workspace_limit",
+        "global_retained_workspace_limit",
+        "client_workspace_creation_in_progress",
+        "workspace_creation_busy",
+    }
+)
 
 
 def _to_text(value: datetime) -> str:
@@ -68,8 +76,9 @@ def _fingerprint(source_id: UUID) -> str:
 
 
 class McpWorkspaceMutationError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, reason: str | None = None) -> None:
         self.code = code
+        self.reason = reason
         super().__init__(code)
 
 
@@ -174,7 +183,9 @@ class McpWorkspaceCreationService:
             existing = self._load(client_id, request_id)
             if existing is not None:
                 return self._replay(client_id, request_id, source_id, fingerprint)
-            raise McpWorkspaceMutationError("workspace_quota_exceeded") from error
+            raise McpWorkspaceMutationError(
+                "workspace_quota_exceeded", reason="workspace_creation_busy"
+            ) from error
         except SQLAlchemyError as error:
             existing = self._load(client_id, request_id)
             if existing is not None:
@@ -303,12 +314,17 @@ class McpWorkspaceCreationService:
                 AgentWorkspaceRow.state == AgentWorkspaceState.CREATING,
             )
         )
-        if (
-            (client_present or 0) >= MCP_PRESENT_WORKSPACES_PER_CLIENT
-            or (global_present or 0) >= MCP_PRESENT_WORKSPACES_GLOBAL
-            or (creating or 0) >= MCP_CREATING_WORKSPACES_PER_CLIENT
-        ):
-            raise McpWorkspaceMutationError("workspace_quota_exceeded")
+        reason = (
+            "client_retained_workspace_limit"
+            if (client_present or 0) >= MCP_PRESENT_WORKSPACES_PER_CLIENT
+            else "global_retained_workspace_limit"
+            if (global_present or 0) >= MCP_PRESENT_WORKSPACES_GLOBAL
+            else "client_workspace_creation_in_progress"
+            if (creating or 0) >= MCP_CREATING_WORKSPACES_PER_CLIENT
+            else None
+        )
+        if reason is not None:
+            raise McpWorkspaceMutationError("workspace_quota_exceeded", reason=reason)
 
     def _load(
         self, client_id: UUID, request_id: UUID

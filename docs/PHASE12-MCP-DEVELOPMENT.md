@@ -312,6 +312,50 @@ file editor. MCP cannot self-grant, manually bind an existing workspace,
 unbind, transfer/share, or register a source; `workspace_create` alone creates
 its atomic `mcp_created` binding.
 
+## Workspace allocation recovery
+
+`workspace_create` now distinguishes these bounded reasons under the existing
+`workspace_quota_exceeded` error:
+
+| Reason | Meaning and recovery |
+| --- | --- |
+| `client_retained_workspace_limit` | Four byte-present MCP-bound workspaces for this client. Reuse this project's authorized workspace or ask an administrator to allocate and bind a dedicated workspace after storage review. |
+| `global_retained_workspace_limit` | The 32-workspace MCP-bound retention limit. Ask an administrator to review retained storage and project allocation. |
+| `client_workspace_creation_in_progress` | One creation for this client is still present. Check progress and reuse the original request ID. |
+| `workspace_creation_busy` | The existing global-heavy-operation guard prevented allocation. Wait for that operation or have an administrator reconcile it, then retry the original request ID. |
+
+Use `workspace_status` before allocating again. Web administration exposes
+eligible unbound workspaces and the existing binding workflow. An administrator
+can create a dedicated workspace and bind it as an explicit project allocation;
+this does not remove other projects or change the automatic MCP limits. It also
+does not waive disk-space, integrity or global-heavy-operation admission.
+Abandoning a project retains its bytes and does not make capacity available.
+
+These are retained-file limits, not running Kodi limits. Stopping Kodi preserves
+the project and does not release its workspace allowance. A managed-instance
+concurrency cap, idle scheduler and separately granted agent ensure/release
+operations remain tracked in issue #12. External Kodi uses no managed runtime
+slot; this change introduces no cap on external connections.
+
+## Manifest eligibility before smoke execution
+
+`workspace_validate` reports `fixed_smoke_eligible` and
+`fixed_smoke_unsupported_reason` for the exact observed workspace generation.
+This is structural manifest eligibility; target authority, exact deployment,
+enabled state, dependencies and runtime checks must still pass at execution.
+A missing value is unknown, not permission to execute.
+
+The fixed smoke accepts a sole Python video-plugin extension. Script-only
+packages report `script_launch_not_supported`; combined script/plugin packages
+report `multiple_executable_extensions`. Other bounded reasons distinguish an
+absent executable extension, unsupported extension type, non-video plugin and
+unsafe/missing library. Failed execution preserves its reason for request replay
+and never falls back to a different entry point.
+
+Explicit script/plugin entry-point launch is still tracked in issue #13. A
+successful smoke or accepted dispatch is not script completion or confirmation
+that the intended custom window opened. Observe the UI separately.
+
 ## Slice 4 exact-generation deployment and fixed execution
 
 Migration `0042_mcp_workspace_deployment_execution` seeds exactly

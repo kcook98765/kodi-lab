@@ -6457,3 +6457,29 @@ details. The existing acknowledgement checks, OTP dispatch, uncertain-outcome
 recovery and trust confirmation are unchanged. A complete existing-device
 household reconnect flow is deferred rather than replacing those coordinators
 or silently reusing old consent. Agent grants remain separate.
+
+## D-0437: External connection retirement and bounded issue follow-up
+
+Issue #14 uses permanent external deactivation as retirement rather than adding
+a deletion state or removing referenced rows. Current external lists and grant
+selectors omit deactivated registrations; explicit history queries and exact-ID
+audit reads retain them. Retire routes validate the registration class before
+mutation, deactivate native access before the final Bridge revoke, and retry
+protected cleanup even for previously deactivated targets. Home endpoint
+reservations are abandoned only after protected cleanup under the existing
+coordinator lock. The connected operation's history remains, while it cannot
+replay Connected or block a replacement forever. No remote Kodi mutation occurs.
+
+Issue #10's endpoint-conflict result identifies only an unambiguous matching
+registration or unfinished Home operation. The administrator can explicitly
+resume that operation with no code. No registration is automatically adopted,
+no duplicate endpoint is guessed, and completed/revoked reconnect still needs
+the separate guided workflow. Retirement does not transfer old grants.
+
+Issue #12 distinguishes retained-workspace limits and global-heavy admission in
+bounded MCP diagnostics. Existing limits and administrator binding exceptions
+remain intact. This adds no managed-runtime scheduler or lifecycle permission.
+Issue #13 exposes exact-generation manifest eligibility for the existing fixed
+smoke and preserves unsupported reasons in durable failed receipts/replay. It
+does not add direct launch or permit script/plugin selection. Those features
+need their own operation and authority contracts; diagnostics are not authority.

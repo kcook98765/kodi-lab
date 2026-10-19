@@ -232,9 +232,10 @@ def test_wrong_otp_retires_disabled_target_and_preserves_code(
     with pytest.raises(ExternalKodiOnboardingError, match="otp_invalid"):
         _onboard(service, wrong, _port(bridges))
     assert (
-        targets.list_targets()[0].administrative_state
+        targets.list_targets(include_retired=True)[0].administrative_state
         is ExternalAdministrativeState.DEACTIVATED
     )
+    assert targets.list_targets() == []
     assert json.loads(onboarding.read_text())["code"] == code
     result = _onboard(service, code, _port(bridges), name="Native Kodi retry")
     assert result.paired
@@ -371,9 +372,10 @@ def test_legacy_bridge_is_explicitly_rejected_without_long_token_fallback(
     ):
         _onboard(service, code, _port(bridges))
     assert (
-        targets.list_targets()[0].administrative_state
+        targets.list_targets(include_retired=True)[0].administrative_state
         is ExternalAdministrativeState.DEACTIVATED
     )
+    assert targets.list_targets() == []
     assert json.loads(onboarding.read_text())["code"] == code
 
 
@@ -397,9 +399,10 @@ def test_bad_kodi_auth_retires_target_without_contacting_bridge(
     with pytest.raises(ExternalKodiOnboardingError, match="invalid_kodi_credentials"):
         _onboard(service, code, _port(bridges), username="kodi", password="bad")
     assert (
-        targets.list_targets()[0].administrative_state
+        targets.list_targets(include_retired=True)[0].administrative_state
         is ExternalAdministrativeState.DEACTIVATED
     )
+    assert targets.list_targets() == []
     assert json.loads(onboarding.read_text())["code"] == code
 
 
@@ -467,9 +470,10 @@ def test_bootstrap_info_failure_is_bounded_and_does_not_consume_code(
     with pytest.raises(ExternalKodiOnboardingError, match=expected):
         _onboard(service, code, _port(bridges))
     assert (
-        targets.list_targets()[0].administrative_state
+        targets.list_targets(include_retired=True)[0].administrative_state
         is ExternalAdministrativeState.DEACTIVATED
     )
+    assert targets.list_targets() == []
     assert json.loads(onboarding.read_text())["code"] == code
 
 
@@ -517,7 +521,8 @@ def test_secret_store_failure_after_bootstrap_is_uncertain_and_redacted(
     assert raised.value.target_id is None
     assert code not in repr(raised.value)
     assert (
-        targets.list_targets()[0].administrative_state
+        targets.list_targets(include_retired=True)[0].administrative_state
         is ExternalAdministrativeState.DEACTIVATED
     )
+    assert targets.list_targets() == []
     assert json.loads(onboarding.read_text())["code"] is None

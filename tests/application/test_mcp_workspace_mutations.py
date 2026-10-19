@@ -315,8 +315,11 @@ def test_concurrent_identical_creation_allocates_once_and_creating_quota_holds(
     with sessions() as session:
         assert session.scalar(select(func.count()).select_from(AgentWorkspaceRow)) == 1
 
-    with pytest.raises(McpAuthorizationError, match="workspace_quota_exceeded"):
+    with pytest.raises(
+        McpAuthorizationError, match="workspace_quota_exceeded"
+    ) as caught:
         tools.workspace_create(principal, request_id=uuid4(), source_id=SOURCE_ID)
+    assert caught.value.reason == "client_workspace_creation_in_progress"
 
 
 def test_present_workspace_quota_counts_abandoned_bytes_and_no_eviction(
@@ -334,8 +337,11 @@ def test_present_workspace_quota_counts_abandoned_bytes_and_no_eviction(
         created.append(result.workspace_id)
     workspaces.abandon(created[0])
 
-    with pytest.raises(McpAuthorizationError, match="workspace_quota_exceeded"):
+    with pytest.raises(
+        McpAuthorizationError, match="workspace_quota_exceeded"
+    ) as caught:
         tools.workspace_create(principal, request_id=uuid4(), source_id=SOURCE_ID)
+    assert caught.value.reason == "client_retained_workspace_limit"
     with sessions() as session:
         rows = session.scalars(select(AgentWorkspaceRow)).all()
         assert len(rows) == 4
@@ -818,6 +824,56 @@ def _ready_owned_workspace(
         principal,
         created,
     )
+
+
+@pytest.mark.parametrize(
+    ("extension_xml", "reason"),
+    [
+        (
+            '<extension point="xbmc.python.pluginsource" library="main.py">'
+            "<provides>video</provides></extension>",
+            None,
+        ),
+        (
+            '<extension point="xbmc.python.script" library="main.py"/>',
+            "script_launch_not_supported",
+        ),
+        (
+            '<extension point="xbmc.python.script" library="main.py"/>'
+            '<extension point="xbmc.python.pluginsource" library="main.py">'
+            "<provides>video</provides></extension>",
+            "multiple_executable_extensions",
+        ),
+    ],
+)
+def test_workspace_validation_reports_manifest_smoke_eligibility(
+    tmp_path: Path, extension_xml: str, reason: str | None
+) -> None:
+    _, _, _, tools, _, principal, created = _ready_owned_workspace(tmp_path)
+    tools.workspace_edit(
+        principal,
+        WorkspaceEditInput(
+            workspace_id=created.workspace_id,
+            expected_generation=0,
+            operation="replace",
+            relative_path="addon.xml",
+            content=(
+                '<addon id="plugin.video.one" name="Mutation" version="1.0.0">'
+                f"{extension_xml}</addon>\n"
+            ),
+        ),
+    )
+    result = tools.workspace_validate(
+        principal,
+        WorkspaceValidateInput(
+            workspace_id=created.workspace_id, expected_generation=1
+        ),
+    )
+    assert result.observed_generation == 1
+    assert result.fixed_smoke_eligible is (reason is None)
+    assert result.fixed_smoke_unsupported_reason == reason
+    assert result.addon_id == "plugin.video.one"
+    assert result.promotable
 
 
 def test_workspace_validate_exact_generation_and_change_classification(

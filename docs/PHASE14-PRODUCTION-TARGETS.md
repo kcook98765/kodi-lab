@@ -73,6 +73,11 @@ then requires exactly one `external_production_policies` row. Database triggers
 reject policy attachment to another class; application reads fail closed if a
 production policy is absent.
 
+Use [Retire connection](EXTERNAL-CONNECTION-RETIREMENT.md) to remove an obsolete
+production registration from current lists while retaining its UUID and audit
+history. This deactivates Lab access and retires credentials; it does not stop
+Kodi or transfer any scope to its replacement.
+
 Production creation explicitly flushes the target, external subtype, policy and
 event in dependency order. This is the supported completion boundary: the
 transaction either commits the complete aggregate or rolls it back.

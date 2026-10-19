@@ -1281,7 +1281,7 @@ class ExternalBridgeService:
         now = self._clock()
         with self._sessions.begin() as session:
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
-            self._require_external(session, target_id)
+            self._require_external(session, target_id, allow_deactivated=True)
             row = session.get(ExternalBridgePairingRow, str(target_id))
             if row is None:
                 raise ExternalBridgeServiceError("bridge_not_paired")
@@ -2675,7 +2675,9 @@ class ExternalBridgeService:
         return ExternalBridgeReachabilityState.UNREACHABLE
 
     @staticmethod
-    def _require_external(session: Session, target_id: UUID) -> ExternalKodiTargetRow:
+    def _require_external(
+        session: Session, target_id: UUID, *, allow_deactivated: bool = False
+    ) -> ExternalKodiTargetRow:
         target = session.get(TargetRow, str(target_id))
         external = session.get(ExternalKodiTargetRow, str(target_id))
         if (
@@ -2683,7 +2685,10 @@ class ExternalBridgeService:
             or external is None
             or target.target_type
             not in {TargetType.EXTERNAL_DEVELOPMENT, TargetType.EXTERNAL_PRODUCTION}
-            or external.administrative_state is ExternalAdministrativeState.DEACTIVATED
+            or (
+                external.administrative_state is ExternalAdministrativeState.DEACTIVATED
+                and not allow_deactivated
+            )
         ):
             raise ExternalBridgeServiceError("target_not_found")
         return external

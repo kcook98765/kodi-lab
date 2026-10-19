@@ -284,7 +284,14 @@ def test_authoritative_status(
     assert f'data-status="{status}"' in page
     assert message in page
     assert 'data-status="connected"' not in page
-    assert f'data-status="{status}"' in client.get("/kodi").text
+    current = client.get("/kodi").text
+    if field == "admin" and value == "deactivated":
+        assert str(household) not in current
+        history = client.get("/production-targets?include_retired=true").text
+        assert str(household) in history
+        assert "Retired" in history
+    else:
+        assert f'data-status="{status}"' in current
 
 
 def test_native_response_alone_is_not_connected(

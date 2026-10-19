@@ -78,7 +78,10 @@
       if (button.dataset.action === "probe") await request(`/api/external-targets/${id}/probe`, "POST");
       if (button.dataset.action === "confirm") await request(`/api/external-targets/${id}/confirm`, "POST", {confirmed: true, observation_id: button.dataset.observationId});
       if (button.dataset.action === "toggle") await request(`/api/external-targets/${id}/enabled`, "POST", {enabled: button.dataset.enabled !== "true"});
-      if (button.dataset.action === "deactivate" && confirm("Deactivate this target and retire its credentials?")) await request(`/api/external-targets/${id}/deactivate`, "POST", {confirmed: true});
+      if (button.dataset.action === "retire") {
+        if (!confirm(`Permanently retire connection "${card.querySelector("h3").textContent}" (${id}, ${card.dataset.administrativeState})? Credentials and agent grants will be retired; its audit history is retained. Kodi and its profile, add-ons and media will not be changed.`)) return;
+        await request(`/api/external-targets/${id}/retire`, "POST", {confirmed: true});
+      }
       location.reload();
     }));
   });

@@ -513,6 +513,7 @@ from kodi_lab.storage.repositories import ManagedInstanceRepository, SnapshotRep
 from kodi_lab.storage.secrets import (
     ExternalBridgeSecretStore,
     ExternalCredentialStore,
+    SecretStoreError,
     decode_master_key,
 )
 from kodi_lab.web.admin_views import (
@@ -2744,8 +2745,21 @@ def create_app(
             "needs_reverification": 409,
             "secret_unavailable": 503,
             "verification_required": 409,
+            "connection_retirement_incomplete": 409,
+            "connection_secret_retirement_failed": 503,
         }.get(error.code, 409)
-        return _json_error(status_code, error.code, "External target request rejected.")
+        message = {
+            "connection_secret_retirement_failed": (
+                "The connection is retired, but protected Kodi credential cleanup "
+                "failed. Open Connection history and retry credential cleanup."
+            ),
+            "connection_retirement_incomplete": (
+                "The connection is retired, but onboarding cleanup is incomplete. "
+                "Open Connection history and retry credential cleanup after any "
+                "in-flight connection request finishes."
+            ),
+        }.get(error.code, "External target request rejected.")
+        return _json_error(status_code, error.code, message)
 
     @app.exception_handler(DevelopmentCapabilityAmendmentError)
     async def development_capability_amendment_failure(
@@ -2820,8 +2834,14 @@ def create_app(
             "bootstrap_outcome_uncertain": 409,
             "provisional_expired": 410,
             "transport_acknowledgement_required": 409,
+            "bridge_secret_retirement_failed": 503,
         }.get(error.code, 409)
         message = {
+            "bridge_secret_retirement_failed": (
+                "Bridge authority is revoked, but credential cleanup needs a retry. "
+                "For a retired connection, open Connection history and choose "
+                "Retry credential cleanup."
+            ),
             "otp_invalid_format": _ONBOARDING_ERROR_MESSAGES["otp_invalid_format"],
             "wrong_code": _ONBOARDING_ERROR_MESSAGES["otp_invalid"],
             "pairing_code_expired": _ONBOARDING_ERROR_MESSAGES["otp_expired"],
@@ -3190,9 +3210,10 @@ def create_app(
     @app.get("/external-targets", response_class=HTMLResponse)
     async def external_targets_page(
         request: Request,
+        include_retired: bool = False,
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
-        targets = context.external_targets.list_targets()
+        targets = context.external_targets.list_targets(include_retired=include_retired)
         amendments = context.development_capability_amendments
         return templates.TemplateResponse(
             request,
@@ -3200,6 +3221,7 @@ def create_app(
             {
                 "csrf_token": authenticated.csrf_token,
                 "targets": targets,
+                "include_retired": include_retired,
                 "bridge_statuses": {
                     target.target_id: context.external_bridges.status(target.target_id)
                     for target in targets
@@ -3273,9 +3295,12 @@ def create_app(
     @app.get("/production-targets", response_class=HTMLResponse)
     async def production_targets_page(
         request: Request,
+        include_retired: bool = False,
         authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> Response:
-        targets = context.production_targets.list_targets()
+        targets = context.production_targets.list_targets(
+            include_retired=include_retired
+        )
         bridge_statuses: dict[UUID, ExternalBridgeStatus] = {}
         native_control_acknowledgements: dict[
             UUID, ProductionNativeControlAcknowledgementRead
@@ -3299,6 +3324,7 @@ def create_app(
             {
                 "csrf_token": authenticated.csrf_token,
                 "targets": targets,
+                "include_retired": include_retired,
                 "bridge_statuses": bridge_statuses,
                 "native_control_acknowledgements": (native_control_acknowledgements),
                 "production_scopes": (
@@ -4744,9 +4770,10 @@ def create_app(
 
     @app.get("/api/external-targets", response_model=list[ExternalTargetRead])
     def list_external_targets(
+        include_retired: bool = False,
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[ExternalTargetRead]:
-        return context.external_targets.list_targets()
+        return context.external_targets.list_targets(include_retired=include_retired)
 
     @app.post("/api/household-onboarding", response_model=HouseholdOnboardingResult)
     def start_household_onboarding(
@@ -4945,6 +4972,35 @@ def create_app(
     ) -> ExternalTargetRead:
         return context.external_targets.set_enabled(target_id, enabled=payload.enabled)
 
+    def retire_external_connection(
+        service: ExternalTargetAdministrationService, target_id: UUID
+    ) -> ExternalTargetRead:
+        # Validate the exact registration class before retiring any authority.
+        service.get(target_id)
+        native_error = None
+        try:
+            result = service.deactivate(target_id)
+        except ExternalTargetError as error:
+            native_error = error
+        except SecretStoreError:
+            native_error = ExternalTargetError("connection_secret_retirement_failed")
+        # Deactivation closes new pairing publication before the final revoke.
+        # Even failed native secret deletion must retire Bridge authority.
+        try:
+            context.external_bridges.revoke(target_id)
+        except ExternalBridgeServiceError as error:
+            if error.code != "bridge_not_paired":
+                raise
+        if native_error is not None:
+            raise native_error
+        if service is context.production_targets:
+            context.household_onboarding.finish_retired_connection(target_id)
+        return result
+
+    @app.post(
+        "/api/external-targets/{target_id}/retire",
+        response_model=ExternalTargetRead,
+    )
     @app.post(
         "/api/external-targets/{target_id}/deactivate",
         response_model=ExternalTargetRead,
@@ -4954,18 +5010,14 @@ def create_app(
         _payload: AgentWorkspacePromotionConfirmationRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
-        try:
-            context.external_bridges.revoke(target_id)
-        except ExternalBridgeServiceError as error:
-            if error.code != "bridge_not_paired":
-                raise
-        return context.external_targets.deactivate(target_id)
+        return retire_external_connection(context.external_targets, target_id)
 
     @app.get("/api/production-targets", response_model=list[ExternalTargetRead])
     def list_production_targets(
+        include_retired: bool = False,
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[ExternalTargetRead]:
-        return context.production_targets.list_targets()
+        return context.production_targets.list_targets(include_retired=include_retired)
 
     @app.get(
         "/api/production-operation-approvals",
@@ -5195,6 +5247,10 @@ def create_app(
         )
 
     @app.post(
+        "/api/production-targets/{target_id}/retire",
+        response_model=ExternalTargetRead,
+    )
+    @app.post(
         "/api/production-targets/{target_id}/deactivate",
         response_model=ExternalTargetRead,
     )
@@ -5203,12 +5259,7 @@ def create_app(
         _payload: AgentWorkspacePromotionConfirmationRequest,
         _authenticated: AuthenticatedWebSession = Depends(mutation_session),
     ) -> ExternalTargetRead:
-        try:
-            context.external_bridges.revoke(target_id)
-        except ExternalBridgeServiceError as error:
-            if error.code != "bridge_not_paired":
-                raise
-        return context.production_targets.deactivate(target_id)
+        return retire_external_connection(context.production_targets, target_id)
 
     @app.get(
         "/api/production-bridge-builds",

@@ -16,6 +16,9 @@
   const nativeToggle = find("[data-native-toggle]");
   const nativeFields = find("[data-native-fields]");
   const abandonForm = find("[data-abandon-form]");
+  const existingPanel = find("[data-existing-connection]");
+  const existingTarget = find("[data-existing-target]");
+  const resumeExisting = find("[data-resume-existing]");
   const codeInput = form.elements.namedItem("code");
   const passwordInput = form.elements.namedItem("password");
   const storageKey = "kodi-lab-add-kodi-operation";
@@ -26,6 +29,7 @@
   let disclosure = null;
   let busy = false;
   let finished = false;
+  let existingOperationId = null;
   const notifyState = () => root.dispatchEvent?.(new CustomEvent("kodi-onboarding-state", {
     bubbles:true, detail:{mode:"home", active:Boolean(operationId && !finished), busy},
   }));
@@ -113,6 +117,11 @@
   const blockedCodes = new Set(["identity_mismatch", "onboarding_binding_changed", "administration_changed", "already_paired", "pairing_recovery_required", "endpoint_conflict", "operation_conflict", "abandoned"]);
 
   const resetResult = () => {
+    existingOperationId = null;
+    existingPanel.hidden = true;
+    existingTarget.hidden = true;
+    existingTarget.href = "";
+    resumeExisting.hidden = true;
     disclosure = null;
     consent.checked = false;
     consentForm.hidden = true;
@@ -139,6 +148,21 @@
     find("[data-operation]").textContent = operationId;
     find("[data-response-code]").textContent = result.code;
     find("[data-response-message]").textContent = result.message;
+    if (result.code === "endpoint_conflict") {
+      abandonForm.hidden = true; // This new request never reserved a connection.
+      if (uuidPattern.test(result.existing_target_id) &&
+          ["external_production", "external_development"].includes(result.existing_target_class)) {
+        const path = result.existing_target_class === "external_production" ? "/production-targets" : "/external-targets";
+        existingTarget.href = `${path}#${result.existing_target_id}`;
+        existingTarget.hidden = false;
+        existingPanel.hidden = false;
+      }
+      if (uuidPattern.test(result.existing_operation_id)) {
+        existingOperationId = result.existing_operation_id;
+        resumeExisting.hidden = false;
+        existingPanel.hidden = false;
+      }
+    }
     if (result.state === "connected") {
       find("[data-result-message]").textContent = "Kodi Lab Bridge is connected with read-only access.";
       find("[data-agent-note]").hidden = false;
@@ -272,6 +296,15 @@
     if (root.hidden || busy || !operationId || finished) return;
     clearSecrets();
     consent.checked = false;
+    run(async () => { await render(await request(`/api/household-onboarding/${operationId}/resume`, {})); });
+  });
+  resumeExisting.addEventListener("click", () => {
+    if (root.hidden || busy || !existingOperationId) return;
+    operationId = existingOperationId;
+    finished = false;
+    clearSecrets();
+    consent.checked = false;
+    saveOperation();
     run(async () => { await render(await request(`/api/household-onboarding/${operationId}/resume`, {})); });
   });
   retryButton.addEventListener("click", () => {

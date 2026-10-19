@@ -91,7 +91,10 @@ from kodi_lab.application.workspace_source_captures import (
     WorkspaceSourceCaptureService,
 )
 from kodi_lab.development.deployment import DevelopmentTreeError
-from kodi_lab.development.sources import DevelopmentSourceValidationError
+from kodi_lab.development.sources import (
+    CopiedSmokeUnsupportedReason,
+    DevelopmentSourceValidationError,
+)
 from kodi_lab.domain import (
     AgentWorkspace,
     AgentWorkspaceCreationState,
@@ -623,6 +626,15 @@ class WorkspaceValidateResult(BaseModel):
     addon_id: str = Field(max_length=128)
     addon_version: str = Field(max_length=128)
     extension_types: tuple[str, ...] = Field(max_length=64)
+    fixed_smoke_eligible: bool | None = Field(
+        default=None,
+        description=(
+            "Manifest-only eligibility for the existing bounded video smoke. "
+            "Deployment and target authority must still pass; this does not "
+            "authorize direct script launch."
+        ),
+    )
+    fixed_smoke_unsupported_reason: CopiedSmokeUnsupportedReason | None = None
     identity_classification: Literal["stable", "changed"]
     addon_id_classification: Literal["unchanged", "changed"]
     version_classification: Literal["unchanged", "changed"]
@@ -701,7 +713,7 @@ class McpTargetToolService:
                 source_id=source_id,
             )
         except McpWorkspaceMutationError as error:
-            raise McpAuthorizationError(error.code) from error
+            raise McpAuthorizationError(error.code, reason=error.reason) from error
         self._require_development_bounded(result)
         return result
 
@@ -929,6 +941,8 @@ class McpTargetToolService:
             addon_id=observed.addon_id,
             addon_version=observed.addon_version,
             extension_types=observed.extension_types,
+            fixed_smoke_eligible=observed.fixed_smoke_eligible,
+            fixed_smoke_unsupported_reason=observed.fixed_smoke_unsupported_reason,
             identity_classification=(
                 "changed" if observed.addon_id_classification == "changed" else "stable"
             ),

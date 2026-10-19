@@ -5,6 +5,8 @@
 {% block main_attributes %}data-production-targets data-csrf-token="{{ csrf_token }}"{% endblock %}
 {% block content %}
       <h1>Production Kodi targets</h1>
+      <p>Disable is reversible. <strong>Retire connection</strong> permanently removes this Lab registration from current lists and retires its credentials and agent grants. Kodi, its Bridge, profile, add-ons and media are preserved.</p>
+      <p>{% if include_retired %}<a href="/production-targets">Show current connections</a> · Showing current and retired connections.{% else %}<a href="/production-targets?include_retired=true">Connection history (including retired)</a>{% endif %}</p>
       <p><strong>Production targets are a separate immutable class.</strong> Seven standing navigation actions require no approval. Seven playback and volume actions require one exact, one-shot Web approval; context menu and select remain prohibited.</p>
       <p>Private-LAN IP literals only; no DNS, WAN, redirects, ambient proxy, SSH, shell, filesystem, or raw JSON-RPC authority.</p>
       <p><strong>Privacy warning:</strong> production screenshots may contain personal or media information. Kodi Lab keeps pixels only in memory, but the receiving MCP client may persist them outside Kodi Lab.</p>
@@ -60,13 +62,14 @@
         </form>
       </section>
       <section>
-        <h2>Registered production targets</h2>
+        <h2>{{ 'Connection history' if include_retired else 'Current production connections' }}</h2>
         {% for target in targets %}
         {% set policy = target.production_policy %}
         {% set bridge = bridge_statuses.get(target.target_id) %}
         {% set native_control_ack = native_control_acknowledgements.get(target.target_id) %}
-        <article data-target-id="{{ target.target_id }}" data-policy-revision="{{ policy.policy_revision }}" data-configured-capabilities="{{ target.configured_capabilities | join(',') }}">
+        <article id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}" data-policy-revision="{{ policy.policy_revision }}" data-configured-capabilities="{{ target.configured_capabilities | join(',') }}">
           <h3>{{ target.logical_name }}</h3>
+          <p>Registration: <code>{{ target.target_id }}</code>{% if target.administrative_state.value == 'deactivated' %} · <strong>Retired</strong> {{ target.deactivated_at }} · <a href="/api/production-targets/{{ target.target_id }}/events">Audit history</a>{% endif %}</p>
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
           <p>Lifecycle: <strong>{{ policy.lifecycle_state }}</strong> · generation {{ policy.identity_generation }} · policy revision {{ policy.policy_revision }}</p>
           <p>Admin: {{ target.administrative_state.value }} · native verification: {{ target.verification_state.value }} · designation: {{ policy.designation_state.value }}</p>
@@ -97,7 +100,6 @@
           {% if target.pending_observation_id and policy.designation_state.value == 'pending_confirmation' %}<button type="button" data-action="confirm-designation" data-observation-id="{{ target.pending_observation_id }}">Confirm production designation</button>{% endif %}
           <button type="button" data-action="toggle" data-enabled="{{ 'true' if target.administrative_state.value == 'enabled' else 'false' }}">{{ 'Disable' if target.administrative_state.value == 'enabled' else 'Enable read-only' }}</button>
           <button type="button" data-action="suspension" data-suspended="{{ 'true' if policy.mutations_suspended else 'false' }}">{{ 'Clear per-target suspension' if policy.mutations_suspended else 'Suspend target mutations' }}</button>
-          <button type="button" data-action="deactivate" class="destructive">Deactivate</button>
           {% if target.administrative_state.value == 'enabled' and target.verification_state.value == 'verified' and policy.designation_state.value == 'confirmed' %}
           {% if bridge and bridge.pairing_state.value == 'revoked' %}<p class="notice">Reconnect with a current code from Kodi. First acknowledge the current HTTP risks for this Bridge port using the control below; revocation invalidated the previous acknowledgement. Pairing does not grant an agent access or permit control.</p>{% endif %}
           {% if target.protocol_kind.value == 'jsonrpc_http' %}<form data-http-ack><label>Bridge port <select name="bridge_port">{% for port in bridge_allowed_ports %}<option value="{{ port }}"{% if bridge and bridge.bridge_port == port or (not bridge or not bridge.bridge_port) and port == 8765 %} selected{% endif %}>{{ port }}</option>{% endfor %}</select></label><button type="submit">Acknowledge exact HTTP transport risk</button></form>{% endif %}
@@ -110,6 +112,7 @@
           <details><summary>Edit disabled endpoint</summary><form data-endpoint><label>Protocol <select name="protocol_kind"><option value="jsonrpc_http"{% if target.protocol_kind.value == 'jsonrpc_http' %} selected{% endif %}>HTTP</option><option value="jsonrpc_https"{% if target.protocol_kind.value == 'jsonrpc_https' %} selected{% endif %}>HTTPS</option></select></label><label>IP literal <input name="host" value="{{ target.host }}" maxlength="64" required></label><label>Port <select name="port">{% for port in allowed_ports %}<option value="{{ port }}"{% if port == target.port %} selected{% endif %}>{{ port }}</option>{% endfor %}</select></label><button type="submit">Change endpoint and invalidate trust</button></form></details>
           <details><summary>Rotate credentials</summary><form data-credentials><label>Authentication <select name="authentication_mode"><option value="none">No authentication</option><option value="username_password">Username and password</option></select></label><label>Username <input name="username" maxlength="256" autocomplete="off" placeholder="Username"></label><label>New password <input name="password" type="password" maxlength="1024" autocomplete="new-password" placeholder="New password"></label><button type="submit">Rotate and invalidate trust</button></form></details>
           {% endif %}
+          <button type="button" data-action="retire" class="destructive">{{ 'Retry credential cleanup' if target.administrative_state.value == 'deactivated' else 'Retire connection' }}</button>
         </article>
         {% else %}<p>No production targets.</p>{% endfor %}
       </section>

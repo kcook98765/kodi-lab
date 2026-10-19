@@ -57,12 +57,18 @@ from kodi_lab.application.mcp_administration import (
 from kodi_lab.application.mcp_promotion_requests import PromotionRequestResult
 from kodi_lab.application.mcp_remote_actions import McpRemoteActionResult
 from kodi_lab.application.mcp_workspace_development import (
-    EXECUTION_DEPENDENCY_REASONS,
+    EXECUTION_UNSUPPORTED_REASONS,
     WORKSPACE_SMOKE_SUCCESS_DESCRIPTION,
     WorkspaceDeploymentResult,
     WorkspaceExecutionResult,
 )
-from kodi_lab.application.mcp_workspace_mutations import WorkspaceCreateResult
+from kodi_lab.application.mcp_workspace_mutations import (
+    MCP_CREATING_WORKSPACES_PER_CLIENT,
+    MCP_PRESENT_WORKSPACES_GLOBAL,
+    MCP_PRESENT_WORKSPACES_PER_CLIENT,
+    WORKSPACE_QUOTA_REASONS,
+    WorkspaceCreateResult,
+)
 from kodi_lab.application.production_transient_approvals import (
     ProductionApprovalRequiredResult,
     ProductionApprovalTerminalResult,
@@ -1604,7 +1610,8 @@ _SAFE_TOOL_REASONS = {
             "capture_reconciliation_required",
         }
     ),
-    "execution_unsupported": EXECUTION_DEPENDENCY_REASONS,
+    "execution_unsupported": EXECUTION_UNSUPPORTED_REASONS,
+    "workspace_quota_exceeded": WORKSPACE_QUOTA_REASONS,
 }
 
 
@@ -1624,6 +1631,57 @@ def _tool_error_result(
     message = result_code
     if reason is not None and reason in _SAFE_TOOL_REASONS.get(result_code, ()):
         message = f"{result_code}: {reason}"
+    if (
+        tool_name == "workspace_execute"
+        and result_code == "execution_unsupported"
+        and reason in {"script_launch_not_supported", "multiple_executable_extensions"}
+    ):
+        message += (
+            "\nnext_action: The current fixed smoke accepts exactly one Python "
+            "video-plugin extension. Direct manifest-entry-point launch is not "
+            "available yet. Inspect workspace_validate eligibility and observe "
+            "the intended UI separately; do not treat menu launch or accepted "
+            "dispatch as script completion."
+        )
+    if tool_name == "workspace_create" and result_code == "workspace_quota_exceeded":
+        limits = {
+            "client_retained_workspace_limit": (
+                "Retained workspace limit per client: "
+                f"{MCP_PRESENT_WORKSPACES_PER_CLIENT}."
+            ),
+            "global_retained_workspace_limit": (
+                "Retained workspace limit across MCP bindings: "
+                f"{MCP_PRESENT_WORKSPACES_GLOBAL}."
+            ),
+            "client_workspace_creation_in_progress": (
+                "Concurrent workspace creation limit per client: "
+                f"{MCP_CREATING_WORKSPACES_PER_CLIENT}."
+            ),
+            "workspace_creation_busy": (
+                "Another global-heavy operation prevents workspace creation."
+            ),
+        }
+        message += "\n" + limits.get(
+            reason or "", "Workspace allocation capacity was reached."
+        )
+        if reason in {
+            "client_workspace_creation_in_progress",
+            "workspace_creation_busy",
+        }:
+            message += (
+                "\nnext_action: Check workspace_status and Web operation progress. "
+                "Wait for the current operation to finish or ask an administrator "
+                "to reconcile it; retry the same request_id instead of allocating "
+                "another workspace."
+            )
+        else:
+            message += (
+                "\nnext_action: Inspect workspace_status and reuse this project's "
+                "authorized workspace. An administrator can create a dedicated "
+                "workspace and bind it through Web administration after reviewing "
+                "storage capacity. Stopping Kodi does not release retained-file "
+                "capacity. Do not delete or abandon unrelated projects."
+            )
     if tool_name == "workspace_edit":
         if result_code == "workspace_generation_conflict":
             message += (

@@ -13,6 +13,19 @@ Development is a separate explicit mode and keeps its existing permissions.
 
 ## Existing or revoked pairings
 
+If **Add Kodi** finds one existing registration at the exact address and Kodi
+port, it links to that registration instead of creating another. If an unfinished
+Home Connect operation owns that endpoint, **Resume saved connection** opens its
+saved progress without resending a code or accepting HTTP risks. Review the
+current disclosure and enter a current code only when requested. Shared or
+ambiguous registrations require administrator review; Lab does not choose by
+friendly name.
+
+An existing completed/revoked pairing still uses the advanced steps below; the
+full guided reconnect flow remains tracked in issue #10. For an obsolete
+registration, use [Retire connection](EXTERNAL-CONNECTION-RETIREMENT.md) and its
+history view rather than deleting records or creating grants for a replacement.
+
 An existing registered Kodi must not be registered again just to recover its
 pairing. Full existing-device reconnect through the household Add Kodi page is
 still tracked in [issue #10](https://github.com/kcook98765/kodi-lab/issues/10).

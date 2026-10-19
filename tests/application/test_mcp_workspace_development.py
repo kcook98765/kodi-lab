@@ -1757,6 +1757,51 @@ def test_execute_replay_retains_bounded_dependency_reason(tmp_path: Path) -> Non
     assert env.smoke.count == 0
 
 
+@pytest.mark.parametrize(
+    ("extension_xml", "reason"),
+    [
+        (
+            '<extension point="xbmc.python.script" library="main.py"/>',
+            "script_launch_not_supported",
+        ),
+        (
+            '<extension point="xbmc.python.script" library="main.py"/>'
+            '<extension point="xbmc.python.pluginsource" library="main.py">'
+            "<provides>video</provides></extension>",
+            "multiple_executable_extensions",
+        ),
+    ],
+)
+def test_unsupported_manifest_reason_is_durable_and_never_dispatches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extension_xml: str, reason: str
+) -> None:
+    from kodi_lab.development import parse_captured_addon_xml
+
+    env = _environment(tmp_path)
+    _deploy_workspace(env)
+    descriptor = parse_captured_addon_xml(
+        "workspace",
+        (
+            '<addon id="plugin.video.slice4" name="Slice 4" version="1.0.0">'
+            f"{extension_xml}</addon>"
+        ).encode(),
+    )
+    monkeypatch.setattr(env.development, "_workspace_descriptor", lambda _: descriptor)
+    request_id = uuid4()
+    for _ in range(2):
+        with pytest.raises(
+            McpWorkspaceDevelopmentError, match="execution_unsupported"
+        ) as caught:
+            _execute_workspace(env, request_id=request_id)
+        assert caught.value.reason == reason
+    with env.sessions() as session:
+        operation = session.scalar(select(McpWorkspaceExecutionOperationRow))
+        assert operation is not None and not operation.invocation_dispatched
+        assert operation.state == "failed"
+        assert operation.result_classification == reason
+    assert env.smoke.count == 0
+
+
 def test_execute_preserves_non_python_builtin_dependency_behavior(
     tmp_path: Path,
 ) -> None:

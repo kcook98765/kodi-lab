@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 from kodi_lab.development.confined_fs import (
     open_development_root,
@@ -151,6 +152,50 @@ def copied_video_plugin_library(
     ):
         return None
     return library
+
+
+type CopiedSmokeUnsupportedReason = Literal[
+    "no_executable_extension",
+    "multiple_executable_extensions",
+    "script_launch_not_supported",
+    "extension_type_not_supported",
+    "video_plugin_required",
+    "unsafe_plugin_library",
+]
+
+COPIED_SMOKE_UNSUPPORTED_REASONS = frozenset(
+    {
+        "no_executable_extension",
+        "multiple_executable_extensions",
+        "script_launch_not_supported",
+        "extension_type_not_supported",
+        "video_plugin_required",
+        "unsafe_plugin_library",
+    }
+)
+
+
+def copied_video_plugin_unsupported_reason(
+    observation: DevelopmentSourceValidationResult,
+) -> CopiedSmokeUnsupportedReason | None:
+    """Explain fixed-smoke eligibility without granting execution authority."""
+    if copied_video_plugin_library(observation) is not None:
+        return None
+    executable = [
+        item for item in observation.extensions if item.point != "xbmc.addon.metadata"
+    ]
+    if not executable:
+        return "no_executable_extension"
+    if len(executable) != 1:
+        return "multiple_executable_extensions"
+    extension = executable[0]
+    if extension.point == "xbmc.python.script":
+        return "script_launch_not_supported"
+    if extension.point != "xbmc.python.pluginsource":
+        return "extension_type_not_supported"
+    if extension.provides != ("video",):
+        return "video_plugin_required"
+    return "unsafe_plugin_library"
 
 
 class DevelopmentSourceValidator:

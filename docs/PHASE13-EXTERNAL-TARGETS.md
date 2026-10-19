@@ -81,6 +81,11 @@ deployment settings outside SQLite. Missing or wrong keys fail closed, rotation
 publishes a new ciphertext/reference and retires the old file, and deactivation
 retires the active file.
 
+Permanent deactivation is presented as **Retire connection**. Current lists omit
+retired registrations; a history filter retains exact-ID audit access and a
+protected-cleanup retry. See [connection retirement](EXTERNAL-CONNECTION-RETIREMENT.md)
+for the Web/API workflow and its distinction from reversible Disable.
+
 Configured maximum capabilities use the closed vocabulary `target_inspect`,
 `addon_inventory`, `semantic_remote`, `screenshot`, `workspace_deployment` and
 `fixed_execution`. Native verification establishes `target_inspect`, may

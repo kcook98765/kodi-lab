@@ -29,6 +29,7 @@ function setup(responses, stored = new Map(), storageFails = false) {
     "native-fields", "abandon-form", "version", "agent-note", "diagnostics", "result-title",
     "result-message", "operation", "response-code", "response-message", "disclosure-message",
     "kodi-endpoint", "bridge-endpoint", "retry-note", "manual-recovery", "recovery-id",
+    "existing-connection", "existing-target", "resume-existing",
   ].map((name) => [`[data-${name}]`, element()]));
   const form = selectors["[data-connect-form]"];
   form.elements = {namedItem(name) { return fields[name]; }};
@@ -178,6 +179,32 @@ async function recoveryStates() {
   await submit(unavailableStorage);
   assert.match(unavailableStorage.find("operation").textContent, /^[0-9a-f-]{36}$/);
 }
+
+async function existingConnectionRecovery() {
+  const savedId = "9b93fac1-5088-44c6-90f9-937e7029e6a0";
+  const b = setup([
+    result("failed", "endpoint_conflict", {existing_target_id: targetId, existing_target_class: "external_production", existing_operation_id: savedId}),
+    result("requires_action", "transport_consent_required", {transport}),
+  ]);
+  await submit(b);
+  assert.equal(b.calls.length, 1); // Discovery cannot resume or replay OTP itself.
+  assert.equal(b.find("existing-connection").hidden, false);
+  assert.equal(b.find("existing-target").href, `/production-targets#${targetId}`);
+  assert.equal(b.find("resume-existing").hidden, false);
+  assert.equal(b.find("abandon-form").hidden, true);
+  b.find("resume-existing").listeners.click();
+  await settle();
+  assert.equal(b.calls[1].url, `/api/household-onboarding/${savedId}/resume`);
+  assert.deepEqual(b.calls[1].body, {});
+  assert.equal(JSON.parse(b.stored.get(key)).id, savedId);
+  assert.equal(b.find("consent").checked, false);
+  assert.equal(b.find("resume-code").value, "");
+  const unsafe = setup([result("failed", "endpoint_conflict", {existing_target_id: "//evil.example/SECRET", existing_target_class: "external_production", existing_operation_id: "invalid"})]);
+  await submit(unsafe);
+  assert.equal(unsafe.find("existing-connection").hidden, true);
+  assert.equal(unsafe.find("resume-existing").hidden, true);
+  assert.equal(unsafe.find("existing-target").href, "");
+}
 async function secretCleanupAndValidation() {
   const b = setup([]);
   b.fields.code.value = "0O1I";
@@ -200,6 +227,7 @@ async function main() {
   await uncertainAndReload();
   await registrationRetry();
   await recoveryStates();
+  await existingConnectionRecovery();
   await secretCleanupAndValidation();
 }
 main().catch((error) => { process.stderr.write(String(error.stack || error)); process.exitCode = 1; });
