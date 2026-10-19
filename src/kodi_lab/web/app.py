@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 from python_multipart.multipart import MultipartParser, parse_options_header
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -211,6 +212,12 @@ from kodi_lab.application.external_onboarding import (
     ExternalKodiOnboardingResult,
     ExternalKodiOnboardingService,
 )
+from kodi_lab.application.external_reconnect import (
+    ExternalReconnectService,
+    ReconnectConfirmation,
+    ReconnectResult,
+    ReconnectStartRequest,
+)
 from kodi_lab.application.external_targets import (
     ExternalTargetAdministrationService,
     ExternalTargetError,
@@ -255,12 +262,22 @@ from kodi_lab.application.live_display import (
     LiveDisplayFrameSkipped,
     ManagedLiveDisplayService,
 )
+from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleService
 from kodi_lab.application.managed_bridge_trust import ManagedBridgeTrustService
+from kodi_lab.application.managed_idle_worker import ManagedIdleWorker
+from kodi_lab.application.managed_launch_bridge import ManagedLaunchBridgeService
 from kodi_lab.application.managed_observation_bridge import (
     ManagedObservationBridgeService,
 )
+from kodi_lab.application.managed_resources import (
+    ManagedResourceProtected,
+    ManagedResourceService,
+    PlaybackFactory,
+    ResourcePolicyInput,
+)
 from kodi_lab.application.mcp_administration import (
     ADDON_DEVELOPMENT_PRESET_ID,
+    EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS,
     EXPLICIT_SOURCE_CAPTURE_PERMISSIONS,
     FULL_LAB_CONTROL_PRESET_ID,
     McpAdministrationError,
@@ -436,6 +453,11 @@ from kodi_lab.application.workspace_capture_presentation import (
     WorkspaceCapturePresentationService,
     WorkspaceCaptureStatus,
 )
+from kodi_lab.application.workspace_launch import (
+    WorkspaceLaunchError,
+    WorkspaceLaunchResult,
+    WorkspaceLaunchService,
+)
 from kodi_lab.application.workspace_source_captures import (
     WorkspaceSourceCaptureError,
     WorkspaceSourceCaptureResult,
@@ -503,8 +525,12 @@ from kodi_lab.repository.development import (
 from kodi_lab.repository.stable import REPOSITORY_ID, REPOSITORY_VERSION, load_current
 from kodi_lab.repository.workspace_package import bridge_manifest_for_zip
 from kodi_lab.runtime.preview import PreviewAcknowledgement
+from kodi_lab.storage.managed_activity import (
+    read_resource_policy as managed_resource_policy,
+)
 from kodi_lab.storage.models import (
     ExternalDevelopmentRepositoryReadinessRow,
+    ManagedInstanceRow,
     McpWorkspaceDeploymentOperationRow,
     RepositoryWorkspaceDeploymentRow,
     TargetRow,
@@ -590,6 +616,16 @@ class EmptyActionRequest(BaseModel):
     """Lifecycle requests deliberately contain no browser authority."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class ManagedEnrollmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    enrolled: bool
+
+
+class ManagedKeepAwakeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    minutes: int = Field(ge=0, le=240)
 
 
 class BrowserRemoteRequest(BaseModel):
@@ -1134,6 +1170,9 @@ class WebApplicationContext:
     throttler: LoginThrottler
     status: ManagedRuntimeStatusService
     lifecycle: ManagedRuntimeLifecycleService
+    managed_resources: ManagedResourceService
+    managed_agent_lifecycle: ManagedAgentLifecycleService
+    managed_idle_worker: ManagedIdleWorker
     matrix: RuntimeMatrixService
     readiness: ReadinessTaskRegistry
     reset_activity: ResetActivityRegistry
@@ -1193,6 +1232,7 @@ class WebApplicationContext:
     agent_workspace_cleanups: AgentWorkspaceCleanupService
     agent_workspace_cleanup_executor: AgentWorkspaceCleanupExecutor
     mcp_workspace_retention: McpWorkspaceRetentionService
+    workspace_launch: WorkspaceLaunchService
     mcp_workspace_development: McpWorkspaceDevelopmentService
     historical_workspace_execution_containment: (
         HistoricalWorkspaceExecutionContainmentService
@@ -1207,6 +1247,7 @@ class WebApplicationContext:
     external_targets: ExternalTargetAdministrationService
     external_onboarding: ExternalKodiOnboardingService
     household_onboarding: HouseholdKodiOnboardingService
+    external_reconnect: ExternalReconnectService
     production_targets: ExternalTargetAdministrationService
     production_capability_amendments: ProductionCapabilityAmendmentService
     development_capability_amendments: DevelopmentCapabilityAmendmentService
@@ -1279,8 +1320,20 @@ def create_app(
     production_target_service: ExternalTargetAdministrationService | None = None,
     external_bridge_service: ExternalBridgeService | None = None,
     external_target_transport: httpx.BaseTransport | None = None,
+    managed_playback_factory: PlaybackFactory | None = None,
 ) -> FastAPI:
     """Build an app entirely from injected storage and typed broker boundaries."""
+    repository_data_root = Path(
+        os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
+    )
+    if any(
+        (repository_data_root / name).exists()
+        or (repository_data_root / name).is_symlink()
+        for name in ("ORIGIN-MIGRATION.json",)
+    ):
+        raise ValueError(
+            "repository origin migration is incomplete; resume it before Web startup"
+        )
 
     task_registry = readiness or ReadinessTaskRegistry()
     reset_registry = reset_activity or ResetActivityRegistry()
@@ -1458,6 +1511,13 @@ def create_app(
         validation=external_onboarding,
         administration=mcp_administration,
         lock_root=settings.data_root / "locks" / "household-onboarding",
+    )
+    external_reconnect = ExternalReconnectService(
+        session_factory,
+        development=external_targets,
+        production=production_targets,
+        bridges=external_bridges,
+        lock_root=settings.data_root / "locks" / "external-reconnect",
     )
     screenshot_preferences = ScreenshotPreferenceService(session_factory)
     development_capability_amendments = DevelopmentCapabilityAmendmentService(
@@ -1825,6 +1885,36 @@ def create_app(
     mcp_promotion_requests = McpPromotionRequestService(
         session_factory, agent_workspace_promotions
     )
+    lifecycle_service = ManagedRuntimeLifecycleService(
+        session_factory,
+        broker,
+        task_registry,
+        status_service,
+        coordinator_factory=coordinator_factory or KodiReadinessCoordinator,
+        reset_operations=reset_operations,
+        lifecycle_operations=lifecycle_operations,
+        bridge_trust=managed_bridge_trust,
+    )
+    resources = ManagedResourceService(
+        session_factory,
+        broker,
+        lifecycle_service,
+        playback_factory=managed_playback_factory or KodiBrowserRemoteAdapter,
+    )
+    agent_lifecycle = ManagedAgentLifecycleService(
+        session_factory,
+        resources,
+        lifecycle_service,
+        status_service,
+        lock_root=settings.data_root / "locks/managed-agent-lifecycle",
+    )
+    idle_worker = ManagedIdleWorker(resources)
+    workspace_launch = WorkspaceLaunchService(
+        session_factory,
+        mcp_workspace_development,
+        ManagedLaunchBridgeService(session_factory, external_bridge_secret_store),
+        data_root=settings.data_root,
+    )
     lan_endpoints = [
         urlsplit(url)
         for url in (
@@ -1862,6 +1952,8 @@ def create_app(
             production_screenshots=production_screenshots,
             production_transient_approvals=production_transient_approvals,
             workspace_source_captures=workspace_source_captures,
+            managed_lifecycle=agent_lifecycle,
+            workspace_launch=workspace_launch,
         ),
         additional_allowed_hosts=tuple(
             entry
@@ -1893,16 +1985,10 @@ def create_app(
         auth=auth or WebAuthenticationService(session_factory),
         throttler=throttler or LoginThrottler(),
         status=status_service,
-        lifecycle=ManagedRuntimeLifecycleService(
-            session_factory,
-            broker,
-            task_registry,
-            status_service,
-            coordinator_factory=coordinator_factory or KodiReadinessCoordinator,
-            reset_operations=reset_operations,
-            lifecycle_operations=lifecycle_operations,
-            bridge_trust=managed_bridge_trust,
-        ),
+        lifecycle=lifecycle_service,
+        managed_resources=resources,
+        managed_agent_lifecycle=agent_lifecycle,
+        managed_idle_worker=idle_worker,
         matrix=RuntimeMatrixService(
             session_factory,
             trusted_custom_builds_enabled=(settings.trusted_custom_builds_enabled),
@@ -1965,6 +2051,7 @@ def create_app(
         agent_workspace_cleanups=agent_workspace_cleanups,
         agent_workspace_cleanup_executor=agent_workspace_cleanup_executor,
         mcp_workspace_retention=mcp_workspace_retention,
+        workspace_launch=workspace_launch,
         mcp_workspace_development=mcp_workspace_development,
         historical_workspace_execution_containment=(
             HistoricalWorkspaceExecutionContainmentService(session_factory, broker)
@@ -1979,6 +2066,7 @@ def create_app(
         external_targets=external_targets,
         external_onboarding=external_onboarding,
         household_onboarding=household_onboarding,
+        external_reconnect=external_reconnect,
         production_targets=production_targets,
         production_capability_amendments=production_capability_amendments,
         development_capability_amendments=development_capability_amendments,
@@ -2066,11 +2154,13 @@ def create_app(
         context.repository_replacement_executor.start()
         context.agent_workspace_executor.start()
         context.agent_workspace_cleanup_executor.start()
+        context.managed_idle_worker.start()
         context.mcp_workspace_retention.sweep(force=True)
         async with context.mcp_transport.server.session_manager.run():
             try:
                 yield
             finally:
+                context.managed_idle_worker.close()
                 context.reset_executor.close()
                 context.reconstruction_executor.close()
                 context.snapshot_executor.close()
@@ -2194,6 +2284,17 @@ def create_app(
             "screenshot_capture_unavailable": 503,
         }.get(error.code, 503)
         return _json_error(status_code, error.code, error.safe_message)
+
+    @app.exception_handler(ManagedResourceProtected)
+    async def managed_resource_error(
+        _request: Request,
+        error: ManagedResourceProtected,
+    ) -> JSONResponse:
+        return _json_error(
+            404 if error.code == "managed_target_required" else 409,
+            error.code,
+            "Review the managed target's current operation or resource policy.",
+        )
 
     @app.exception_handler(BrowserRemoteError)
     async def browser_remote_error(
@@ -2333,6 +2434,7 @@ def create_app(
         closed_schema_mutation = request.method == "POST" and (
             path in {"/api/development-sources", "/api/agent-workspaces"}
             or path.startswith("/api/household-onboarding")
+            or path.startswith("/api/external-reconnect")
             or path == "/api/addon-repositories"
             or "/addon-repositories/" in path
             or "/repository-artifacts/" in path
@@ -3052,6 +3154,12 @@ def create_app(
                 "reset_statuses": reset_statuses,
                 "reconciliation_statuses": reconciliation_statuses,
                 "reconstruction_statuses": reconstruction_statuses,
+                "resource_statuses": {
+                    item.managed_instance_id: context.managed_resources.status(
+                        item.managed_instance_id
+                    )
+                    for item in instances
+                },
                 "csrf_token": authenticated.csrf_token,
                 "poll_interval_ms": 2000,
             },
@@ -3106,6 +3214,89 @@ def create_app(
             f"{request.url.path.lstrip('/')}.html",
             {"csrf_token": authenticated.csrf_token},
         )
+
+    def managed_resource_data() -> dict[str, Any]:
+        with session_factory.begin() as session:
+            policy = managed_resource_policy(session)
+            saved_policy = {
+                "max_running": policy.max_running,
+                "idle_minutes": policy.idle_minutes,
+            }
+            targets = list(
+                session.scalars(
+                    select(TargetRow)
+                    .join(
+                        ManagedInstanceRow, ManagedInstanceRow.target_id == TargetRow.id
+                    )
+                    .where(TargetRow.target_type == TargetType.MANAGED)
+                    .order_by(TargetRow.name)
+                )
+            )
+        try:
+            capacity = context.managed_resources.capacity().model_dump(mode="json")
+        except Exception:
+            capacity = None
+        return {
+            "policy": saved_policy,
+            "capacity": capacity,
+            "instances": [
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "status": context.managed_resources.status(UUID(item.id)),
+                }
+                for item in targets
+            ],
+        }
+
+    @app.get("/managed-resources", response_class=HTMLResponse)
+    async def managed_resources_page(
+        request: Request,
+    ) -> Response:
+        try:
+            authenticated = current_session(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "managed-resources.html",
+            {
+                **managed_resource_data(),
+                "csrf_token": authenticated.csrf_token,
+            },
+        )
+
+    @app.get("/api/managed-resources")
+    def get_managed_resources(
+        _authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> dict[str, Any]:
+        return managed_resource_data()
+
+    @app.post("/api/managed-resources/policy")
+    def configure_managed_resources(
+        operation: ResourcePolicyInput,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, Any]:
+        saved = context.managed_resources.configure(operation)
+        return {"saved": True, "policy": saved.model_dump(mode="json")}
+
+    @app.post("/api/managed-resources/{instance_id}/enrollment")
+    def enroll_managed_idle(
+        instance_id: UUID,
+        operation: ManagedEnrollmentRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, Any]:
+        context.managed_resources.enroll(instance_id, enabled=operation.enrolled)
+        return context.managed_resources.status(instance_id)
+
+    @app.post("/api/managed-resources/{instance_id}/keep-awake")
+    def keep_managed_awake(
+        instance_id: UUID,
+        operation: ManagedKeepAwakeRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> dict[str, Any]:
+        context.managed_resources.keep_awake(instance_id, minutes=operation.minutes)
+        return context.managed_resources.status(instance_id)
 
     @app.get("/mcp-clients", response_class=HTMLResponse)
     async def mcp_clients_page(
@@ -3183,6 +3374,7 @@ def create_app(
                         for permission in preset.permissions
                     }
                     | EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
+                    | EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS
                 ),
                 "capture_permission_template_ids": {
                     ADDON_DEVELOPMENT_PRESET_ID,
@@ -3266,14 +3458,58 @@ def create_app(
                 repository_source_url = f"{base_url}/install/"
         except ValueError:
             pass
+        repository_zip_name = f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip"
+        data_root = Path(
+            os.getenv("KODI_LAB_REPOSITORY_DATA_ROOT", "/srv/kodi-lab-repository")
+        )
+        if (data_root / "CURRENT").exists():
+            try:
+                _, feed = load_current(
+                    data_root,
+                    expected_base_url=base_url,
+                    expected_bundle_sha256=os.getenv(
+                        "KODI_LAB_REPOSITORY_BUNDLE_SHA256"
+                    )
+                    or None,
+                )
+                repository_zip_name = (
+                    f"{REPOSITORY_ID}-{feed['repository_version']}.zip"
+                )
+            except (OSError, ValueError, KeyError):
+                repository_source_url = None
         return templates.TemplateResponse(
             request,
             "add-kodi.html",
             {
                 "initial_mode": mode,
                 "repository_source_url": repository_source_url,
-                "repository_zip_name": f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip",
+                "repository_zip_name": repository_zip_name,
                 "required_home_bridge_version": SUPPORTED_V1_BRIDGE_ADDON_VERSION,
+                "csrf_token": authenticated.csrf_token,
+                "recovery_namespace": hashlib.sha256(
+                    authenticated.csrf_token.encode()
+                ).hexdigest(),
+            },
+        )
+
+    @app.get("/reconnect-kodi/{target_id}", response_class=HTMLResponse)
+    async def reconnect_kodi_page(
+        request: Request,
+        target_id: UUID,
+        authenticated: AuthenticatedWebSession = Depends(current_session),
+    ) -> Response:
+        target = context.external_reconnect.target(target_id)
+        bridge = context.external_bridges.status(target_id)
+        active = context.external_reconnect.active_operation(target_id)
+        return templates.TemplateResponse(
+            request,
+            "reconnect-kodi.html",
+            {
+                "target": target,
+                "bridge_port": active.bridge_port
+                if active is not None
+                else bridge.bridge_port or 8765,
+                "active_operation_id": None if active is None else active.id,
                 "csrf_token": authenticated.csrf_token,
                 "recovery_namespace": hashlib.sha256(
                     authenticated.csrf_token.encode()
@@ -3804,7 +4040,13 @@ def create_app(
                     {
                         "id": target.id,
                         "name": target.name,
-                        "ready": ready is not None and ready.base_url == base_url,
+                        "ready": ready is not None
+                        and ready.base_url == base_url
+                        and dev_provenance is not None
+                        and ready.repository_version
+                        == dev_provenance["repository_version"]
+                        and ready.bootstrap_sha256
+                        == dev_provenance["bootstrap_zip_sha256"],
                         "confirmed_at": None if ready is None else ready.confirmed_at,
                     }
                 )
@@ -4102,6 +4344,7 @@ def create_app(
             "instance-detail.html",
             {
                 "detail": context.instance_detail.get(instance_id),
+                "resource_status": context.managed_resources.status(instance_id),
                 "visual": context.screenshots.get_status(instance_id),
                 "remote_available": context.browser_remote.available(instance_id),
                 "csrf_token": authenticated.csrf_token,
@@ -4774,6 +5017,50 @@ def create_app(
         _authenticated: AuthenticatedWebSession = Depends(current_session),
     ) -> list[ExternalTargetRead]:
         return context.external_targets.list_targets(include_retired=include_retired)
+
+    @app.post("/api/external-reconnect/{target_id}", response_model=ReconnectResult)
+    def start_external_reconnect(
+        target_id: UUID,
+        payload: ReconnectStartRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReconnectResult:
+        return context.external_reconnect.start(target_id, payload)
+
+    @app.post(
+        "/api/external-reconnect/{target_id}/{operation_id}/resume",
+        response_model=ReconnectResult,
+    )
+    def resume_external_reconnect(
+        target_id: UUID,
+        operation_id: UUID,
+        payload: HouseholdResumeRequest,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReconnectResult:
+        return context.external_reconnect.resume(target_id, operation_id, payload)
+
+    @app.post(
+        "/api/external-reconnect/{target_id}/{operation_id}/replace-pairing",
+        response_model=ReconnectResult,
+    )
+    def replace_external_reconnect_pairing(
+        target_id: UUID,
+        operation_id: UUID,
+        _payload: ReconnectConfirmation,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReconnectResult:
+        return context.external_reconnect.replace_pairing(target_id, operation_id)
+
+    @app.post(
+        "/api/external-reconnect/{target_id}/{operation_id}/cancel",
+        response_model=ReconnectResult,
+    )
+    def cancel_external_reconnect(
+        target_id: UUID,
+        operation_id: UUID,
+        _payload: ReconnectConfirmation,
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> ReconnectResult:
+        return context.external_reconnect.cancel(target_id, operation_id)
 
     @app.post("/api/household-onboarding", response_model=HouseholdOnboardingResult)
     def start_household_onboarding(
@@ -6891,6 +7178,32 @@ def create_app(
             return context.lifecycle.install_reviewed_bridge(instance_id)
         except ManagedBridgeTrustError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/instances/{instance_id}/launches/{launch_id}/reconcile",
+        response_model=WorkspaceLaunchResult,
+    )
+    def reconcile_managed_launch(
+        instance_id: UUID,
+        launch_id: UUID,
+        _body: EmptyActionRequest = Body(),
+        _authenticated: AuthenticatedWebSession = Depends(mutation_session),
+    ) -> WorkspaceLaunchResult:
+        try:
+            return context.workspace_launch.reconcile(instance_id, launch_id)
+        except WorkspaceLaunchError as error:
+            raise HTTPException(
+                status_code=404 if error.code == "launch_receipt_unavailable" else 409,
+                detail=error.code,
+            ) from error
+        except RuntimeError as error:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Launch receipt is busy or unavailable; "
+                    "inspect current state before retrying."
+                ),
+            ) from error
 
     @app.post("/api/instances/{instance_id}/start", response_model=ManagedRuntimeStatus)
     def start(

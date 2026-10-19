@@ -1,9 +1,14 @@
 # Phase 12 MCP development workflows
 
 This document retains the Phase 12 implementation and formal-review checkpoints
-below, including their historical tool counts. The current twenty-tool V1
+below, including their historical tool counts. The current V1
 contract is defined in [V1-SPEC.md, Section 2.1](V1-SPEC.md#21-current-normative-v1-mcp-and-production-contract);
-later source scan/capture and exact ambiguous-smoke recovery extend that surface.
+later source scan/capture, exact ambiguous-smoke recovery, batch imports,
+retained action observations, direct manifest launch and opt-in managed lifecycle extend that surface.
+See [manifest entry launch](MANIFEST-ENTRY-LAUNCH.md),
+[managed resource controls](MANAGED-KODI-RESOURCES.md),
+[workspace batch import](WORKSPACE-BATCH-IMPORT.md) and
+[action observations](REMOTE-ACTION-OBSERVATIONS.md) for the D-0438 additions.
 
 Phase 12 is **IMPLEMENTATION-COMPLETE PENDING FORMAL REVIEW**. Slice 1 established Web-approved DevelopmentSource
 grants, exact MCP workspace ownership, and bounded inspection. Slice 2 added

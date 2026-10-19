@@ -282,6 +282,7 @@ def test_stale_lifecycle_with_transitional_observation_blocks_all_mutations(
         "promotion_verification",
         "mcp_workspace_deployment",
         "mcp_workspace_execution",
+        "mcp_workspace_launch",
     }
 
 

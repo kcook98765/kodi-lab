@@ -1,0 +1,26 @@
+{
+  "1.1.23": {
+    "LICENSE": "94c2b0e7e7dcc7a3a05c29bd70c6ca1f06bd501cc1d705cdff08acbf0cc03e95",
+    "README.md": "74fca575331025f377bb9660dfbcd91e1b00415dbd3f51eee495972c3b94b649",
+    "addon.xml": "a4e8292679c8321a389bf879afd05ec67169d3bdfd576eae7f537632c4b73597",
+    "narrow_bridge.py": "eb65b06852b555edefed76f2f36d98f4e0f252e00219ad860350328f3fac546e",
+    "ui_observation.py": "1a4f718ac1630db96aeebf851ee83d5d2df91dd2f83b2192aafc902f1dcce3b1",
+    "onboarding.py": "a0a9da06c86014636a8557316f58cf019a37507a66aea39ba3503c24f8992162",
+    "pairing_ui.py": "0d42f356d1f2a7035c0d6285dc01ed19182ca63b60c1bfb5c8182c8edaf4a514",
+    "resources/language/resource.language.en_gb/strings.po": "7bbf361516f3eeaabec950ea5e563aa90eea721b5a64d09a9d7b89e1390193ba",
+    "resources/settings.xml": "02337c4bdc9454cd4881f14035bbba084f74114725ef78662c708dc4dc067122",
+    "service.py": "018fca85967b5d14f101a2ad2cd86a2efc87f6710385879ac810e2342fc8e05e"
+  },
+  "1.1.24": {
+    "LICENSE": "94c2b0e7e7dcc7a3a05c29bd70c6ca1f06bd501cc1d705cdff08acbf0cc03e95",
+    "README.md": "74fca575331025f377bb9660dfbcd91e1b00415dbd3f51eee495972c3b94b649",
+    "addon.xml": "ca8139a373a338eb2e4c8dad7e85dce437cb5ac2ee70a9b1139a62ab656718bd",
+    "narrow_bridge.py": "60cb4a613f093f9ad0e053923ba7111c96537c3986e72e79dbfcc41bcfa7acab",
+    "ui_observation.py": "1a4f718ac1630db96aeebf851ee83d5d2df91dd2f83b2192aafc902f1dcce3b1",
+    "onboarding.py": "a0a9da06c86014636a8557316f58cf019a37507a66aea39ba3503c24f8992162",
+    "pairing_ui.py": "0d42f356d1f2a7035c0d6285dc01ed19182ca63b60c1bfb5c8182c8edaf4a514",
+    "resources/language/resource.language.en_gb/strings.po": "7bbf361516f3eeaabec950ea5e563aa90eea721b5a64d09a9d7b89e1390193ba",
+    "resources/settings.xml": "02337c4bdc9454cd4881f14035bbba084f74114725ef78662c708dc4dc067122",
+    "service.py": "018fca85967b5d14f101a2ad2cd86a2efc87f6710385879ac810e2342fc8e05e"
+  }
+}

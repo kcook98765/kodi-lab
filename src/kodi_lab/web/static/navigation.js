@@ -10,9 +10,11 @@
     managed.hidden = false;
     managed.open = true;
     if (!managedScriptLoaded) {
-      const script = document.createElement("script");
-      script.src = managed.dataset.managedScript;
-      document.head.append(script);
+      for (const source of [managed.dataset.managedScript, managed.dataset.managedResourceScript].filter(Boolean)) {
+        const script = document.createElement("script");
+        script.src = source;
+        document.head.append(script);
+      }
       managedScriptLoaded = true;
     }
     document.querySelector(location.hash).scrollIntoView();

@@ -193,6 +193,8 @@ def test_addon_protocol_is_closed_and_crypto_matches_lab(
     assert bridge["ENDPOINT"] == "/kodi-lab/bridge/v1"
     assert bridge["ADDON_ID"] == BRIDGE_ADDON_ID
     assert bridge["OPERATIONS"] == {
+        "managed_launch",
+        "managed_launch_receipt",
         "log_read",
         "inspect_ui_state",
         "bridge_identity",
@@ -257,7 +259,7 @@ def test_addon_descriptor_and_settings_are_kodi_20_compatible(
     bridge = _load(monkeypatch)
     descriptor = ET.parse(ADDON_ROOT / "addon.xml").getroot()
     assert descriptor.attrib["id"] == bridge["ADDON_ID"]
-    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.23"
+    assert descriptor.attrib["version"] == bridge["ADDON_VERSION"] == "1.1.25"
     from scripts.build_narrow_bridge import SEMANTIC_FINGERPRINT
 
     assert bridge["BUILD_FINGERPRINT"] == SEMANTIC_FINGERPRINT

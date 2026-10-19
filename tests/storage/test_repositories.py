@@ -22,6 +22,7 @@ from kodi_lab.domain import (
     TargetAvailability,
     TargetType,
 )
+from kodi_lab.storage.models import ManagedIdleStateRow
 from kodi_lab.storage.repositories import (
     FixtureDefinitionRepository,
     ManagedInstanceRepository,
@@ -136,6 +137,8 @@ def test_target_and_managed_instance_round_trip(db_session: Session) -> None:
     assert stored_target is not None
     assert stored_instance is not None
     assert stored_instance.target_id == stored_target.id
+    idle = db_session.get(ManagedIdleStateRow, str(target.id))
+    assert idle is not None and idle.enrolled and idle.last_activity_at is not None
 
 
 def test_target_repository_rejects_in_place_class_change(db_session: Session) -> None:

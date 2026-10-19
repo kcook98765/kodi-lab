@@ -98,7 +98,7 @@ def test_exact_preview_trust_and_legacy_serialization() -> None:
 
 
 @pytest.mark.parametrize("release", ["20.5", "21.3", "22.0-rc.1"])
-@pytest.mark.parametrize("tier", ["previous", "retained", "legacy"])
+@pytest.mark.parametrize("tier", ["previous", "retained", "legacy", "historical"])
 def test_previous_exact_build_only_preserves_established_trust(
     release: str, tier: str
 ) -> None:
@@ -107,6 +107,7 @@ def test_previous_exact_build_only_preserves_established_trust(
         previous=tier == "previous",
         retained=tier == "retained",
         legacy=tier == "legacy",
+        historical=tier == "historical",
     )
     if tier == "legacy":
         assert previous["addon_version"] == ("1.1.16" if "-" in release else "1.1.15")

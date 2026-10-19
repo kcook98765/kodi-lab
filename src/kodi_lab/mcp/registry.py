@@ -25,6 +25,7 @@ class ToolRateClass(StrEnum):
     DEVELOPMENT_DEPLOY = "development_deploy"
     DEVELOPMENT_EXECUTE = "development_execute"
     DEVELOPMENT_PROMOTION_REQUEST = "development_promotion_request"
+    MANAGED_LIFECYCLE = "managed_lifecycle"
 
 
 class ToolScope(StrEnum):
@@ -135,7 +136,65 @@ def build_mcp_tool_registry() -> McpToolRegistry:
                 "workspace.capture",
                 "development.execute",
                 "development.request_promotion",
+                "managed.lifecycle",
             }
+        )
+    )
+    for name in ("managed_ensure_ready", "managed_release"):
+        registry.register(
+            McpToolDefinition(
+                name=name,
+                schema_revision=1,
+                permissions=frozenset({"managed.lifecycle"}),
+                effect=ToolEffect.MUTATING,
+                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+                required_capabilities=frozenset(),
+                required_states=frozenset({"reconciled"}),
+                rate_class=ToolRateClass.MANAGED_LIFECYCLE,
+                adapter="managed_runtime." + name,
+                production_eligible=False,
+                target_scope_required=True,
+                scope=ToolScope.TARGET,
+            )
+        )
+    for name, effect, rate in (
+        (
+            "workspace_import_preview",
+            ToolEffect.READ_ONLY,
+            ToolRateClass.DEVELOPMENT_READ,
+        ),
+        ("workspace_import", ToolEffect.MUTATING, ToolRateClass.DEVELOPMENT_EDIT),
+    ):
+        registry.register(
+            McpToolDefinition(
+                name=name,
+                schema_revision=1,
+                permissions=frozenset({"workspace.edit", "development_source.inspect"}),
+                effect=effect,
+                allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+                required_capabilities=frozenset({"registered_development_source"}),
+                required_states=frozenset(),
+                rate_class=rate,
+                adapter="agent_workspace." + name,
+                production_eligible=False,
+                target_scope_required=False,
+                scope=ToolScope.WORKSPACE,
+            )
+        )
+    registry.register(
+        McpToolDefinition(
+            name="screenshot_retrieve",
+            schema_revision=1,
+            permissions=frozenset({"target.visual"}),
+            effect=ToolEffect.READ_ONLY,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"screenshot"}),
+            required_states=frozenset({"reconciled"}),
+            rate_class=ToolRateClass.READ_BOUNDED,
+            adapter="kodi_target.screenshot.retrieve_exact_managed_capture",
+            production_eligible=False,
+            target_scope_required=True,
+            scope=ToolScope.TARGET,
         )
     )
     registry.register(
@@ -411,6 +470,22 @@ def build_mcp_tool_registry() -> McpToolRegistry:
             required_states=frozenset({"running", "ready", "reconciled"}),
             rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
             adapter="agent_workspace.execute_fixed_workflow",
+            production_eligible=False,
+            target_scope_required=False,
+            scope=ToolScope.WORKSPACE_TARGET,
+        )
+    )
+    registry.register(
+        McpToolDefinition(
+            name="workspace_launch",
+            schema_revision=1,
+            permissions=frozenset({"target.control", "development.execute"}),
+            effect=ToolEffect.MUTATING,
+            allowed_target_classes=frozenset({TargetClass.INTERNAL_LAB}),
+            required_capabilities=frozenset({"workspace_execution"}),
+            required_states=frozenset(),
+            rate_class=ToolRateClass.DEVELOPMENT_EXECUTE,
+            adapter="agent_workspace.launch_manifest_entry",
             production_eligible=False,
             target_scope_required=False,
             scope=ToolScope.WORKSPACE_TARGET,

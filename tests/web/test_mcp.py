@@ -302,6 +302,7 @@ def test_modern_wire_is_stateless_and_exposes_only_read_only_tools(
         "inspect_ui_state",
         "log_read",
         "screenshot_capture",
+        "screenshot_retrieve",
         "target_list",
         "target_status",
     ]
@@ -510,6 +511,7 @@ def test_pinned_official_sdk_uses_only_modern_stateless_requests(
                     "inspect_ui_state",
                     "log_read",
                     "screenshot_capture",
+                    "screenshot_retrieve",
                     "target_list",
                     "target_status",
                 ]
@@ -594,6 +596,7 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                     "promotion_request",
                     "remote_action",
                     "screenshot_capture",
+                    "screenshot_retrieve",
                     "target_list",
                     "target_status",
                     "workspace_create",
@@ -601,6 +604,7 @@ def test_official_sdk_legacy_http_shares_catalog_replay_and_current_authority(
                     "workspace_edit",
                     "workspace_execute",
                     "workspace_execution_recover",
+                    "workspace_launch",
                     "workspace_read",
                     "workspace_status",
                     "workspace_tree",
@@ -1008,6 +1012,7 @@ def test_discovery_filters_visual_permission_without_bypassing_target_policy(
         "inspect_ui_state",
         "log_read",
         "screenshot_capture",
+        "screenshot_retrieve",
         "target_list",
         "target_status",
     ]
@@ -1034,6 +1039,7 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "promotion_request",
         "remote_action",
         "screenshot_capture",
+        "screenshot_retrieve",
         "target_list",
         "target_status",
         "workspace_create",
@@ -1041,6 +1047,7 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "workspace_edit",
         "workspace_execute",
         "workspace_execution_recover",
+        "workspace_launch",
         "workspace_read",
         "workspace_status",
         "workspace_tree",
@@ -1058,6 +1065,7 @@ def test_remote_action_discovery_schema_replay_conflict_and_current_authority(
         "request_id",
         "target_id",
         "action",
+        "observe_ui",
     }
     assert set(remote["inputSchema"]["required"]) == {
         "request_id",
@@ -1428,6 +1436,7 @@ def test_legacy_http_malformed_input_and_downgrade_matrix(
         "inspect_ui_state",
         "log_read",
         "screenshot_capture",
+        "screenshot_retrieve",
         "target_list",
         "target_status",
     ]

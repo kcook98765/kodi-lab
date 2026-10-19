@@ -6483,3 +6483,54 @@ Issue #13 exposes exact-generation manifest eligibility for the existing fixed
 smoke and preserves unsupported reasons in durable failed receipts/replay. It
 does not add direct launch or permit script/plugin selection. Those features
 need their own operation and authority contracts; diagnostics are not authority.
+
+## D-0438: Approved repository, reconnect and agent workflow development
+
+The operator approved the following directions on 2026-10-19 before implementation.
+These are development requirements, not evidence of completed implementation or
+runtime acceptance.
+
+- Issue #9: explicit administrator repository-address migration advances both
+  repository add-on versions. Preserve immutable generations and recovery data,
+  update stable/development metadata consistently, and explain recovery for Kodi
+  clients whose previous address is unreachable. Bridge identity and unrelated
+  workspace state remain intact; addresses are never inferred automatically.
+- Issue #10: complete guided reconnect for an existing registration, retaining its
+  UUID, class and administrator policy. Obtain current exact consent, preserve
+  uncertain-operation recovery, and add no agent grants. Permanent retirement
+  remains final; reconnect cannot reactivate a retired registration.
+- Issue #12: configurable defaults are four running/starting managed instances
+  and sixty minutes of inactivity. Count existing running instances toward
+  capacity without evicting them. Newly created instances enroll in idle policy;
+  existing running instances require explicit administrator enrollment. Protect
+  active work, playback, keep-awake holds, other clients and uncertain operations.
+  Agent ensure-ready/release requires a separately granted managed-only
+  permission. External Kodi is outside this policy. Retained workspace storage
+  limits remain separate from runtime capacity.
+- Issue #13: direct manifest-selected script/plugin launch is a separate operation
+  bound to the authorized target, workspace and exact deployed generation. Keep
+  bounded smoke-test semantics and distinguish dispatch from GUI acceptance.
+- Issue #15: first implement optional post-action UI observation and exact-capture
+  retrieval for managed development. Bind captures to client, target and runtime
+  generation, enforce expiration and current visual authorization, and never
+  replay navigation because observation failed. Preserve Web visual behavior;
+  external/production capture reuse remains separate follow-up work.
+- Issue #16: first implement registered-source preview/import of permitted added
+  or modified UTF-8 files. Bind preview hashes to source and workspace generation,
+  reject private-edit overlaps, deletions and type/identity changes, and publish
+  one atomic generation while retaining the existing baseline. Import does not
+  validate, deploy or restart a target; upload transport remains follow-up work.
+
+Issue #8 still requires fresh Windows/WSL2 installer acceptance. The reported
+working Windows deployment remains accepted; Linux tests cannot replace that
+fresh-install evidence.
+
+Implementation detail for D-0438: direct launch is `workspace_launch`, with
+manifest-only eligibility in `workspace_validate` and latest owned receipt
+identity in `workspace_status`. Stable/RC1 Bridge candidates advance to
+1.1.25/1.1.26. Their managed-only launch requires a broker-written marker bound
+to the current secret and exact runtime. All previously admitted established
+identities remain explicitly retained, including 1.1.19/1.1.20 in a separate
+historical tier. An explicit Web reviewed upgrade on managed Omega/RC1 verifies
+the whole prior 1.1.23/1.1.24 inventory and retains the old tree after atomic
+exchange. This is separate from external pairing and production installation.

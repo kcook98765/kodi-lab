@@ -398,6 +398,29 @@ class ManagedScreenshotService:
             if prepared:
                 cleanup_capture_stage(self._data_root, capture_id)
 
+    def read_capture(
+        self,
+        instance_id: UUID,
+        capture_id: UUID,
+    ) -> tuple[ManagedScreenshotStatus, bytes]:
+        """Read that exact retained capture, never substitute the current image."""
+        status = self.get_status(instance_id)
+        if status.capture_id != capture_id or not status.latest_capture_available:
+            raise ScreenshotServiceError(
+                "capture_replaced", "Requested capture is no longer retained."
+            )
+        try:
+            png = read_published_png(self._data_root, instance_id, capture_id)
+        except ScreenshotArtifactError as error:
+            raise ScreenshotServiceError(
+                "capture_not_retained", "Requested capture is unavailable."
+            ) from error
+        if self._current_capture_id(instance_id) != capture_id:
+            raise ScreenshotServiceError(
+                "capture_replaced", "Capture changed during retrieval."
+            )
+        return status, png
+
     def latest_png(self, instance_id: UUID) -> bytes:
         self._status.get(instance_id)
         capture_id = self._current_capture_id(instance_id)

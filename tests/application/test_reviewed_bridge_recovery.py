@@ -52,7 +52,7 @@ class RCNative(Native):
                     "result": {
                         "addon": {
                             "addonid": "service.kodi_lab_bridge",
-                            "version": "1.1.24",
+                            "version": "1.1.26",
                             "enabled": self.enabled,
                         }
                     },
@@ -83,7 +83,7 @@ def rc(
         client.value,
         kodi_version="22.0",
         kodi_release="22.0-rc.1",
-        addon_version="1.1.24",
+        addon_version="1.1.26",
         build_fingerprint=approved["build_fingerprint"],
     )
     original = broker.establish_managed_bridge_trust
@@ -133,11 +133,23 @@ def test_staging_is_not_active_and_restart_requires_fresh_authenticated_identity
     assert row(owner).state == "active" and row(owner).generation > active.generation
 
 
-def test_candidate_not_available_for_stable_runtime(setup: Any) -> None:
+def test_explicit_stable_reviewed_upgrade_is_prepared_until_restart(
+    setup: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     owner, broker, _, _ = setup
-    with pytest.raises(ManagedBridgeTrustError, match="candidate_unavailable"):
-        owner.stage_reviewed(INSTANCE_ID)
-    assert broker.establishments == 0
+    original = broker.establish_managed_bridge_trust
+    admitted = []
+
+    def establish(**kwargs: Any) -> Any:
+        admitted.append(kwargs.pop("install_reviewed", False))
+        return original(**kwargs)
+
+    monkeypatch.setattr(broker, "establish_managed_bridge_trust", establish)
+    owner.stage_reviewed(INSTANCE_ID)
+    assert admitted == [True] and broker.establishments == 1
+    assert row(owner).state == "prepared" and row(owner).reviewed_installation
+    assert owner.prepare(INSTANCE_ID)
+    assert row(owner).state == "active"
 
 
 @pytest.mark.parametrize("failure", ["wrong_release", "wrong_build", "authentication"])

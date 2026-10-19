@@ -29,7 +29,11 @@ from kodi_lab.domain import (
     GlobalHeavyOperationKind,
     PromotionVerificationState,
 )
-from kodi_lab.storage.models import AgentWorkspaceCaptureOperationRow
+from kodi_lab.storage.models import (
+    AgentWorkspaceCaptureOperationRow,
+    McpWorkspaceLaunchRow,
+    WorkspaceImportOperationRow,
+)
 from kodi_lab.storage.repositories import (
     AgentWorkspaceCleanupOperationRepository,
     AgentWorkspaceCreationOperationRepository,
@@ -120,6 +124,35 @@ class AgentWorkspaceCleanupService:
             )
         if workspace.bytes_state is AgentWorkspaceBytesState.CLEANED:
             return
+        if (
+            session.scalar(
+                select(WorkspaceImportOperationRow.id)
+                .where(WorkspaceImportOperationRow.workspace_id == str(workspace_id))
+                .limit(1)
+            )
+            is not None
+        ):
+            raise AgentWorkspaceCleanupError(
+                "workspace_import_history_retained",
+                "Workspace import evidence must be retained.",
+            )
+        if (
+            session.scalar(
+                select(McpWorkspaceLaunchRow.id)
+                .where(
+                    McpWorkspaceLaunchRow.workspace_id == str(workspace_id),
+                    McpWorkspaceLaunchRow.state.in_(
+                        ("pending", "dispatching", "ambiguous")
+                    ),
+                )
+                .limit(1)
+            )
+            is not None
+        ):
+            raise AgentWorkspaceCleanupError(
+                "launch_requires_reconciliation",
+                "Unresolved launch evidence must be retained.",
+            )
         # Captured baselines may be named by validation/deployment/publication
         # history. V1 has no per-generation reference-aware byte cleanup.
         if (

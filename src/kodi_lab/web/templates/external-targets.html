@@ -31,6 +31,7 @@
         {% for target in targets %}
         <article id="{{ target.target_id }}" data-target-id="{{ target.target_id }}" data-administrative-state="{{ target.administrative_state.value }}">
           <h3>{{ target.logical_name }}</h3>
+          {% if target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ target.target_id }}">Reconnect</a></p>{% endif %}
           <p>Registration: <code>{{ target.target_id }}</code>{% if target.administrative_state.value == 'deactivated' %} · <strong>Retired</strong> {{ target.deactivated_at }} · <a href="/api/external-targets/{{ target.target_id }}/events">Audit history</a>{% endif %}</p>
           <p>{{ target.target_class }} · {{ target.protocol_kind.value }} · {{ target.host }}:{{ target.port }}</p>
           <p>Admin: {{ target.administrative_state.value }} · verification: {{ target.verification_state.value }} · observation: {{ target.observation_state.value if target.observation_state else 'none' }}</p>

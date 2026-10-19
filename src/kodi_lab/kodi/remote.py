@@ -7,7 +7,7 @@ import json
 from collections.abc import Callable
 from enum import StrEnum
 from typing import Protocol, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from kodi_lab.broker.operations import ObserveManagedKodiRuntimeResult
 from kodi_lab.domain import RuntimeExecutionProfile
@@ -183,6 +183,14 @@ class KodiBrowserRemoteAdapter:
 
     def dispatch(self, action: BrowserRemoteAction, invocation_id: UUID) -> None:
         dispatch_semantic_remote(self._semantic_request, action, invocation_id)
+
+    def playback_active(self) -> bool:
+        """Return false only for a valid, empty fixed active-player response."""
+        try:
+            _active_player(self._semantic_request, uuid4())
+        except RemoteNoActivePlayerError:
+            return False
+        return True
 
     def _semantic_request(
         self,

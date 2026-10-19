@@ -61,15 +61,18 @@ v1 must provide:
 This section supersedes the broader speculative MCP catalog and production
 capabilities retained later in this document as design history.
 
-The authoritative V1 MCP registry contains twenty tools (D-0433). Client discovery is
+The authoritative V1 MCP registry contains twenty-six tools (D-0438). Client discovery is
 filtered by current preset permissions:
 
+- `managed_ensure_ready`
+- `managed_release`
 - `target_list`
 - `target_status`
 - `addon_list`
 - `inspect_ui_state`
 - `log_read`
 - `screenshot_capture`
+- `screenshot_retrieve`
 - `remote_action`
 - `development_source_list`
 - `workspace_source_scan`
@@ -79,11 +82,28 @@ filtered by current preset permissions:
 - `workspace_read`
 - `workspace_edit`
 - `workspace_capture`
+- `workspace_import_preview`
+- `workspace_import`
 - `workspace_validate`
 - `workspace_deploy`
 - `workspace_execute`
+- `workspace_launch`
 - `workspace_execution_recover`
 - `promotion_request`
+
+`workspace_launch` provides separate exact-generation manifest entry-point dispatch
+on managed disposable development targets under existing development/control
+authority. Accepted dispatch does not establish script completion or UI acceptance.
+See [manifest entry launch](MANIFEST-ENTRY-LAUNCH.md).
+
+The managed lifecycle tools require explicit `managed.lifecycle` opt-in and exact
+managed-target grants; they never provision or manage external targets. See
+[resource controls](MANAGED-KODI-RESOURCES.md). Batch import requires source
+inspection and workspace edit authority; see [batch import](WORKSPACE-BATCH-IMPORT.md).
+Optional post-action UI observations and `screenshot_retrieve` are initially
+managed-development only and preserve exact capture identity and current visual
+authority; see [action observations](REMOTE-ACTION-OBSERVATIONS.md). These additions
+do not widen the seven production-eligible tools.
 
 `inspect_ui_state` is a read-only `target.inspect` operation with a compact,
 provider-independent schema, actual focus and explicitly validated container/item

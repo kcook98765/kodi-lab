@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% set nav_section = 'settings' %}
+{% block title %}Managed Kodi resources · Kodi Lab{% endblock %}
+{% block main_class %}responsive-forms{% endblock %}
+{% block content %}
+<h1>Managed Kodi resources</h1>
+<p>Keep development projects and profiles while stopping idle managed Kodi. External and household Kodi have their own connection settings.</p>
+<p>Running slots: <strong data-managed-capacity>{% if capacity %}{{ capacity.used }} / {{ capacity.limit }}{% else %}Unavailable{% endif %}</strong>. Running, starting and uncertain starts count toward the limit.</p>
+<form data-managed-resource-policy>
+  <label>Maximum running managed Kodi <input type="number" name="max_running" min="1" max="64" value="{{ policy.max_running }}" required></label>
+  <label class="check-label"><input type="checkbox" name="idle_enabled" {% if policy.idle_minutes is not none %}checked{% endif %}> Stop enrolled instances after inactivity</label>
+  <label>Idle minutes <input type="number" name="idle_minutes" min="1" max="10080" value="{{ policy.idle_minutes or 60 }}" required></label>
+  <button type="submit">Save resource policy</button>
+  <p role="status" data-resource-message></p>
+</form>
+<p>Lowering the limit applies to new starts. Existing running instances stay available. Passive status, log and screenshot refreshes do not count as activity.</p>
+<h2>Instance idle settings</h2>
+<p>New instances enroll automatically. Enroll existing instances explicitly. Playback, active or unresolved operations, recent use and keep-awake holds protect an instance from automatic stopping.</p>
+{% for instance in instances %}
+<section id="instance-{{ instance.id }}">
+  <h3><a href="/instances/{{ instance.id }}">{{ instance.name }}</a></h3>
+  <p data-resource-instance="{{ instance.id }}">Idle stop: {{ 'enrolled' if instance.status.enrolled else 'not enrolled' }}. Last activity: {{ instance.status.last_activity_at or 'not recorded' }}.</p>
+  <form data-managed-enrollment="{{ instance.id }}">
+    <label class="check-label"><input type="checkbox" name="enrolled" {% if instance.status.enrolled %}checked{% endif %}> Enroll in idle stop</label>
+    <button type="submit">Save enrollment</button>
+    <p role="status" data-resource-message></p>
+  </form>
+  <form data-managed-keep-awake="{{ instance.id }}">
+    <label>Keep awake for minutes <input type="number" name="minutes" min="0" max="240" value="60" required></label>
+    <button type="submit">Set keep-awake</button>
+    <p class="secondary">Zero ends your administrator hold. Start the instance with its usual control if it is stopped.</p>
+    <p role="status" data-resource-message></p>
+  </form>
+  <p><a href="/instances/{{ instance.id }}/history">Review operation history</a></p>
+</section>
+{% else %}<p>No managed Kodi instances.</p>{% endfor %}
+<p>Workspace storage limits are separate from running capacity. Idle stop preserves workspaces. Use <a href="/mcp-clients">Agents → Development settings</a> to bind an administrator-created workspace when automatic workspace allocation is full.</p>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', path='/managed-resources.js') }}" defer></script>{% endblock %}

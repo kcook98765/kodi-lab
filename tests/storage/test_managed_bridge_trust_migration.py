@@ -5,12 +5,11 @@ from pathlib import Path
 
 import pytest
 from alembic import command
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, Table, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.storage.engine import create_session_factory
 from kodi_lab.storage.models import (
-    ManagedBridgeTrustRow,
     ManagedInstanceRow,
     RuntimeDefinitionRow,
     RuntimeRevisionRow,
@@ -64,9 +63,12 @@ def test_populated_binding_refuses_lossy_downgrade(
                 )
             )
             session.flush()
-    with sessions.begin() as session:
-        session.add(
-            ManagedBridgeTrustRow(
+    # Insert the historical 0069 shape. The current ORM adds reviewed-installation
+    # provenance in 0077, which must not be injected into this predecessor proof.
+    legacy_trust = Table("managed_bridge_trust", MetaData(), autoload_with=engine)
+    with engine.begin() as connection:
+        connection.execute(
+            legacy_trust.insert().values(
                 target_id=str(INSTANCE_ID),
                 runtime_revision_id=str(REVISION_ID),
                 container_id="a" * 64,

@@ -4,6 +4,8 @@
 {% block head %}
 <script src="{{ url_for('static', path='/development-source-copy.js') }}" defer></script>
 <script src="{{ url_for('static', path='/reviewed-bridge.js') }}" defer></script>
+<script src="{{ url_for('static', path='/managed-resources.js') }}" defer></script>
+<script src="{{ url_for('static', path='/managed-launch-reconcile.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-attachment.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-enable.js') }}" defer></script>
     <script src="{{ url_for('static', path='/development-source-smoke.js') }}" defer></script>
@@ -15,6 +17,8 @@
 {% block content %}
       <h1>{{ detail.runtime.name }}</h1>
       <p class="secondary">{{ detail.runtime.managed_instance_id }}</p>
+      <p data-resource-instance="{{ detail.runtime.managed_instance_id }}">Idle stop: {{ 'enrolled' if resource_status.enrolled else 'not enrolled' }}{% if resource_status.last_stop_reason %}. Last stopped: {{ resource_status.last_stop_reason }} at {{ resource_status.last_stopped_at }}{% endif %}.</p>
+      <p><a href="/managed-resources#instance-{{ detail.runtime.managed_instance_id }}">Resource and keep-awake settings</a></p>
       <dl>
         <dt>Exact runtime</dt><dd>Kodi {{ detail.runtime.kodi_version }} · revision {{ detail.runtime.runtime_revision_number }} ({{ detail.runtime.runtime_revision_id }})</dd>
         <dt>Instance type</dt><dd>{{ detail.instance_type }}</dd>
@@ -32,12 +36,18 @@
         <p>{{ detail.reconciliation.safe_reason }} Observed state: {{ detail.reconciliation.observed_state or 'unknown' }}.</p>
         {% if detail.reconciliation.blocking %}<p>Blocked actions: {{ detail.reconciliation.blocked_actions|join(', ') }}.</p>{% else %}<p>The current semantic state is unambiguous, so unrelated safe mutations are not blocked.</p>{% endif %}
         {% if detail.reconciliation.operation_uuid %}<p><a href="/instances/{{ detail.runtime.managed_instance_id }}/history#activity-{{ detail.reconciliation.operation_uuid }}">View the exact history item</a></p>{% endif %}
+        {% if detail.reconciliation.operation_kind == 'mcp_workspace_launch' and detail.reconciliation.operation_uuid %}
+        <div data-launch-reconcile-target="{{ detail.runtime.managed_instance_id }}" data-launch-id="{{ detail.reconciliation.operation_uuid }}">
+          <button type="button" data-launch-recheck>Recheck exact launch receipt</button>
+          <p data-launch-reconcile-status role="status">This never launches or starts Kodi. If the result remains unknown, stop the original container through normal lifecycle controls, then recheck.</p>
+        </div>
+        {% endif %}
       </section>
       {% endif %}
-      {% if detail.runtime.kodi_version == '22.0-rc.1' %}
+      {% if detail.runtime.kodi_version in ['21.3', '22.0-rc.1'] %}
       <section data-reviewed-bridge="{{ detail.runtime.managed_instance_id }}">
         <h2>Reviewed Bridge</h2>
-        <p>Bridge 1.1.24 candidate adds rich UI inspection for Kodi 22 RC1. Installation restarts this instance. After a clean-profile reset, start Kodi and install the reviewed Bridge again to establish fresh trust.</p>
+        <p>The reviewed Bridge adds direct manifest entry-point launch on managed development Kodi. Installation restarts this instance. After a clean-profile reset, start Kodi and install the reviewed Bridge again to establish fresh trust.</p>
         <button type="button" data-reviewed-bridge-install>Install reviewed Bridge</button>
         <p role="status" data-reviewed-bridge-status>Checking Bridge status…</p>
       </section>

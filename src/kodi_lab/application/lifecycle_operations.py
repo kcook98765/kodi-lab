@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -93,11 +94,14 @@ class ManagedInstanceLifecycleOperationCoordinator:
         instance_name: str,
         kind: ManagedInstanceLifecycleKind,
         prior_state: ManagedInstanceSemanticState,
+        operation_id: UUID | None = None,
+        precondition: Callable[[Session], None] | None = None,
+        on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
     ) -> RunningLifecycleOperation:
         self._stale.sweep_instance(instance_id)
         self._reconciliation.require_allowed(instance_id, _ACTION[kind])
         handle = RunningLifecycleOperation(
-            uuid4(), instance_id, secrets.token_urlsafe(32)
+            operation_id or uuid4(), instance_id, secrets.token_urlsafe(32)
         )
         now = self._clock()
         operation = ManagedInstanceLifecycleOperation(
@@ -112,6 +116,9 @@ class ManagedInstanceLifecycleOperationCoordinator:
         )
         try:
             with self._session_factory.begin() as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                if precondition is not None:
+                    precondition(session)
                 leases = ManagedInstanceMutationLeaseRepository(session)
                 leases.reserve(
                     instance_id,
@@ -139,6 +146,8 @@ class ManagedInstanceLifecycleOperationCoordinator:
                         "Lifecycle mutation authority could not be acquired."
                     )
                 ManagedInstanceLifecycleOperationRepository(session).create(operation)
+                if on_claim is not None:
+                    on_claim(session, handle)
         except IntegrityError as error:
             raise LifecycleOperationConflictError(
                 "Another mutation is active for this managed instance."

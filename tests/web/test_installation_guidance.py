@@ -46,10 +46,12 @@ def test_reviewed_bridge_admission_requires_session_and_csrf(
     assert client.post(url, json={}).status_code == 401
     login(client)
     assert client.post(url, json={}, headers=ORIGIN).status_code == 403
-    assert client.get(url).status_code == 404  # stable runtime has no candidate
+    offered = client.get(url)
+    assert offered.status_code == 200  # explicit reviewed upgrade now supports Omega
+    assert offered.json()["addon_version"] == "1.1.25"
 
 
-def test_reviewed_bridge_cannot_install_on_stable_target(
+def test_reviewed_bridge_requires_an_existing_running_target(
     client: TestClient, broker: FakeBroker
 ) -> None:
     token = login(client)

@@ -146,6 +146,146 @@ from kodi_lab.storage.metadata import Base
 from kodi_lab.storage.screenshot_preference_sql import SCREENSHOT_PREFERENCE_TRIGGERS
 
 
+class ManagedResourcePolicyRow(Base):
+    """Administrator-owned capacity and idle defaults for managed Kodi only."""
+
+    __tablename__ = "managed_resource_policy"
+    __table_args__ = (
+        CheckConstraint("id=1", name="managed_resource_policy_singleton"),
+        CheckConstraint("max_running BETWEEN 1 AND 64", name="managed_resource_cap"),
+        CheckConstraint(
+            "idle_minutes IS NULL OR idle_minutes BETWEEN 1 AND 10080",
+            name="managed_resource_idle_minutes",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    max_running: Mapped[int] = mapped_column(Integer, nullable=False)
+    idle_minutes: Mapped[int | None] = mapped_column(Integer)
+
+
+class ManagedIdleStateRow(Base):
+    __tablename__ = "managed_idle_states"
+    __table_args__ = (
+        CheckConstraint("enrolled IN (0,1)", name="managed_idle_enrolled"),
+        CheckConstraint(
+            "last_stop_reason IS NULL OR last_stop_reason IN ('idle','released')",
+            name="managed_idle_stop_reason",
+        ),
+    )
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    enrolled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    last_activity_at: Mapped[str | None] = mapped_column(String(27))
+    last_stop_attempt_at: Mapped[str | None] = mapped_column(String(27))
+    last_stop_operation_id: Mapped[str | None] = mapped_column(String(36))
+    last_stopped_at: Mapped[str | None] = mapped_column(String(27))
+    last_stop_reason: Mapped[str | None] = mapped_column(String(16))
+
+
+class ManagedInstanceUseRow(Base):
+    """One bounded activity/hold record per server-derived actor and instance."""
+
+    __tablename__ = "managed_instance_uses"
+    __table_args__ = (
+        CheckConstraint(
+            "actor_key='web' OR (length(actor_key)=40 "
+            "AND substr(actor_key,1,4)='mcp:')",
+            name="managed_use_actor",
+        ),
+    )
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    actor_key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    last_activity_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    hold_until: Mapped[str | None] = mapped_column(String(27))
+    released_at: Mapped[str | None] = mapped_column(String(27))
+
+
+class ManagedStartReservationRow(Base):
+    """A capacity slot survives an uncertain Docker start or broker interruption."""
+
+    __tablename__ = "managed_start_reservations"
+    __table_args__ = (
+        CheckConstraint(
+            "phase IN ('reserved','uncertain')", name="managed_start_phase"
+        ),
+        CheckConstraint(
+            "length(container_id)=64 AND length(runtime_revision_id)=36 "
+            "AND length(operation_id)=36",
+            name="managed_start_binding",
+        ),
+    )
+    managed_instance_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("managed_instances.target_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    operation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class ManagedAgentLifecycleRequestRow(Base):
+    """Exact client/request ownership binds replay to one lifecycle operation."""
+
+    __tablename__ = "managed_agent_lifecycle_requests"
+    __table_args__ = (
+        UniqueConstraint("client_id", "request_id", name="managed_agent_request_owner"),
+        CheckConstraint(
+            "action IN ('ensure_ready','release')", name="managed_agent_action"
+        ),
+        CheckConstraint(
+            "state IN ('pending','dispatched','ready','not_ready','released',"
+            "'retained','failed','ambiguous')",
+            name="managed_agent_state",
+        ),
+        CheckConstraint(
+            "length(original_instance_id)=36 AND length(request_id)=36 "
+            "AND length(id)=36 AND hold_minutes BETWEEN 0 AND 240",
+            name="managed_agent_binding",
+        ),
+        CheckConstraint(
+            "result_json IS NULL OR length(result_json)<=8192",
+            name="managed_agent_result_bound",
+        ),
+        CheckConstraint(
+            "(runtime_revision_id IS NULL AND container_id IS NULL "
+            "AND expected_state_revision IS NULL) OR "
+            "(runtime_revision_id IS NOT NULL AND length(runtime_revision_id)=36 "
+            "AND container_id IS NOT NULL AND length(container_id)=64 "
+            "AND expected_state_revision IS NOT NULL AND expected_state_revision>=0)",
+            name="managed_agent_runtime_binding",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="SET NULL")
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    original_instance_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    managed_instance_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("managed_instances.target_id", ondelete="SET NULL")
+    )
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    hold_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    lifecycle_operation_id: Mapped[str | None] = mapped_column(String(36))
+    runtime_revision_id: Mapped[str | None] = mapped_column(String(36))
+    container_id: Mapped[str | None] = mapped_column(String(64))
+    expected_state_revision: Mapped[int | None] = mapped_column(Integer)
+    result_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class DevelopmentRepositoryStateRow(Base):
     """One durable binding between the configured origin and selected index."""
 
@@ -2732,6 +2872,9 @@ class ManagedBridgeTrustRow(Base):
     identity_json: Mapped[str | None] = mapped_column(String(4096))
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    reviewed_installation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
     prepared_at: Mapped[str] = mapped_column(String(27), nullable=False)
     established_at: Mapped[str | None] = mapped_column(String(27))
     invalidated_at: Mapped[str | None] = mapped_column(String(27))
@@ -6245,6 +6388,88 @@ class McpDevelopmentRequestRow(Base):
     updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
 
 
+class ExternalReconnectOperationRow(Base):
+    """Existing-target reconnect owns its pairing publication, never registration."""
+
+    __tablename__ = "external_reconnect_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "stage IN ('native_verified','requires_revoke','bootstrap_started',"
+            "'paired','connected','blocked','cancelled')",
+            name="external_reconnect_stage",
+        ),
+        CheckConstraint(
+            "bridge_port BETWEEN 1 AND 65535 AND length(native_binding)=64",
+            name="external_reconnect_binding",
+        ),
+        CheckConstraint(
+            "target_class IN ('external_development','external_production')",
+            name="external_reconnect_class",
+        ),
+        Index(
+            "uq_external_reconnect_active_target",
+            "target_id",
+            unique=True,
+            sqlite_where=text("stage NOT IN ('connected','cancelled')"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    target_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("external_kodi_targets.target_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_class: Mapped[str] = mapped_column(String(32), nullable=False)
+    bridge_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    native_binding: Mapped[str] = mapped_column(String(64), nullable=False)
+    disclosure_token: Mapped[str | None] = mapped_column(String(64))
+    expected_bridge_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    initial_bridge_reference: Mapped[str | None] = mapped_column(String(36))
+    owned_bridge_reference: Mapped[str | None] = mapped_column(String(36))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
+class WorkspaceImportOperationRow(Base):
+    """Reviewed-source identity and retained atomic import receipt."""
+
+    __tablename__ = "workspace_import_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "client_id", "request_id", name="uq_workspace_import_client_request"
+        ),
+        CheckConstraint(
+            "state IN ('applying','succeeded','failed','reconciliation_required')",
+            name="workspace_import_state_closed",
+        ),
+        CheckConstraint(
+            "generation >= 0 AND length(files_json) <= 49152",
+            name="workspace_import_bounds",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mcp_clients.id", ondelete="RESTRICT"), nullable=False
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("agent_workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    preview_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    prior_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    result_digest: Mapped[str | None] = mapped_column(String(71), nullable=True)
+    files_json: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(27), nullable=False)
+
+
 class McpWorkspaceValidationRow(Base):
     """Latest successful closed structural validation for one workspace."""
 
@@ -7119,6 +7344,47 @@ class McpRemoteActionReceiptRow(Base):
     )
 
 
+class McpRemoteObservationRow(Base):
+    """Optional UI evidence and exact-frame binding for a managed action."""
+
+    __tablename__ = "mcp_remote_observations"
+    __table_args__ = (
+        CheckConstraint(
+            "ui_status IN ('pending','succeeded','failed')",
+            name="mcp_remote_observation_state",
+        ),
+        CheckConstraint(
+            "ui_json IS NULL OR length(ui_json) <= 16384",
+            name="mcp_remote_observation_bounded",
+        ),
+        CheckConstraint(
+            "ui_status <> 'succeeded' OR "
+            "(ui_json IS NOT NULL AND observed_at IS NOT NULL)",
+            name="mcp_remote_observation_complete",
+        ),
+        CheckConstraint(
+            "capture_id IS NULL OR (captured_at IS NOT NULL AND "
+            "runtime_revision_id IS NOT NULL AND "
+            "runtime_state_revision IS NOT NULL AND container_id IS NOT NULL)",
+            name="mcp_remote_observation_capture_bound",
+        ),
+    )
+    receipt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("mcp_remote_action_receipts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    ui_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    observed_at: Mapped[str | None] = mapped_column(String(27))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    ui_json: Mapped[str | None] = mapped_column(Text)
+    runtime_revision_id: Mapped[str | None] = mapped_column(String(36))
+    runtime_state_revision: Mapped[int | None] = mapped_column(Integer)
+    container_id: Mapped[str | None] = mapped_column(String(64))
+    capture_id: Mapped[str | None] = mapped_column(String(36))
+    captured_at: Mapped[str | None] = mapped_column(String(27))
+
+
 class McpProductionRemoteReceiptBindingRow(Base):
     """Immutable production authority snapshot for one base remote receipt."""
 
@@ -7778,3 +8044,49 @@ for _trigger_sql in (
         "after_create",
         DDL(_trigger_sql).execute_if(dialect="sqlite"),  # type: ignore[no-untyped-call]
     )
+
+
+class McpWorkspaceLaunchRow(Base):
+    """One durable managed GUI dispatch intent; acceptance is not completion."""
+
+    __tablename__ = "mcp_workspace_launches"
+    __table_args__ = (
+        UniqueConstraint("client_id", "request_id", name="mcp_launch_owner_request"),
+        CheckConstraint(
+            "generation>=0 AND ordinal BETWEEN 0 AND 63 AND runtime_state_revision>=0",
+            name="mcp_launch_generation",
+        ),
+        CheckConstraint(
+            "state IN ('pending','dispatching','accepted','failed',"
+            "'ambiguous','contained')",
+            name="mcp_launch_state",
+        ),
+        CheckConstraint(
+            "length(container_id)=64 AND length(tree_digest) BETWEEN 64 AND 71 "
+            "AND length(addon_id) BETWEEN 1 AND 128 "
+            "AND length(addon_version) BETWEEN 1 AND 128",
+            name="mcp_launch_identity",
+        ),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    development_source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    deployment_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    addon_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    tree_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    runtime_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    bridge_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    runtime_state_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    container_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    requested_at: Mapped[str] = mapped_column(String(27), nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String(27))
+    completed_at: Mapped[str | None] = mapped_column(String(27))

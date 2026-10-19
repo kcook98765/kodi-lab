@@ -136,6 +136,7 @@ class ManagedInstanceMutationKind(StrEnum):
     AGENT_WORKSPACE_PROMOTION = "agent_workspace_promotion"
     PROMOTION_VERIFICATION = "promotion_verification"
     MCP_WORKSPACE_DEPLOYMENT = "mcp_workspace_deployment"
+    MCP_WORKSPACE_LAUNCH = "mcp_workspace_launch"
     MCP_WORKSPACE_EXECUTION = "mcp_workspace_execution"
     WORKSPACE_EXECUTION_RECOVERY = "workspace_execution_recovery"
 

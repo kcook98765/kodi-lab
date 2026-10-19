@@ -29,7 +29,10 @@ from kodi_lab.domain import (
     RepositoryReplacementOperationState,
     RepositoryReplacementPlanState,
 )
-from kodi_lab.storage.models import ManagedRuntimeReconstructionRow
+from kodi_lab.storage.models import (
+    ManagedRuntimeReconstructionRow,
+    McpWorkspaceLaunchRow,
+)
 from kodi_lab.storage.repositories import (
     AddonRepositoryAttachmentOperationRepository,
     AddonZipArtifactRepository,
@@ -53,6 +56,7 @@ from kodi_lab.storage.repositories import (
 
 
 class ManagedInstanceActivityKind(StrEnum):
+    MCP_WORKSPACE_LAUNCH = "mcp_workspace_launch"
     REPOSITORY_REPLACEMENT = "repository_replacement"
     ADDON_REPOSITORY_ATTACHMENT = "addon_repository_attachment"
     ADDON_REPOSITORY_INSTALLATION = "addon_repository_installation"
@@ -94,6 +98,7 @@ class ManagedInstanceActivityItem(BaseModel):
 
 
 _SOURCE_TIE_BREAK = {
+    ManagedInstanceActivityKind.MCP_WORKSPACE_LAUNCH: 17,
     ManagedInstanceActivityKind.REPOSITORY_REPLACEMENT: 16,
     ManagedInstanceActivityKind.ADDON_REPOSITORY_INSTALLATION: 15,
     ManagedInstanceActivityKind.ADDON_REPOSITORY_ATTACHMENT: 14,
@@ -154,6 +159,40 @@ class ManagedInstanceActivityService:
         session: Session, instance_id: UUID
     ) -> list[ManagedInstanceActivityItem]:
         result: list[ManagedInstanceActivityItem] = []
+        for launch in session.scalars(
+            select(McpWorkspaceLaunchRow).where(
+                McpWorkspaceLaunchRow.target_id == str(instance_id)
+            )
+        ):
+            result.append(
+                ManagedInstanceActivityItem(
+                    kind=ManagedInstanceActivityKind.MCP_WORKSPACE_LAUNCH,
+                    operation_uuid=UUID(launch.id),
+                    original_managed_instance_id=instance_id,
+                    requested_at=datetime.fromisoformat(
+                        launch.requested_at.replace("Z", "+00:00")
+                    ),
+                    started_at=None
+                    if launch.started_at is None
+                    else datetime.fromisoformat(
+                        launch.started_at.replace("Z", "+00:00")
+                    ),
+                    completed_at=None
+                    if launch.completed_at is None
+                    else datetime.fromisoformat(
+                        launch.completed_at.replace("Z", "+00:00")
+                    ),
+                    state=launch.state,
+                    summary=(
+                        f"Manifest launch {launch.state}; generation "
+                        f"{launch.generation}, extension {launch.ordinal}. "
+                        "UI acceptance is separate."
+                    ),
+                    reconciliation_required=launch.state
+                    in {"dispatching", "ambiguous"},
+                )
+            )
+
         for plan in RepositoryReplacementPlanRepository(
             session
         ).list_for_original_instance(instance_id):

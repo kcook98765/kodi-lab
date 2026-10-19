@@ -13,6 +13,7 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from kodi_lab.application.browser_remote_coordination import (
@@ -52,6 +53,8 @@ from kodi_lab.kodi.remote import (
     RemoteNoActivePlayerError,
 )
 from kodi_lab.runtime.reviewed_capabilities import supports_reviewed_recipe_capability
+from kodi_lab.storage.managed_activity import record_activity
+from kodi_lab.storage.models import ManagedInstanceMutationLeaseRow
 from kodi_lab.storage.repositories import RuntimeExecutionProfileRepository
 
 LOGGER = logging.getLogger("kodi_lab.browser_remote.audit")
@@ -254,6 +257,7 @@ class BrowserRemoteService:
             ) from error
 
         dispatched = False
+        attempted = False
         refresh = ScreenshotRefreshResult(result="not_requested")
         try:
             container_id = self._eligible_container(instance_id)
@@ -278,6 +282,30 @@ class BrowserRemoteService:
                     "Managed runtime identity changed before remote dispatch.",
                 )
             adapter = self._adapter_factory(observation, profile)
+            try:
+                with self._sessions.begin() as session:
+                    session.execute(text("BEGIN IMMEDIATE"))
+                    if (
+                        session.get(ManagedInstanceMutationLeaseRow, str(instance_id))
+                        is not None
+                    ):
+                        raise BrowserRemoteError(
+                            "remote_action_conflict",
+                            "A managed-instance mutation is active.",
+                        )
+                    record_activity(
+                        session,
+                        instance_id,
+                        actor=f"mcp:{actor.client_id}" if actor.client_id else "web",
+                        now=self._clock(),
+                    )
+            except BrowserRemoteError:
+                raise
+            except Exception as error:
+                raise BrowserRemoteError(
+                    "remote_action_conflict", "Managed activity could not be retained."
+                ) from error
+            attempted = True
             adapter.dispatch(action, invocation_id)
             dispatched = True
             if action in NAVIGATION_ACTIONS:
@@ -304,6 +332,19 @@ class BrowserRemoteService:
                 else "Managed runtime identity could not be proven.",
             ) from error
         finally:
+            if attempted:
+                try:
+                    with self._sessions.begin() as session:
+                        record_activity(
+                            session,
+                            instance_id,
+                            actor=f"mcp:{actor.client_id}"
+                            if actor.client_id
+                            else "web",
+                            now=self._clock(),
+                        )
+                except Exception:
+                    LOGGER.warning("Managed remote activity completion unavailable")
             try:
                 release_browser_remote(lease)
             except BrowserRemoteCoordinationLost as error:

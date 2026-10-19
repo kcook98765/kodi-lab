@@ -22,6 +22,7 @@
         <dt>Access</dt><dd>{{ kodi.access_label }}</dd>
       </dl>
       <a class="button-link kodi-view-action" href="/kodi/{{ kodi.target.target_id }}" aria-label="View settings for {{ kodi.target.logical_name }}">View / Settings</a>
+      {% if kodi.target.administrative_state.value == 'enabled' %}<a class="button-link" href="/reconnect-kodi/{{ kodi.target.target_id }}">Reconnect</a>{% endif %}
     </li>
     {% endfor %}
   </ul>

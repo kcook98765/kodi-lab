@@ -152,6 +152,7 @@ from kodi_lab.storage.models import (
     McpDevelopmentRequestRow,
     McpWorkspaceDeploymentOperationRow,
     McpWorkspaceExecutionOperationRow,
+    McpWorkspaceLaunchRow,
     McpWorkspaceValidationRow,
     RepositoryWorkspaceDeploymentRow,
     RepositoryWorkspaceValidationSnapshotRow,
@@ -483,6 +484,12 @@ class WorkspaceDevelopmentProjection(BaseModel):
     execution_state: str | None = None
     execution_generation: int | None = Field(default=None, ge=0)
     execution_target_id: UUID | None = None
+    launch_id: UUID | None = None
+    launch_request_id: UUID | None = None
+    launch_state: str | None = None
+    launch_generation: int | None = None
+    launch_target_id: UUID | None = None
+    launch_extension_ordinal: int | None = None
 
 
 class ExternalBaselineResult(BaseModel):
@@ -542,6 +549,19 @@ class _DeploymentTarget(BaseModel):
     target_class: str
     runtime_revision_id: UUID | None = None
     bridge_id: UUID | None = None
+
+
+def _repository_feed(
+    repository: DevelopmentRepositoryService,
+    *,
+    error_code: str = "repository_prerequisite_unconfirmed",
+) -> dict[str, object]:
+    try:
+        return load_development_current(
+            repository.root, expected_base_url=repository.base_url
+        )[1]
+    except (OSError, ValueError, KeyError) as error:
+        raise McpWorkspaceDevelopmentError(error_code) from error
 
 
 class BoundedIntervalRateLimiter:
@@ -695,7 +715,9 @@ class McpWorkspaceDevelopmentService:
             or pairing.pinned_kodi_version != external.verified_kodi_version
         ):
             raise McpWorkspaceDevelopmentError("deployment_not_allowed")
-        bootstrap = development_bootstrap_zip(base_url)
+        feed = _repository_feed(repository)
+        bootstrap_version = str(feed["repository_version"])
+        bootstrap = development_bootstrap_zip(base_url, bootstrap_version)
         expected_digest, expected_files, expected_bytes = bridge_manifest_for_zip(
             bootstrap, DEVELOPMENT_REPOSITORY_ID
         )
@@ -718,9 +740,9 @@ class McpWorkspaceDevelopmentService:
             inventory.query_status is not AddonInventoryQueryStatus.AVAILABLE
             or inventory.kodi_release != external.verified_kodi_version
             or item is None
-            or item.version != "1.0.0"
+            or item.version != bootstrap_version
             or not item.enabled
-            or observed.addon_version != "1.0.0"
+            or observed.addon_version != bootstrap_version
             or not observed.enabled
             or observed.manifest_digest != expected_digest
             or observed.file_count != expected_files
@@ -792,6 +814,8 @@ class McpWorkspaceDevelopmentService:
                 )
             )
             repository_state = session.get(DevelopmentRepositoryStateRow, 1)
+        feed = _repository_feed(repository, error_code="adoption_artifact_unverified")
+        bootstrap_version = str(feed["repository_version"])
         if (
             target is None
             or target.target_type is not TargetType.EXTERNAL_DEVELOPMENT
@@ -808,10 +832,9 @@ class McpWorkspaceDevelopmentService:
             or readiness.base_url != repository.base_url
             or readiness.native_kodi_version != external.verified_kodi_version
             or readiness.bridge_id != pairing.pinned_bridge_id
-            or readiness.repository_version != "1.0.0"
+            or readiness.repository_version != bootstrap_version
             or not readiness.manual_updates_confirmed
-            or readiness.bootstrap_sha256
-            != sha256(development_bootstrap_zip(repository.base_url))
+            or readiness.bootstrap_sha256 != str(feed["bootstrap_zip_sha256"])
         ):
             raise McpWorkspaceDevelopmentError("adoption_prerequisite_unconfirmed")
         try:
@@ -2007,7 +2030,22 @@ class McpWorkspaceDevelopmentService:
                     McpWorkspaceExecutionOperationRow.id.desc(),
                 )
             )
+            launch = session.scalar(
+                select(McpWorkspaceLaunchRow)
+                .where(McpWorkspaceLaunchRow.workspace_id == str(workspace_id))
+                .order_by(
+                    McpWorkspaceLaunchRow.requested_at.desc(),
+                    McpWorkspaceLaunchRow.id.desc(),
+                )
+                .limit(1)
+            )
         return WorkspaceDevelopmentProjection(
+            launch_id=None if launch is None else UUID(launch.id),
+            launch_request_id=None if launch is None else UUID(launch.request_id),
+            launch_state=None if launch is None else launch.state,
+            launch_generation=None if launch is None else launch.generation,
+            launch_target_id=None if launch is None else UUID(launch.target_id),
+            launch_extension_ordinal=None if launch is None else launch.ordinal,
             validation_id=None if validation is None else UUID(validation.id),
             validation_state=None if validation is None else validation.classification,
             validation_generation=None if validation is None else validation.generation,
@@ -2046,6 +2084,21 @@ class McpWorkspaceDevelopmentService:
         )
 
     def retention_blocker(self, workspace_id: UUID, generation: int) -> str | None:
+        with self._sessions() as session:
+            if (
+                session.scalar(
+                    select(McpWorkspaceLaunchRow.id)
+                    .where(
+                        McpWorkspaceLaunchRow.workspace_id == str(workspace_id),
+                        McpWorkspaceLaunchRow.state.in_(
+                            ("pending", "dispatching", "ambiguous")
+                        ),
+                    )
+                    .limit(1)
+                )
+                is not None
+            ):
+                return "launch_requires_reconciliation"
         with self._sessions() as session:
             captured_history = session.scalar(
                 select(AgentWorkspaceCaptureOperationRow.id)
@@ -3028,7 +3081,8 @@ class McpWorkspaceDevelopmentService:
                 )
             kodi_version = external.verified_kodi_version
             pinned_bridge_id = pairing.pinned_bridge_id
-            bootstrap_hash = sha256(development_bootstrap_zip(repository.base_url))
+            feed = _repository_feed(repository)
+            bootstrap_hash = str(feed["bootstrap_zip_sha256"])
             if (
                 kodi_version is None
                 or pinned_bridge_id is None

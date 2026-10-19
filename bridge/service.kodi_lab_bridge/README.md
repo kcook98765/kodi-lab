@@ -46,7 +46,7 @@ deployment, update or lifecycle authority. Production control uses separate
 fixed server-owned native Kodi actions; this is not an arbitrary production
 command channel.
 
-Bridge 1.1.23 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
+Bridge 1.1.25 protocol 1 advertises `screenshot`, `workspace_deployment`, `log_read` and
 `ui_observation`. Production observation additionally requires the existing
 reviewed-build confirmation and transport policy; deployment stays development-only.
 `inspect_ui_state` accepts only an empty payload. Its protected collector reads
@@ -167,3 +167,17 @@ Bridge 1.1.23 fixes Android screenshot root privacy and traversal-only storage
 ancestors for logs and deployment. Android noexec mounts retain authenticated
 manifest modes without requiring POSIX chmod semantics. The corresponding
 exact-release RC1 overlay is 1.1.24.
+
+
+Bridge 1.1.25 (RC1 overlay 1.1.26) adds `managed_launch` and
+`managed_launch_receipt`, available only with a private broker-provisioned
+managed runtime marker bound to the current pairing secret. Ordinary external
+OTP pairing does not create that marker. The request contains a server-recorded
+launch UUID, exact deployed add-on/tree identity, manifest extension ordinal and
+managed runtime binding; it accepts no path, command or arguments. Script paths
+and plugin windows are derived from the verified installed manifest. A durable
+pending receipt precedes the fixed builtin. Accepted dispatch is distinct from
+script completion and GUI acceptance; receipt queries never dispatch. Pending
+receipts remain uncertain and are not retried. The private launch journal caps
+at 4,096 records and fails closed; it is not cleared by age. Administrators
+retain/recover the managed profile rather than deleting unknown receipts.

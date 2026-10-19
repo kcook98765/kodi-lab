@@ -50,6 +50,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from kodi_lab import __version__
+from kodi_lab.application.managed_agent_lifecycle import ManagedAgentLifecycleResult
 from kodi_lab.application.mcp_administration import (
     McpAuthenticationService,
     McpPrincipal,
@@ -76,6 +77,14 @@ from kodi_lab.application.production_transient_approvals import (
 from kodi_lab.application.workspace_execution_recovery import (
     WorkspaceExecutionRecoveryResult,
 )
+from kodi_lab.application.workspace_imports import (
+    IMPORT_ERROR_REASONS,
+    ImportApplyInput,
+    ImportInput,
+    ImportPreview,
+    ImportResult,
+)
+from kodi_lab.application.workspace_launch import WorkspaceLaunchResult
 from kodi_lab.domain.smoke_diagnostics import AddonExceptionDiagnostic
 from kodi_lab.kodi.addons import KodiJsonRpcDiagnostic
 from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
@@ -88,8 +97,11 @@ from kodi_lab.mcp.registry import KODI_LAB_MCP_SCHEMA_VERSION, McpToolRegistry
 from kodi_lab.mcp.tools import (
     AddonListResult,
     DevelopmentSourceListResult,
+    ManagedEnsureReadyInput,
+    ManagedReleaseInput,
     McpTargetToolService,
     ScreenshotCaptureMetadata,
+    ScreenshotRetrievalMetadata,
     ScreenshotToolResult,
     TargetListResult,
     TargetStatusResult,
@@ -100,6 +112,7 @@ from kodi_lab.mcp.tools import (
     WorkspaceEditResult,
     WorkspaceExecuteInput,
     WorkspaceExecutionRecoverInput,
+    WorkspaceLaunchInput,
     WorkspaceReadResult,
     WorkspaceSourceScanToolResult,
     WorkspaceStatusResult,
@@ -144,12 +157,15 @@ _MCP_AUDIT_SCHEMA_VERSION = 1
 _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
     {
         "log_read",
+        "managed_ensure_ready",
+        "managed_release",
         "inspect_ui_state",
         "addon_list",
         "development_source_list",
         "promotion_request",
         "remote_action",
         "screenshot_capture",
+        "screenshot_retrieve",
         "target_list",
         "target_status",
         "workspace_create",
@@ -157,7 +173,10 @@ _MCP_AUDIT_SAFE_TOOL_NAMES = frozenset(
         "workspace_edit",
         "workspace_source_scan",
         "workspace_capture",
+        "workspace_import_preview",
+        "workspace_import",
         "workspace_execute",
+        "workspace_launch",
         "workspace_execution_recover",
         "workspace_read",
         "workspace_status",
@@ -303,6 +322,21 @@ class _RemoteActionInput(BaseModel):
     request_id: UUID
     target_id: UUID
     action: BrowserRemoteAction
+    observe_ui: bool = Field(
+        default=False,
+        description=(
+            "On managed development targets, return independently authorized "
+            "post-action UI state and retain an exact capture binding for "
+            "screenshot_retrieve."
+        ),
+    )
+
+
+class _ScreenshotRetrieveInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target_id: UUID
+    request_id: UUID
+    capture_id: UUID
 
 
 class _DevelopmentSourceListInput(BaseModel):
@@ -1014,6 +1048,33 @@ def build_mcp_http_transport(
             annotations=edit_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "workspace_import_preview": Tool(
+            name="workspace_import_preview",
+            title="Preview a registered-source text batch",
+            description=(
+                "Review bounded added/modified UTF-8 files from the workspace's "
+                "registered source. Returns source and preview digests for exact "
+                "apply; deletions, private overlaps and unsupported files are rejected."
+            ),
+            input_schema=ImportInput.model_json_schema(),
+            output_schema=ImportPreview.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "workspace_import": Tool(
+            name="workspace_import",
+            title="Apply a reviewed registered-source text batch",
+            description=(
+                "Apply the exact eligible preview as one workspace generation. "
+                "Supply its source_digest, preview_digest, expected_generation "
+                "and a new request_id. Retry that identical request to recover its "
+                "receipt; import never deploys or restarts Kodi."
+            ),
+            input_schema=ImportApplyInput.model_json_schema(),
+            output_schema=ImportResult.model_json_schema(),
+            annotations=edit_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_deploy": Tool(
             name="workspace_deploy",
             title="Deploy an exact workspace generation",
@@ -1029,6 +1090,22 @@ def build_mcp_http_transport(
             input_schema=WorkspaceDeployInput.model_json_schema(),
             output_schema=WorkspaceDeploymentResult.model_json_schema(),
             annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "workspace_launch": Tool(
+            name="workspace_launch",
+            title="Launch a deployed manifest entry point",
+            description=(
+                "Dispatch one selected manifest script/plugin on the exact deployed "
+                "generation of a managed disposable target. Accepted dispatch is "
+                "not script completion or UI acceptance. Replay queries the "
+                "original receipt without launching again; inspect_ui_state and "
+                "screenshot_capture confirm the destination separately. No command, "
+                "path or arguments are accepted."
+            ),
+            input_schema=WorkspaceLaunchInput.model_json_schema(),
+            output_schema=WorkspaceLaunchResult.model_json_schema(),
+            annotations=execution_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
         "workspace_execute": Tool(
@@ -1084,6 +1161,54 @@ def build_mcp_http_transport(
             annotations=read_annotations,
             _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
         ),
+        "managed_ensure_ready": Tool(
+            name="managed_ensure_ready",
+            title="Ensure managed Kodi is ready",
+            description=(
+                "Explicitly use one granted, already provisioned managed Kodi. "
+                "Starts the same stopped instance and reports bounded readiness; "
+                "does not create instances or acquire runtimes. Requires opt-in "
+                "managed.lifecycle in both client and target policies. New requests "
+                "create or extend this client's bounded hold. Replays only observe "
+                "the original operation and never restart or extend its hold. "
+                "Use a fresh request_id for a new session after idle stop."
+            ),
+            input_schema=ManagedEnsureReadyInput.model_json_schema(),
+            output_schema=ManagedAgentLifecycleResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "managed_release": Tool(
+            name="managed_release",
+            title="Release managed Kodi use",
+            description=(
+                "Release only this client's managed-target hold and recent use. "
+                "Stops through the ordinary lifecycle only when no other client, "
+                "playback, hold, active or uncertain operation protects the target. "
+                "Returns retained when protected. Request replay never repeats a "
+                "stop. External and production Kodi are excluded."
+            ),
+            input_schema=ManagedReleaseInput.model_json_schema(),
+            output_schema=ManagedAgentLifecycleResult.model_json_schema(),
+            annotations=control_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
+        "screenshot_retrieve": Tool(
+            name="screenshot_retrieve",
+            title="Retrieve an exact managed action screenshot",
+            description=(
+                "Reuse the capture returned by a managed remote_action with "
+                "observe_ui=true. Supply the same target_id, request_id "
+                "and capture_id. "
+                "Requires current visual authority. Captures expire after two minutes "
+                "and can be replaced sooner. Unavailable images are never recaptured "
+                "and navigation is never replayed."
+            ),
+            input_schema=_ScreenshotRetrieveInput.model_json_schema(),
+            output_schema=ScreenshotRetrievalMetadata.model_json_schema(),
+            annotations=read_annotations,
+            _meta={"kodiLabMcpSchemaVersion": KODI_LAB_MCP_SCHEMA_VERSION},
+        ),
         "workspace_validate": Tool(
             name="workspace_validate",
             title="Validate workspace structure",
@@ -1133,6 +1258,7 @@ def build_mcp_http_transport(
                 | KodiLogResult
                 | UiObservation
                 | McpRemoteActionResult
+                | ManagedAgentLifecycleResult
                 | ProductionApprovalRequiredResult
                 | ProductionApprovalTerminalResult
                 | ScreenshotToolResult
@@ -1144,10 +1270,13 @@ def build_mcp_http_transport(
                 | WorkspaceEditResult
                 | WorkspaceSourceScanToolResult
                 | WorkspaceCaptureToolResult
+                | ImportPreview
+                | ImportResult
                 | WorkspaceStatusResult
                 | WorkspaceTreeResult
                 | WorkspaceValidateResult
                 | WorkspaceDeploymentResult
+                | WorkspaceLaunchResult
                 | WorkspaceExecutionResult
                 | WorkspaceExecutionRecoveryResult
                 | PromotionRequestResult
@@ -1159,11 +1288,14 @@ def build_mcp_http_transport(
                 "workspace_tree",
                 "workspace_validate",
                 "workspace_source_scan",
+                "workspace_import_preview",
+                "screenshot_retrieve",
             } and not development_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
             if params.name in {
                 "workspace_edit",
                 "workspace_capture",
+                "workspace_import",
             } and not edit_limiter.allow(str(principal.client_id)):
                 raise McpAuthorizationError("rate_limited")
             if params.name == "log_read":
@@ -1195,6 +1327,24 @@ def build_mcp_http_transport(
                     cursor=parsed_addons.cursor,
                     limit=parsed_addons.limit,
                 )
+            elif params.name == "managed_ensure_ready":
+                parsed_ensure = ManagedEnsureReadyInput.model_validate(arguments)
+                target_id, request_id = (
+                    parsed_ensure.target_id,
+                    parsed_ensure.request_id,
+                )
+                result = await asyncio.to_thread(
+                    tools.managed_ensure_ready, principal, parsed_ensure
+                )
+            elif params.name == "managed_release":
+                parsed_release = ManagedReleaseInput.model_validate(arguments)
+                target_id, request_id = (
+                    parsed_release.target_id,
+                    parsed_release.request_id,
+                )
+                result = await asyncio.to_thread(
+                    tools.managed_release, principal, parsed_release
+                )
             elif params.name == "remote_action":
                 parsed_remote = _RemoteActionInput.model_validate(arguments)
                 target_id = parsed_remote.target_id
@@ -1205,6 +1355,18 @@ def build_mcp_http_transport(
                     target_id=target_id,
                     request_id=parsed_remote.request_id,
                     action=parsed_remote.action,
+                    observe_ui=parsed_remote.observe_ui,
+                )
+            elif params.name == "screenshot_retrieve":
+                parsed_retrieve = _ScreenshotRetrieveInput.model_validate(arguments)
+                target_id = parsed_retrieve.target_id
+                request_id = parsed_retrieve.request_id
+                result = await asyncio.to_thread(
+                    tools.screenshot_retrieve,
+                    principal,
+                    target_id=target_id,
+                    request_id=request_id,
+                    capture_id=parsed_retrieve.capture_id,
                 )
             elif params.name == "screenshot_capture":
                 parsed_screenshot = _ScreenshotCaptureInput.model_validate(arguments)
@@ -1295,6 +1457,23 @@ def build_mcp_http_transport(
                     tools.workspace_source_scan, principal, workspace_id
                 )
                 source_id = result.source_id
+            elif params.name == "workspace_import_preview":
+                parsed_import_preview = ImportInput.model_validate(arguments)
+                workspace_id = parsed_import_preview.workspace_id
+                generation = parsed_import_preview.expected_generation
+                result = await asyncio.to_thread(
+                    tools.workspace_import_preview, principal, parsed_import_preview
+                )
+                source_id = result.source_id
+            elif params.name == "workspace_import":
+                parsed_import = ImportApplyInput.model_validate(arguments)
+                workspace_id = parsed_import.workspace_id
+                generation = parsed_import.expected_generation
+                request_id = parsed_import.request_id
+                result = await asyncio.to_thread(
+                    tools.workspace_import, principal, parsed_import
+                )
+                source_id = result.source_id
             elif params.name == "workspace_capture":
                 parsed_capture = WorkspaceCaptureToolInput.model_validate(arguments)
                 workspace_id = parsed_capture.workspace_id
@@ -1344,6 +1523,16 @@ def build_mcp_http_transport(
                     tools.workspace_deploy, principal, parsed_deploy
                 )
                 source_id = result.source_id
+            elif params.name == "workspace_launch":
+                parsed_launch = WorkspaceLaunchInput.model_validate(arguments)
+                workspace_id, target_id = (
+                    parsed_launch.workspace_id,
+                    parsed_launch.target_id,
+                )
+                request_id = parsed_launch.request_id
+                result = await asyncio.to_thread(
+                    tools.workspace_launch, principal, parsed_launch
+                )
             elif params.name == "workspace_execute":
                 parsed_execution = WorkspaceExecuteInput.model_validate(arguments)
                 workspace_id = parsed_execution.workspace_id
@@ -1596,6 +1785,16 @@ def build_mcp_http_transport(
 
 
 _SAFE_TOOL_REASONS = {
+    "screenshot_capture_unavailable": frozenset(
+        {
+            "capture_not_retained",
+            "capture_expired",
+            "capture_runtime_changed",
+            "capture_replaced",
+            "managed_observation_unsupported",
+        }
+    ),
+    "workspace_import_rejected": IMPORT_ERROR_REASONS,
     "development_source_scan_unsafe": frozenset(
         {"source_identity_changed", "source_invalid", "registered_source_unavailable"}
     ),

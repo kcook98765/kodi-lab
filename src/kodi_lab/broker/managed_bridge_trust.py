@@ -53,8 +53,9 @@ def approved_bridge_build(
     previous: bool = False,
     retained: bool = False,
     legacy: bool = False,
+    historical: bool = False,
 ) -> dict[str, Any]:
-    if sum((previous, retained, legacy)) > 1:
+    if sum((previous, retained, legacy, historical)) > 1:
         raise ValueError("ambiguous Bridge build selection")
     resource = (
         "managed_bridge_preview_build.json"
@@ -78,6 +79,12 @@ def approved_bridge_build(
             "managed_bridge_legacy_preview_build.json"
             if kodi_release == "22.0-rc.1"
             else "managed_bridge_legacy_build.json"
+        )
+    if historical:
+        resource = (
+            "managed_bridge_historical_preview_build.json"
+            if kodi_release == "22.0-rc.1"
+            else "managed_bridge_historical_build.json"
         )
     return cast(
         dict[str, Any],
@@ -184,7 +191,7 @@ class SqliteManagedBridgeTrustResolver:
                 UUID(target_id), UUID(row.secret_reference), "request_authentication"
             )
             if install_reviewed:
-                if target.kodi_version != "22.0-rc.1":
+                if target.kodi_version not in {"21.3", "22.0-rc.1"}:
                     raise ManagedBridgeProvisionError(
                         "managed_bridge_identity_mismatch"
                     )
@@ -210,9 +217,12 @@ def run():
     target = str(uuid.UUID(value["target_id"]))
     assert (
         target == value["target_id"]
-        and len(base64.urlsafe_b64decode(
-            value["secret"] + "=" * (-len(value["secret"]) % 4)
-        )) == 32
+        and len(
+            base64.urlsafe_b64decode(
+                value["secret"] + "=" * (-len(value["secret"]) % 4)
+            )
+        )
+        == 32
     )
     home = "/home/kodi/.kodi"
 
@@ -229,39 +239,67 @@ def run():
     sources = value.get("reviewed_sources")
     if sources is not None:
         # Only broker-owned reviewed bytes arrive here. No destination parameter.
-        assert value["approved"]["addon_version"] == "1.1.24"
+        assert value["approved"]["addon_version"] in ("1.1.25", "1.1.26")
         directory(home + "/addons")
         lock = os.open(
             home + "/addons/.reviewed-bridge.lock",
-            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+            0o600,
         )
         try:
             assert stat.S_ISREG(os.fstat(lock).st_mode)
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            replacing = False
             if os.path.lexists(addon):
                 directory(addon)
-                # Existing code cannot be overwritten or adopted after drift.
-                for relative, encoded in sources.items():
-                    path = addon
-                    for part in relative.split("/")[:-1]:
-                        path += "/" + part
-                        directory(path)
-                    fd = os.open(addon + "/" + relative, os.O_RDONLY | os.O_NOFOLLOW)
-                    try:
-                        assert stat.S_ISREG(os.fstat(fd).st_mode)
-                        assert os.read(fd, 1048577) == base64.b64decode(
-                            encoded, validate=True
-                        )
-                    finally:
-                        os.close(fd)
-            else:
+                actual = {}
+                for root, directories, filenames in os.walk(addon, followlinks=False):
+                    for name in directories:
+                        directory(root + "/" + name)
+                    for name in filenames:
+                        path = root + "/" + name
+                        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                        try:
+                            info = os.fstat(fd)
+                            assert (
+                                stat.S_ISREG(info.st_mode)
+                                and info.st_nlink == 1
+                                and info.st_size <= 1048576
+                            )
+                            actual[os.path.relpath(path, addon)] = hashlib.sha256(
+                                os.read(fd, 1048577)
+                            ).hexdigest()
+                        finally:
+                            os.close(fd)
+                current_inventory = {
+                    name: hashlib.sha256(
+                        base64.b64decode(encoded, validate=True)
+                    ).hexdigest()
+                    for name, encoded in sources.items()
+                }
+                if actual != current_inventory:
+                    assert actual in list(value["previous_inventories"].values())
+                    replacing = True
+            if replacing:
+                backup_root = home + "/userdata"
+                directory(backup_root)
+                backup_root += "/managed-bridge-upgrades"
+                directory(backup_root)
+                assert len(os.listdir(backup_root)) < 32
+            if not os.path.lexists(addon) or replacing:
+                assert (
+                    sum(
+                        name.startswith(".reviewed-bridge-")
+                        for name in os.listdir(home + "/addons")
+                    )
+                    < 32
+                )
                 temporary = home + "/addons/.reviewed-bridge-" + str(uuid.uuid4())
                 os.mkdir(temporary, 0o700)
                 try:
                     for relative, encoded in sources.items():
                         assert not relative.startswith("/") and all(
-                            p not in ("", ".", "..")
-                            for p in relative.split("/")
+                            p not in ("", ".", "..") for p in relative.split("/")
                         )
                         current = temporary
                         for part in relative.split("/")[:-1]:
@@ -272,7 +310,7 @@ def run():
                         fd = os.open(
                             temporary + "/" + relative,
                             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                            0o644
+                            0o644,
                         )
                         try:
                             with os.fdopen(fd, "wb", closefd=False) as out:
@@ -281,11 +319,52 @@ def run():
                                 os.fsync(fd)
                         finally:
                             os.close(fd)
-                    assert not os.path.lexists(addon)
-                    os.rename(temporary, addon)
+                    if replacing:
+                        import ctypes
+
+                        library = ctypes.CDLL(None, use_errno=True)
+                        renameat2 = library.renameat2
+                        renameat2.argtypes = [
+                            ctypes.c_int,
+                            ctypes.c_char_p,
+                            ctypes.c_int,
+                            ctypes.c_char_p,
+                            ctypes.c_uint,
+                        ]
+                        renameat2.restype = ctypes.c_int
+                        assert (
+                            renameat2(
+                                -100,
+                                os.fsencode(temporary),
+                                -100,
+                                os.fsencode(addon),
+                                2,
+                            )
+                            == 0
+                        )
+                        backup_root = home + "/userdata"
+                        directory(backup_root)
+                        backup_root += "/managed-bridge-upgrades"
+                        directory(backup_root)
+                        # Preserve exact prior bytes after the atomic exchange.
+                        os.rename(temporary, backup_root + "/" + str(uuid.uuid4()))
+                    else:
+                        assert not os.path.lexists(addon)
+                        os.rename(temporary, addon)
+                    for parent in [home + "/addons"] + (
+                        [backup_root] if replacing else []
+                    ):
+                        parent_fd = os.open(
+                            parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                        )
+                        try:
+                            os.fsync(parent_fd)
+                        finally:
+                            os.close(parent_fd)
                 finally:
-                    if os.path.exists(temporary):
+                    if os.path.exists(temporary) and not replacing:
                         import shutil
+
                         shutil.rmtree(temporary)
         finally:
             os.close(lock)
@@ -417,6 +496,32 @@ def run():
             element.text = text
             element.attrib.pop("default", None)
         publish(root + "/settings.xml", ET.tostring(settings, encoding="utf-8"))
+        import hmac
+
+        binding = {
+            "target_id": target,
+            "runtime_revision_id": value["runtime_revision_id"],
+            "container_id": value["container_id"],
+            "generation": value["generation"],
+        }
+        canonical_binding = json.dumps(
+            binding, sort_keys=True, separators=(",", ":")
+        ).encode()
+        signature = hmac.new(
+            base64.urlsafe_b64decode(
+                value["secret"] + "=" * (-len(value["secret"]) % 4)
+            ),
+            b"managed-launch-v1|" + canonical_binding,
+            hashlib.sha256,
+        ).hexdigest()
+        publish(
+            root + "/managed-launch.json",
+            json.dumps(
+                {"binding": binding, "signature": signature},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode(),
+        )
         publish(
             root + "/state.json",
             json.dumps(state, sort_keys=True, separators=(",", ":")).encode(),
@@ -448,12 +553,19 @@ class DockerManagedBridgeTrustProvider:
     def establish(self, spec: ManagedBridgeProvisionSpec) -> str:
         inventory = None
         sources = None
-        if spec.kodi_release == "22.0-rc.1":
+        if spec.kodi_release == "22.0-rc.1" or spec.install_reviewed:
             import hashlib
 
-            from kodi_lab.kodi.rc1_bridge import packaged_rc1_bridge_sources
+            from kodi_lab.kodi.rc1_bridge import (
+                packaged_rc1_bridge_sources,
+                packaged_stable_bridge_sources,
+            )
 
-            reviewed = packaged_rc1_bridge_sources()
+            reviewed = (
+                packaged_rc1_bridge_sources()
+                if spec.kodi_release == "22.0-rc.1"
+                else packaged_stable_bridge_sources()
+            )
             inventory = {
                 name: hashlib.sha256(data).hexdigest()
                 for name, data in reviewed.items()
@@ -463,8 +575,6 @@ class DockerManagedBridgeTrustProvider:
                     name: base64.b64encode(data).decode("ascii")
                     for name, data in reviewed.items()
                 }
-        elif spec.install_reviewed:
-            raise ManagedBridgeProvisionError("managed_bridge_identity_mismatch")
         client = self._factory()
         attachment = None
         try:
@@ -519,6 +629,11 @@ class DockerManagedBridgeTrustProvider:
                             "secret": base64.urlsafe_b64encode(spec.secret)
                             .rstrip(b"=")
                             .decode(),
+                            "runtime_revision_id": (
+                                spec.provisioning.runtime_revision_id
+                            ),
+                            "container_id": spec.container_id,
+                            "generation": spec.generation,
                             "approved": approved_bridge_build(spec.kodi_release),
                             **(
                                 {"reviewed_inventory": inventory}
@@ -526,7 +641,16 @@ class DockerManagedBridgeTrustProvider:
                                 else {}
                             ),
                             **(
-                                {"reviewed_sources": sources}
+                                {
+                                    "previous_inventories": json.loads(
+                                        files("kodi_lab.kodi")
+                                        .joinpath(
+                                            "managed_bridge_previous_inventories.json"
+                                        )
+                                        .read_text()
+                                    ),
+                                    "reviewed_sources": sources,
+                                }
                                 if sources is not None
                                 else {}
                             ),

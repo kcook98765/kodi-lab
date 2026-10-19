@@ -22,6 +22,7 @@ from kodi_lab.development.deployment import (
     DevelopmentTreeManifest,
     capture_development_tree,
 )
+from kodi_lab.development.launch import ManifestLaunchEntry, manifest_launch_entries
 from kodi_lab.development.sources import (
     CopiedSmokeUnsupportedReason,
     copied_video_plugin_unsupported_reason,
@@ -205,6 +206,7 @@ class AgentWorkspaceStructuralValidationRead(BaseModel):
     addon_id: str = Field(max_length=128)
     addon_version: str = Field(max_length=128)
     extension_types: tuple[str, ...] = Field(max_length=64)
+    launch_entries: tuple[ManifestLaunchEntry, ...] = ()
     fixed_smoke_eligible: bool | None = None
     fixed_smoke_unsupported_reason: CopiedSmokeUnsupportedReason | None = None
     addon_id_classification: Literal["unchanged", "changed"]
@@ -1013,6 +1015,7 @@ class AgentWorkspaceService:
             addon_id=observed.addon_id,
             addon_version=observed.observed_version,
             extension_types=observed.extension_types,
+            launch_entries=manifest_launch_entries(observed),
             fixed_smoke_eligible=smoke_reason is None,
             fixed_smoke_unsupported_reason=smoke_reason,
             addon_id_classification="changed" if addon_changed else "unchanged",

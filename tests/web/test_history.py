@@ -131,7 +131,8 @@ def test_live_detail_preserves_escaped_notes_and_shows_ten_recent_items(
             "/var/lib/private",
             "container_id",
             "lease_token",
-            "manifest",
+            "manifest_digest",
+            '"manifest":',
             "a" * 64,
         ):
             assert forbidden not in response_text

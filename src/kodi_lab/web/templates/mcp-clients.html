@@ -147,11 +147,12 @@
         <p>For ordinary Home inspection, choose an existing Production Inspection preset above. Custom presets are for advanced use. The permission ceiling limits the available choices; no checkboxes are selected automatically. A saved preset is immutable.</p>
         <form data-create-preset>
           <label>Name <input name="display_name" required maxlength="120"></label>
-          <label>Permission ceiling <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
+          <label>Permission ceiling <select name="template_preset_id" required>{% for preset in presets if preset.builtin and preset.assignable and preset.display_name not in ['Production Inspection','Production Visual Inspection','Production Remote Kodi'] %}<option value="{{ preset.id }}" data-permissions="{{ (preset.permissions + ('development_source.inspect', 'workspace.capture', 'managed.lifecycle')) | join(',') if preset.id in capture_permission_template_ids else preset.permissions | join(',') }}">{{ preset.display_name }}</option>{% endfor %}</select></label>
           {% set permission_labels = {
             'target.inspect': 'Inspect Kodi health, add-ons and UI state',
             'target.visual': 'Capture Kodi screenshots',
             'target.control': 'Control Kodi',
+            'managed.lifecycle': 'Start and release managed Kodi',
             'development_source.inspect': 'Scan development sources',
             'workspace.capture': 'Capture a source into a workspace',
             'workspace.edit': 'Edit workspace files',
@@ -164,6 +165,7 @@
             {% for title, description, members in [
               ('Read-only Kodi inspection', 'Observe Kodi without control or development access. Target grants and any required current scopes still apply.', ['target.inspect', 'target.visual']),
               ('Kodi control', 'Allows actions that change Kodi state when the target and its scopes authorize them.', ['target.control']),
+              ('Managed Kodi resources', 'Explicit opt-in to start the same granted managed instance, hold it awake, and release it when safe. External Kodi is excluded.', ['managed.lifecycle']),
               ('Development sources and workspaces', 'Access to development files and validation. Source grants and workspace bindings still apply.', ['development_source.inspect', 'workspace.capture', 'workspace.edit', 'workspace.inspect']),
               ('Deployment and execution', 'Can deploy or run development builds, or request promotion. These are not ordinary inspection permissions.', ['workspace.deploy', 'development.execute', 'development.request_promotion']),
               ('Other permissions', 'Additional exact permissions available under the selected ceiling.', custom_preset_permissions | reject('in', permission_labels) | list)

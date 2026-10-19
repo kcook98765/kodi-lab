@@ -70,18 +70,92 @@ Editing `.env`, restarting containers or ordinary candidate transition does not
 rewrite generated repository URLs or repository add-ons already installed in
 Kodi. Re-running `generate` with a different origin is deliberately rejected.
 
-## Origin migration remains a separate operation
+## Explicit origin migration
 
-There is currently **no general origin-migration command**. If the old origin
-cannot be recovered, retain consistent backups and plan that migration before
-changing publication state. Do not delete repository volumes, hand-edit ZIPs,
-patch provenance or disable integrity checks to make generation succeed.
+Use a reviewed Lab release containing `kodi-lab-repository migrate-origin`.
+Finish or reconcile pending repository deployments first. Stop Web and broker,
+create and verify a complete application/repository backup using the existing
+[backup procedure](LINUX-V1-UPGRADE-ROLLBACK.md), then stop repository serving.
+Keep the same Compose project, volumes, candidate and Bridge trust. Migration
+requires the current installed database head; complete a candidate/application
+upgrade separately before moving its origin.
 
-A supported migration must atomically account for stable and development feeds,
-package/version/cache identities, publication/workspace metadata, installation
-receipts, and recoverable rollback. Changing descriptor URLs changes package
-bytes even when the old filename says `1.0.0`. That work is tracked in
-[issue #9](https://github.com/kcook98765/kodi-lab/issues/9).
+Choose the old origin exactly as stored, the new credential-free origin, one
+unused numeric repository version newer than **both** current repository add-ons,
+and a fresh UUID. The example moves initial `1.0.0` repositories to `1.0.1`.
+Use a higher version if that identity has already been published. A failed
+preparation can leave verified immutable packages; never overwrite them with
+different bytes under the same version.
+
+The command patches the explicitly mounted site environment and, for scripted
+installations, its `INSTALLATION.json`. It retains all other settings and receipt
+fields. Configuration files must be ordinary, single-link files with no group or
+other write access; protect these files before migration. Mount their containing
+directory, since safe replacement renames an adjacent temporary file. Do not
+mount a single `.env` inode. For scripted installations, `SITE_ROOT` below is the
+installation directory and the environment is `/site/bundle/.env`. For manual
+bundles mount the bundle directory and use `/site/.env`; omit the installation
+receipt argument only when that installation has no such receipt.
+
+From the installed bundle directory, keep your normal explicit project and
+Windows overlay arguments on every Compose command. With services already
+stopped and `SITE_ROOT` set to the absolute existing installation directory:
+
+```sh
+# Generate this UUID once; retain it with the exact arguments for recovery.
+python3 -c 'import uuid; print(uuid.uuid4())'
+docker compose -f compose.release.yaml --profile repository-transition \
+  run --rm --no-deps --cap-add CHOWN \
+  --entrypoint kodi-lab-repository \
+  --volume "$SITE_ROOT:/site" repository-transition migrate-origin \
+  --old-base-url http://192.168.50.10:18120 \
+  --base-url http://kodi-lab.home.arpa:18120 \
+  --repository-version 1.0.1 --operation-id OPERATION_UUID \
+  --backup-id VERIFIED_BACKUP_ID \
+  --site-environment /site/bundle/.env \
+  --installation-receipt /site/INSTALLATION.json \
+  --repository-bind 192.168.50.11 --confirm-services-stopped
+```
+
+`--repository-bind` is optional: supply it only for a deliberate listener change.
+It still requires a private IPv4 interface. Windows/WSL2 forwarding, DNS, proxy
+and firewall changes remain explicit host administration; the migration never
+infers or changes them. The one-shot job has no network or Docker/broker socket.
+The additional `CHOWN` capability preserves the original configuration inode
+owners during replacement. Its only extra writable mount is the selected site
+configuration directory. Never point it at an unrelated installation.
+
+The operation verifies the old feed, bundle, backup and database, builds both
+new immutable generations, then journals progress before selecting them. It
+updates the development repository's origin, bootstrap hashes and acknowledged
+index generation together. The newer Development index includes its own
+repository update, as Stable already does. Subsequent publication and candidate
+transition preserve the selected repository versions. Old generations and ZIPs
+remain available for verification. Existing publication/deployment receipts and
+external reachability confirmations remain historical: an external target needs
+a fresh confirmation of the new repository version and bytes. Workspaces,
+publications and Bridge credentials are preserved.
+
+On interruption, keep services stopped and rerun the **identical** command,
+including its UUID, old/new origins, version, backup and mount paths. It checks
+saved hashes and resumes only those recorded transitions; contradictory bytes
+or administrator edits stop recovery. Serving and Web startup refuse the pending
+`ORIGIN-MIGRATION.json`. Do not remove the journal, copy pointers, edit ZIPs or
+reinitialize volumes. Completion receipts are retained under
+`origin-migrations/OPERATION_UUID.json` in repository storage.
+
+After completion, re-read the updated environment, verify repository provenance
+with `kodi-lab-repository verify`, confirm Compose configuration, then start the
+normal services. Complete the listener/DNS/Windows forwarding checks and inspect
+both advertised and embedded URLs from a Kodi device. The page and install
+listing now show the actual versioned stable and optional development ZIPs.
+
+To reverse a published move, first back up the now-current origin and repeat
+this migration with old/new origins reversed, a fresh UUID and a **higher**
+repository version, for example `1.0.2`. Restore listener/DNS/forwarding explicitly.
+This keeps client update ordering and unrelated application state intact. A
+pointer downgrade or ordinary database restore alone is not an origin rollback;
+old backups bind their original repository generations and configuration.
 
 After a coherently generated successor feed is available, clients whose old
 literal feed is unreachable need explicit recovery: install/update the official

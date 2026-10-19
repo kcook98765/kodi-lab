@@ -21,9 +21,9 @@ from urllib.parse import urlsplit
 REPOSITORY_ID = "repository.kodi-lab"
 REPOSITORY_VERSION = "1.0.0"
 BRIDGE_ID = "service.kodi_lab_bridge"
-BRIDGE_VERSION = "1.1.23"
-BRIDGE_SHA256 = "a38c81d5198cbbb5dc3fbdb0453190102ddf5888d1e48666b9e9ef7bd4406533"
-BRIDGE_FINGERPRINT = "27ba0617f92f68bc46e0a38590f6f433b5943c4f67b338e77ad43488d75eb3c6"
+BRIDGE_VERSION = "1.1.25"
+BRIDGE_SHA256 = "7e8a798c75ba042c96eaa9e8f049da9c038e3b4f78c617d52b1b87aa2b2f6f63"
+BRIDGE_FINGERPRINT = "0f93de93cf51623fd480198abda89b0f945581b542494b693049573f160fb2a2"
 GENERATOR_ID = "kodi-lab-stable-repository-v1"
 
 
@@ -208,13 +208,24 @@ def inspect_addon_zip(
     )
 
 
-def descriptor_xml(base_url: str) -> bytes:
+def repository_version(value: str) -> tuple[int, int, int]:
+    """Numeric repository versions have the same ordering in Kodi and Lab."""
+    if not re.fullmatch(r"(?:0|[1-9][0-9]{0,8})(?:\.(?:0|[1-9][0-9]{0,8})){2}", value):
+        raise ValueError("repository version must be major.minor.patch")
+    parts = tuple(int(item) for item in value.split("."))
+    if parts < (1, 0, 0):
+        raise ValueError("repository version predates the initial installer")
+    return parts[0], parts[1], parts[2]
+
+
+def descriptor_xml(base_url: str, version: str = REPOSITORY_VERSION) -> bytes:
+    repository_version(version)
     addon = ET.Element(
         "addon",
         {
             "id": REPOSITORY_ID,
             "name": "Kodi Lab",
-            "version": REPOSITORY_VERSION,
+            "version": version,
             "provider-name": "Kodi Lab",
         },
     )
@@ -244,12 +255,12 @@ def descriptor_xml(base_url: str) -> bytes:
     return bytes(ET.tostring(addon, encoding="utf-8", xml_declaration=True)) + b"\n"
 
 
-def bootstrap_zip(base_url: str) -> bytes:
+def bootstrap_zip(base_url: str, version: str = REPOSITORY_VERSION) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         for name, content, directory in (
             (f"{REPOSITORY_ID}/", b"", True),
-            (f"{REPOSITORY_ID}/addon.xml", descriptor_xml(base_url), False),
+            (f"{REPOSITORY_ID}/addon.xml", descriptor_xml(base_url, version), False),
         ):
             info = zipfile.ZipInfo(name, ZIP_DATE)
             info.create_system = 3
@@ -462,6 +473,8 @@ def generate(
     activate: bool = True,
     reviewed_bridge: ReviewedBridge = CURRENT_BRIDGE,
     previous_bridge: ReviewedBridge = CURRENT_BRIDGE,
+    version: str | None = None,
+    expected_previous_base_url: str | None = None,
 ) -> dict[str, object]:
     """Publish a complete stable generation after validating exact candidate inputs."""
     parsed = urlsplit(base_url)
@@ -476,10 +489,31 @@ def generate(
         or not parsed.port
     ):
         raise ValueError("repository base URL is invalid")
+    prior = None
+    if (data_root / "CURRENT").exists():
+        _, prior = load_current(data_root, reviewed_bridge=previous_bridge)
+    selected_version = version or (
+        str(prior["repository_version"]) if prior is not None else REPOSITORY_VERSION
+    )
+    repository_version(selected_version)
+    if prior is not None and repository_version(selected_version) < repository_version(
+        str(prior["repository_version"])
+    ):
+        raise ValueError("repository versions cannot decrease")
+    if expected_previous_base_url is not None and (
+        prior is None
+        or prior["base_url"] != expected_previous_base_url
+        or base_url == expected_previous_base_url
+        or repository_version(selected_version)
+        <= repository_version(str(prior["repository_version"]))
+    ):
+        raise ValueError(
+            "origin migration needs the exact old origin and a newer version"
+        )
     bridge_bytes, bundle_manifest, _ = _read_reviewed_bridge(bundle, reviewed_bridge)
     bridge = inspect_addon_zip(bridge_bytes, BRIDGE_ID, reviewed_bridge.version)
     repository = inspect_addon_zip(
-        bootstrap_zip(base_url), REPOSITORY_ID, REPOSITORY_VERSION
+        bootstrap_zip(base_url, selected_version), REPOSITORY_ID, selected_version
     )
     packages = sorted((bridge, repository), key=lambda item: item.addon_id)
     index = ET.Element("addons")
@@ -518,7 +552,7 @@ def generate(
         "generator": GENERATOR_ID,
         "base_url": base_url,
         "repository_id": REPOSITORY_ID,
-        "repository_version": REPOSITORY_VERSION,
+        "repository_version": selected_version,
         "bootstrap_zip_sha256": repository.sha256,
         "addons_xml_sha256": index_hash,
         "tree_sha256": feed_tree,
@@ -528,7 +562,9 @@ def generate(
     pointer = data_root / "CURRENT"
     if pointer.exists():
         _, prior = load_current(data_root, reviewed_bridge=previous_bridge)
-        if prior.get("base_url") != base_url or prior.get("bundle_sha256") != (
+        if prior.get("base_url") != (
+            expected_previous_base_url or base_url
+        ) or prior.get("bundle_sha256") != (
             expected_previous_bundle_sha256 or provenance["bundle_sha256"]
         ):
             raise ValueError(
@@ -554,7 +590,7 @@ def generate(
             or (final / "stable/addons.xml.sha256").read_bytes()
             != (index_hash + "\n").encode()
             or (
-                final / "install" / f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip"
+                final / "install" / f"{REPOSITORY_ID}-{selected_version}.zip"
             ).read_bytes()
             != repository.bytes
         ):
@@ -568,7 +604,7 @@ def generate(
             install.mkdir()
             stable.mkdir()
             _write_exact(
-                install / f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip", repository.bytes
+                install / f"{REPOSITORY_ID}-{selected_version}.zip", repository.bytes
             )
             _write_exact(stable / "addons.xml", index_bytes)
             _write_exact(stable / "addons.xml.sha256", (index_hash + "\n").encode())
@@ -653,7 +689,7 @@ def load_generation(
         or provenance.get("tree_sha256") != pointer
         or provenance.get("generator") != GENERATOR_ID
         or provenance.get("repository_id") != REPOSITORY_ID
-        or provenance.get("repository_version") != REPOSITORY_VERSION
+        or not isinstance(provenance.get("repository_version"), str)
         or not isinstance(provenance.get("base_url"), str)
         or not isinstance(provenance.get("bundle_sha256"), str)
         or (
@@ -666,6 +702,8 @@ def load_generation(
         )
     ):
         raise ValueError("repository provenance is invalid")
+    selected_version = provenance["repository_version"]
+    repository_version(selected_version)
     records = provenance.get("packages")
     if not isinstance(records, list) or len(records) != 2:
         raise ValueError("repository package inventory differs")
@@ -673,7 +711,7 @@ def load_generation(
     for record, expected_id, expected_version in zip(
         records,
         (REPOSITORY_ID, BRIDGE_ID),
-        (REPOSITORY_VERSION, reviewed_bridge.version),
+        (selected_version, reviewed_bridge.version),
         strict=True,
     ):
         if (
@@ -713,7 +751,7 @@ def load_generation(
         packages.append(package)
     if packages[1].sha256 != reviewed_bridge.sha256 or packages[
         0
-    ].bytes != bootstrap_zip(provenance["base_url"]):
+    ].bytes != bootstrap_zip(provenance["base_url"], selected_version):
         raise ValueError("repository reviewed package identity differs")
     index = ET.Element("addons")
     for package in packages:
@@ -741,7 +779,7 @@ def load_generation(
     for relative, expected in (
         ("stable/addons.xml", provenance["addons_xml_sha256"]),
         (
-            f"install/{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip",
+            f"install/{REPOSITORY_ID}-{selected_version}.zip",
             provenance["bootstrap_zip_sha256"],
         ),
     ):
@@ -751,7 +789,7 @@ def load_generation(
         raise ValueError("repository index content differs")
     if (
         provenance.get("bootstrap_zip_sha256") != packages[0].sha256
-        or (root / "install" / f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip").read_bytes()
+        or (root / "install" / f"{REPOSITORY_ID}-{selected_version}.zip").read_bytes()
         != packages[0].bytes
     ):
         raise ValueError("repository bootstrap bytes differ")

@@ -38,6 +38,7 @@ from kodi_lab.broker.docker_inventory import (
     ManagedInstanceSnapshotApplyProvider,
     ManagedInstanceSnapshotCaptureProvider,
     ManagedKodiRuntimeObservationProvider,
+    StartManagedContainerRecord,
 )
 from kodi_lab.broker.errors import (
     AmbiguousManagedContainerError,
@@ -99,6 +100,10 @@ from kodi_lab.broker.kodi_logs import (
 from kodi_lab.broker.managed_bridge_trust import (
     DockerManagedBridgeTrustProvider,
     SqliteManagedBridgeTrustResolver,
+)
+from kodi_lab.broker.managed_capacity import (
+    ManagedCapacityAdmission,
+    ManagedCapacityError,
 )
 from kodi_lab.broker.protocol import (
     PROTOCOL_VERSION,
@@ -1458,12 +1463,18 @@ def build_foundation_registry(
     reconstruction_provider: DockerManagedContainerAdapter | None = None,
     managed_bridge_resolver: SqliteManagedBridgeTrustResolver | None = None,
     managed_bridge_provider: DockerManagedBridgeTrustProvider | None = None,
+    capacity_admission: ManagedCapacityAdmission | None = None,
 ) -> OperationRegistry:
     """Build the exact Phase 2 operation registry."""
 
     registry = OperationRegistry()
     reviewed_worker = reviewed_installation_worker or DockerReviewedInstallationWorker()
     provider = container_provider or DockerManagedContainerAdapter()
+    capacity = capacity_admission
+    if capacity is None and container_provider is None:
+        capacity = ManagedCapacityAdmission.production(
+            lambda: provider.list_managed_containers()
+        )
     resolver = provisioning_resolver or SqliteProvisioningResolver.production()
     provisioner = provisioning_provider or cast(
         ManagedContainerProvisioningProvider, provider
@@ -2147,12 +2158,40 @@ def build_foundation_registry(
             pinned_revision_id = pin_resolver.resolve_runtime_revision_id(
                 params.managed_instance_id
             )
-            outcome = provider.start_managed_container(
-                managed_instance_id=params.managed_instance_id,
-                expected_container_id=params.expected_container_id,
-                expected_runtime_state=params.expected_runtime_state,
-                expected_runtime_revision_id=pinned_revision_id,
+
+            def dispatch_start() -> StartManagedContainerRecord:
+                return provider.start_managed_container(
+                    managed_instance_id=params.managed_instance_id,
+                    expected_container_id=params.expected_container_id,
+                    expected_runtime_state=params.expected_runtime_state,
+                    expected_runtime_revision_id=pinned_revision_id,
+                )
+
+            outcome = (
+                dispatch_start()
+                if capacity is None
+                else capacity.run_start(
+                    instance_id=params.managed_instance_id,
+                    container_id=params.expected_container_id,
+                    revision_id=pinned_revision_id,
+                    dispatch=dispatch_start,
+                )
             )
+        except ManagedCapacityError as error:
+            raise OperationError(
+                error.code,
+                f"Managed capacity is full ({error.used}/{error.limit}). "
+                "Release an eligible idle instance or ask the administrator "
+                "to review the running limit."
+                if error.code == "managed_capacity_full"
+                else "Managed start capacity requires identity or operation "
+                "reconciliation.",
+                audit_fields={
+                    **audit_fields,
+                    "capacity_used": error.used,
+                    "capacity_limit": error.limit,
+                },
+            ) from error
         except ProvisioningStateError as error:
             raise OperationError(
                 "managed_instance_state_unavailable",
@@ -2346,8 +2385,15 @@ def build_foundation_registry(
         if (
             outcome.managed_instance_id != params.managed_instance_id
             or outcome.container_id != params.expected_container_id
+            or outcome.runtime_state is not ContainerRuntimeState.STOPPED
         ):
             raise RuntimeError("Docker adapter returned inconsistent stop identity")
+        if capacity is not None:
+            capacity.confirmed_stop(
+                instance_id=params.managed_instance_id,
+                container_id=params.expected_container_id,
+                revision_id=pinned_revision_id,
+            )
 
         return StopManagedContainerResult(
             managed_instance_id=outcome.managed_instance_id,
@@ -2469,6 +2515,14 @@ def build_foundation_registry(
         ):
             raise RuntimeError(
                 "Docker adapter returned inconsistent deprovision identity"
+            )
+        if capacity is not None and (
+            deprovisioning_provider is None or capacity_admission is not None
+        ):
+            capacity.confirmed_stop(
+                instance_id=params.managed_instance_id,
+                container_id=params.expected_container_id,
+                revision_id=pinned_revision_id,
             )
         return DeprovisionManagedContainerResult(
             managed_instance_id=outcome.managed_instance_id,
@@ -2603,6 +2657,14 @@ def build_foundation_registry(
             raise OperationError(
                 "reconstruction_result_mismatch",
                 "Container removal result did not match the authorized identity.",
+            )
+        if capacity is not None and (
+            reconstruction_provider is None or capacity_admission is not None
+        ):
+            capacity.confirmed_stop(
+                instance_id=params.managed_instance_id,
+                container_id=params.old_container_id,
+                revision_id=params.old_runtime_revision_id,
             )
         return RemoveMismatchedManagedContainerResult(
             managed_instance_id=outcome.managed_instance_id,

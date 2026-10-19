@@ -28,6 +28,11 @@ from kodi_lab.application.agent_workspaces import (
     AgentWorkspaceService,
 )
 from kodi_lab.application.errors import ManagedInstanceNotFoundError
+from kodi_lab.application.managed_agent_lifecycle import (
+    ManagedAgentLifecycleError,
+    ManagedAgentLifecycleResult,
+    ManagedAgentLifecycleService,
+)
 from kodi_lab.application.mcp_administration import McpPrincipal
 from kodi_lab.application.mcp_promotion_requests import (
     McpPromotionRequestError,
@@ -74,6 +79,10 @@ from kodi_lab.application.production_transient_approvals import (
     ProductionTransientApprovalService,
     ProductionTransientResult,
 )
+from kodi_lab.application.remote_observations import (
+    CaptureReuseError,
+    RemoteObservationService,
+)
 from kodi_lab.application.runtime_status import (
     ManagedRuntimeStatus,
     ManagedRuntimeStatusService,
@@ -86,11 +95,25 @@ from kodi_lab.application.workspace_execution_recovery import (
     WorkspaceExecutionRecoveryError,
     WorkspaceExecutionRecoveryResult,
 )
+from kodi_lab.application.workspace_imports import (
+    ImportApplyInput,
+    ImportInput,
+    ImportPreview,
+    ImportResult,
+    WorkspaceImportError,
+    WorkspaceImportService,
+)
+from kodi_lab.application.workspace_launch import (
+    WorkspaceLaunchError,
+    WorkspaceLaunchResult,
+    WorkspaceLaunchService,
+)
 from kodi_lab.application.workspace_source_captures import (
     WorkspaceSourceCaptureError,
     WorkspaceSourceCaptureService,
 )
 from kodi_lab.development.deployment import DevelopmentTreeError
+from kodi_lab.development.launch import ManifestLaunchEntry
 from kodi_lab.development.sources import (
     CopiedSmokeUnsupportedReason,
     DevelopmentSourceValidationError,
@@ -101,6 +124,7 @@ from kodi_lab.domain import (
     AgentWorkspaceState,
     TargetType,
 )
+from kodi_lab.kodi.bridge import ExternalBridgeError
 from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.kodi.screenshots import MAX_PNG_BYTES, PNG_MIME_TYPE, PNG_SIGNATURE
@@ -217,6 +241,12 @@ class ScreenshotCaptureMetadata(BaseModel):
     height: int = Field(ge=1, le=2160)
     mime_type: str = Field(max_length=16)
     byte_size: int = Field(ge=1, le=MAX_PNG_BYTES)
+
+
+class ScreenshotRetrievalMetadata(ScreenshotCaptureMetadata):
+    request_id: UUID
+    age_seconds: int = Field(ge=0, le=120)
+    runtime_state_revision: int = Field(ge=0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,6 +386,12 @@ class WorkspaceSummary(BaseModel):
     latest_execution_state: str | None = None
     latest_execution_generation: int | None = Field(default=None, ge=0)
     latest_execution_target_id: UUID | None = None
+    latest_launch_id: UUID | None = None
+    latest_launch_request_id: UUID | None = None
+    latest_launch_state: str | None = None
+    latest_launch_generation: int | None = None
+    latest_launch_target_id: UUID | None = None
+    latest_launch_extension_ordinal: int | None = None
     latest_promotion_plan_id: UUID | None = None
     latest_promotion_review_state: str | None = None
     latest_promotion_operation_id: UUID | None = None
@@ -565,6 +601,11 @@ class WorkspaceTargetOperationInput(BaseModel):
     target_id: UUID
 
 
+class WorkspaceLaunchInput(WorkspaceTargetOperationInput):
+    extension_ordinal: int = Field(ge=0, le=63, strict=True)
+    expected_generation: int = Field(ge=0, strict=True)
+
+
 class WorkspaceExecuteInput(WorkspaceTargetOperationInput):
     """Select only one of the server-owned execution intents."""
 
@@ -626,6 +667,7 @@ class WorkspaceValidateResult(BaseModel):
     addon_id: str = Field(max_length=128)
     addon_version: str = Field(max_length=128)
     extension_types: tuple[str, ...] = Field(max_length=64)
+    launch_entries: tuple[ManifestLaunchEntry, ...] = Field(default=(), max_length=64)
     fixed_smoke_eligible: bool | None = Field(
         default=None,
         description=(
@@ -651,6 +693,19 @@ class WorkspaceValidateResult(BaseModel):
     truncated: StrictBool
 
 
+class ManagedEnsureReadyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    request_id: UUID = Field(strict=False)
+    target_id: UUID = Field(strict=False)
+    hold_minutes: int = Field(default=15, ge=0, le=240)
+
+
+class ManagedReleaseInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    request_id: UUID = Field(strict=False)
+    target_id: UUID = Field(strict=False)
+
+
 class McpTargetToolService:
     def __init__(
         self,
@@ -671,12 +726,17 @@ class McpTargetToolService:
             ProductionTransientApprovalService | None
         ) = None,
         workspace_source_captures: WorkspaceSourceCaptureService | None = None,
+        managed_lifecycle: ManagedAgentLifecycleService | None = None,
+        workspace_launch: WorkspaceLaunchService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._authorization = authorization
         self._status = status
         self._addon_inventory = addon_inventory
         self._screenshots = screenshots
+        self._remote_observations = RemoteObservationService(
+            session_factory, screenshots
+        )
         self._remote_actions = remote_actions
         self._workspaces = workspaces
         self._workspace_creation = workspace_creation
@@ -687,12 +747,72 @@ class McpTargetToolService:
         self._production_screenshots = production_screenshots
         self._production_transient_approvals = production_transient_approvals
         self._workspace_source_captures = workspace_source_captures
+        self._managed_lifecycle = managed_lifecycle
+        self._workspace_launch = workspace_launch
+        self._workspace_imports = (
+            None if workspaces is None else WorkspaceImportService(workspaces)
+        )
         self._active_edit_lock = threading.Lock()
         self._active_edits: set[UUID] = set()
         self._validation_lock = threading.Lock()
         self._validation_slots = threading.BoundedSemaphore(2)
         self._active_validation_clients: set[UUID] = set()
         self._active_validation_workspaces: set[UUID] = set()
+
+    def managed_ensure_ready(
+        self,
+        principal: McpPrincipal,
+        operation: ManagedEnsureReadyInput,
+    ) -> ManagedAgentLifecycleResult:
+        self._authorization.authorize_target(
+            principal, "managed_ensure_ready", operation.target_id
+        )
+        if self._managed_lifecycle is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._managed_lifecycle.ensure_ready(
+                client_id=principal.client_id,
+                request_id=operation.request_id,
+                target_id=operation.target_id,
+                hold_minutes=operation.hold_minutes,
+                authorize=lambda session: self._authorization.recheck_managed_lifecycle(
+                    session,
+                    principal,
+                    "managed_ensure_ready",
+                    operation.target_id,
+                ),
+            )
+        except ManagedAgentLifecycleError as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_bounded(result)
+        return result
+
+    def managed_release(
+        self,
+        principal: McpPrincipal,
+        operation: ManagedReleaseInput,
+    ) -> ManagedAgentLifecycleResult:
+        self._authorization.authorize_target(
+            principal, "managed_release", operation.target_id
+        )
+        if self._managed_lifecycle is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._managed_lifecycle.release(
+                client_id=principal.client_id,
+                request_id=operation.request_id,
+                target_id=operation.target_id,
+                authorize=lambda session: self._authorization.recheck_managed_lifecycle(
+                    session,
+                    principal,
+                    "managed_release",
+                    operation.target_id,
+                ),
+            )
+        except ManagedAgentLifecycleError as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_bounded(result)
+        return result
 
     def workspace_create(
         self,
@@ -849,6 +969,70 @@ class McpTargetToolService:
         self._require_development_bounded(result)
         return result
 
+    def workspace_import_preview(
+        self,
+        principal: McpPrincipal,
+        operation: ImportInput,
+    ) -> ImportPreview:
+        def authorize() -> object:
+            return self._authorization.authorize_workspace(
+                principal,
+                "workspace_import_preview",
+                operation.workspace_id,
+            )
+
+        authorize()
+        if self._workspace_imports is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._workspace_imports.preview(operation, authorize=authorize)
+        except McpAuthorizationError:
+            raise
+        except Exception as error:
+            raise McpAuthorizationError(
+                "workspace_import_rejected",
+                reason=(
+                    str(error)
+                    if isinstance(error, WorkspaceImportError)
+                    else _source_capture_reason(error)
+                ),
+            ) from error
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_import(
+        self,
+        principal: McpPrincipal,
+        operation: ImportApplyInput,
+    ) -> ImportResult:
+        def authorize() -> object:
+            return self._authorization.authorize_workspace(
+                principal,
+                "workspace_import",
+                operation.workspace_id,
+            )
+
+        authorize()
+        if self._workspace_imports is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._workspace_imports.apply(
+                principal.client_id, operation, authorize=authorize
+            )
+        except McpAuthorizationError:
+            raise
+        except WorkspaceImportError as error:
+            raise McpAuthorizationError(
+                "workspace_import_rejected", reason=str(error)
+            ) from error
+        except Exception as error:
+            raise McpAuthorizationError(
+                "workspace_import_rejected",
+                reason=_source_capture_reason(error),
+            ) from error
+        self._require_development_bounded(result)
+        return result
+
     def workspace_capture(
         self, principal: McpPrincipal, operation: WorkspaceCaptureToolInput
     ) -> WorkspaceCaptureToolResult:
@@ -941,6 +1125,7 @@ class McpTargetToolService:
             addon_id=observed.addon_id,
             addon_version=observed.addon_version,
             extension_types=observed.extension_types,
+            launch_entries=observed.launch_entries,
             fixed_smoke_eligible=observed.fixed_smoke_eligible,
             fixed_smoke_unsupported_reason=observed.fixed_smoke_unsupported_reason,
             identity_classification=(
@@ -991,6 +1176,35 @@ class McpTargetToolService:
                 deployment_mode=operation.deployment_mode,
             )
         except McpWorkspaceDevelopmentError as error:
+            raise McpAuthorizationError(error.code) from error
+        self._require_development_bounded(result)
+        return result
+
+    def workspace_launch(
+        self, principal: McpPrincipal, operation: WorkspaceLaunchInput
+    ) -> WorkspaceLaunchResult:
+        self._authorization.authorize_workspace_target(
+            principal, "workspace_launch", operation.workspace_id, operation.target_id
+        )
+        if self._workspace_launch is None:
+            raise McpAuthorizationError("capability_unavailable")
+        try:
+            result = self._workspace_launch.launch(
+                client_id=principal.client_id,
+                request_id=operation.request_id,
+                workspace_id=operation.workspace_id,
+                expected_generation=operation.expected_generation,
+                target_id=operation.target_id,
+                extension_ordinal=operation.extension_ordinal,
+                authorize=lambda session: self._authorization.recheck_workspace_launch(
+                    session, principal, operation.workspace_id, operation.target_id
+                ),
+            )
+        except (
+            WorkspaceLaunchError,
+            ExternalBridgeError,
+            McpWorkspaceDevelopmentError,
+        ) as error:
             raise McpAuthorizationError(error.code) from error
         self._require_development_bounded(result)
         return result
@@ -1244,9 +1458,14 @@ class McpTargetToolService:
         target_id: UUID,
         request_id: UUID,
         action: BrowserRemoteAction,
+        observe_ui: bool = False,
     ) -> McpRemoteActionResult | ProductionTransientResult:
         if self._remote_actions is None:
             raise McpAuthorizationError("capability_unavailable")
+        if observe_ui:
+            with self._session_factory() as session:
+                if session.get(ManagedInstanceRow, str(target_id)) is None:
+                    raise McpAuthorizationError("capability_unavailable")
 
         if self._authorization.is_production_target(target_id):
             action_class = classify_production_action(action)
@@ -1288,6 +1507,13 @@ class McpTargetToolService:
             return result
 
         self._authorization.authorize_target(principal, "remote_action", target_id)
+        prepared = (
+            self._remote_observations.prepare(
+                principal.client_id, target_id, request_id
+            )
+            if observe_ui
+            else None
+        )
 
         def reauthorize() -> None:
             self._authorization.authorize_target(principal, "remote_action", target_id)
@@ -1303,8 +1529,71 @@ class McpTargetToolService:
             )
         except McpRemoteActionReceiptError as error:
             raise McpAuthorizationError(error.code) from error
+        if prepared is not None:
+            new_action, before = prepared
+            observation = self._remote_observations.complete(
+                result,
+                new_action=new_action,
+                before=before,
+                inspect=lambda: self.inspect_ui_state(principal, target_id=target_id),
+                authorize_inspect=lambda: self._authorization.authorize_target(
+                    principal, "inspect_ui_state", target_id
+                ),
+            )
+            result = result.model_copy(update={"post_action_observation": observation})
         self._require_bounded(result)
         return result
+
+    def screenshot_retrieve(
+        self,
+        principal: McpPrincipal,
+        *,
+        target_id: UUID,
+        request_id: UUID,
+        capture_id: UUID,
+    ) -> ScreenshotToolResult:
+        def authorize() -> object:
+            return self._authorization.authorize_target(
+                principal, "screenshot_retrieve", target_id
+            )
+
+        authorize()
+        try:
+            status, png, age, generation = self._remote_observations.retrieve(
+                principal.client_id, target_id, request_id, capture_id
+            )
+        except CaptureReuseError as error:
+            raise McpAuthorizationError(
+                "screenshot_capture_unavailable", reason=str(error)
+            ) from error
+        except ScreenshotServiceError as error:
+            raise McpAuthorizationError(
+                "screenshot_capture_unavailable", reason=error.code
+            ) from error
+        except Exception as error:
+            raise McpAuthorizationError("screenshot_capture_unavailable") from error
+        authorize()
+        if (
+            status.captured_at is None
+            or status.width is None
+            or status.height is None
+            or status.byte_size != len(png)
+        ):
+            raise McpAuthorizationError("screenshot_capture_unavailable")
+        metadata = ScreenshotRetrievalMetadata(
+            target_id=target_id,
+            request_id=request_id,
+            capture_id=capture_id,
+            captured_at=status.captured_at,
+            width=status.width,
+            height=status.height,
+            mime_type=PNG_MIME_TYPE,
+            byte_size=len(png),
+            age_seconds=age,
+            runtime_state_revision=generation,
+        )
+        self._require_bounded(metadata)
+        return ScreenshotToolResult(metadata=metadata, png=png)
 
     def read_log(
         self, principal: McpPrincipal, *, target_id: UUID, request: KodiLogRequest
@@ -1816,6 +2105,22 @@ class McpTargetToolService:
             latest_execution_target_id=(
                 None if development is None else development.execution_target_id
             ),
+            latest_launch_id=None if development is None else development.launch_id,
+            latest_launch_request_id=None
+            if development is None
+            else development.launch_request_id,
+            latest_launch_state=None
+            if development is None
+            else development.launch_state,
+            latest_launch_generation=None
+            if development is None
+            else development.launch_generation,
+            latest_launch_target_id=None
+            if development is None
+            else development.launch_target_id,
+            latest_launch_extension_ordinal=None
+            if development is None
+            else development.launch_extension_ordinal,
             latest_promotion_plan_id=(None if promotion is None else promotion.plan_id),
             latest_promotion_review_state=(
                 None if promotion is None else promotion.review_state

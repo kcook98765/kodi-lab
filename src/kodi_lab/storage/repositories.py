@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import ClassVar
 from uuid import UUID
@@ -127,6 +127,10 @@ from kodi_lab.domain import (
     Target,
     TargetAvailability,
     TargetType,
+)
+from kodi_lab.storage.managed_activity import (
+    enroll_new_instance,
+    record_operation_activity,
 )
 from kodi_lab.storage.models import (
     AddonRepositoryAttachmentOperationRow,
@@ -4305,6 +4309,8 @@ class ManagedInstanceRepository:
             )
         )
         self._session.flush()
+        enroll_new_instance(self._session, instance.target_id, now=datetime.now(UTC))
+        self._session.flush()
 
     def get(self, target_id: UUID) -> ManagedInstance | None:
         row = self._session.get(ManagedInstanceRow, str(target_id))
@@ -6667,6 +6673,14 @@ class ManagedInstanceMutationLeaseRepository:
             )
         )
         released = int(getattr(result, "rowcount", 0)) == 1
+        if released and current is not None:
+            record_operation_activity(
+                self._session,
+                instance_id,
+                kind=current.operation_kind,
+                operation_id=operation_id,
+                now=datetime.now(UTC),
+            )
         if (
             released
             and current is not None
@@ -6684,6 +6698,14 @@ class ManagedInstanceMutationLeaseRepository:
             )
         )
         released = int(getattr(result, "rowcount", 0)) == 1
+        if released and current is not None:
+            record_operation_activity(
+                self._session,
+                instance_id,
+                kind=current.operation_kind,
+                operation_id=operation_id,
+                now=datetime.now(UTC),
+            )
         if (
             released
             and current is not None

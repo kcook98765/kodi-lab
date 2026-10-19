@@ -94,9 +94,10 @@ def _repository_root() -> Path | None:
 
 
 def _repository_identity(repository_root: Path) -> dict[str, str]:
-    if (repository_root / "TRANSITION.json").exists() or (
-        repository_root / "TRANSITION.json"
-    ).is_symlink():
+    if any(
+        (repository_root / name).exists() or (repository_root / name).is_symlink()
+        for name in ("TRANSITION.json", "ORIGIN-MIGRATION.json")
+    ):
         raise HostBootstrapError("repository candidate transition is incomplete")
     try:
         _, stable = load_stable_current(
@@ -508,13 +509,16 @@ def verify_candidate_transition_completion(
     if backup_metadata["revision"] != old_revision:
         raise HostBootstrapError("candidate transition backup revision differs")
     try:
+        backup_repository_identity = backup_metadata.get("repository_identity")
+        if not isinstance(backup_repository_identity, dict):
+            raise ValueError("old candidate backup has no repository identity")
         old_development = load_development_current(
             root
             / "backups"
             / str(receipt["backup_id"])
             / REPOSITORY_BACKUP_ROOT
             / "development-data",
-            expected_base_url=os.getenv("KODI_LAB_REPOSITORY_BASE_URL"),
+            expected_base_url=str(backup_repository_identity["base_url"]),
         )[1]
         if old_development["bundle_sha256"] != receipt["old_bundle_sha256"]:
             raise ValueError("old candidate differs")
@@ -525,8 +529,13 @@ def verify_candidate_transition_completion(
     repository_root = _repository_root()
     if repository_root is None:
         raise HostBootstrapError("candidate transition repository is unavailable")
-    if (repository_root / "TRANSITION.json").exists():
-        raise HostBootstrapError("repository candidate transition is incomplete")
+    if any(
+        (repository_root / name).exists() or (repository_root / name).is_symlink()
+        for name in ("TRANSITION.json", "ORIGIN-MIGRATION.json")
+    ):
+        raise HostBootstrapError(
+            "repository transition or origin migration is incomplete"
+        )
     try:
         load_stable_current(
             repository_root,

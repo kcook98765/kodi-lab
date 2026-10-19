@@ -102,6 +102,7 @@ class FakeBroker:
     screenshot_calls: int = 0
     remote_calls: list[BrowserRemoteAction] = field(default_factory=list)
     remote_error: BaseException | None = None
+    playback_active: bool | None = False
 
     def managed_container_inventory(
         self, *, managed_instance_id: str | None = None
@@ -404,6 +405,11 @@ class FakeRemoteAdapter:
         self._broker.remote_calls.append(action)
         if self._broker.remote_error is not None:
             raise self._broker.remote_error
+
+    def playback_active(self) -> bool:
+        if self._broker.playback_active is None:
+            raise RuntimeError("fixture playback evidence unavailable")
+        return self._broker.playback_active
 
 
 class ImmediateCoordinator:
@@ -776,6 +782,9 @@ def client(
             lambda _observation, _profile: FakeAddonInventoryAdapter(broker)
         ),
         browser_remote_adapter_factory=(
+            lambda _observation, _profile: FakeRemoteAdapter(broker)
+        ),
+        managed_playback_factory=(
             lambda _observation, _profile: FakeRemoteAdapter(broker)
         ),
         browser_remote_rate_limiter=BrowserRemoteRateLimiter(clock=lambda: 100.0),

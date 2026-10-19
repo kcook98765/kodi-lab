@@ -169,7 +169,7 @@ def test_revision_template_clones_are_private_and_pristine(
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("0072_kodi_log_capability",)
+        ).fetchone() == ("0077_workspace_launch",)
 
 
 def test_workspace_execution_recovery_migration_retains_historical_ineligibility(
@@ -421,6 +421,15 @@ def test_empty_database_upgrades_to_runtime_catalog_head(
         "addon_zip_smoke_test_operations",
         "agent_workspace_creation_operations",
         "agent_workspace_capture_operations",
+        "workspace_import_operations",
+        "mcp_remote_observations",
+        "external_reconnect_operations",
+        "mcp_workspace_launches",
+        "managed_resource_policy",
+        "managed_idle_states",
+        "managed_instance_uses",
+        "managed_start_reservations",
+        "managed_agent_lifecycle_requests",
         "agent_workspace_cleanup_operations",
         "agent_workspace_lifecycle_events",
         "agent_workspace_mutation_events",

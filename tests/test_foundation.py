@@ -190,6 +190,15 @@ def test_development_root_rejects_unsafe_configuration(
 
 def test_migration_metadata_contains_core_storage_tables() -> None:
     assert set(metadata.tables) == {
+        "workspace_import_operations",
+        "mcp_remote_observations",
+        "external_reconnect_operations",
+        "mcp_workspace_launches",
+        "managed_resource_policy",
+        "managed_idle_states",
+        "managed_instance_uses",
+        "managed_start_reservations",
+        "managed_agent_lifecycle_requests",
         "external_screenshot_preferences",
         "managed_bridge_trust",
         "household_onboarding_operations",

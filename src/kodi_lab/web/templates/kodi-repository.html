@@ -14,12 +14,12 @@
       {% if provenance %}
       <p>Stable repository: <strong>{{ 'Serving' if healthy else 'Configured; service unavailable' }}</strong></p>
       <p>LAN install source: <code>{{ base_url }}/install/</code></p>
-      <p>Bootstrap ZIP: <a href="{{ base_url }}/install/repository.kodi-lab-1.0.0.zip">repository.kodi-lab-1.0.0.zip</a></p>
+      <p>Bootstrap ZIP: <a href="{{ base_url }}/install/repository.kodi-lab-{{ provenance.repository_version }}.zip">repository.kodi-lab-{{ provenance.repository_version }}.zip</a></p>
       <p>Bootstrap SHA-256: <code>{{ provenance.bootstrap_zip_sha256 }}</code></p>
       <h2>Install on Kodi</h2>
       <ol>
         <li>In Kodi File Manager, add <code>{{ base_url }}/install/</code> as a source.</li>
-        <li>Choose Add-ons, Install from zip file, then select <code>repository.kodi-lab-1.0.0.zip</code>.</li>
+        <li>Choose Add-ons, Install from zip file, then select <code>repository.kodi-lab-{{ provenance.repository_version }}.zip</code>.</li>
         <li>Choose Install from repository, Kodi Lab, then Kodi Lab Narrow Bridge.</li>
       </ol>
       <h2>Reviewed stable packages</h2>
@@ -28,7 +28,7 @@
       <h2>Development · optional</h2>
       {% if development_provenance %}
       <p>Install only on a development or test Kodi. This feed contains operator-approved add-ons and is not a production deployment channel.</p>
-      <p>Bootstrap ZIP: <a href="{{ base_url }}/install/repository.kodi-lab-dev-1.0.0.zip">repository.kodi-lab-dev-1.0.0.zip</a></p>
+      <p>Bootstrap ZIP: <a href="{{ base_url }}/install/repository.kodi-lab-dev-{{ development_provenance.repository_version }}.zip">repository.kodi-lab-dev-{{ development_provenance.repository_version }}.zip</a></p>
       <p>Bootstrap SHA-256: <code>{{ development_provenance.bootstrap_zip_sha256 }}</code></p>
       <p>Feed: <code>{{ base_url }}/development/addons.xml</code> · index SHA-256 <code>{{ development_provenance.addons_xml_sha256 }}</code></p>
       <p>Storage: {{ storage_usage[0] }} / {{ development_max_artifacts }} stored artifacts; {{ storage_usage[1] }} / {{ development_max_bytes }} bytes.</p>

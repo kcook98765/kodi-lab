@@ -55,6 +55,7 @@ from kodi_lab.domain import (
 )
 from kodi_lab.storage.models import (
     ExternalKodiTargetRow,
+    ExternalReconnectOperationRow,
     HouseholdOnboardingRow,
     McpTargetPresetAssignmentRow,
     TargetRow,
@@ -124,6 +125,10 @@ class HouseholdOnboardingResult(BaseModel):
 
 
 _MESSAGES = {
+    "reconnect_operation_exists": (
+        "This Kodi now uses guided Reconnect. Open its connection settings to "
+        "resume the newer operation; the original Add Kodi receipt is retained."
+    ),
     "invalid_name": "Enter a friendly name of at most 120 characters.",
     "invalid_address": "Enter a private Kodi IP address allowed by Kodi Lab.",
     "invalid_port": "Select Kodi and Bridge ports allowed by Kodi Lab.",
@@ -444,6 +449,17 @@ class HouseholdKodiOnboardingService:
             return self._result(
                 operation_id, "requires_action", row.error_code or "abandoned", row
             )
+        if row.stage == "connected":
+            with self._sessions() as session:
+                reconnected = session.scalar(
+                    select(ExternalReconnectOperationRow.id)
+                    .where(ExternalReconnectOperationRow.target_id == row.target_id)
+                    .limit(1)
+                )
+            if reconnected is not None:
+                return self._result(
+                    operation_id, "requires_action", "reconnect_operation_exists", row
+                )
         target_id = UUID(row.target_id)
         bootstrap_attempt = False
         try:

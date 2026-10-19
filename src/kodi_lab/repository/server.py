@@ -16,11 +16,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from kodi_lab.host_bootstrap import HostBootstrapError
-from kodi_lab.repository.development import (
-    VERSION as DEVELOPMENT_VERSION,
-)
 from kodi_lab.repository.development import (
     initialize as initialize_development,
 )
@@ -32,7 +30,6 @@ from kodi_lab.repository.stable import (
     BRIDGE_ID,
     BRIDGE_VERSION,
     REPOSITORY_ID,
-    REPOSITORY_VERSION,
     generate,
     load_current,
     sha256,
@@ -165,9 +162,10 @@ class RepositoryHandler(BaseHTTPRequestHandler):
     do_PUT = do_PATCH = do_DELETE = do_POST
 
     def _serve(self, *, send_body: bool) -> None:
-        if (self.root / "TRANSITION.json").exists() or (
-            self.root / "TRANSITION.json"
-        ).is_symlink():
+        if any(
+            (self.root / name).exists() or (self.root / name).is_symlink()
+            for name in ("TRANSITION.json", "ORIGIN-MIGRATION.json")
+        ):
             self.send_error(HTTPStatus.SERVICE_UNAVAILABLE)
             return
         parsed = urlsplit(self.path)
@@ -187,18 +185,22 @@ class RepositoryHandler(BaseHTTPRequestHandler):
                 expected_base_url=self.expected_base_url,
                 expected_bundle_sha256=self.expected_bundle_sha256,
             )
+            repository_version = str(provenance["repository_version"])
             content_type = "application/octet-stream"
             content_sha256: str | None = None
             if path == "/health":
                 content = b"ok\n"
                 content_type = "text/plain; charset=utf-8"
             elif path in {"/install", "/install/"}:
-                name = f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip"
-                dev_name = f"{DEVELOPMENT_REPOSITORY_ID}-{DEVELOPMENT_VERSION}.zip"
+                name = f"{REPOSITORY_ID}-{repository_version}.zip"
                 try:
-                    load_development_current(
+                    _, development = load_development_current(
                         self.root / "development-data",
                         expected_base_url=self.expected_base_url,
+                    )
+                    dev_name = (
+                        f"{DEVELOPMENT_REPOSITORY_ID}-"
+                        f"{development['repository_version']}.zip"
                     )
                     dev_link = (
                         "<li>Kodi Lab Development (optional; "
@@ -220,26 +222,25 @@ class RepositoryHandler(BaseHTTPRequestHandler):
                     + "</ul></body></html>\n"
                 ).encode()
                 content_type = "text/html; charset=utf-8"
-            elif (
-                path.startswith("/development/")
-                or path
-                == f"/install/{DEVELOPMENT_REPOSITORY_ID}-{DEVELOPMENT_VERSION}.zip"
+            elif path.startswith("/development/") or path.startswith(
+                f"/install/{DEVELOPMENT_REPOSITORY_ID}-"
             ):
                 dev_root = self.root / "development-data"
                 dev_generation, dev_provenance = load_development_current(
                     dev_root, expected_base_url=self.expected_base_url
                 )
+                development_version = str(dev_provenance["repository_version"])
                 if path == "/development/health":
                     content = b"ok\n"
                     content_type = "text/plain; charset=utf-8"
                 elif (
                     path
-                    == f"/install/{DEVELOPMENT_REPOSITORY_ID}-{DEVELOPMENT_VERSION}.zip"
+                    == f"/install/{DEVELOPMENT_REPOSITORY_ID}-{development_version}.zip"
                 ):
                     content = (
                         dev_generation
                         / "install"
-                        / f"{DEVELOPMENT_REPOSITORY_ID}-{DEVELOPMENT_VERSION}.zip"
+                        / f"{DEVELOPMENT_REPOSITORY_ID}-{development_version}.zip"
                     ).read_bytes()
                     content_type = "application/zip"
                 elif path == "/development/addons.xml":
@@ -256,40 +257,61 @@ class RepositoryHandler(BaseHTTPRequestHandler):
                         self.send_error(HTTPStatus.NOT_FOUND)
                         return
                     addon_id, name, sidecar = dev_match.groups()
-                    record = next(
-                        (
-                            item
-                            for item in cast(
-                                list[dict[str, str]], dev_provenance["packages"]
-                            )
-                            if item["id"] == addon_id
-                            and name == f"{addon_id}-{item['version']}"
-                        ),
-                        None,
-                    )
-                    if record is None:
-                        self.send_error(HTTPStatus.NOT_FOUND)
-                        return
-                    package = dev_root / "packages" / addon_id / f"{name}.zip"
-                    content = (
-                        package.with_name(package.name + ".sha256")
-                        if sidecar
-                        else package
-                    ).read_bytes()
                     if (
-                        content.decode().strip() if sidecar else sha256(content)
-                    ) != record["sha256"]:
-                        raise ValueError("development package checksum differs")
-                    content_type = (
-                        "text/plain; charset=utf-8" if sidecar else "application/zip"
-                    )
-                    if not sidecar:
-                        content_sha256 = base64.b64encode(
-                            hashlib.sha256(content).digest()
-                        ).decode()
-            elif path == f"/install/{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip":
+                        addon_id == DEVELOPMENT_REPOSITORY_ID
+                        and name == f"{addon_id}-{development_version}"
+                    ):
+                        bootstrap = (
+                            dev_generation / "install" / f"{name}.zip"
+                        ).read_bytes()
+                        digest = str(dev_provenance["bootstrap_zip_sha256"])
+                        content = (digest + "\n").encode() if sidecar else bootstrap
+                        content_type = (
+                            "text/plain; charset=utf-8"
+                            if sidecar
+                            else "application/zip"
+                        )
+                        if not sidecar:
+                            content_sha256 = base64.b64encode(
+                                hashlib.sha256(content).digest()
+                            ).decode()
+                    else:
+                        record = next(
+                            (
+                                item
+                                for item in cast(
+                                    list[dict[str, str]], dev_provenance["packages"]
+                                )
+                                if item["id"] == addon_id
+                                and name == f"{addon_id}-{item['version']}"
+                            ),
+                            None,
+                        )
+                        if record is None:
+                            self.send_error(HTTPStatus.NOT_FOUND)
+                            return
+                        package = dev_root / "packages" / addon_id / f"{name}.zip"
+                        content = (
+                            package.with_name(package.name + ".sha256")
+                            if sidecar
+                            else package
+                        ).read_bytes()
+                        if (
+                            content.decode().strip() if sidecar else sha256(content)
+                        ) != record["sha256"]:
+                            raise ValueError("development package checksum differs")
+                        content_type = (
+                            "text/plain; charset=utf-8"
+                            if sidecar
+                            else "application/zip"
+                        )
+                        if not sidecar:
+                            content_sha256 = base64.b64encode(
+                                hashlib.sha256(content).digest()
+                            ).decode()
+            elif path == f"/install/{REPOSITORY_ID}-{repository_version}.zip":
                 content = (
-                    generation / "install" / f"{REPOSITORY_ID}-{REPOSITORY_VERSION}.zip"
+                    generation / "install" / f"{REPOSITORY_ID}-{repository_version}.zip"
                 ).read_bytes()
                 content_type = "application/zip"
             elif path == "/stable/addons.xml":
@@ -305,7 +327,7 @@ class RepositoryHandler(BaseHTTPRequestHandler):
                     return
                 addon_id, name, sidecar = match.groups()
                 expected_name = {
-                    REPOSITORY_ID: f"{REPOSITORY_ID}-{REPOSITORY_VERSION}",
+                    REPOSITORY_ID: f"{REPOSITORY_ID}-{repository_version}",
                     BRIDGE_ID: f"{BRIDGE_ID}-{BRIDGE_VERSION}",
                 }.get(addon_id)
                 if name != expected_name:
@@ -397,7 +419,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=("generate", "serve", "verify", "transition", "repair-legacy-pointer"),
+        choices=(
+            "generate",
+            "serve",
+            "verify",
+            "transition",
+            "repair-legacy-pointer",
+            "migrate-origin",
+        ),
     )
     parser.add_argument(
         "--data-root", type=Path, default=Path("/srv/kodi-lab-repository")
@@ -413,14 +442,60 @@ def main() -> int:
     parser.add_argument("--backup-id")
     parser.add_argument("--state-root", type=Path, default=Path("/var/lib/kodi-lab"))
     parser.add_argument("--rollback", action="store_true")
+    parser.add_argument("--old-base-url")
+    parser.add_argument("--repository-version")
+    parser.add_argument("--operation-id", type=UUID)
+    parser.add_argument("--site-environment", type=Path)
+    parser.add_argument("--installation-receipt", type=Path)
+    parser.add_argument("--repository-bind")
+    parser.add_argument("--confirm-services-stopped", action="store_true")
     args = parser.parse_args()
     try:
+        if args.command != "migrate-origin" and any(
+            (args.data_root / name).exists() or (args.data_root / name).is_symlink()
+            for name in ("ORIGIN-MIGRATION.json",)
+        ):
+            raise ValueError("repository origin migration is incomplete; resume it")
         if args.command != "transition" and (
             (args.data_root / "TRANSITION.json").exists()
             or (args.data_root / "TRANSITION.json").is_symlink()
         ):
             raise ValueError("repository candidate transition is incomplete")
-        if args.command == "generate":
+        if args.command == "migrate-origin":
+            from kodi_lab.repository.origin_migration import migrate_origin
+
+            if (
+                not (
+                    args.confirm_services_stopped
+                    and args.old_base_url
+                    and args.repository_version
+                    and args.operation_id
+                    and args.backup_id
+                    and args.site_environment
+                    and args.base_url
+                )
+                or args.rollback
+            ):
+                raise ValueError(
+                    "origin migration needs explicit old/new URLs, a newer version, "
+                    "operation ID, verified backup, site environment "
+                    "and stopped services"
+                )
+            result = migrate_origin(
+                args.bundle,
+                args.data_root,
+                args.state_root,
+                old_origin=args.old_base_url,
+                new_origin=args.base_url,
+                version=args.repository_version,
+                operation_id=args.operation_id,
+                backup_id=args.backup_id,
+                site_environment=args.site_environment,
+                installation_receipt=args.installation_receipt,
+                repository_bind=args.repository_bind,
+            )
+            print(json.dumps(result, sort_keys=True))
+        elif args.command == "generate":
             result = generate(args.bundle, args.data_root, args.base_url)
             development = initialize_development(
                 args.data_root / "development-data", args.base_url, args.bundle

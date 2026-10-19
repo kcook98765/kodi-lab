@@ -798,13 +798,24 @@ class ExternalBridgeService:
         return self.status(target_id)
 
     def begin_otp_pairing(
-        self, target_id: UUID, *, bridge_port: int, code: str
+        self,
+        target_id: UUID,
+        *,
+        bridge_port: int,
+        code: str,
+        before_dispatch: Callable[[], None] | None = None,
+        on_staged: Callable[[Session, ExternalBridgePairingRow], None] | None = None,
     ) -> ExternalBridgeStatus:
         """Bootstrap once; report whether a failure definitely permits retry."""
         progress = _OtpDispatchState()
         try:
             return self._begin_otp_pairing(
-                target_id, bridge_port=bridge_port, code=code, progress=progress
+                target_id,
+                bridge_port=bridge_port,
+                code=code,
+                progress=progress,
+                before_dispatch=before_dispatch,
+                on_staged=on_staged,
             )
         except ExternalBridgeServiceError as error:
             raise ExternalBridgeServiceError(
@@ -819,6 +830,8 @@ class ExternalBridgeService:
         bridge_port: int,
         code: str,
         progress: _OtpDispatchState,
+        before_dispatch: Callable[[], None] | None = None,
+        on_staged: Callable[[Session, ExternalBridgePairingRow], None] | None = None,
     ) -> ExternalBridgeStatus:
         """Stage an existing external target using one bridge-generated OTP."""
         if (
@@ -900,6 +913,8 @@ class ExternalBridgeService:
             request_id = otp_bootstrap_request_id(secret, target_id)
             try:
                 try:
+                    if before_dispatch is not None:
+                        before_dispatch()
                     progress.dispatched = True
                     self._client.bootstrap_otp(
                         endpoint,
@@ -1035,6 +1050,8 @@ class ExternalBridgeService:
                     row.endpoint_revision_digest = self._endpoint_digest(
                         external, bridge_port
                     )
+                    if on_staged is not None:
+                        on_staged(session, row)
             except SecretStoreError as error:
                 raise ExternalBridgeServiceError(
                     "bridge_authentication_failed"
@@ -1278,6 +1295,22 @@ class ExternalBridgeService:
         return self.status(target_id)
 
     def revoke(self, target_id: UUID) -> ExternalBridgeStatus:
+        return self._revoke(target_id)
+
+    def revoke_exact(
+        self,
+        target_id: UUID,
+        expected_reference: str | None,
+    ) -> ExternalBridgeStatus:
+        """Revoke only the exact local credential selected by a coordinator."""
+        return self._revoke(target_id, expected_reference=(expected_reference,))
+
+    def _revoke(
+        self,
+        target_id: UUID,
+        *,
+        expected_reference: tuple[str | None] | None = None,
+    ) -> ExternalBridgeStatus:
         now = self._clock()
         with self._sessions.begin() as session:
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -1285,6 +1318,10 @@ class ExternalBridgeService:
             row = session.get(ExternalBridgePairingRow, str(target_id))
             if row is None:
                 raise ExternalBridgeServiceError("bridge_not_paired")
+            if expected_reference is not None and expected_reference != (
+                row.bridge_secret_reference,
+            ):
+                raise ExternalBridgeServiceError("transport_binding_changed")
             if self._retire_bridge_authority(session, row, target_id, now):
                 self._event(
                     session,

@@ -238,6 +238,10 @@ def transition(
     old_review, new_review = _review(old), _review(new)
     if old == new:
         raise ValueError("candidate transition requires two distinct identities")
+    if (repository_root / "ORIGIN-MIGRATION.json").exists() or (
+        repository_root / "ORIGIN-MIGRATION.json"
+    ).is_symlink():
+        raise ValueError("origin migration must finish before candidate transition")
     dev_root = repository_root / "development-data"
     database = state_root / DATABASE
     old_revision = old["migration_revision"]

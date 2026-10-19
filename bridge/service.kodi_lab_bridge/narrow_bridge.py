@@ -30,10 +30,10 @@ PROTOCOL = "1"
 ENDPOINT = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT = "/kodi-lab/bridge/bootstrap/v1"
 ADDON_ID = "service.kodi_lab_bridge"
-ADDON_VERSION = "1.1.23"
+ADDON_VERSION = "1.1.25"
 CAPABILITIES = ["screenshot", "workspace_deployment", "ui_observation", "log_read"]
 BUILD_FINGERPRINT = hashlib.sha256(
-    b"kodi-lab-narrow-bridge|1.1.23|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read"
+    b"kodi-lab-narrow-bridge|1.1.25|protocol-1|identity,capabilities,gui-screenshot,workspace-deployment,otp-bootstrap-v1,local-pairing-reset,protected-ui-observation,portable-direct-install,bounded-log-read,managed-manifest-launch"
 ).hexdigest()
 STATE_PATH = "special://profile/addon_data/service.kodi_lab_bridge/state.json"
 ONBOARDING_PATH = "special://profile/addon_data/service.kodi_lab_bridge/onboarding.json"
@@ -65,6 +65,8 @@ MAX_SCREENSHOT_HEIGHT = 2160
 MAX_SCREENSHOT_DECODED = MAX_SCREENSHOT_WIDTH * MAX_SCREENSHOT_HEIGHT * 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 OPERATIONS = {
+    "managed_launch",
+    "managed_launch_receipt",
     "log_read",
     "inspect_ui_state",
     "bridge_identity",
@@ -1949,6 +1951,190 @@ def _set_enabled(addon_id, enabled):
         raise ValueError("add-on enablement unavailable")
 
 
+def _managed_launch_marker(state):
+    path = os.path.join(
+        os.path.dirname(xbmcvfs.translatePath(STATE_PATH)), "managed-launch.json"
+    )
+    with _deployment_file(path) as stream:
+        raw = stream.read(2049)
+    if len(raw) > 2048:
+        raise ValueError("managed marker invalid")
+    marker = json.loads(raw.decode("ascii"))
+    if not isinstance(marker, dict) or set(marker) != {"binding", "signature"}:
+        raise ValueError("managed marker invalid")
+    binding = marker["binding"]
+    if not isinstance(binding, dict) or set(binding) != {
+        "target_id",
+        "runtime_revision_id",
+        "container_id",
+        "generation",
+    }:
+        raise ValueError("managed marker invalid")
+    secret = _decode_b64(state["secret"], 32)
+    signature = hmac.new(
+        secret, b"managed-launch-v1|" + _canonical(binding), hashlib.sha256
+    ).hexdigest()
+    if binding["target_id"] != state["target_id"] or not hmac.compare_digest(
+        signature, marker["signature"]
+    ):
+        raise ValueError("managed marker invalid")
+    return binding
+
+
+def _launch_path(launch_id):
+    return os.path.join(
+        os.path.dirname(xbmcvfs.translatePath(STATE_PATH)),
+        "launch-" + _uuid(launch_id) + ".json",
+    )
+
+
+def _read_launch(launch_id):
+    path = _launch_path(launch_id)
+    try:
+        with _deployment_file(path) as stream:
+            raw = stream.read(8193)
+    except FileNotFoundError:
+        return None
+    if len(raw) > 8192:
+        raise ValueError("launch receipt invalid")
+    return json.loads(raw.decode("utf-8"))
+
+
+def _save_launch(receipt):
+    path = _launch_path(receipt["launch_id"])
+    temporary = path + "." + str(uuid.uuid4()) + ".tmp"
+    try:
+        with _deployment_file(temporary, "xb", permissions=0o600) as stream:
+            stream.write(_canonical(receipt))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _fsync_directory(os.path.dirname(path))
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _managed_launch(payload, state, *, status_only=False):
+    binding = _managed_launch_marker(state)
+    keys = (
+        {"launch_id"}
+        if status_only
+        else {
+            "launch_id",
+            "addon_id",
+            "addon_version",
+            "manifest_digest",
+            "ordinal",
+            "runtime_binding",
+        }
+    )
+    if set(payload) != keys:
+        raise ValueError("launch request invalid")
+    launch_id = _uuid(payload["launch_id"])
+    prior = _read_launch(launch_id)
+    if status_only:
+        # Never call the dispatcher from a receipt query, even after cache loss.
+        return {"identity": _identity(state), "receipt": prior}
+    if payload["runtime_binding"] != binding:
+        raise ValueError("launch runtime changed")
+    intent = dict(payload)
+    if prior is not None:
+        if prior["intent"] != intent:
+            raise ValueError("launch request conflict")
+        return {"identity": _identity(state), "receipt": prior}
+    addon_id = _addon_id(payload["addon_id"])
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", addon_id):
+        raise ValueError("unsupported add-on identity")
+    root = os.path.join(xbmcvfs.translatePath(ADDON_ROOT), addon_id)
+    with _deployment_directory(root):
+        _entries, digest, _files, _total = _tree_manifest(root)
+        if digest != payload["manifest_digest"]:
+            raise ValueError("launch deployment changed")
+        observed_id, version, _eligible = _addon_descriptor(root)
+        if observed_id != addon_id or version != payload["addon_version"]:
+            raise ValueError("launch identity changed")
+        with _deployment_file(os.path.join(root, "addon.xml")) as stream:
+            descriptor = ET.fromstring(stream.read(MAX_FILE + 1))
+        extensions = descriptor.findall("extension")
+        ordinal = payload["ordinal"]
+        if type(ordinal) is not int or not 0 <= ordinal < min(len(extensions), 64):
+            raise ValueError("undeclared entry point")
+        extension = extensions[ordinal]
+        point = extension.attrib.get("point")
+        library = extension.attrib.get("library", "")
+        if (
+            not isinstance(library, str)
+            or not 1 <= len(library) <= 256
+            or not re.fullmatch(r"[A-Za-z0-9_.\-/]+\.py", library)
+            or any(part in ("", ".", "..") for part in library.split("/"))
+        ):
+            raise ValueError("unsafe launch library")
+        # Hold every path component and the exact selected library through dispatch.
+        from contextlib import ExitStack
+
+        with ExitStack() as held:
+            parent = root
+            for part in library.split("/")[:-1]:
+                parent = os.path.join(parent, part)
+                held.enter_context(_deployment_directory(parent))
+            held.enter_context(_deployment_file(os.path.join(root, library)))
+            if point == "xbmc.python.script":
+                command = (
+                    "RunScript(special://home/addons/" + addon_id + "/" + library + ")"
+                )
+            elif point == "xbmc.python.pluginsource":
+                if sum(item.attrib.get("point") == point for item in extensions) != 1:
+                    raise ValueError("multiple plugin extensions")
+                provides = [
+                    token
+                    for item in extension.findall("provides")
+                    for token in (item.text or "").strip().split()
+                ]
+                windows = {
+                    "video": "videos",
+                    "audio": "music",
+                    "image": "pictures",
+                    "executable": "programs",
+                }
+                if len(provides) != 1 or provides[0] not in windows:
+                    raise ValueError("unsupported plugin content")
+                command = (
+                    "ActivateWindow("
+                    + windows[provides[0]]
+                    + ",plugin://"
+                    + addon_id
+                    + "/,return)"
+                )
+            else:
+                raise ValueError("unsupported launch extension")
+            enabled, _details = _addon_enabled(addon_id)
+            if not enabled:
+                raise ValueError("launch add-on disabled")
+            receipt_root = os.path.dirname(_launch_path(launch_id))
+            if (
+                sum(
+                    name.startswith("launch-") and name.endswith(".json")
+                    for name in os.listdir(receipt_root)
+                )
+                >= 4096
+            ):
+                raise ValueError("launch receipt capacity reached")
+            receipt = {
+                "launch_id": launch_id,
+                "intent": intent,
+                "state": "pending",
+                "accepted_at": None,
+            }
+            _save_launch(
+                receipt
+            )  # Durable barrier: interrupted dispatch is never retried.
+            xbmc.executebuiltin(command)
+            receipt.update(state="accepted", accepted_at=_timestamp())
+            _save_launch(receipt)
+    return {"identity": _identity(state), "receipt": receipt}
+
+
 def _stage_path(deployment_id):
     return os.path.join(
         xbmcvfs.translatePath(ADDON_ROOT), ".kodi-lab-stage-" + deployment_id
@@ -2545,7 +2731,25 @@ class Handler(BaseHTTPRequestHandler):
         ):
             state = _load_state()
             _require_current_pairing(state, request, secret)
-            if operation == "inspect_addon":
+            if operation in {"managed_launch", "managed_launch_receipt"}:
+                try:
+                    result = _managed_launch(
+                        payload,
+                        state,
+                        status_only=operation == "managed_launch_receipt",
+                    )
+                except (OSError, ValueError, ET.ParseError):
+                    prior = _read_launch(payload.get("launch_id"))
+                    self._json_error_response(
+                        request,
+                        request_hash,
+                        secret,
+                        "launch_dispatch_unconfirmed"
+                        if prior is not None
+                        else "launch_request_rejected",
+                    )
+                    return
+            elif operation == "inspect_addon":
                 addon_id = _addon_id(payload.get("addon_id"))
                 if set(payload) != {"addon_id"}:
                     raise ValueError
@@ -2962,6 +3166,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json_error_response(self, request, request_hash, secret, code):
         if code not in {
+            "launch_request_rejected",
+            "launch_dispatch_unconfirmed",
             "log_request_invalid",
             "log_read_busy",
             "log_missing",

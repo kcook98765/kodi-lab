@@ -59,6 +59,7 @@ def require_approved_identity(
     builds = [approved_bridge_build(kodi_version)]
     if established:
         builds.append(approved_bridge_build(kodi_version, previous=True))
+        builds.append(approved_bridge_build(kodi_version, historical=True))
         builds.append(approved_bridge_build(kodi_version, retained=True))
         builds.append(approved_bridge_build(kodi_version, legacy=True))
     if (
@@ -294,20 +295,28 @@ class ManagedBridgeTrustService:
                 if instance
                 else None
             )
-            if profile is None or profile.kodi_release.canonical != "22.0-rc.1":
+            if profile is None or profile.kodi_release.canonical not in {
+                "21.3",
+                "22.0-rc.1",
+            }:
                 raise ManagedBridgeTrustError("managed_bridge_candidate_unavailable")
             row = session.get(ManagedBridgeTrustRow, str(target_id))
             return {
                 "state": row.state if row else "uninstalled",
                 "generation": row.generation if row else 0,
-                "addon_version": "1.1.24",
+                "addon_version": approved_bridge_build(profile.kodi_release.canonical)[
+                    "addon_version"
+                ],
             }
 
     def _prepare(
         self, target_id: UUID, *, replace: bool, install_reviewed: bool = False
     ) -> bool:
         observed, profile = self._admit(target_id)
-        if install_reviewed and profile.kodi_release.canonical != "22.0-rc.1":
+        if install_reviewed and profile.kodi_release.canonical not in {
+            "21.3",
+            "22.0-rc.1",
+        }:
             raise ManagedBridgeTrustError("managed_bridge_candidate_unavailable")
         with self.sessions() as session:
             row = session.get(ManagedBridgeTrustRow, str(target_id))
@@ -386,11 +395,19 @@ class ManagedBridgeTrustService:
                 and not (
                     row
                     and row.state == "prepared"
-                    and profile.kodi_release.canonical == "22.0-rc.1"
+                    and (
+                        profile.kodi_release.canonical == "22.0-rc.1"
+                        or row.reviewed_installation
+                    )
                 )
             )
-            or addon.get("version")
-            != approved_bridge_build(profile.kodi_release.canonical)["addon_version"]
+            or (
+                not install_reviewed
+                and addon.get("version")
+                != approved_bridge_build(profile.kodi_release.canonical)[
+                    "addon_version"
+                ]
+            )
             or addon.get("addonid") != "service.kodi_lab_bridge"
         ):
             return False
@@ -428,6 +445,12 @@ class ManagedBridgeTrustService:
                         state="prepared",
                         generation=generation,
                         prepared_at=now,
+                        reviewed_installation=install_reviewed
+                        or bool(
+                            row
+                            and row.state == "prepared"
+                            and row.reviewed_installation
+                        ),
                     )
                 )
             if addon is not None:

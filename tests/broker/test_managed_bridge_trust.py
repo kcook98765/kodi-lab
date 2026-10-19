@@ -48,12 +48,12 @@ def test_manifest_matches_packaged_approved_bridge() -> None:
 
 def test_stable_bridge_approval_is_not_replaced_by_preview() -> None:
     legacy = approved_bridge_build()
-    assert legacy["addon_version"] == "1.1.23"
+    assert legacy["addon_version"] == "1.1.25"
     assert legacy["build_fingerprint"] == (
-        "27ba0617f92f68bc46e0a38590f6f433b5943c4f67b338e77ad43488d75eb3c6"
+        "0f93de93cf51623fd480198abda89b0f945581b542494b693049573f160fb2a2"
     )
     assert approved_bridge_build("21.3") == legacy
-    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.24"
+    assert approved_bridge_build("22.0-rc.1")["addon_version"] == "1.1.26"
 
 
 @pytest.mark.parametrize(
@@ -123,6 +123,9 @@ def local_program(tmp_path: Path) -> tuple[str, Path, dict[str, Any]]:
     )
     value = {
         "target_id": str(INSTANCE_ID),
+        "runtime_revision_id": str(REVISION_ID),
+        "container_id": "a" * 64,
+        "generation": 1,
         "secret": base64.urlsafe_b64encode(b"x" * 32).decode(),
         "approved": approved,
     }
@@ -267,3 +270,82 @@ def test_partial_publication_removes_private_staging_material(tmp_path: Path) ->
     assert not (
         home / "userdata/addon_data/service.kodi_lab_bridge/state.json"
     ).exists()
+
+
+def test_exact_previous_reviewed_code_upgrade_is_atomic_and_retains_old_tree(
+    tmp_path: Path,
+) -> None:
+    import shutil
+    import zipfile
+    from importlib.resources import files
+
+    from kodi_lab.kodi.rc1_bridge import packaged_stable_bridge_sources
+
+    program, home, value = local_program(tmp_path)
+    addon = home / "addons/service.kodi_lab_bridge"
+    shutil.rmtree(addon)
+    archive = Path(__file__).parents[1] / "fixtures/reviewed-bridge-1.1.23.zip"
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == (
+        "a38c81d5198cbbb5dc3fbdb0453190102ddf5888d1e48666b9e9ef7bd4406533"
+    )
+    with zipfile.ZipFile(archive) as package:
+        package.extractall(home / "addons")
+    sources = packaged_stable_bridge_sources()
+    value["reviewed_sources"] = {
+        name: base64.b64encode(data).decode() for name, data in sources.items()
+    }
+    value["reviewed_inventory"] = {
+        name: hashlib.sha256(data).hexdigest() for name, data in sources.items()
+    }
+    value["previous_inventories"] = json.loads(
+        files("kodi_lab.kodi")
+        .joinpath("managed_bridge_previous_inventories.json")
+        .read_text()
+    )
+    first = invoke(program, value)
+    assert first.returncode == 0, first.stderr
+    backups = list((home / "userdata/managed-bridge-upgrades").iterdir())
+    assert len(backups) == 1
+    assert 'version="1.1.23"' in (backups[0] / "addon.xml").read_text()
+    assert 'version="1.1.25"' in (addon / "addon.xml").read_text()
+    marker = json.loads(
+        (
+            home / "userdata/addon_data/service.kodi_lab_bridge/managed-launch.json"
+        ).read_text()
+    )
+    assert marker["binding"]["container_id"] == value["container_id"]
+    assert invoke(program, value).returncode == 0
+    assert len(list((home / "userdata/managed-bridge-upgrades").iterdir())) == 1
+
+
+def test_reviewed_upgrade_rejects_drift_without_overwriting_any_tree(
+    tmp_path: Path,
+) -> None:
+    from kodi_lab.kodi.rc1_bridge import packaged_stable_bridge_sources
+
+    program, home, value = local_program(tmp_path)
+    addon = home / "addons/service.kodi_lab_bridge"
+    (addon / "narrow_bridge.py").write_text("unreviewed old code")
+    value["reviewed_sources"] = {
+        name: base64.b64encode(data).decode()
+        for name, data in packaged_stable_bridge_sources().items()
+    }
+    value["previous_inventories"] = {}
+    assert invoke(program, value).returncode != 0
+    assert (addon / "narrow_bridge.py").read_text() == "unreviewed old code"
+    assert not (home / "userdata/managed-bridge-upgrades").exists()
+
+
+def test_broker_marker_is_accepted_by_the_actual_resident_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.kodi.test_narrow_bridge_addon import _load
+
+    program, home, value = local_program(tmp_path)
+    assert invoke(program, value).returncode == 0
+    state_path = home / "userdata/addon_data/service.kodi_lab_bridge/state.json"
+    resident = _load(monkeypatch, state_path=state_path)
+    binding = resident["_managed_launch_marker"](json.loads(state_path.read_text()))
+    assert binding["target_id"] == value["target_id"]
+    assert binding["container_id"] == value["container_id"]
+    assert binding["generation"] == value["generation"]

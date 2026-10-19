@@ -5,6 +5,7 @@
 {% block head %}
 <meta name="kodi-lab-poll-ms" content="{{ poll_interval_ms }}">
     {% if development_view %}<script src="{{ url_for('static', path='/app.js') }}" defer></script>{% endif %}
+    {% if development_view %}<script src="{{ url_for('static', path='/managed-resources.js') }}" defer></script>{% endif %}
 {% endblock %}
 {% block content %}
       <h1>Home</h1>
@@ -45,10 +46,11 @@
       {% endif %}
       {% endfor %}
       <p id="managed-attention" class="error" {% if not attention.names %}hidden{% endif %}>Development Kodi needs attention: <span>{{ attention.names|join(', ') }}</span>. <a href="{{ '#instances' if development_view else '/development' }}">Review status</a></p>
-      <details id="managed-details" class="home-development"{% if not development_view %} hidden data-managed-deep-link data-managed-script="{{ url_for('static', path='/app.js') }}"{% endif %}>
+      <details id="managed-details" class="home-development"{% if not development_view %} hidden data-managed-deep-link data-managed-script="{{ url_for('static', path='/app.js') }}" data-managed-resource-script="{{ url_for('static', path='/managed-resources.js') }}"{% endif %}>
       <summary>Development Kodi — managed instances ({{ instances|length }})</summary>
       <p>Runtime, reset and lifecycle controls for development and testing. <a href="/development">All development tools</a></p>
       <h2>Managed Kodi instances</h2>
+      <p>Running slots: <strong data-managed-capacity>Loading</strong> · <a href="/managed-resources">Resource and idle settings</a></p>
       <section id="instances" aria-live="polite">
         {% for instance in instances %}
         {% set reset = reset_statuses.get(instance.managed_instance_id) %}
@@ -59,6 +61,8 @@
         <article class="instance" data-instance-id="{{ instance.managed_instance_id }}">
           <h2 data-field="name"><a href="/instances/{{ instance.managed_instance_id }}">{{ instance.name }}</a></h2>
           <p><a href="/instances/{{ instance.managed_instance_id }}#visual-access">View screen</a></p>
+          {% set resource = resource_statuses.get(instance.managed_instance_id) %}
+          <p data-resource-instance="{{ instance.managed_instance_id }}">Idle stop: {{ 'enrolled' if resource and resource.enrolled else 'not enrolled' }}{% if resource and resource.last_stop_reason %}. Last stopped: {{ resource.last_stop_reason }} at {{ resource.last_stopped_at }}{% endif %}.</p>
           <p>Kodi <span data-field="kodi_version">{{ instance.kodi_version }}</span> · revision <span data-field="runtime_revision_number">{{ instance.runtime_revision_number }}</span></p>
           <dl>
             <dt>Provisioning</dt><dd data-field="provision_state">{{ instance.provision_state }}</dd>

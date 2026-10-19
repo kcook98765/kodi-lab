@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% set nav_section = 'kodi' %}
+{% block title %}Reconnect {{ target.logical_name }} · Kodi Lab{% endblock %}
+{% block head %}<script src="{{ url_for('static', path='/reconnect-kodi.js') }}" defer></script>{% endblock %}
+{% block body_class %}household-page{% endblock %}
+{% block main_class %}household-panel{% endblock %}
+{% block content %}
+<section data-reconnect-kodi data-target-id="{{ target.target_id }}" data-target-name="{{ target.logical_name }}" data-csrf-token="{{ csrf_token }}" data-recovery-namespace="{{ recovery_namespace }}" data-operation-id="{{ active_operation_id or '' }}">
+  <h1>Reconnect {{ target.logical_name }}</h1>
+  <p>{{ 'Home / everyday Kodi' if target.target_class == 'external_production' else 'Development Kodi' }} · {{ target.host }}:{{ target.port }}</p>
+  <p>This restores the saved connection using its existing access settings. Connecting does not add agent grants or change its Home/Development classification.</p>
+  {% if target.administrative_state.value != 'enabled' %}
+  <p class="notice">{{ 'This registration is permanently retired. Add a new connection instead.' if target.administrative_state.value == 'deactivated' else 'This connection is disabled. Enable it explicitly in settings before reconnecting.' }}</p>
+  {% else %}
+  <form data-start>
+    <fieldset data-js-gate disabled>
+      <legend>Saved Kodi connection</legend>
+      <p>Check Kodi and show the current Bridge pairing code when prompted. We’ll first verify this connection and show any required consent.</p>
+      <details><summary>Advanced connection details</summary>
+        <label>Bridge port <input name="bridge_port" type="number" value="{{ bridge_port }}" min="1" max="65535" required></label>
+        <p>Kodi’s address, native port and sign-in are reused from this registration.</p>
+      </details>
+      <button type="submit" class="primary-action" data-start-button>{{ 'Resume reconnect' if active_operation_id else 'Reconnect' }}</button>
+    </fieldset>
+  </form>
+  <section data-result tabindex="-1" role="status" hidden>
+    <h2 data-title></h2><p data-message></p>
+    <form data-consent-form hidden>
+      <p data-disclosure></p>
+      <dl><dt>Kodi</dt><dd data-kodi-endpoint></dd><dt>Bridge</dt><dd data-bridge-endpoint></dd></dl>
+      <label class="check-label"><input type="checkbox" required data-consent> I accept these HTTP risks for this connection.</label>
+      <label>Current Bridge pairing code <input data-code minlength="4" maxlength="4" pattern="[23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjklmnpqrstuvwxyz]{4}" autocomplete="off" autocapitalize="characters" required></label>
+      <button type="submit" class="primary-action">Accept and reconnect</button>
+    </form>
+    <form data-replace-form hidden>
+      <p>The saved local pairing authority needs replacement. This does not reset Kodi or remove add-ons. If Bridge still reports paired, explicitly reset pairing in Kodi before generating another code.</p>
+      <label class="check-label"><input type="checkbox" required data-replace-confirm> Replace the saved Lab pairing for {{ target.logical_name }}.</label>
+      <button type="submit">Replace saved pairing</button>
+    </form>
+    <button type="button" data-resume hidden>Resume without sending a code</button>
+    <details><summary>Advanced / recovery</summary>
+      <dl><dt>Registration</dt><dd>{{ target.target_id }}</dd><dt>Operation</dt><dd data-operation></dd><dt>Response</dt><dd data-response></dd></dl>
+      <p>Only the operation identifier is remembered in this tab for this sign-in. Codes and passwords are never saved in browser storage.</p>
+      <form data-cancel-form>
+        <label class="check-label"><input type="checkbox" required data-cancel-confirm> Cancel this reconnect and revoke any new local pairing it created. Keep this registration and its access settings.</label>
+        <button type="submit">Cancel reconnect</button>
+      </form>
+    </details>
+  </section>
+  <p data-error class="error" role="alert" tabindex="-1" hidden></p>
+  <noscript><p>Enable JavaScript to reconnect with explicit consent and resumable progress.</p></noscript>
+  {% endif %}
+  <p><a href="{{ '/production-targets' if target.target_class == 'external_production' else '/external-targets' }}#{{ target.target_id }}">Connection settings</a> · <a href="/add-kodi">Add another Kodi</a></p>
+</section>
+{% endblock %}

@@ -89,6 +89,9 @@ def test_real_coordinator_on_migrated_schema_and_populated_downgrade_refusal(
 ) -> None:
     config, url = migration_setup(monkeypatch, tmp_path, start_revision=PREDECESSOR)
     command.upgrade(config, REVISION)
+    # The current coordinator also checks reconnect receipts introduced in 0075.
+    # Forward-upgrade the historical schema before running current application code.
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     sessions = create_session_factory(engine)
     with env.sessions() as session:
@@ -129,6 +132,9 @@ def test_real_coordinator_on_migrated_schema_and_populated_downgrade_refusal(
         env.service.resume(env.request.operation_id, HouseholdResumeRequest()).state
         == "connected"
     )
+    # Step back through the unused later features before exercising 0071's
+    # original populated-data downgrade guard in its own transaction.
+    command.downgrade(config, REVISION)
     with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
         command.downgrade(config, PREDECESSOR)
     with engine.connect() as connection:

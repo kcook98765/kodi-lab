@@ -163,9 +163,25 @@ class ManagedRuntimeLifecycleService:
             raise LifecycleDispatchUnconfirmedError from error
         self._readiness.clear(instance_id)
 
-    def start(self, instance_id: UUID) -> ManagedRuntimeStatus:
+    def start(
+        self,
+        instance_id: UUID,
+        *,
+        operation_id: UUID | None = None,
+        precondition: Callable[[Session], None] | None = None,
+        on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+    ) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
-        return self._run(instance_id, ManagedInstanceLifecycleKind.START, self._start)
+        return self._run(
+            instance_id,
+            ManagedInstanceLifecycleKind.START,
+            self._start,
+            operation_id=operation_id,
+            precondition=precondition,
+            on_claim=on_claim,
+            before_dispatch=before_dispatch,
+        )
 
     def install_reviewed_bridge(self, instance_id: UUID) -> ManagedRuntimeStatus:
         """Closed candidate installation under the existing lifecycle mutation lease."""
@@ -173,7 +189,7 @@ class ManagedRuntimeLifecycleService:
 
         def install(target_id: UUID, profile: RuntimeExecutionProfile) -> None:
             if (
-                profile.kodi_release.canonical != "22.0-rc.1"
+                profile.kodi_release.canonical not in {"21.3", "22.0-rc.1"}
                 or self._bridge_trust is None
             ):
                 raise LifecycleConflictError("reviewed Bridge candidate unavailable")
@@ -216,9 +232,25 @@ class ManagedRuntimeLifecycleService:
 
         self._readiness.start(instance_id, run)
 
-    def stop(self, instance_id: UUID) -> ManagedRuntimeStatus:
+    def stop(
+        self,
+        instance_id: UUID,
+        *,
+        operation_id: UUID | None = None,
+        precondition: Callable[[Session], None] | None = None,
+        on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
+        before_dispatch: Callable[[], None] | None = None,
+    ) -> ManagedRuntimeStatus:
         self._require_no_reset(instance_id)
-        return self._run(instance_id, ManagedInstanceLifecycleKind.STOP, self._stop)
+        return self._run(
+            instance_id,
+            ManagedInstanceLifecycleKind.STOP,
+            self._stop,
+            operation_id=operation_id,
+            precondition=precondition,
+            on_claim=on_claim,
+            before_dispatch=before_dispatch,
+        )
 
     def _stop(self, instance_id: UUID, _profile: RuntimeExecutionProfile) -> None:
         container = self._require_container(instance_id)
@@ -279,6 +311,11 @@ class ManagedRuntimeLifecycleService:
         instance_id: UUID,
         kind: ManagedInstanceLifecycleKind,
         action: Callable[[UUID, RuntimeExecutionProfile], None],
+        *,
+        operation_id: UUID | None = None,
+        precondition: Callable[[Session], None] | None = None,
+        on_claim: Callable[[Session, RunningLifecycleOperation], None] | None = None,
+        before_dispatch: Callable[[], None] | None = None,
     ) -> ManagedRuntimeStatus:
         instance_name, profile = self._load_instance(instance_id)
         handle = self._operations.begin(
@@ -286,10 +323,15 @@ class ManagedRuntimeLifecycleService:
             instance_name=instance_name,
             kind=kind,
             prior_state=ManagedInstanceSemanticState.AMBIGUOUS,
+            operation_id=operation_id,
+            precondition=precondition,
+            on_claim=on_claim,
         )
         try:
             prior = self._observe(instance_id)
             self._operations.record_prior_state(handle, prior)
+            if before_dispatch is not None:
+                before_dispatch()
             action(instance_id, profile)
             result = self._status.get(instance_id)
             resulting_state = self._observe(instance_id)

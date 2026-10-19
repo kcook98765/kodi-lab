@@ -99,7 +99,12 @@ class WorkspaceSourceCaptureService:
         self._uuid_factory = uuid_factory
 
     def _preflight(
-        self, session: Session, workspace_id: UUID, generation: int
+        self,
+        session: Session,
+        workspace_id: UUID,
+        generation: int,
+        *,
+        allow_private_edits: bool = False,
     ) -> tuple[AgentWorkspace, DevelopmentSource]:
         workspace = AgentWorkspaceRepository(session).get(workspace_id)
         if (
@@ -133,7 +138,10 @@ class WorkspaceSourceCaptureService:
             or source.source_kind is not DevelopmentSourceKind.LOCAL_DIRECTORY
         ):
             raise WorkspaceSourceCaptureError("registered_source_unavailable")
-        if workspace.current_tree_digest != workspace.baseline_manifest_digest:
+        if (
+            not allow_private_edits
+            and workspace.current_tree_digest != workspace.baseline_manifest_digest
+        ):
             raise WorkspaceSourceCaptureError("workspace_private_edits_present")
         if workspace.active_capture_id is not None:
             prior_capture = session.get(

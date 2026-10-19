@@ -23,7 +23,7 @@ _INVENTORY = (
     "service.py",
 )
 _FRAGMENT_SHA256 = "7f95447d72a99e2688d638c715209a2b3afce90d4174f4e6eef404f0a1adc672"
-RC1_ARCHIVE_SHA256 = "e782d34b99d8b7bd77e8702920ef83980f5544cecf7bb6707b08a9feac4e7033"
+RC1_ARCHIVE_SHA256 = "77f68a85de430d75df9dc9504a9abb5086878778655a3016c39a73dd35bd07d7"
 
 
 def packaged_rc1_bridge_sources() -> dict[str, bytes]:
@@ -84,12 +84,14 @@ def reviewed_rc1_bridge_sources(legacy_root: Path) -> dict[str, bytes]:
             raise ValueError("Stable Bridge source differs from review")
         result[name] = data
     result["addon.xml"] = result["addon.xml"].replace(
-        b'version="1.1.23"', b'version="1.1.24"'
+        b'version="1.1.25"', b'version="1.1.26"'
     )
     source = result["narrow_bridge.py"]
-    source = source.replace(b'ADDON_VERSION = "1.1.23"', b'ADDON_VERSION = "1.1.24"')
-    source = source.replace(b"|1.1.23|protocol-1|", b"|1.1.24|protocol-1|")
-    source = source.replace(b',bounded-log-read"', b',bounded-log-read,exact-release"')
+    source = source.replace(b'ADDON_VERSION = "1.1.25"', b'ADDON_VERSION = "1.1.26"')
+    source = source.replace(b"|1.1.25|protocol-1|", b"|1.1.26|protocol-1|")
+    source = source.replace(
+        b',managed-manifest-launch"', b',managed-manifest-launch,exact-release"'
+    )
     start = source.index(b"def _identity(state):")
     end = source.index(b"def _png_chunk(kind, data):")
     # Keep function separation in assembly, not as empty lines at fragment EOF.
@@ -129,3 +131,24 @@ def build_rc1_bridge_archive(legacy_root: Path, output: Path) -> str:
             archive.writestr(info, data)
     os.chmod(output, 0o644)
     return hashlib.sha256(output.read_bytes()).hexdigest()
+
+
+def packaged_stable_bridge_sources() -> dict[str, bytes]:
+    """Exact wheel-owned stable release bytes for an explicit managed upgrade."""
+    resource = files("kodi_lab.kodi").joinpath("bridge_source")
+    if not resource.is_dir():
+        resource = (
+            Path(__file__).resolve().parents[3] / "bridge/service.kodi_lab_bridge"
+        )
+    inventory = json.loads(
+        files("kodi_lab.kodi")
+        .joinpath("managed_bridge_release_inventory.json")
+        .read_text()
+    )
+    result: dict[str, bytes] = {}
+    for name in _INVENTORY:
+        data = resource.joinpath(name).read_bytes()
+        if len(data) > 1048576 or hashlib.sha256(data).hexdigest() != inventory[name]:
+            raise ValueError("Packaged stable Bridge differs from review")
+        result[name] = data
+    return result

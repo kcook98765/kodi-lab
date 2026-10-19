@@ -16,6 +16,7 @@ import httpx
 from pydantic import ValidationError
 
 from kodi_lab.kodi.external import ValidatedExternalEndpoint
+from kodi_lab.kodi.launch import BridgeLaunchIntent, BridgeLaunchReceipt
 from kodi_lab.kodi.logs import KodiLogRequest, KodiLogResult
 from kodi_lab.kodi.screenshots import (
     MAX_PNG_BYTES,
@@ -31,13 +32,15 @@ BRIDGE_ENDPOINT_PATH = "/kodi-lab/bridge/v1"
 BOOTSTRAP_ENDPOINT_PATH = "/kodi-lab/bridge/bootstrap/v1"
 BOOTSTRAP_PROTOCOL_VERSION = "otp-1"
 BRIDGE_ADDON_ID = "service.kodi_lab_bridge"
-SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.23"
+SUPPORTED_V1_BRIDGE_ADDON_VERSION = "1.1.25"
 OTP_CODE_ALPHABET = frozenset("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
 BRIDGE_CAPABILITIES = frozenset(
     {"screenshot", "workspace_deployment", "ui_observation", "log_read"}
 )
 BRIDGE_JSON_ERROR_CODES = frozenset(
     {
+        "launch_dispatch_unconfirmed",
+        "launch_request_rejected",
         "log_request_invalid",
         "log_read_busy",
         "log_missing",
@@ -55,6 +58,8 @@ BRIDGE_JSON_ERROR_CODES = frozenset(
 )
 BRIDGE_OPERATIONS = frozenset(
     {
+        "managed_launch",
+        "managed_launch_receipt",
         "log_read",
         "inspect_ui_state",
         "bridge_identity",
@@ -697,6 +702,47 @@ class ExternalBridgeClient:
                 payload["observation"]
             )
         except ValidationError as error:
+            raise ExternalBridgeError("bridge_operation_failed") from error
+
+    def managed_launch(
+        self,
+        endpoint: ValidatedExternalEndpoint,
+        *,
+        bridge_port: int,
+        target_id: UUID,
+        bridge_id: UUID,
+        secret: bytes,
+        intent: BridgeLaunchIntent,
+        status_only: bool = False,
+    ) -> tuple[BridgeIdentity, BridgeLaunchReceipt | None]:
+        payload = self._authenticated_json(
+            endpoint,
+            bridge_port=bridge_port,
+            target_id=target_id,
+            bridge_id=bridge_id,
+            secret=secret,
+            operation="managed_launch_receipt" if status_only else "managed_launch",
+            payload={"launch_id": str(intent.launch_id)}
+            if status_only
+            else intent.model_dump(mode="json"),
+        )
+        try:
+            if not isinstance(payload, dict) or set(payload) != {"identity", "receipt"}:
+                raise ValueError("launch response invalid")
+            identity = self._identity(payload["identity"])
+            receipt = (
+                None
+                if payload["receipt"] is None
+                else BridgeLaunchReceipt.model_validate(payload["receipt"])
+            )
+            if receipt is not None and (
+                receipt.intent != intent
+                or receipt.launch_id != intent.launch_id
+                or (receipt.state == "accepted") != (receipt.accepted_at is not None)
+            ):
+                raise ValueError("launch response mismatch")
+            return identity, receipt
+        except (ValidationError, ValueError) as error:
             raise ExternalBridgeError("bridge_operation_failed") from error
 
     def inspect_addon(

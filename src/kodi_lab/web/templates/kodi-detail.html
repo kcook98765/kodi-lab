@@ -30,6 +30,7 @@
 </section>
 <section class="kodi-panel" aria-labelledby="connection-heading">
   <h2 id="connection-heading">Connection</h2>
+  {% if kodi.target.administrative_state.value == 'enabled' %}<p><a class="button-link" href="/reconnect-kodi/{{ kodi.target.target_id }}">Reconnect Kodi</a></p>{% endif %}
   <dl>
     <dt>Address</dt><dd>{{ kodi.target.host }}</dd>
     <dt>Connection type</dt><dd>{{ 'Encrypted HTTPS' if kodi.target.protocol_kind.value == 'jsonrpc_https' else 'HTTP on your local network' }}</dd>

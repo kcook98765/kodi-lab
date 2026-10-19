@@ -16,6 +16,7 @@ from kodi_lab.broker.managed_bridge_trust import (
     approved_bridge_build,
 )
 from kodi_lab.kodi.rc1_bridge import packaged_rc1_bridge_sources
+from tests.web.conftest import REVISION_ID
 from tests.web.conftest import database as database
 
 
@@ -29,6 +30,10 @@ def run_candidate(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], Pat
     )
     value = {
         "target_id": "00000000-0000-4000-8000-000000000101",
+        "runtime_revision_id": str(REVISION_ID),
+        "container_id": "a" * 64,
+        "generation": 1,
+        "previous_inventories": {},
         "secret": base64.urlsafe_b64encode(b"x" * 32).decode().rstrip("="),
         "approved": approved_bridge_build("22.0-rc.1"),
         "reviewed_inventory": {

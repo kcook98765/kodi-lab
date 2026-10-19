@@ -255,6 +255,89 @@ class McpAuthorizationService:
             raise McpAuthorizationError("permission_denied")
         return self._authorize_target_definition(principal, definition, target_id)
 
+    def recheck_workspace_launch(
+        self,
+        session: Session,
+        principal: McpPrincipal,
+        workspace_id: UUID,
+        target_id: UUID,
+    ) -> None:
+        definition = self._definition("workspace_launch")
+        client = self._require_client_permission(session, principal, definition)
+        self._require_current_credential(session, principal, client)
+        binding = session.get(McpAgentWorkspaceBindingRow, str(workspace_id))
+        workspace = AgentWorkspaceRepository(session).get(workspace_id)
+        if (
+            binding is None
+            or binding.client_id != str(principal.client_id)
+            or workspace is None
+            or str(workspace.development_source_id) != binding.development_source_id
+            or session.get(
+                McpClientDevelopmentSourceGrantRow,
+                (str(principal.client_id), binding.development_source_id),
+            )
+            is None
+        ):
+            raise McpAuthorizationError("workspace_not_found_or_not_authorized")
+        target = session.get(TargetRow, str(target_id))
+        assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+        if (
+            target is None
+            or target.target_type is not TargetType.MANAGED
+            or session.get(ManagedInstanceRow, str(target_id)) is None
+            or assignment is None
+            or session.get(
+                McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
+            )
+            is None
+        ):
+            raise McpAuthorizationError("target_not_found_or_not_authorized")
+        if not definition.permissions.issubset(
+            self._permissions(session, assignment.preset_id)
+        ):
+            raise McpAuthorizationError("permission_denied")
+
+    def recheck_managed_lifecycle(
+        self,
+        session: Session,
+        principal: McpPrincipal,
+        tool_name: str,
+        target_id: UUID,
+    ) -> None:
+        """Recheck current credentials and exact policy in the mutation transaction.
+
+        Technical running/readiness checks remain in the managed lifecycle. This
+        recheck performs no network calls or runtime projection writes.
+        """
+        definition = self._definition(tool_name)
+        if (
+            tool_name not in {"managed_ensure_ready", "managed_release"}
+            or definition.permissions != frozenset({"managed.lifecycle"})
+            or definition.allowed_target_classes
+            != frozenset({TargetClass.INTERNAL_LAB})
+        ):
+            raise McpAuthorizationError("permission_denied")
+        client = self._require_client_permission(session, principal, definition)
+        self._require_current_credential(session, principal, client)
+        target = session.get(TargetRow, str(target_id))
+        instance = session.get(ManagedInstanceRow, str(target_id))
+        assignment = session.get(McpTargetPresetAssignmentRow, str(target_id))
+        grant = session.get(
+            McpClientTargetGrantRow, (str(principal.client_id), str(target_id))
+        )
+        if (
+            target is None
+            or target.target_type is not TargetType.MANAGED
+            or instance is None
+            or assignment is None
+            or grant is None
+        ):
+            raise McpAuthorizationError("target_not_found_or_not_authorized")
+        if not definition.permissions.issubset(
+            self._permissions(session, assignment.preset_id)
+        ):
+            raise McpAuthorizationError("permission_denied")
+
     def authorize_production_navigation(
         self,
         principal: McpPrincipal,

@@ -24,6 +24,7 @@ from kodi_lab.application.production_navigation import (
     ProductionNavigationAuthority,
     ProductionNavigationRateLimiter,
 )
+from kodi_lab.application.remote_observation_models import RemotePostActionObservation
 from kodi_lab.kodi.remote import BrowserRemoteAction
 from kodi_lab.storage.models import (
     McpProductionNavigationAuditRow,
@@ -68,6 +69,7 @@ class McpRemoteActionResult(BaseModel):
     created_at: datetime
     completed_at: datetime
     screenshot_refresh: ScreenshotRefreshResult
+    post_action_observation: RemotePostActionObservation | None = None
 
 
 @dataclass(frozen=True, slots=True)

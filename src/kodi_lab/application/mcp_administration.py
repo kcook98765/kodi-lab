@@ -75,6 +75,7 @@ _DEVELOPMENT_PERMISSIONS = (
 EXPLICIT_SOURCE_CAPTURE_PERMISSIONS = frozenset(
     {"development_source.inspect", "workspace.capture"}
 )
+EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS = frozenset({"managed.lifecycle"})
 
 _BUILTINS = (
     (
@@ -403,12 +404,14 @@ class McpAdministrationService:
                         for permission in builtin_permissions
                     )
                     | EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
+                    | EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS
                 )
                 if not template_permissions.issubset(known_permissions):
                     raise McpAdministrationError("mcp_preset_template_invalid")
                 selected = template_permissions if permissions is None else permissions
                 opt_in = (
                     EXPLICIT_SOURCE_CAPTURE_PERMISSIONS
+                    | EXPLICIT_MANAGED_LIFECYCLE_PERMISSIONS
                     if template_preset_id
                     in {ADDON_DEVELOPMENT_PRESET_ID, FULL_LAB_CONTROL_PRESET_ID}
                     and permissions is not None

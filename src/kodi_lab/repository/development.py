@@ -40,6 +40,7 @@ from kodi_lab.repository.stable import (
     _write_exact,
     canonical,
     inspect_addon_zip,
+    repository_version,
     sha256,
 )
 from kodi_lab.storage.models import (
@@ -87,13 +88,14 @@ def _compatibility(value: tuple[str, ...]) -> str:
     return ",".join(item for item in GENERATIONS if item in value)
 
 
-def descriptor_xml(base_url: str) -> bytes:
+def descriptor_xml(base_url: str, version: str = VERSION) -> bytes:
+    repository_version(version)
     addon = ET.Element(
         "addon",
         {
             "id": DEVELOPMENT_REPOSITORY_ID,
             "name": "Kodi Lab Development",
-            "version": VERSION,
+            "version": version,
             "provider-name": "Kodi Lab",
         },
     )
@@ -125,12 +127,16 @@ def descriptor_xml(base_url: str) -> bytes:
     return bytes(ET.tostring(addon, encoding="utf-8", xml_declaration=True)) + b"\n"
 
 
-def bootstrap_zip(base_url: str) -> bytes:
+def bootstrap_zip(base_url: str, version: str = VERSION) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         for name, content, directory in (
             (f"{DEVELOPMENT_REPOSITORY_ID}/", b"", True),
-            (f"{DEVELOPMENT_REPOSITORY_ID}/addon.xml", descriptor_xml(base_url), False),
+            (
+                f"{DEVELOPMENT_REPOSITORY_ID}/addon.xml",
+                descriptor_xml(base_url, version),
+                False,
+            ),
         ):
             info = zipfile.ZipInfo(name, ZIP_DATE)
             info.create_system = 3
@@ -146,8 +152,10 @@ def bootstrap_zip(base_url: str) -> bytes:
     return output.getvalue()
 
 
-def _index(packages: list[dict[str, str]]) -> bytes:
+def _index(packages: list[dict[str, str]], *, bootstrap: bytes | None = None) -> bytes:
     root = ET.Element("addons")
+    if bootstrap is not None:
+        root.append(inspect_addon_zip(bootstrap, DEVELOPMENT_REPOSITORY_ID).descriptor)
     for record in sorted(
         (item for item in packages if item["status"] == "current"),
         key=lambda item: item["id"],
@@ -193,16 +201,28 @@ def _generation(
     package_records: list[dict[str, str]],
     *,
     candidate_identity: dict[str, str] | None = None,
+    version: str | None = None,
 ) -> dict[str, str]:
-    if candidate_identity is None:
+    prior = None
+    if candidate_identity is None or (version is None and (root / "CURRENT").exists()):
         _, prior = load_current(root, expected_base_url=base_url)
+    if candidate_identity is None:
+        assert prior is not None
         candidate_identity = {
             key: str(prior[key])
             for key in ("bundle_sha256", "source_commit", "source_tree")
         }
-    bootstrap = bootstrap_zip(base_url)
-    bootstrap_package = inspect_addon_zip(bootstrap, DEVELOPMENT_REPOSITORY_ID, VERSION)
-    index = _index(package_records)
+    selected_version = version or (
+        str(prior["repository_version"]) if prior else VERSION
+    )
+    repository_version(selected_version)
+    bootstrap = bootstrap_zip(base_url, selected_version)
+    bootstrap_package = inspect_addon_zip(
+        bootstrap, DEVELOPMENT_REPOSITORY_ID, selected_version
+    )
+    index = _index(
+        package_records, bootstrap=bootstrap if selected_version != VERSION else None
+    )
     index_digest = sha256(index)
     public_records = [
         {
@@ -225,7 +245,7 @@ def _generation(
         "generator": GENERATOR_ID,
         "base_url": base_url,
         "repository_id": DEVELOPMENT_REPOSITORY_ID,
-        "repository_version": VERSION,
+        "repository_version": selected_version,
         "bootstrap_zip_sha256": bootstrap_package.sha256,
         "bootstrap_tree_sha256": bootstrap_package.tree_sha256,
         "addons_xml_sha256": index_digest,
@@ -252,7 +272,8 @@ def _generation(
             install.mkdir(mode=0o755)
             feed.mkdir(mode=0o755)
             _write_exact(
-                install / f"{DEVELOPMENT_REPOSITORY_ID}-{VERSION}.zip", bootstrap
+                install / f"{DEVELOPMENT_REPOSITORY_ID}-{selected_version}.zip",
+                bootstrap,
             )
             _write_exact(feed / "addons.xml", index)
             _write_exact(feed / "addons.xml.sha256", (index_digest + "\n").encode())
@@ -298,9 +319,11 @@ def load_generation(
         or provenance.get("tree_sha256") != digest
         or provenance.get("generator") != GENERATOR_ID
         or provenance.get("repository_id") != DEVELOPMENT_REPOSITORY_ID
-        or provenance.get("repository_version") != VERSION
+        or not isinstance(provenance.get("repository_version"), str)
     ):
         raise ValueError("development provenance differs")
+    selected_version = str(provenance["repository_version"])
+    repository_version(selected_version)
     base_url = provenance.get("base_url")
     if not isinstance(base_url, str) or (
         expected_base_url is not None and base_url != expected_base_url
@@ -368,6 +391,8 @@ def load_generation(
     expected_current = {
         (item["id"], item["version"]) for item in rebuilt if item["status"] == "current"
     }
+    if selected_version != VERSION:
+        expected_current.add((DEVELOPMENT_REPOSITORY_ID, selected_version))
     actual_current = {
         (item.attrib.get("id"), item.attrib.get("version")) for item in parsed_index
     }
@@ -378,6 +403,16 @@ def load_generation(
         or actual_current != expected_current
     ):
         raise ValueError("development index inventory differs")
+    if selected_version != VERSION:
+        declared = next(
+            item
+            for item in parsed_index
+            if item.attrib.get("id") == DEVELOPMENT_REPOSITORY_ID
+        )
+        if ET.tostring(declared) != ET.tostring(
+            ET.fromstring(descriptor_xml(base_url, selected_version))
+        ):
+            raise ValueError("development repository descriptor differs")
     expected_identity = {
         key: provenance[key]
         for key in (
@@ -402,13 +437,13 @@ def load_generation(
         != (provenance["addons_xml_sha256"] + "\n").encode()
     ):
         raise ValueError("development index differs")
-    bootstrap = bootstrap_zip(base_url)
-    package = inspect_addon_zip(bootstrap, DEVELOPMENT_REPOSITORY_ID, VERSION)
+    bootstrap = bootstrap_zip(base_url, selected_version)
+    package = inspect_addon_zip(bootstrap, DEVELOPMENT_REPOSITORY_ID, selected_version)
     if (
         package.sha256 != provenance["bootstrap_zip_sha256"]
         or package.tree_sha256 != provenance["bootstrap_tree_sha256"]
         or (
-            selected / "install" / f"{DEVELOPMENT_REPOSITORY_ID}-{VERSION}.zip"
+            selected / "install" / f"{DEVELOPMENT_REPOSITORY_ID}-{selected_version}.zip"
         ).read_bytes()
         != bootstrap
     ):
